@@ -32,7 +32,7 @@ import type {
   ServiceAccountBinding,
   TokenResolver,
 } from '../src/index.js';
-import { toolsTargetCanCall, triggerScope } from '../src/routes/trigger-tools.js';
+import { NOTHING_RUNS, toolsTargetCanCall, triggerScope } from '../src/routes/trigger-tools.js';
 
 const tenantId = randomUUID() as TenantId;
 const ADA = randomUUID() as UserId;
@@ -263,7 +263,7 @@ describe('which tools a target calls', () => {
     const deps = { agents: agentRegistry, flows: flowRegistry, releases };
     const at = (projectId: ProjectId | undefined, target: Record<string, unknown>) =>
       toolsTargetCanCall(deps, triggerScope(tenantId, projectId), target as never).then((s) =>
-        s === undefined ? undefined : [...s].sort(),
+        s === undefined || s === NOTHING_RUNS ? s : [...s].sort(),
       );
     expect(await at(PROJECT, { kind: 'agent', agentId: 'acme.digest' })).toEqual(['acme.send']);
     // A named version is read as named.
@@ -271,7 +271,7 @@ describe('which tools a target calls', () => {
       await at(PROJECT, { kind: 'agent', agentId: 'acme.digest', agentVersion: '1.0.0' }),
     ).toEqual(['acme.send']);
     // No version runs there (no pin, no Latest), so there's nothing to check against.
-    expect(await at(ELSEWHERE, { kind: 'agent', agentId: 'acme.digest' })).toBeUndefined();
+    expect(await at(ELSEWHERE, { kind: 'agent', agentId: 'acme.digest' })).toBe(NOTHING_RUNS);
   });
 });
 
@@ -395,6 +395,20 @@ describe('a schedule', () => {
       agentSchedule({ toolsAllowedUnattended: ['acme.send'] }),
     );
     expect(sent.status).toBe(201);
+    // Where no version runs yet, the list can't be checked: said so, with what to do.
+    const nowhere = await h.call(
+      'POST',
+      '/v1/schedules',
+      agentSchedule({ projectId: ELSEWHERE, toolsAllowedUnattended: ['acme.send'] }),
+    );
+    expect([nowhere.status, nowhere.body.error.code]).toEqual([400, 'bad-input']);
+    expect(nowhere.body.error.message).toContain(
+      `no version of agent "acme.digest" runs in this trigger's project yet`,
+    );
+    expect(nowhere.body.error.message).toContain('Name `agentVersion`');
+    expect(nowhere.body.error.message).toContain(
+      'into a later environment, promote a build that ships one',
+    );
   });
 
   test("with no registry to read the target: a list is refused, `[]` isn't", async () => {

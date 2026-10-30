@@ -102,15 +102,15 @@ const MAX_FLOWS = 64;
  * flow's tool nodes and fan-out branches, in loop bodies too, its agent
  * nodes' agents' tools (at the node's version, else the flow version's
  * pin, else what runs there) and its subflows', at their versions.
- * `undefined` when the target can't be read (no registry, no such agent
- * or flow version, or no version of the agent runs there). An improvement
- * pass calls none.
+ * `undefined` when the target can't be read (no registry, or no such
+ * agent or flow version); `NOTHING_RUNS` when an agent that names no
+ * version has none running there. An improvement pass calls none.
  */
 export async function toolsTargetCanCall(
   deps: TargetToolsDeps | undefined,
   scope: TriggerScope,
   target: TriggerTarget,
-): Promise<ReadonlySet<string> | undefined> {
+): Promise<ReadonlySet<string> | typeof NOTHING_RUNS | undefined> {
   if (target.kind === 'improve') return new Set();
   if (target.kind === 'agent') {
     const agent = await agentAt(
@@ -119,7 +119,7 @@ export async function toolsTargetCanCall(
       target.agentId as unknown as string,
       target.agentVersion,
     );
-    return agent === undefined ? undefined : new Set(agentToolIds(agent));
+    return agent === undefined || agent === NOTHING_RUNS ? agent : new Set(agentToolIds(agent));
   }
   const root = await flowAt(
     deps,
@@ -142,6 +142,9 @@ export async function toolsTargetCanCall(
   }
   return walk.tools;
 }
+
+/** No version of an agent runs in the trigger's project: no pin covers it, and it has no Latest. */
+export const NOTHING_RUNS = 'nothing-runs';
 
 /** The tenant and project a trigger runs in: a run it starts is in `projectId` (none: the tenant). */
 export interface TriggerScope {
@@ -175,7 +178,9 @@ async function visitLeaf(
   if (leaf.kind === 'agent') {
     const version = leaf.version ?? flow.pins?.agents[leaf.id];
     const agent = await agentAt(deps, scope, leaf.id, version);
-    for (const id of agent === undefined ? [] : agentToolIds(agent)) walk.tools.add(id);
+    if (agent !== undefined && agent !== NOTHING_RUNS) {
+      for (const id of agentToolIds(agent)) walk.tools.add(id);
+    }
     return undefined;
   }
   const key = `${leaf.id}@${leaf.version}`;
@@ -219,14 +224,15 @@ function agentToolIds(agent: Agent): string[] {
 /**
  * An agent at `version`, else at what a run in the trigger's project that
  * names no version gets: its pin, else its Latest (`whatRuns`), or its
- * highest version with no releases wired. `undefined` when there's none.
+ * highest version with no releases wired. `NOTHING_RUNS` when no version
+ * runs there; `undefined` when the agent or version can't be read.
  */
 async function agentAt(
   deps: TargetToolsDeps | undefined,
   scope: TriggerScope,
   agentId: string,
   version: string | undefined,
-): Promise<Agent | undefined> {
+): Promise<Agent | typeof NOTHING_RUNS | undefined> {
   if (deps?.agents === undefined) return undefined;
   const { agents, releases } = deps;
   const { tenantId } = scope;
@@ -247,7 +253,7 @@ async function agentAt(
     agentId,
     ...(scope.projectId !== undefined && { projectId: scope.projectId }),
   });
-  return runs === null ? undefined : agentAt(deps, scope, agentId, runs.version);
+  return runs === null ? NOTHING_RUNS : agentAt(deps, scope, agentId, runs.version);
 }
 
 async function flowAt(
@@ -292,6 +298,9 @@ export async function toolsAllowedUnattendedProblem(
     return 'an improvement pass calls no tools: its `toolsAllowedUnattended` can only be empty';
   }
   const callable = await toolsTargetCanCall(deps, scope, target);
+  if (callable === NOTHING_RUNS) {
+    return `\`toolsAllowedUnattended\`: no version of ${targetName(target)} runs in this trigger's project yet: none is pinned there, and none is its Latest, so its tools can't be checked. Name \`agentVersion\`, or deploy or publish a version into the project first (into a later environment, promote a build that ships one)`;
+  }
   if (callable === undefined) {
     return `\`toolsAllowedUnattended\`: can't read ${targetName(target)} to check the tools it calls`;
   }

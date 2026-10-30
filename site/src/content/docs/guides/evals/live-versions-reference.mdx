@@ -49,16 +49,17 @@ it here. When two versions became Latest at the same time, the higher one
 is. A version from before 0.4.0 also counts from when it was published, in
 the project it was made in. A version that's unregistered drops out, and the
 one with the newest time of those left is Latest. For a tenant or org
-scope, which has no project, every version counts wherever it was made or
-shipped: its Latest is the one with the newest time.
+scope, which has no project, every version that can be Latest counts,
+wherever it was made or shipped: its Latest is the one with the newest time.
 
 A project can have no live version and no Latest yet: a later environment
 before its first promotion, or one whose only version of the agent was
 derived. There, a run that names no version is refused with
 `404 agent-not-found`, and so is `GET /v1/agents/{agentId}/live`. Making a
-version live there is refused with `409 nothing-runs-in-scope`, since
-there's nothing to measure it against (`409 project-suspended` when the
-project is suspended). Deploy or publish a version into the project first.
+version live there is refused with `409 nothing-runs-in-scope`, with or
+without a release gate policy (`409 project-suspended` when the project is
+suspended). Deploy or publish a version into the project first; into a
+later environment, promote a build that ships one.
 
 `client.agents.projects(agentId)` (`GET /v1/agents/{agentId}/projects`) says
 what a run in each project gets and why: `follows` is `pin` with the live

@@ -160,6 +160,12 @@ export type PromotionErrorCode =
    * version against. A deploy or a person's publish into it comes first.
    */
   | 'nothing-runs-in-scope'
+  /**
+   * A promotion where nothing runs because the scope's project is
+   * suspended (its deployments are retired). Nothing is promoted until
+   * it's restored.
+   */
+  | 'project-suspended'
   /** Unpin or rollback: the scope has no pin of its own. */
   | 'not-pinned'
   /** The scope's live version changed while the gate ran: check again. */

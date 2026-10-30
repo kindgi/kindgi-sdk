@@ -1311,7 +1311,7 @@ describe('making the carried agents live in the target (makeLive)', () => {
     expect(res.body.error.code).toBe('nothing-runs-in-scope');
     expect(res.body.error.message).toContain(`agent "${AGENT}" 1.0.0 wasn't made live`);
     expect(res.body.error.message).toContain(
-      'Deploy a version of it into the target project first',
+      'Promote a build that ships a version of it, or make this version Latest in the project it was made in',
     );
     expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
     expect(h.pinned).toEqual([]);

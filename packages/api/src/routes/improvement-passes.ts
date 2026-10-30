@@ -448,7 +448,7 @@ async function resolveImproveTarget(
   if (fromVersion === undefined) {
     return fail(c, 'agent-version-not-found', {
       code: 'agent-version-not-found',
-      message: `No version of agent "${parsed.agentId}" runs in this scope: none is pinned there, and none is its Latest. Name \`fromVersion\`, or deploy or publish a version into the project first.`,
+      message: `No version of agent "${parsed.agentId}" runs in this scope: none is pinned there, and none is its Latest. Name \`fromVersion\`, or deploy or publish a version into the project first (into a later environment, promote a build that ships one).`,
     });
   }
   if (from === null || from.unregisteredAt !== undefined) {

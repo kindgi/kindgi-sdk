@@ -660,7 +660,9 @@ describe('what the scope runs: its Latest, not the highest version (1.1.0)', () 
     expect(res.status).toBe(409);
     const { error } = (await res.json()) as { error: { code: string; message: string } };
     expect(error.code).toBe('nothing-runs-in-scope');
-    expect(error.message).toContain('Deploy or publish a version into the project first');
+    expect(error.message).toContain(
+      'Deploy or publish a version into the project first; into a later environment, promote a build that ships one',
+    );
     expect(methods(calls)).not.toContain('request');
 
     const check = await app.request(`/v1/agents/${AGENT}/promotions/check`, promote());

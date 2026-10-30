@@ -175,7 +175,7 @@ export function mountAgentReleaseRoutes(
         toWireError(
           {
             code: 'agent-not-found',
-            message: `No version of agent "${agentId}" runs in this scope: none is pinned there, and none is its latest`,
+            message: `No version of agent "${agentId}" runs in this scope: none is pinned there, and none is its Latest`,
           },
           c.get('requestId'),
         ),
@@ -760,7 +760,7 @@ async function runGate(
     }
     return err(
       'nothing-runs-in-scope',
-      `No version of agent "${agentId}" runs in this scope yet: none is pinned there, and none is its Latest. Deploy or publish a version into the project first. Nothing was promoted.`,
+      `No version of agent "${agentId}" runs in this scope yet: none is pinned there, and none is its Latest. Deploy or publish a version into the project first; into a later environment, promote a build that ships one. Nothing was promoted.`,
     );
   }
   const live = runs.follows === 'pin' ? runs : null;
