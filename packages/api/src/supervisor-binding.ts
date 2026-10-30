@@ -99,7 +99,7 @@ export type ProposedChange =
     };
 
 /** Who wrote a suggested change: a person, or one of the runtime's drafters. */
-export type SuggestedChangeMadeBy =
+export type SuggestedChangeDrafter =
   | { readonly kind: 'person'; readonly by: string }
   | {
       readonly kind: 'settings-optimizer' | 'prompt-drafter';
@@ -173,7 +173,7 @@ export interface StoredSuggestedChange {
   readonly change: ProposedChange['change'];
   readonly why: string;
   readonly evidence?: SuggestedChangeEvidence;
-  readonly madeBy: SuggestedChangeMadeBy;
+  readonly drafter: SuggestedChangeDrafter;
   /** Dedup key: the same change for the same scope is one suggested change. */
   readonly fingerprint: string;
   /** Goes up by one with each recorded step. */
@@ -220,7 +220,7 @@ export interface CreateSuggestedChangeInput {
   readonly change: ProposedChange['change'];
   readonly why: string;
   readonly evidence?: SuggestedChangeEvidence;
-  readonly madeBy: SuggestedChangeMadeBy;
+  readonly drafter: SuggestedChangeDrafter;
   readonly fingerprint: string;
 }
 

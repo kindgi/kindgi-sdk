@@ -61,9 +61,9 @@ import {
 import type {
   ProposedChange,
   StoredSuggestedChange,
+  SuggestedChangeDrafter,
   SuggestedChangeEvaluationRef,
   SuggestedChangeEvidence,
-  SuggestedChangeMadeBy,
   SuggestedChangeObjective,
   SuggestedChangeRule,
   SuggestedChangeStep,
@@ -151,7 +151,7 @@ export interface DraftSuggestedChangeInput {
   readonly content: ProposedChange['change']['content'];
   readonly why: string;
   readonly evidence?: SuggestedChangeEvidence;
-  readonly madeBy: SuggestedChangeMadeBy;
+  readonly drafter: SuggestedChangeDrafter;
 }
 
 export interface EvaluateSuggestedChangeInput {
@@ -623,7 +623,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         change,
         why: input.why,
         ...(input.evidence !== undefined && { evidence: input.evidence }),
-        madeBy: input.madeBy,
+        drafter: input.drafter,
         fingerprint: fingerprintOf(input, change),
       });
       return {
@@ -794,7 +794,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       // the requester may approve their own, so they aren't stuck. A scope
       // policy's approval is the floor; the drafter's rule only tightens it.
       const drafted =
-        suggestedChange.madeBy.kind === 'person'
+        suggestedChange.drafter.kind === 'person'
           ? undefined
           : await draftedApproval(tenantId, input.actor, suggestedChange);
       const drafterApproval =

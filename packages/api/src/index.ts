@@ -1012,7 +1012,7 @@ export type {
   ObservationStatus,
   ObservedViolation,
   SuggestedChangeCandidate,
-  SuggestedChangeMadeBy,
+  SuggestedChangeDrafter,
   SuggestedChangeEvaluationRef,
   SuggestedChangeEvidence,
   SuggestedChangeObjective,

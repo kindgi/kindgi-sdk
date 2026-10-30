@@ -246,7 +246,7 @@ export function suggestedChangesRouter(
       content: parsed.content,
       why: parsed.why,
       ...(parsed.fixes !== undefined && { evidence: { fixes: parsed.fixes } }),
-      madeBy: { kind: 'person', by: `${actor.kind}:${actor.id}` },
+      drafter: { kind: 'person', by: `${actor.kind}:${actor.id}` },
     });
     if (outcome.kind === 'err') return failWith(c, outcome.error);
     if (outcome.value.deduped) {
@@ -396,7 +396,7 @@ export function serialize(
     change: p.change,
     why: p.why,
     ...(p.evidence !== undefined && { evidence: p.evidence }),
-    madeBy: p.madeBy,
+    madeBy: p.drafter,
     status: f.status,
     ...(p.candidate !== undefined && { candidate: p.candidate }),
     ...(p.evaluation !== undefined && { evaluation: evaluationWire(p.evaluation, f.evaluation) }),

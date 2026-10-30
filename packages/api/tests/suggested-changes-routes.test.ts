@@ -1457,7 +1457,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       content: { values: { recency: 0.6, fit: 0.4 } },
       why: 'The search found these weights',
       evidence: { fixes: ['j-1', 'j-2'], correctionCount: 140 },
-      madeBy: { kind: 'settings-optimizer', version: '1' },
+      drafter: { kind: 'settings-optimizer', version: '1' },
     });
     if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
     const res = await h.call('GET', `/v1/suggested-changes/${drafted.value.suggestedChange.id}`);
@@ -1485,7 +1485,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       blockId: WEIGHTS,
       content: { values: { recency: 0.6, fit: 0.4 } },
       why: 'The search found these weights',
-      madeBy: { kind: 'settings-optimizer', version: '1' },
+      drafter: { kind: 'settings-optimizer', version: '1' },
     });
     if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
     const evaluated = await service.evaluate({
@@ -1612,7 +1612,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       blockId: WEIGHTS,
       content: { values: { recency: 0.6, fit: 0.4 } },
       why: 'The search found these weights',
-      madeBy: { kind: 'settings-optimizer', version: '1' },
+      drafter: { kind: 'settings-optimizer', version: '1' },
     });
     if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
     const evaluated = await service.evaluate({
@@ -1807,7 +1807,7 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       blockId: WEIGHTS,
       content: { values: { recency: 0.6, fit: 0.4 } },
       why: 'The search found these weights',
-      madeBy: { kind: 'settings-optimizer', version: '1' },
+      drafter: { kind: 'settings-optimizer', version: '1' },
     });
     if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
     const evaluated = await service.evaluate({
@@ -1947,7 +1947,7 @@ describe("a change held to the current version's replays (an Improve run's model
       blockId: WEIGHTS,
       content: { values: { recency: 0.6, fit: 0.4 } },
       why: 'The search found these weights',
-      madeBy: { kind: 'settings-optimizer', version: '1' },
+      drafter: { kind: 'settings-optimizer', version: '1' },
     });
     if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
     const reference = await h.testRuns.binding.start({
