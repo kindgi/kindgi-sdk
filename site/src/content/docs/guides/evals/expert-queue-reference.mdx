@@ -25,8 +25,7 @@ each `right` or `wrong`:
   element: `{ key, pointer?, rank?, verdict }`.
   - **`key`** is your stable id for the element, such as a matched case's
     id, never the element's own text. It's at most 200 characters, each key
-    appears once, and `kindgi:correction` is reserved. It stays when an
-    erasure clears the rest of the correction.
+    appears once, and `kindgi:correction` is reserved.
   - **`pointer`** (optional) is where the element is in the run's output, as
     a JSON Pointer such as `/matches/2`, at most 500 characters.
   - **`rank`** (optional) is its place in the list, 0 first.
