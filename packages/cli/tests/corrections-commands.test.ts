@@ -46,7 +46,7 @@ describe('kindgi corrections', () => {
   /** A client whose list of the caller's corrections on the run answers `live`. */
   const withLive = (rec: ReturnType<typeof recorder>['rec'], live: unknown[] = []) => ({
     corrections: {
-      list: rec('list', { items: live, hasMore: false }),
+      list: rec('list', { data: live, hasMore: false }),
       create: rec('create', { id: 'c-9' }),
     },
   });
@@ -160,6 +160,33 @@ describe('kindgi corrections', () => {
         correctorGroupId: 'jc-1',
       },
     ]);
+  });
+
+  test('an item named again under a new pointer replaces its entry, and a right answer drops what it should have said', async () => {
+    const live = {
+      id: 'c-1',
+      runId: 'r-1',
+      answer: 'wrong',
+      shouldSay: 'Final-sale items are not refunded.',
+      items: [{ key: 'm2', pointer: '/matches/1', verdict: 'right' }],
+    };
+    const moved = recorder();
+    const out = await run(
+      ['corrections', 'add', '--run=r-1', '--item=m2', '--pointer=/matches/0', '--no'],
+      withLive(moved.rec, [live]),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(moved.calls[1]?.[1]).toMatchObject({
+      items: [{ key: 'm2', pointer: '/matches/0', verdict: 'wrong' }],
+    });
+    const right = recorder();
+    const answered = await run(
+      ['corrections', 'add', '--run=r-1', '--item=answer', '--yes'],
+      withLive(right.rec, [live]),
+    );
+    expect(answered.exitCode, answered.stderr).toBe(0);
+    expect(right.calls[1]?.[1]).toMatchObject({ answer: 'right' });
+    expect(right.calls[1]?.[1]).not.toHaveProperty('shouldSay');
   });
 
   test('add refuses --item, --pointer or --rank with --correction, and --rank on the answer', async () => {

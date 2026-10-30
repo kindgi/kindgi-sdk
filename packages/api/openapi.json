@@ -47057,7 +47057,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: this needs publish on the agent.",
+            "description": "`permission-denied`: this needs publish on the agent, or write on the correction's project for an agent more than one project serves.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47077,7 +47077,7 @@
             }
           },
           "409": {
-            "description": "`correction-status-change-not-allowed`: the change table does not allow it from its status (`details: { from, to }`).",
+            "description": "`correction-status-change-not-allowed`: the change table does not allow it from its status, or it changed twice while the change was made: read it and try again (`details: { from, to }`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -47117,7 +47117,7 @@
             }
           }
         },
-        "description": "A re-sort, a status, or both (the re-sort first), by the change table: re-sorting from `open`, `being-fixed` or `with-owner` (to `owner` sets `with-owner`; away from `owner`, `open`); `being-fixed` from `open` or `with-owner`, with `link`; `open` from `being-fixed` or `wont-fix`; `wont-fix` from anything but `removed`, with `reason`. `fixed` is set only by a pin or a deploy. Anything else is `409 correction-status-change-not-allowed`. Needs `publish` on the correction's agent (or flow).",
+        "description": "A re-sort, a status, or both (the re-sort first), by the change table: re-sorting from `open`, `being-fixed` or `with-owner` (to `owner` sets `with-owner`; away from `owner`, `open`); `being-fixed` from `open` or `with-owner`, with `link`; `open` from `being-fixed` or `wont-fix` (`with-owner` for one sorted to the owner); `wont-fix` from anything but `removed`, with `reason`, and it drops `fixedIn`. `fixed` is set only by a pin or a deploy. Anything else is `409 correction-status-change-not-allowed`. Needs `publish` on the correction's agent (or flow), or, for one more than one project serves, `write` on the correction's project.",
         "parameters": [
           {
             "name": "correctionId",
@@ -47325,7 +47325,7 @@
             }
           }
         },
-        "description": "How many of a project's corrections (or one agent's in it) are in each status. Needs `?scopeKind=project&scopeId=<project>` and `read` on the project.",
+        "description": "How many of a project's corrections (or one agent's in it) are in each status. Needs `?scopeKind=project&scopeId=<project>` and `read` on the project. Only a project scope is taken: the list filters each row by what the caller reads, and a count can't.",
         "parameters": [
           {
             "name": "agentId",
@@ -47341,10 +47341,13 @@
             "name": "scopeKind",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/ScopeKind"
+              "type": "string",
+              "enum": [
+                "project"
+              ]
             },
-            "required": false,
-            "description": "Optional scope discriminator. If absent, no scope filter is applied."
+            "required": true,
+            "description": "`project`, the only scope a count is taken in."
           },
           {
             "name": "scopeId",
@@ -47353,8 +47356,8 @@
               "type": "string",
               "minLength": 1
             },
-            "required": false,
-            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
+            "required": true,
+            "description": "The project whose corrections are counted."
           }
         ],
         "security": [

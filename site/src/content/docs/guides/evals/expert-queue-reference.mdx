@@ -118,16 +118,20 @@ When a correction is saved, it's sorted by these rules, in order:
 
 `PATCH /v1/corrections/{id}`, or `corrections.change` in the clients, takes
 `sortedTo`, `status`, or both, with a `link` or a `reason`. It needs
-`publish` on the correction's agent or flow.
+`publish` on the correction's agent or flow, or, for one that more than one
+project serves, `write` on the correction's project.
 
 - **Re-sort** with `sortedTo`, from `open`, `being-fixed` or `with-owner`.
   Sorted to `owner`, it becomes `with-owner`; sorted away from `owner`, it
-  becomes `open`. It's recorded as sorted by you, and a `being-fixed`
-  correction loses its `link`.
+  becomes `open`. It's recorded as sorted by you. A `being-fixed`
+  correction keeps its `link`, unless the re-sort moves it to or away from
+  the owner.
 - **`being-fixed`**, from `open` or `with-owner`, needs a `link`: a URL, an
   Improve run (`ir-…`) or a suggested change (`sc-…`).
 - **`open`**, from `being-fixed` or `wont-fix`, takes an optional `reason`.
-- **`wont-fix`**, from anything but `removed`, needs a `reason`.
+  One sorted to the owner becomes `with-owner`.
+- **`wont-fix`**, from anything but `removed`, needs a `reason`. A `fixed`
+  correction loses its `fixedIn`.
 - **`fixed`** can't be set by hand.
 
 Any other change is refused with `409 correction-status-change-not-allowed`,
@@ -168,9 +172,10 @@ filters by:
 
 `GET /v1/corrections/counts?scopeKind=project&scopeId=<project-id>`, with an
 optional `agentId`, counts a project's corrections by status: `open`,
-`beingFixed`, `withOwner`, `fixed`, `wontFix` and `removed`. In the clients,
-it's `corrections.counts({ projectId, agentId })`. Counting takes read
-access to the project, and a list holds only the projects you can read.
+`beingFixed`, `withOwner`, `fixed`, `wontFix` and `removed`. In the
+TypeScript client it's `corrections.counts({ projectId, agentId })`, and in
+Python `corrections.counts(scope_kind="project", scope_id=..., agent_id=...)`.
+It counts in a project only, and takes read access to it.
 
 ## Corrector groups
 

@@ -5972,7 +5972,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'corrections.change',
     summary: 'Re-sort a correction or change its status',
     description:
-      "A re-sort, a status, or both (the re-sort first), by the change table: re-sorting from `open`, `being-fixed` or `with-owner` (to `owner` sets `with-owner`; away from `owner`, `open`); `being-fixed` from `open` or `with-owner`, with `link`; `open` from `being-fixed` or `wont-fix`; `wont-fix` from anything but `removed`, with `reason`. `fixed` is set only by a pin or a deploy. Anything else is `409 correction-status-change-not-allowed`. Needs `publish` on the correction's agent (or flow).",
+      "A re-sort, a status, or both (the re-sort first), by the change table: re-sorting from `open`, `being-fixed` or `with-owner` (to `owner` sets `with-owner`; away from `owner`, `open`); `being-fixed` from `open` or `with-owner`, with `link`; `open` from `being-fixed` or `wont-fix` (`with-owner` for one sorted to the owner); `wont-fix` from anything but `removed`, with `reason`, and it drops `fixedIn`. `fixed` is set only by a pin or a deploy. Anything else is `409 correction-status-change-not-allowed`. Needs `publish` on the correction's agent (or flow), or, for one more than one project serves, `write` on the correction's project.",
     tags: ['corrections'],
     security: 'bearer',
     parameters: [CorrectionIdPathParam, IdempotencyKeyParam],
@@ -5983,10 +5983,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse(
         'Malformed body: a link without `being-fixed`, `being-fixed` without a link, or `wont-fix` without a reason.',
       ),
-      '403': ErrorResponse('`permission-denied`: this needs publish on the agent.'),
+      '403': ErrorResponse(
+        "`permission-denied`: this needs publish on the agent, or write on the correction's project for an agent more than one project serves.",
+      ),
       '404': ErrorResponse('No live correction with that id under this tenant.'),
       '409': ErrorResponse(
-        '`correction-status-change-not-allowed`: the change table does not allow it from its status (`details: { from, to }`).',
+        '`correction-status-change-not-allowed`: the change table does not allow it from its status, or it changed twice while the change was made: read it and try again (`details: { from, to }`).',
       ),
     },
   },
@@ -5997,7 +5999,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'corrections.counts',
     summary: 'Count corrections by status',
     description:
-      "How many of a project's corrections (or one agent's in it) are in each status. Needs `?scopeKind=project&scopeId=<project>` and `read` on the project.",
+      "How many of a project's corrections (or one agent's in it) are in each status. Needs `?scopeKind=project&scopeId=<project>` and `read` on the project. Only a project scope is taken: the list filters each row by what the caller reads, and a count can't.",
     tags: ['corrections'],
     security: 'bearer',
     parameters: [
@@ -6005,8 +6007,20 @@ export const OPERATIONS: readonly OperationSpec[] = [
         type: 'string',
         minLength: 1,
       }),
-      ScopeKindQueryParam,
-      ScopeIdQueryParam,
+      {
+        name: 'scopeKind',
+        in: 'query',
+        required: true,
+        description: '`project`, the only scope a count is taken in.',
+        schema: { type: 'string', enum: ['project'] },
+      },
+      {
+        name: 'scopeId',
+        in: 'query',
+        required: true,
+        description: 'The project whose corrections are counted.',
+        schema: { type: 'string', minLength: 1 },
+      },
     ],
     responses: {
       '200': { description: 'Counts by status.', schema: ref('CorrectionCounts') },

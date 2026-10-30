@@ -587,6 +587,11 @@ export interface CorrectionUpdateInput {
   readonly link?: CorrectionLink | null;
   /** `null` clears it. */
   readonly statusNote?: CorrectionStatusNote | null;
+  /**
+   * `null` clears it, when the status leaves `fixed` (`fixedIn` is there only
+   * while it's fixed).
+   */
+  readonly fixedIn?: null;
 }
 
 export type CorrectionUpdateOutcome =

@@ -17,10 +17,10 @@
   - A wrong answer, or a wrong item of it, goes to Improve (`open`).
   - Nothing wrong is `fixed`, as `recorded-right`.
   - A correction answers `status`, `sortedTo`, `sorted`, `link`, `fixedIn`, `statusNote` and `updatedAt`.
-- **Changing one.** `PATCH /v1/corrections/{correctionId}` (`client.corrections.change`) re-sorts it, changes its status, or both. It needs `publish` on the agent. A change its status doesn't allow is `409 correction-status-change-not-allowed`, with `details: { from, to }`.
+- **Changing one.** `PATCH /v1/corrections/{correctionId}` (`client.corrections.change`) re-sorts it, changes its status, or both. It needs `publish` on the agent, or, for an agent more than one project serves, `write` on the correction's project. `open` on one sorted to the owner is `with-owner`, and `wont-fix` on a fixed one drops `fixedIn`. A change its status doesn't allow is `409 correction-status-change-not-allowed`, with `details: { from, to }`.
 - **Removing one** makes it `removed`. Its author or an admin of its project may remove it.
 - **Listing and counting.**
   - `GET /v1/corrections` filters by `status` (`not-fixed` is short for `open`, `being-fixed` and `with-owner`), `sortedTo` (`none` for unsorted), `from` (`experts`, `end-users` or `all`), `madeBy=me` (only the caller's own), `since` and `until`. `verdict` is gone.
-  - `GET /v1/corrections/counts` (`client.corrections.counts`) counts a project's corrections, or one agent's, by status.
+  - `GET /v1/corrections/counts` (`client.corrections.counts`) counts a project's corrections, or one agent's, by status. It takes a project scope only.
 - **The CLI keeps its flags.** In `kindgi corrections add`, `--correction` is about the run's decisions, `--item=answer` (or `output` for a flow) is its answer, and any other `--item` is an item of a ranked list. Each call adds to your correction of the run, replacing what you said before about the same piece. `kindgi corrections list` loses `--verdict`.
 - **For stores.** `CorrectionRegistryBinding` gains `update` (it applies only from the status and sorting it expects), `counts` and `correctionsByIds`. `unregister` sets the status to `removed`. `sortAtSave` and `planChange` are the rules, exported so every store and surface agrees on them.

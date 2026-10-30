@@ -5555,7 +5555,7 @@ class CorrectionsResource:
     ) -> _models.Correction:
         """Re-sort a correction or change its status. `PATCH /v1/corrections/{correctionId}`
 
-        A re-sort, a status, or both (the re-sort first), by the change table: re-sorting from `open`, `being-fixed` or `with-owner` (to `owner` sets `with-owner`; away from `owner`, `open`); `being-fixed` from `open` or `with-owner`, with `link`; `open` from `being-fixed` or `wont-fix`; `wont-fix` from anything but `removed`, with `reason`. `fixed` is set only by a pin or a deploy. Anything else is `409 correction-status-change-not-allowed`. Needs `publish` on the correction's agent (or flow).
+        A re-sort, a status, or both (the re-sort first), by the change table: re-sorting from `open`, `being-fixed` or `with-owner` (to `owner` sets `with-owner`; away from `owner`, `open`); `being-fixed` from `open` or `with-owner`, with `link`; `open` from `being-fixed` or `wont-fix` (`with-owner` for one sorted to the owner); `wont-fix` from anything but `removed`, with `reason`, and it drops `fixedIn`. `fixed` is set only by a pin or a deploy. Anything else is `409 correction-status-change-not-allowed`. Needs `publish` on the correction's agent (or flow), or, for one more than one project serves, `write` on the correction's project.
         """
         return self._client._request(
             _OPERATIONS["corrections.change"],
@@ -5593,13 +5593,13 @@ class CorrectionsResource:
         /,
         *,
         agent_id: str | UUID | None = None,
-        scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | UUID | None = None,
+        scope_kind: Literal["project"],
+        scope_id: str | UUID,
         timeout: float | None = None,
     ) -> _models.CorrectionCounts:
         """Count corrections by status. `GET /v1/corrections/counts`
 
-        How many of a project's corrections (or one agent's in it) are in each status. Needs `?scopeKind=project&scopeId=<project>` and `read` on the project.
+        How many of a project's corrections (or one agent's in it) are in each status. Needs `?scopeKind=project&scopeId=<project>` and `read` on the project. Only a project scope is taken: the list filters each row by what the caller reads, and a count can't.
         """
         return self._client._request(
             _OPERATIONS["corrections.counts"],
@@ -15395,7 +15395,7 @@ class AsyncCorrectionsResource:
     ) -> _models.Correction:
         """Re-sort a correction or change its status. `PATCH /v1/corrections/{correctionId}`
 
-        A re-sort, a status, or both (the re-sort first), by the change table: re-sorting from `open`, `being-fixed` or `with-owner` (to `owner` sets `with-owner`; away from `owner`, `open`); `being-fixed` from `open` or `with-owner`, with `link`; `open` from `being-fixed` or `wont-fix`; `wont-fix` from anything but `removed`, with `reason`. `fixed` is set only by a pin or a deploy. Anything else is `409 correction-status-change-not-allowed`. Needs `publish` on the correction's agent (or flow).
+        A re-sort, a status, or both (the re-sort first), by the change table: re-sorting from `open`, `being-fixed` or `with-owner` (to `owner` sets `with-owner`; away from `owner`, `open`); `being-fixed` from `open` or `with-owner`, with `link`; `open` from `being-fixed` or `wont-fix` (`with-owner` for one sorted to the owner); `wont-fix` from anything but `removed`, with `reason`, and it drops `fixedIn`. `fixed` is set only by a pin or a deploy. Anything else is `409 correction-status-change-not-allowed`. Needs `publish` on the correction's agent (or flow), or, for one more than one project serves, `write` on the correction's project.
         """
         return await self._client._request(
             _OPERATIONS["corrections.change"],
@@ -15433,13 +15433,13 @@ class AsyncCorrectionsResource:
         /,
         *,
         agent_id: str | UUID | None = None,
-        scope_kind: Literal["tenant", "org", "project"] | None = None,
-        scope_id: str | UUID | None = None,
+        scope_kind: Literal["project"],
+        scope_id: str | UUID,
         timeout: float | None = None,
     ) -> _models.CorrectionCounts:
         """Count corrections by status. `GET /v1/corrections/counts`
 
-        How many of a project's corrections (or one agent's in it) are in each status. Needs `?scopeKind=project&scopeId=<project>` and `read` on the project.
+        How many of a project's corrections (or one agent's in it) are in each status. Needs `?scopeKind=project&scopeId=<project>` and `read` on the project. Only a project scope is taken: the list filters each row by what the caller reads, and a count can't.
         """
         return await self._client._request(
             _OPERATIONS["corrections.counts"],

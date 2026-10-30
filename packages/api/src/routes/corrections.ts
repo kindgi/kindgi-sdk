@@ -50,6 +50,7 @@ import {
 import { statusFor, toWireError } from '../errors.js';
 import type { ExpectedCall } from '../expected-decisions.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
+import { type ItemRights, forbidden } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
@@ -90,6 +91,8 @@ export function correctionsRouter(
   reviewers?: ReviewerBinding,
   /** Resolves a corrected agent version's tools, so a correction can only name tools it has. */
   agents?: AgentRegistryBinding,
+  /** For an agent or flow more than one project serves, a change takes write on the correction's project. */
+  itemRights?: ItemRights,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -320,26 +323,43 @@ export function correctionsRouter(
     if (who === undefined) {
       return fail('permission-denied', 'Changing a correction needs a user or a service token.');
     }
-    let current = await binding.get({ tenantId, correctionId });
+    const read = await binding.get({ tenantId, correctionId });
     const notFound = () => fail('correction-not-found', `No live correction "${correctionId}".`);
     if (
-      current === null ||
-      (current.unregisteredAt !== undefined && current.status !== 'removed') ||
+      read === null ||
+      (read.unregisteredAt !== undefined && read.status !== 'removed') ||
       (authorizer !== undefined &&
-        !(await authorizer.can(c, 'read', ref('project', current.projectId))))
+        !(await authorizer.can(c, 'read', ref('project', read.projectId))))
     ) {
       return notFound();
     }
     if (authorizer !== undefined) {
-      const { kind, id } = current.subject;
-      const decision = await authorizer.check(c, 'publish', ref(kind, id));
-      if (!decision.allowed) {
-        return fail(
-          'permission-denied',
-          `Permission denied: this needs publish on ${kind} "${id}" (${decision.reason})`,
-        );
+      const { kind, id } = read.subject;
+      // An item more than one project serves: the change is in the
+      // correction's project, so it takes the right there, never the item's
+      // (item-rights.ts, rule 3). An agent's `publish` is its project's
+      // `write`, as proposals take it.
+      const projects = await itemRights?.multi(c, kind, id);
+      if (itemRights !== undefined && projects !== undefined) {
+        const refused = await itemRights.on(c, read.projectId, 'write');
+        if (refused !== undefined) {
+          return forbidden(
+            c,
+            refused,
+            `Permission denied: this needs write on project ${read.projectId}, where the correction was made (${refused.decision.reason})`,
+          );
+        }
+      } else {
+        const decision = await authorizer.check(c, 'publish', ref(kind, id));
+        if (!decision.allowed) {
+          return fail(
+            'permission-denied',
+            `Permission denied: this needs publish on ${kind} "${id}" (${decision.reason})`,
+          );
+        }
       }
     }
+    let current: Correction = read;
     // Planned against what was read; when it changed meanwhile, planned once
     // more against what it is now.
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -360,7 +380,8 @@ export function correctionsRouter(
       });
       if (outcome.kind === 'not-found') return notFound();
       if (outcome.kind === 'updated') return c.json(serializeCorrection(outcome.correction));
-      current = { ...current, ...outcome.correction };
+      // What it is now, as the store answers it: a field it left out is cleared.
+      current = outcome.correction;
     }
     return fail(
       'correction-status-change-not-allowed',

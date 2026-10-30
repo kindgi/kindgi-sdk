@@ -140,7 +140,7 @@ describe('planChange (the change table)', () => {
     expect(planChange(from('open'), { sortedTo: 'improve', link }, ana, at).kind).toBe('bad-input');
   });
 
-  test('wont-fix from anything but removed, with a reason kept as the status note', () => {
+  test('wont-fix from anything but removed, with a reason kept as the status note; a fixed one drops fixedIn', () => {
     for (const status of ['open', 'being-fixed', 'with-owner', 'fixed', 'wont-fix'] as const) {
       expect(
         planChange(from(status), { status: 'wont-fix', reason: 'by design' }, ana, at),
@@ -150,6 +150,7 @@ describe('planChange (the change table)', () => {
           status: 'wont-fix',
           link: null,
           statusNote: { text: 'by design', by: ana, at },
+          ...(status === 'fixed' && { fixedIn: null }),
         },
       });
     }
@@ -177,6 +178,15 @@ describe('planChange (the change table)', () => {
       change: { status: 'open', link: null, statusNote: null },
     });
     expect(planChange(from('fixed'), { status: 'open' }, ana, at).kind).toBe('not-allowed');
+  });
+
+  test('open again on one sorted to the owner is with-owner, as re-sorting to the owner is', () => {
+    for (const status of ['being-fixed', 'wont-fix'] as const) {
+      expect(planChange(from(status, 'owner'), { status: 'open' }, ana, at)).toEqual({
+        kind: 'ok',
+        change: { status: 'with-owner', link: null, statusNote: null },
+      });
+    }
   });
 
   test('fixed and removed are never set by hand, and an empty change is bad input', () => {

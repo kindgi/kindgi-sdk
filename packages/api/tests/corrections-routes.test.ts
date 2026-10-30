@@ -35,6 +35,7 @@ import type {
 } from '../src/index.js';
 import { correctorGroupApplies, isReplayCopy, whyNotAssertable } from '../src/index.js';
 import { inMemoryCorrections } from './support/in-memory-corrections.js';
+import { itemProjects } from './support/order-items.js';
 
 const tenantId = randomUUID() as TenantId;
 const projectA = randomUUID() as ProjectId;
@@ -139,6 +140,8 @@ function harness(
   reads: TurnReads = {},
   authz?: Authz,
   agentRegistry?: AgentRegistryBinding,
+  /** Which projects serve each item, for one more than one project serves. */
+  served?: ReturnType<typeof itemProjects>,
 ): Harness & { readonly reads: number[] } {
   const binding = inMemoryCorrections();
   const stubs = createStubAppBindings();
@@ -167,6 +170,7 @@ function harness(
     runHandler,
     correctionRegistry: binding,
     ...(agentRegistry !== undefined && { agentRegistry }),
+    ...(served !== undefined && { itemProjects: served }),
     ...(authz !== undefined && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -1465,6 +1469,21 @@ describe('PATCH /v1/corrections/:id', () => {
   const patch = (h: Harness, id: string, body: unknown) =>
     h.call('PATCH', `/v1/corrections/${id}`, body);
 
+  test('a correction recorded right and then set wont-fix answers no fixedIn, and none when open again', async () => {
+    const run = row();
+    const h = harness([run]);
+    const id = await made(h, run, { answer: 'right' });
+    const got = await h.call('GET', `/v1/corrections/${id}`);
+    expect(got.body).toMatchObject({ status: 'fixed', fixedIn: { how: 'recorded-right' } });
+    const wontFix = await patch(h, id, { status: 'wont-fix', reason: 'not ours to fix' });
+    expect(wontFix.status, JSON.stringify(wontFix.body)).toBe(200);
+    expect(wontFix.body.status).toBe('wont-fix');
+    expect(wontFix.body).not.toHaveProperty('fixedIn');
+    const reopened = await patch(h, id, { status: 'open' });
+    expect(reopened.status, JSON.stringify(reopened.body)).toBe(200);
+    expect(reopened.body).not.toHaveProperty('fixedIn');
+  });
+
   test('being-fixed takes a link; back to open clears it', async () => {
     const run = row();
     const h = harness([run]);
@@ -1572,6 +1591,36 @@ describe('changing a correction and authorization', () => {
     grants.push('publish agent:acme.matcher');
     const allowed = await h.call('PATCH', `/v1/corrections/${id}`, { sortedTo: 'owner' });
     expect(allowed.status).toBe(200);
+    expect(allowed.body.status).toBe('with-owner');
+  });
+
+  test("for an agent more than one project serves, a change takes write on the correction's project, never the agent's publish", async () => {
+    const run = row({ projectId: projectB });
+    const grants = [
+      `write project:${projectB}`,
+      `read project:${projectB}`,
+      `write project:${projectA}`,
+      'publish agent:acme.matcher',
+    ];
+    const authz: Authz = { grants, checked: [] };
+    const served = itemProjects([
+      { kind: 'agent', id: 'acme.matcher', projects: [projectA, projectB] },
+    ]);
+    const h = harness([run], {}, authz, undefined, served);
+    const id = await made(h, run, WRONG_ANSWER);
+    // A writer of the agent's first project who only reads this one.
+    grants.splice(grants.indexOf(`write project:${projectB}`), 1);
+    const before = authz.checked.length;
+    const denied = await h.call('PATCH', `/v1/corrections/${id}`, { sortedTo: 'owner' });
+    expect(denied.status).toBe(403);
+    expect(denied.body.error.message).toContain(`write on project ${projectB}`);
+    const asked = authz.checked.slice(before);
+    expect(asked).toContain(`write project:${projectB}`);
+    expect(asked).not.toContain('publish agent:acme.matcher');
+
+    grants.push(`write project:${projectB}`);
+    const allowed = await h.call('PATCH', `/v1/corrections/${id}`, { sortedTo: 'owner' });
+    expect(allowed.status, JSON.stringify(allowed.body)).toBe(200);
     expect(allowed.body.status).toBe('with-owner');
   });
 });

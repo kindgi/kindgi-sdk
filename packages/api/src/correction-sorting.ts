@@ -80,6 +80,8 @@ export interface PlannedChange {
   readonly sorted?: CorrectionSorted;
   readonly link?: CorrectionLink | null;
   readonly statusNote?: CorrectionStatusNote | null;
+  /** `null` when the status leaves `fixed`: `fixedIn` is there only while it's fixed. */
+  readonly fixedIn?: null;
 }
 
 export type PlannedChangeOutcome =
@@ -101,8 +103,10 @@ const SET_FROM: Readonly<Record<StatusSetByHand, readonly CorrectionStatus[]>> =
  *   `with-owner`, and away from `owner` sets `open`; recorded as sorted by
  *   the caller (a user or a service);
  * - `being-fixed` from `open` or `with-owner`, with a link;
- * - `open` from `being-fixed` or `wont-fix`;
- * - `wont-fix` from anything but `removed`, with a reason.
+ * - `open` from `being-fixed` or `wont-fix`, which is `with-owner` for one
+ *   sorted to the owner, as re-sorting to the owner is;
+ * - `wont-fix` from anything but `removed`, with a reason, which clears
+ *   `fixedIn` when it was `fixed`.
  * Anything else is `not-allowed`.
  */
 export function planChange(
@@ -155,7 +159,18 @@ export function planChange(
     change.reason === undefined
       ? null
       : { text: change.reason, by: { kind: by.kind, id: by.id }, at };
-  return { kind: 'ok', change: { ...planned, status: to, link: null, statusNote: note } };
+  const lands =
+    to === 'open' && (planned.sortedTo ?? current.sortedTo) === 'owner' ? 'with-owner' : to;
+  return {
+    kind: 'ok',
+    change: {
+      ...planned,
+      status: lands,
+      link: null,
+      statusNote: note,
+      ...(status === 'fixed' && { fixedIn: null }),
+    },
+  };
 }
 
 /** A link from its wire form: a URL is a pull request, `ir-…` an Improve run, `sc-…` a suggested change. */

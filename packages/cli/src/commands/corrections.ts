@@ -93,7 +93,15 @@ function foldPiece(
     ...(live?.items !== undefined && { items: live.items }),
     ...(live?.correctorGroupId !== undefined && { correctorGroupId: live.correctorGroupId }),
   };
-  if (piece.kind === 'answer') return { ...base, answer: piece.verdict };
+  if (piece.kind === 'answer') {
+    // What it should have said goes with a wrong answer only.
+    const { shouldSay, ...rest } = base;
+    return {
+      ...rest,
+      answer: piece.verdict,
+      ...(piece.verdict === 'wrong' && shouldSay !== undefined && { shouldSay }),
+    };
+  }
   if (piece.kind === 'decisions') {
     const { shouldCall: _calls, mustNotCall: _not, ...rest } = base;
     return {
@@ -105,8 +113,8 @@ function foldPiece(
       }),
     };
   }
-  const same = (i: CorrectedAnswerItem) =>
-    i.key === piece.item.key && i.pointer === piece.item.pointer;
+  // A correction names each item once, by key, so a new pointer for it replaces the old one.
+  const same = (i: CorrectedAnswerItem) => i.key === piece.item.key;
   return { ...base, items: [...(base.items ?? []).filter((i) => !same(i)), piece.item] };
 }
 
@@ -175,7 +183,7 @@ const add: LeafCommand = {
         ...(participantId !== undefined && { participantId }),
         limit: 100,
       });
-      const live = mine.items.find((j) => j.participantId === participantId);
+      const live = mine.data.find((j) => j.participantId === participantId);
       const reason = stringFlag(ctx, 'reason');
       const correctorGroupId = stringFlag(ctx, 'group');
       return await client.corrections.create({
