@@ -1,5 +1,91 @@
 # @kindgi/connections-inmemory
 
+## 0.3.0
+
+### Patch Changes
+
+- Updated dependencies [8dd91b0]
+- Updated dependencies [77de8bd]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [1a36b1f]
+- Updated dependencies [06ae9b6]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [ea16d4e]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [5022734]
+- Updated dependencies [29b60dd]
+- Updated dependencies [e8baad5]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [03a715d]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [52d0759]
+- Updated dependencies [8dd91b0]
+  - @kindgi/api@0.3.0
+  - @kindgi/agents@0.3.0
+  - @kindgi/tools@0.3.0
+  - @kindgi/authz@0.3.0
+  - @kindgi/types@0.3.0
+  - @kindgi/connections@0.3.0
+
+## 0.3.0-rc.0
+
+### Patch Changes
+
+- Updated dependencies [8dd91b0]
+- Updated dependencies [77de8bd]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [1a36b1f]
+- Updated dependencies [06ae9b6]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [ea16d4e]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [5022734]
+- Updated dependencies [29b60dd]
+- Updated dependencies [e8baad5]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [03a715d]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [52d0759]
+- Updated dependencies [8dd91b0]
+  - @kindgi/api@0.3.0-rc.0
+  - @kindgi/agents@0.3.0-rc.0
+  - @kindgi/tools@0.3.0-rc.0
+  - @kindgi/authz@0.3.0-rc.0
+  - @kindgi/types@0.3.0-rc.0
+  - @kindgi/connections@0.3.0-rc.0
+
 ## 0.2.0
 
 ### Patch Changes
