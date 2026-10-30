@@ -3,15 +3,19 @@
 
 import { readFile } from 'node:fs/promises';
 
-import type {
-  ListPage,
-  SuggestedChange,
-  SuggestedChangeContent,
-  SuggestedChangeStatus,
+import {
+  type Correction,
+  KindgiApiError,
+  type KindgiClient,
+  type ListPage,
+  type SuggestedChange,
+  type SuggestedChangeContent,
+  type SuggestedChangeStatus,
 } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
+import { renderJson } from '../output.js';
 import {
   type TableSpec,
   integerFlag,
@@ -19,6 +23,7 @@ import {
   readJsonInput,
   requiredPositional,
   runSdk,
+  runSdkRendered,
   stringFlag,
 } from './helpers.js';
 import { followTestRun, oneOfFlag } from './test-runs.js';
@@ -137,13 +142,65 @@ const get: LeafCommand = {
   kind: 'leaf',
   name: 'get',
   description:
-    "Show a suggested change: its change (the block's content before and after), status, version, and its check: how its version and the version it's built on did on the project's test cases.",
+    "Show a suggested change: its change (the block's content before and after), status, version, and its check: how its version and the version it's built on did on the project's test cases. A correction it fixes that its author has replaced since is named on stderr, with the one that replaced it.",
   usage: 'kindgi suggested-changes get <suggested-change-id>',
   run: (ctx) =>
-    runSdk(ctx, 'suggested-changes get', async () =>
-      ctx.client().suggestedChanges.get(requiredPositional(ctx, 0, 'suggested-change-id')),
-    ),
+    runSdkRendered(ctx, 'suggested-changes get', async () => {
+      const client = ctx.client();
+      const suggested = await client.suggestedChanges.get(
+        requiredPositional(ctx, 0, 'suggested-change-id'),
+      );
+      const rendered = renderJson(suggested, ctx.globals.format);
+      if (ctx.globals.format === 'quiet') return rendered;
+      const replaced = await Promise.all(
+        suggested.fixes.map((id) => replacedFix(client.corrections, id)),
+      );
+      return { ...rendered, stderr: replaced.join('') };
+    }),
 };
+
+/** The most replacements followed from a fixed correction to the live one. */
+const REPLACEMENTS_FOLLOWED = 10;
+
+/**
+ * A line for a correction the suggested change fixes that its author has
+ * replaced since: `fixes` keeps the id it names, and this names the live
+ * one, by following `supersededBy`. Empty for one not replaced, or that
+ * can't be read.
+ */
+async function replacedFix(
+  corrections: KindgiClient['corrections'],
+  fixedId: string,
+): Promise<string> {
+  const fixed = await readable(corrections, fixedId);
+  if (fixed?.supersededBy === undefined) return '';
+  let liveId = fixed.supersededBy;
+  let live = await readable(corrections, liveId);
+  for (
+    let followed = 1;
+    live?.supersededBy !== undefined && followed < REPLACEMENTS_FOLLOWED;
+    followed++
+  ) {
+    liveId = live.supersededBy;
+    live = await readable(corrections, liveId);
+  }
+  return live === null
+    ? `${fixedId} (in fixes) was replaced by ${liveId}.\n`
+    : `${fixedId} (in fixes) was replaced by ${liveId}, now ${live.status}.\n`;
+}
+
+/** The correction, or `null` when the runtime answers with an error for it. */
+async function readable(
+  corrections: KindgiClient['corrections'],
+  correctionId: string,
+): Promise<Correction | null> {
+  try {
+    return await corrections.get(correctionId);
+  } catch (err) {
+    if (err instanceof KindgiApiError) return null;
+    throw err;
+  }
+}
 
 /** `--values` (JSON, a settings block) or `--template` (text, a prompt block): exactly one. */
 async function contentFrom(ctx: CommandContext): Promise<SuggestedChangeContent> {

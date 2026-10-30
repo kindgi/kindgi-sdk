@@ -7,7 +7,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { KindgiApiError } from '@kindgi/client';
+import { KindgiApiError, fromWire } from '@kindgi/client';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { runCli } from '../src/main.js';
@@ -351,6 +351,45 @@ describe('kindgi suggested-changes list / get', () => {
     });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['get', 'prop-1']]);
+  });
+
+  test('get names each correction it fixes that was replaced since, and the live one', async () => {
+    const correction = (id: string, status: string, supersededBy?: string) => ({
+      id,
+      status,
+      ...(supersededBy !== undefined && { supersededBy }),
+    });
+    const corrections: Record<string, unknown> = {
+      'c-1': correction('c-1', 'being-fixed', 'c-4'),
+      'c-4': correction('c-4', 'open', 'c-5'),
+      'c-5': correction('c-5', 'open'),
+      'c-2': correction('c-2', 'being-fixed'),
+      'c-3': correction('c-3', 'with-owner', 'c-6'),
+    };
+    const read: string[] = [];
+    const out = await run(['suggested-changes', 'get', 'prop-1'], {
+      suggestedChanges: {
+        get: async () => ({ ...SUGGESTED_CHANGE, fixes: ['c-1', 'c-2', 'c-3', 'c-7'] }),
+      },
+      corrections: {
+        get: async (id: string) => {
+          read.push(id);
+          const found = corrections[id];
+          if (found === undefined) {
+            throw new KindgiApiError(
+              fromWire({ code: 'not-found', message: `Correction ${id} not found` }, 404),
+            );
+          }
+          return found;
+        },
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(JSON.parse(out.stdout).fixes).toEqual(['c-1', 'c-2', 'c-3', 'c-7']);
+    expect(out.stderr).toBe(
+      'c-1 (in fixes) was replaced by c-5, now open.\nc-3 (in fixes) was replaced by c-6.\n',
+    );
+    expect(read.sort()).toEqual(['c-1', 'c-2', 'c-3', 'c-4', 'c-5', 'c-6', 'c-7']);
   });
 
   test('is wired: help lists the group', async () => {

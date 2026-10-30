@@ -65,4 +65,5 @@
   - `pin` replaces `request`.
   - `add-as-latest` is new, with `--reason`.
   - `list` takes `--project`, and drops the scope flags and `--tier`.
+  - `get` names each correction in `fixes` that its author has replaced since, with the live one and its status, on stderr. `fixes` keeps the ids it names.
   - The table shows each one's check, for example `25/27 (now 23/27)`. Its BLOCK column is CHANGE: a block and its version, or `code (deploy <deployment-id>)`.

@@ -195,6 +195,10 @@ pnpm exec kindgi suggested-changes get <suggested-change-id>
 - **`costPerConversation`:** what a side's replays cost in model calls per
   case, in US dollars. It's absent when the runtime reported no cost.
 - **`get` adds the block's content** before and after the change.
+- **A correction in `fixes` its author has replaced since** (by correcting
+  the run again): `fixes` keeps the id it names, and the CLI's `get` names
+  the live one on stderr, for example
+  `<fixed-id> (in fixes) was replaced by <live-id>, now open.`
 
 `ready` says the check finished, not that the change is better. The release
 gate policy decides when you [pin it](#pin-it).
