@@ -49,7 +49,7 @@ import type {
 } from '../src/test-set-binding.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { createApp, createSuggestedChangeService } from '../src/index.js';
+import { agentTestSetId, createApp, createSuggestedChangeService } from '../src/index.js';
 import type {
   AgentMarkLatestInput,
   AgentRegistryBinding,
@@ -110,7 +110,7 @@ const SEGMENT: LiveScope = {
 const SEGMENT_WIRE = { kind: 'segment', projectId, path: [{ key: 'company', value: 'acme' }] };
 const PROJECT: LiveScope = { kind: 'project', projectId };
 /** The project's test set, as a check freezes it. */
-const FROZEN = { testSetId: 'acme.project-cases', testSetVersion: '1.0.7' };
+const FROZEN = { testSetId: agentTestSetId(AGENT as AgentId, projectId), testSetVersion: '1.0.7' };
 const projectRef: ResourceRef = { type: 'project', id: projectId as unknown as string };
 
 const ACCOUNT_TOKEN = 'suggested-changes-account-token';
@@ -1307,6 +1307,10 @@ describe('POST /v1/suggested-changes', () => {
 });
 
 describe("a suggested change's check", () => {
+  test("is on the agent's test set in its project: agent:<agentId>:<projectId>", () => {
+    expect(agentTestSetId(AGENT as AgentId, projectId)).toBe(`agent:${AGENT}:${projectId}`);
+  });
+
   test('is ready once both runs finish, and shows how each did and what newly fails', async () => {
     const { call, id, withRun, nowRun, testRuns } = await made();
     await testRuns.finish(withRun, {
