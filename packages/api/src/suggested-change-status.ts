@@ -2,13 +2,13 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { CorrectedComparisonSummary } from './corrected-dispatcher.js';
-import type { TestRun, TestRunStatus } from './test-run-binding.js';
 import type { Promotion } from './live-version-binding.js';
 import type {
   StoredSuggestedChange,
   SuggestedChangeObjective,
   SuggestedChangeRule,
 } from './supervisor-binding.js';
+import type { TestRun, TestRunStatus } from './test-run-binding.js';
 
 /**
  * Where a suggested change stands. Never stored: it follows from the
