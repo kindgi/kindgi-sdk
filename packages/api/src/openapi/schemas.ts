@@ -5060,10 +5060,12 @@ export const CorrectedItemSchema: JsonSchema = {
     key: {
       type: 'string',
       minLength: 1,
-      description: `The caller's stable id for the item. \`${CORRECTION_ITEM.key}\` is reserved for Kindgi.`,
+      maxLength: 200,
+      description: `The caller's stable id for the item, such as a matched case's id, never the item's own text. \`${CORRECTION_ITEM.key}\` is reserved for Kindgi.`,
     },
     pointer: {
       type: 'string',
+      maxLength: 500,
       description:
         'Where the item is in the run\'s output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`. `""` is the whole output.',
     },
@@ -5214,9 +5216,16 @@ export const CorrectedAnswerItemSchema: JsonSchema = {
   additionalProperties: false,
   required: ['key', 'verdict'],
   properties: {
-    key: { type: 'string', minLength: 1, description: "The caller's stable id for the item." },
+    key: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 200,
+      description:
+        "The caller's stable id for the item, such as a matched case's id, never the item's own text.",
+    },
     pointer: {
       type: 'string',
+      maxLength: 500,
       description:
         "Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`.",
     },

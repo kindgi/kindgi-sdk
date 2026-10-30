@@ -869,6 +869,8 @@ const MAX_CORRECTION_ARGS = 100;
 const MAX_CORRECTION_ARGS_SIZE = 4000;
 const MAX_TOOL_LEN = 200;
 const MAX_ITEMS = 100;
+const MAX_ITEM_KEY_LEN = 200;
+const MAX_ITEM_POINTER_LEN = 500;
 
 /** The fields a correction had before statuses, refused with a pointer to their new names. */
 const OLD_FIELDS: Readonly<Record<string, string>> = {
@@ -1048,11 +1050,17 @@ function parseItems(raw: unknown): readonly CorrectedAnswerItem[] | string {
     }
     const i = entry as Record<string, unknown>;
     if (!nonEmpty(i.key)) return 'each items entry needs a key.';
+    if (i.key.length > MAX_ITEM_KEY_LEN) {
+      return `an item's key is at most ${MAX_ITEM_KEY_LEN} characters: its id, not its text.`;
+    }
     if (i.key === CORRECTION_ITEM.key) return `the item key "${CORRECTION_ITEM.key}" is reserved.`;
     if (keys.has(i.key)) return `the item key "${i.key}" is in items twice.`;
     keys.add(i.key);
     if (i.pointer !== undefined && (typeof i.pointer !== 'string' || !isPointer(i.pointer))) {
       return 'an item\'s pointer is a JSON Pointer such as "/matches/2".';
+    }
+    if (typeof i.pointer === 'string' && i.pointer.length > MAX_ITEM_POINTER_LEN) {
+      return `an item's pointer is at most ${MAX_ITEM_POINTER_LEN} characters.`;
     }
     if (i.rank !== undefined && !(Number.isInteger(i.rank) && (i.rank as number) >= 0)) {
       return "an item's rank is a whole number ≥ 0.";

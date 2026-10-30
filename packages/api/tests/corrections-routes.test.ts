@@ -392,6 +392,32 @@ describe('POST /v1/corrections', () => {
     expect(res.body.error.message).toBe('items holds at most 100 entries.');
   });
 
+  test("an item's key over 200 characters, or its pointer over 500, is a 400", async () => {
+    const run = row();
+    // A pointer at the cap still has to point at something in the output.
+    const deep = row({ output: { ['p'.repeat(499)]: 'x' } });
+    const h = harness([run, deep]);
+    const long = await h.call('POST', '/v1/corrections', {
+      runId: run.runId,
+      items: [{ key: 'k'.repeat(201), verdict: 'wrong' }],
+    });
+    expect(long.status).toBe(400);
+    expect(long.body.error.message).toBe(
+      "an item's key is at most 200 characters: its id, not its text.",
+    );
+    const far = await h.call('POST', '/v1/corrections', {
+      runId: run.runId,
+      items: [{ key: 'c1', pointer: `/${'p'.repeat(500)}`, verdict: 'wrong' }],
+    });
+    expect(far.status).toBe(400);
+    expect(far.body.error.message).toBe("an item's pointer is at most 500 characters.");
+    const fits = await h.call('POST', '/v1/corrections', {
+      runId: deep.runId,
+      items: [{ key: 'k'.repeat(200), pointer: `/${'p'.repeat(499)}`, verdict: 'wrong' }],
+    });
+    expect(fits.status).toBe(201);
+  });
+
   test('an item key twice is a 400', async () => {
     const run = row();
     const res = await harness([run]).call('POST', '/v1/corrections', {

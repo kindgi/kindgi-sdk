@@ -304,7 +304,7 @@ export interface CorrectedSubject {
 
 /** The corrected item of a run's output. */
 export interface CorrectedItem {
-  /** The caller's stable id for the item, e.g. a matched case's id. */
+  /** The caller's stable id for the item, e.g. a matched case's id, never the item's own text. */
   readonly key: string;
   /** Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`. */
   readonly pointer?: string;

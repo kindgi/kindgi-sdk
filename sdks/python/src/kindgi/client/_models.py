@@ -2231,11 +2231,11 @@ class CorrectedItem(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    key: Annotated[str, Field(min_length=1)]
+    key: Annotated[str, Field(max_length=200, min_length=1)]
     """
-    The caller's stable id for the item. `kindgi:correction` is reserved for Kindgi.
+    The caller's stable id for the item, such as a matched case's id, never the item's own text. `kindgi:correction` is reserved for Kindgi.
     """
-    pointer: str | None = None
+    pointer: Annotated[str | None, Field(max_length=500)] = None
     """
     Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`. `""` is the whole output.
     """
@@ -2301,11 +2301,11 @@ class CorrectedAnswerItem(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    key: Annotated[str, Field(min_length=1)]
+    key: Annotated[str, Field(max_length=200, min_length=1)]
     """
-    The caller's stable id for the item.
+    The caller's stable id for the item, such as a matched case's id, never the item's own text.
     """
-    pointer: str | None = None
+    pointer: Annotated[str | None, Field(max_length=500)] = None
     """
     Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`.
     """
