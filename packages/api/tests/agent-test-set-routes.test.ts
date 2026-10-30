@@ -296,7 +296,7 @@ test("frozenVersion is the newest version frozen of the project's test set, unde
   const inA = await h.call('GET', `${SET}?projectId=${projectA}`);
   expect(inA.status, JSON.stringify(inA.body)).toBe(200);
   expect(inA.body.frozenVersion).toEqual({
-    testSetId: `agent:${AGENT}:${projectA}`,
+    testSetId: `agent.${AGENT}.${projectA}`,
     version: '1.0.3',
   });
   // Nothing frozen in project B yet, and no registry at all: no frozenVersion.

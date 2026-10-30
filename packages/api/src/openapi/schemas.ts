@@ -5914,7 +5914,7 @@ export const TestSetFrozenVersionSchema: JsonSchema = {
   description:
     "The newest version frozen of this project's test set, which a test run checks: its cases are at `GET /v1/test-sets/{testSetId}/versions/{version}/cases`.",
   properties: {
-    testSetId: { type: 'string', description: '`agent:<agentId>:<projectId>`.' },
+    testSetId: { type: 'string', description: '`agent.<agentId>.<projectId>`.' },
     version: { type: 'string' },
   },
 };

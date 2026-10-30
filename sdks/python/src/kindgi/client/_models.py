@@ -2713,7 +2713,7 @@ class TestSetFrozenVersion(BaseModel):
     )
     test_set_id: Annotated[str, Field(alias="testSetId")]
     """
-    `agent:<agentId>:<projectId>`.
+    `agent.<agentId>.<projectId>`.
     """
     version: str
 

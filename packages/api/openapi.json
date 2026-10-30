@@ -7443,7 +7443,7 @@
         "properties": {
           "testSetId": {
             "type": "string",
-            "description": "`agent:<agentId>:<projectId>`."
+            "description": "`agent.<agentId>.<projectId>`."
           },
           "version": {
             "type": "string"
