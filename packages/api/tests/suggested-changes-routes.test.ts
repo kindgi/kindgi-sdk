@@ -1768,7 +1768,7 @@ describe('if the project moves first: a suggested change is rebuilt on what it r
     expect(b.version).not.toBe(h.b.version);
     // Its new check: its new version against the one it's built on now.
     const runs = h.testRuns.started.filter((r) => r.correlationId === `suggested-change:${h.b.id}`);
-    expect(runs.slice(-2).map((r) => r.agentRef.version)).toEqual([b.version, h.a.version]);
+    expect(runs.slice(-2).map((r) => r.agentRef?.version)).toEqual([b.version, h.a.version]);
   });
 
   test('a pin that waits for a second person rebuilds nothing yet', async () => {
