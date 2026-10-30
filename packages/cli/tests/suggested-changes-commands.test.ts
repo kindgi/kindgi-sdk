@@ -276,14 +276,14 @@ describe('kindgi suggested-changes evaluate', () => {
             code: 'conflict',
             reason: 'suggested-change-needs-pin',
             message:
-              'acme.scorer has no live version for the whole tenant: promote one for {kind:"tenant"} first.',
+              'acme.scorer has no pinned version for the whole tenant: pin one for {kind:"tenant"} first.',
           } as never);
         },
       },
     });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('Error [suggested-change-needs-pin]');
-    expect(out.stderr).toContain('promote one');
+    expect(out.stderr).toContain('pin one');
   });
 });
 

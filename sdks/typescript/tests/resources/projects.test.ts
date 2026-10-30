@@ -104,7 +104,7 @@ describe('projects — wire round-trips', () => {
       agentId: 'acme.order-desk',
       scope: { kind: 'org', orgId: 'o1' },
       version: '1.0.0',
-      promotionId: '0d6a3c1e-6f3e-4c7a-9a59-2f0b6c3c8e11',
+      changeId: '0d6a3c1e-6f3e-4c7a-9a59-2f0b6c3c8e11',
       setAt: '2026-10-28T00:00:00Z',
     };
     const stub = recordingFetch([

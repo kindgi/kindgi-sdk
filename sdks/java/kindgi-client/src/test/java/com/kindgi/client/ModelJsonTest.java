@@ -8,8 +8,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.kindgi.client.models.AgentInstructions;
 import com.kindgi.client.models.EvalBaseline;
-import com.kindgi.client.models.LiveScope;
-import com.kindgi.client.models.LiveScopeTenant;
+import com.kindgi.client.models.AgentPinScope;
+import com.kindgi.client.models.PinScopeTenant;
 import com.kindgi.client.models.PatchScheduleBody;
 import com.kindgi.client.models.PromptRef;
 import com.kindgi.client.models.Run;
@@ -73,12 +73,12 @@ class ModelJsonTest {
 
   @Test
   void aTaggedUnionReadsItsVariantAndKeepsOneItDoesntKnow() {
-    LiveScope tenant = json.readValue("{\"kind\":\"tenant\"}", LiveScope.class);
-    assertThat(tenant).isInstanceOf(LiveScopeTenant.class);
+    AgentPinScope tenant = json.readValue("{\"kind\":\"tenant\"}", AgentPinScope.class);
+    assertThat(tenant).isInstanceOf(PinScopeTenant.class);
     assertThat(tenant.kind()).isEqualTo("tenant");
-    LiveScope other = json.readValue("{\"kind\":\"galaxy\",\"arm\":3}", LiveScope.class);
-    assertThat(other).isInstanceOf(LiveScope.Unrecognized.class);
-    assertThat(((LiveScope.Unrecognized) other).properties()).containsEntry("arm", 3);
+    AgentPinScope other = json.readValue("{\"kind\":\"galaxy\",\"arm\":3}", AgentPinScope.class);
+    assertThat(other).isInstanceOf(AgentPinScope.Unrecognized.class);
+    assertThat(((AgentPinScope.Unrecognized) other).properties()).containsEntry("arm", 3);
     assertThat(json.writeValueAsString(other)).isEqualTo("{\"kind\":\"galaxy\",\"arm\":3}");
   }
 
@@ -105,7 +105,7 @@ class ModelJsonTest {
     EvalBaseline recorded = json.readValue("\"recorded\"", EvalBaseline.class);
     assertThat(recorded).isEqualTo(EvalBaseline.RECORDED);
     assertThat(json.readValue("{\"agentId\":\"a\",\"version\":\"2\"}", EvalBaseline.class)).isInstanceOf(EvalBaseline.WithAgentId.class);
-    assertThat(json.readValue("{\"live\":{}}", EvalBaseline.class)).isInstanceOf(EvalBaseline.WithLive.class);
+    assertThat(json.readValue("{\"pinned\":{}}", EvalBaseline.class)).isInstanceOf(EvalBaseline.WithPinned.class);
     assertThat(json.readValue("{\"somethingElse\":1}", EvalBaseline.class)).isInstanceOf(EvalBaseline.Unrecognized.class);
   }
 

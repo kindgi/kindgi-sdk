@@ -375,7 +375,7 @@ CAPTURE: "corrections": { "checked": …, "passed": … } from the same run's su
 
 With `--group-weights=experts-only`, only the ones made under a
 expert group are checked. No release gate policy checks them: read them
-before you [make the version live](../release-an-agent-version/#check-before-you-make-it-live).
+before you [pin the version](../release-an-agent-version/#check-before-you-pin-it).
 
 ## What a replay does
 
@@ -544,7 +544,7 @@ counts it in `stopped`, and the refused call in `refusedWrites`. The other
 cases are rated as usual. A step's agent turn doesn't stop the flow: its
 refused calls go back to the model, as they do when you try an agent version.
 
-When a version does better, make it live where you choose, as
+When a version does better, pin it where you choose, as
 [Release an agent version](../release-an-agent-version/) shows.
 
 ## In the console

@@ -98,7 +98,7 @@ type Baseline =
   | 'recorded'
   | { agentId: string; version: string }
   | {
-      live: {
+      pinned: {
         projectId?: string;
         segments?: { key: string; value: string }[];
       };
@@ -109,8 +109,8 @@ function baselineFrom(ctx: CommandContext): Baseline | undefined {
   const baseline = stringFlag(ctx, 'baseline');
   const project = stringFlag(ctx, 'baseline-project');
   const segments = segmentsFlag(ctx, 'baseline-segment');
-  if (baseline !== 'live' && (project !== undefined || segments.length > 0)) {
-    throw new UsageError('--baseline-project and --baseline-segment need --baseline=live');
+  if (baseline !== 'pinned' && (project !== undefined || segments.length > 0)) {
+    throw new UsageError('--baseline-project and --baseline-segment need --baseline=pinned');
   }
   if (segments.length > 0 && project === undefined) {
     throw new UsageError(
@@ -118,9 +118,9 @@ function baselineFrom(ctx: CommandContext): Baseline | undefined {
     );
   }
   if (baseline === undefined || baseline === 'recorded') return baseline;
-  if (baseline === 'live') {
+  if (baseline === 'pinned') {
     return {
-      live: {
+      pinned: {
         ...(project !== undefined && { projectId: project }),
         ...(segments.length > 0 && { segments: [...segments] }),
       },
@@ -129,7 +129,7 @@ function baselineFrom(ctx: CommandContext): Baseline | undefined {
   const at = baseline.lastIndexOf('@');
   if (at < 1 || at === baseline.length - 1) {
     throw new UsageError(
-      `--baseline must be recorded, live or <agentId>@<version>, got "${baseline}"`,
+      `--baseline must be recorded, pinned or <agentId>@<version>, got "${baseline}"`,
     );
   }
   return { agentId: baseline.slice(0, at), version: baseline.slice(at + 1) };
@@ -247,17 +247,17 @@ const start: LeafCommand = {
     baseline: {
       type: 'string',
       description:
-        "What a run on the test cases tries the agent version against: `recorded` (the default: each case's output as it was marked right or wrong), `<agentId>@<version>` (another version, replayed the same way) or `live` (the version live in a project or segment). Only `recorded` runs today.",
+        "What a run on the test cases tries the agent version against: `recorded` (the default: each case's output as it was marked right or wrong), `<agentId>@<version>` (another version, replayed the same way) or `pinned` (the version pinned in a project or segment). Only `recorded` runs today.",
     },
     'baseline-project': {
       type: 'string',
-      description: 'With `--baseline=live`: the project whose live version to try it against.',
+      description: 'With `--baseline=pinned`: the project whose pinned version to try it against.',
     },
     'baseline-segment': {
       type: 'string',
       multiple: true,
       description:
-        'With `--baseline=live` and `--baseline-project`: the version live for this segment path, one `<key>:<value>` step per flag, coarse to fine (e.g. `--baseline-segment=company:acme --baseline-segment=role:buyer`).',
+        'With `--baseline=pinned` and `--baseline-project`: the version pinned for this segment path, one `<key>:<value>` step per flag, coarse to fine (e.g. `--baseline-segment=company:acme --baseline-segment=role:buyer`).',
     },
     reads: {
       type: 'string',

@@ -85,7 +85,7 @@ describe('registering a schedule', () => {
     expect(body).not.toHaveProperty('agentId');
   });
 
-  test('an agent schedule, at a version or live, with its own policies', async () => {
+  test('an agent schedule, at a version or the pinned one, with its own policies', async () => {
     const { built } = app();
     const res = await built.request(
       '/v1/schedules',

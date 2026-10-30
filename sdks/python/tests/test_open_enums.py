@@ -158,7 +158,7 @@ def test_the_walk_reaches_the_values_older_clients_failed_on() -> None:
     assert "SystemKey.scopes" in OPEN_ENUMS or "Datum2.scopes" in OPEN_ENUMS
     # An enum of one value: it may gain one.
     assert "TrustedSigningKey.algorithm" in OPEN_ENUMS
-    assert "Promotion.scope" in OPEN_UNIONS
+    assert "Pin.scope" in OPEN_UNIONS
     assert len(OPEN_ENUMS) > 50 and len(OPEN_UNIONS) > 10
 
 
@@ -216,14 +216,14 @@ def test_each_response_union_reads_an_unknown_tag_as_its_fallback(where: str) ->
 
 
 def test_an_unknown_tag_is_refused_as_pydantic_refuses_it_in_a_closed_union() -> None:
-    adapter = TypeAdapter(OPEN_UNIONS["Promotion.scope"])
+    adapter = TypeAdapter(OPEN_UNIONS["Pin.scope"])
     with pytest.raises(pydantic.ValidationError) as sent:
         adapter.validate_python({"kind": "galaxy"}, context=open_.SEND)
     closed = Annotated[
-        models.LiveScopeTenant
-        | models.LiveScopeOrg
-        | models.LiveScopeProject
-        | models.LiveScopeSegment,
+        models.PinScopeTenant
+        | models.PinScopeOrg
+        | models.PinScopeProject
+        | models.PinScopeSegment,
         pydantic.Field(discriminator="kind"),
     ]
     with pytest.raises(pydantic.ValidationError) as refused:
@@ -480,9 +480,9 @@ def test_a_baseline_reads_each_member_it_knows_as_before_and_other_text_as_text(
 ) -> None:
     opened = TypeAdapter(field_type(model.model_fields["baseline"]))
     before = TypeAdapter(Literal["recorded"] | models.EvalBaseline1 | models.EvalBaseline2)
-    for body in ("recorded", {"agentId": "acme.triage", "version": "1.0.0"}, {"live": {}}):
+    for body in ("recorded", {"agentId": "acme.triage", "version": "1.0.0"}, {"pinned": {}}):
         assert type(opened.validate_python(body)) is type(before.validate_python(body))
-    assert type(opened.validate_python({"live": {}})) is models.EvalBaseline2
+    assert type(opened.validate_python({"pinned": {}})) is models.EvalBaseline2
     read = opened.validate_python(UNKNOWN)
     assert type(read) is str and read == UNKNOWN
     # Sent, it's refused as the closed union refuses it.
@@ -517,7 +517,7 @@ KEY = {
     "mintedBy": "acme-operator",
 }
 SIGN_IN = {"id": "ev_1", "timestamp": "2026-10-18T00:00:00Z", "kind": "signed-in", "outcome": "ok"}
-PROMOTION = {
+PIN_CHANGE = {
     "id": "f531e37d-f29f-463c-81d2-ffad65e4d4e9",
     "agentId": "acme.triage",
     "scope": {"kind": "tenant"},
@@ -527,7 +527,7 @@ PROMOTION = {
     "requestedBy": {"kind": "user", "id": "acme-admin"},
     "createdAt": "2026-10-18T00:00:00Z",
 }
-ROTATION = {"rotationId": PROMOTION["id"], "statusUrl": "/s", "eventsUrl": "/e"}
+ROTATION = {"rotationId": PIN_CHANGE["id"], "statusUrl": "/s", "eventsUrl": "/e"}
 
 
 def test_system_keys_with_a_scope_this_client_doesnt_know() -> None:
@@ -546,18 +546,18 @@ def test_sign_ins_with_a_kind_this_client_doesnt_know() -> None:
 
 def test_a_union_member_this_client_doesnt_know_and_cant_send_back() -> None:
     galaxy = {"kind": "galaxy", "galaxyId": "milky-way"}
-    api, seen = client({**PROMOTION, "scope": galaxy})
-    promotion = api.agents.live.unpin("acme.triage", scope={"kind": "tenant"})
-    assert isinstance(promotion.scope, models.LiveScopeUnrecognized)
-    assert promotion.scope.model_extra == {"galaxyId": "milky-way"}
+    api, seen = client({**PIN_CHANGE, "scope": galaxy})
+    pin = api.agents.pinned.unpin("acme.triage", scope={"kind": "tenant"})
+    assert isinstance(pin.scope, models.PinScopeUnrecognized)
+    assert pin.scope.model_extra == {"galaxyId": "milky-way"}
     assert len(seen) == 1
     # Read from a newer runtime, it can't be sent back: refused before sending.
-    for scope in (promotion.scope, galaxy):
+    for scope in (pin.scope, galaxy):
         with pytest.raises(pydantic.ValidationError) as refused:
-            api.agents.live.unpin("acme.triage", scope=scope)
+            api.agents.pinned.unpin("acme.triage", scope=scope)
         assert refused.value.errors()[0]["type"] == "union_tag_invalid"
     with pytest.raises(pydantic.ValidationError):
-        api.agents.live.unpin("acme.triage", models.UnpinBody(scope=promotion.scope))
+        api.agents.pinned.unpin("acme.triage", models.AgentUnpinBody(scope=pin.scope))
     assert len(seen) == 1
 
 
@@ -576,13 +576,13 @@ def test_an_enum_value_this_client_doesnt_know_isnt_sent() -> None:
 
 def test_a_baseline_this_client_doesnt_know_isnt_sent() -> None:
     # `EvalBaseline` is in a request and a response: read open, sent closed.
-    api, seen = client({"testRunId": PROMOTION["id"]})
-    body = {"projectId": PROMOTION["id"], "agentRef": {"agentId": "acme.triage"}}
+    api, seen = client({"testRunId": PIN_CHANGE["id"]})
+    body = {"projectId": PIN_CHANGE["id"], "agentRef": {"agentId": "acme.triage"}}
     with pytest.raises(pydantic.ValidationError) as refused:
-        api.test_runs.start(PROMOTION["id"], {**body, "baseline": UNKNOWN})
+        api.test_runs.start(PIN_CHANGE["id"], {**body, "baseline": UNKNOWN})
     assert refused.value.errors()[0]["msg"] == "Input should be 'recorded'"
     assert seen == []
-    api.test_runs.start(PROMOTION["id"], {**body, "baseline": "recorded"})
+    api.test_runs.start(PIN_CHANGE["id"], {**body, "baseline": "recorded"})
     assert json.loads(seen[0].content)["baseline"] == "recorded"
 
 
@@ -639,9 +639,9 @@ def test_each_shared_case_is_refused_before_sending(case: dict[str, Any]) -> Non
 
 
 def test_a_known_value_is_sent_as_before() -> None:
-    api, seen = client(PROMOTION)
-    api.agents.live.unpin("acme.triage", scope=models.LiveScopeTenant(kind="tenant"))
-    api.agents.live.unpin("acme.triage", {"scope": {"kind": "tenant"}})
+    api, seen = client(PIN_CHANGE)
+    api.agents.pinned.unpin("acme.triage", scope=models.PinScopeTenant(kind="tenant"))
+    api.agents.pinned.unpin("acme.triage", {"scope": {"kind": "tenant"}})
     assert [json.loads(r.content) for r in seen] == [{"scope": {"kind": "tenant"}}] * 2
 
 
@@ -651,8 +651,8 @@ def test_a_stream_event_of_a_kind_this_client_doesnt_know_is_typed() -> None:
     events = [
         {
             "eventId": "e1",
-            "runId": PROMOTION["id"],
-            "tenantId": PROMOTION["id"],
+            "runId": PIN_CHANGE["id"],
+            "tenantId": PIN_CHANGE["id"],
             "timestamp": "2026-10-18T00:00:00Z",
             "kind": "run.kindgi-test",
             "sequence": 1,
@@ -668,7 +668,7 @@ def test_a_stream_event_of_a_kind_this_client_doesnt_know_is_typed() -> None:
         )
     )
     api = Kindgi("http://kindgi.test/", token="kgi_bt_test", http_client=http, max_retries=0)
-    first, second = list(api.runs.stream(PROMOTION["id"]))
+    first, second = list(api.runs.stream(PIN_CHANGE["id"]))
     assert isinstance(first, models.RunEvent) and first.kind == "run.kindgi-test"
     assert second == {"eventId": "e2", "kind": "run.started"}
 

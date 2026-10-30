@@ -26,9 +26,9 @@ export interface QueueRuleWhen {
   /** Runs of these flows. */
   readonly flowIds?: readonly string[];
   /**
-   * These versions exactly, or `live`: runs that got the agent's live version,
+   * These versions exactly, or `pinned`: runs that got the agent's pinned version,
    * not one the caller named. Runs from before the runtime recorded how their
-   * version was chosen never match `live`.
+   * version was chosen never match `pinned`.
    */
   readonly versions?: readonly string[];
   /**

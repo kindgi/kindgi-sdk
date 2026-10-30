@@ -739,28 +739,26 @@ export type {
   BlockVersionInput,
 } from './block-binding.js';
 export type {
-  AgentReleaseBindings,
+  AgentPinBindings,
+  AgentPinInput,
+  AgentPinResolution,
+  AgentPinResolveInput,
+  AgentPinnedVersion,
+  AgentPinnedVersionBinding,
+  AgentUnpinInput,
   ListCoveringPinsInput,
-  ListPromotionsInput,
-  LivePin,
-  LiveResolution,
-  LiveResolveInput,
-  LiveVersionBinding,
-  PromoteInput,
-  Promotion,
-  PromotionAction,
-  PromotionActor,
-  PromotionBinding,
-  PromotionError,
-  PromotionErrorCode,
-  PromotionRequestInput,
-  PromotionStatus,
-  RollbackInput,
-  UnpinInput,
-} from './live-version-binding.js';
+  ListPinHistoryInput,
+  Pin,
+  PinAction,
+  PinActor,
+  PinBinding,
+  PinError,
+  PinErrorCode,
+  PinRequestInput,
+  PinStatus,
+} from './agent-pin-binding.js';
 export type {
   ListPinnedVersionChangesInput,
-  PinActor,
   PinVersionInput,
   PinVersionOutcome,
   PinnedResolution,
@@ -789,8 +787,8 @@ export type {
 export { GATE_METRICS } from './gate-policy-binding.js';
 export type { GateApproval, GateCheck, GateInput, GateResult } from './gate.js';
 export { evaluateGate, gateApproval } from './gate.js';
-export type { AgentReleaseGateDeps } from './routes/agent-releases.js';
-export { coordinatesOf as liveScopeCoordinates } from './routes/agent-releases.js';
+export type { AgentPinGateDeps } from './routes/agent-pins.js';
+export { coordinatesOf as agentPinScopeCoordinates } from './routes/agent-pins.js';
 export type { GuardrailConfigCheck } from './routes/guardrails.js';
 export { EVAL_KINDS } from './test-set-binding.js';
 export type {

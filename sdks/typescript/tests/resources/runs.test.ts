@@ -646,7 +646,7 @@ describe('runs.start — projectId on agent runs (POST /v1/runs accepts it)', ()
   });
 });
 
-describe('runs.start — segments pick the live version', () => {
+describe('runs.start — segments pick the pinned version', () => {
   it('sends the segment path for an agent run and a flow run', async () => {
     const body = JSON.stringify(WIRE_RUN);
     const stub = recordingFetch([

@@ -2,9 +2,9 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type {
+  AgentPinScope,
   GatePolicy,
   GatePolicyPage,
-  LiveScope,
   PublishGatePolicyBody,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
@@ -58,7 +58,7 @@ export interface GatePolicyVersionsClient {
 export interface GatePolicyFilter {
   readonly agentId?: string;
   /** Only the policy of exactly this scope. */
-  readonly scope?: LiveScope;
+  readonly scope?: AgentPinScope;
   readonly limit?: number;
   readonly cursor?: string;
 }

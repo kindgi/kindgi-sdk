@@ -238,7 +238,7 @@ stops on it, and 1 when it couldn't ask:
 |---|---|---|---|
 | `kindgi promote --from --to`, and with `--check` | it moved, or would | never | a value the build needs isn't set in the target, or an error |
 | `kindgi test-runs start --wait` | the run completed | it failed or was cancelled | it's still running after 30 minutes, or an error |
-| `kindgi agents promote --wait` | the version is Pinned | the release gate policy refused it, its approval was rejected or expired, the request was superseded, or the wait ran out | an error, or 3 reads of the promotion in a row failed |
+| `kindgi agents pin --wait` | the version is Pinned | the release gate policy refused it, its approval was rejected or expired, the request was superseded, or the wait ran out | an error, or 3 reads of the pin in a row failed |
 | `kindgi promote --make-live --wait` | every version it carries is Pinned | one isn't | an error, or 3 reads of a promotion in a row failed |
 
 A usage error exits 2.
@@ -335,7 +335,7 @@ jobs:
           KINDGI_API_TOKEN: ${{ secrets.KINDGI_PROMOTE_KEY }}
           VERSION: ${{ steps.promoted.outputs.version }}
           RUN: ${{ steps.tested.outputs.run }}
-        run: pnpm exec kindgi agents promote "$AGENT" "$VERSION" --project="$PROD_PROJECT" --test-run="$RUN" --reason="${{ github.sha }} passed its test cases" --wait=1h
+        run: pnpm exec kindgi agents pin "$AGENT" "$VERSION" --project="$PROD_PROJECT" --test-run="$RUN" --reason="${{ github.sha }} passed its test cases" --wait=1h
 ```
 
 ### Make the new version Pinned in prod
@@ -347,21 +347,21 @@ The last three steps of `promote-prod` do it for one agent:
    unchanged, the next two steps skip.
 2. **`test-runs start --wait` runs the test cases on that version in prod.**
    The job stops when the run fails, and `jq` reads its id.
-3. **`agents promote --wait` asks prod's release gate policy,** with that
+3. **`agents pin --wait` asks prod's release gate policy,** with that
    run. When the policy asks for an approval, the step prints the approval's
    id and the command that approves it, then waits for a reviewer, up to an
    hour. It exits 0 once the version is Pinned.
 
 - **A step that waits ends before the CI system ends it.** `test-runs start
   --wait` waits up to 30 minutes, and exits 1 when the run is still going
-  then. `agents promote --wait=1h` waits up to an hour: when it runs out, it
-  exits 3, and when 3 reads of the promotion in a row fail, it exits 1.
+  then. `agents pin --wait=1h` waits up to an hour: when it runs out, it
+  exits 3, and when 3 reads of the pin in a row fail, it exits 1.
   Either way the approval stays open: once a reviewer approves it, the
   version is Pinned. Keep the job's `timeout-minutes` longer than the two
   waits together, as the example's 120 is.
 - **A carried agent the workflow doesn't name** stays on the version Pinned
   for it in prod. Name each agent that should go further, with its own test
-  run and `agents promote` steps.
+  run and `agents pin` steps.
 - **When prod's release gate policy asks only for an approval,** with no
   test run, `kindgi promote --from=staging --to=prod --make-live --wait` does
   the whole step for every agent the build carries. `--make-live` can't name
@@ -384,9 +384,9 @@ has what a release gate policy checks, and how a reviewer approves.
 
 ## When a release goes wrong
 
-- **Roll an agent back in prod:** one step, with no release gate policy in
+- **Unpin an agent in prod:** one step, with no release gate policy in
   the way
-  ([Roll back, or unpin](../../guides/evals/release-an-agent-version/#roll-back-or-unpin)).
+  ([Unpin](../../guides/evals/release-an-agent-version/#unpin)).
 - **For anything else, revert the change in git** and let the pipeline ship
   it. That rolls forward: each agent and flow whose content changed gets a
   new version.
@@ -431,4 +431,4 @@ protected jobs read, and set `KINDGI_API_TOKEN` on the `kindgi` steps only.
 - [People, API keys and service accounts](../people-and-keys/): the service
   accounts and keys CI uses, and how to revoke one.
 - [Release an agent version](../../guides/evals/release-an-agent-version/):
-  pin, roll back and gate a release by hand.
+  pin, unpin and gate a release by hand.

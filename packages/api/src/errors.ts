@@ -94,8 +94,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'agent-already-registered': 409,
   'agent-project-mismatch': 409,
   'registry-read-only': 409,
-  'live-scope-spans-environments': 409,
-  /** A flow or tool pinned wider than one project, for an item in an environment order. */
+  /** An agent, flow or tool pinned wider than one project, for an item in an environment order. */
   'pin-scope-spans-environments': 409,
   'agent-gone': 410,
   'run-erased': 410,
@@ -265,16 +264,15 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'corrector-group-not-applicable': 400,
   // The corrector group is restricted (`assertableBy`), and the caller isn't one who may assert it.
   'corrector-group-not-allowed': 403,
-  // Live versions of agents and their promotions.
+  // Pinned versions of agents and their pin history.
   'agent-version-not-found': 404,
-  'promotion-not-found': 404,
-  'nothing-to-roll-back': 409,
+  'pin-not-found': 404,
   'not-pinned': 409,
   // The gate (evals step 4b).
   'gate-failed': 422,
-  'promotion-superseded': 409,
-  // The binding can't record a gated promotion, so one a policy applies to is refused.
-  'promotion-gate-unsupported': 501,
+  'pin-superseded': 409,
+  // The binding can't record a gated pin, so one a policy applies to is refused.
+  'pin-gate-unsupported': 501,
   'separate-approver-required': 403,
   // An approval addressed to one member: someone else who reads it can't decide it.
   'named-approver-required': 403,
@@ -405,8 +403,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'person-grants-unsupported': 501,
   /** A caller's permissions on a runtime without an authorization store (`GET /v1/identity/me/permissions`). */
   'permissions-unsupported': 501,
-  /** Unregister: the version is live in a scope; move that pin first. */
-  'agent-version-live': 409,
+  /** Unregister: the version is pinned in a scope; move or remove that pin first. */
+  'agent-version-pinned': 409,
   /** Unregister or delete: the flow version is pinned in a scope; move or remove that pin first. */
   'flow-version-pinned': 409,
   /** Unregister or delete: the tool version is pinned in a scope; move or remove that pin first. */
@@ -431,7 +429,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'authz-membership-unsupported': 501,
   // The guardrail registry keeps no outcome ledger.
   'guardrail-outcomes-not-supported': 501,
-  // The live-version binding can't list the pins that cover a project.
+  // The agent pin binding can't list the pins that cover a project.
   'pinned-versions-not-supported': 501,
   'test-run-already-terminal': 409,
   'dispatcher-not-registered': 422,

@@ -982,8 +982,8 @@ and what's different after:
     tenant admin can erase an end user's words, their conversations and the
     runs that served them (`kindgi memory erasures`).
   - **Improve:** suggest new settings or a new prompt for an agent
-    version, try the candidate on the test cases, and make it live through
-    the release gate policy where it goes live, after review
+    version, try the candidate on the test cases, and pin it through
+    the release gate policy where it is pinned, after review
     (`kindgi suggested-changes`). Improve can look for better settings on its own,
     and a schedule can start an Improve run.
   - **Files kept with a run** (artifacts) and the capability catalog

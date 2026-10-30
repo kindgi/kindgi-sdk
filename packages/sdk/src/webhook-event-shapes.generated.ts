@@ -142,9 +142,9 @@ export const WEBHOOK_EVENT_SHAPES = {
                 optional: {
                   via: {
                     kind: 'string',
-                    enum: ['explicit', 'flow-pin', 'conversation', 'live', 'latest'],
+                    enum: ['explicit', 'flow-pin', 'conversation', 'pinned', 'latest'],
                   },
-                  liveScope: {
+                  pinnedScope: {
                     kind: 'union',
                     discriminator: 'kind',
                     variants: {

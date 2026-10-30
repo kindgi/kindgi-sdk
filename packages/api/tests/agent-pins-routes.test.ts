@@ -8,17 +8,17 @@ import { describe, expect, test } from 'vitest';
 
 import { createAgentRegistry, defineAgent } from '@kindgi/agents';
 import { ref } from '@kindgi/authz';
-import type { Cursor, LiveScope, Semver, TenantId, Timestamp, UserId } from '@kindgi/types';
+import type { AgentPinScope, Cursor, Semver, TenantId, Timestamp, UserId } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
+  AgentPinBindings,
+  AgentPinResolution,
+  AgentPinResolveInput,
   AgentRegistryBinding,
-  AgentReleaseBindings,
-  LiveResolution,
-  LiveResolveInput,
-  Promotion,
-  PromotionError,
+  Pin,
+  PinError,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
@@ -28,14 +28,14 @@ import { agentsRouter } from '../src/routes/agents.js';
 import type { AppEnv } from '../src/types.js';
 
 /**
- * Live versions and promotions routes (evals step 4). The bindings are
+ * Agent pin routes (evals step 4). The bindings are
  * fakes that record their inputs and return what each test sets up; the
  * routes only parse, call the binding and serialize.
  */
 
 const tenantId = randomUUID() as TenantId;
 const userId = randomUUID() as UserId;
-const TOKEN = 'releases-token';
+const TOKEN = 'pins-token';
 const PROJECT = randomUUID();
 const ORG = randomUUID();
 const AGENT = 'acme.drafting';
@@ -56,12 +56,12 @@ const post = (body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 
-function promotion(overrides: Partial<Promotion> = {}): Promotion {
+function pin(overrides: Partial<Pin> = {}): Pin {
   return {
     id: randomUUID(),
     agentId: AGENT,
     scope: { kind: 'tenant' },
-    action: 'promote',
+    action: 'pin',
     fromVersion: null,
     toVersion: '1.1.0' as Semver,
     requestedBy: { kind: 'user', id: userId as unknown as string },
@@ -70,49 +70,45 @@ function promotion(overrides: Partial<Promotion> = {}): Promotion {
   };
 }
 
-type Outcome = { kind: 'ok'; value: Promotion } | { kind: 'err'; error: PromotionError };
+type Outcome = { kind: 'ok'; value: Pin } | { kind: 'err'; error: PinError };
 
 /** Fakes that record each call; tests set what they return. */
-function fakeReleases() {
+function fakePins() {
   const calls: { method: string; input: unknown }[] = [];
   const state: {
-    resolved: LiveResolution | null;
+    resolved: AgentPinResolution | null;
     outcome: Outcome;
-    page: { data: readonly Promotion[]; nextCursor?: Cursor };
-    found: Promotion | null;
+    page: { data: readonly Pin[]; nextCursor?: Cursor };
+    found: Pin | null;
   } = {
     resolved: null,
-    outcome: { kind: 'ok', value: promotion() },
+    outcome: { kind: 'ok', value: pin() },
     page: { data: [] },
     found: null,
   };
   const record = (method: string, input: unknown) => calls.push({ method, input });
-  const bindings: AgentReleaseBindings = {
-    live: {
-      resolve: async (input: LiveResolveInput) => {
+  const bindings: AgentPinBindings = {
+    pinned: {
+      resolve: async (input: AgentPinResolveInput) => {
         record('resolve', input);
         return state.resolved;
       },
       list: async (input) => {
-        record('live.list', input);
+        record('pinned.list', input);
         return [
           {
             agentId: AGENT,
-            scope: { kind: 'project', projectId: PROJECT } as LiveScope,
+            scope: { kind: 'project', projectId: PROJECT } as AgentPinScope,
             version: '1.1.0' as Semver,
-            promotionId: 'p-1',
+            changeId: 'p-1',
             setAt: '2026-10-05T12:00:00.000Z' as Timestamp,
           },
         ];
       },
     },
-    promotions: {
-      promote: async (input) => {
-        record('promote', input);
-        return state.outcome;
-      },
-      rollback: async (input) => {
-        record('rollback', input);
+    changes: {
+      pin: async (input) => {
+        record('pin', input);
         return state.outcome;
       },
       unpin: async (input) => {
@@ -120,11 +116,11 @@ function fakeReleases() {
         return state.outcome;
       },
       list: async (input) => {
-        record('promotions.list', input);
+        record('pin-history.list', input);
         return state.page;
       },
-      get: async (_tenant, promotionId) => {
-        record('promotions.get', promotionId);
+      get: async (_tenant, changeId) => {
+        record('pin-history.get', changeId);
         return state.found;
       },
     },
@@ -170,19 +166,19 @@ function registryWith(versions: readonly string[]): AgentRegistryBinding {
 }
 
 function makeApp(versions: readonly string[] = ['1.0.0', '1.1.0'], readOnly?: RegistryReadOnly) {
-  const fake = fakeReleases();
+  const fake = fakePins();
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
     runHandler,
     agentRegistry: { ...registryWith(versions), ...(readOnly !== undefined && { readOnly }) },
-    agentReleases: fake.bindings,
+    agentPins: fake.bindings,
   });
   return { app, ...fake };
 }
 
-describe('GET /v1/agents/:agentId/live', () => {
-  test('a pin on the way up → that version, via live, with its scope', async () => {
+describe('GET /v1/agents/:agentId/pinned', () => {
+  test('a pin on the way up → that version, via pinned, with its scope', async () => {
     const { app, calls, state } = makeApp();
     state.resolved = {
       version: '1.0.0' as Semver,
@@ -193,15 +189,15 @@ describe('GET /v1/agents/:agentId/live', () => {
       },
     };
     const res = await app.request(
-      `/v1/agents/${AGENT}/live?projectId=${PROJECT}&segment=region:eu&segment=plan:pro`,
+      `/v1/agents/${AGENT}/pinned?projectId=${PROJECT}&segment=region:eu&segment=plan:pro`,
       { headers: auth },
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       agentId: AGENT,
       version: '1.0.0',
-      via: 'live',
-      liveScope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'plan', value: 'pro' }] },
+      via: 'pinned',
+      pinnedScope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'plan', value: 'pro' }] },
     });
     expect(calls).toEqual([
       {
@@ -221,14 +217,14 @@ describe('GET /v1/agents/:agentId/live', () => {
 
   test('nothing pinned → the latest registered version, via latest', async () => {
     const { app } = makeApp();
-    const res = await app.request(`/v1/agents/${AGENT}/live`, { headers: auth });
+    const res = await app.request(`/v1/agents/${AGENT}/pinned`, { headers: auth });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ agentId: AGENT, version: '1.1.0', via: 'latest' });
   });
 
   test('nothing pinned and no such agent → 404', async () => {
     const { app } = makeApp([]);
-    const res = await app.request(`/v1/agents/${AGENT}/live`, { headers: auth });
+    const res = await app.request(`/v1/agents/${AGENT}/pinned`, { headers: auth });
     expect(res.status).toBe(404);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe('agent-not-found');
   });
@@ -240,16 +236,16 @@ describe('GET /v1/agents/:agentId/live', () => {
     ['a repeated segment key', `?projectId=${PROJECT}&segment=plan:a&segment=plan:b`],
   ])('%s → 400', async (_name, query) => {
     const { app, calls } = makeApp();
-    const res = await app.request(`/v1/agents/${AGENT}/live${query}`, { headers: auth });
+    const res = await app.request(`/v1/agents/${AGENT}/pinned${query}`, { headers: auth });
     expect(res.status).toBe(400);
     expect(calls).toEqual([]);
   });
 });
 
-describe('GET /v1/agents/:agentId/live-versions', () => {
+describe('GET /v1/agents/:agentId/pinned-versions', () => {
   test('lists every pin with its scope on the wire', async () => {
     const { app } = makeApp();
-    const res = await app.request(`/v1/agents/${AGENT}/live-versions`, { headers: auth });
+    const res = await app.request(`/v1/agents/${AGENT}/pinned-versions`, { headers: auth });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       data: [
@@ -257,7 +253,7 @@ describe('GET /v1/agents/:agentId/live-versions', () => {
           agentId: AGENT,
           scope: { kind: 'project', projectId: PROJECT },
           version: '1.1.0',
-          promotionId: 'p-1',
+          changeId: 'p-1',
           setAt: '2026-10-05T12:00:00.000Z',
         },
       ],
@@ -265,13 +261,13 @@ describe('GET /v1/agents/:agentId/live-versions', () => {
   });
 });
 
-describe('POST /v1/agents/:agentId/promotions', () => {
-  test('promotes for a scope, as the request’s user → 201', async () => {
+describe('POST /v1/agents/:agentId/pinned/pin', () => {
+  test('pins for a scope, as the request’s user → 201', async () => {
     const { app, calls, state } = makeApp();
-    const made = promotion({ scope: { kind: 'org', orgId: ORG as never }, reason: 'eval passed' });
+    const made = pin({ scope: { kind: 'org', orgId: ORG as never }, reason: 'eval passed' });
     state.outcome = { kind: 'ok', value: made };
     const res = await app.request(
-      `/v1/agents/${AGENT}/promotions`,
+      `/v1/agents/${AGENT}/pinned/pin`,
       post({
         version: '1.1.0',
         scope: { kind: 'org', orgId: ORG },
@@ -284,7 +280,7 @@ describe('POST /v1/agents/:agentId/promotions', () => {
       id: made.id,
       agentId: AGENT,
       scope: { kind: 'org', orgId: ORG },
-      action: 'promote',
+      action: 'pin',
       fromVersion: null,
       toVersion: '1.1.0',
       requestedBy: { kind: 'user', id: userId },
@@ -293,7 +289,7 @@ describe('POST /v1/agents/:agentId/promotions', () => {
     });
     expect(calls).toEqual([
       {
-        method: 'promote',
+        method: 'pin',
         input: {
           tenantId,
           agentId: AGENT,
@@ -322,7 +318,7 @@ describe('POST /v1/agents/:agentId/promotions', () => {
     ['a blank reason', { version: '1.1.0', scope: { kind: 'tenant' }, reason: '  ' }],
   ])('%s → 400, binding not called', async (_name, body) => {
     const { app, calls } = makeApp();
-    const res = await app.request(`/v1/agents/${AGENT}/promotions`, post(body));
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, post(body));
     expect(res.status).toBe(400);
     expect(calls).toEqual([]);
   });
@@ -334,7 +330,7 @@ describe('POST /v1/agents/:agentId/promotions', () => {
       error: { code: 'agent-version-not-found', message: 'no 9.9.9' },
     };
     const res = await app.request(
-      `/v1/agents/${AGENT}/promotions`,
+      `/v1/agents/${AGENT}/pinned/pin`,
       post({ version: '9.9.9', scope: { kind: 'tenant' } }),
     );
     expect(res.status).toBe(404);
@@ -344,14 +340,14 @@ describe('POST /v1/agents/:agentId/promotions', () => {
   });
 });
 
-describe('GET /v1/agents/:agentId/promotions', () => {
+describe('GET /v1/agents/:agentId/pin-history', () => {
   test('a cursor the binding didn’t issue: 400 bad-input, before the list is read', async () => {
-    const fake = fakeReleases();
-    const releases: AgentReleaseBindings = {
+    const fake = fakePins();
+    const pins: AgentPinBindings = {
       ...fake.bindings,
-      promotions: {
-        ...fake.bindings.promotions,
-        issuedCursor: (list, cursor) => list === 'promotions' && cursor === ('c-1' as Cursor),
+      changes: {
+        ...fake.bindings.changes,
+        issuedCursor: (list, cursor) => list === 'pin-history' && cursor === ('c-1' as Cursor),
       },
     };
     const app = createApp({
@@ -359,24 +355,24 @@ describe('GET /v1/agents/:agentId/promotions', () => {
       resolveToken,
       runHandler,
       agentRegistry: registryWith(['1.0.0']),
-      agentReleases: releases,
+      agentPins: pins,
     });
-    const refused = await app.request(`/v1/agents/${AGENT}/promotions?cursor=made-up`, {
+    const refused = await app.request(`/v1/agents/${AGENT}/pin-history?cursor=made-up`, {
       headers: auth,
     });
     expect(refused.status).toBe(400);
     expect(((await refused.json()) as { error: { code: string } }).error.code).toBe('bad-input');
     expect(fake.calls).toEqual([]);
-    const next = await app.request(`/v1/agents/${AGENT}/promotions?cursor=c-1`, { headers: auth });
+    const next = await app.request(`/v1/agents/${AGENT}/pin-history?cursor=c-1`, { headers: auth });
     expect(next.status).toBe(200);
-    expect(fake.calls.map((c) => c.method)).toEqual(['promotions.list']);
+    expect(fake.calls.map((c) => c.method)).toEqual(['pin-history.list']);
   });
 
   test('pages, newest first as the binding returns them', async () => {
     const { app, calls, state } = makeApp();
-    const a = promotion();
+    const a = pin();
     state.page = { data: [a], nextCursor: 'c-2' as Cursor };
-    const res = await app.request(`/v1/agents/${AGENT}/promotions?limit=1&cursor=c-1`, {
+    const res = await app.request(`/v1/agents/${AGENT}/pin-history?limit=1&cursor=c-1`, {
       headers: auth,
     });
     expect(res.status).toBe(200);
@@ -389,14 +385,14 @@ describe('GET /v1/agents/:agentId/promotions', () => {
     expect(body.hasMore).toBe(true);
     expect(body.nextCursor).toBe('c-2');
     expect(calls).toEqual([
-      { method: 'promotions.list', input: { tenantId, agentId: AGENT, limit: 1, cursor: 'c-1' } },
+      { method: 'pin-history.list', input: { tenantId, agentId: AGENT, limit: 1, cursor: 'c-1' } },
     ]);
   });
 
   test('narrows to a segment scope', async () => {
     const { app, calls } = makeApp();
     const res = await app.request(
-      `/v1/agents/${AGENT}/promotions?scopeKind=segment&scopeId=${PROJECT}&segment=plan:pro`,
+      `/v1/agents/${AGENT}/pin-history?scopeKind=segment&scopeId=${PROJECT}&segment=plan:pro`,
       { headers: auth },
     );
     expect(res.status).toBe(200);
@@ -414,95 +410,40 @@ describe('GET /v1/agents/:agentId/promotions', () => {
     ['a segment scope without a path', `?scopeKind=segment&scopeId=${PROJECT}`],
   ])('%s → 400', async (_name, query) => {
     const { app, calls } = makeApp();
-    const res = await app.request(`/v1/agents/${AGENT}/promotions${query}`, { headers: auth });
+    const res = await app.request(`/v1/agents/${AGENT}/pin-history${query}`, { headers: auth });
     expect(res.status).toBe(400);
     expect(calls).toEqual([]);
   });
 });
 
-describe('GET /v1/agents/:agentId/promotions/:promotionId', () => {
+describe('GET /v1/agents/:agentId/pin-history/:changeId', () => {
   test('found → 200', async () => {
     const { app, state } = makeApp();
-    state.found = promotion();
-    const res = await app.request(`/v1/agents/${AGENT}/promotions/${state.found.id}`, {
+    state.found = pin();
+    const res = await app.request(`/v1/agents/${AGENT}/pin-history/${state.found.id}`, {
       headers: auth,
     });
     expect(res.status).toBe(200);
     expect(((await res.json()) as { id: string }).id).toBe(state.found.id);
   });
 
-  test('another agent’s promotion → 404', async () => {
+  test('another agent’s pin → 404', async () => {
     const { app, state } = makeApp();
-    state.found = promotion({ agentId: 'acme.other' });
-    const res = await app.request(`/v1/agents/${AGENT}/promotions/${state.found.id}`, {
+    state.found = pin({ agentId: 'acme.other' });
+    const res = await app.request(`/v1/agents/${AGENT}/pin-history/${state.found.id}`, {
       headers: auth,
     });
     expect(res.status).toBe(404);
-    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
-      'promotion-not-found',
-    );
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('pin-not-found');
   });
 });
 
-describe('POST /v1/agents/:agentId/live/rollback and /live/unpin', () => {
-  test('rollback passes toVersion and reason → 200', async () => {
-    const { app, calls, state } = makeApp();
-    state.outcome = {
-      kind: 'ok',
-      value: promotion({
-        action: 'rollback',
-        fromVersion: '1.1.0' as Semver,
-        toVersion: '1.0.0' as Semver,
-      }),
-    };
-    const res = await app.request(
-      `/v1/agents/${AGENT}/live/rollback`,
-      post({
-        scope: { kind: 'project', projectId: PROJECT },
-        toVersion: '1.0.0',
-        reason: 'regression',
-      }),
-    );
-    expect(res.status).toBe(200);
-    expect(((await res.json()) as { action: string }).action).toBe('rollback');
-    expect(calls[0]).toEqual({
-      method: 'rollback',
-      input: {
-        tenantId,
-        agentId: AGENT,
-        scope: { kind: 'project', projectId: PROJECT },
-        requestedBy: { kind: 'user', id: userId },
-        toVersion: '1.0.0',
-        reason: 'regression',
-      },
-    });
-  });
-
-  test('nothing to roll back → 409', async () => {
-    const { app, state } = makeApp();
-    state.outcome = { kind: 'err', error: { code: 'nothing-to-roll-back', message: 'none' } };
-    const res = await app.request(
-      `/v1/agents/${AGENT}/live/rollback`,
-      post({ scope: { kind: 'tenant' } }),
-    );
-    expect(res.status).toBe(409);
-  });
-
-  test('a blank toVersion → 400', async () => {
-    const { app, calls } = makeApp();
-    const res = await app.request(
-      `/v1/agents/${AGENT}/live/rollback`,
-      post({ scope: { kind: 'tenant' }, toVersion: '' }),
-    );
-    expect(res.status).toBe(400);
-    expect(calls).toEqual([]);
-  });
-
+describe('POST /v1/agents/:agentId/pinned/unpin', () => {
   test('unpin a scope with no pin of its own → 409', async () => {
     const { app, calls, state } = makeApp();
     state.outcome = { kind: 'err', error: { code: 'not-pinned', message: 'no pin' } };
     const res = await app.request(
-      `/v1/agents/${AGENT}/live/unpin`,
+      `/v1/agents/${AGENT}/pinned/unpin`,
       post({ scope: { kind: 'org', orgId: ORG } }),
     );
     expect(res.status).toBe(409);
@@ -510,20 +451,20 @@ describe('POST /v1/agents/:agentId/live/rollback and /live/unpin', () => {
   });
 });
 
-describe('without agentReleases, the routes are not mounted', () => {
-  test('GET /live → 404', async () => {
+describe('without agentPins, the routes are not mounted', () => {
+  test('GET /pinned → 404', async () => {
     const app = createApp({
       ...createStubAppBindings(),
       resolveToken,
       runHandler,
       agentRegistry: registryWith(['1.0.0']),
     });
-    const res = await app.request(`/v1/agents/${AGENT}/live`, { headers: auth });
+    const res = await app.request(`/v1/agents/${AGENT}/pinned`, { headers: auth });
     expect(res.status).toBe(404);
   });
 });
 
-describe('authorization: changing what is live needs promote; reading needs read', () => {
+describe('authorization: changing a pin needs pin; reading needs read', () => {
   function recordingAuthorizer(checked: string[]): Authorizer {
     return {
       authorize: (action, getResource) => async (c, next) => {
@@ -543,11 +484,11 @@ describe('authorization: changing what is live needs promote; reading needs read
   }
 
   function mounted(checked: string[]) {
-    const fake = fakeReleases();
+    const fake = fakePins();
     const app = new Hono<AppEnv>();
     app.use('*', async (c, next) => {
       c.set('tenantId' as never, tenantId as never);
-      c.set('requestId' as never, 'req-releases' as never);
+      c.set('requestId' as never, 'req-pins' as never);
       return next();
     });
     app.route(
@@ -567,14 +508,13 @@ describe('authorization: changing what is live needs promote; reading needs read
   const on = `${agent.type}:${agent.id}`;
 
   test.each([
-    ['POST', '/promotions', { version: '1.0.0', scope: { kind: 'tenant' } }, 'promote'],
-    ['POST', '/live/rollback', { scope: { kind: 'tenant' } }, 'promote'],
-    ['POST', '/live/unpin', { scope: { kind: 'tenant' } }, 'promote'],
-    ['POST', '/promotions/check', { version: '1.0.0', scope: { kind: 'tenant' } }, 'read'],
+    ['POST', '/pinned/pin', { version: '1.0.0', scope: { kind: 'tenant' } }, 'pin'],
+    ['POST', '/pinned/unpin', { scope: { kind: 'tenant' } }, 'pin'],
+    ['POST', '/pinned/check', { version: '1.0.0', scope: { kind: 'tenant' } }, 'read'],
     ['GET', '/gate-policy?scopeKind=tenant', undefined, 'read'],
-    ['GET', '/live', undefined, 'read'],
-    ['GET', '/live-versions', undefined, 'read'],
-    ['GET', '/promotions', undefined, 'read'],
+    ['GET', '/pinned', undefined, 'read'],
+    ['GET', '/pinned-versions', undefined, 'read'],
+    ['GET', '/pin-history', undefined, 'read'],
   ])('%s %s → %s on the agent', async (method, path, body, action) => {
     const checked: string[] = [];
     await mounted(checked).request(`/${AGENT}${path}`, {
@@ -594,21 +534,24 @@ describe('authorization: changing what is live needs promote; reading needs read
   });
 });
 
-describe('POST /v1/agents/:agentId/versions/:version/unregister, a live version', () => {
-  function appWhoseUnregister(outcome: { unregistered: boolean; live?: readonly LiveScope[] }) {
+describe('POST /v1/agents/:agentId/versions/:version/unregister, a pinned version', () => {
+  function appWhoseUnregister(outcome: {
+    unregistered: boolean;
+    pinned?: readonly AgentPinScope[];
+  }) {
     return createApp({
       ...createStubAppBindings(),
       resolveToken,
       runHandler,
       agentRegistry: { ...registryWith(['1.0.0']), unregister: async () => outcome },
-      agentReleases: fakeReleases().bindings,
+      agentPins: fakePins().bindings,
     });
   }
 
-  test('refused with 409 agent-version-live, naming the scopes it serves', async () => {
+  test('refused with 409 agent-version-pinned, naming the scopes it serves', async () => {
     const app = appWhoseUnregister({
       unregistered: false,
-      live: [
+      pinned: [
         { kind: 'tenant' },
         { kind: 'segment', projectId: PROJECT as never, path: [{ key: 'plan', value: 'pro' }] },
       ],
@@ -621,8 +564,8 @@ describe('POST /v1/agents/:agentId/versions/:version/unregister, a live version'
     const body = (await res.json()) as {
       error: { code: string; message: string; details: Record<string, unknown> };
     };
-    expect(body.error.code).toBe('agent-version-live');
-    expect(body.error.message).toContain('roll back, unpin, or promote another version');
+    expect(body.error.code).toBe('agent-version-pinned');
+    expect(body.error.message).toContain('unpin, or pin another version there first');
     expect(body.error.details).toEqual({
       agentId: AGENT,
       version: '1.0.0',
@@ -633,7 +576,7 @@ describe('POST /v1/agents/:agentId/versions/:version/unregister, a live version'
     });
   });
 
-  test('a registry that knows no live versions: 404 as before', async () => {
+  test('a registry that knows no pinned versions: 404 as before', async () => {
     const res = await appWhoseUnregister({ unregistered: false }).request(
       `/v1/agents/${AGENT}/versions/1.0.0/unregister`,
       { method: 'POST', headers: auth },
@@ -651,27 +594,27 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
     },
   };
 
-  test('a promotion gets through to the releases binding → 201', async () => {
+  test('a pin gets through to the pins binding → 201', async () => {
     const { app, calls } = makeApp(undefined, MARKER);
     const res = await app.request(
-      `/v1/agents/${AGENT}/promotions`,
+      `/v1/agents/${AGENT}/pinned/pin`,
       post({ version: '1.1.0', scope: { kind: 'tenant' } }),
     );
     expect(res.status).toBe(201);
-    expect(calls.map((c) => c.method)).toContain('promote');
+    expect(calls.map((c) => c.method)).toContain('pin');
   });
 
-  test('a promotion check gets through', async () => {
+  test('a pin check gets through', async () => {
     const { app } = makeApp(undefined, MARKER);
     const res = await app.request(
-      `/v1/agents/${AGENT}/promotions/check`,
+      `/v1/agents/${AGENT}/pinned/check`,
       post({ version: '1.1.0', scope: { kind: 'tenant' } }),
     );
     expect(res.status).not.toBe(409);
     expect(JSON.stringify(await res.json())).not.toContain('registry-read-only');
   });
 
-  test.each(['/live/rollback', '/live/unpin'])(
+  test.each(['/pinned/unpin'])(
     'POST %s is refused with the undo reason, and the binding is never called',
     async (path) => {
       const { app, calls } = makeApp(undefined, MARKER);
@@ -684,7 +627,7 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
         code: 'registry-read-only',
         message: MARKER.takesCandidates?.undoReason,
       });
-      expect(calls.map((c) => c.method)).not.toContain(path.slice('/live/'.length));
+      expect(calls.map((c) => c.method)).not.toContain(path.slice('/pinned/'.length));
     },
   );
 
@@ -703,10 +646,10 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
     });
   });
 
-  test('without the marker, a read-only registry refuses a promotion too', async () => {
+  test('without the marker, a read-only registry refuses a pin too', async () => {
     const { app, calls } = makeApp(undefined, { reason: MARKER.reason });
     const res = await app.request(
-      `/v1/agents/${AGENT}/promotions`,
+      `/v1/agents/${AGENT}/pinned/pin`,
       post({ version: '1.1.0', scope: { kind: 'tenant' } }),
     );
     expect(res.status).toBe(409);

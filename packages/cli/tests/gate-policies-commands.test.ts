@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `kindgi gate-policies …`, `kindgi agents gate-policy` and `kindgi agents promote --check` (evals step 4b). */
+/** `kindgi gate-policies …`, `kindgi agents gate-policy` and `kindgi agents pin --check` (evals step 4b). */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -156,7 +156,7 @@ describe('kindgi agents: the gate', () => {
     expect(JSON.parse(out.stdout)).toEqual({ policy: null });
   });
 
-  test('promote --check asks the gate and changes nothing', async () => {
+  test('pin --check asks the gate and changes nothing', async () => {
     const { calls, rec } = recorder();
     const answer = {
       outcome: 'needs-approval',
@@ -166,14 +166,14 @@ describe('kindgi agents: the gate', () => {
     const out = await run(
       [
         'agents',
-        'promote',
+        'pin',
         'acme.drafter',
         '1.2.0',
         `--project=${PROJECT}`,
         '--test-run=er-1',
         '--check',
       ],
-      { agents: { promotions: { check: rec('check', answer), create: rec('create') } } },
+      { agents: { pinned: { check: rec('check', answer), pin: rec('pin') } } },
     );
     // `needs-approval` is a no: the answer is printed, and it exits 3.
     expect(out.exitCode, out.stderr).toBe(3);

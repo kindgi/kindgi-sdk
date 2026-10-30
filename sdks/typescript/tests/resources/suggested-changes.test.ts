@@ -74,7 +74,7 @@ describe('client.suggestedChanges', () => {
     });
   });
 
-  it('list sends a live scope as the promotions history takes it', async () => {
+  it('list sends a pinned scope as the pin history takes it', async () => {
     const stub = jsonFetch({ data: [], hasMore: false });
     await clientWith(stub).suggestedChanges.list({ scope: WIRE_SUGGESTED_CHANGE.scope as never });
     const url = new URL(stub.calls[0]!.url);

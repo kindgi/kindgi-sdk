@@ -282,8 +282,8 @@ function harness(opts: { readonly projects?: boolean } = {}) {
 }
 
 const RULE = {
-  name: 'Live refund runs',
-  when: { agentIds: ['acme.refunds'], versions: ['live'], status: ['completed'] },
+  name: 'Pinned refund runs',
+  when: { agentIds: ['acme.refunds'], versions: ['pinned'], status: ['completed'] },
   sample: 0.5,
   maxOpen: 20,
   correctorGroupId: 'cls-expert',

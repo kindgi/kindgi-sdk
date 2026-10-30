@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { LiveScope, OrgId, ProjectId } from '@kindgi/types';
+import type { AgentPinScope, OrgId, ProjectId } from '@kindgi/types';
 
 import { parseSegmentsBody } from './segments.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** A live scope on the wire: `{kind}` plus the id or path it needs. */
-export type WireLiveScope =
+/** A pinned scope on the wire: `{kind}` plus the id or path it needs. */
+export type WireAgentPinScope =
   | { readonly kind: 'tenant' }
   | { readonly kind: 'org'; readonly orgId: string }
   | { readonly kind: 'project'; readonly projectId: string }
@@ -18,7 +18,7 @@ export type WireLiveScope =
       readonly path: readonly { readonly key: string; readonly value: string }[];
     };
 
-export function liveScopeToWire(scope: LiveScope): WireLiveScope {
+export function agentPinScopeToWire(scope: AgentPinScope): WireAgentPinScope {
   switch (scope.kind) {
     case 'tenant':
       return { kind: 'tenant' };
@@ -36,14 +36,14 @@ export function liveScopeToWire(scope: LiveScope): WireLiveScope {
 }
 
 /**
- * A live scope from a request body (`scope`): `{kind: 'tenant'}`,
+ * A pinned scope from a request body (`scope`): `{kind: 'tenant'}`,
  * `{kind: 'org', orgId}`, `{kind: 'project', projectId}` or
  * `{kind: 'segment', projectId, path: [{key, value}, …]}`.
  */
-export function parseLiveScopeBody(
+export function parseAgentPinScopeBody(
   raw: unknown,
 ):
-  | { readonly kind: 'ok'; readonly scope: LiveScope }
+  | { readonly kind: 'ok'; readonly scope: AgentPinScope }
   | { readonly kind: 'err'; readonly message: string } {
   const b = (raw ?? {}) as Record<string, unknown>;
   const id = (field: 'orgId' | 'projectId'): string | undefined => {

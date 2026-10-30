@@ -97,8 +97,8 @@ the same with `flowId` `agent.turn`. Its `agent` says which agent ran:
 - **`agent.id` and `agent.version`** are the agent and the version that ran.
   **`conversationId`** is the conversation the turn belongs to.
 - **`via`** says why that version ran:
-  - `latest`: no version is live for the run's scope;
-  - `live`: the version live for its scope;
+  - `latest`: no version is pinned for the run's scope;
+  - `pinned`: the version pinned for its scope;
   - `explicit`: your app named the version;
   - `conversation`: the conversation's own version.
 - **`usage`** counts the agent's model calls, as on a flow's run.

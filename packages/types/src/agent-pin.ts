@@ -14,12 +14,12 @@ export interface ScopeSegment {
 }
 
 /**
- * Where a live version is pinned, from least to most specific: the
+ * Where an agent version is pinned, from least to most specific: the
  * agent's default for the tenant, an org, a project, or a segment path
  * within a project. A run takes the most specific pin that covers it; a
  * segment pin covers every run whose path starts with it.
  */
-export type LiveScope =
+export type AgentPinScope =
   | { readonly kind: 'tenant' }
   | { readonly kind: 'org'; readonly orgId: OrgId }
   | { readonly kind: 'project'; readonly projectId: ProjectId }
@@ -33,8 +33,8 @@ export type LiveScope =
  * Why a run used its agent version: named by the caller (`explicit`), held
  * by the flow version a flow's agent step runs in (`flow-pin`: its node's
  * `config.version`, else the version the flow version pinned when it was
- * published), the conversation's own (`conversation`), the version live
- * for the run's scope (`live`), or the latest registered, nothing being
- * live (`latest`).
+ * published), the conversation's own (`conversation`), the version pinned
+ * for the run's scope (`pinned`), or the latest registered, nothing being
+ * pinned (`latest`).
  */
-export type AgentVersionVia = 'explicit' | 'flow-pin' | 'conversation' | 'live' | 'latest';
+export type AgentVersionVia = 'explicit' | 'flow-pin' | 'conversation' | 'pinned' | 'latest';

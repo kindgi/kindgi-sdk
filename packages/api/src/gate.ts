@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { ReviewerRole } from '@kindgi/authz';
-import type { LiveScope } from '@kindgi/types';
+import type { AgentPinScope } from '@kindgi/types';
 
 import type { ComparisonMetric, CorrectedComparisonSummary } from './corrected-dispatcher.js';
 import type { GateMetricName, GateMetricSpec, GatePolicySpec } from './gate-policy-binding.js';
@@ -41,7 +41,7 @@ export interface GateInput {
     readonly version: string;
     /** The promoted version's `pinsDigest`; `null` for a version published before pins. */
     readonly pinsDigest: string | null;
-    readonly scope: LiveScope;
+    readonly scope: AgentPinScope;
   };
   /** The comparison named by `testRunId`; `null` when none was. */
   readonly summary: CorrectedComparisonSummary | null;
@@ -292,7 +292,7 @@ function baselineCheck(summary: CorrectedComparisonSummary, input: GateInput): G
     return {
       name,
       passed: false,
-      message: `The test run measured this version against ${versions.length} versions (${versions.join(', ')}); it must be measured against the live version, ${serving}.`,
+      message: `The test run measured this version against ${versions.length} versions (${versions.join(', ')}); it must be measured against the pinned version, ${serving}.`,
       value: versions.join(', '),
       threshold: serving,
     };
@@ -302,8 +302,8 @@ function baselineCheck(summary: CorrectedComparisonSummary, input: GateInput): G
     name,
     passed,
     message: passed
-      ? `The test run measured this version against the live version, ${serving}.`
-      : `The test run measured this version against ${versions[0]}; the live version is ${serving}. Re-run it against that one.`,
+      ? `The test run measured this version against the pinned version, ${serving}.`
+      : `The test run measured this version against ${versions[0]}; the pinned version is ${serving}. Re-run it against that one.`,
     value: versions[0] ?? '',
     threshold: serving,
   };
@@ -431,8 +431,8 @@ function metricChecks(
       passed: candidate !== null && floor !== null && candidate + EPSILON >= floor,
       message:
         candidate === null || baseline === null
-          ? `${label} can't be compared: ${candidate === null ? 'this version' : 'the live version'} has no corrected answers.`
-          : `${label} is ${fmt(candidate)} against the live version's ${fmt(baseline)}; the policy allows a drop of at most ${fmt(spec.maxDrop)}.`,
+          ? `${label} can't be compared: ${candidate === null ? 'this version' : 'the pinned version'} has no corrected answers.`
+          : `${label} is ${fmt(candidate)} against the pinned version's ${fmt(baseline)}; the policy allows a drop of at most ${fmt(spec.maxDrop)}.`,
       ...(candidate !== null && baseline !== null && { value: round(candidate - baseline) }),
       threshold: -spec.maxDrop,
     });
@@ -456,7 +456,7 @@ function evidenceChecks(
   if (spec.maxDrop !== undefined) {
     sides.push({
       prefix: 'baseline',
-      whose: 'the live version',
+      whose: 'the pinned version',
       n: metric.baselineN,
       weight: metric.baselineWeight,
     });

@@ -329,11 +329,11 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
-  'agents live': {
+  'agents pinned': {
     project: 'none',
     segment: 'none',
   },
-  'agents promote': {
+  'agents pin': {
     'test-run': 'none',
     'idempotency-key': 'none',
     tenant: 'required: one of `--tenant`, `--org`, `--project`',
@@ -349,15 +349,6 @@ export const CLI_DEFAULTS = {
     project: 'required: one of `--tenant`, `--org`, `--project`',
     segment: 'none',
   },
-  'agents rollback': {
-    tenant: 'required: one of `--tenant`, `--org`, `--project`',
-    org: 'required: one of `--tenant`, `--org`, `--project`',
-    project: 'required: one of `--tenant`, `--org`, `--project`',
-    segment: 'none',
-    'idempotency-key': 'none',
-    reason: 'none',
-    to: 'the previous live version',
-  },
   'agents unpin': {
     tenant: 'required: one of `--tenant`, `--org`, `--project`',
     org: 'required: one of `--tenant`, `--org`, `--project`',
@@ -366,7 +357,7 @@ export const CLI_DEFAULTS = {
     'idempotency-key': 'none',
     reason: 'none',
   },
-  'agents promotions list': {
+  'agents pin-history list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
     tenant: 'none (no scope given: the history of every scope)',
@@ -681,7 +672,7 @@ export const CLI_DEFAULTS = {
   },
   'mail-triggers create': {
     agent: 'none',
-    'agent-version': 'none (its live version, else the latest)',
+    'agent-version': 'none (its pinned version, else the latest)',
     'allow-unattended': 'none (a tool that waits for a person still waits)',
     as: '`person` (your own mailbox)',
     flow: 'none',
@@ -1538,10 +1529,10 @@ export const CLI_EXAMPLES = {
       line: 'kindgi agents versions acme-ops.reply-drafter --include-unregistered',
     },
   ],
-  'agents live-versions': [
+  'agents pinned-versions': [
     {
-      purpose: 'List every scope with a live version of the agent.',
-      line: 'kindgi agents live-versions acme.order-desk',
+      purpose: 'List every scope with a pinned version of the agent.',
+      line: 'kindgi agents pinned-versions acme.order-desk',
     },
   ],
   'agents gate-policy': [
@@ -1554,10 +1545,10 @@ export const CLI_EXAMPLES = {
       line: 'kindgi agents gate-policy acme.order-desk --project=<project-id> --segment=company:acme',
     },
   ],
-  'agents promotions get': [
+  'agents pin-history get': [
     {
-      purpose: "Show one entry of an agent's go-live history.",
-      line: 'kindgi agents promotions get acme.order-desk <promotion-id>',
+      purpose: "Show one entry of an agent's pin history.",
+      line: 'kindgi agents pin-history get acme.order-desk <change-id>',
     },
   ],
   'conversations list': [

@@ -67,15 +67,14 @@ export const EVIDENCE_KINDS = [
   // carries the answer's size and SHA-256, never the answer.
   'wait-token-completed',
   'wait-token-discarded',
-  // Which agent version is live for a scope: a promotion, a rollback, or
-  // an unpin (the scope falls back to the one above).
-  'agent-promotion',
-  // A promotion its gate policy refused (evals step 4b): the checks that failed.
-  'agent-promotion-refused',
-  'agent-rollback',
-  'agent-live-unpinned',
-  // A live pin whose version was unregistered: runs use the scope above.
-  'agent-live-pin-inactive',
+  // Which agent version is pinned for a scope: a pin, or an unpin (the scope
+  // falls back to the one above).
+  'agent-pinned',
+  // A pin its gate policy refused (evals step 4b): the checks that failed.
+  'agent-pin-refused',
+  'agent-unpinned',
+  // A pin whose version was unregistered: runs use the scope above.
+  'agent-pin-inactive',
   // Which flow or tool version is pinned for a scope: a pin (set or moved)
   // or an unpin (the scope falls back to the one above), and a pin whose
   // version was unregistered, passed over for the scope above.

@@ -10,7 +10,7 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.annotation.JsonValue;
 import com.kindgi.client.models.Checks;
 import com.kindgi.client.models.EvalBaseline;
-import com.kindgi.client.models.LiveScope;
+import com.kindgi.client.models.AgentPinScope;
 import com.kindgi.client.models.Model;
 import com.kindgi.client.models.OpenEnum;
 import com.kindgi.client.models.Run;
@@ -126,7 +126,7 @@ class OpenValuesTest {
       }
       unions.add(type.getName());
     }
-    assertThat(unions).contains(LiveScope.class.getName()).hasSizeGreaterThan(10);
+    assertThat(unions).contains(AgentPinScope.class.getName()).hasSizeGreaterThan(10);
   }
 
   /** A tagged union's own method for its tag: the one abstract method it declares that reads text. */
@@ -199,7 +199,7 @@ class OpenValuesTest {
       }
       unions.add(type.getSimpleName());
     }
-    assertThat(unions).contains(LiveScope.class.getSimpleName(), EvalBaseline.class.getSimpleName()).hasSizeGreaterThan(10);
+    assertThat(unions).contains(AgentPinScope.class.getSimpleName(), EvalBaseline.class.getSimpleName()).hasSizeGreaterThan(10);
   }
 
   @Test

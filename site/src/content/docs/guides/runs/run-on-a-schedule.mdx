@@ -36,7 +36,7 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
   --input='{"userMessage":"List the orders still open from yesterday."}' --label="weekday digest"
 ```
 
-- **What it runs:** `--agent` runs the agent's live version, or else its
+- **What it runs:** `--agent` runs the agent's pinned version, or else its
   latest. `--agent-version` pins one. `--flow` runs a flow, and needs
   `--flow-version`.
 - **Its input:** an agent's is `{"userMessage": "…"}`, the message each run
@@ -387,7 +387,7 @@ column's header. **Columns** chooses which columns it shows. **Schedule Improve*
 makes a schedule that starts Improve runs
 ([Schedule Improve in the console](#schedule-improve-in-the-console)).
 
-![The Schedules page, with Schedule Improve at the top, a search box and the Columns menu: the active nightly digest (every day at 2:00 AM UTC, 0 2 * * *; the agent Dev-Echo Agent, its live version; next in 23h) with Pause, and the paused weekly report (Mondays at 9:00 AM UTC, 0 9 * * 1; the flow Refunds 1.0.0) with Resume, neither fired yet, each with Runs it started →, Run now and Remove.](../../../../assets/schedules/schedules-list.png)
+![The Schedules page, with Schedule Improve at the top, a search box and the Columns menu: the active nightly digest (every day at 2:00 AM UTC, 0 2 * * *; the agent Dev-Echo Agent (its pinned version, or the latest); next in 23h) with Pause, and the paused weekly report (Mondays at 9:00 AM UTC, 0 9 * * 1; the flow Refunds 1.0.0) with Resume, neither fired yet, each with Runs it started →, Run now and Remove.](../../../../assets/schedules/schedules-list.png)
 
 A schedule's page has:
 - **When:** its cron in words and the cron, in the schedule's own zone, and
@@ -407,7 +407,7 @@ A schedule's page has:
   without waiting for a person's yes, or "None"
   ([Tools allowed unattended](../../approvals/ask-before-a-tool-runs/#tools-allowed-unattended)).
 
-![The nightly digest's page: Active, with Pause, Run now, Change owner… and Remove, "Starts the agent Dev-Echo Agent (its live version). Next in 21h (25 Oct 2026, 10:00 PM EDT).", When: "Every day at 2:00 AM UTC", 0 2 * * * and its next five times in UTC, each also on the viewer's clock in EDT, "Runs as you, with your access.", and What it fired: "Of its 2 fires, 2 started a run.", with Runs it started →, the Columns menu and two fires, each for run now, "Started a run (run now)" and its run.](../../../../assets/schedules/schedule-fires.png)
+![The nightly digest's page: Active, with Pause, Run now, Change owner… and Remove, "Starts the agent Dev-Echo Agent (its pinned version, or the latest). Next in 21h (25 Oct 2026, 10:00 PM EDT).", When: "Every day at 2:00 AM UTC", 0 2 * * * and its next five times in UTC, each also on the viewer's clock in EDT, "Runs as you, with your access.", and What it fired: "Of its 2 fires, 2 started a run.", with Runs it started →, the Columns menu and two fires, each for run now, "Started a run (run now)" and its run.](../../../../assets/schedules/schedule-fires.png)
 
 Project editors and up have, on the list and on the page:
 - **Pause** and **Resume**;
@@ -549,7 +549,7 @@ note would say "answers marked wrong" and "people who corrected".
 - **Its scope** is the schedule's project, `--project`, or a segment of it,
   `--segment=<key:value>`, repeated for a path. It's never the tenant or an
   org: an Improve run learns from one project's runs, so its evidence must
-  cover the scope it changes. Make it live more widely by hand after review.
+  cover the scope it changes. Pin it more widely by hand after review.
 - **Its input,** `--input`, takes the Improve run's options, `threshold` and
   `monthlyCapUsd`. It's kept with the defaults applied: the thresholds
   default to 5 corrections (`corrections`), across 3 runs (`runs`), from 2

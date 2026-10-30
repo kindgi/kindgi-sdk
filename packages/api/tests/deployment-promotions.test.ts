@@ -26,9 +26,9 @@ import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import { generateEd25519KeyPair, signEd25519 } from '@kindgi/crypto';
 import type {
+  AgentPinScope,
   Cursor,
   EnvName,
-  LiveScope,
   ProjectId,
   RecordedSecretScope,
   SigningKeyId,
@@ -41,18 +41,18 @@ import type {
 import { canonicalizeEnvelope } from '../src/deployment-envelope.js';
 import { createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
 import type {
-  AgentReleaseBindings,
+  AgentPinBindings,
+  AgentPinInput,
   CarriedVersion,
   Deployment,
   DeploymentBinding,
   DeploymentContents,
   DeploymentEndpoint,
   GatePolicy,
+  Pin,
   PinVersionInput,
   PinnedVersionBinding,
-  PromoteInput,
   PromotedToolSecretScopes,
-  Promotion,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
@@ -303,7 +303,7 @@ function flowPinBinding(how: { readonly errorOn?: readonly string[] } | undefine
 
 /**
  * A live-release binding that records every pin a make-live asks for and
- * answers it live at once, with no gate. `pinned` is each `promote` input,
+ * answers it live at once, with no gate. `pinned` is each `pin` input,
  * in order, so a test can read the scope the pin was set at.
  */
 function livePins(
@@ -313,13 +313,13 @@ function livePins(
     readonly errorOn?: readonly string[] | undefined;
   } = {},
 ): {
-  readonly releases: AgentReleaseBindings;
-  readonly pinned: PromoteInput[];
+  readonly releases: AgentPinBindings;
+  readonly pinned: AgentPinInput[];
 } {
-  const pinned: PromoteInput[] = [];
+  const pinned: AgentPinInput[] = [];
   const errorOn = new Set(opts.errorOn ?? []);
-  const promotions = {
-    promote: async (input: PromoteInput) => {
+  const changes = {
+    pin: async (input: AgentPinInput) => {
       if (errorOn.has(input.agentId)) {
         return {
           kind: 'err' as const,
@@ -333,26 +333,25 @@ function livePins(
           id: `pin-${pinned.length}`,
           agentId: input.agentId,
           scope: input.scope,
-          action: 'promote',
+          action: 'pin',
           fromVersion: null,
           toVersion: input.version,
           requestedBy: input.requestedBy,
           createdAt: '2026-10-01T10:00:00.000Z' as Timestamp,
           ...(input.reason !== undefined && { reason: input.reason }),
-        } satisfies Promotion,
+        } satisfies Pin,
       };
     },
-    rollback: notUsed,
     unpin: notUsed,
     list: async () => ({ data: [] }),
     get: async () => null,
   };
   // A gate policy on a carried agent's scope, so `makeLive` sees a gate it
-  // can't record (this binding has no `promotions.request`): `promotion-
+  // can't record (this binding has no `changes.request`): `pin-
   // gate-unsupported`, decided before any pin.
   const gated = new Set(opts.gated ?? []);
   const gatePolicies = {
-    resolve: async ({ agentId, scope }: { agentId: string; scope: LiveScope }) =>
+    resolve: async ({ agentId, scope }: { agentId: string; scope: AgentPinScope }) =>
       gated.has(agentId)
         ? ({
             id: `gate-${agentId}`,
@@ -368,10 +367,10 @@ function livePins(
   return {
     pinned,
     releases: {
-      live: { resolve: async () => null, list: async () => [] },
-      promotions: promotions as unknown as AgentReleaseBindings['promotions'],
+      pinned: { resolve: async () => null, list: async () => [] },
+      changes: changes as unknown as AgentPinBindings['changes'],
       ...(gated.size > 0 && {
-        gatePolicies: gatePolicies as unknown as NonNullable<AgentReleaseBindings['gatePolicies']>,
+        gatePolicies: gatePolicies as unknown as NonNullable<AgentPinBindings['gatePolicies']>,
       }),
     },
   };
@@ -496,7 +495,7 @@ function harness(
     } as never,
     secretsBinding: secretsBinding as never,
     environmentOrders: environmentOrders(opts.orders ?? [ORDER]),
-    ...(live !== undefined && { agentReleases: live.releases }),
+    ...(live !== undefined && { agentPins: live.releases }),
     ...flowPins.bindings,
     ...(items !== undefined && { itemProjects: items }),
     ...(opts.suspended !== undefined && {
@@ -1087,10 +1086,10 @@ describe('the record, and what a promotion takes', () => {
 describe('making the carried agents live in the target (makeLive)', () => {
   const AGENT = 'acme.matcher';
 
-  test('pins each carried agent in the target and reports it live; an agent one project serves is asked the promote right it has today', async () => {
+  test('pins each carried agent in the target and reports it live; an agent one project serves is asked the pin right', async () => {
     const h = harness({
       live: true,
-      grants: [`read project:${S1}`, `admin project:${S2}`, `promote agent:${AGENT}`],
+      grants: [`read project:${S1}`, `admin project:${S2}`, `pin agent:${AGENT}`],
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
     const res = await h.makeLive('dep-s1', S2);
@@ -1105,7 +1104,7 @@ describe('making the carried agents live in the target (makeLive)', () => {
     });
   });
 
-  test("refused when the caller can't promote an agent one project serves: 403, though the build has already moved", async () => {
+  test("refused when the caller can't pin an agent one project serves: 403, though the build has already moved", async () => {
     const h = harness({
       live: true,
       grants: [`read project:${S1}`, `admin project:${S2}`],
@@ -1113,7 +1112,7 @@ describe('making the carried agents live in the target (makeLive)', () => {
     });
     const res = await h.makeLive('dep-s1', S2);
     expect(res.status).toBe(403);
-    expect(res.body.error.details).toMatchObject({ action: 'promote', resource: `agent:${AGENT}` });
+    expect(res.body.error.details).toMatchObject({ action: 'pin', resource: `agent:${AGENT}` });
     // The promotion committed (the move isn't undone); nothing was pinned.
     expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
     expect(h.pinned).toEqual([]);
@@ -1150,7 +1149,7 @@ describe('making the carried agents live in the target (makeLive)', () => {
   test('making it live again is safe: the move is idempotent and a pin in place passes, with the same answer', async () => {
     const h = harness({
       live: true,
-      grants: [`read project:${S1}`, `admin project:${S2}`, `promote agent:${AGENT}`],
+      grants: [`read project:${S1}`, `admin project:${S2}`, `pin agent:${AGENT}`],
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
     const first = await h.makeLive('dep-s1', S2);
@@ -1214,14 +1213,14 @@ describe('making the carried agents live in the target (makeLive)', () => {
       grants: [
         `read project:${S1}`,
         `admin project:${S2}`,
-        `promote agent:${AGENT}`,
-        `promote agent:${GATED_AGENT}`,
+        `pin agent:${AGENT}`,
+        `pin agent:${GATED_AGENT}`,
       ],
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
     const res = await h.makeLive('dep-s1', S2);
     expect(res.status).toBe(501);
-    expect(res.body.error.code).toBe('promotion-gate-unsupported');
+    expect(res.body.error.code).toBe('pin-gate-unsupported');
     // The first agent is not left live: the gate is decided before any pin.
     expect(h.pinned).toEqual([]);
     // Nothing was pinned, so the refusal carries no `live` (N3: assert the
@@ -1254,8 +1253,8 @@ describe('making the carried agents live in the target (makeLive)', () => {
       grants: [
         `read project:${S1}`,
         `admin project:${S2}`,
-        `promote agent:${AGENT}`,
-        `promote agent:${FAILS}`,
+        `pin agent:${AGENT}`,
+        `pin agent:${FAILS}`,
       ],
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
@@ -1283,7 +1282,7 @@ describe('making the carried flows the ones in use in the target (makeLive)', ()
   const grants = (...extra: string[]) => [
     `read project:${S1}`,
     `admin project:${S2}`,
-    `promote agent:${AGENT}`,
+    `pin agent:${AGENT}`,
     ...extra,
   ];
 

@@ -24,20 +24,20 @@ function obj(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function parseLive(raw: unknown): EvalBaseline | string {
-  const live = obj(raw);
-  if (live === undefined) return '`baseline.live` must be an object';
-  if (live.projectId !== undefined && typeof live.projectId !== 'string') {
-    return '`baseline.live.projectId` must be a string';
+function parsePinned(raw: unknown): EvalBaseline | string {
+  const pinned = obj(raw);
+  if (pinned === undefined) return '`baseline.pinned` must be an object';
+  if (pinned.projectId !== undefined && typeof pinned.projectId !== 'string') {
+    return '`baseline.pinned.projectId` must be a string';
   }
-  const path = parseSegmentsBody(live.segments, 'baseline.live.segments');
+  const path = parseSegmentsBody(pinned.segments, 'baseline.pinned.segments');
   if (path.kind === 'err') return path.message;
-  if (path.segments !== undefined && live.projectId === undefined) {
-    return '`baseline.live.segments` is a segment path in a project: it needs `baseline.live.projectId`';
+  if (path.segments !== undefined && pinned.projectId === undefined) {
+    return '`baseline.pinned.segments` is a segment path in a project: it needs `baseline.pinned.projectId`';
   }
   return {
-    live: {
-      ...(typeof live.projectId === 'string' && { projectId: live.projectId as ProjectId }),
+    pinned: {
+      ...(typeof pinned.projectId === 'string' && { projectId: pinned.projectId as ProjectId }),
       ...(path.segments !== undefined && { segments: path.segments }),
     },
   };
@@ -47,9 +47,9 @@ function parseBaseline(raw: unknown): EvalBaseline | string {
   if (raw === 'recorded') return 'recorded';
   const o = obj(raw);
   if (o === undefined) {
-    return "`baseline` must be 'recorded', { agentId, version } or { live: { projectId?, segments? } }";
+    return "`baseline` must be 'recorded', { agentId, version } or { pinned: { projectId?, segments? } }";
   }
-  if (o.live !== undefined) return parseLive(o.live);
+  if (o.pinned !== undefined) return parsePinned(o.pinned);
   if (typeof o.agentId !== 'string' || o.agentId === '' || typeof o.version !== 'string') {
     return '`baseline` as a version needs `agentId` and `version`';
   }

@@ -12,12 +12,12 @@ import { randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { describe, expect, test } from 'vitest';
 
-import type { LiveScope, TenantId, Timestamp, UserId } from '@kindgi/types';
+import type { AgentPinScope, TenantId, Timestamp, UserId } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
-  AgentReleaseBindings,
+  AgentPinBindings,
   GatePolicy,
   GatePolicyBinding,
   GatePolicyError,
@@ -69,7 +69,7 @@ function policy(version = '1.0.0'): GatePolicy {
     version,
     tenantId,
     agentId: BODY.agentId,
-    scope: SCOPE as LiveScope,
+    scope: SCOPE as AgentPinScope,
     spec: BODY.spec as GatePolicy['spec'],
     description: BODY.description,
     createdAt: '2026-10-06T12:00:00.000Z' as Timestamp,
@@ -114,11 +114,10 @@ function fakeBinding() {
 }
 
 function appWith(binding: GatePolicyBinding) {
-  const releases: AgentReleaseBindings = {
-    live: { resolve: async () => null, list: async () => [] },
-    promotions: {
-      promote: async () => ({ kind: 'err', error: { code: 'not-pinned', message: 'unused' } }),
-      rollback: async () => ({ kind: 'err', error: { code: 'not-pinned', message: 'unused' } }),
+  const pinStore: AgentPinBindings = {
+    pinned: { resolve: async () => null, list: async () => [] },
+    changes: {
+      pin: async () => ({ kind: 'err', error: { code: 'not-pinned', message: 'unused' } }),
       unpin: async () => ({ kind: 'err', error: { code: 'not-pinned', message: 'unused' } }),
       list: async () => ({ data: [] }),
       get: async () => null,
@@ -129,7 +128,7 @@ function appWith(binding: GatePolicyBinding) {
     ...createStubAppBindings(),
     resolveToken,
     runHandler,
-    agentReleases: releases,
+    agentPins: pinStore,
   });
 }
 
@@ -242,16 +241,16 @@ describe('reads', () => {
 describe('authorization: writes need admin on the tenant; reads need read on the scope', () => {
   const OTHER = randomUUID();
   const ORG = randomUUID();
-  const scoped = (id: string, scope: LiveScope): GatePolicy => ({ ...policy(), id, scope });
+  const scoped = (id: string, scope: AgentPinScope): GatePolicy => ({ ...policy(), id, scope });
   const POLICIES: readonly GatePolicy[] = [
-    scoped('acme.a', { kind: 'project', projectId: PROJECT } as LiveScope),
-    scoped('acme.b', { kind: 'project', projectId: OTHER } as LiveScope),
+    scoped('acme.a', { kind: 'project', projectId: PROJECT } as AgentPinScope),
+    scoped('acme.b', { kind: 'project', projectId: OTHER } as AgentPinScope),
     scoped('acme.a-eu', {
       kind: 'segment',
       projectId: PROJECT,
       path: [{ key: 'region', value: 'eu' }],
-    } as unknown as LiveScope),
-    scoped('acme.org', { kind: 'org', orgId: ORG } as LiveScope),
+    } as unknown as AgentPinScope),
+    scoped('acme.org', { kind: 'org', orgId: ORG } as AgentPinScope),
     scoped('acme.all', { kind: 'tenant' }),
   ];
 

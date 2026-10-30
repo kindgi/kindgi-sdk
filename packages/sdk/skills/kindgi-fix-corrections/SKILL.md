@@ -8,7 +8,7 @@ description: >
   expert marked wrong, read why, and sort each correction to where it belongs
   — a rule in code, a setting, an approval rule, or the agent's instructions —
   add a pack test per correction, then publish and ask a person to make the
-  new version live, naming the corrections it fixes. Making a version live
+  new version pinned, naming the corrections it fixes. Pinning a version
   and approving it stay with the person, and a correction that would loosen
   anything — raise a limit, widen a window, drop a check — goes to the owner,
   not the agent.
@@ -61,9 +61,9 @@ corrections and the tools to change each layer.
    test, or in the instructions through Improve. The corrections you make carry
    out a rule the agent got wrong, tighten a rule, or change how the agent talks
    — never loosen the policy.
-2. **Making a version live is the person's.** You publish a new version and
-   *ask* for it with `kindgi agents promote … --reason`. When the scope's
-   release gate policy has `approvals`, the promotion waits for a second person
+2. **Pinning a version is the person's.** You publish a new version and
+   *ask* for it with `kindgi agents pin … --reason`. When the scope's
+   release gate policy has `approvals`, the pin waits for a second person
    (`pending-approval`) — don't try to get around it.
 3. **The pulled runs hold real conversations.** A run you pull is a real
    customer's. Keep it out of git. Write every pack test with invented data
@@ -73,12 +73,12 @@ corrections and the tools to change each layer.
 
 ## The loop
 
-1. **Pull the corrections**: the live version's "no" corrections, each read
+1. **Pull the corrections**: the pinned version's "no" corrections, each read
    in full with its run. [pull-corrections.md](pull-corrections.md)
 2. **Sort each correction to its layer**: the table below.
 3. **Make the change, with a test per correction.**
    [make-the-change.md](make-the-change.md)
-4. **Publish, and ask a person to make it live**, with the guides to point
+4. **Publish, and ask a person to pin it**, with the guides to point
    people to. [publish-and-promote.md](publish-and-promote.md)
 
 One correction taken through all four steps:

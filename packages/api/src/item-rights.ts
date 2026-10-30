@@ -12,7 +12,7 @@
 // only:
 //
 //   1. Reading the item: read on it, or read on any of its projects.
-//   2. Reading a version (or a live entry, or a promotion): only one that
+//   2. Reading a version (or a pinned version, or a pin change): only one that
 //      can run in a project the caller reads. A caller who reads the item
 //      itself reads as its first project's readers do. Any other version
 //      answers the route's own 404, as a missing one does.
@@ -37,7 +37,7 @@ import type { Context, MiddlewareHandler } from 'hono';
 import { routePath } from 'hono/route';
 
 import { type Action, type Decision, type ResourceRef, denyPayload, ref } from '@kindgi/authz';
-import type { LiveScope, PinScope, PinnedItemKind, ProjectId, TenantId } from '@kindgi/types';
+import type { AgentPinScope, PinScope, PinnedItemKind, ProjectId, TenantId } from '@kindgi/types';
 
 import { firstEnvironmentOf, orderSpanning } from './environment-entry.js';
 import type {
@@ -108,7 +108,7 @@ export interface ItemRights {
   /**
    * The environment order any of the item's projects belongs to — the first
    * such project's, by the item's project order — or `undefined` when none is
-   * in an order (or there's no order binding). A live change wider than one
+   * in an order (or there's no order binding). A pin change wider than one
    * project for such an item would span that order's environments, whether one
    * project serves the item or several. Asked of the binding once per request.
    */
@@ -804,46 +804,46 @@ export function readCheck(under: readonly string[]): ItemCheck {
 }
 
 /**
- * What a change to what's live asks (a promotion, a rollback, an unpin):
+ * What a pin change asks (a pin, an unpin):
  * a project's, or a segment's within it, is that project's (rule 3); the
  * tenant's, or an org's, reaches every project of the item (rule 4).
  */
-export function liveScopeCheck(scope: LiveScope | undefined): ItemCheck {
+export function agentPinScopeCheck(scope: AgentPinScope | undefined): ItemCheck {
   return scope?.kind === 'project' || scope?.kind === 'segment'
     ? { rule: 'on', action: 'admin', projectId: scope.projectId as unknown as string }
     : { rule: 'every', action: 'admin' };
 }
 
 /**
- * Whether a change to what's live for an agent at `scope` is refused,
- * whoever asks: the live routes (a promotion, a rollback, an unpin), and
- * a deployment's promotion that makes what it moved live. Authorization
- * first: for an agent more than one project serves, what `liveScopeCheck`
- * names; else today's check, `promote` on the agent, as the route's
+ * Whether a pin change for an agent at `scope` is refused,
+ * whoever asks: the pin routes (a pin, an unpin), and
+ * a deployment's promotion that pins what it moved. Authorization
+ * first: for an agent more than one project serves, what `agentPinScopeCheck`
+ * names; else today's check, `pin` on the agent, as the route's
  * middleware asks it. Then the width refusal: for an agent any of whose
- * projects is in an order — one project or several — `setsLive` (a pin or
- * a rollback, not an unpin) at a scope wider than one project is refused,
+ * projects is in an order — one project or several — `setsPin` (a pin,
+ * not an unpin) at a scope wider than one project is refused,
  * since a tenant- or org-wide pin would act in every environment of that
  * order at once (`widthRefusal`). The authorization is first, so an
  * unauthorized wide pin is the 403, not the 409. `undefined` when allowed;
  * else the response to answer. It reads no body and answers nothing itself.
  */
-export async function liveChangeRefusal(
+export async function agentPinChangeRefusal(
   c: Ctx,
   how: {
     readonly authorizer: Authorizer;
     readonly rights: ItemRights | undefined;
     readonly agentId: string;
-    readonly scope: LiveScope | undefined;
-    /** A pin or a rollback (one that sets a live version), not an unpin: only such a change spans an order's environments. */
-    readonly setsLive?: boolean;
+    readonly scope: AgentPinScope | undefined;
+    /** A pin, not an unpin: only a pin spans an order's environments. */
+    readonly setsPin?: boolean;
   },
 ): Promise<Response | undefined> {
   // Authorization first, so an unauthorized wide change is the 403, not the 409.
   const projects = await how.rights?.multi(c, 'agent', how.agentId);
   if (how.rights !== undefined && projects !== undefined) {
-    // More than one project serves the agent: what `liveScopeCheck` names.
-    const check = liveScopeCheck(how.scope);
+    // More than one project serves the agent: what `agentPinScopeCheck` names.
+    const check = agentPinScopeCheck(how.scope);
     const refused = await how.rights.enforce(
       c,
       'agent',
@@ -854,14 +854,14 @@ export async function liveChangeRefusal(
     );
     if (refused !== undefined) return refused;
   } else {
-    // One project (or no item-rights binding): today's check, `promote` on the agent.
-    const refused = await authorizedOn(c, how.authorizer, 'promote', ref('agent', how.agentId));
+    // One project (or no item-rights binding): today's check, `pin` on the agent.
+    const refused = await authorizedOn(c, how.authorizer, 'pin', ref('agent', how.agentId));
     if (refused !== undefined) return refused;
   }
-  // Then the width refusal — only a pin or rollback spans an order; an unpin
+  // Then the width refusal — only a pin spans an order; an unpin
   // doesn't. Keyed on order membership, so one project or several, it fires
   // only for an agent whose projects reach an order.
-  return how.setsLive === true
+  return how.setsPin === true
     ? widthRefusal(c, { rights: how.rights, agentId: how.agentId, scope: how.scope })
     : undefined;
 }
@@ -882,25 +882,27 @@ async function authorizedOn(
   throw new Error('The authorizer neither allowed the change nor refused it');
 }
 
-/** `enforce`'s answer for a version the caller can't see: a live scope's check names no version, so it's never asked. */
+/** `enforce`'s answer for a version the caller can't see: a pin scope's check names no version, so it's never asked. */
 function namesNoVersion(): never {
-  throw new Error("A live change's check names no version");
+  throw new Error("A pin change's check names no version");
 }
 
-/** A live scope that reaches more than one project: the tenant's, an org's, or none given (tenant-wide). A project or one of its segments stays within one. */
-function spansEnvironmentsScope(scope: LiveScope | undefined): boolean {
+/** A pin scope that reaches more than one project: the tenant's, an org's, or none given (tenant-wide). A project or one of its segments stays within one. */
+function spansEnvironmentsScope(scope: AgentPinScope | undefined): boolean {
   return scope?.kind !== 'project' && scope?.kind !== 'segment';
 }
 
 /**
- * The 409 a pin or rollback wider than one project answers for an agent in
- * an order, in the envelope the other refusals use. It names the scope asked
- * for and the order (by its parent), and says to make the agent live one
- * environment at a time.
+ * The 409 a pin wider than one project answers for an agent in
+ * an order, in the envelope and message shape a flow's or a tool's uses
+ * (`pinWidthRefusal`). It names the scope asked for, the agent and the
+ * order (by its parent), and says to pin the agent one environment at a
+ * time.
  */
 function spansEnvironments(
   c: Ctx,
-  scope: LiveScope | undefined,
+  agentId: string,
+  scope: AgentPinScope | undefined,
   order: EnvironmentOrderLocation,
 ): Response {
   const requestId = c.get('requestId');
@@ -916,8 +918,8 @@ function spansEnvironments(
   return c.json(
     toWireError(
       {
-        code: 'live-scope-spans-environments',
-        message: `${scopeAsked} would act across every environment of ${orderName} at once. Make the agent live one environment at a time — pin it in each environment's project, or a segment of it.`,
+        code: 'pin-scope-spans-environments',
+        message: `${scopeAsked} of agent "${agentId}" would act across every environment of ${orderName} at once. Pin the agent one environment at a time, in each environment's project or a segment of it. Nothing was pinned.`,
       },
       typeof requestId === 'string' ? requestId : '',
     ),
@@ -925,27 +927,27 @@ function spansEnvironments(
 }
 
 /**
- * Whether a pin or rollback for an agent in an order is refused for spanning
+ * Whether a pin for an agent in an order is refused for spanning
  * the order's environments: a tenant- or org-wide `scope` (one wider than a
  * project), for an agent any of whose projects is in an order — one project
  * or several. The 409 to answer, else `undefined`. For an agent in no order,
  * with a project scope, or with no rights to ask, `undefined` — today's
  * checks hold. It reads no body and answers nothing but the refusal. The
  * suggested change's pin calls it after its own `deny`, as the
- * live routes and a deployment's make-live call it through
- * `liveChangeRefusal`.
+ * pin routes and a deployment's make-live call it through
+ * `agentPinChangeRefusal`.
  */
 export async function widthRefusal(
   c: Ctx,
   how: {
     readonly rights: ItemRights | undefined;
     readonly agentId: string;
-    readonly scope: LiveScope | undefined;
+    readonly scope: AgentPinScope | undefined;
   },
 ): Promise<Response | undefined> {
   if (how.rights === undefined || !spansEnvironmentsScope(how.scope)) return undefined;
   const order = await how.rights.spannedOrder(c, 'agent', how.agentId);
-  return order === undefined ? undefined : spansEnvironments(c, how.scope, order);
+  return order === undefined ? undefined : spansEnvironments(c, how.agentId, how.scope, order);
 }
 
 /**

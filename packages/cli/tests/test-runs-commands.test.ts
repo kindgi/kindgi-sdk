@@ -57,7 +57,7 @@ describe('kindgi test-runs start', () => {
     const { out, calls } = await start([
       '--agent=acme.triage',
       '--agent-version=2.0.0',
-      '--baseline=live',
+      '--baseline=pinned',
       '--baseline-project=p-2',
       '--baseline-segment=tier:gold',
       '--baseline-segment=region:eu',
@@ -75,7 +75,7 @@ describe('kindgi test-runs start', () => {
         {
           agentRef: { agentId: 'acme.triage', version: '2.0.0' },
           baseline: {
-            live: {
+            pinned: {
               projectId: 'p-2',
               // A path, in the order given: coarse to fine.
               segments: [
@@ -225,9 +225,9 @@ describe('kindgi test-runs start', () => {
     });
   });
 
-  test('--baseline=live alone sends an empty live baseline', async () => {
-    const { calls } = await start(['--agent=a', '--baseline=live']);
-    expect(calls[0]?.[2]).toEqual({ agentRef: { agentId: 'a' }, baseline: { live: {} } });
+  test('--baseline=pinned alone sends an empty pinned baseline', async () => {
+    const { calls } = await start(['--agent=a', '--baseline=pinned']);
+    expect(calls[0]?.[2]).toEqual({ agentRef: { agentId: 'a' }, baseline: { pinned: {} } });
   });
 
   test('--dry-run passes dryRun: true', async () => {
@@ -261,7 +261,7 @@ describe('kindgi test-runs start', () => {
     expect(out.stderr).toContain('--reads must be one of recorded, live');
   });
 
-  test('errors: --baseline-segment or --baseline-project without --baseline=live', async () => {
+  test('errors: --baseline-segment or --baseline-project without --baseline=pinned', async () => {
     for (const extra of [
       ['--baseline-segment=region:eu'],
       ['--baseline=recorded', '--baseline-segment=region:eu'],
@@ -269,7 +269,7 @@ describe('kindgi test-runs start', () => {
     ]) {
       const { out, calls } = await start(['--agent=a', ...extra]);
       expect(out.exitCode).toBe(2);
-      expect(out.stderr).toContain('need --baseline=live');
+      expect(out.stderr).toContain('need --baseline=pinned');
       expect(calls).toEqual([]);
     }
   });
@@ -278,7 +278,7 @@ describe('kindgi test-runs start', () => {
     for (const bad of ['region', 'region:', ':eu']) {
       const { out } = await start([
         '--agent=a',
-        '--baseline=live',
+        '--baseline=pinned',
         '--baseline-project=p-2',
         `--baseline-segment=${bad}`,
       ]);
@@ -287,7 +287,7 @@ describe('kindgi test-runs start', () => {
     }
     const { out, calls } = await start([
       '--agent=a',
-      '--baseline=live',
+      '--baseline=pinned',
       '--baseline-segment=tier:gold',
     ]);
     expect(out.exitCode).toBe(2);
@@ -301,7 +301,7 @@ describe('kindgi test-runs start', () => {
     for (const bad of ['acme.triage', 'acme.triage@', '@1.0.0']) {
       const { out } = await start(['--agent=a', `--baseline=${bad}`]);
       expect(out.exitCode).toBe(2);
-      expect(out.stderr).toContain('--baseline must be recorded, live or <agentId>@<version>');
+      expect(out.stderr).toContain('--baseline must be recorded, pinned or <agentId>@<version>');
     }
   });
 });

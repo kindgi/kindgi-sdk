@@ -154,20 +154,20 @@ An agent version holds the agent: its instructions, the tools and
 guardrails it names, and the data blocks it pins. It doesn't hold secrets,
 env values or model keys. A run reads those when it runs. So:
 
-- **Several versions can wait** while one is live, and you can run any of
+- **Several versions can wait** while one is pinned, and you can run any of
   them by its number:
   `kindgi runs start --agent=<agent-id> --agent-version=<version>`.
-- **A value only a new version reads** can be set before you make that
-  version live.
-- **Changing a value the live version reads** changes live runs from the
-  next run, before you make anything live.
+- **A value only a new version reads** can be set before you pin that
+  version.
+- **Changing a value the pinned version reads** changes its runs from the
+  next run, before you pin anything else.
 - **`--sync-secrets` writes at deploy time,** so it can change what the
-  live version reads, though the new version isn't live yet.
+  pinned version reads, though the new version isn't pinned yet.
 - **A conversation keeps its version.** One that's already open goes on
   with the version it started with
   ([Conversations keep their version](../../guides/evals/live-versions-reference/#conversations-keep-their-version)).
 
 On Kindgi Cloud,
 [Change your agent once it's live](../../hosted/deploy-your-agent/#change-your-agent-once-its-live)
-shows how to try a new version in the same project before you make it
-live.
+shows how to try a new version in the same project before you pin
+it.

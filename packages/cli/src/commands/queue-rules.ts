@@ -33,7 +33,7 @@ const WHEN_OPTIONS: Readonly<Record<string, ParseArgsOption>> = {
     type: 'string',
     multiple: true,
     description:
-      "Match runs of this agent version exactly, or `live` for runs that got the agent's live version (repeatable).",
+      "Match runs of this agent version exactly, or `pinned` for runs that got the agent's pinned version (repeatable).",
   },
   status: {
     type: 'string',

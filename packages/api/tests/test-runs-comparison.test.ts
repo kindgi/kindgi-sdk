@@ -176,17 +176,17 @@ describe('a comparison test run over the API', () => {
     [{ baseline: 'yesterday' }, '`baseline` must be'],
     [{ baseline: { agentId: 'acme.agent' } }, 'needs `agentId` and `version`'],
     [
-      { baseline: { live: { projectId: 'p-1', segments: { tier: 'gold' } } } },
-      '`baseline.live.segments` must be an array of {key, value}, coarse to fine',
+      { baseline: { pinned: { projectId: 'p-1', segments: { tier: 'gold' } } } },
+      '`baseline.pinned.segments` must be an array of {key, value}, coarse to fine',
     ],
     [
-      { baseline: { live: { projectId: 'p-1', segments: [{ key: 'tier', value: 1 }] } } },
-      '`baseline.live.segments`: each segment is {key: string, value: string}',
+      { baseline: { pinned: { projectId: 'p-1', segments: [{ key: 'tier', value: 1 }] } } },
+      '`baseline.pinned.segments`: each segment is {key: string, value: string}',
     ],
     [
       {
         baseline: {
-          live: {
+          pinned: {
             projectId: 'p-1',
             segments: [
               { key: 'tier', value: 'gold' },
@@ -195,11 +195,11 @@ describe('a comparison test run over the API', () => {
           },
         },
       },
-      '`baseline.live.segments`: the key',
+      '`baseline.pinned.segments`: the key',
     ],
     [
-      { baseline: { live: { segments: [{ key: 'tier', value: 'gold' }] } } },
-      'it needs `baseline.live.projectId`',
+      { baseline: { pinned: { segments: [{ key: 'tier', value: 'gold' }] } } },
+      'it needs `baseline.pinned.projectId`',
     ],
   ])('%j → 400', async (body, message) => {
     const { start } = await setup();
@@ -212,7 +212,7 @@ describe('a comparison test run over the API', () => {
     const { start } = await setup();
     for (const baseline of [
       { agentId: 'acme.agent', version: '1.0.0' },
-      { live: { projectId: 'p-1', segments: [{ key: 'tier', value: 'gold' }] } },
+      { pinned: { projectId: 'p-1', segments: [{ key: 'tier', value: 'gold' }] } },
     ]) {
       const res = await start({ baseline });
       expect(res.status).toBe(400);

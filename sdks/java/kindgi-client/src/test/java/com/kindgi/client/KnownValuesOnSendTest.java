@@ -10,13 +10,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.kindgi.client.models.CreateWebhookEndpointBody;
 import com.kindgi.client.models.EvalBaseline;
 import com.kindgi.client.models.EvalComparison;
-import com.kindgi.client.models.LiveScope;
+import com.kindgi.client.models.AgentPinScope;
 import com.kindgi.client.models.MintSystemKeyBody;
 import com.kindgi.client.models.MintTokenBody;
-import com.kindgi.client.models.Promotion;
+import com.kindgi.client.models.Pin;
 import com.kindgi.client.models.ServiceAccountGrantBody;
 import com.kindgi.client.models.StartTestRunBody;
-import com.kindgi.client.models.UnpinBody;
+import com.kindgi.client.models.AgentUnpinBody;
 import com.kindgi.client.models.UpdateIdentityProviderBody;
 import com.kindgi.client.models.ValidationException;
 import com.kindgi.client.models.WebhookEndpoint;
@@ -39,7 +39,7 @@ import org.junit.jupiter.api.Test;
  */
 class KnownValuesOnSendTest {
   private static final String UNKNOWN = "kindgi-test-unknown";
-  private static final String PROMOTION =
+  private static final String PIN_CHANGE =
       "{\"id\":\"f531e37d-f29f-463c-81d2-ffad65e4d4e9\",\"agentId\":\"acme.triage\",\"scope\":%s,\"action\":\"unpin\","
           + "\"fromVersion\":\"1.0.0\",\"toVersion\":null,\"requestedBy\":{\"kind\":\"user\",\"id\":\"acme-admin\"},"
           + "\"createdAt\":\"2026-10-18T00:00:00Z\"}";
@@ -119,16 +119,16 @@ class KnownValuesOnSendTest {
 
   @Test
   void aScopeReadFromANewerRuntimeIsKeptButNotSentBack() {
-    answer = String.format(PROMOTION, "{\"kind\":\"galaxy\",\"galaxyId\":\"milky-way\"}");
-    Promotion promotion = client.agents().live().unpin("acme.triage", new UnpinBody(KindgiJson.read("{\"kind\":\"tenant\"}", LiveScope.class), null));
-    assertThat(promotion.scope()).isInstanceOf(LiveScope.Unrecognized.class);
-    assertThatCode(() -> promotion.toBuilder().build()).doesNotThrowAnyException();
-    assertThatCode(() -> UnpinBody.builder().scope(promotion.scope()).build()).doesNotThrowAnyException();
+    answer = String.format(PIN_CHANGE, "{\"kind\":\"galaxy\",\"galaxyId\":\"milky-way\"}");
+    Pin pin = client.agents().pinned().unpin("acme.triage", new AgentUnpinBody(KindgiJson.read("{\"kind\":\"tenant\"}", AgentPinScope.class), null));
+    assertThat(pin.scope()).isInstanceOf(AgentPinScope.Unrecognized.class);
+    assertThatCode(() -> pin.toBuilder().build()).doesNotThrowAnyException();
+    assertThatCode(() -> AgentUnpinBody.builder().scope(pin.scope()).build()).doesNotThrowAnyException();
 
-    UnpinBody back = UnpinBody.builder().scope(promotion.scope()).build();
-    assertThatThrownBy(() -> client.agents().live().unpin("acme.triage", back))
+    AgentUnpinBody back = AgentUnpinBody.builder().scope(pin.scope()).build();
+    assertThatThrownBy(() -> client.agents().pinned().unpin("acme.triage", back))
         .isInstanceOf(ValidationException.class)
-        .hasMessageStartingWith("UnpinBody is invalid: scope.kind: must be one of tenant, ");
+        .hasMessageStartingWith("AgentUnpinBody is invalid: scope.kind: must be one of tenant, ");
     assertThat(sent).hasSize(1);
   }
 

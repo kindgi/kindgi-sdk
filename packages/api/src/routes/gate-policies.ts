@@ -4,16 +4,16 @@
 import { type Context, Hono } from 'hono';
 
 import { ref } from '@kindgi/authz';
-import type { Cursor, LiveScope, TenantId } from '@kindgi/types';
+import type { AgentPinScope, Cursor, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { GatePolicyBinding, GatePolicyError } from '../gate-policy-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
-import { scopeFromQuery } from './agent-releases.js';
+import { parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
+import { scopeFromQuery } from './agent-pins.js';
 import { parseGatePolicySpec } from './gate-policy-spec.js';
 import { serializeGatePolicy } from './gate-policy-wire.js';
-import { parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
 
 const SEMVER_RE = /^\d+\.\d+\.\d+$/;
@@ -50,7 +50,7 @@ export function gatePoliciesRouter(
   }
 
   /** Whether the caller may read a policy: `read` on its scope. */
-  const canRead = async (c: Ctx, policy: { readonly scope: LiveScope }): Promise<boolean> =>
+  const canRead = async (c: Ctx, policy: { readonly scope: AgentPinScope }): Promise<boolean> =>
     authorizer === undefined ||
     authorizer.can(c, 'read', scopeRef(c.get('tenantId') as TenantId, policy.scope));
 
@@ -163,7 +163,7 @@ export function gatePoliciesRouter(
 type Ctx = Context<AppEnv>;
 
 /** The resource a gate policy's scope is: what reading it needs `read` on. */
-function scopeRef(tenantId: TenantId, scope: LiveScope) {
+function scopeRef(tenantId: TenantId, scope: AgentPinScope) {
   switch (scope.kind) {
     case 'tenant':
       return ref('tenant', tenantId as unknown as string);
@@ -233,7 +233,7 @@ function parsePublishBody(body: unknown):
   if (typeof b.agentId !== 'string' || b.agentId === '') {
     issues.push({ path: '/agentId', message: '`agentId` is required: the agent the policy gates' });
   }
-  const scope = parseLiveScopeBody(b.scope);
+  const scope = parseAgentPinScopeBody(b.scope);
   if (scope.kind === 'err') issues.push({ path: '/scope', message: scope.message });
   const spec = parseGatePolicySpec(b.spec);
   if (spec.kind === 'err') issues.push(...spec.issues);

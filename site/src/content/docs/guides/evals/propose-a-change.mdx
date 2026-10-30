@@ -10,11 +10,11 @@ tests it on the test cases, and sends it through the scope's release gate
 policy, with a way back.
 
 A **suggested change** is new content for one data block an agent version
-pins, for one live scope: new settings values, or new instructions. You draft
+pins, for one scope: new settings values, or new instructions. You draft
 it. Kindgi publishes the block version, makes the agent version that runs it,
-tries it on the test cases, and makes it live through the scope's release gate
+tries it on the test cases, and pins it through the scope's release gate
 policy when you ask. Nothing serves any scope until then, and a suggested
-change made live is a pin like any other, which `kindgi agents rollback` puts back.
+change that is pinned is a pin like any other, which `kindgi agents unpin` removes.
 
 ## Before you start
 
@@ -23,18 +23,18 @@ change made live is a pin like any other, which `kindgi agents rollback` puts ba
   shows.
 - **Test cases built from corrections** for it, as
   [Build test cases from corrections](../build-a-test-set/) shows.
-- **A live version of the agent for the whole tenant,** as
-  [Make a version live](../release-an-agent-version/#make-a-version-live)
-  shows: `kindgi agents promote <agent-id> <version> --tenant`. Without one,
+- **A pinned version of the agent for the whole tenant,** as
+  [Pin a version](../release-an-agent-version/#pin-a-version)
+  shows: `kindgi agents pin <agent-id> <version> --tenant`. Without one,
   the version a suggested change makes would serve every scope nothing is
   pinned for.
   So evaluating is refused with `409 suggested-change-needs-pin`.
 - **A runtime: `kindgi dev`, or a deployed one,** with Kindgi 0.2's CLI.
-  Under `kindgi dev`, making a suggested change live writes it into the pack's
+  Under `kindgi dev`, pinning a suggested change writes it into the pack's
   files,
   as [Under `kindgi dev`](#under-kindgi-dev) shows.
-- **`publish` on the agent** to draft and evaluate, and **`promote`** to ask
-  to make it live.
+- **`publish` on the agent** to draft and evaluate, and **`pin`** to ask
+  to pin it.
 
 ## Draft one
 
@@ -308,24 +308,24 @@ cases**.
 
 ![The suggested change "Change the desk prompt" after the rescore: Not better on the test cases; the change from "Answer briefly." to "Answer warmly."; and its evaluation, "Share marked right: 100% with the change, 100% for the recorded answers (±0 points) on 3 cases. Checked on only 3 test cases, so read the figures with care."](../../../../assets/evals/rescore-proposal-after.png)
 
-## Ask to make it live
+## Ask to pin it
 
-A request makes the candidate live for the suggested change's scope, through
+A request pins the candidate for the suggested change's scope, through
 the scope's release gate policy, with the evaluation as its run on the test
 cases:
 
 ```sh
-pnpm exec kindgi suggested-changes request <suggested-change-id> --reason="Live check: promote by hand."
+pnpm exec kindgi suggested-changes request <suggested-change-id> --reason="Check: pin by hand."
 ```
 
-`--reason` is kept with the request to make it live.
+`--reason` is kept with the request to pin it.
 [Gate a release](../release-an-agent-version/#gate-a-release) describes the
 release gate policy. The suggested change is then:
 
-- `pinned`: the candidate is live for the scope;
+- `pinned`: the candidate is pinned for the scope;
 - `in-review`: the release gate policy passed and a reviewer decides, with
   `kindgi approvals complete`. Then it's `pinned` or `rejected`, `expired`
-  if nobody decides in time, or `superseded` if the scope's live version or
+  if nobody decides in time, or `superseded` if the scope's pinned version or
   its policy changed meanwhile;
 - `refused`: the release gate policy refused it, listing every check.
 
@@ -341,10 +341,10 @@ gate policy let it through:
   …
   "status": "pinned",
   …
-  "promotion": {
+  "pin": {
     "id": "47319459-4131-4ef6-85c6-64afe0514900",
-    "status": "promoted",
-    "liveNow": true
+    "status": "pinned",
+    "pinnedNow": true
   },
   …
 }
@@ -353,14 +353,14 @@ gate policy let it through:
 A suggested change an [Improve run](../improve-an-agent/) wrote, rather than
 a person, always waits for a reviewer, even where the scope's policy asks for
 no approval. While another active reviewer could approve it, someone other
-than whoever asked to make it live must, even where the policy's `approvals`
-sets `"separateApprover": false`. Asking to make it live needs `promote` on the
+than whoever asked to pin it must, even where the policy's `approvals`
+sets `"separateApprover": false`. Asking to pin it needs `pin` on the
 agent.
 
 ## Withdraw it
 
 A withdrawal closes a suggested change before review, or after its request
-to make it live was refused, superseded or expired:
+to pin it was refused, superseded or expired:
 
 ```sh
 pnpm exec kindgi suggested-changes withdraw <suggested-change-id> --reason="Superseded by a better draft"
@@ -377,14 +377,14 @@ ends in them:
 - **An Improve run, a draft and an evaluation** work as on a deployed runtime,
   for the whole tenant (`--tenant`). The version a suggested change makes is
   kept for its evaluation only: runs go on using the pack's version.
-- **Making it live writes it into the pack.** A request, or the approval it
+- **Pinning it writes it into the pack.** A request, or the approval it
   waits for, writes each data block in the suggested change into the block's
   own file: its new version and content, and the agent's new instructions into
   the block's template file. `kindgi dev` reloads, the next run uses it, and
   the log says so:
 
   ```text
-  ✎ acme.rank.weights 1.0.1 made live: written into blocks/weights.json (was 1.0.0)
+  ✎ acme.rank.weights 1.0.1 pinned: written into blocks/weights.json (was 1.0.0)
   ```
 
   Commit the change to keep it. A deploy then publishes the block's new
@@ -393,19 +393,19 @@ ends in them:
 - **For the whole tenant only,** since the pack's files serve every scope. An
   Improve run, a draft, an evaluation or a request for a project or a segment is
   refused with `409 registry-read-only`, before anything is made.
-- **The suggested change is `pinned`, with `liveNow` false:** nothing is
+- **The suggested change is `pinned`, with `pinnedNow` false:** nothing is
   pinned.
   The console says it was written into the pack's files.
 - **If the block's file changed since the suggested change was made,** so it
   holds another version than the one the suggested change changed (another
-  suggested change made live, or your edit at a new version), or the block
-  left the pack, the request is refused with `409 promotion-superseded`, naming the file, and an
+  suggested change pinned, or your edit at a new version), or the block
+  left the pack, the request is refused with `409 pin-superseded`, naming the file, and an
   approval settles it `superseded`. Draft again from what the pack holds now.
   An edit that kept the file's version is written over, so give a block you
   edit by hand a new version.
-- **Rolling back is refused,** and so is unpinning. Undo the change in the
+- **Unpinning is refused.** Undo the change in the
   pack's files, with git:
-  `Error [registry-read-only]: Under kindgi dev, a version made live was written into the pack's files: undo it there, with git, and kindgi dev reloads it.`
+  `Error [registry-read-only]: Under kindgi dev, a version pinned was written into the pack's files: undo it there, with git, and kindgi dev reloads it.`
 
 ## Find them
 
@@ -420,7 +420,7 @@ pnpm exec kindgi suggested-changes get <suggested-change-id>
 - `--status`, `--tier=settings-block|prompt-block` and a scope flag narrow
   the list. A scope flag keeps exactly that scope.
 - `get` shows the change, the candidate versions, the run on the test cases
-  and the request to make it live.
+  and the request to pin it.
 
 Suggested changes are authorized on their agent: `read` to see one.
 
@@ -431,12 +431,12 @@ Suggested changes are authorized on their agent: `read` to see one.
 | `evaluated` | The candidate beat the recorded outputs. Or, kept as `cheaper`, it was no worse than the current version and cost less. |
 | `not-better` | It didn't. |
 | `evaluation-failed` | The run on the test cases failed or was cancelled. |
-| `in-review` | Asked to make it live; the release gate policy passed and an approval is open. |
-| `pinned` | Live for its scope. |
-| `refused` | Asked to make it live; the release gate policy refused it. |
+| `in-review` | Asked to pin it; the release gate policy passed and an approval is open. |
+| `pinned` | Pinned for its scope. |
+| `refused` | Asked to pin it; the release gate policy refused it. |
 | `rejected` | The reviewer rejected it. |
 | `expired` | The approval expired undecided. |
-| `superseded` | Approved after the scope's live version or policy changed. |
+| `superseded` | Approved after the scope's pinned version or policy changed. |
 | `rolled-back` | Only on an older suggested change rolled back by its own `rollback`, which is removed. Going back is a pin of an earlier version, through the agent's pin routes, and leaves it `pinned`. |
 | `withdrawn` | Withdrawn. |
 

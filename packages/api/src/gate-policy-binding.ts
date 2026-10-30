@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { ReviewerRole } from '@kindgi/authz';
-import type { Cursor, LiveScope, Result, TenantId, Timestamp } from '@kindgi/types';
+import type { AgentPinScope, Cursor, Result, TenantId, Timestamp } from '@kindgi/types';
 
 /**
  * Gate policies (evals step 4b): what a promotion of an agent must show
@@ -70,7 +70,7 @@ export interface GatePolicy {
   readonly version: string;
   readonly tenantId: TenantId;
   readonly agentId: string;
-  readonly scope: LiveScope;
+  readonly scope: AgentPinScope;
   readonly spec: GatePolicySpec;
   readonly description?: string;
   readonly createdAt: Timestamp;
@@ -89,7 +89,7 @@ export interface GatePolicyPublishInput {
   readonly id: string;
   readonly version: string;
   readonly agentId: string;
-  readonly scope: LiveScope;
+  readonly scope: AgentPinScope;
   readonly spec: GatePolicySpec;
   readonly description?: string;
 }
@@ -102,7 +102,7 @@ export type GatePolicyErrorCode =
   /** A new version names another agent or scope than the policy's. */
   | 'gate-policy-scope-changed'
   /**
-   * The scope has no live version of its own. A gated scope holds its own
+   * The scope has no pinned version of its own. A gated scope holds its own
    * pin: following the latest version, a publish would go live there
    * ungated; following a pin above it, a promotion there would. Pin a
    * version for the scope first.
@@ -124,7 +124,7 @@ export interface GatePolicyListInput {
   readonly tenantId: TenantId;
   readonly agentId?: string;
   /** Only the policy of exactly this scope. */
-  readonly scope?: LiveScope;
+  readonly scope?: AgentPinScope;
   readonly limit: number;
   readonly cursor?: Cursor;
 }
@@ -168,6 +168,6 @@ export interface GatePolicyBinding {
   resolve(input: {
     readonly tenantId: TenantId;
     readonly agentId: string;
-    readonly scope: LiveScope;
+    readonly scope: AgentPinScope;
   }): Promise<GatePolicy | null>;
 }

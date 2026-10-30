@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** Gate policies and gated promotions (evals step 4b): what each call sends, and a refusal. */
+/** Gate policies and gated pins (evals step 4b): what each call sends, and a refusal. */
 
 import { describe, expect, it } from 'vitest';
 
@@ -94,23 +94,23 @@ describe('gatePolicies', () => {
   });
 });
 
-describe('gated promotions', () => {
+describe('gated pins', () => {
   const input = {
     version: '1.2.0',
     scope: { kind: 'project', projectId: PROJECT },
     testRunId: 'eval-1',
   } as const;
 
-  it('agents.promotions.check posts the same body to …/promotions/check', async () => {
+  it('agents.pinned.check posts the same body to …/pinned/check', async () => {
     const answer = {
       outcome: 'needs-approval',
       policy: { id: POLICY.id, version: '1.0.0' },
       checks: [],
     };
     const { result, method, url, body } = await sent(answer, (c) =>
-      c.agents.promotions.check('acme.drafting', input as never),
+      c.agents.pinned.check('acme.drafting', input as never),
     );
-    expect([method, url]).toEqual(['POST', `${API}/v1/agents/acme.drafting/promotions/check`]);
+    expect([method, url]).toEqual(['POST', `${API}/v1/agents/acme.drafting/pinned/check`]);
     expect(JSON.parse(body as string)).toEqual(input);
     expect(result).toEqual(answer);
   });
@@ -129,7 +129,7 @@ describe('gated promotions', () => {
     );
   });
 
-  it('a refused promotion throws gate-failed, with the checks', async () => {
+  it('a refused pin throws gate-failed, with the checks', async () => {
     const checks = [
       { name: 'metric.weightedYesShare.minCandidate', passed: false, message: 'too low' },
     ];
@@ -141,7 +141,7 @@ describe('gated promotions', () => {
             code: 'gate-failed',
             message: 'The release gate policy refused acme.drafting 1.2.0: too low',
             details: {
-              promotionId: 'promo-1',
+              changeId: 'promo-1',
               policy: { id: POLICY.id, version: '1.0.0' },
               checks,
             },
@@ -155,14 +155,14 @@ describe('gated promotions', () => {
       auth: { kind: 'apiToken', token: 't' },
       fetch: stub.fetch,
     });
-    const failure = await client.agents.promotions
-      .create('acme.drafting', input as never)
+    const failure = await client.agents.pinned
+      .pin('acme.drafting', input as never)
       .catch((e: unknown) => e);
     expect(failure).toBeInstanceOf(KindgiApiError);
     expect((failure as KindgiApiError).error).toMatchObject({
       code: 'server',
       serverCode: 'gate-failed',
-      fields: { promotionId: 'promo-1', checks },
+      fields: { changeId: 'promo-1', checks },
     });
   });
 });

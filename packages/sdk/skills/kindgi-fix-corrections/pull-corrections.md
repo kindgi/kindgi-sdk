@@ -5,18 +5,18 @@ agent is running now, so you don't re-fix something an earlier version already
 fixed:
 
 ```sh
-kindgi agents live acme-store.refunds --project=<project-id>
+kindgi agents pinned acme-store.refunds --project=<project-id>
 ```
 
-`agents live` shows the version a run would use for the project (and
-`agents live-versions` lists every scope with a live version). List that
+`agents pinned` shows the version a run would use for the project (and
+`agents pinned-versions` lists every scope with a pinned version). List that
 version's "no" corrections — and, as you work through them, newer versions':
 
 ```sh
 kindgi corrections list --agent=acme-store.refunds --agent-version=1.0.3 --verdict=no
 ```
 
-- `--agent-version` (it needs `--agent`) scopes to one version — the live one,
+- `--agent-version` (it needs `--agent`) scopes to one version — the pinned one,
   to start. Older versions' corrections may already be fixed; without a version
   you get every version's.
 - `--verdict=no` keeps only the corrections. (Leave it off to see what the

@@ -88,7 +88,7 @@
     },
     {
       "name": "suggested-changes",
-      "description": "Suggested changes: a change to one data block an agent version pins, for one live scope (list, get, draft, evaluate, rescore, pin, withdraw)."
+      "description": "Suggested changes: a change to one data block an agent version pins, for one pinned scope (list, get, draft, evaluate, rescore, pin, withdraw)."
     },
     {
       "name": "improve-runs",
@@ -287,7 +287,6 @@
           "agent-already-registered": 409,
           "agent-project-mismatch": 409,
           "registry-read-only": 409,
-          "live-scope-spans-environments": 409,
           "pin-scope-spans-environments": 409,
           "agent-gone": 410,
           "run-erased": 410,
@@ -396,12 +395,11 @@
           "corrector-group-not-applicable": 400,
           "corrector-group-not-allowed": 403,
           "agent-version-not-found": 404,
-          "promotion-not-found": 404,
-          "nothing-to-roll-back": 409,
+          "pin-not-found": 404,
           "not-pinned": 409,
           "gate-failed": 422,
-          "promotion-superseded": 409,
-          "promotion-gate-unsupported": 501,
+          "pin-superseded": 409,
+          "pin-gate-unsupported": 501,
           "separate-approver-required": 403,
           "named-approver-required": 403,
           "gate-policy-not-found": 404,
@@ -465,7 +463,7 @@
           "identity-user-not-invited": 409,
           "person-grants-unsupported": 501,
           "permissions-unsupported": 501,
-          "agent-version-live": 409,
+          "agent-version-pinned": 409,
           "flow-version-pinned": 409,
           "tool-version-pinned": 409,
           "tool-not-pinnable": 400,
@@ -712,14 +710,14 @@
               "explicit",
               "flow-pin",
               "conversation",
-              "live",
+              "pinned",
               "latest"
             ],
-            "description": "Why this version ran: named by the caller (`explicit`); held by the flow version a flow's agent step runs in (`flow-pin`: the node's `config.version`, else the version the flow version pinned when it was published); the conversation's own (`conversation`); the version live for the run's scope (`live`); or the latest, nothing being live (`latest`). Absent on runs from before Kindgi 0.1.4."
+            "description": "Why this version ran: named by the caller (`explicit`); held by the flow version a flow's agent step runs in (`flow-pin`: the node's `config.version`, else the version the flow version pinned when it was published); the conversation's own (`conversation`); the version pinned for the run's scope (`pinned`); or the latest, nothing being pinned (`latest`). Absent on runs from before Kindgi 0.1.4."
           },
-          "liveScope": {
-            "$ref": "#/components/schemas/LiveScope",
-            "description": "The pin that chose the version, when `via` is `live`."
+          "pinnedScope": {
+            "$ref": "#/components/schemas/AgentPinScope",
+            "description": "The pin that chose the version, when `via` is `pinned`."
           }
         }
       },
@@ -981,65 +979,7 @@
           }
         }
       },
-      "LiveScopeTenant": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "kind"
-        ],
-        "description": "The agent's default for the whole tenant.",
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "tenant"
-            ]
-          }
-        }
-      },
-      "LiveScopeOrg": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "kind",
-          "orgId"
-        ],
-        "description": "An org's projects.",
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "org"
-            ]
-          },
-          "orgId": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
-      },
-      "LiveScopeProject": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "kind",
-          "projectId"
-        ],
-        "description": "One project.",
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "project"
-            ]
-          },
-          "projectId": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
-      },
-      "LiveScopeSegment": {
+      "PinScopeSegment": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -1069,27 +1009,27 @@
           }
         }
       },
-      "LiveScope": {
-        "description": "Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.",
+      "AgentPinScope": {
+        "description": "Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.",
         "oneOf": [
           {
-            "$ref": "#/components/schemas/LiveScopeTenant"
+            "$ref": "#/components/schemas/PinScopeTenant"
           },
           {
-            "$ref": "#/components/schemas/LiveScopeOrg"
+            "$ref": "#/components/schemas/PinScopeOrg"
           },
           {
-            "$ref": "#/components/schemas/LiveScopeProject"
+            "$ref": "#/components/schemas/PinScopeProject"
           },
           {
-            "$ref": "#/components/schemas/LiveScopeSegment"
+            "$ref": "#/components/schemas/PinScopeSegment"
           }
         ],
         "discriminator": {
           "propertyName": "kind"
         }
       },
-      "LiveVersionResolution": {
+      "AgentPinnedVersionResolution": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -1108,24 +1048,24 @@
           "via": {
             "type": "string",
             "enum": [
-              "live",
+              "pinned",
               "latest"
             ],
-            "description": "A live pin chose it, or nothing is live on the way up and it is the latest."
+            "description": "A pin chose it, or nothing is pinned on the way up and it is the latest."
           },
-          "liveScope": {
-            "$ref": "#/components/schemas/LiveScope"
+          "pinnedScope": {
+            "$ref": "#/components/schemas/AgentPinScope"
           }
         }
       },
-      "LivePin": {
+      "AgentPinnedVersion": {
         "type": "object",
         "additionalProperties": false,
         "required": [
           "agentId",
           "scope",
           "version",
-          "promotionId",
+          "changeId",
           "setAt"
         ],
         "properties": {
@@ -1133,15 +1073,15 @@
             "type": "string"
           },
           "scope": {
-            "$ref": "#/components/schemas/LiveScope"
+            "$ref": "#/components/schemas/AgentPinScope"
           },
           "version": {
             "type": "string"
           },
-          "promotionId": {
+          "changeId": {
             "type": "string",
             "format": "uuid",
-            "description": "The promotion that set it."
+            "description": "The pin change that set it."
           },
           "setAt": {
             "type": "string",
@@ -1149,7 +1089,7 @@
           }
         }
       },
-      "LivePinList": {
+      "AgentPinnedVersionList": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -1159,7 +1099,7 @@
           "data": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/LivePin"
+              "$ref": "#/components/schemas/AgentPinnedVersion"
             }
           }
         }
@@ -1175,7 +1115,7 @@
           "data": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/LivePin"
+              "$ref": "#/components/schemas/AgentPinnedVersion"
             }
           },
           "hasMore": {
@@ -1215,7 +1155,7 @@
           }
         }
       },
-      "Promotion": {
+      "Pin": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -1228,7 +1168,7 @@
           "requestedBy",
           "createdAt"
         ],
-        "description": "One change of a scope's live version, kept for good: what was live before, what is after, who asked and why.",
+        "description": "One change of a scope's pinned version, kept for good: what was pinned before, what is after, who asked and why.",
         "properties": {
           "id": {
             "type": "string",
@@ -1238,13 +1178,12 @@
             "type": "string"
           },
           "scope": {
-            "$ref": "#/components/schemas/LiveScope"
+            "$ref": "#/components/schemas/AgentPinScope"
           },
           "action": {
             "type": "string",
             "enum": [
-              "promote",
-              "rollback",
+              "pin",
               "unpin"
             ]
           },
@@ -1296,14 +1235,14 @@
           "status": {
             "type": "string",
             "enum": [
-              "promoted",
+              "pinned",
               "pending-approval",
               "refused",
               "superseded",
               "rejected",
               "expired"
             ],
-            "description": "A `promote` row's state: it changes once, from `pending-approval` to its final state. Absent on rollback and unpin rows, and on promotions made before gates (`promoted`)."
+            "description": "A `pin` row's state: it changes once, from `pending-approval` to its final state. Absent on unpin rows, and on pins made before gates (`pinned`)."
           },
           "policy": {
             "oneOf": [
@@ -1324,16 +1263,16 @@
           },
           "approvalId": {
             "type": "string",
-            "description": "The approval a `pending-approval` promotion waits on (kept once decided)."
+            "description": "The approval a `pending-approval` pin waits on (kept once decided)."
           },
           "resolvedAt": {
             "type": "string",
             "format": "date-time",
-            "description": "When a `pending-approval` promotion reached its final state."
+            "description": "When a `pending-approval` pin reached its final state."
           }
         }
       },
-      "PromotionPage": {
+      "PinPage": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -1344,7 +1283,7 @@
           "data": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Promotion"
+              "$ref": "#/components/schemas/Pin"
             }
           },
           "hasMore": {
@@ -1804,7 +1743,7 @@
                   "type": "number",
                   "minimum": 0,
                   "maximum": 1,
-                  "description": "How far the candidate may fall below the baseline (the live version)."
+                  "description": "How far the candidate may fall below the baseline (the pinned version)."
                 }
               }
             }
@@ -1881,7 +1820,7 @@
             "type": "string"
           },
           "scope": {
-            "$ref": "#/components/schemas/LiveScope"
+            "$ref": "#/components/schemas/AgentPinScope"
           },
           "spec": {
             "$ref": "#/components/schemas/GatePolicySpec"
@@ -1945,7 +1884,7 @@
             "type": "string"
           },
           "scope": {
-            "$ref": "#/components/schemas/LiveScope"
+            "$ref": "#/components/schemas/AgentPinScope"
           },
           "spec": {
             "$ref": "#/components/schemas/GatePolicySpec"
@@ -1975,7 +1914,7 @@
           }
         }
       },
-      "PromotionCheck": {
+      "PinCheck": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -1983,12 +1922,12 @@
           "policy",
           "checks"
         ],
-        "description": "What the gate would say about a promotion. Nothing is recorded.",
+        "description": "What the gate would say about a pin. Nothing is recorded.",
         "properties": {
           "outcome": {
             "type": "string",
             "enum": [
-              "would-promote",
+              "would-pin",
               "needs-approval",
               "gate-failed"
             ]
@@ -2015,7 +1954,7 @@
           }
         }
       },
-      "PromoteBody": {
+      "AgentPinBody": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -2025,10 +1964,10 @@
         "properties": {
           "version": {
             "type": "string",
-            "description": "The agent version to make live (registered, active)."
+            "description": "The agent version to pin (registered, active)."
           },
           "scope": {
-            "$ref": "#/components/schemas/LiveScope"
+            "$ref": "#/components/schemas/AgentPinScope"
           },
           "reason": {
             "type": "string",
@@ -2036,11 +1975,11 @@
           },
           "testRunId": {
             "type": "string",
-            "description": "The comparison behind this promotion."
+            "description": "The comparison behind this pin."
           }
         }
       },
-      "RollbackBody": {
+      "AgentUnpinBody": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -2048,27 +1987,7 @@
         ],
         "properties": {
           "scope": {
-            "$ref": "#/components/schemas/LiveScope"
-          },
-          "toVersion": {
-            "type": "string",
-            "description": "An earlier version to go back to; omit → the scope's previous live version."
-          },
-          "reason": {
-            "type": "string",
-            "maxLength": 2000
-          }
-        }
-      },
-      "UnpinBody": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "scope"
-        ],
-        "properties": {
-          "scope": {
-            "$ref": "#/components/schemas/LiveScope"
+            "$ref": "#/components/schemas/AgentPinScope"
           },
           "reason": {
             "type": "string",
@@ -2221,7 +2140,7 @@
             "items": {
               "$ref": "#/components/schemas/ScopeSegment"
             },
-            "description": "The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none."
+            "description": "The segment path the run was started with (coarse to fine), which picks pinned agent versions. A child run has its parent's. Absent when there was none."
           },
           "traceId": {
             "type": "string",
@@ -2416,7 +2335,7 @@
               },
               "agentVersion": {
                 "type": "string",
-                "description": "Semver. Omit → the conversation's own version for a follow-up turn, else the version live for the run's scope, else the latest."
+                "description": "Semver. Omit → the conversation's own version for a follow-up turn, else the version pinned for the run's scope, else the latest."
               },
               "projectId": {
                 "type": "string",
@@ -2429,7 +2348,7 @@
                 "items": {
                   "$ref": "#/components/schemas/ScopeSegment"
                 },
-                "description": "The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version live on a prefix of it serves the run."
+                "description": "The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version pinned on a prefix of it serves the run."
               },
               "input": {
                 "description": "Opaque payload forwarded to the agent binding."
@@ -2477,7 +2396,7 @@
                 "items": {
                   "$ref": "#/components/schemas/ScopeSegment"
                 },
-                "description": "The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version live on a prefix of it serves the run."
+                "description": "The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version pinned on a prefix of it serves the run."
               },
               "input": {
                 "description": "Opaque payload forwarded to the flow runtime."
@@ -2672,7 +2591,7 @@
                   "items": {
                     "$ref": "#/components/schemas/ScopeSegment"
                   },
-                  "description": "The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none."
+                  "description": "The segment path the run was started with (coarse to fine), which picks pinned agent versions. A child run has its parent's. Absent when there was none."
                 },
                 "traceId": {
                   "type": "string",
@@ -7562,7 +7481,7 @@
           },
           "suggestedChangeId": {
             "type": "string",
-            "description": "For `edited`: the suggested change it was derived for. Such a version serves no scope until a promotion makes it live."
+            "description": "For `edited`: the suggested change it was derived for. Such a version serves no scope until a pin makes it serve."
           }
         }
       },
@@ -7615,7 +7534,7 @@
         }
       },
       "FlowPins": {
-        "description": "The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the tenant), else to its latest version then; each agent it runs at no named version resolves once to its version live for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's gate policies set on a segment covers runs the agent's version live for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version live for the run, else its latest.",
+        "description": "The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the tenant), else to its latest version then; each agent it runs at no named version resolves once to its version pinned for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's gate policies set on a segment covers runs the agent's version pinned for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version pinned for the run, else its latest.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -10807,7 +10726,7 @@
           "rolled-back",
           "withdrawn"
         ],
-        "description": "Where a suggested change stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `pinned`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: only on an older suggested change rolled back by its own `rollback`, which is removed; a rollback today goes through the agent's live routes and leaves it `pinned`. `withdrawn`: withdrawn."
+        "description": "Where a suggested change stands, from its comparison and its pin (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `pinned`: pinned for the scope (`pin.pinnedNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's pinned version or policy changed. `rolled-back`: only on an older suggested change rolled back by its own `rollback`, which is removed; going back is a pin of an earlier version, through the agent's pin routes, and leaves it `pinned`. `withdrawn`: withdrawn."
       },
       "SuggestedChangeBlockEdit": {
         "type": "object",
@@ -10916,7 +10835,7 @@
           "blockVersion",
           "pinsDigest"
         ],
-        "description": "The versions evaluating the suggested change published. They serve no scope until a promotion makes the agent version live.",
+        "description": "The versions evaluating the suggested change published. They serve no scope until a pin makes the agent version serve.",
         "properties": {
           "agentVersion": {
             "type": "string",
@@ -11070,14 +10989,14 @@
           }
         }
       },
-      "SuggestedChangePromotion": {
+      "SuggestedChangePin": {
         "type": "object",
         "additionalProperties": false,
         "required": [
           "id",
           "status"
         ],
-        "description": "The promotion the suggested change's request made.",
+        "description": "The pin the suggested change's request made.",
         "properties": {
           "id": {
             "type": "string"
@@ -11085,7 +11004,7 @@
           "status": {
             "type": "string",
             "enum": [
-              "promoted",
+              "pinned",
               "pending-approval",
               "refused",
               "superseded",
@@ -11097,7 +11016,7 @@
             "type": "string",
             "description": "The approval a request in review waits on."
           },
-          "liveNow": {
+          "pinnedNow": {
             "type": "boolean",
             "description": "For a pinned suggested change: whether its version still serves the scope."
           }
@@ -11106,7 +11025,7 @@
       "SuggestedChange": {
         "type": "object",
         "additionalProperties": false,
-        "description": "A suggested change: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.",
+        "description": "A suggested change: a change to one data block an agent version pins, for one pin scope, taken through the same comparison, gate and pin as any other version.",
         "required": [
           "id",
           "agentId",
@@ -11133,7 +11052,7 @@
             "description": "The agent version the change applies to."
           },
           "scope": {
-            "$ref": "#/components/schemas/LiveScope"
+            "$ref": "#/components/schemas/AgentPinScope"
           },
           "tier": {
             "$ref": "#/components/schemas/SuggestedChangeTier"
@@ -11160,15 +11079,15 @@
           "evaluation": {
             "$ref": "#/components/schemas/SuggestedChangeEvaluation"
           },
-          "promotion": {
-            "$ref": "#/components/schemas/SuggestedChangePromotion"
+          "pin": {
+            "$ref": "#/components/schemas/SuggestedChangePin"
           },
           "rolledBack": {
             "type": "object",
             "additionalProperties": false,
             "required": [
               "at",
-              "promotionId",
+              "changeId",
               "by"
             ],
             "properties": {
@@ -11176,9 +11095,9 @@
                 "type": "string",
                 "format": "date-time"
               },
-              "promotionId": {
+              "changeId": {
                 "type": "string",
-                "description": "The rollback's own promotion row."
+                "description": "The rollback's own pin change row."
               },
               "by": {
                 "type": "string"
@@ -11356,7 +11275,7 @@
             "description": "The version whose settings it tunes."
           },
           "scope": {
-            "$ref": "#/components/schemas/LiveScope"
+            "$ref": "#/components/schemas/AgentPinScope"
           },
           "testSetId": {
             "type": "string",
@@ -11589,7 +11508,7 @@
             "description": "The project the Improve run works in: `testSetId` must be a test set it reaches, the version must reach it, and the Improve run's test runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there."
           },
           "scope": {
-            "$ref": "#/components/schemas/LiveScope"
+            "$ref": "#/components/schemas/AgentPinScope"
           },
           "testSetId": {
             "type": "string",
@@ -11709,7 +11628,7 @@
         }
       },
       "CreateSuggestedChangeBody": {
-        "description": "A hand-written suggested change: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one suggested change (answered with `X-Suggested-Change-Deduped: true`).",
+        "description": "A hand-written suggested change: new content for a data block that `fromVersion` pins, for a pin scope. The same change from the same version for the same scope is one suggested change (answered with `X-Suggested-Change-Deduped: true`).",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -11729,7 +11648,7 @@
             "description": "The agent version the change applies to."
           },
           "scope": {
-            "$ref": "#/components/schemas/LiveScope"
+            "$ref": "#/components/schemas/AgentPinScope"
           },
           "tier": {
             "$ref": "#/components/schemas/SuggestedChangeTier"
@@ -11782,7 +11701,7 @@
         }
       },
       "EvaluateSuggestedChangeBody": {
-        "description": "Compare the suggested change's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).",
+        "description": "Compare the suggested change's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until pinned).",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -15355,7 +15274,7 @@
         }
       },
       "EvalBaseline": {
-        "description": "What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.",
+        "description": "What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version pinned in a scope (`{ pinned: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.",
         "oneOf": [
           {
             "type": "string",
@@ -15383,10 +15302,10 @@
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "live"
+              "pinned"
             ],
             "properties": {
-              "live": {
+              "pinned": {
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
@@ -15399,7 +15318,7 @@
                       "$ref": "#/components/schemas/ScopeSegment"
                     },
                     "maxItems": 8,
-                    "description": "A segment path in `projectId`, coarse to fine, as live versions resolve it. Needs `projectId`."
+                    "description": "A segment path in `projectId`, coarse to fine, as pinned versions resolve it. Needs `projectId`."
                   }
                 }
               }
@@ -15798,10 +15717,10 @@
                     "type": "string",
                     "enum": [
                       "explicit",
-                      "live"
+                      "pinned"
                     ]
                   },
-                  "liveScope": {
+                  "pinnedScope": {
                     "type": "object",
                     "additionalProperties": true
                   }
@@ -18309,7 +18228,7 @@
             "items": {
               "type": "string"
             },
-            "description": "These versions exactly, or `live`: runs that got the agent's live version, not one the caller named. Runs from before the runtime recorded how their version was chosen never match `live`."
+            "description": "These versions exactly, or `pinned`: runs that got the agent's pinned version, not one the caller named. Runs from before the runtime recorded how their version was chosen never match `pinned`."
           },
           "status": {
             "type": "array",
@@ -19174,7 +19093,7 @@
                 "admin",
                 "execute",
                 "publish",
-                "promote"
+                "pin"
               ]
             }
           },
@@ -20114,13 +20033,13 @@
         "additionalProperties": false,
         "required": [
           "status",
-          "promotionId"
+          "changeId"
         ],
         "properties": {
           "status": {
             "type": "string",
             "enum": [
-              "promoted",
+              "pinned",
               "pending-approval",
               "refused",
               "superseded",
@@ -20128,7 +20047,7 @@
               "expired"
             ]
           },
-          "promotionId": {
+          "changeId": {
             "type": "string",
             "format": "uuid"
           },
@@ -20544,11 +20463,10 @@
           "hitl-decision",
           "wait-token-completed",
           "wait-token-discarded",
-          "agent-promotion",
-          "agent-promotion-refused",
-          "agent-rollback",
-          "agent-live-unpinned",
-          "agent-live-pin-inactive",
+          "agent-pinned",
+          "agent-pin-refused",
+          "agent-unpinned",
+          "agent-pin-inactive",
           "flow-pinned",
           "flow-unpinned",
           "flow-pin-inactive",
@@ -20718,11 +20636,10 @@
               "hitl-decision",
               "wait-token-completed",
               "wait-token-discarded",
-              "agent-promotion",
-              "agent-promotion-refused",
-              "agent-rollback",
-              "agent-live-unpinned",
-              "agent-live-pin-inactive",
+              "agent-pinned",
+              "agent-pin-refused",
+              "agent-unpinned",
+              "agent-pin-inactive",
               "flow-pinned",
               "flow-unpinned",
               "flow-pin-inactive",
@@ -20915,11 +20832,10 @@
               "hitl-decision",
               "wait-token-completed",
               "wait-token-discarded",
-              "agent-promotion",
-              "agent-promotion-refused",
-              "agent-rollback",
-              "agent-live-unpinned",
-              "agent-live-pin-inactive",
+              "agent-pinned",
+              "agent-pin-refused",
+              "agent-unpinned",
+              "agent-pin-inactive",
               "flow-pinned",
               "flow-unpinned",
               "flow-pin-inactive",
@@ -21010,11 +20926,10 @@
                   "hitl-decision",
                   "wait-token-completed",
                   "wait-token-discarded",
-                  "agent-promotion",
-                  "agent-promotion-refused",
-                  "agent-rollback",
-                  "agent-live-unpinned",
-                  "agent-live-pin-inactive",
+                  "agent-pinned",
+                  "agent-pin-refused",
+                  "agent-unpinned",
+                  "agent-pin-inactive",
                   "flow-pinned",
                   "flow-unpinned",
                   "flow-pin-inactive",
@@ -23407,7 +23322,7 @@
           "agentId": {
             "type": "string",
             "minLength": 1,
-            "description": "A schedule that runs an agent: the agent, at `agentVersion`, else its version live for the schedule's project (else the latest), as a run that names none."
+            "description": "A schedule that runs an agent: the agent, at `agentVersion`, else its version pinned for the schedule's project (else the latest), as a run that names none."
           },
           "agentVersion": {
             "type": "string",
@@ -23693,7 +23608,7 @@
           "agentId": {
             "type": "string",
             "minLength": 1,
-            "description": "Run an agent (instead of a flow): at `agentVersion`, else its live version."
+            "description": "Run an agent (instead of a flow): at `agentVersion`, else its pinned version."
           },
           "agentVersion": {
             "type": "string",
@@ -23791,7 +23706,7 @@
           "agentId": {
             "type": "string",
             "minLength": 1,
-            "description": "Run an agent (instead of a flow): at `agentVersion`, else its live version."
+            "description": "Run an agent (instead of a flow): at `agentVersion`, else its pinned version."
           },
           "agentVersion": {
             "type": "string",
@@ -24485,7 +24400,7 @@
           "agentId": {
             "type": "string",
             "minLength": 1,
-            "description": "Run an agent (instead of a flow): at `agentVersion`, else its live version."
+            "description": "Run an agent (instead of a flow): at `agentVersion`, else its pinned version."
           },
           "agentVersion": {
             "type": "string",
@@ -24668,7 +24583,7 @@
           "agentId": {
             "type": "string",
             "minLength": 1,
-            "description": "Run an agent (instead of a flow): at `agentVersion`, else its live version."
+            "description": "Run an agent (instead of a flow): at `agentVersion`, else its pinned version."
           },
           "agentVersion": {
             "type": "string",
@@ -24724,7 +24639,7 @@
           "agentId": {
             "type": "string",
             "minLength": 1,
-            "description": "Run an agent (instead of a flow): at `agentVersion`, else its live version."
+            "description": "Run an agent (instead of a flow): at `agentVersion`, else its pinned version."
           },
           "agentVersion": {
             "type": "string",
@@ -24886,7 +24801,7 @@
           "agentId": {
             "type": "string",
             "minLength": 1,
-            "description": "A schedule that runs an agent: the agent, at `agentVersion`, else its version live for the schedule's project (else the latest), as a run that names none."
+            "description": "A schedule that runs an agent: the agent, at `agentVersion`, else its version pinned for the schedule's project (else the latest), as a run that names none."
           },
           "agentVersion": {
             "type": "string",
@@ -25195,7 +25110,7 @@
           "agentId": {
             "type": "string",
             "minLength": 1,
-            "description": "Run an agent (instead of a flow): at `agentVersion`, else its live version."
+            "description": "Run an agent (instead of a flow): at `agentVersion`, else its pinned version."
           },
           "agentVersion": {
             "type": "string",
@@ -26722,14 +26637,14 @@
           "agentId",
           "scope"
         ],
-        "description": "What an improve schedule works on: the agent, and the live scope its Improve runs suggest changes for and count corrections in.",
+        "description": "What an improve schedule works on: the agent, and the pinned scope its Improve runs suggest changes for and count corrections in.",
         "properties": {
           "agentId": {
             "type": "string",
             "minLength": 1
           },
           "scope": {
-            "$ref": "#/components/schemas/LiveScope"
+            "$ref": "#/components/schemas/AgentPinScope"
           }
         }
       },
@@ -35486,7 +35401,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `agent-version-live`: the version is the live version of the scopes in `details.scopes`; roll back, unpin, or promote another version there first.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `agent-version-pinned`: the version is the pinned version of the scopes in `details.scopes`; unpin, or pin another version there first.",
             "content": {
               "application/json": {
                 "schema": {
@@ -35670,9 +35585,9 @@
         ]
       }
     },
-    "/v1/agents/{agentId}/live": {
+    "/v1/agents/{agentId}/pinned": {
       "get": {
-        "operationId": "agents.live.resolve",
+        "operationId": "agents.pinned.resolve",
         "summary": "The version a run would use",
         "tags": [
           "agents"
@@ -35683,7 +35598,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LiveVersionResolution"
+                  "$ref": "#/components/schemas/AgentPinnedVersionResolution"
                 }
               }
             }
@@ -35729,7 +35644,7 @@
             }
           }
         },
-        "description": "Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.",
+        "description": "Resolves the version a run of this agent would use for a project and segment path: the most specific pinned version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.",
         "parameters": [
           {
             "name": "agentId",
@@ -35771,10 +35686,10 @@
         ]
       }
     },
-    "/v1/agents/{agentId}/live-versions": {
+    "/v1/agents/{agentId}/pinned-versions": {
       "get": {
-        "operationId": "agents.live.list",
-        "summary": "List an agent's live versions",
+        "operationId": "agents.pinned.list",
+        "summary": "List an agent's pinned versions",
         "tags": [
           "agents"
         ],
@@ -35784,7 +35699,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LivePinList"
+                  "$ref": "#/components/schemas/AgentPinnedVersionList"
                 }
               }
             }
@@ -35810,7 +35725,7 @@
             }
           }
         },
-        "description": "Every scope with a live version pinned, and the promotion that set it.",
+        "description": "Every scope with a pinned version, and the pin change that set it.",
         "parameters": [
           {
             "name": "agentId",
@@ -35829,30 +35744,30 @@
         ]
       }
     },
-    "/v1/agents/{agentId}/promotions": {
+    "/v1/agents/{agentId}/pinned/pin": {
       "post": {
-        "operationId": "agents.promotions.create",
-        "summary": "Make a version live for a scope",
+        "operationId": "agents.pinned.pin",
+        "summary": "Pin a version for a scope",
         "tags": [
           "agents"
         ],
         "responses": {
           "201": {
-            "description": "Promoted.",
+            "description": "Pinned.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Promotion"
+                  "$ref": "#/components/schemas/Pin"
                 }
               }
             }
           },
           "202": {
-            "description": "The gate passed; the promotion waits for an approval (`approvalId`).",
+            "description": "The gate passed; the pin waits for an approval (`approvalId`).",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Promotion"
+                  "$ref": "#/components/schemas/Pin"
                 }
               }
             }
@@ -35888,7 +35803,7 @@
             }
           },
           "409": {
-            "description": "`promotion-superseded`: the scope's live version changed while the gate ran; check again. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `live-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `promotion-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
+            "description": "`pin-superseded`: the scope's pinned version changed while the gate ran; check again. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `pin-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `pin-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -35908,7 +35823,7 @@
             }
           },
           "422": {
-            "description": "`gate-failed`: the gate refused it. `details.checks` has every check; the refusal is recorded (`details.promotionId`).",
+            "description": "`gate-failed`: the gate refused it. `details.checks` has every check; the refusal is recorded (`details.changeId`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -35938,7 +35853,7 @@
             }
           },
           "501": {
-            "description": "`promotion-gate-unsupported`: a gate policy applies, and the deployment can't record a gated promotion.",
+            "description": "`pin-gate-unsupported`: a gate policy applies, and the deployment can't record a gated pin.",
             "content": {
               "application/json": {
                 "schema": {
@@ -35958,7 +35873,7 @@
             }
           }
         },
-        "description": "Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.\n\nWith a gate policy for the scope (`GET …/gate-policy`), the promotion is checked first against the comparison named by `testRunId`: `201` promoted; `202` the gate passed and the policy wants a reviewer's approval (a HITL approval, subject `agent-promotion`; the live version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.promotionId`, `details.policy` and every check in `details.checks`. A refused promotion is recorded too.\n\nA pin in place skips the gate: when the scope has no live version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is promoted (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 promotion-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: making a version live writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole tenant, which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its suggested change changed, or another block's file a version not older), or the block left the pack, `409 promotion-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way.",
+        "description": "Pins `version` for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every pin is recorded, with who asked and why. Needs `pin` on the agent.\n\nWith a gate policy for the scope (`GET …/gate-policy`), the pin is checked first against the comparison named by `testRunId`: `201` pinned; `202` the gate passed and the policy wants a reviewer's approval (a HITL approval, subject `agent-pin`; the pinned version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.changeId`, `details.policy` and every check in `details.checks`. A refused pin is recorded too.\n\nA pin in place skips the gate: when the scope has no pinned version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is pinned (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 pin-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: pinning a version writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole tenant, which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its suggested change changed, or another block's file a version not older), or the block left the pack, `409 pin-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way.",
         "parameters": [
           {
             "name": "agentId",
@@ -35985,136 +35900,11 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PromoteBody"
+                "$ref": "#/components/schemas/AgentPinBody"
               }
             }
           }
         },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      },
-      "get": {
-        "operationId": "agents.promotions.list",
-        "summary": "List an agent's promotions",
-        "tags": [
-          "agents"
-        ],
-        "responses": {
-          "200": {
-            "description": "Page of promotions.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PromotionPage"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed scope or cursor.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "The history of live-version changes (promotions, rollbacks, unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.",
-        "parameters": [
-          {
-            "name": "agentId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "AgentId — dotted namespace (`acme.drafting`)."
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100,
-              "default": 25
-            },
-            "required": false,
-            "description": "1..100. Default 25."
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
-          },
-          {
-            "name": "scopeKind",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "tenant",
-                "org",
-                "project",
-                "segment"
-              ]
-            },
-            "required": false,
-            "description": "Only one scope: `tenant`, `org` or `project` (with `scopeId`), or `segment` (with `scopeId` and `segment`)."
-          },
-          {
-            "name": "scopeId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
-          },
-          {
-            "name": "segment",
-            "in": "query",
-            "schema": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "required": false,
-            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine.",
-            "x-kindgi-segment-path": true
-          }
-        ],
         "security": [
           {
             "bearerAuth": []
@@ -36122,10 +35912,10 @@
         ]
       }
     },
-    "/v1/agents/{agentId}/promotions/check": {
+    "/v1/agents/{agentId}/pinned/check": {
       "post": {
-        "operationId": "agents.promotions.check",
-        "summary": "Check a promotion against its gate",
+        "operationId": "agents.pinned.check",
+        "summary": "Check a pin against its gate",
         "tags": [
           "agents"
         ],
@@ -36135,7 +35925,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PromotionCheck"
+                  "$ref": "#/components/schemas/PinCheck"
                 }
               }
             }
@@ -36181,7 +35971,7 @@
             }
           }
         },
-        "description": "What `POST …/promotions` with the same body would do, with nothing recorded: `would-promote`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, promote. Needs `read` on the agent.",
+        "description": "What `POST …/pinned/pin` with the same body would do, with nothing recorded: `would-pin`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, pin. Needs `read` on the agent.",
         "parameters": [
           {
             "name": "agentId",
@@ -36198,7 +35988,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PromoteBody"
+                "$ref": "#/components/schemas/AgentPinBody"
               }
             }
           }
@@ -36480,7 +36270,7 @@
             }
           },
           "409": {
-            "description": "`gate-policy-already-registered`: that (id, version) exists. `gate-policy-scope-taken`: another policy gates the agent for the scope (`details.heldBy`). `gate-policy-scope-changed`: the version would change the agent or scope. `gate-policy-scope-unpinned`: the scope has no live version of its own; a gated scope holds its own pin (a pin above it is not enough, since a promotion there would change this scope ungated), so pin a version for the scope first.",
+            "description": "`gate-policy-already-registered`: that (id, version) exists. `gate-policy-scope-taken`: another policy gates the agent for the scope (`details.heldBy`). `gate-policy-scope-changed`: the version would change the agent or scope. `gate-policy-scope-unpinned`: the scope has no pinned version of its own; a gated scope holds its own pin (a pin above it is not enough, since a promotion there would change this scope ungated), so pin a version for the scope first.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36908,7 +36698,7 @@
             }
           },
           "409": {
-            "description": "`gate-policy-scope-taken`: another policy gates the agent for the scope now (`details.heldBy`). `gate-policy-scope-unpinned`: the scope has no live version of its own; pin one first.",
+            "description": "`gate-policy-scope-taken`: another policy gates the agent for the scope now (`details.heldBy`). `gate-policy-scope-unpinned`: the scope has no pinned version of its own; pin one first.",
             "content": {
               "application/json": {
                 "schema": {
@@ -36956,20 +36746,147 @@
         ]
       }
     },
-    "/v1/agents/{agentId}/promotions/{promotionId}": {
+    "/v1/agents/{agentId}/pin-history": {
       "get": {
-        "operationId": "agents.promotions.get",
-        "summary": "Get a promotion",
+        "operationId": "agents.pinned.history",
+        "summary": "List an agent's pin history",
         "tags": [
           "agents"
         ],
         "responses": {
           "200": {
-            "description": "The promotion.",
+            "description": "Page of pin changes.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Promotion"
+                  "$ref": "#/components/schemas/PinPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed scope or cursor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The history of pinned-version changes (pins and unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          },
+          {
+            "name": "scopeKind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "tenant",
+                "org",
+                "project",
+                "segment"
+              ]
+            },
+            "required": false,
+            "description": "Only one scope: `tenant`, `org` or `project` (with `scopeId`), or `segment` (with `scopeId` and `segment`)."
+          },
+          {
+            "name": "scopeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
+          },
+          {
+            "name": "segment",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "required": false,
+            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine.",
+            "x-kindgi-segment-path": true
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/pin-history/{changeId}": {
+      "get": {
+        "operationId": "agents.pinned.getChange",
+        "summary": "Get a pin change",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "The pin change.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Pin"
                 }
               }
             }
@@ -36985,7 +36902,7 @@
             }
           },
           "404": {
-            "description": "No such promotion for this agent.",
+            "description": "No such pin change for this agent.",
             "content": {
               "application/json": {
                 "schema": {
@@ -37016,7 +36933,7 @@
             "description": "AgentId — dotted namespace (`acme.drafting`)."
           },
           {
-            "name": "promotionId",
+            "name": "changeId",
             "in": "path",
             "schema": {
               "type": "string",
@@ -37032,138 +36949,10 @@
         ]
       }
     },
-    "/v1/agents/{agentId}/live/rollback": {
+    "/v1/agents/{agentId}/pinned/unpin": {
       "post": {
-        "operationId": "agents.live.rollback",
-        "summary": "Roll a scope back to its previous live version",
-        "tags": [
-          "agents"
-        ],
-        "responses": {
-          "200": {
-            "description": "Rolled back.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Promotion"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed request body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "`toVersion` is not registered, or was unregistered.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "`not-pinned`: the scope has no pin of its own. `nothing-to-roll-back`: no earlier version to go back to. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `live-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide rollback would act in every environment of the order at once; roll back a project (or a segment of it) instead. Or `registry-read-only`: under `kindgi dev`, a version made live was written into the pack's files; undo it there, with git.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (unmapped domain code or framework crash).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Back to the scope's previous live version, or `toVersion`. Recorded like a promotion. Needs `promote` on the agent.",
-        "parameters": [
-          {
-            "name": "agentId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "AgentId — dotted namespace (`acme.drafting`)."
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RollbackBody"
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/agents/{agentId}/live/unpin": {
-      "post": {
-        "operationId": "agents.live.unpin",
-        "summary": "Remove a scope's live version",
+        "operationId": "agents.pinned.unpin",
+        "summary": "Remove a scope's pinned version",
         "tags": [
           "agents"
         ],
@@ -37173,7 +36962,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Promotion"
+                  "$ref": "#/components/schemas/Pin"
                 }
               }
             }
@@ -37199,7 +36988,7 @@
             }
           },
           "409": {
-            "description": "`not-pinned`: the scope has no pin of its own. `gate-policy-needs-pin`: the scope has a gate policy of its own, and a gated scope keeps its own pin; unregister the policy first, or roll back instead. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. Or `registry-read-only`: under `kindgi dev`, a version made live was written into the pack's files; undo it there, with git.",
+            "description": "`not-pinned`: the scope has no pin of its own. `gate-policy-needs-pin`: the scope has a gate policy of its own, and a gated scope keeps its own pin; unregister the policy first, or pin another version instead. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. Or `registry-read-only`: under `kindgi dev`, a pinned version was written into the pack's files; undo it there, with git.",
             "content": {
               "application/json": {
                 "schema": {
@@ -37239,7 +37028,7 @@
             }
           }
         },
-        "description": "Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a promotion. Needs `promote` on the agent.",
+        "description": "Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a pin. Needs `pin` on the agent.",
         "parameters": [
           {
             "name": "agentId",
@@ -37266,7 +37055,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UnpinBody"
+                "$ref": "#/components/schemas/AgentUnpinBody"
               }
             }
           }
@@ -42647,7 +42436,7 @@
             }
           }
         },
-        "description": "Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a suggested change is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).",
+        "description": "Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the pin scope a suggested change is for (`scopeKind`, `scopeId`, `segment`, exactly as the pin history takes it).",
         "parameters": [
           {
             "name": "limit",
@@ -42839,7 +42628,7 @@
             }
           }
         },
-        "description": "A hand-written suggested change: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`. Needs `publish` on the agent.",
+        "description": "A hand-written suggested change: new settings values or a new prompt template for a block `fromVersion` pins, for a pin scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`. Needs `publish` on the agent.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -42968,7 +42757,7 @@
             }
           }
         },
-        "description": "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the Improve run, `running`. The Improve run works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the Improve run's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the Improve run to work on (`400 validation-failed`, with `details.reason`): for a settings Improve run, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt Improve run, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions an Improve run makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No Improve run starts in a suspended project (`409 project-suspended`), and an Improve run going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.",
+        "description": "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the Improve run, `running`. The Improve run works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the Improve run's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the Improve run to work on (`400 validation-failed`, with `details.reason`): for a settings Improve run, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt Improve run, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions an Improve run makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a pinned version for the whole tenant (`409 suggested-change-needs-pin`). No Improve run starts in a suspended project (`409 project-suspended`), and an Improve run going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -43289,7 +43078,7 @@
             }
           },
           "409": {
-            "description": "`suggested-change-needs-pin`: the agent has no live version for the whole tenant. `suggested-change-invalid-state-transition`: the suggested change's status doesn't allow it. `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes; or, under `kindgi dev`, the suggested change's scope is narrower than the whole tenant, since the pack's files serve every scope.",
+            "description": "`suggested-change-needs-pin`: the agent has no pinned version for the whole tenant. `suggested-change-invalid-state-transition`: the suggested change's status doesn't allow it. `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes; or, under `kindgi dev`, the suggested change's scope is narrower than the whole tenant, since the pack's files serve every scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43339,7 +43128,7 @@
             }
           }
         },
-        "description": "The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a promotion makes them live. Then a comparison test run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.",
+        "description": "The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a pin makes them serve. Then a comparison test run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a pinned version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would serve there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.",
         "parameters": [
           {
             "name": "suggestedChangeId",
@@ -43547,7 +43336,7 @@
             }
           },
           "409": {
-            "description": "The suggested change's status doesn't allow it. Or `live-scope-spans-environments`: the agent has a project in an environment order, and the suggested change's tenant- or org-wide scope would act in every environment of the order at once; a suggested change for a project (or a segment of it) can be pinned.",
+            "description": "The suggested change's status doesn't allow it. Or `pin-scope-spans-environments`: the agent has a project in an environment order, and the suggested change's tenant- or org-wide scope would act in every environment of the order at once; a suggested change for a project (or a segment of it) can be pinned.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43597,7 +43386,7 @@
             }
           }
         },
-        "description": "A pin of the candidate for the suggested change's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.",
+        "description": "A pin of the candidate for the suggested change's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. Needs `pin` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.",
         "parameters": [
           {
             "name": "suggestedChangeId",
@@ -59241,7 +59030,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Comma-separated; `live` for the live version."
+            "description": "Comma-separated; `pinned` for the pinned version."
           },
           {
             "name": "status",
@@ -60652,7 +60441,7 @@
             }
           }
         },
-        "description": "Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/live-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.",
+        "description": "Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/pinned-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.",
         "parameters": [
           {
             "name": "projectId",

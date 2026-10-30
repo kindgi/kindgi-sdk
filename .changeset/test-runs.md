@@ -22,4 +22,4 @@
 - **Errors.** Codes starting `eval-run-` start `test-run-`.
 - **Schemas and types.** `EvalRun*` names are `TestRun*`.
 - **TypeScript client.** `client.evalRuns` is `client.testRuns`.
-- **CLI.** `kindgi eval-runs` is `kindgi test-runs`, and `--eval-run` is `--test-run` (on `kindgi agents promote` and `kindgi runs list`). `kindgi exports create` writes them as `test-runs`.
+- **CLI.** `kindgi eval-runs` is `kindgi test-runs`, and `--eval-run` is `--test-run` (on `kindgi agents pin` and `kindgi runs list`). `kindgi exports create` writes them as `test-runs`.

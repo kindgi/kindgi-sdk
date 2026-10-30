@@ -30,7 +30,7 @@ import {
   referencesOutOfScope,
 } from '../reference-scope.js';
 import type { AppEnv } from '../types.js';
-import { actorOf } from './agent-releases.js';
+import { actorOf } from './agent-pins.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { parsePinScopeBody, pinScopeToWire } from './pin-scope-wire.js';

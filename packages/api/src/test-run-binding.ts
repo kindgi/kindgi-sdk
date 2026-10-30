@@ -141,14 +141,14 @@ export interface TestRunFilter {
  * What a comparison test run compares the candidate against:
  *   - `'recorded'`: the output each case recorded (what was corrected);
  *   - `{ agentId, version }`: that version, replayed under the same rules;
- *   - `{ live }`: the version live in a scope: a project, and a segment
- *     path in it (coarse to fine, as live versions resolve it).
+ *   - `{ pinned }`: the version pinned in a scope: a project, and a segment
+ *     path in it (coarse to fine, as pinned versions resolve it).
  */
 export type EvalBaseline =
   | 'recorded'
   | { readonly agentId: AgentId; readonly version: Semver }
   | {
-      readonly live: {
+      readonly pinned: {
         readonly projectId?: ProjectId;
         /** A segment path in `projectId`, coarse to fine. */
         readonly segments?: readonly ScopeSegment[];

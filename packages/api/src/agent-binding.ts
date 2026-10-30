@@ -4,7 +4,7 @@
 import type { Agent, AgentId } from '@kindgi/agents';
 import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
-import type { Cursor, LiveScope, ProjectId, Semver, TenantId } from '@kindgi/types';
+import type { AgentPinScope, Cursor, ProjectId, Semver, TenantId } from '@kindgi/types';
 
 import type { RegistryReadOnly } from './registry-read-only.js';
 
@@ -90,8 +90,8 @@ export interface AgentRegistryBinding {
    * Soft-tombstone a specific `(agentId, version)`. Returns
    * `{ unregistered: true }` on success; `{ unregistered: false }`
    * when the version was unknown OR already tombstoned — the route
-   * flips the latter to `404` — or, with `live`, when it's a scope's live
-   * version (`409 agent-version-live`). Head row is preserved; when this
+   * flips the latter to `404` — or, with `pinned`, when it's a scope's pinned
+   * version (`409 agent-version-pinned`). Head row is preserved; when this
    * unregister leaves NO active versions, the agent has no latest
    * version — it enters the derived "retired" state
    * (GET returns 410 gone) but the identity persists. Publish of a
@@ -289,14 +289,14 @@ export type AgentPublishOutcome =
 export type AgentUnregisterOutcome = {
   readonly unregistered: boolean;
   /**
-   * Set when the version wasn't unregistered because it's live: the
-   * scopes whose live pin it is (evals step 4). Unregister stops a version
-   * being chosen, and a live pin is a standing choice, so the operator
-   * moves those pins first (rollback, unpin, or promote another version).
-   * The route answers `409 agent-version-live`. Absent: a registry that
-   * doesn't know live versions, as before.
+   * Set when the version wasn't unregistered because it's pinned: the
+   * scopes whose pin it is. Unregister stops a version
+   * being chosen, and a pin is a standing choice, so the operator
+   * moves those pins first (unpin, or pin another version).
+   * The route answers `409 agent-version-pinned`. Absent: a registry that
+   * doesn't know pinned versions, as before.
    */
-  readonly live?: readonly LiveScope[];
+  readonly pinned?: readonly AgentPinScope[];
 };
 
 export type AgentReinstateVersionOutcome =

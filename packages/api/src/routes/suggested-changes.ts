@@ -5,10 +5,15 @@ import { type Context, Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
 import { type Action, ref } from '@kindgi/authz';
-import type { Cursor, LiveScope, SuggestedChangeId, TenantId } from '@kindgi/types';
+import type { AgentPinScope, Cursor, SuggestedChangeId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
-import { type ItemRights, liveScopeCheck, widthRefusal, writeWhereMade } from '../item-rights.js';
+import {
+  type ItemRights,
+  agentPinScopeCheck,
+  widthRefusal,
+  writeWhereMade,
+} from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import {
@@ -31,9 +36,9 @@ import type {
 } from '../supervisor-binding.js';
 import type { EvalComparison } from '../test-run-binding.js';
 import type { AppEnv } from '../types.js';
-import { actorOf, promotionResponse, scopeFromQuery } from './agent-releases.js';
+import { agentPinScopeToWire, parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
+import { actorOf, pinResponse, scopeFromQuery } from './agent-pins.js';
 import { parseComparison } from './eval-comparison.js';
-import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
 
 /** What the suggested change lifecycle runs on besides its own store. */
@@ -51,14 +56,14 @@ type Ctx = Context<AppEnv>;
 /**
  * suggested changes (`/v1/suggested-changes`): a change to one data block an
  * agent version pins (new settings values, or a new prompt template),
- * for one live scope, taken through the same comparison, gate and
- * promotion as any other version (`createSuggestedChangeService`).
+ * for one pin scope, taken through the same comparison, gate and
+ * pin as any other version (`createSuggestedChangeService`).
  *
- *   GET  /                 list (statuses derived): by agent, tier, status and live scope
+ *   GET  /                 list (statuses derived): by agent, tier, status and pin scope
  *   GET  /:id              one
  *   POST /                 a hand-written suggested change (a draft)
  *   POST /:id/evaluate     publish the block version and derive the agent
- *                          version (inert until promoted), then compare it
+ *                          version (inert until pinned), then compare it
  *                          on a test set (202)
  *   POST /:id/rescore      the latest evaluation scored again, with what
  *                          people corrected on its replays since (202)
@@ -68,7 +73,7 @@ type Ctx = Context<AppEnv>;
  *
  * Authorized on the suggested change's agent: reading is `read`, drafting,
  * evaluating, rescoring and withdrawing are `publish`, and
- * pinning is `promote`. A suggested change the caller can't
+ * pinning is `pin`. A suggested change the caller can't
  * read answers 404, as one that doesn't exist.
  *
  * For an agent more than one project serves (`item-rights.ts`): reading
@@ -98,15 +103,15 @@ export function suggestedChangesRouter(
   /**
    * `undefined` when allowed; else the 403. For an agent more than one
    * project serves, `publish` is `write` where its versions are made and
-   * `promote` is `admin` where `scope` is (the module's rules).
+   * `pin` is `admin` where `scope` is (the module's rules).
    */
-  async function deny(c: Ctx, action: Action, agentId: string, scope?: LiveScope) {
+  async function deny(c: Ctx, action: Action, agentId: string, scope?: AgentPinScope) {
     if (authorizer === undefined) return undefined;
     const projects = await served(c, agentId);
     if (itemRights !== undefined && projects !== undefined) {
-      if (action === 'promote') {
-        // A live scope's check names no version, so the 404 is never answered.
-        return itemRights.enforce(c, 'agent', agentId, projects, liveScopeCheck(scope), () =>
+      if (action === 'pin') {
+        // A pin scope's check names no version, so the 404 is never answered.
+        return itemRights.enforce(c, 'agent', agentId, projects, agentPinScopeCheck(scope), () =>
           failWith(c, suggestedChangeNotFound(c.req.param('suggestedChangeId') ?? '')),
         );
       }
@@ -207,7 +212,7 @@ export function suggestedChangesRouter(
       ...(cursor !== undefined && cursor !== '' && { cursor: cursor as Cursor }),
       ...(agentId !== undefined && agentId !== '' && { agentId: agentId as AgentId }),
       ...(tier !== undefined && { tier: tier as SuggestedChangeTier }),
-      ...(scope.scope !== undefined && { liveScope: scope.scope }),
+      ...(scope.scope !== undefined && { pinnedScope: scope.scope }),
     });
     const shown = await readableOnPage(c, page.data);
     const read = service.facts(tenantId);
@@ -299,7 +304,7 @@ export function suggestedChangesRouter(
 
   // ---------- POST /:suggestedChangeId/pin ----------
   r.post('/:suggestedChangeId/pin', async (c) => {
-    const ready = await prepare(c, 'promote');
+    const ready = await prepare(c, 'pin');
     if (ready instanceof Response) return ready;
     const spans = await widthRefusal(c, {
       rights: itemRights,
@@ -316,18 +321,14 @@ export function suggestedChangesRouter(
       ...(reason.value !== undefined && { reason: reason.value }),
     });
     if (outcome.kind === 'err') return failWith(c, outcome.error);
-    const { suggestedChange, promotion } = outcome.value;
-    if (promotion.kind !== 'ok') return promotionResponse(c, promotion);
-    if (promotion.promotion.status === 'refused') {
-      return promotionResponse(c, promotion, {
+    const { suggestedChange, pin } = outcome.value;
+    if (pin.kind !== 'ok') return pinResponse(c, pin);
+    if (pin.pin.status === 'refused') {
+      return pinResponse(c, pin, {
         suggestedChangeId: suggestedChange.id as unknown as string,
       });
     }
-    return answer(
-      c,
-      suggestedChange,
-      promotion.promotion.status === 'pending-approval' ? 202 : 201,
-    );
+    return answer(c, suggestedChange, pin.pin.status === 'pending-approval' ? 202 : 201);
   });
 
   // ---------- POST /:suggestedChangeId/withdraw ----------
@@ -386,12 +387,12 @@ export function serialize(
   p: StoredSuggestedChange,
   f: SuggestedChangeFacts,
 ): Record<string, unknown> {
-  const promotion = f.promotion ?? undefined;
+  const pin = f.pin ?? undefined;
   return {
     id: p.id as unknown as string,
     agentId: p.agentId as unknown as string,
     fromVersion: p.fromVersion,
-    scope: liveScopeToWire(p.scope),
+    scope: agentPinScopeToWire(p.scope),
     tier: p.tier,
     change: p.change,
     why: p.why,
@@ -400,12 +401,12 @@ export function serialize(
     status: f.status,
     ...(p.candidate !== undefined && { candidate: p.candidate }),
     ...(p.evaluation !== undefined && { evaluation: evaluationWire(p.evaluation, f.evaluation) }),
-    ...(promotion !== undefined && {
-      promotion: {
-        id: promotion.id,
-        status: promotion.status ?? 'promoted',
-        ...(promotion.approvalId !== undefined && { approvalId: promotion.approvalId }),
-        ...(f.liveNow !== undefined && { liveNow: f.liveNow }),
+    ...(pin !== undefined && {
+      pin: {
+        id: pin.id,
+        status: pin.status ?? 'pinned',
+        ...(pin.approvalId !== undefined && { approvalId: pin.approvalId }),
+        ...(f.pinnedNow !== undefined && { pinnedNow: f.pinnedNow }),
       },
     }),
     ...(p.rolledBack !== undefined && { rolledBack: p.rolledBack }),
@@ -468,7 +469,7 @@ function parseCreateBody(b: Record<string, unknown>): CreateBody | string {
   if (!nonEmpty(b.fromVersion)) {
     return '`fromVersion` is required: the agent version the change applies to';
   }
-  const scope = parseLiveScopeBody(b.scope);
+  const scope = parseAgentPinScopeBody(b.scope);
   if (scope.kind === 'err') return scope.message;
   if (!TIERS.includes(b.tier as SuggestedChangeTier))
     return `\`tier\` must be one of ${TIERS.join(', ')}`;

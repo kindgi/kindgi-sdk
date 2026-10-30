@@ -18,7 +18,7 @@ import type { PromptParameter } from './types.js';
  * unregister and reinstate), into a project. An agent references one by
  * range, and the version it runs is pinned when the agent version is
  * published, so an edit reaches an agent only through a new agent
- * version, which is what gets compared, tested and promoted.
+ * version, which is what gets compared, tested and pinned.
  */
 export const BLOCK_KINDS = ['prompt', 'settings'] as const;
 export type BlockKind = (typeof BLOCK_KINDS)[number];

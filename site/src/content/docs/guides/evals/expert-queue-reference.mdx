@@ -100,8 +100,8 @@ What a rule matches, in `when`, each field narrowing it:
 - **`agentIds`** or **`flowIds`**: runs of these agents or flows, one or the
   other, not both. A rule naming an agent matches the agent's own runs, not
   its turns as a step of a flow.
-- **`versions`**: these versions exactly, or `live`: runs that ran the
-  agent's live version rather than one the caller named. So the rule follows
+- **`versions`**: these versions exactly, or `pinned`: runs that ran the
+  agent's pinned version rather than one the caller named. So the rule follows
   each release.
 - **`status`**: how the run ended. Only `completed`, since only a completed
   run can be corrected. It's also the default.
@@ -123,7 +123,7 @@ it, `queueRules.preview` takes the same fields. It answers how many of the
 project's last 100 runs it would have queued, with its `sample` but not its
 `maxOpen`. `last` sets how many runs, up to 500. Give an existing rule's
 `ruleId` to sample as it does. Without one, the count is an estimate. A run
-that doesn't record how its version was chosen never matches `live`.
+that doesn't record how its version was chosen never matches `pinned`.
 
 To catch a rule up on runs that ended before it was made,
 `queueRules.queueRecent` queues its matches among the project's recent
@@ -361,4 +361,4 @@ evaluated**, **Need a look** and **Closed**, each shown only when it has
 any, with its count, such as "Need a look (1)". Each says where it stands,
 such as "Not better on the test cases", with the share marked right it was
 evaluated on. Each links its page: "Each suggested change's page holds its
-actions: evaluate, ask to make it live, withdraw."
+actions: evaluate, ask to pin it, withdraw."

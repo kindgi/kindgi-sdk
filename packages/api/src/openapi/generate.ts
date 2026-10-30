@@ -91,7 +91,7 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   memory:
     'Fact catalog + retrieval (list, get, write, supersede, retrieve — caller-plugged binding wraps the memory subsystem).',
   'suggested-changes':
-    'Suggested changes: a change to one data block an agent version pins, for one live scope (list, get, draft, evaluate, rescore, pin, withdraw).',
+    'Suggested changes: a change to one data block an agent version pins, for one pinned scope (list, get, draft, evaluate, rescore, pin, withdraw).',
   'improve-runs':
     'Improve runs: the runtime looking for better settings (start, check, list, get, cancel).',
   provenance:

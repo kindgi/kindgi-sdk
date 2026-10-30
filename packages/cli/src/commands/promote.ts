@@ -34,7 +34,7 @@ import type {
   DeploymentPromotion,
   DeploymentPromotionCheck,
   KindgiClient,
-  Promotion,
+  Pin,
 } from '@kindgi/client';
 
 import { deployApiAddress, sameAddress } from '../api-address.js';
@@ -448,17 +448,17 @@ async function waitForPins(
   const waiting = live.filter((p) => !p.pinned);
   for (const p of waiting) out.line(waitingLine(waitingVersion(p), waitMs));
   const deadline = waitDeadline(ctx, waitMs);
-  const ended = new Map<string, Promotion>();
+  const ended = new Map<string, Pin>();
   for (const p of waiting) {
-    const promotionId = p.gate?.promotionId;
-    if (promotionId === undefined) continue;
+    const changeId = p.gate?.changeId;
+    if (changeId === undefined) continue;
     const waited = await waitForApproval(
       ctx,
       undefined,
-      () => client.agents.promotions.get(p.id, promotionId),
+      () => client.agents.pinned.getChange(p.id, changeId),
       deadline,
     );
-    if (waited.promotion !== undefined) ended.set(promotionId, waited.promotion);
+    if (waited.pin !== undefined) ended.set(changeId, waited.pin);
     const end = sayHowItEnded(waited, waitingVersion(p), waitMs, out);
     if (end === 'live') continue;
     return { result: withEnded(result, ended), ...(end !== 'not-live' && { end }) };
@@ -468,7 +468,7 @@ async function waitForPins(
 
 /** Say how one carried version's wait ended, unless it went live. */
 function sayHowItEnded(
-  waited: ApprovalWaited<Promotion | undefined>,
+  waited: ApprovalWaited<Pin | undefined>,
   version: WaitingVersion,
   waitMs: number,
   out: ProgressLines,
@@ -484,8 +484,8 @@ function sayHowItEnded(
       out.problem(`Still waiting after ${waitWords(waitMs)}. ${stillOpenLine(version)}`);
       return 'not-live';
     case 'decided':
-      if (waited.promotion.status === 'promoted') return 'live';
-      out.problem(endedLine(waited.promotion));
+      if (waited.pin.status === 'pinned') return 'live';
+      out.problem(endedLine(waited.pin));
       return 'not-live';
   }
 }
@@ -504,17 +504,17 @@ const END_EXIT: Readonly<Record<NonNullable<PinsWaited['end']>, number>> = {
 /** `result` with each carried version a wait read as it ended. */
 function withEnded(
   result: DeploymentPromotion,
-  ended: ReadonlyMap<string, Promotion>,
+  ended: ReadonlyMap<string, Pin>,
 ): DeploymentPromotion {
   if (result.live === undefined || ended.size === 0) return result;
   const live = result.live.map((pin): LivePin => {
     const gate = pin.gate;
-    const promotion = gate !== undefined ? ended.get(gate.promotionId) : undefined;
-    if (gate === undefined || promotion?.status === undefined) return pin;
+    const change = gate !== undefined ? ended.get(gate.changeId) : undefined;
+    if (gate === undefined || change?.status === undefined) return pin;
     return {
       ...pin,
-      pinned: promotion.status === 'promoted',
-      gate: { ...gate, status: promotion.status },
+      pinned: change.status === 'pinned',
+      gate: { ...gate, status: change.status },
     };
   });
   return { ...result, live };

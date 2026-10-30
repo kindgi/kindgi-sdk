@@ -2,8 +2,8 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type {
+  AgentPinScope,
   Cursor,
-  LiveScope,
   OrgId,
   ProjectId,
   Result,
@@ -17,15 +17,15 @@ import type { GatePolicyBinding, GatePolicyRef } from './gate-policy-binding.js'
 import type { GateApproval, GateCheck } from './gate.js';
 
 /**
- * Live versions of agents: which version serves a scope, and the
- * promotions that put it there (evals step 4). A run that names no
- * version takes the most specific live version that covers it (a
+ * Pinned versions of agents: which version serves a scope, and the
+ * pin changes that put it there (evals step 4). A run that names no
+ * version takes the most specific pinned version that covers it (a
  * segment path, then its project, its org, the tenant), else the latest
  * registered one, as before anything is pinned.
  */
 
 /** What a run's version is resolved for: its project (and org) and its segment path. */
-export interface LiveResolveInput {
+export interface AgentPinResolveInput {
   readonly tenantId: TenantId;
   readonly agentId: string;
   /** Absent → only the org's pin (with `orgId`) and the tenant-wide pin apply. */
@@ -33,34 +33,34 @@ export interface LiveResolveInput {
   /**
    * The project's org, when it has one (the resolver may look it up from
    * `projectId` itself). Without `projectId`: an org scope's own
-   * coordinates, as the promotion gate resolves what serves an org.
+   * coordinates, as the pin gate resolves what serves an org.
    */
   readonly orgId?: OrgId;
   /** Coarse to fine (needs `projectId`); a segment pin covers every path that starts with its own. */
   readonly segments?: readonly ScopeSegment[];
 }
 
-export interface LiveResolution {
+export interface AgentPinResolution {
   readonly version: Semver;
   /** The pin that matched. */
-  readonly scope: LiveScope;
+  readonly scope: AgentPinScope;
 }
 
-export interface LivePin {
+export interface AgentPinnedVersion {
   readonly agentId: string;
-  readonly scope: LiveScope;
+  readonly scope: AgentPinScope;
   readonly version: Semver;
-  /** The promotion that set it. */
-  readonly promotionId: string;
+  /** The pin change that set it. */
+  readonly changeId: string;
   readonly setAt: Timestamp;
 }
 
-export interface LiveVersionBinding {
-  /** The most specific live version covering the input; `null` when none is pinned on the way up. */
-  resolve(input: LiveResolveInput): Promise<LiveResolution | null>;
+export interface AgentPinnedVersionBinding {
+  /** The most specific pinned version covering the input; `null` when none is pinned on the way up. */
+  resolve(input: AgentPinResolveInput): Promise<AgentPinResolution | null>;
   /** Every pin of an agent. */
   list(input: { readonly tenantId: TenantId; readonly agentId: string }): Promise<
-    readonly LivePin[]
+    readonly AgentPinnedVersion[]
   >;
   /**
    * A page of every agent's pins that cover a project: the tenant's, the
@@ -70,18 +70,18 @@ export interface LiveVersionBinding {
    * answers `501 pinned-versions-not-supported`.
    */
   listCovering?(input: ListCoveringPinsInput): Promise<{
-    readonly data: readonly LivePin[];
+    readonly data: readonly AgentPinnedVersion[];
     readonly nextCursor?: Cursor;
   }>;
   /**
    * Whether `cursor` is one this binding issued for `listCovering`
-   * (`'covering'`: a page's `nextCursor`), as `PromotionBinding.issuedCursor`
+   * (`'covering'`: a page's `nextCursor`), as `PinBinding.issuedCursor`
    * is for its `list`. Optional: without it, the route passes any cursor on.
    */
   issuedCursor?(list: 'covering', cursor: Cursor): boolean;
 }
 
-/** A page of the pins that cover one project (`LiveVersionBinding.listCovering`). */
+/** A page of the pins that cover one project (`AgentPinnedVersionBinding.listCovering`). */
 export interface ListCoveringPinsInput {
   readonly tenantId: TenantId;
   readonly projectId: ProjectId;
@@ -90,26 +90,26 @@ export interface ListCoveringPinsInput {
 }
 
 /** Who asked: the request's principal (a user, or a service token). */
-export interface PromotionActor {
+export interface PinActor {
   readonly kind: 'user' | 'service';
   readonly id: string;
 }
 
-export type PromotionAction = 'promote' | 'rollback' | 'unpin';
+export type PinAction = 'pin' | 'unpin';
 
 /**
- * Where a promotion request stands. Only `promote` rows have one; rollback
- * and unpin are immediate. A request's status changes once, from
- * `pending-approval` to its final state.
+ * Where a pin request stands. Only `pin` rows have one; an unpin is
+ * immediate. A request's status changes once, from `pending-approval` to
+ * its final state.
  */
-export type PromotionStatus =
-  /** The version is live for the scope. */
-  | 'promoted'
-  /** The gate passed; a reviewer's approval is open. The live version is unchanged. */
+export type PinStatus =
+  /** The version is pinned for the scope. */
+  | 'pinned'
+  /** The gate passed; a reviewer's approval is open. The pinned version is unchanged. */
   | 'pending-approval'
-  /** The gate failed (`checks` say why). The live version is unchanged. */
+  /** The gate failed (`checks` say why). The pinned version is unchanged. */
   | 'refused'
-  /** Approved, but the scope's live version or policy changed meanwhile: check again. */
+  /** Approved, but the scope's pinned version or policy changed meanwhile: check again. */
   | 'superseded'
   /** The reviewer rejected it. */
   | 'rejected'
@@ -117,54 +117,52 @@ export type PromotionStatus =
   | 'expired';
 
 /**
- * One change of a scope's live version, kept for good (the audit trail):
- * what was live before, what is after, who asked and why.
+ * One change of a scope's pinned version, kept for good (the audit trail):
+ * what was pinned before, what is after, who asked and why.
  */
-export interface Promotion {
+export interface Pin {
   readonly id: string;
   readonly agentId: string;
-  readonly scope: LiveScope;
-  readonly action: PromotionAction;
+  readonly scope: AgentPinScope;
+  readonly action: PinAction;
   /** The scope's own pin before; `null` when it had none. */
   readonly fromVersion: Semver | null;
   /** The scope's own pin after; `null` after an unpin. */
   readonly toVersion: Semver | null;
-  readonly requestedBy: PromotionActor;
+  readonly requestedBy: PinActor;
   readonly reason?: string;
   /** The comparison behind the change, when there was one. */
   readonly testRunId?: string;
   readonly createdAt: Timestamp;
-  /** A `promote` row's state; absent on a promotion made before gates (`promoted`). */
-  readonly status?: PromotionStatus;
+  /** A `pin` row's state; absent on a pin made before gates (`pinned`). */
+  readonly status?: PinStatus;
   /** The gate policy that applied; `null` when none did. Absent before gates. */
   readonly policy?: GatePolicyRef | null;
   /** The gate's checks, as they ran. */
   readonly checks?: readonly GateCheck[];
-  /** The approval a `pending-approval` promotion waits on (kept once decided). */
+  /** The approval a `pending-approval` pin waits on (kept once decided). */
   readonly approvalId?: string;
-  /** When a `pending-approval` promotion reached its final state. */
+  /** When a `pending-approval` pin reached its final state. */
   readonly resolvedAt?: Timestamp;
 }
 
-export type PromotionErrorCode =
+export type PinErrorCode =
   /** The version isn't registered for this agent, or was unregistered. */
   | 'agent-version-not-found'
   /** The scope names an org or project the tenant doesn't have. */
   | 'scope-invalid'
-  /** Rollback: the scope has no earlier live version to go back to. */
-  | 'nothing-to-roll-back'
-  /** Unpin or rollback: the scope has no pin of its own. */
+  /** Unpin: the scope has no pin of its own. */
   | 'not-pinned'
-  /** The scope's live version changed while the gate ran: check again. */
-  | 'promotion-superseded'
+  /** The scope's pinned version changed while the gate ran: check again. */
+  | 'pin-superseded'
   /**
    * Unpin: the scope has a gate policy of its own, and a gated scope keeps
    * its own pin (else a change above it, or a publish, would reach it
-   * ungated). Unregister the gate policy first, or roll back instead.
+   * ungated). Unregister the gate policy first, or pin an earlier version instead.
    */
   | 'gate-policy-needs-pin'
   /**
-   * Promote, rollback or unpin: the change would also move a narrower
+   * Pin or unpin: the change would also move a narrower
    * scope a gate policy applies to, which has no pin of its own and so
    * follows this scope, without its gate. The message names each such
    * scope: pin it at its current version first. (A gated scope must hold
@@ -172,144 +170,130 @@ export type PromotionErrorCode =
    */
   | 'gate-policy-descendant-unpinned'
   /**
-   * Promote: the gate wants an approval, and the tenant's approvals waiting
+   * Pin: the gate wants an approval, and the tenant's approvals waiting
    * for a decision are at its limit (the runtime's operator sets it).
    * Nothing is recorded.
    */
   | 'approvals-pending-limit'
   /**
    * A registry that takes Improve's candidates (`RegistryReadOnly.takesCandidates`,
-   * `kindgi dev`): making a version live writes it into the pack's files,
-   * which serve every scope, so a narrower scope is refused; and a rollback
-   * or unpin is undone there, with git. The message says which.
+   * `kindgi dev`): pinning a version writes it into the pack's files,
+   * which serve every scope, so a narrower scope is refused; and a pin of
+   * an earlier version or an unpin is undone there, with git. The message
+   * says which.
    */
   | 'registry-read-only'
   | 'persistence-error';
 
-export interface PromotionError {
-  readonly code: PromotionErrorCode;
+export interface PinError {
+  readonly code: PinErrorCode;
   readonly message: string;
 }
 
-export interface PromoteInput {
+export interface AgentPinInput {
   readonly tenantId: TenantId;
   readonly agentId: string;
   readonly version: Semver;
-  readonly scope: LiveScope;
-  readonly requestedBy: PromotionActor;
+  readonly scope: AgentPinScope;
+  readonly requestedBy: PinActor;
   readonly reason?: string;
   readonly testRunId?: string;
 }
 
 /**
- * A promotion with the gate's verdict, recorded as one request: refused,
- * waiting for approval, or promoted. The route runs the gate; the
+ * A pin with the gate's verdict, recorded as one request: refused,
+ * waiting for approval, or pinned. The route runs the gate; the
  * binding records the outcome atomically.
  */
-export interface PromotionRequestInput extends PromoteInput {
+export interface PinRequestInput extends AgentPinInput {
   readonly gate: {
     readonly policy: GatePolicyRef | null;
     readonly checks: readonly GateCheck[];
     readonly passed: boolean;
-    /** A passing promotion waits for this approval instead of going live. */
+    /** A passing pin waits for this approval instead of taking effect. */
     readonly approval?: GateApproval;
     /**
      * What served the scope when the gate ran. A binding refuses with
-     * `promotion-superseded` when it no longer does, and an approved
-     * promotion whose scope moved on becomes `superseded`.
+     * `pin-superseded` when it no longer does, and an approved
+     * pin whose scope moved on becomes `superseded`.
      */
     readonly servingVersion: Semver;
     /**
      * A pin in place: the scope has no pin of its own and serves exactly
-     * the promoted version (`servingVersion`), so pinning it there changes
+     * the pinned version (`servingVersion`), so pinning it there changes
      * nothing any run gets. The gate's checks and approval don't apply:
      * `checks` holds one passing `pinInPlace` line and there's no
      * `approval`. The binding re-checks both conditions in the write's
      * transaction, under the scope's lock, and refuses with
-     * `promotion-superseded` when either no longer holds; it records the
-     * promotion `promoted`, with the policy, its reason starting
+     * `pin-superseded` when either no longer holds; it records the
+     * pin `pinned`, with the policy, its reason starting
      * `pin-in-place`.
      */
     readonly pinInPlace?: boolean;
   };
 }
 
-export interface RollbackInput {
+export interface AgentUnpinInput {
   readonly tenantId: TenantId;
   readonly agentId: string;
-  readonly scope: LiveScope;
-  /** Back to this earlier version; absent → the scope's previous live version. */
-  readonly toVersion?: Semver;
-  readonly requestedBy: PromotionActor;
+  readonly scope: AgentPinScope;
+  readonly requestedBy: PinActor;
   readonly reason?: string;
 }
 
-export interface UnpinInput {
-  readonly tenantId: TenantId;
-  readonly agentId: string;
-  readonly scope: LiveScope;
-  readonly requestedBy: PromotionActor;
-  readonly reason?: string;
-}
-
-export interface ListPromotionsInput {
+export interface ListPinHistoryInput {
   readonly tenantId: TenantId;
   readonly agentId: string;
   /** Only this scope's history. */
-  readonly scope?: LiveScope;
+  readonly scope?: AgentPinScope;
   readonly limit: number;
   readonly cursor?: Cursor;
 }
 
-export interface PromotionBinding {
+export interface PinBinding {
   /**
-   * Make `version` live for `scope`. The version must be registered and
+   * Pin `version` for `scope`. The version must be registered and
    * active. `gate-policy-descendant-unpinned` when it would also move a
    * narrower gated scope with no pin of its own.
    */
-  promote(input: PromoteInput): Promise<Result<Promotion, PromotionError>>;
+  pin(input: AgentPinInput): Promise<Result<Pin, PinError>>;
   /**
-   * Record a gated promotion request (evals step 4b): `refused` when the
+   * Record a gated pin request (evals step 4b): `refused` when the
    * gate failed, `pending-approval` (opening a HITL approval, subject
-   * `agent-promotion`) when it passed and the policy wants an approval,
-   * else `promoted`. Optional: without it, the route refuses a promotion
-   * a gate policy applies to (`501`), rather than promoting ungated. A
+   * `agent-pin`) when it passed and the policy wants an approval,
+   * else `pinned`. Optional: without it, the route refuses a pin
+   * a gate policy applies to (`501`), rather than pinning ungated. A
    * passing request that would also move a narrower gated scope with no
    * pin of its own is `gate-policy-descendant-unpinned`, and so is its
-   * approval's apply (the promotion is then `superseded`).
+   * approval's apply (the pin is then `superseded`).
    */
-  request?(input: PromotionRequestInput): Promise<Result<Promotion, PromotionError>>;
-  /**
-   * Back to the scope's previous live version, or a named earlier one,
-   * at once (no gate). `gate-policy-descendant-unpinned` as for `promote`.
-   */
-  rollback(input: RollbackInput): Promise<Result<Promotion, PromotionError>>;
+  request?(input: PinRequestInput): Promise<Result<Pin, PinError>>;
   /**
    * Remove the scope's own pin: it falls back to the next scope up. With
    * gate policies, `gate-policy-needs-pin` when the scope has a gate
    * policy of its own, and `gate-policy-descendant-unpinned` when a
    * narrower gated scope with no pin of its own follows it.
    */
-  unpin(input: UnpinInput): Promise<Result<Promotion, PromotionError>>;
-  list(input: ListPromotionsInput): Promise<{
-    readonly data: readonly Promotion[];
+  unpin(input: AgentUnpinInput): Promise<Result<Pin, PinError>>;
+  list(input: ListPinHistoryInput): Promise<{
+    readonly data: readonly Pin[];
     readonly nextCursor?: Cursor;
   }>;
   /**
-   * Whether `cursor` is one this binding issued for `list` (`'promotions'`:
+   * Whether `cursor` is one this binding issued for `list` (`'pin-history'`:
    * a `list` page's `nextCursor`). Optional: without it, the route passes any
    * cursor to the list, as before. With it, a cursor the binding didn't
    * issue answers `400 bad-input` before the list is read, so a client
    * paging until done is never sent back to the first page.
    */
-  issuedCursor?(list: 'promotions', cursor: Cursor): boolean;
-  get(tenantId: TenantId, promotionId: string): Promise<Promotion | null>;
+  issuedCursor?(list: 'pin-history', cursor: Cursor): boolean;
+  get(tenantId: TenantId, changeId: string): Promise<Pin | null>;
 }
 
-/** The bindings behind an agent's live versions and promotions (`createApp({ agentReleases })`). */
-export interface AgentReleaseBindings {
-  readonly live: LiveVersionBinding;
-  readonly promotions: PromotionBinding;
-  /** Gate policies (evals step 4b). Absent: no gates, every promotion goes through as before. */
+/** The bindings behind an agent's pinned versions and pin changes (`createApp({ agentPins })`). */
+export interface AgentPinBindings {
+  readonly pinned: AgentPinnedVersionBinding;
+  readonly changes: PinBinding;
+  /** Gate policies (evals step 4b). Absent: no gates, every pin goes through as before. */
   readonly gatePolicies?: GatePolicyBinding;
 }

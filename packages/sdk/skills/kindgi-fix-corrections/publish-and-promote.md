@@ -1,4 +1,4 @@
-# Step 4 — Publish, and ask to make it live
+# Step 4 — Publish, and ask to pin it
 
 For a **setting** change, publish the block, then derive a new agent version
 that pins it — no code change:
@@ -26,8 +26,7 @@ For a **code** change, `kindgi deploy` publishes the new version with the
 changed tool.
 
 Deriving needs `publish` on the agent, `blocks publish` needs `write` on the
-project, and promoting needs `promote` — the permission that makes a version
-live, which an agent's admins hold.
+project, and pinning needs `pin` — the permission that pins a version, which an agent's admins hold.
 
 If the person keeps test cases built from the corrected runs, try the new
 version on them first:
@@ -39,25 +38,25 @@ kindgi test-runs start <test-set-id> --project=<project-id> \
 
 Where an expert said what the run should have done, its summary's
 `corrections` says how many of those the version now passes (`passed` of
-`checked`). No release gate policy checks it: quote it in the promote
+`checked`). No release gate policy checks it: quote it in the pin
 `--reason`.
 
-Either way, ask a person to make the new version live, naming the
+Either way, ask a person to pin the new version, naming the
 corrections it fixes. Check first what will happen, then ask:
 
 ```sh
-kindgi agents promote acme-store.refunds 1.0.4 --project=<project-id> --check
-kindgi agents promote acme-store.refunds 1.0.4 --project=<project-id> \
+kindgi agents pin acme-store.refunds 1.0.4 --project=<project-id> --check
+kindgi agents pin acme-store.refunds 1.0.4 --project=<project-id> \
   --reason="Fixes 1 correction: our return window is 14 days"
 ```
 
 - The scope is `--tenant` (every project), `--org=<org-id>`, or
   `--project=<project-id> [--segment=<key:value>]…` (one project).
-- `--check` changes nothing and answers whether it *would* make it live,
+- `--check` changes nothing and answers whether it *would* pin it,
   needs an approval, or fails the release gate policy.
 - `--reason` is kept on the record — write what the corrections were, so the
   approver reads the change in plain words.
-- The outcome is `promoted`, or `pending-approval` when the scope's release
+- The outcome is `pinned`, or `pending-approval` when the scope's release
   gate policy has `approvals` and a second person must approve — the "a
   second person checks it" step, working as it should. (Whoever asked can't
   approve their own request, unless the policy sets `separateApprover: false`.)

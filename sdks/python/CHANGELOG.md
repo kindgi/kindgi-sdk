@@ -63,6 +63,21 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `hypothesis` is `why`, and an Improve run's outcome `proposed` is
   `suggested`. The webhook event `improvement-pass.finished` is
   `improve-run.finished`, and its `data.pass_` is `data.improve_run`.
+- `kindgi`: **An agent's promotion is now a pin, as for flows and tools.** This
+  is a breaking rename, and no old name is kept. The models follow: `Promotion`,
+  `PromotionPage`, `PromotionCheck` and `SuggestedChangePromotion` are `Pin`,
+  `PinPage`, `PinCheck` and `SuggestedChangePin`; `PromoteBody` is
+  `AgentPinBody`, `UnpinBody` is `AgentUnpinBody`, and `LivePin`, `LivePinList`
+  and `LiveVersionResolution` are `AgentPinnedVersion`, `AgentPinnedVersionList`
+  and `AgentPinnedVersionResolution`. `RollbackBody` is removed, since going
+  back is a pin of an earlier version. `promotion_id` is `change_id`, a
+  suggested change's `promotion` is `pin` and its `live_now` is `pinned_now`, a
+  pin's status `promoted` is `pinned`, and the `via` value `live` is `pinned`,
+  as is a queue rule's `when.versions` value. A test run's comparison baseline
+  `live` is `pinned` (its model `Live` is `Pinned`). The errors follow:
+  `promotion-not-found` and `promotion-superseded` are `pin-not-found` and
+  `pin-superseded`, `agent-version-live` is `agent-version-pinned`, and
+  `nothing-to-roll-back` is removed.
 
 ## 0.3.0
 

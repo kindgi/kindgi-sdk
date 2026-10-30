@@ -99,10 +99,9 @@ describe('fromWire — conflicts', () => {
     'slug-conflict',
     'project-default-already-exists',
     'registry-read-only',
-    'nothing-to-roll-back',
     'not-pinned',
-    'agent-version-live',
-    'promotion-superseded',
+    'agent-version-pinned',
+    'pin-superseded',
     'gate-policy-already-registered',
     'gate-policy-needs-pin',
     'gate-policy-descendant-unpinned',
@@ -121,10 +120,10 @@ describe('fromWire — conflicts', () => {
   });
 });
 
-describe('fromWire — live versions', () => {
+describe('fromWire — pinned versions', () => {
   it.each([
     ['agent-version-not-found', 'agent-version'],
-    ['promotion-not-found', 'promotion'],
+    ['pin-not-found', 'pin'],
     ['principal-not-found', 'principal'],
     ['service-account-not-found', 'service-account'],
   ])('a %s is a not-found of a %s', (code, kind) => {

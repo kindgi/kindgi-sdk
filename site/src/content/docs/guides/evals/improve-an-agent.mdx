@@ -23,10 +23,10 @@ lists:
 
 - **an agent whose instructions or settings are data blocks;**
 - **test cases built from corrections;**
-- **a live version of the agent for the whole tenant.** Without one, the
+- **a pinned version of the agent for the whole tenant.** Without one, the
   Improve run is refused with `suggested-change-needs-pin`;
 - **a runtime: `kindgi dev`, or a deployed one,** with Kindgi 0.2's CLI.
-  Under `kindgi dev`, making a suggested change live writes it into the pack's
+  Under `kindgi dev`, pinning a suggested change writes it into the pack's
   files,
   as [Under `kindgi dev`](../propose-a-change/#under-kindgi-dev) shows;
 - **`publish` on the agent,** to start one, and `write` on the project it
@@ -383,7 +383,7 @@ pnpm exec kindgi improve runs get <improve-run-id>
 An Improve run's drafts and reasons live on in it, the suggested change and
 the published block version, which erasing a person's words doesn't reach.
 That's why a draft may not quote a test case, and why a person reviews it before
-it goes live.
+it is pinned.
 
 ## Read Improve runs back, or stop one
 
@@ -418,7 +418,7 @@ The same loop runs in the console. On an agent's **Suggested changes** page,
 **Improve** starts an Improve run, and the Improve run's page follows it. The
 suggested change it writes shows its verdict and the figures from its run on
 the test cases, under **Evidence** the corrections it learned from, each with
-its verdict and reason and a link to its run, and an **Ask to make it live**
+its verdict and reason and a link to its run, and an **Ask to pin it**
 button to send it for a decision. **Schedule Improve**, on the same page,
 makes a schedule that starts Improve runs for the agent, as
 [Schedule Improve in the console](../../runs/run-on-a-schedule/#schedule-improve-in-the-console)

@@ -8,7 +8,7 @@
 
 import { describe, expect, test } from 'vitest';
 
-import type { LiveScope, OrgId, ProjectId } from '@kindgi/types';
+import type { AgentPinScope, OrgId, ProjectId } from '@kindgi/types';
 
 import type { ComparisonMetric, CorrectedComparisonSummary } from '../src/corrected-dispatcher.js';
 import type { GatePolicySpec } from '../src/gate-policy-binding.js';
@@ -65,7 +65,7 @@ function gate(
   spec: GatePolicySpec,
   over: {
     summary?: CorrectedComparisonSummary | null;
-    scope?: LiveScope;
+    scope?: AgentPinScope;
     pinsDigest?: string | null;
     serving?: string;
     summaryProjectOrgId?: string;
@@ -209,7 +209,7 @@ describe('scopeCovered', () => {
     expect(check(gate({}), 'scopeCovered')?.passed).toBe(true);
     const elsewhere = summary({ scope: { projectId: '00000000-0000-4000-8000-0000000000cc' } });
     expect(check(gate({}, { summary: elsewhere }), 'scopeCovered')?.passed).toBe(false);
-    const segment: LiveScope = {
+    const segment: AgentPinScope = {
       kind: 'segment',
       projectId: PROJECT,
       path: [{ key: 'company', value: 'acme' }],
@@ -218,7 +218,7 @@ describe('scopeCovered', () => {
   });
 
   test('an org promotion: tenant-wide corrections, or a project in the org', () => {
-    const org: LiveScope = { kind: 'org', orgId: ORG };
+    const org: AgentPinScope = { kind: 'org', orgId: ORG };
     const inOrg = check(gate({}, { scope: org, summaryProjectOrgId: ORG }), 'scopeCovered');
     expect(inOrg?.passed).toBe(true);
     expect(inOrg?.message).toBe(`The corrections came from project ${PROJECT}, within org ${ORG}.`);
@@ -294,7 +294,7 @@ describe('metrics and evidence', () => {
     });
   });
 
-  test('maxDrop against the live version, with room for float rounding', () => {
+  test('maxDrop against the pinned version, with room for float rounding', () => {
     const exact = summary({
       metrics: {
         ...summary().metrics,

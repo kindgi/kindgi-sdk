@@ -353,7 +353,7 @@ idempotency key, or don't retry it.
 ## A step whose read failed
 
 An agent's step first reads what its turn needs from the runtime's database:
-the agent's registration and live pin, the versions shipped into its
+the agent's registration and pin, the versions shipped into its
 project, the gate policy, and its turn's snapshot and journal. When one of
 those reads fails, such as when the database doesn't answer, the step
 doesn't fail. It's left for the run's next resume:

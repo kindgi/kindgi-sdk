@@ -797,7 +797,7 @@ export const ERROR_ENTRIES = {
   },
   'pin-scope-spans-environments': {
     description:
-      "A flow or tool with a project in an environment order is pinned one project at a time: a pin for the whole tenant or an organization would act in every environment of the order at once. Pin a flow in each environment's project, and a tool in the order's first environment, where agent and flow versions are made.",
+      "An agent, flow or tool with a project in an environment order is pinned one project at a time: a pin for the whole tenant or an organization would act in every environment of the order at once, so it's refused. Pin an agent or a flow in each environment's project (or a segment of it), and a tool in the order's first environment, where agent and flow versions are made. To take a build from one environment to the next and pin it there, promote it (`kindgi promote --make-live`). Nothing is changed.",
     details: [],
   },
   'tool-not-pinnable': {
@@ -810,11 +810,7 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'live-scope-spans-environments': {
-    description:
-      "An agent with a project in an environment order is made live one project at a time, whether one project serves it or several. A live change for the whole tenant or an organization would reach every environment of the order at once, so it's refused. Name a project in the change's scope, or a segment of it. To take a build from one environment to the next and make it live there, promote it (`kindgi promote --make-live`). Nothing is changed.",
-    details: [],
-  },
+
   'guardrail-config-invalid': {
     description:
       "The guardrail's `config` doesn't satisfy the config schema of the check it names, so the check would refuse it on every call. Fix the config and register again.",
@@ -1230,7 +1226,7 @@ export const ERROR_ENTRIES = {
   },
   'approvals-pending-limit': {
     description:
-      "A gate asked for an approval while the tenant's approvals waiting for a decision were at its limit (set by whoever runs the server). Nothing waits for an approval nobody can see: the step fails, naming the limit. `POST /v1/runs` answers `429` when the call waits for its run; with `options.wait: false` it answers `202`, and the run fails with this code. A request to make a version live whose release gate policy wants an approval is refused with it. Once some of the approvals waiting are decided, try again.",
+      "A gate asked for an approval while the tenant's approvals waiting for a decision were at its limit (set by whoever runs the server). Nothing waits for an approval nobody can see: the step fails, naming the limit. `POST /v1/runs` answers `429` when the call waits for its run; with `options.wait: false` it answers `202`, and the run fails with this code. A request to pin a version whose release gate policy wants an approval is refused with it. Once some of the approvals waiting are decided, try again.",
     details: [
       {
         key: 'approvalsPending',
@@ -1514,7 +1510,7 @@ export const ERROR_ENTRIES = {
   },
   'suggested-change-needs-pin': {
     description:
-      'The agent has no live version for the whole tenant, so a new version would serve every scope nothing is pinned for. Make its current version live tenant-wide, then retry.',
+      'The agent has no pinned version for the whole tenant, so a new version would serve every scope nothing is pinned for. Pin its current version for the tenant first, then retry.',
     details: [],
   },
   'improve-unsupported': {
@@ -1942,28 +1938,23 @@ export const ERROR_ENTRIES = {
       "The agent has no active version with that number: it was never registered or has since been unregistered. Pick a version from the agent's version list.",
     details: [],
   },
-  'promotion-not-found': {
-    description: "No entry with that id exists in this agent's go-live history.",
+  'pin-not-found': {
+    description: "No entry with that id exists in this agent's pin history.",
     details: [],
     seeAlso: ['guides/evals/release-an-agent-version'],
   },
-  'nothing-to-roll-back': {
-    description:
-      "The scope's live version has no earlier version to go back to. Unpin the scope to fall back to the scope above, or name a version to roll back to.",
-    details: [],
-  },
   'not-pinned': {
     description:
-      "The scope has no pin of its own (for an agent, no live version of its own), so there's nothing to roll back or unpin. Pin a version for the scope first.",
+      "The scope has no pin of its own (for an agent, no pinned version of its own), so there's nothing to unpin. Pin a version for the scope first.",
     details: [],
   },
   'gate-failed': {
     description:
-      'A release gate policy refused making the version live because one or more of its checks failed. The refusal is recorded; read the failing checks and fix what they name.',
+      'A release gate policy refused pinning the version because one or more of its checks failed. The refusal is recorded; read the failing checks and fix what they name.',
     details: [
       {
-        key: 'promotionId',
-        meaning: 'the recorded refused request to make it live',
+        key: 'changeId',
+        meaning: 'the recorded refused pin request',
       },
       {
         key: 'policy',
@@ -1979,14 +1970,14 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'promotion-superseded': {
+  'pin-superseded': {
     description:
-      "The scope's live version changed while the release gate policy was being checked, so the check no longer applies. Check the go-live again against the new live version.",
+      "The scope's pinned version changed while the release gate policy was being checked, so the check no longer applies. Check the pin again against the new pinned version.",
     details: [],
   },
-  'promotion-gate-unsupported': {
+  'pin-gate-unsupported': {
     description:
-      "A release gate policy applies to this go-live, and the deployment can't record a gated go-live, so the go-live is refused.",
+      "A release gate policy applies to this pin, and the deployment can't record a gated pin, so the pin is refused.",
     details: [],
   },
   'separate-approver-required': {
@@ -2044,17 +2035,17 @@ export const ERROR_ENTRIES = {
   },
   'gate-policy-scope-unpinned': {
     description:
-      'The scope has no live version of its own, so the release gate policy would not take effect. Pin a version for the scope first.',
+      'The scope has no pinned version of its own, so the release gate policy would not take effect. Pin a version for the scope first.',
     details: [],
   },
   'gate-policy-needs-pin': {
     description:
-      "The scope has a release gate policy, and a gated scope keeps its own live version, so it can't be unpinned. Unregister the release gate policy first, or roll back instead.",
+      "The scope has a release gate policy, and a gated scope keeps its own pinned version, so it can't be unpinned. Unregister the release gate policy first, or pin another version instead.",
     details: [],
   },
   'gate-policy-descendant-unpinned': {
     description:
-      'The change would also move a narrower scope that a release gate policy applies to and that has no live version of its own, bypassing that policy. Pin that scope at its current version first.',
+      'The change would also move a narrower scope that a release gate policy applies to and that has no pinned version of its own, bypassing that policy. Pin that scope at its current version first.',
     details: [],
   },
   'principal-not-found': {
@@ -2488,9 +2479,9 @@ export const ERROR_ENTRIES = {
       "The runtime runs without an authorization store, so it can't say what the caller may do. Read whoami's `tenantAdmin` and `reviewerRole` instead.",
     details: [],
   },
-  'agent-version-live': {
+  'agent-version-pinned': {
     description:
-      "The version is live in one or more scopes, so it can't be unregistered. Roll back, unpin or make another version live there first.",
+      "The version is pinned in one or more scopes, so it can't be unregistered. Unpin it, or pin another version there first.",
     details: [
       {
         key: 'agentId',
@@ -2502,7 +2493,7 @@ export const ERROR_ENTRIES = {
       },
       {
         key: 'scopes',
-        meaning: 'the scopes where it is live',
+        meaning: 'the scopes where it is pinned',
       },
     ],
   },

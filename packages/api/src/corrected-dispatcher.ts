@@ -97,8 +97,8 @@ export type ComparisonBaselineSummary =
       readonly kind: 'version';
       readonly agentId: string;
       readonly version: string;
-      readonly via: 'explicit' | 'live';
-      readonly liveScope?: Readonly<Record<string, unknown>>;
+      readonly via: 'explicit' | 'pinned';
+      readonly pinnedScope?: Readonly<Record<string, unknown>>;
     };
 
 /** A version behind recorded runs: an agent's or a flow's. */
