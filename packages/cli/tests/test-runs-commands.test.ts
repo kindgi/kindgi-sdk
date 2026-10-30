@@ -47,7 +47,7 @@ function recorder() {
 async function start(extra: readonly string[]) {
   const { calls, rec } = recorder();
   const out = await run(['test-runs', 'start', 'acme.matches', '--project=p-1', ...extra], {
-    testRuns: { start: rec('start', { runId: 'er-1' }) },
+    testRuns: { start: rec('start', { testRunId: 'er-1' }) },
   });
   return { out, calls };
 }
@@ -67,7 +67,7 @@ describe('kindgi test-runs start', () => {
       '--group-weights=experts-only',
     ]);
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(JSON.parse(out.stdout)).toEqual({ runId: 'er-1' });
+    expect(JSON.parse(out.stdout)).toEqual({ testRunId: 'er-1' });
     expect(calls).toEqual([
       [
         'start',
@@ -141,7 +141,7 @@ describe('kindgi test-runs start', () => {
         '--with=acme.lookup@2.0.0',
       ],
       {
-        testRuns: { start: rec('start', { runId: 'er-1' }) },
+        testRuns: { start: rec('start', { testRunId: 'er-1' }) },
         flows: { versions: { get: rec('getVersion', flow) } },
       },
     );
@@ -199,7 +199,7 @@ describe('kindgi test-runs start', () => {
     ] as const) {
       const { calls, rec } = recorder();
       const out = await run(['test-runs', 'start', 'acme.matches', '--project=p-1', ...flags], {
-        testRuns: { start: rec('start', { runId: 'er-1' }) },
+        testRuns: { start: rec('start', { testRunId: 'er-1' }) },
         flows: { versions: { get: rec('getVersion', flow) } },
       });
       expect(out.exitCode).not.toBe(0);
@@ -315,7 +315,7 @@ describe('kindgi test-runs start --wait', () => {
       ['test-runs', 'start', 'acme.matches', '--project=p-1', '--agent=a', '--wait'],
       {
         testRuns: {
-          start: rec('start', { runId: 'er-1' }),
+          start: rec('start', { testRunId: 'er-1' }),
           get: async (id: string) => {
             calls.push(['get', id]);
             return { id, status: 'completed' };
@@ -336,7 +336,7 @@ describe('kindgi test-runs start --wait', () => {
         ['test-runs', 'start', 'acme.matches', '--project=p-1', '--agent=a', '--wait'],
         {
           testRuns: {
-            start: rec('start', { runId: 'er-1' }),
+            start: rec('start', { testRunId: 'er-1' }),
             get: async (id: string) => ({ id, status }),
           },
         },
@@ -349,10 +349,10 @@ describe('kindgi test-runs start --wait', () => {
   test('without --wait, a started run exits 0 whatever comes of it', async () => {
     const { rec } = recorder();
     const out = await run(['test-runs', 'start', 'acme.matches', '--project=p-1', '--agent=a'], {
-      testRuns: { start: rec('start', { runId: 'er-1', status: 'pending' }) },
+      testRuns: { start: rec('start', { testRunId: 'er-1', status: 'pending' }) },
     });
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(JSON.parse(out.stdout)).toEqual({ runId: 'er-1', status: 'pending' });
+    expect(JSON.parse(out.stdout)).toEqual({ testRunId: 'er-1', status: 'pending' });
   });
 });
 
@@ -361,7 +361,7 @@ describe('kindgi test-runs rescore --wait', () => {
     const { rec } = recorder();
     const out = await run(['test-runs', 'rescore', 'er-1', '--wait'], {
       testRuns: {
-        rescore: rec('rescore', { runId: 'er-2' }),
+        rescore: rec('rescore', { testRunId: 'er-2' }),
         get: async (id: string) => ({ id, status: 'failed' }),
       },
     });
@@ -374,12 +374,12 @@ describe('kindgi test-runs rescore', () => {
   test('rescores a run; --project only when given; --wait reads it until done', async () => {
     const { calls, rec } = recorder();
     const plain = await run(['test-runs', 'rescore', 'er-1'], {
-      testRuns: { rescore: rec('rescore', { runId: 'er-2' }) },
+      testRuns: { rescore: rec('rescore', { testRunId: 'er-2' }) },
     });
     expect(plain.exitCode, plain.stderr).toBe(0);
-    expect(JSON.parse(plain.stdout)).toEqual({ runId: 'er-2' });
+    expect(JSON.parse(plain.stdout)).toEqual({ testRunId: 'er-2' });
     const withProject = await run(['test-runs', 'rescore', 'er-1', '--project=p-1'], {
-      testRuns: { rescore: rec('rescore', { runId: 'er-3' }) },
+      testRuns: { rescore: rec('rescore', { testRunId: 'er-3' }) },
     });
     expect(withProject.exitCode, withProject.stderr).toBe(0);
     expect(calls).toEqual([
@@ -388,7 +388,7 @@ describe('kindgi test-runs rescore', () => {
     ]);
     const waited = await run(['test-runs', 'rescore', 'er-1', '--wait'], {
       testRuns: {
-        rescore: rec('rescore', { runId: 'er-4' }),
+        rescore: rec('rescore', { testRunId: 'er-4' }),
         get: async (id: string) => ({ id, status: 'completed' }),
       },
     });
