@@ -1215,6 +1215,9 @@ describe('making the carried agents live in the target (makeLive)', () => {
     const res = await h.makeLive('dep-s1', S2);
     expect(res.status).toBe(501);
     expect(res.body.error.code).toBe('promotions-unsupported');
+    expect(res.body.error.message).toBe(
+      "The build moved, but this runtime can't make versions live, so nothing was pinned in the target. Promote without `makeLive` here; the move is already done.",
+    );
     // The build moved; only making it live is unsupported.
     expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
   });

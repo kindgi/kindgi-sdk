@@ -599,7 +599,11 @@ async function makeCarriedLive(
 ): Promise<Pick<PromotionResult, 'live' | 'pinnedFlows'> | Response> {
   const { agentReleases, agentRegistry, releaseGateDeps, pinnedVersions } = bindings;
   if (agentReleases === undefined || agentRegistry === undefined || releaseGateDeps === undefined) {
-    return unsupported(c);
+    // The move has committed: say so, not "nothing was promoted".
+    return refusal(c, 'promotions-unsupported', {
+      message:
+        "The build moved, but this runtime can't make versions live, so nothing was pinned in the target. Promote without `makeLive` here; the move is already done.",
+    });
   }
   const tenantId = plan.source.tenantId;
   const scope: LiveScope = { kind: 'project', projectId: plan.toProjectId };
