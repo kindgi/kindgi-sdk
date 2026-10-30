@@ -214,6 +214,13 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'suggested-change-invalid-state-transition': 409,
   // Evaluating would make a version that serves every unpinned scope.
   'suggested-change-needs-pin': 409,
+  // Made before suggested changes were for one project: withdraw only.
+  'suggested-change-not-for-a-project': 409,
+  // The runtime freezes no test set, so nothing can be checked.
+  'suggested-change-check-unsupported': 501,
+  'suggested-change-nothing-to-check': 409,
+  // A pin for a project that runs Latest.
+  'suggested-change-project-on-latest': 409,
   // Improvement passes.
   'improve-unsupported': 501,
   'improvement-pass-not-found': 404,

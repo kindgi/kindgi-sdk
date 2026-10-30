@@ -454,17 +454,10 @@ OPERATIONS: dict[str, Operation] = {
     "suggestedChanges.get": Operation(
         "suggestedChanges.get", "GET", "/v1/suggested-changes/{suggestedChangeId}", "json", False
     ),
-    "suggestedChanges.evaluate": Operation(
-        "suggestedChanges.evaluate",
+    "suggestedChanges.check": Operation(
+        "suggestedChanges.check",
         "POST",
-        "/v1/suggested-changes/{suggestedChangeId}/evaluate",
-        "json",
-        True,
-    ),
-    "suggestedChanges.rescore": Operation(
-        "suggestedChanges.rescore",
-        "POST",
-        "/v1/suggested-changes/{suggestedChangeId}/rescore",
+        "/v1/suggested-changes/{suggestedChangeId}/check",
         "json",
         True,
     ),
@@ -4611,31 +4604,23 @@ class SuggestedChangesResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal[
-            "draft",
-            "evaluating",
-            "evaluated",
-            "not-better",
-            "evaluation-failed",
-            "in-review",
+            "checking",
+            "check-failed",
+            "ready",
+            "waiting-for-second-person",
             "pinned",
-            "refused",
-            "rejected",
-            "expired",
-            "superseded",
-            "rolled-back",
+            "added-as-latest",
             "withdrawn",
         ]
         | None = None,
         agent_id: str | UUID | None = None,
-        tier: Literal["settings-block", "prompt-block"] | None = None,
-        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
-        scope_id: str | UUID | None = None,
-        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
+        project_id: str | UUID | None = None,
+        made_by: Literal["improve-run", "person", "service", "deploy", "offer"] | None = None,
         timeout: float | None = None,
     ) -> _models.SuggestedChangeCollectionPage:
         """List suggested changes. `GET /v1/suggested-changes`
 
-        Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a suggested change is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).
+        Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?projectId=` (the project a suggested change is for), `?status=` and `?madeBy=` (a kind of maker). Statuses and makers are derived, so a page filtered by either can hold fewer rows than `limit`.
         """
         return self._client._request(
             _OPERATIONS["suggestedChanges.list"],
@@ -4645,10 +4630,8 @@ class SuggestedChangesResource:
                 "cursor": cursor,
                 "status": status,
                 "agentId": agent_id,
-                "tier": tier,
-                "scopeKind": scope_kind,
-                "scopeId": scope_id,
-                "segment": _segments(segments),
+                "projectId": project_id,
+                "madeBy": made_by,
             },
             headers={},
             response=_models.SuggestedChangeCollectionPage,
@@ -4664,9 +4647,9 @@ class SuggestedChangesResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.SuggestedChange:
-        """Suggest new content for a data block. `POST /v1/suggested-changes`
+        """Suggest a change to a block, for a project. `POST /v1/suggested-changes`
 
-        A hand-written suggested change: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`. Needs `publish` on the agent.
+        New settings values or a new prompt template for one block, in what the project runs: its pin, or Latest. Checked as publishing that block version would be (its schema carries over; for the version's model-settings block, as model settings), and refused when it equals the content the version pins. Then the block version is published, an agent version is derived from what the project runs with that one block changed (it serves nothing until it's pinned or added as Latest), and the check starts on the project's test set, frozen now: the new version and what the project runs replay the same cases. The same change on the same version for the same project is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`, unchecked again. Needs `publish` on the agent.
         """
         return self._client._request(
             _OPERATIONS["suggestedChanges.create"],
@@ -4683,7 +4666,7 @@ class SuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Fetch a suggested change. `GET /v1/suggested-changes/{suggestedChangeId}`
 
-        Needs `read` on its agent.
+        With its block's content before and after (`changes[].before`, `changes[].after`). Needs `read` on its agent.
         """
         return self._client._request(
             _OPERATIONS["suggestedChanges.get"],
@@ -4694,31 +4677,7 @@ class SuggestedChangesResource:
             timeout=timeout,
         )
 
-    def evaluate(
-        self,
-        suggested_change_id: str | UUID,
-        body: _models.EvaluateSuggestedChangeBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.SuggestedChange:
-        """Compare a suggested change on a test set. `POST /v1/suggested-changes/{suggestedChangeId}/evaluate`
-
-        The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a promotion makes them live. Then a comparison test run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
-        """
-        return self._client._request(
-            _OPERATIONS["suggestedChanges.evaluate"],
-            path={"suggestedChangeId": suggested_change_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.EvaluateSuggestedChangeBody, body, fields),
-            response=_models.SuggestedChange,
-            timeout=timeout,
-        )
-
-    def rescore(
+    def check(
         self,
         suggested_change_id: str | UUID,
         /,
@@ -4726,12 +4685,12 @@ class SuggestedChangesResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.SuggestedChange:
-        """Rescore a suggested change's latest evaluation. `POST /v1/suggested-changes/{suggestedChangeId}/rescore`
+        """Check a suggested change again. `POST /v1/suggested-changes/{suggestedChangeId}/check`
 
-        After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison test run scores the same replays again, counting those corrections, as `POST /v1/test-runs/{testRunId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
+        Checks it again on its project's test set, frozen now: its version and the version it's built on replay the same cases, so new corrections count. Its version is made first if it has none. Takes no body fields. Needs `publish` on the agent. Allowed from `check-failed` and `ready`.
         """
         return self._client._request(
-            _OPERATIONS["suggestedChanges.rescore"],
+            _OPERATIONS["suggestedChanges.check"],
             path={"suggestedChangeId": suggested_change_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
@@ -4749,9 +4708,9 @@ class SuggestedChangesResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.SuggestedChange:
-        """Pin a suggested change's version for its scope. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
+        """Pin a suggested change's version for its project. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
 
-        A pin of the candidate for the suggested change's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.
+        A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/promotions` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `promote` on the agent. Allowed from `ready`.
         """
         return self._client._request(
             _OPERATIONS["suggestedChanges.pin"],
@@ -4775,7 +4734,7 @@ class SuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Withdraw a suggested change. `POST /v1/suggested-changes/{suggestedChangeId}/withdraw`
 
-        Closes it. Not while it's in review (decide its approval instead), nor once pinned, rejected or rolled back. Needs `publish` on the agent.
+        Closes it. Allowed from `checking`, `check-failed` and `ready`: not while it waits for a second person (they reject it instead), nor once pinned or added as Latest. Needs `publish` on the agent.
         """
         return self._client._request(
             _OPERATIONS["suggestedChanges.withdraw"],
@@ -14329,31 +14288,23 @@ class AsyncSuggestedChangesResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal[
-            "draft",
-            "evaluating",
-            "evaluated",
-            "not-better",
-            "evaluation-failed",
-            "in-review",
+            "checking",
+            "check-failed",
+            "ready",
+            "waiting-for-second-person",
             "pinned",
-            "refused",
-            "rejected",
-            "expired",
-            "superseded",
-            "rolled-back",
+            "added-as-latest",
             "withdrawn",
         ]
         | None = None,
         agent_id: str | UUID | None = None,
-        tier: Literal["settings-block", "prompt-block"] | None = None,
-        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
-        scope_id: str | UUID | None = None,
-        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
+        project_id: str | UUID | None = None,
+        made_by: Literal["improve-run", "person", "service", "deploy", "offer"] | None = None,
         timeout: float | None = None,
     ) -> _models.SuggestedChangeCollectionPage:
         """List suggested changes. `GET /v1/suggested-changes`
 
-        Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a suggested change is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).
+        Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?projectId=` (the project a suggested change is for), `?status=` and `?madeBy=` (a kind of maker). Statuses and makers are derived, so a page filtered by either can hold fewer rows than `limit`.
         """
         return await self._client._request(
             _OPERATIONS["suggestedChanges.list"],
@@ -14363,10 +14314,8 @@ class AsyncSuggestedChangesResource:
                 "cursor": cursor,
                 "status": status,
                 "agentId": agent_id,
-                "tier": tier,
-                "scopeKind": scope_kind,
-                "scopeId": scope_id,
-                "segment": _segments(segments),
+                "projectId": project_id,
+                "madeBy": made_by,
             },
             headers={},
             response=_models.SuggestedChangeCollectionPage,
@@ -14382,9 +14331,9 @@ class AsyncSuggestedChangesResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.SuggestedChange:
-        """Suggest new content for a data block. `POST /v1/suggested-changes`
+        """Suggest a change to a block, for a project. `POST /v1/suggested-changes`
 
-        A hand-written suggested change: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`. Needs `publish` on the agent.
+        New settings values or a new prompt template for one block, in what the project runs: its pin, or Latest. Checked as publishing that block version would be (its schema carries over; for the version's model-settings block, as model settings), and refused when it equals the content the version pins. Then the block version is published, an agent version is derived from what the project runs with that one block changed (it serves nothing until it's pinned or added as Latest), and the check starts on the project's test set, frozen now: the new version and what the project runs replay the same cases. The same change on the same version for the same project is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`, unchecked again. Needs `publish` on the agent.
         """
         return await self._client._request(
             _OPERATIONS["suggestedChanges.create"],
@@ -14401,7 +14350,7 @@ class AsyncSuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Fetch a suggested change. `GET /v1/suggested-changes/{suggestedChangeId}`
 
-        Needs `read` on its agent.
+        With its block's content before and after (`changes[].before`, `changes[].after`). Needs `read` on its agent.
         """
         return await self._client._request(
             _OPERATIONS["suggestedChanges.get"],
@@ -14412,31 +14361,7 @@ class AsyncSuggestedChangesResource:
             timeout=timeout,
         )
 
-    async def evaluate(
-        self,
-        suggested_change_id: str | UUID,
-        body: _models.EvaluateSuggestedChangeBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.SuggestedChange:
-        """Compare a suggested change on a test set. `POST /v1/suggested-changes/{suggestedChangeId}/evaluate`
-
-        The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a promotion makes them live. Then a comparison test run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
-        """
-        return await self._client._request(
-            _OPERATIONS["suggestedChanges.evaluate"],
-            path={"suggestedChangeId": suggested_change_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.EvaluateSuggestedChangeBody, body, fields),
-            response=_models.SuggestedChange,
-            timeout=timeout,
-        )
-
-    async def rescore(
+    async def check(
         self,
         suggested_change_id: str | UUID,
         /,
@@ -14444,12 +14369,12 @@ class AsyncSuggestedChangesResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.SuggestedChange:
-        """Rescore a suggested change's latest evaluation. `POST /v1/suggested-changes/{suggestedChangeId}/rescore`
+        """Check a suggested change again. `POST /v1/suggested-changes/{suggestedChangeId}/check`
 
-        After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison test run scores the same replays again, counting those corrections, as `POST /v1/test-runs/{testRunId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
+        Checks it again on its project's test set, frozen now: its version and the version it's built on replay the same cases, so new corrections count. Its version is made first if it has none. Takes no body fields. Needs `publish` on the agent. Allowed from `check-failed` and `ready`.
         """
         return await self._client._request(
-            _OPERATIONS["suggestedChanges.rescore"],
+            _OPERATIONS["suggestedChanges.check"],
             path={"suggestedChangeId": suggested_change_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
@@ -14467,9 +14392,9 @@ class AsyncSuggestedChangesResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.SuggestedChange:
-        """Pin a suggested change's version for its scope. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
+        """Pin a suggested change's version for its project. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
 
-        A pin of the candidate for the suggested change's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.
+        A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/promotions` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `promote` on the agent. Allowed from `ready`.
         """
         return await self._client._request(
             _OPERATIONS["suggestedChanges.pin"],
@@ -14493,7 +14418,7 @@ class AsyncSuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Withdraw a suggested change. `POST /v1/suggested-changes/{suggestedChangeId}/withdraw`
 
-        Closes it. Not while it's in review (decide its approval instead), nor once pinned, rejected or rolled back. Needs `publish` on the agent.
+        Closes it. Allowed from `checking`, `check-failed` and `ready`: not while it waits for a second person (they reject it instead), nor once pinned or added as Latest. Needs `publish` on the agent.
         """
         return await self._client._request(
             _OPERATIONS["suggestedChanges.withdraw"],

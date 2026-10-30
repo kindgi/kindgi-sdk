@@ -828,6 +828,9 @@ export type {
   TestSetReinstateVersionOutcome,
   TestSetUnregisterInput,
   TestSetUnregisterOutcome,
+  TestSetFreezeBinding,
+  FreezeTestSetInput,
+  FrozenTestSet,
 } from './test-set-binding.js';
 export { TEST_RUN_STATUSES } from './test-run-binding.js';
 export type {
@@ -1034,6 +1037,7 @@ export type {
   SuggestedChangeDrafter,
   SuggestedChangeEvaluationRef,
   SuggestedChangeEvidence,
+  SuggestedChangeMaker,
   SuggestedChangeObjective,
   SuggestedChangeRule,
   SuggestedChangeStep,

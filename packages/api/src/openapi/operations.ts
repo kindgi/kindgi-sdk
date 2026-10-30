@@ -832,12 +832,20 @@ const SuggestedChangeStatusQueryParam: ParameterSpec = {
   schema: { $ref: '#/components/schemas/SuggestedChangeStatus' },
 };
 
-const SuggestedChangeTierQueryParam: ParameterSpec = {
-  name: 'tier',
+const SuggestedChangeProjectQueryParam: ParameterSpec = {
+  name: 'projectId',
   in: 'query',
   required: false,
-  description: 'Only suggested changes of this tier.',
-  schema: { $ref: '#/components/schemas/SuggestedChangeTier' },
+  description: 'Only suggested changes for this project.',
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const SuggestedChangeMadeByQueryParam: ParameterSpec = {
+  name: 'madeBy',
+  in: 'query',
+  required: false,
+  description: 'Only suggested changes made by this kind of maker (`madeBy.kind`).',
+  schema: { type: 'string', enum: ['improve-run', 'person', 'service', 'deploy', 'offer'] },
 };
 
 // Admin plane — capabilities + providers.
@@ -5038,7 +5046,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'suggestedChanges.list',
     summary: 'List suggested changes',
     description:
-      'Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a suggested change is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).',
+      'Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?projectId=` (the project a suggested change is for), `?status=` and `?madeBy=` (a kind of maker). Statuses and makers are derived, so a page filtered by either can hold fewer rows than `limit`.',
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [
@@ -5046,10 +5054,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CursorQueryParam,
       SuggestedChangeStatusQueryParam,
       AgentIdQueryParam,
-      SuggestedChangeTierQueryParam,
-      PromotionScopeKindQueryParam,
-      ScopeIdQueryParam,
-      SegmentQueryParam,
+      SuggestedChangeProjectQueryParam,
+      SuggestedChangeMadeByQueryParam,
     ],
     responses: {
       '200': {
@@ -5116,7 +5122,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/suggested-changes/{suggestedChangeId}',
     operationId: 'suggestedChanges.get',
     summary: 'Fetch a suggested change',
-    description: 'Needs `read` on its agent.',
+    description:
+      "With its block's content before and after (`changes[].before`, `changes[].after`). Needs `read` on its agent.",
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [SuggestedChangeIdPathParam],
@@ -5131,75 +5138,62 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/suggested-changes',
     openapiPath: '/v1/suggested-changes',
     operationId: 'suggestedChanges.create',
-    summary: 'Suggest new content for a data block',
+    summary: 'Suggest a change to a block, for a project',
     description:
-      'A hand-written suggested change: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`. Needs `publish` on the agent.',
+      "New settings values or a new prompt template for one block, in what the project runs: its pin, or Latest. Checked as publishing that block version would be (its schema carries over; for the version's model-settings block, as model settings), and refused when it equals the content the version pins. Then the block version is published, an agent version is derived from what the project runs with that one block changed (it serves nothing until it's pinned or added as Latest), and the check starts on the project's test set, frozen now: the new version and what the project runs replay the same cases. The same change on the same version for the same project is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`, unchecked again. Needs `publish` on the agent.",
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('CreateSuggestedChangeBody') },
     responses: {
-      '201': { description: 'The suggested change, a `draft`.', schema: ref('SuggestedChange') },
+      '201': {
+        description: 'The suggested change, `checking`.',
+        schema: ref('SuggestedChange'),
+      },
       '200': {
         description: 'The same suggested change, made before.',
         schema: ref('SuggestedChange'),
       },
       ...CommonMutationErrors,
-      '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
-      ),
       '400': ErrorResponse(
-        "Malformed request body, or the change fails validation. Or `reference-out-of-scope`: a project or segment scope whose project doesn't reach the agent, or a block the agent's project doesn't reach (`details.issues`).",
+        "Malformed request body, or the change fails validation: a block the project's version doesn't pin, `values` for a prompt block or `template` for a settings block (`details.issues`). Or `reference-out-of-scope`: the project doesn't reach the agent, or the agent's project doesn't reach the block (`details.issues`).",
       ),
       '404': ErrorResponse(
-        "`fromVersion` isn't an active version of the agent (`agent-version-not-found`).",
+        "The version the project runs isn't active (`agent-version-not-found`), the body's `projectId` names no project of this tenant (`project-not-found`), or a check's test run couldn't start (`test-set-not-found`).",
       ),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/suggested-changes/:suggestedChangeId/evaluate',
-    openapiPath: '/v1/suggested-changes/{suggestedChangeId}/evaluate',
-    operationId: 'suggestedChanges.evaluate',
-    summary: 'Compare a suggested change on a test set',
-    description:
-      "The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a promotion makes them live. Then a comparison test run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.",
-    tags: ['suggested-changes'],
-    security: 'bearer',
-    parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('EvaluateSuggestedChangeBody') },
-    responses: {
-      '202': { description: 'The suggested change, `evaluating`.', schema: ref('SuggestedChange') },
-      ...CommonMutationErrors,
-      '400': ErrorResponse(
-        "Malformed request body. Or `reference-out-of-scope`: the test set isn't registered in the agent's project, its org or the tenant (`details.issues`).",
-      ),
-      '404': ErrorResponse('No such suggested change, or no such test set.'),
       '409': ErrorResponse(
-        "`suggested-change-needs-pin`: the agent has no live version for the whole tenant. `suggested-change-invalid-state-transition`: the suggested change's status doesn't allow it. `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes; or, under `kindgi dev`, the suggested change's scope is narrower than the whole tenant, since the pack's files serve every scope.",
+        "`nothing-runs-in-scope`: the project runs no version of the agent. `suggested-change-nothing-to-check`: the project's test set has no cases for the agent. `environment-takes-promotions`: the project is a later environment of its order, where new versions arrive only by promotion (`details.position`, and `details.firstProjectId` when you can read it). `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes. Or Idempotency-Key was reused with a different body.",
       ),
       '429': SCHEMA_COMPILE_BUDGET,
+      '501': ErrorResponse(
+        "`suggested-change-check-unsupported`: this runtime doesn't freeze a project's test set, so it can't check a suggested change.",
+      ),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/suggested-changes/:suggestedChangeId/rescore',
-    openapiPath: '/v1/suggested-changes/{suggestedChangeId}/rescore',
-    operationId: 'suggestedChanges.rescore',
-    summary: "Rescore a suggested change's latest evaluation",
+    honoPath: '/v1/suggested-changes/:suggestedChangeId/check',
+    openapiPath: '/v1/suggested-changes/{suggestedChangeId}/check',
+    operationId: 'suggestedChanges.check',
+    summary: 'Check a suggested change again',
     description:
-      "After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison test run scores the same replays again, counting those corrections, as `POST /v1/test-runs/{testRunId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.",
+      "Checks it again on its project's test set, frozen now: its version and the version it's built on replay the same cases, so new corrections count. Its version is made first if it has none. Takes no body fields. Needs `publish` on the agent. Allowed from `check-failed` and `ready`.",
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
     responses: {
-      '202': { description: 'The suggested change, `evaluating`.', schema: ref('SuggestedChange') },
+      '202': { description: 'The suggested change, `checking`.', schema: ref('SuggestedChange') },
       ...CommonMutationErrors,
+      '400': ErrorResponse('A body with fields: a check takes none.'),
       '404': ErrorResponse(
-        'No such suggested change, or its candidate version is unregistered (`agent-version-not-found`).',
+        'No such suggested change, or its version is unregistered (`agent-version-not-found`).',
       ),
       '409': ErrorResponse(
-        "`suggested-change-invalid-state-transition`: the suggested change's status doesn't allow it. `test-run-not-rescorable`: the latest evaluation isn't a completed comparison.",
+        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-nothing-to-check`: the project's test set has no cases for the agent. `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes.",
+      ),
+      '429': SCHEMA_COMPILE_BUDGET,
+      '501': ErrorResponse(
+        "`suggested-change-check-unsupported`: this runtime doesn't freeze a project's test set.",
       ),
     },
   },
@@ -5208,9 +5202,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/suggested-changes/:suggestedChangeId/pin',
     openapiPath: '/v1/suggested-changes/{suggestedChangeId}/pin',
     operationId: 'suggestedChanges.pin',
-    summary: "Pin a suggested change's version for its scope",
+    summary: "Pin a suggested change's version for its project",
     description:
-      "A pin of the candidate for the suggested change's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.",
+      "A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/promotions` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `promote` on the agent. Allowed from `ready`.",
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
@@ -5221,19 +5215,20 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SuggestedChange'),
       },
       '202': {
-        description: 'The gate passed and an approval is open: the suggested change, `in-review`.',
+        description:
+          'The gate passed and an approval is open: the suggested change, `waiting-for-second-person`.',
         schema: ref('SuggestedChange'),
       },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed request body. Or `reference-out-of-scope`: the suggested change's project or segment scope no longer reaches the agent (`details.issues`).",
+        "Malformed request body. Or `reference-out-of-scope`: the suggested change's project no longer reaches the agent (`details.issues`).",
       ),
       '404': ErrorResponse('No such suggested change.'),
       '409': ErrorResponse(
-        "The suggested change's status doesn't allow it. Or `live-scope-spans-environments`: the agent has a project in an environment order, and the suggested change's tenant- or org-wide scope would act in every environment of the order at once; a suggested change for a project (or a segment of it) can be pinned.",
+        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-project-on-latest`: its project runs Latest, not a pin.",
       ),
       '422': ErrorResponse(
-        '`gate-failed`: the gate refused it (the error carries the checks and `suggestedChangeId`).',
+        '`gate-failed`: the gate refused it (the error carries the checks and `suggestedChangeId`). The suggested change stays `ready`, with a `note`.',
       ),
     },
   },
@@ -5244,7 +5239,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'suggestedChanges.withdraw',
     summary: 'Withdraw a suggested change',
     description:
-      "Closes it. Not while it's in review (decide its approval instead), nor once pinned, rejected or rolled back. Needs `publish` on the agent.",
+      'Closes it. Allowed from `checking`, `check-failed` and `ready`: not while it waits for a second person (they reject it instead), nor once pinned or added as Latest. Needs `publish` on the agent.',
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],

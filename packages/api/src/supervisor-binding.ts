@@ -16,6 +16,8 @@ import type {
   Timestamp,
 } from '@kindgi/types';
 
+import type { PromotionActor } from './live-version-binding.js';
+
 /**
  * Caller-plugged store behind suggested changes (`/v1/suggested-changes`)
  * and the supervisor's observation readback (`/v1/observations`). Same
@@ -109,6 +111,19 @@ export type SuggestedChangeDrafter =
       readonly passId?: string;
     };
 
+/**
+ * Who or what made a suggested change: an Improve run, a person, a
+ * service account, a deploy (for each pinned project its new version
+ * reaches) or an offer (a change pinned in another project, offered to
+ * one on Latest).
+ */
+export type SuggestedChangeMaker =
+  | { readonly kind: 'improve-run'; readonly improveRunId: string; readonly scheduleId?: string }
+  | { readonly kind: 'person'; readonly userId: string }
+  | { readonly kind: 'service'; readonly id: string }
+  | { readonly kind: 'deploy'; readonly deploymentId: string; readonly by: PromotionActor }
+  | { readonly kind: 'offer'; readonly fromProjectId: string; readonly pinChangeId: string };
+
 /** What a suggested change rests on. */
 export interface SuggestedChangeEvidence {
   /** The corrections it fixes, by id. */
@@ -174,6 +189,20 @@ export interface StoredSuggestedChange {
   readonly hypothesis: string;
   readonly evidence?: SuggestedChangeEvidence;
   readonly drafter: SuggestedChangeDrafter;
+  /**
+   * Who or what made it. Absent on one stored before it was recorded:
+   * read from `drafter` (`suggestedChangeMaker`).
+   */
+  readonly madeBy?: SuggestedChangeMaker;
+  /**
+   * The version it's built on, once a rebuild moved it there (its
+   * project's version changed first). Absent: `fromVersion`.
+   */
+  readonly builtOnVersion?: string;
+  /** When it was last rebuilt. */
+  readonly rebuiltAt?: Timestamp;
+  /** Its version, added as its project's Latest: when, and by whom (`user:<id>`). */
+  readonly addedAsLatest?: { readonly at: Timestamp; readonly by: string };
   /** Dedup key: the same change for the same scope is one suggested change. */
   readonly fingerprint: string;
   /** Goes up by one with each recorded step. */
@@ -221,6 +250,7 @@ export interface CreateSuggestedChangeInput {
   readonly hypothesis: string;
   readonly evidence?: SuggestedChangeEvidence;
   readonly drafter: SuggestedChangeDrafter;
+  readonly madeBy: SuggestedChangeMaker;
   readonly fingerprint: string;
 }
 

@@ -31,14 +31,13 @@ import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
 import { type BlockEdit, blockEditDefinition, publishBlockEdit } from './block-publish.js';
 import { sameUserId } from './caller.js';
 import { deriveAgentVersion } from './derive-agent-version.js';
+import {
+  type LaterEnvironment,
+  environmentTakesPromotionsMessage,
+  laterEnvironment,
+} from './environment-entry.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import { rescoreRefusal, rescoreStart } from './eval-rescore.js';
-import type {
-  EvalComparison,
-  TestRun,
-  TestRunBinding,
-  TestRunStartOutcome,
-} from './test-run-binding.js';
 import type { GateApproval } from './gate.js';
 import type {
   AgentReleaseBindings,
@@ -63,9 +62,12 @@ import {
   SUGGESTED_CHANGE_ACTIONS,
   type SuggestedChangeAction,
   type SuggestedChangeEvaluationOutcome,
+  type SuggestedChangeNote,
   type SuggestedChangeStatus,
   evaluationOutcome,
   suggestedChangeActionAllowed,
+  suggestedChangeMaker,
+  suggestedChangeNote,
   suggestedChangeStatus,
 } from './suggested-change-status.js';
 import type {
@@ -74,12 +76,21 @@ import type {
   SuggestedChangeDrafter,
   SuggestedChangeEvaluationRef,
   SuggestedChangeEvidence,
+  SuggestedChangeMaker,
   SuggestedChangeObjective,
   SuggestedChangeRule,
   SuggestedChangeStep,
   SuggestedChangeTier,
   SupervisorBinding,
 } from './supervisor-binding.js';
+import type {
+  EvalComparison,
+  TestRun,
+  TestRunBinding,
+  TestRunStartOutcome,
+} from './test-run-binding.js';
+import type { FrozenTestSet, TestSetFreezeBinding } from './test-set-binding.js';
+import { whatRuns } from './what-runs.js';
 
 /**
  * The suggested-change lifecycle, from the bindings it runs on: what
@@ -126,6 +137,12 @@ export interface SuggestedChangeServiceDeps {
    * (no authorizer): every roster reviewer may read, as `mayRead` allows.
    */
   readonly authz?: AuthzCheckBinding;
+  /**
+   * The project's test set, frozen for a check: a suggested change is
+   * checked on it, its project's version against its own. Absent: a
+   * suggested change can't be made or checked (`create`, `check`).
+   */
+  readonly testSets?: TestSetFreezeBinding;
 }
 
 /** An error with the code the API answers it with (`statusFor`), and its details. */
@@ -145,6 +162,8 @@ export interface SuggestedChangeFacts {
   readonly promotion?: Promotion | null;
   /** For a pinned suggested change: whether its version still serves the scope. */
   readonly liveNow?: boolean;
+  /** For a `ready` one asked to be pinned: why its pin didn't go through. */
+  readonly note?: SuggestedChangeNote;
 }
 
 export interface DraftSuggestedChangeInput {
@@ -158,6 +177,37 @@ export interface DraftSuggestedChangeInput {
   readonly hypothesis: string;
   readonly evidence?: SuggestedChangeEvidence;
   readonly drafter: SuggestedChangeDrafter;
+  /** Who or what made it. Absent: read from `drafter` (`suggestedChangeMaker`). */
+  readonly madeBy?: SuggestedChangeMaker;
+}
+
+/** Who makes a suggested change through `create`: a person, a service account, or a deploy. */
+export type SuggestedChangeCreator = Extract<
+  SuggestedChangeMaker,
+  { readonly kind: 'person' | 'service' | 'deploy' }
+>;
+
+/** A suggested change for one project: one block changed in what the project runs. */
+export interface NewSuggestedChangeInput {
+  readonly tenantId: TenantId;
+  readonly agentId: string;
+  readonly projectId: ProjectId;
+  readonly blockId: string;
+  /** New values for a settings block, or a new template for a prompt block. */
+  readonly content: ProposedChange['change']['content'];
+  readonly why: string;
+  /** The corrections it fixes, by id. */
+  readonly fixes?: readonly string[];
+  readonly madeBy: SuggestedChangeCreator;
+  /** Who it's done for: the publisher its block and agent versions record. */
+  readonly actor: PromotionActor;
+}
+
+export interface CheckSuggestedChangeInput {
+  readonly tenantId: TenantId;
+  readonly suggestedChange: StoredSuggestedChange;
+  /** Who it's done for: the publisher its versions record, when it has none yet. */
+  readonly actor: PromotionActor;
 }
 
 export interface EvaluateSuggestedChangeInput {
@@ -315,11 +365,13 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         const all = await pinsOf(p.agentId as unknown as string);
         liveNow = all.some((pin) => pin.promotionId === promotion.id);
       }
+      const note = status === 'ready' ? suggestedChangeNote(promotion) : undefined;
       return {
         status,
         ...(evaluation !== undefined && { evaluation }),
         ...(promotion !== undefined && { promotion }),
         ...(liveNow !== undefined && { liveNow }),
+        ...(note !== undefined && { note }),
       };
     };
   }
@@ -455,10 +507,15 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       : (version.madeInProjectId ?? version.projectId);
   }
 
-  /** Publish the block version and derive the agent version a suggested change is evaluated as. */
+  /**
+   * Publish the block version and derive the agent version a suggested
+   * change is checked as: in `projectId`, its project, when the agent
+   * store records none on its versions.
+   */
   async function makeCandidate(
     suggestedChange: StoredSuggestedChange,
     actor: PromotionActor,
+    projectId?: ProjectId,
   ): Promise<SuggestedChangeOutcome<NonNullable<StoredSuggestedChange['candidate']>>> {
     const { tenantId } = suggestedChange;
     const { blockId, fromVersion } = suggestedChange.change;
@@ -527,10 +584,14 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       label: `suggested change ${suggestedChange.id as unknown as string}`,
       by: `${actor.kind}:${actor.id}`,
       suggestedChangeId: suggestedChange.id as unknown as string,
+      ...(projectId !== undefined && { projectId }),
       ...(deps.orders !== undefined && { orders: deps.orders }),
-      tuplesFor: (projectId) => (id) =>
-        tuplesForCreate({ kind: 'agent', id: id as AgentId, tenantId, projectId }, userId),
+      tuplesFor: (landsIn) => (id) =>
+        tuplesForCreate({ kind: 'agent', id: id as AgentId, tenantId, projectId: landsIn }, userId),
     });
+    if (derived.kind === 'environment-takes-promotions') {
+      return err(environmentTakesPromotions(derived.later));
+    }
     if (derived.kind !== 'ok' && derived.kind !== 'reused') {
       return err(
         validationFailed(
@@ -553,7 +614,94 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
     };
   }
 
-  return {
+  /** Why the registry takes no candidate for the suggested change; `undefined` when it does. */
+  function readOnlyRefusal(scope: LiveScope): SuggestedChangeServiceError | undefined {
+    // Checking derives an agent version: not into a registry that takes
+    // no writes, unless it takes Improve's candidates.
+    if (deps.agents.readOnly !== undefined && refusesCandidates(deps.agents.readOnly)) {
+      return { code: 'registry-read-only', message: deps.agents.readOnly.reason };
+    }
+    const narrower = refusesScope(deps.agents.readOnly, scope);
+    return narrower === undefined ? undefined : { code: 'registry-read-only', message: narrower };
+  }
+
+  /** The project's test set, frozen for a check; the 409 when it has no cases. */
+  async function frozenSet(
+    testSets: TestSetFreezeBinding,
+    tenantId: TenantId,
+    agentId: AgentId,
+    projectId: ProjectId,
+  ): Promise<SuggestedChangeOutcome<FrozenTestSet>> {
+    const frozen = await testSets.freezeTestSet({ tenantId, agentId, projectId });
+    if (frozen.cases.length > 0) return { kind: 'ok', value: frozen };
+    return err({
+      code: 'suggested-change-nothing-to-check',
+      message: `Project ${projectId as unknown as string} has no corrections of ${agentId as unknown as string} to check a change on: correct some of its conversations first`,
+      projectId: projectId as unknown as string,
+    });
+  }
+
+  /**
+   * Check a suggested change on a frozen test set: its candidate (made
+   * first, when it has none) and what it's built on run the same cases in
+   * its project. The candidate's run is its evaluation, held to the other
+   * (`reference`). Not half a check: when the second run can't start, the
+   * first is cancelled.
+   */
+  async function checkOn(
+    stored: StoredSuggestedChange,
+    actor: PromotionActor,
+    projectId: ProjectId,
+    frozen: FrozenTestSet,
+  ): Promise<SuggestedChangeOutcome<StoredSuggestedChange>> {
+    const { tenantId } = stored;
+    let suggestedChange = stored;
+    if (suggestedChange.candidate === undefined) {
+      const made = await makeCandidate(suggestedChange, actor, projectId);
+      if (made.kind === 'err') return made;
+      const recorded = await record(suggestedChange, { kind: 'candidate', candidate: made.value });
+      if (recorded.kind === 'err') return recorded;
+      suggestedChange = recorded.value;
+    }
+    const candidate = suggestedChange.candidate;
+    if (candidate === undefined) throw new Error('a recorded candidate is on the suggested change');
+    if ((await candidateProject(suggestedChange)) === undefined) {
+      return err({
+        code: 'agent-version-not-found',
+        message: `The candidate ${suggestedChange.agentId as unknown as string} ${candidate.agentVersion} is unregistered: withdraw this suggested change and suggest it again`,
+      });
+    }
+    const correlationId = `suggested-change:${suggestedChange.id as unknown as string}`;
+    const start = (version: string) =>
+      deps.testRuns.start({
+        tenantId,
+        projectId,
+        testSetId: frozen.testSetId,
+        testSetVersion: frozen.testSetVersion,
+        agentRef: { agentId: suggestedChange.agentId, version: version as Semver },
+        correlationId,
+      });
+    const withIt = await start(candidate.agentVersion);
+    if (withIt.kind !== 'ok') return err(startError(withIt));
+    const now = await start(suggestedChange.builtOnVersion ?? suggestedChange.fromVersion);
+    if (now.kind !== 'ok') {
+      await deps.testRuns.cancel({ tenantId, testRunId: withIt.testRunId });
+      return err(startError(now));
+    }
+    return record(suggestedChange, {
+      kind: 'evaluation',
+      evaluation: {
+        testRunId: withIt.testRunId as unknown as string,
+        testSetId: frozen.testSetId,
+        objective: 'weightedYesShare',
+        startedAt: new Date().toISOString() as Timestamp,
+        rule: 'better',
+        reference: { testRunId: now.testRunId as unknown as string },
+      },
+    });
+  }
+
+  const service = {
     facts,
 
     /**
@@ -616,6 +764,12 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
           ]),
         );
       }
+      // New values for the version's model-settings block are model
+      // settings, and don't name its model twice: checked before it's stored.
+      if (edit.kind === 'settings' && from.modelSettings?.id === input.blockId) {
+        const refused = modelSettingsRefusal(from, input.blockId, edit.values);
+        if (refused !== undefined) return err(refused);
+      }
       const change = {
         blockId: input.blockId,
         fromVersion: pinned.block.version,
@@ -632,12 +786,100 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         hypothesis: input.hypothesis,
         ...(input.evidence !== undefined && { evidence: input.evidence }),
         drafter: input.drafter,
+        madeBy: input.madeBy ?? suggestedChangeMaker({ drafter: input.drafter }),
         fingerprint: fingerprintOf(input, change),
       });
       return {
         kind: 'ok',
         value: { suggestedChange: outcome.suggestedChange, deduped: outcome.kind === 'dedup' },
       };
+    },
+
+    /**
+     * A suggested change for a project, built on what the project runs (its
+     * pin, or Latest), then checked on the project's test set. Everything
+     * that can refuse it is asked before anything is stored. `deduped`
+     * when the same change on the same version is open already: that one,
+     * unchecked again.
+     */
+    async create(
+      input: NewSuggestedChangeInput,
+    ): Promise<
+      SuggestedChangeOutcome<{ suggestedChange: StoredSuggestedChange; deduped: boolean }>
+    > {
+      const { tenantId, projectId } = input;
+      const agentId = input.agentId as AgentId;
+      const scope: LiveScope = { kind: 'project', projectId };
+      if (deps.testSets === undefined) return err(checkUnsupported());
+      const readOnly = readOnlyRefusal(scope);
+      if (readOnly !== undefined) return err(readOnly);
+      const later = await laterEnvironment(deps.orders, tenantId, projectId);
+      if (later !== undefined) return err(environmentTakesPromotions(later));
+      const runs = await whatRuns(deps.releases, { tenantId, agentId: input.agentId, projectId });
+      if (runs === null) {
+        return err({
+          code: 'nothing-runs-in-scope',
+          message: `${input.agentId} runs nothing in project ${projectId as unknown as string}: a suggested change is built on what the project runs, so publish a version of the agent first`,
+          agentId: input.agentId,
+        });
+      }
+      const fromVersion = runs.version as unknown as string;
+      const from = await deps.agents.getVersion({ tenantId, agentId, version: runs.version });
+      if (from === null || from.unregisteredAt !== undefined) {
+        return err({
+          code: 'agent-version-not-found',
+          message: `${input.agentId} has no active version ${fromVersion}, which project ${projectId as unknown as string} runs`,
+        });
+      }
+      const tier = tierFor(from, input.blockId, input.content);
+      if (typeof tier !== 'string') return err(tier);
+      const frozen = await frozenSet(deps.testSets, tenantId, agentId, projectId);
+      if (frozen.kind === 'err') return frozen;
+      const drafted = await service.draft({
+        tenantId,
+        agentId: input.agentId,
+        fromVersion,
+        scope,
+        tier,
+        blockId: input.blockId,
+        content: input.content,
+        hypothesis: input.why,
+        ...(input.fixes !== undefined && { evidence: { fixes: input.fixes } }),
+        drafter: drafterOf(input.madeBy),
+        madeBy: input.madeBy,
+      });
+      if (drafted.kind === 'err' || drafted.value.deduped) return drafted;
+      const made = drafted.value.suggestedChange;
+      const checked = await checkOn(made, input.actor, projectId, frozen.value);
+      if (checked.kind === 'ok')
+        return { kind: 'ok', value: { suggestedChange: checked.value, deduped: false } };
+      const id = made.id as unknown as string;
+      return err({
+        ...checked.error,
+        message: `Suggested change ${id} was made, but its check didn't start: ${checked.error.message}. Check it again with POST /v1/suggested-changes/${id}/check.`,
+        suggestedChangeId: id,
+      });
+    },
+
+    /**
+     * Check a suggested change again on its project's test set, frozen now:
+     * after its check failed, or for new scores. One made before
+     * suggested changes were for a project can't be checked.
+     */
+    async check(
+      input: CheckSuggestedChangeInput,
+    ): Promise<SuggestedChangeOutcome<StoredSuggestedChange>> {
+      const { tenantId, suggestedChange } = input;
+      const refused = await refuseStatus('check', suggestedChange);
+      if (refused !== undefined) return err(refused);
+      const projectId = projectOfCard(suggestedChange);
+      if (projectId === undefined) return err(notForAProject(suggestedChange, 'check'));
+      if (deps.testSets === undefined) return err(checkUnsupported());
+      const readOnly = readOnlyRefusal(suggestedChange.scope);
+      if (readOnly !== undefined) return err(readOnly);
+      const frozen = await frozenSet(deps.testSets, tenantId, suggestedChange.agentId, projectId);
+      if (frozen.kind === 'err') return frozen;
+      return checkOn(suggestedChange, input.actor, projectId, frozen.value);
     },
 
     /**
@@ -651,15 +893,10 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       const { tenantId } = input;
       let suggestedChange = input.suggestedChange;
       const agentId = suggestedChange.agentId as unknown as string;
-      const refused = await refuseStatus('evaluate', suggestedChange);
+      const refused = await refuseStatus('check', suggestedChange);
       if (refused !== undefined) return err(refused);
-      // Evaluating derives an agent version: not into a registry that takes
-      // no writes, unless it takes Improve's candidates.
-      if (deps.agents.readOnly !== undefined && refusesCandidates(deps.agents.readOnly)) {
-        return err({ code: 'registry-read-only', message: deps.agents.readOnly.reason });
-      }
-      const narrower = refusesScope(deps.agents.readOnly, suggestedChange.scope);
-      if (narrower !== undefined) return err({ code: 'registry-read-only', message: narrower });
+      const readOnly = readOnlyRefusal(suggestedChange.scope);
+      if (readOnly !== undefined) return err(readOnly);
       // A version promoted nowhere is still the agent's latest, and the
       // latest serves every scope nothing is pinned for.
       if ((await deps.releases.live.resolve({ tenantId, agentId })) === null) {
@@ -737,10 +974,18 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       input: RescoreSuggestedChangeInput,
     ): Promise<SuggestedChangeOutcome<StoredSuggestedChange>> {
       const { tenantId, suggestedChange } = input;
-      const refused = await refuseStatus('rescore', suggestedChange);
+      const refused = await refuseStatus('check', suggestedChange);
       if (refused !== undefined) return err(refused);
       const latest = suggestedChange.evaluation;
-      if (latest === undefined) throw new Error('an evaluated suggested change has an evaluation');
+      if (latest === undefined) {
+        return err(
+          invalidTransition(
+            suggestedChange,
+            'check-failed',
+            'it has no check to score again: check it instead.',
+          ),
+        );
+      }
       const runs = await rescorable(tenantId, latest);
       if (runs.kind === 'err') return runs;
       // As evaluate: not for a candidate unregistered since.
@@ -792,6 +1037,21 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       const { tenantId, suggestedChange } = input;
       const refused = await refuseStatus('pin', suggestedChange);
       if (refused !== undefined) return err(refused);
+      const projectId = projectOfCard(suggestedChange);
+      if (projectId === undefined) return err(notForAProject(suggestedChange, 'pin'));
+      // A project on Latest takes a change as its Latest (`add-as-latest`).
+      const runs = await whatRuns(deps.releases, {
+        tenantId,
+        agentId: suggestedChange.agentId as unknown as string,
+        projectId,
+      });
+      if (runs?.follows !== 'pin') {
+        return err({
+          code: 'suggested-change-project-on-latest',
+          message: `Project ${projectId as unknown as string} runs ${suggestedChange.agentId as unknown as string}'s Latest, not a pin: add the change as its Latest instead`,
+          suggestedChangeId: suggestedChange.id as unknown as string,
+        });
+      }
       const { candidate, evaluation } = suggestedChange;
       if (candidate === undefined || evaluation === undefined) {
         throw new Error('an evaluated suggested change has a candidate and an evaluation');
@@ -856,11 +1116,95 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       });
     },
   };
+  return service;
 }
 
 export type SuggestedChangeService = ReturnType<typeof createSuggestedChangeService>;
 
 // ---------- helpers ----------
+
+/** The project a suggested change is for; `undefined` for one made for a wider scope. */
+function projectOfCard(suggestedChange: StoredSuggestedChange): ProjectId | undefined {
+  return suggestedChange.scope.kind === 'project' ? suggestedChange.scope.projectId : undefined;
+}
+
+/** The 409 for one made before suggested changes were for a project. */
+function notForAProject(
+  suggestedChange: StoredSuggestedChange,
+  action: SuggestedChangeAction,
+): SuggestedChangeServiceError {
+  const id = suggestedChange.id as unknown as string;
+  return {
+    code: 'suggested-change-not-for-a-project',
+    message: `Suggested change ${id} is for a ${suggestedChange.scope.kind}, not a project, so it can't ${action}: withdraw it, and suggest the change for a project`,
+    suggestedChangeId: id,
+  };
+}
+
+function checkUnsupported(): SuggestedChangeServiceError {
+  return {
+    code: 'suggested-change-check-unsupported',
+    message: "This runtime can't check a suggested change: it doesn't freeze a project's test set",
+  };
+}
+
+/** The 409 for a project that's a later environment of its order. */
+function environmentTakesPromotions(later: LaterEnvironment): SuggestedChangeServiceError {
+  return {
+    code: 'environment-takes-promotions',
+    message: environmentTakesPromotionsMessage({ kind: 'suggested-change' }, later),
+    firstProjectId: later.firstProjectId as unknown as string,
+    position: later.position,
+  };
+}
+
+/** What a suggested change made through `create` records as its drafter: who asked. */
+function drafterOf(madeBy: SuggestedChangeCreator): SuggestedChangeDrafter {
+  switch (madeBy.kind) {
+    case 'person':
+      return { kind: 'person', by: `user:${madeBy.userId}` };
+    case 'service':
+      return { kind: 'person', by: `service:${madeBy.id}` };
+    case 'deploy':
+      return { kind: 'person', by: `${madeBy.by.kind}:${madeBy.by.id}` };
+  }
+}
+
+/**
+ * The tier of the block the version pins as `blockId`, when the content
+ * fits it: values for a settings block, a template for a prompt block.
+ * Else the 400.
+ */
+function tierFor(
+  from: AgentVersionRecord,
+  blockId: string,
+  content: ProposedChange['change']['content'],
+): SuggestedChangeTier | SuggestedChangeServiceError {
+  const named = `${from.id as unknown as string} ${from.version as unknown as string}`;
+  const settings = from.pins?.settings[blockId] !== undefined;
+  const prompt = from.pins?.prompts[blockId] !== undefined;
+  if (!settings && !prompt) {
+    return validationFailed(`${named} doesn't use block "${blockId}"`, [
+      {
+        path: '/block',
+        message: 'not a block this version pins; adding a block is a code change',
+      },
+    ]);
+  }
+  const values = 'values' in content;
+  if (settings === values) return settings ? 'settings-block' : 'prompt-block';
+  return validationFailed(
+    settings
+      ? `Block "${blockId}" is a settings block: send \`values\``
+      : `Block "${blockId}" is a prompt block: send \`template\``,
+    [
+      {
+        path: values ? '/values' : '/template',
+        message: `not for a ${settings ? 'settings' : 'prompt'} block`,
+      },
+    ],
+  );
+}
 
 export function suggestedChangeNotFound(suggestedChangeId: string): SuggestedChangeServiceError {
   return {

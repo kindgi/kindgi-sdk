@@ -4408,9 +4408,31 @@ class ReplayMemoryErasuresResult(BaseModel):
     unmatched: list[UnmatchedItem]
 
 
-class Content(BaseModel):
+class SuggestedChangeMadeBy(BaseModel):
     """
-    The new content: `{ values }` for a settings block (its schema carries over), `{ template }` for a prompt block (its parameters carry over).
+    Who or what made the suggested change. `improve-run`: an Improve run (`improveRunId`, and `scheduleId` when a schedule started it). `person`: a person (`userId`). `service`: a service account (`id`). `deploy`: a deploy, for a project its new version reaches (`deploymentId`, and who deployed, `by`). `offer`: a change pinned in another project, offered to this one (`fromProjectId`, `pinChangeId`). One made before this was recorded reads it from its drafter.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Annotated[
+        Literal["improve-run", "person", "service", "deploy", "offer"] | str, _open.OPEN
+    ]
+    improve_run_id: Annotated[str | None, Field(alias="improveRunId")] = None
+    schedule_id: Annotated[str | None, Field(alias="scheduleId")] = None
+    user_id: Annotated[str | None, Field(alias="userId")] = None
+    id: str | None = None
+    deployment_id: Annotated[str | None, Field(alias="deploymentId")] = None
+    by: PinActor | None = None
+    from_project_id: Annotated[UUID | None, Field(alias="fromProjectId")] = None
+    pin_change_id: Annotated[str | None, Field(alias="pinChangeId")] = None
+
+
+class SuggestedChangeBlockContent(BaseModel):
+    """
+    `{ values }` for a settings block, `{ template }` for a prompt block.
     """
 
     model_config = ConfigDict(
@@ -4421,179 +4443,113 @@ class Content(BaseModel):
     template: str | None = None
 
 
-class SuggestedChangeBlockEdit(BaseModel):
+class SuggestedChangeChange(BaseModel):
+    """
+    One change the suggested change makes: a new version of a block its project's version pins. `from` is the block version what it's built on pins, and `to` the one it published (absent until it made one). `GET /v1/suggested-changes/{suggestedChangeId}` adds `from`'s content (`before`) and the new content (`after`).
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
+    kind: Annotated[Literal["block"] | str, _open.OPEN]
     block_id: Annotated[str, Field(alias="blockId")]
-    """
-    The data block the change is to.
-    """
-    from_version: Annotated[str, Field(alias="fromVersion")]
-    """
-    The block version the agent version pins: what's being changed.
-    """
-    content: Content
-    """
-    The new content: `{ values }` for a settings block (its schema carries over), `{ template }` for a prompt block (its parameters carry over).
-    """
+    from_: Annotated[str, Field(alias="from")]
+    to: str | None = None
+    before: SuggestedChangeBlockContent | None = None
+    after: SuggestedChangeBlockContent | None = None
 
 
-class Model(BaseModel):
+class SuggestedChangeCheckSide(BaseModel):
     """
-    For a drafter that used a model: which.
+    How one version did on the check's cases: its test run, and once that finished, the corrections it passed (every repetition did) of those it was checked on.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    provider_id: Annotated[str, Field(alias="providerId")]
-    model: str
-
-
-class SuggestedChangeDrafter(BaseModel):
+    test_run_id: Annotated[UUID, Field(alias="testRunId")]
+    passing: Annotated[int | None, Field(ge=0)] = None
+    of: Annotated[int | None, Field(ge=0)] = None
+    cost_per_conversation: Annotated[str | None, Field(alias="costPerConversation")] = None
     """
-    Who wrote the suggested change: a person, or one of the runtime's drafters.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Annotated[Literal["person", "settings-optimizer", "prompt-drafter"] | str, _open.OPEN]
-    by: str | None = None
-    """
-    For a person: `user:<id>` (or `service:<id>`).
-    """
-    version: str | None = None
-    """
-    For a drafter: the drafter's version.
-    """
-    model: Model | None = None
-    """
-    For a drafter that used a model: which.
-    """
-    pass_id: Annotated[str | None, Field(alias="passId")] = None
-    """
-    For a drafter: the improvement pass that drafted it (`GET /v1/improvement-passes/{passId}`).
+    What its replays cost in model calls per case, in US dollars, as a decimal string. Absent when the runtime reported no cost.
     """
 
 
-class SuggestedChangeEvidence(BaseModel):
+class SuggestedChangeCheck(BaseModel):
     """
-    What a suggested change rests on.
+    The suggested change's check: its version (`with`) and the version it's built on (`now`) run the same cases of its project's test set, frozen when the check started. `status`: `not-started` (it never ran), `running`, `done` or `failed`. A check from before suggested changes were for a project compared its version with the recorded outputs only, so it has no `now`.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    fixes: list[str] | None = None
+    status: Annotated[Literal["not-started", "running", "done", "failed"] | str, _open.OPEN]
+    test_set_id: Annotated[str | None, Field(alias="testSetId")] = None
+    test_set_version: Annotated[str | None, Field(alias="testSetVersion")] = None
     """
-    The corrections it fixes, by id. An improvement pass's suggested change names the corrections it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items corrected as wrong, then the rest.
+    The test set version its runs ran. Absent until its version ran.
     """
-    correction_count: Annotated[int | None, Field(alias="correctionCount", ge=0)] = None
+    now: SuggestedChangeCheckSide | None = None
+    with_: Annotated[SuggestedChangeCheckSide | None, Field(alias="with")] = None
+    newly_failing: Annotated[list[str] | None, Field(alias="newlyFailing")] = None
     """
-    How many corrections it rests on, when `fixes` names only the first of them. Absent when `fixes` names them all.
+    Once both runs finished: the corrections `now` passes and `with` fails, by id.
     """
+    started_at: Annotated[AwareDatetime | None, Field(alias="startedAt")] = None
 
 
-class SuggestedChangeCandidate(BaseModel):
+class SuggestedChangeNote(BaseModel):
     """
-    The versions evaluating the suggested change published. They serve no scope until a promotion makes the agent version live.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    agent_version: Annotated[str, Field(alias="agentVersion")]
-    """
-    The derived agent version (its `derivedFrom.suggestedChangeId` names the suggested change).
-    """
-    block_version: Annotated[str, Field(alias="blockVersion")]
-    """
-    The block version published from the suggested change's content.
-    """
-    pins_digest: Annotated[str, Field(alias="pinsDigest")]
-
-
-class SuggestedChangeCost(BaseModel):
-    """
-    What the replays cost in model calls on the same cases, in US dollars, averaged over the repetitions: the current version's and the candidate's. Set for a change held to the current version once both comparisons finished, when both reported a cost.
+    Why a `ready` suggested change's pin didn't go through: `gate-refused`, `rejected` (a second person), `expired` (the approval), or `superseded` (its project's version or policy changed before the approval). `promotionId` is that pin's promotion.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    current: Annotated[float, Field(ge=0.0)]
-    candidate: Annotated[float, Field(ge=0.0)]
-
-
-class SuggestedChangeDecisions(BaseModel):
-    """
-    The corrections the current version was checked on, replayed on the same cases, against the candidate's. A model-settings change is kept only with at least one checked and none broken. Set once both comparisons finished.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    checked: Annotated[int, Field(ge=0)]
-    held: Annotated[int, Field(ge=0)]
-    """
-    The current version passed them, and so did the candidate.
-    """
-    broken: Annotated[int, Field(ge=0)]
-    """
-    The current version passed them; the candidate didn't.
-    """
-    still_wrong: Annotated[int, Field(alias="stillWrong", ge=0)]
-    """
-    Neither passed them. The rest of `checked` the candidate fixed.
-    """
-
-
-class SuggestedChangePromotion(BaseModel):
-    """
-    The promotion the suggested change's request made.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: str
-    status: Annotated[
-        Literal["promoted", "pending-approval", "refused", "superseded", "rejected", "expired"]
-        | str,
-        _open.OPEN,
-    ]
-    approval_id: Annotated[str | None, Field(alias="approvalId")] = None
-    """
-    The approval a request in review waits on.
-    """
-    live_now: Annotated[bool | None, Field(alias="liveNow")] = None
-    """
-    For a pinned suggested change: whether its version still serves the scope.
-    """
-
-
-class RolledBack(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    at: AwareDatetime
+    kind: Annotated[Literal["gate-refused", "rejected", "expired", "superseded"] | str, _open.OPEN]
     promotion_id: Annotated[str, Field(alias="promotionId")]
+
+
+class BuiltOn(BaseModel):
     """
-    The rollback's own promotion row.
+    The agent version it's built on: what its project ran when it was made, or when it was last rebuilt (`rebuiltAt`).
     """
-    by: str
-    reason: str | None = None
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    rebuilt_at: Annotated[AwareDatetime | None, Field(alias="rebuiltAt")] = None
+
+
+class Pinned(BaseModel):
+    """
+    Once `pinned`: its version, who pinned it, and when.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    by: PinActor
+    at: AwareDatetime
+
+
+class AddedAsLatest(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    by: PinActor
+    at: AwareDatetime
 
 
 class Withdrawn(BaseModel):
@@ -4601,9 +4557,88 @@ class Withdrawn(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    at: AwareDatetime
-    by: str
+    by: PinActor
     reason: str
+    at: AwareDatetime
+
+
+class SuggestedChange(BaseModel):
+    """
+    A suggested change: one block changed in what a project runs, checked on the project's test set, then pinned for the project or added as its Latest.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    agent_id: Annotated[str, Field(alias="agentId")]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The project it's for. On one made before suggested changes were for a project, its agent version's project, when known: such a one can only be withdrawn (`409 suggested-change-not-for-a-project`).
+    """
+    title: str
+    """
+    The first line of `why`, cut at 60 characters, then the change: `tone v2 → v3`.
+    """
+    made_by: Annotated[SuggestedChangeMadeBy, Field(alias="madeBy")]
+    built_on: Annotated[BuiltOn, Field(alias="builtOn")]
+    """
+    The agent version it's built on: what its project ran when it was made, or when it was last rebuilt (`rebuiltAt`).
+    """
+    version: str | None = None
+    """
+    Its agent version: what it is built on, with its changes. Absent until it made one. It serves nothing until it is pinned or added as Latest.
+    """
+    changes: list[SuggestedChangeChange]
+    why: str
+    """
+    What the change should fix, and why.
+    """
+    fixes: list[str]
+    """
+    The corrections it fixes, by id.
+    """
+    check: SuggestedChangeCheck
+    status: Annotated[
+        Literal[
+            "checking",
+            "check-failed",
+            "ready",
+            "waiting-for-second-person",
+            "pinned",
+            "added-as-latest",
+            "withdrawn",
+        ]
+        | str,
+        _open.OPEN,
+    ]
+    """
+    Where a suggested change stands, from its check, its pin and its own steps (never stored). `checking`: its check's test runs are queued or running. `check-failed`: its check failed or was cancelled, or never ran (`check.status: not-started`). `ready`: its check finished; `check` says how it did. A pin the gate refused, a second person rejected, or whose approval expired leaves it `ready`, with a `note`. `waiting-for-second-person`: pinned, and the approval (`approvalId`) is open. `pinned`: its version was pinned for its project. `added-as-latest`: its version was added as its project's Latest. `withdrawn`: withdrawn.
+    """
+    note: SuggestedChangeNote | None = None
+    pinned: Pinned | None = None
+    """
+    Once `pinned`: its version, who pinned it, and when.
+    """
+    approval_id: Annotated[str | None, Field(alias="approvalId")] = None
+    """
+    While `waiting-for-second-person`: the approval the pin waits on.
+    """
+    added_as_latest: Annotated[AddedAsLatest | None, Field(alias="addedAsLatest")] = None
+    withdrawn: Withdrawn | None = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+
+
+class SuggestedChangeCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[SuggestedChange]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
 class ImprovementBudget(BaseModel):
@@ -4648,19 +4683,6 @@ class ImprovementPassOutcome(BaseModel):
     message: str | None = None
 
 
-class Model1(BaseModel):
-    """
-    For a prompt pass: the provider and model that drafts the templates.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    provider_id: Annotated[str, Field(alias="providerId")]
-    model: str
-
-
 class RefusedItem(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -4703,19 +4725,6 @@ class Trigger(BaseModel):
     )
     trigger_id: Annotated[str, Field(alias="triggerId")]
     fire_id: Annotated[str, Field(alias="fireId")]
-
-
-class Model2(BaseModel):
-    """
-    For a prompt pass: the tenant's provider and model that drafts the templates.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    provider_id: Annotated[str, Field(alias="providerId")]
-    model: str
 
 
 class Budget2(BaseModel):
@@ -4773,40 +4782,37 @@ class ImprovementPassEstimate(BaseModel):
     """
 
 
-class Content1(BaseModel):
+class CreateSuggestedChangeBody(BaseModel):
     """
-    `{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.
+    A suggested change by hand: new settings values (`values`) or a new prompt template (`template`) for one block, in what the project runs (its pin, or Latest). The same change on the same version for the same project is one suggested change (answered with `X-Suggested-Change-Deduped: true`).
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
+    agent_id: Annotated[str, Field(alias="agentId")]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    The project it's for.
+    """
+    block: str
+    """
+    The block it changes: one the project's version of the agent pins.
+    """
     values: dict[str, Any] | None = None
+    """
+    For a settings block: its new values. They must satisfy the block's schema, and for the version's model-settings block, be model settings.
+    """
     template: str | None = None
-
-
-class Change(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    block_id: Annotated[str, Field(alias="blockId")]
     """
-    A block `fromVersion` pins, of the tier's kind.
+    For a prompt block: its new template.
     """
-    content: Content1
-    """
-    `{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.
-    """
-
-
-class Evidence1(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
+    why: Annotated[str, Field(max_length=2000, min_length=1)]
     fixes: list[str] | None = None
+    """
+    The corrections it fixes, by id.
+    """
 
 
 class SuggestedChangeReasonBody(BaseModel):
@@ -6855,27 +6861,6 @@ class ComparisonMetric(BaseModel):
     fresh_weight: Annotated[float | None, Field(alias="freshWeight", ge=0.0)] = None
     """
     Of `weight`, the part corrected on the candidate's replays themselves (a rescore, after people corrected a changed answer there). Absent when none. Not on `weightedPrecisionAtK`.
-    """
-
-
-class Model3(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    provider_id: Annotated[str, Field(alias="providerId")]
-    model: str
-    runs: Annotated[int, Field(ge=0)]
-
-
-class Sampling(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    models: list[Model3]
-    """
-    The models that answered the candidate's replays, and how many replays each.
     """
 
 
@@ -11429,15 +11414,6 @@ class ApprovalRequestedEvent(BaseModel):
     data: ApprovalRequestedEventData
 
 
-class Model4(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    provider_id: Annotated[str, Field(alias="providerId")]
-    model: str
-
-
 class Budget3(BaseModel):
     """
     Each pass's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
@@ -11463,36 +11439,6 @@ class Threshold(BaseModel):
     corrections: Annotated[int | None, Field(ge=1, le=1000)] = None
     runs: Annotated[int | None, Field(ge=1, le=1000)] = None
     correctors: Annotated[int | None, Field(ge=1, le=1000)] = None
-
-
-class ImproveScheduleInput(BaseModel):
-    """
-    An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `groupWeights` counts them: by default everyone's corrections until a restricted (experts') corrector group is named, then experts' only. When there are enough, across enough runs and correctors, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tiers: list[Literal["settings", "prompt"]] | None = None
-    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = None
-    group_weights: Annotated[
-        Literal["experts-only", "as-recorded"] | None, Field(alias="groupWeights")
-    ] = None
-    model: Model4 | None = None
-    candidates: Annotated[int | None, Field(ge=1, le=5)] = None
-    budget: Budget3 | None = None
-    """
-    Each pass's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
-    """
-    threshold: Threshold | None = None
-    """
-    Default 5 corrections, across 3 runs, from 2 correctors.
-    """
-    monthly_cap_usd: Annotated[float | None, Field(alias="monthlyCapUsd", gt=0.0, le=1000.0)] = None
-    """
-    The most its passes may cost in a calendar month (UTC). Default 20.
-    """
 
 
 class Data2(BaseModel):
@@ -12654,6 +12600,32 @@ class CorrectedEvalCaseCorrection(BaseModel):
     """
 
 
+class ImprovementPassModel(BaseModel):
+    """
+    For a prompt pass: the provider and model that drafts the templates.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId")]
+    model: str
+
+
+class ImproveBodyModel(BaseModel):
+    """
+    For a prompt pass: the tenant's provider and model that drafts the templates.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId")]
+    model: str
+
+
 class CorrectedComparisonSummaryTestSet(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -12673,6 +12645,16 @@ class CorrectedComparisonSummaryScope(BaseModel):
         populate_by_name=True,
     )
     project_id: Annotated[str | None, Field(alias="projectId")] = None
+
+
+class CorrectedComparisonSummarySamplingModel(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId")]
+    model: str
+    runs: Annotated[int, Field(ge=0)]
 
 
 class ComparisonCaseResultBaseline(BaseModel):
@@ -12896,6 +12878,15 @@ class ConnectionEntrySignInTenant(BaseModel):
     """
     The directory a registration that names none signs in at.
     """
+
+
+class ImproveScheduleInputModel(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId")]
+    model: str
 
 
 class AccessPathUnrecognized(BaseModel):
@@ -14798,136 +14789,6 @@ class RegisterToolBody(BaseModel):
     spec: ToolSpec | None = None
 
 
-class SuggestedChangeEvaluation(BaseModel):
-    """
-    The comparison the suggested change was evaluated with, and what it found on the objective metric (the full summary is the test run's).
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    test_run_id: Annotated[UUID, Field(alias="testRunId")]
-    test_set_id: Annotated[str, Field(alias="testSetId")]
-    """
-    The test set (a corrections test set).
-    """
-    objective: Annotated[Literal["weightedYesShare", "weightedPrecisionAtK"] | str, _open.OPEN]
-    started_at: Annotated[AwareDatetime, Field(alias="startedAt")]
-    run_status: Annotated[
-        Annotated[
-            Literal["pending", "running", "completed", "failed", "cancelled"] | str, _open.OPEN
-        ]
-        | None,
-        Field(alias="runStatus"),
-    ] = None
-    """
-    The test run's status. Absent when the run can't be read.
-    """
-    baseline: float | None = None
-    """
-    The recorded outputs' score; `null` without evidence from corrections.
-    """
-    candidate: float | None = None
-    """
-    The candidate's score.
-    """
-    delta: float | None = None
-    spread: float | None = None
-    """
-    With more than one repetition: the candidate's max − min, the noise a delta must beat.
-    """
-    cases: int | None = None
-    better: bool | None = None
-    """
-    Set once the comparison finished.
-    """
-    rule: Annotated[Literal["better", "cheaper"] | str, _open.OPEN] | None = None
-    """
-    How the candidate is kept. `better`: it beats the recorded outputs by more than the noise. `cheaper`: it's no worse than the current version replayed on the same cases (beyond that run's spread) and costs less (beyond the cost's own spread), with no errored case; `better` may then be false while the status is `evaluated`. Absent: `better`.
-    """
-    cost_usd: Annotated[SuggestedChangeCost | None, Field(alias="costUsd")] = None
-    decisions: SuggestedChangeDecisions | None = None
-
-
-class SuggestedChange(BaseModel):
-    """
-    A suggested change: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: UUID
-    agent_id: Annotated[str, Field(alias="agentId")]
-    from_version: Annotated[str, Field(alias="fromVersion")]
-    """
-    The agent version the change applies to.
-    """
-    scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
-    ]
-    """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
-    """
-    tier: Annotated[Literal["settings-block", "prompt-block"] | str, _open.OPEN]
-    """
-    What a suggested change changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
-    """
-    change: SuggestedChangeBlockEdit
-    hypothesis: str
-    """
-    What the change should improve, and why.
-    """
-    evidence: SuggestedChangeEvidence | None = None
-    drafter: SuggestedChangeDrafter
-    status: Annotated[
-        Literal[
-            "draft",
-            "evaluating",
-            "evaluated",
-            "not-better",
-            "evaluation-failed",
-            "in-review",
-            "pinned",
-            "refused",
-            "rejected",
-            "expired",
-            "superseded",
-            "rolled-back",
-            "withdrawn",
-        ]
-        | str,
-        _open.OPEN,
-    ]
-    """
-    Where a suggested change stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `pinned`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: only on an older suggested change rolled back by its own `rollback`, which is removed; a rollback today goes through the agent's live routes and leaves it `pinned`. `withdrawn`: withdrawn.
-    """
-    candidate: SuggestedChangeCandidate | None = None
-    evaluation: SuggestedChangeEvaluation | None = None
-    promotion: SuggestedChangePromotion | None = None
-    rolled_back: Annotated[RolledBack | None, Field(alias="rolledBack")] = None
-    withdrawn: Withdrawn | None = None
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-
-
-class SuggestedChangeCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[SuggestedChange]
-    has_more: Annotated[bool, Field(alias="hasMore")]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-
-
 class ImprovementPass(BaseModel):
     """
     An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes a suggested change.
@@ -14967,7 +14828,7 @@ class ImprovementPass(BaseModel):
     """
     Which corrections its comparisons count. Absent from older servers: `experts-only`.
     """
-    model: Model1 | None = None
+    model: ImprovementPassModel | None = None
     """
     For a prompt pass: the provider and model that drafts the templates.
     """
@@ -15050,7 +14911,7 @@ class ImproveBody(BaseModel):
     """
     `['settings']`: values for the tunable settings keys. `['prompt']`: a model drafts templates for the prompt block (needs `model`); a template that reads or names anything the agent doesn't have is refused, and a drafted suggested change always waits for a reviewer.
     """
-    model: Model2 | None = None
+    model: ImproveBodyModel | None = None
     """
     For a prompt pass: the tenant's provider and model that drafts the templates.
     """
@@ -15069,66 +14930,6 @@ class ImproveBody(BaseModel):
     """
     Default: $5 and 30 candidates.
     """
-
-
-class CreateSuggestedChangeBody(BaseModel):
-    """
-    A hand-written suggested change: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one suggested change (answered with `X-Suggested-Change-Deduped: true`).
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    agent_id: Annotated[str, Field(alias="agentId")]
-    from_version: Annotated[str, Field(alias="fromVersion")]
-    """
-    The agent version the change applies to.
-    """
-    scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
-    ]
-    """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
-    """
-    tier: Annotated[Literal["settings-block", "prompt-block"] | str, _open.OPEN]
-    """
-    What a suggested change changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
-    """
-    change: Change
-    hypothesis: Annotated[str, Field(max_length=2000, min_length=1)]
-    evidence: Evidence1 | None = None
-
-
-class EvaluateSuggestedChangeBody(BaseModel):
-    """
-    Compare the suggested change's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    test_set_id: Annotated[str, Field(alias="testSetId")]
-    """
-    The test set: a corrections test set.
-    """
-    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
-    """
-    The metric that says whether the candidate is better.
-    """
-    reads: Literal["recorded", "live"] | None = None
-    repetitions: Annotated[int | None, Field(ge=1, le=10)] = None
-    k: Annotated[int | None, Field(ge=1, le=100)] = None
-    group_weights: Annotated[
-        Literal["as-recorded", "experts-only"] | None, Field(alias="groupWeights")
-    ] = None
-    sample: EvalSample | None = None
 
 
 class CallUsage(BaseModel):
@@ -15427,6 +15228,17 @@ class BlockCollectionPage(BaseModel):
     data: list[Block]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class Sampling(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    models: list[CorrectedComparisonSummarySamplingModel]
+    """
+    The models that answered the candidate's replays, and how many replays each.
+    """
 
 
 class CorrectedComparisonSummary(BaseModel):
@@ -16930,6 +16742,36 @@ class ImproveScheduleTarget(BaseModel):
     ]
     """
     Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+
+
+class ImproveScheduleInput(BaseModel):
+    """
+    An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `groupWeights` counts them: by default everyone's corrections until a restricted (experts') corrector group is named, then experts' only. When there are enough, across enough runs and correctors, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tiers: list[Literal["settings", "prompt"]] | None = None
+    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = None
+    group_weights: Annotated[
+        Literal["experts-only", "as-recorded"] | None, Field(alias="groupWeights")
+    ] = None
+    model: ImproveScheduleInputModel | None = None
+    candidates: Annotated[int | None, Field(ge=1, le=5)] = None
+    budget: Budget3 | None = None
+    """
+    Each pass's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
+    """
+    threshold: Threshold | None = None
+    """
+    Default 5 corrections, across 3 runs, from 2 correctors.
+    """
+    monthly_cap_usd: Annotated[float | None, Field(alias="monthlyCapUsd", gt=0.0, le=1000.0)] = None
+    """
+    The most its passes may cost in a calendar month (UTC). Default 20.
     """
 
 

@@ -416,25 +416,18 @@ export interface Supervisor {
 
 /**
  * Where a suggested change stands — `@kindgi/api/openapi.json#SuggestedChangeStatus`.
- * Derived by the server from the suggested change's comparison and promotion.
+ * Derived by the server from its check, its pin and its own steps. A pin
+ * the gate refused, a second person rejected, or whose approval expired
+ * leaves it `ready`, with a `note`.
  */
 export type SuggestedChangeStatus =
-  | 'draft'
-  | 'evaluating'
-  | 'evaluated'
-  | 'not-better'
-  | 'evaluation-failed'
-  | 'in-review'
+  | 'checking'
+  | 'check-failed'
+  | 'ready'
+  | 'waiting-for-second-person'
   | 'pinned'
-  | 'refused'
-  | 'rejected'
-  | 'expired'
-  | 'superseded'
-  | 'rolled-back'
+  | 'added-as-latest'
   | 'withdrawn';
-
-/** What a suggested change changes: a settings block (new values) or a prompt block (a new template). */
-export type SuggestedChangeTier = 'settings-block' | 'prompt-block';
 
 /** New content for a block: `{ values }` (settings) or `{ template }` (prompt). */
 export type SuggestedChangeContent =
@@ -444,108 +437,99 @@ export type SuggestedChangeContent =
 /** The metric that says whether a candidate is better. */
 export type SuggestedChangeObjective = 'weightedYesShare' | 'weightedPrecisionAtK';
 
+/** A user, or a service token. */
+export interface SuggestedChangeActor {
+  readonly kind: 'user' | 'service';
+  readonly id: string;
+}
+
+/** Who or what made a suggested change — `@kindgi/api/openapi.json#SuggestedChangeMadeBy`. */
+export type SuggestedChangeMadeBy =
+  | { readonly kind: 'improve-run'; readonly improveRunId: string; readonly scheduleId?: string }
+  | { readonly kind: 'person'; readonly userId: string }
+  | { readonly kind: 'service'; readonly id: string }
+  | { readonly kind: 'deploy'; readonly deploymentId: string; readonly by: SuggestedChangeActor }
+  | { readonly kind: 'offer'; readonly fromProjectId: string; readonly pinChangeId: string };
+
+/** How one version did on a check's cases. */
+export interface SuggestedChangeCheckSide {
+  readonly testRunId: string;
+  /** Once its run finished: the corrections it passed, of those it was checked on. */
+  readonly passing?: number;
+  readonly of?: number;
+  /** What its replays cost in model calls per case, in US dollars, as a decimal string. */
+  readonly costPerConversation?: string;
+}
+
 /**
- * A suggested change — `@kindgi/api/openapi.json#SuggestedChange`: a
- * change to one data block an agent version pins, for one live scope,
- * taken through the same comparison, gate and promotion as any version.
+ * A suggested change — `@kindgi/api/openapi.json#SuggestedChange`: one
+ * block changed in what a project runs, checked on the project's test set,
+ * then pinned for the project or added as its Latest.
  */
 export interface SuggestedChange {
   readonly id: SuggestedChangeId;
   readonly agentId: import('@kindgi/types').AgentId;
-  /** The agent version the change applies to. */
-  readonly fromVersion: string;
-  /** The live scope it's for. */
-  readonly scope: import('./generated/api.js').LiveScope;
-  readonly tier: SuggestedChangeTier;
-  readonly change: {
+  /** The project it's for. */
+  readonly projectId?: string;
+  /** The first line of `why`, then the change: `tone v2 → v3`. */
+  readonly title: string;
+  readonly madeBy: SuggestedChangeMadeBy;
+  /** The agent version it's built on, and when it was last rebuilt on a new one. */
+  readonly builtOn: {
+    readonly version: string;
+    readonly rebuiltAt?: import('@kindgi/types').Timestamp;
+  };
+  /** Its agent version. It serves nothing until it's pinned or added as Latest. */
+  readonly version?: string;
+  /** Its changes; `before` and `after` on `get`. */
+  readonly changes: readonly {
+    readonly kind: 'block';
     readonly blockId: string;
-    /** The block version `fromVersion` pins. */
-    readonly fromVersion: string;
-    readonly content: SuggestedChangeContent;
-  };
-  /** What the change should improve, and why. */
-  readonly hypothesis: string;
+    readonly from: string;
+    readonly to?: string;
+    readonly before?: SuggestedChangeContent;
+    readonly after?: SuggestedChangeContent;
+  }[];
+  /** What the change should fix, and why. */
+  readonly why: string;
+  /** The corrections it fixes, by id. */
+  readonly fixes: readonly string[];
   /**
-   * What it rests on: `fixes` names the corrections it fixes, and
-   * `correctionCount` is how many there are when `fixes` names only the first
-   * of them (an improvement pass names at most 100).
+   * Its check: its version (`with`) and the version it's built on (`now`)
+   * on the same cases of its project's test set.
    */
-  readonly evidence?: {
-    readonly fixes?: readonly string[];
-    readonly correctionCount?: number;
+  readonly check: {
+    readonly status: 'not-started' | 'running' | 'done' | 'failed';
+    readonly testSetId?: string;
+    readonly testSetVersion?: string;
+    readonly now?: SuggestedChangeCheckSide;
+    readonly with?: SuggestedChangeCheckSide;
+    /** The corrections `now` passes and `with` fails, by id. */
+    readonly newlyFailing?: readonly string[];
+    readonly startedAt?: import('@kindgi/types').Timestamp;
   };
-  readonly drafter:
-    | { readonly kind: 'person'; readonly by: string }
-    | {
-        readonly kind: 'settings-optimizer' | 'prompt-drafter';
-        readonly version: string;
-        readonly model?: { readonly providerId: string; readonly model: string };
-      };
   readonly status: SuggestedChangeStatus;
-  /** The versions evaluating it published; they serve no scope until promoted. */
-  readonly candidate?: {
-    readonly agentVersion: string;
-    readonly blockVersion: string;
-    readonly pinsDigest: string;
-  };
-  /** Its comparison, and what it found on the objective metric. */
-  readonly evaluation?: {
-    readonly testRunId: string;
-    readonly testSetId: string;
-    readonly objective: SuggestedChangeObjective;
-    readonly startedAt: import('@kindgi/types').Timestamp;
-    readonly runStatus?: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-    readonly baseline?: number | null;
-    readonly candidate?: number | null;
-    readonly delta?: number | null;
-    readonly spread?: number;
-    readonly cases?: number;
-    readonly better?: boolean;
-    /**
-     * How the candidate is kept: `better` (it beats the recorded outputs) or
-     * `cheaper` (no worse than the current version on the same cases, and
-     * costing less). A suggested change kept as `cheaper` is `evaluated` with
-     * `better` false. Absent: `better`.
-     */
-    readonly rule?: 'better' | 'cheaper';
-    /** What the replays cost in model calls, in US dollars: the current version's and the candidate's. */
-    readonly costUsd?: { readonly current: number; readonly candidate: number };
-    /**
-     * The corrections the current version was checked on, against the
-     * candidate's: both passed (`held`), only the current version did
-     * (`broken`), or neither (`stillWrong`); the rest the candidate fixed.
-     */
-    readonly decisions?: {
-      readonly checked: number;
-      readonly held: number;
-      readonly broken: number;
-      readonly stillWrong: number;
-    };
-  };
-  /** The promotion its pin made. */
-  readonly promotion?: {
-    readonly id: string;
-    readonly status:
-      | 'promoted'
-      | 'pending-approval'
-      | 'refused'
-      | 'superseded'
-      | 'rejected'
-      | 'expired';
-    readonly approvalId?: string;
-    /** For a pinned suggested change: whether its version still serves the scope. */
-    readonly liveNow?: boolean;
-  };
-  readonly rolledBack?: {
-    readonly at: import('@kindgi/types').Timestamp;
+  /** Why a `ready` one's pin didn't go through. */
+  readonly note?: {
+    readonly kind: 'gate-refused' | 'rejected' | 'expired' | 'superseded';
     readonly promotionId: string;
-    readonly by: string;
-    readonly reason?: string;
+  };
+  readonly pinned?: {
+    readonly version: string;
+    readonly by: SuggestedChangeActor;
+    readonly at: import('@kindgi/types').Timestamp;
+  };
+  /** While `waiting-for-second-person`: the approval the pin waits on. */
+  readonly approvalId?: string;
+  readonly addedAsLatest?: {
+    readonly version: string;
+    readonly by: SuggestedChangeActor;
+    readonly at: import('@kindgi/types').Timestamp;
   };
   readonly withdrawn?: {
-    readonly at: import('@kindgi/types').Timestamp;
-    readonly by: string;
+    readonly by: SuggestedChangeActor;
     readonly reason: string;
+    readonly at: import('@kindgi/types').Timestamp;
   };
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt: import('@kindgi/types').Timestamp;

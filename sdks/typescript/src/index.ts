@@ -63,7 +63,6 @@ export type {
 } from './resources/improvement-passes.js';
 export type {
   CreateSuggestedChangeInput,
-  EvaluateSuggestedChangeInput,
   SuggestedChangeReasonInput,
   SuggestedChangesClient,
   SuggestedChangesListInput,
@@ -701,7 +700,9 @@ export type {
   SuggestedChangeStatus,
   SuggestedChangeContent,
   SuggestedChangeObjective,
-  SuggestedChangeTier,
+  SuggestedChangeActor,
+  SuggestedChangeCheckSide,
+  SuggestedChangeMadeBy,
   Flow,
   FlowEdge,
   FlowId,

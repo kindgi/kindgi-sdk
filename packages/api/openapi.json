@@ -358,6 +358,10 @@
           "suggested-change-not-found": 404,
           "suggested-change-invalid-state-transition": 409,
           "suggested-change-needs-pin": 409,
+          "suggested-change-not-for-a-project": 409,
+          "suggested-change-check-unsupported": 501,
+          "suggested-change-nothing-to-check": 409,
+          "suggested-change-project-on-latest": 409,
           "improve-unsupported": 501,
           "improvement-pass-not-found": 404,
           "improvement-pass-finished": 409,
@@ -10870,340 +10874,217 @@
           }
         }
       },
-      "SuggestedChangeTier": {
-        "type": "string",
-        "enum": [
-          "settings-block",
-          "prompt-block"
-        ],
-        "description": "What a suggested change changes: a settings block (new values) or a prompt block (a new template) the agent version pins."
-      },
       "SuggestedChangeStatus": {
         "type": "string",
         "enum": [
-          "draft",
-          "evaluating",
-          "evaluated",
-          "not-better",
-          "evaluation-failed",
-          "in-review",
+          "checking",
+          "check-failed",
+          "ready",
+          "waiting-for-second-person",
           "pinned",
-          "refused",
-          "rejected",
-          "expired",
-          "superseded",
-          "rolled-back",
+          "added-as-latest",
           "withdrawn"
         ],
-        "description": "Where a suggested change stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `pinned`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: only on an older suggested change rolled back by its own `rollback`, which is removed; a rollback today goes through the agent's live routes and leaves it `pinned`. `withdrawn`: withdrawn."
+        "description": "Where a suggested change stands, from its check, its pin and its own steps (never stored). `checking`: its check's test runs are queued or running. `check-failed`: its check failed or was cancelled, or never ran (`check.status: not-started`). `ready`: its check finished; `check` says how it did. A pin the gate refused, a second person rejected, or whose approval expired leaves it `ready`, with a `note`. `waiting-for-second-person`: pinned, and the approval (`approvalId`) is open. `pinned`: its version was pinned for its project. `added-as-latest`: its version was added as its project's Latest. `withdrawn`: withdrawn."
       },
-      "SuggestedChangeBlockEdit": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "blockId",
-          "fromVersion",
-          "content"
-        ],
-        "properties": {
-          "blockId": {
-            "type": "string",
-            "description": "The data block the change is to."
-          },
-          "fromVersion": {
-            "type": "string",
-            "description": "The block version the agent version pins: what's being changed."
-          },
-          "content": {
-            "type": "object",
-            "description": "The new content: `{ values }` for a settings block (its schema carries over), `{ template }` for a prompt block (its parameters carry over).",
-            "additionalProperties": false,
-            "properties": {
-              "values": {
-                "type": "object",
-                "additionalProperties": true
-              },
-              "template": {
-                "type": "string"
-              }
-            }
-          }
-        }
-      },
-      "SuggestedChangeDrafter": {
+      "SuggestedChangeMadeBy": {
         "type": "object",
         "additionalProperties": false,
         "required": [
           "kind"
         ],
-        "description": "Who wrote the suggested change: a person, or one of the runtime's drafters.",
+        "description": "Who or what made the suggested change. `improve-run`: an Improve run (`improveRunId`, and `scheduleId` when a schedule started it). `person`: a person (`userId`). `service`: a service account (`id`). `deploy`: a deploy, for a project its new version reaches (`deploymentId`, and who deployed, `by`). `offer`: a change pinned in another project, offered to this one (`fromProjectId`, `pinChangeId`). One made before this was recorded reads it from its drafter.",
         "properties": {
           "kind": {
             "type": "string",
             "enum": [
+              "improve-run",
               "person",
-              "settings-optimizer",
-              "prompt-drafter"
+              "service",
+              "deploy",
+              "offer"
             ]
           },
+          "improveRunId": {
+            "type": "string"
+          },
+          "scheduleId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "deploymentId": {
+            "type": "string"
+          },
           "by": {
+            "$ref": "#/components/schemas/PinActor"
+          },
+          "fromProjectId": {
             "type": "string",
-            "description": "For a person: `user:<id>` (or `service:<id>`)."
+            "format": "uuid"
           },
-          "version": {
-            "type": "string",
-            "description": "For a drafter: the drafter's version."
-          },
-          "model": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "providerId",
-              "model"
-            ],
-            "description": "For a drafter that used a model: which.",
-            "properties": {
-              "providerId": {
-                "type": "string"
-              },
-              "model": {
-                "type": "string"
-              }
-            }
-          },
-          "passId": {
-            "type": "string",
-            "description": "For a drafter: the improvement pass that drafted it (`GET /v1/improvement-passes/{passId}`)."
-          }
-        }
-      },
-      "SuggestedChangeEvidence": {
-        "type": "object",
-        "additionalProperties": false,
-        "description": "What a suggested change rests on.",
-        "properties": {
-          "fixes": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "The corrections it fixes, by id. An improvement pass's suggested change names the corrections it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items corrected as wrong, then the rest."
-          },
-          "correctionCount": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "How many corrections it rests on, when `fixes` names only the first of them. Absent when `fixes` names them all."
-          }
-        }
-      },
-      "SuggestedChangeCandidate": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "agentVersion",
-          "blockVersion",
-          "pinsDigest"
-        ],
-        "description": "The versions evaluating the suggested change published. They serve no scope until a promotion makes the agent version live.",
-        "properties": {
-          "agentVersion": {
-            "type": "string",
-            "description": "The derived agent version (its `derivedFrom.suggestedChangeId` names the suggested change)."
-          },
-          "blockVersion": {
-            "type": "string",
-            "description": "The block version published from the suggested change's content."
-          },
-          "pinsDigest": {
+          "pinChangeId": {
             "type": "string"
           }
         }
       },
-      "SuggestedChangeEvaluation": {
+      "SuggestedChangeBlockContent": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "`{ values }` for a settings block, `{ template }` for a prompt block.",
+        "properties": {
+          "values": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "template": {
+            "type": "string"
+          }
+        }
+      },
+      "SuggestedChangeChange": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "testRunId",
-          "testSetId",
-          "objective",
-          "startedAt"
+          "kind",
+          "blockId",
+          "from"
         ],
-        "description": "The comparison the suggested change was evaluated with, and what it found on the objective metric (the full summary is the test run's).",
+        "description": "One change the suggested change makes: a new version of a block its project's version pins. `from` is the block version what it's built on pins, and `to` the one it published (absent until it made one). `GET /v1/suggested-changes/{suggestedChangeId}` adds `from`'s content (`before`) and the new content (`after`).",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "block"
+            ]
+          },
+          "blockId": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "before": {
+            "$ref": "#/components/schemas/SuggestedChangeBlockContent"
+          },
+          "after": {
+            "$ref": "#/components/schemas/SuggestedChangeBlockContent"
+          }
+        }
+      },
+      "SuggestedChangeCheckSide": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "testRunId"
+        ],
+        "description": "How one version did on the check's cases: its test run, and once that finished, the corrections it passed (every repetition did) of those it was checked on.",
         "properties": {
           "testRunId": {
             "type": "string",
             "format": "uuid"
           },
-          "testSetId": {
-            "type": "string",
-            "description": "The test set (a corrections test set)."
+          "passing": {
+            "type": "integer",
+            "minimum": 0
           },
-          "objective": {
+          "of": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "costPerConversation": {
+            "type": "string",
+            "description": "What its replays cost in model calls per case, in US dollars, as a decimal string. Absent when the runtime reported no cost."
+          }
+        }
+      },
+      "SuggestedChangeCheck": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "description": "The suggested change's check: its version (`with`) and the version it's built on (`now`) run the same cases of its project's test set, frozen when the check started. `status`: `not-started` (it never ran), `running`, `done` or `failed`. A check from before suggested changes were for a project compared its version with the recorded outputs only, so it has no `now`.",
+        "properties": {
+          "status": {
             "type": "string",
             "enum": [
-              "weightedYesShare",
-              "weightedPrecisionAtK"
+              "not-started",
+              "running",
+              "done",
+              "failed"
             ]
+          },
+          "testSetId": {
+            "type": "string"
+          },
+          "testSetVersion": {
+            "type": "string",
+            "description": "The test set version its runs ran. Absent until its version ran."
+          },
+          "now": {
+            "$ref": "#/components/schemas/SuggestedChangeCheckSide"
+          },
+          "with": {
+            "$ref": "#/components/schemas/SuggestedChangeCheckSide"
+          },
+          "newlyFailing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Once both runs finished: the corrections `now` passes and `with` fails, by id."
           },
           "startedAt": {
             "type": "string",
             "format": "date-time"
-          },
-          "runStatus": {
-            "type": "string",
-            "enum": [
-              "pending",
-              "running",
-              "completed",
-              "failed",
-              "cancelled"
-            ],
-            "description": "The test run's status. Absent when the run can't be read."
-          },
-          "baseline": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "description": "The recorded outputs' score; `null` without evidence from corrections."
-          },
-          "candidate": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "description": "The candidate's score."
-          },
-          "delta": {
-            "type": [
-              "number",
-              "null"
-            ]
-          },
-          "spread": {
-            "type": "number",
-            "description": "With more than one repetition: the candidate's max − min, the noise a delta must beat."
-          },
-          "cases": {
-            "type": "integer"
-          },
-          "better": {
-            "type": "boolean",
-            "description": "Set once the comparison finished."
-          },
-          "rule": {
-            "type": "string",
-            "enum": [
-              "better",
-              "cheaper"
-            ],
-            "description": "How the candidate is kept. `better`: it beats the recorded outputs by more than the noise. `cheaper`: it's no worse than the current version replayed on the same cases (beyond that run's spread) and costs less (beyond the cost's own spread), with no errored case; `better` may then be false while the status is `evaluated`. Absent: `better`."
-          },
-          "costUsd": {
-            "$ref": "#/components/schemas/SuggestedChangeCost"
-          },
-          "decisions": {
-            "$ref": "#/components/schemas/SuggestedChangeDecisions"
           }
         }
       },
-      "SuggestedChangeCost": {
+      "SuggestedChangeNote": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "current",
-          "candidate"
+          "kind",
+          "promotionId"
         ],
-        "description": "What the replays cost in model calls on the same cases, in US dollars, averaged over the repetitions: the current version's and the candidate's. Set for a change held to the current version once both comparisons finished, when both reported a cost.",
+        "description": "Why a `ready` suggested change's pin didn't go through: `gate-refused`, `rejected` (a second person), `expired` (the approval), or `superseded` (its project's version or policy changed before the approval). `promotionId` is that pin's promotion.",
         "properties": {
-          "current": {
-            "type": "number",
-            "minimum": 0
-          },
-          "candidate": {
-            "type": "number",
-            "minimum": 0
-          }
-        }
-      },
-      "SuggestedChangeDecisions": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "checked",
-          "held",
-          "broken",
-          "stillWrong"
-        ],
-        "description": "The corrections the current version was checked on, replayed on the same cases, against the candidate's. A model-settings change is kept only with at least one checked and none broken. Set once both comparisons finished.",
-        "properties": {
-          "checked": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "held": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "The current version passed them, and so did the candidate."
-          },
-          "broken": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "The current version passed them; the candidate didn't."
-          },
-          "stillWrong": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Neither passed them. The rest of `checked` the candidate fixed."
-          }
-        }
-      },
-      "SuggestedChangePromotion": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "id",
-          "status"
-        ],
-        "description": "The promotion the suggested change's request made.",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "status": {
+          "kind": {
             "type": "string",
             "enum": [
-              "promoted",
-              "pending-approval",
-              "refused",
-              "superseded",
+              "gate-refused",
               "rejected",
-              "expired"
+              "expired",
+              "superseded"
             ]
           },
-          "approvalId": {
-            "type": "string",
-            "description": "The approval a request in review waits on."
-          },
-          "liveNow": {
-            "type": "boolean",
-            "description": "For a pinned suggested change: whether its version still serves the scope."
+          "promotionId": {
+            "type": "string"
           }
         }
       },
       "SuggestedChange": {
         "type": "object",
         "additionalProperties": false,
-        "description": "A suggested change: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.",
+        "description": "A suggested change: one block changed in what a project runs, checked on the project's test set, then pinned for the project or added as its Latest.",
         "required": [
           "id",
           "agentId",
-          "fromVersion",
-          "scope",
-          "tier",
-          "change",
-          "hypothesis",
-          "drafter",
+          "title",
+          "madeBy",
+          "builtOn",
+          "changes",
+          "why",
+          "fixes",
+          "check",
           "status",
           "createdAt",
           "updatedAt"
@@ -11216,63 +11097,109 @@
           "agentId": {
             "type": "string"
           },
-          "fromVersion": {
+          "projectId": {
             "type": "string",
-            "description": "The agent version the change applies to."
+            "format": "uuid",
+            "description": "The project it's for. On one made before suggested changes were for a project, its agent version's project, when known: such a one can only be withdrawn (`409 suggested-change-not-for-a-project`)."
           },
-          "scope": {
-            "$ref": "#/components/schemas/LiveScope"
-          },
-          "tier": {
-            "$ref": "#/components/schemas/SuggestedChangeTier"
-          },
-          "change": {
-            "$ref": "#/components/schemas/SuggestedChangeBlockEdit"
-          },
-          "hypothesis": {
+          "title": {
             "type": "string",
-            "description": "What the change should improve, and why."
+            "description": "The first line of `why`, cut at 60 characters, then the change: `tone v2 → v3`."
           },
-          "evidence": {
-            "$ref": "#/components/schemas/SuggestedChangeEvidence"
+          "madeBy": {
+            "$ref": "#/components/schemas/SuggestedChangeMadeBy"
           },
-          "drafter": {
-            "$ref": "#/components/schemas/SuggestedChangeDrafter"
+          "builtOn": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "version"
+            ],
+            "description": "The agent version it's built on: what its project ran when it was made, or when it was last rebuilt (`rebuiltAt`).",
+            "properties": {
+              "version": {
+                "type": "string"
+              },
+              "rebuiltAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "version": {
+            "type": "string",
+            "description": "Its agent version: what it is built on, with its changes. Absent until it made one. It serves nothing until it is pinned or added as Latest."
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SuggestedChangeChange"
+            }
+          },
+          "why": {
+            "type": "string",
+            "description": "What the change should fix, and why."
+          },
+          "fixes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The corrections it fixes, by id."
+          },
+          "check": {
+            "$ref": "#/components/schemas/SuggestedChangeCheck"
           },
           "status": {
             "$ref": "#/components/schemas/SuggestedChangeStatus"
           },
-          "candidate": {
-            "$ref": "#/components/schemas/SuggestedChangeCandidate"
+          "note": {
+            "$ref": "#/components/schemas/SuggestedChangeNote"
           },
-          "evaluation": {
-            "$ref": "#/components/schemas/SuggestedChangeEvaluation"
-          },
-          "promotion": {
-            "$ref": "#/components/schemas/SuggestedChangePromotion"
-          },
-          "rolledBack": {
+          "pinned": {
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "at",
-              "promotionId",
-              "by"
+              "version",
+              "by",
+              "at"
             ],
+            "description": "Once `pinned`: its version, who pinned it, and when.",
             "properties": {
+              "version": {
+                "type": "string"
+              },
+              "by": {
+                "$ref": "#/components/schemas/PinActor"
+              },
               "at": {
                 "type": "string",
                 "format": "date-time"
-              },
-              "promotionId": {
-                "type": "string",
-                "description": "The rollback's own promotion row."
+              }
+            }
+          },
+          "approvalId": {
+            "type": "string",
+            "description": "While `waiting-for-second-person`: the approval the pin waits on."
+          },
+          "addedAsLatest": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "version",
+              "by",
+              "at"
+            ],
+            "properties": {
+              "version": {
+                "type": "string"
               },
               "by": {
-                "type": "string"
+                "$ref": "#/components/schemas/PinActor"
               },
-              "reason": {
-                "type": "string"
+              "at": {
+                "type": "string",
+                "format": "date-time"
               }
             }
           },
@@ -11280,20 +11207,20 @@
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "at",
               "by",
-              "reason"
+              "reason",
+              "at"
             ],
             "properties": {
-              "at": {
-                "type": "string",
-                "format": "date-time"
-              },
               "by": {
-                "type": "string"
+                "$ref": "#/components/schemas/PinActor"
               },
               "reason": {
                 "type": "string"
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time"
               }
             }
           },
@@ -11797,125 +11724,48 @@
         }
       },
       "CreateSuggestedChangeBody": {
-        "description": "A hand-written suggested change: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one suggested change (answered with `X-Suggested-Change-Deduped: true`).",
+        "description": "A suggested change by hand: new settings values (`values`) or a new prompt template (`template`) for one block, in what the project runs (its pin, or Latest). The same change on the same version for the same project is one suggested change (answered with `X-Suggested-Change-Deduped: true`).",
         "type": "object",
         "additionalProperties": false,
         "required": [
           "agentId",
-          "fromVersion",
-          "scope",
-          "tier",
-          "change",
-          "hypothesis"
+          "projectId",
+          "block",
+          "why"
         ],
         "properties": {
           "agentId": {
             "type": "string"
           },
-          "fromVersion": {
+          "projectId": {
             "type": "string",
-            "description": "The agent version the change applies to."
+            "format": "uuid",
+            "description": "The project it's for."
           },
-          "scope": {
-            "$ref": "#/components/schemas/LiveScope"
+          "block": {
+            "type": "string",
+            "description": "The block it changes: one the project's version of the agent pins."
           },
-          "tier": {
-            "$ref": "#/components/schemas/SuggestedChangeTier"
-          },
-          "change": {
+          "values": {
             "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "blockId",
-              "content"
-            ],
-            "properties": {
-              "blockId": {
-                "type": "string",
-                "description": "A block `fromVersion` pins, of the tier's kind."
-              },
-              "content": {
-                "type": "object",
-                "description": "`{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.",
-                "additionalProperties": false,
-                "properties": {
-                  "values": {
-                    "type": "object",
-                    "additionalProperties": true
-                  },
-                  "template": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
+            "additionalProperties": true,
+            "description": "For a settings block: its new values. They must satisfy the block's schema, and for the version's model-settings block, be model settings."
           },
-          "hypothesis": {
+          "template": {
+            "type": "string",
+            "description": "For a prompt block: its new template."
+          },
+          "why": {
             "type": "string",
             "minLength": 1,
             "maxLength": 2000
           },
-          "evidence": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "fixes": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      },
-      "EvaluateSuggestedChangeBody": {
-        "description": "Compare the suggested change's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).",
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "testSetId"
-        ],
-        "properties": {
-          "testSetId": {
-            "type": "string",
-            "description": "The test set: a corrections test set."
-          },
-          "objective": {
-            "type": "string",
-            "enum": [
-              "weightedYesShare",
-              "weightedPrecisionAtK"
-            ],
-            "default": "weightedYesShare",
-            "description": "The metric that says whether the candidate is better."
-          },
-          "reads": {
-            "type": "string",
-            "enum": [
-              "recorded",
-              "live"
-            ]
-          },
-          "repetitions": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 10
-          },
-          "k": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 100
-          },
-          "groupWeights": {
-            "type": "string",
-            "enum": [
-              "as-recorded",
-              "experts-only"
-            ]
-          },
-          "sample": {
-            "$ref": "#/components/schemas/EvalSample"
+          "fixes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The corrections it fixes, by id."
           }
         }
       },
@@ -42811,7 +42661,7 @@
             }
           }
         },
-        "description": "Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a suggested change is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).",
+        "description": "Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?projectId=` (the project a suggested change is for), `?status=` and `?madeBy=` (a kind of maker). Statuses and makers are derived, so a page filtered by either can hold fewer rows than `limit`.",
         "parameters": [
           {
             "name": "limit",
@@ -42852,51 +42702,30 @@
             "required": false
           },
           {
-            "name": "tier",
+            "name": "projectId",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/SuggestedChangeTier"
+              "type": "string",
+              "format": "uuid"
             },
             "required": false,
-            "description": "Only suggested changes of this tier."
+            "description": "Only suggested changes for this project."
           },
           {
-            "name": "scopeKind",
+            "name": "madeBy",
             "in": "query",
             "schema": {
               "type": "string",
               "enum": [
-                "tenant",
-                "org",
-                "project",
-                "segment"
+                "improve-run",
+                "person",
+                "service",
+                "deploy",
+                "offer"
               ]
             },
             "required": false,
-            "description": "Only one scope: `tenant`, `org` or `project` (with `scopeId`), or `segment` (with `scopeId` and `segment`)."
-          },
-          {
-            "name": "scopeId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
-          },
-          {
-            "name": "segment",
-            "in": "query",
-            "schema": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "required": false,
-            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine.",
-            "x-kindgi-segment-path": true
+            "description": "Only suggested changes made by this kind of maker (`madeBy.kind`)."
           }
         ],
         "security": [
@@ -42907,7 +42736,7 @@
       },
       "post": {
         "operationId": "suggestedChanges.create",
-        "summary": "Suggest new content for a data block",
+        "summary": "Suggest a change to a block, for a project",
         "tags": [
           "suggested-changes"
         ],
@@ -42923,7 +42752,7 @@
             }
           },
           "201": {
-            "description": "The suggested change, a `draft`.",
+            "description": "The suggested change, `checking`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42933,7 +42762,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body, or the change fails validation. Or `reference-out-of-scope`: a project or segment scope whose project doesn't reach the agent, or a block the agent's project doesn't reach (`details.issues`).",
+            "description": "Malformed request body, or the change fails validation: a block the project's version doesn't pin, `values` for a prompt block or `template` for a settings block (`details.issues`). Or `reference-out-of-scope`: the project doesn't reach the agent, or the agent's project doesn't reach the block (`details.issues`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -42953,7 +42782,7 @@
             }
           },
           "404": {
-            "description": "`fromVersion` isn't an active version of the agent (`agent-version-not-found`).",
+            "description": "The version the project runs isn't active (`agent-version-not-found`), the body's `projectId` names no project of this tenant (`project-not-found`), or a check's test run couldn't start (`test-set-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -42963,7 +42792,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
+            "description": "`nothing-runs-in-scope`: the project runs no version of the agent. `suggested-change-nothing-to-check`: the project's test set has no cases for the agent. `environment-takes-promotions`: the project is a later environment of its order, where new versions arrive only by promotion (`details.position`, and `details.firstProjectId` when you can read it). `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes. Or Idempotency-Key was reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42982,8 +42811,28 @@
               }
             }
           },
+          "429": {
+            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi Cloud): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`suggested-change-check-unsupported`: this runtime doesn't freeze a project's test set, so it can't check a suggested change.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43003,7 +42852,7 @@
             }
           }
         },
-        "description": "A hand-written suggested change: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`. Needs `publish` on the agent.",
+        "description": "New settings values or a new prompt template for one block, in what the project runs: its pin, or Latest. Checked as publishing that block version would be (its schema carries over; for the version's model-settings block, as model settings), and refused when it equals the content the version pins. Then the block version is published, an agent version is derived from what the project runs with that one block changed (it serves nothing until it's pinned or added as Latest), and the check starts on the project's test set, frozen now: the new version and what the project runs replay the same cases. The same change on the same version for the same project is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`, unchecked again. Needs `publish` on the agent.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -43298,7 +43147,7 @@
             }
           }
         },
-        "description": "Needs `read` on its agent.",
+        "description": "With its block's content before and after (`changes[].before`, `changes[].after`). Needs `read` on its agent.",
         "parameters": [
           {
             "name": "suggestedChangeId",
@@ -43318,16 +43167,16 @@
         ]
       }
     },
-    "/v1/suggested-changes/{suggestedChangeId}/evaluate": {
+    "/v1/suggested-changes/{suggestedChangeId}/check": {
       "post": {
-        "operationId": "suggestedChanges.evaluate",
-        "summary": "Compare a suggested change on a test set",
+        "operationId": "suggestedChanges.check",
+        "summary": "Check a suggested change again",
         "tags": [
           "suggested-changes"
         ],
         "responses": {
           "202": {
-            "description": "The suggested change, `evaluating`.",
+            "description": "The suggested change, `checking`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43337,7 +43186,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body. Or `reference-out-of-scope`: the test set isn't registered in the agent's project, its org or the tenant (`details.issues`).",
+            "description": "A body with fields: a check takes none.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43357,7 +43206,7 @@
             }
           },
           "404": {
-            "description": "No such suggested change, or no such test set.",
+            "description": "No such suggested change, or its version is unregistered (`agent-version-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -43367,17 +43216,7 @@
             }
           },
           "409": {
-            "description": "`suggested-change-needs-pin`: the agent has no live version for the whole tenant. `suggested-change-invalid-state-transition`: the suggested change's status doesn't allow it. `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes; or, under `kindgi dev`, the suggested change's scope is narrower than the whole tenant, since the pack's files serve every scope.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "description": "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-nothing-to-check`: the project's test set has no cases for the agent. `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43406,117 +43245,8 @@
               }
             }
           },
-          "503": {
-            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a promotion makes them live. Then a comparison test run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.",
-        "parameters": [
-          {
-            "name": "suggestedChangeId",
-            "in": "path",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "description": "The suggested change id (a UUID)."
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EvaluateSuggestedChangeBody"
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/suggested-changes/{suggestedChangeId}/rescore": {
-      "post": {
-        "operationId": "suggestedChanges.rescore",
-        "summary": "Rescore a suggested change's latest evaluation",
-        "tags": [
-          "suggested-changes"
-        ],
-        "responses": {
-          "202": {
-            "description": "The suggested change, `evaluating`.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SuggestedChange"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed request body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such suggested change, or its candidate version is unregistered (`agent-version-not-found`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "`suggested-change-invalid-state-transition`: the suggested change's status doesn't allow it. `test-run-not-rescorable`: the latest evaluation isn't a completed comparison.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (unmapped domain code or framework crash).",
+          "501": {
+            "description": "`suggested-change-check-unsupported`: this runtime doesn't freeze a project's test set.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43536,7 +43266,7 @@
             }
           }
         },
-        "description": "After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison test run scores the same replays again, counting those corrections, as `POST /v1/test-runs/{testRunId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.",
+        "description": "Checks it again on its project's test set, frozen now: its version and the version it's built on replay the same cases, so new corrections count. Its version is made first if it has none. Takes no body fields. Needs `publish` on the agent. Allowed from `check-failed` and `ready`.",
         "parameters": [
           {
             "name": "suggestedChangeId",
@@ -43569,7 +43299,7 @@
     "/v1/suggested-changes/{suggestedChangeId}/pin": {
       "post": {
         "operationId": "suggestedChanges.pin",
-        "summary": "Pin a suggested change's version for its scope",
+        "summary": "Pin a suggested change's version for its project",
         "tags": [
           "suggested-changes"
         ],
@@ -43585,7 +43315,7 @@
             }
           },
           "202": {
-            "description": "The gate passed and an approval is open: the suggested change, `in-review`.",
+            "description": "The gate passed and an approval is open: the suggested change, `waiting-for-second-person`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43595,7 +43325,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body. Or `reference-out-of-scope`: the suggested change's project or segment scope no longer reaches the agent (`details.issues`).",
+            "description": "Malformed request body. Or `reference-out-of-scope`: the suggested change's project no longer reaches the agent (`details.issues`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -43625,7 +43355,7 @@
             }
           },
           "409": {
-            "description": "The suggested change's status doesn't allow it. Or `live-scope-spans-environments`: the agent has a project in an environment order, and the suggested change's tenant- or org-wide scope would act in every environment of the order at once; a suggested change for a project (or a segment of it) can be pinned.",
+            "description": "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-project-on-latest`: its project runs Latest, not a pin.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43645,7 +43375,7 @@
             }
           },
           "422": {
-            "description": "`gate-failed`: the gate refused it (the error carries the checks and `suggestedChangeId`).",
+            "description": "`gate-failed`: the gate refused it (the error carries the checks and `suggestedChangeId`). The suggested change stays `ready`, with a `note`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43675,7 +43405,7 @@
             }
           }
         },
-        "description": "A pin of the candidate for the suggested change's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.",
+        "description": "A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/promotions` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `promote` on the agent. Allowed from `ready`.",
         "parameters": [
           {
             "name": "suggestedChangeId",
@@ -43804,7 +43534,7 @@
             }
           }
         },
-        "description": "Closes it. Not while it's in review (decide its approval instead), nor once pinned, rejected or rolled back. Needs `publish` on the agent.",
+        "description": "Closes it. Allowed from `checking`, `check-failed` and `ready`: not while it waits for a second person (they reject it instead), nor once pinned or added as Latest. Needs `publish` on the agent.",
         "parameters": [
           {
             "name": "suggestedChangeId",

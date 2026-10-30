@@ -1522,6 +1522,41 @@ export const ERROR_ENTRIES = {
       'The agent has no live version for the whole tenant, so a new version would serve every scope nothing is pinned for. Make its current version live tenant-wide, then retry.',
     details: [],
   },
+  'suggested-change-not-for-a-project': {
+    description:
+      "The suggested change was made for a tenant, an org or a segment, before suggested changes were for one project, so it can't be checked, pinned or added as Latest. Withdraw it, and suggest the change for a project.",
+    details: [
+      {
+        key: 'suggestedChangeId',
+        meaning: 'the suggested change id',
+      },
+    ],
+  },
+  'suggested-change-check-unsupported': {
+    description:
+      "This runtime doesn't freeze a project's test set, so it can't make or check a suggested change.",
+    details: [],
+  },
+  'suggested-change-nothing-to-check': {
+    description:
+      "The project's test set has no cases for the agent, so there's nothing to check a change on. Correct some of the agent's conversations in the project first.",
+    details: [
+      {
+        key: 'projectId',
+        meaning: 'the project',
+      },
+    ],
+  },
+  'suggested-change-project-on-latest': {
+    description:
+      "The suggested change's project runs the agent's Latest, not a pin, so its version isn't pinned there. Add it as the project's Latest instead.",
+    details: [
+      {
+        key: 'suggestedChangeId',
+        meaning: 'the suggested change id',
+      },
+    ],
+  },
   'improve-unsupported': {
     description: "This runtime doesn't run Improve.",
     details: [],

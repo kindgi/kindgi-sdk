@@ -5,14 +5,17 @@ import { type Context, Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
 import { type Action, ref } from '@kindgi/authz';
-import type { Cursor, LiveScope, SuggestedChangeId, TenantId } from '@kindgi/types';
+import type { Cursor, LiveScope, ProjectId, SuggestedChangeId, TenantId } from '@kindgi/types';
 
+import type { BlockRegistryBinding } from '../block-binding.js';
+import { environmentTakesPromotionsResponse } from '../environment-entry.js';
 import { statusFor, toWireError } from '../errors.js';
-import type { EvalComparison } from '../test-run-binding.js';
 import { type ItemRights, liveScopeCheck, widthRefusal, writeWhereMade } from '../item-rights.js';
+import type { PromotionActor } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import {
+  type SuggestedChangeCreator,
   type SuggestedChangeFacts,
   type SuggestedChangeServiceDeps,
   type SuggestedChangeServiceError,
@@ -21,61 +24,61 @@ import {
 } from '../suggested-change-service.js';
 import {
   SUGGESTED_CHANGE_STATUSES,
-  type SuggestedChangeEvaluationOutcome,
+  type SuggestedChangeSide,
   type SuggestedChangeStatus,
+  suggestedChangeMaker,
 } from '../suggested-change-status.js';
 import type {
   ProposedChange,
   StoredSuggestedChange,
-  SuggestedChangeObjective,
-  SuggestedChangeTier,
+  SuggestedChangeMaker,
 } from '../supervisor-binding.js';
 import type { AppEnv } from '../types.js';
-import { actorOf, promotionResponse, scopeFromQuery } from './agent-releases.js';
-import { parseComparison } from './eval-comparison.js';
-import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
+import { actorOf, promotionResponse } from './agent-releases.js';
 import { clampLimit } from './pagination.js';
 
 /** What the suggested change lifecycle runs on besides its own store. */
 export type SuggestedChangesRouteDeps = Omit<SuggestedChangeServiceDeps, 'store'>;
 
-const TIERS: readonly SuggestedChangeTier[] = ['settings-block', 'prompt-block'];
-const OBJECTIVES: readonly SuggestedChangeObjective[] = [
-  'weightedYesShare',
-  'weightedPrecisionAtK',
+const MAKER_KINDS: readonly SuggestedChangeMaker['kind'][] = [
+  'improve-run',
+  'person',
+  'service',
+  'deploy',
+  'offer',
 ];
 const MAX_TEXT = 2000;
+/** How much of the first line of `why` a title keeps. */
+const TITLE_LENGTH = 60;
 
 type Ctx = Context<AppEnv>;
 
 /**
- * suggested changes (`/v1/suggested-changes`): a change to one data block an
- * agent version pins (new settings values, or a new prompt template),
- * for one live scope, taken through the same comparison, gate and
- * promotion as any other version (`createSuggestedChangeService`).
+ * Suggested changes (`/v1/suggested-changes`): a change to one data block
+ * (new settings values, or a new prompt template) for one project, built
+ * on what the project runs and checked on the project's test set
+ * (`createSuggestedChangeService`).
  *
- *   GET  /                 list (statuses derived): by agent, tier, status and live scope
- *   GET  /:id              one
- *   POST /                 a hand-written suggested change (a draft)
- *   POST /:id/evaluate     publish the block version and derive the agent
- *                          version (inert until promoted), then compare it
- *                          on a test set (202)
- *   POST /:id/rescore      the latest evaluation scored again, with what
- *                          people corrected on its replays since (202)
- *   POST /:id/pin          a gated pin of the candidate for the scope
- *                          (201 pinned, 202 in review, 422 gate-failed)
+ *   GET  /                 list, newest first (statuses derived): by agent,
+ *                          project, status and who made it
+ *   GET  /:id              one, with its block's content before and after
+ *   POST /                 a suggested change by hand: published, derived
+ *                          (inert until pinned) and checked (201, checking)
+ *   POST /:id/check        checked again on the project's test set (202)
+ *   POST /:id/pin          a gated pin of its version for the project
+ *                          (201 pinned, 202 waiting for a second person,
+ *                          422 gate-failed)
  *   POST /:id/withdraw     closed by a person
  *
- * Authorized on the suggested change's agent: reading is `read`, drafting,
- * evaluating, rescoring and withdrawing are `publish`, and
- * pinning is `promote`. A suggested change the caller can't
- * read answers 404, as one that doesn't exist.
+ * Authorized on the suggested change's agent: reading is `read`, making,
+ * checking and withdrawing are `publish`, and pinning is `promote`. A
+ * suggested change the caller can't read answers 404, as one that
+ * doesn't exist.
  *
  * For an agent more than one project serves (`item-rights.ts`): reading
- * is `read` on the agent or on any of its projects; drafting, evaluating,
- * rescoring and withdrawing are `write` where its new versions are made;
- * pinning is `admin` where the scope is (each of the
- * agent's projects, for the tenant's or an org's).
+ * is `read` on the agent or on any of its projects; making, checking and
+ * withdrawing are `write` where its new versions are made; pinning is
+ * `admin` in the suggested change's project.
  */
 export function suggestedChangesRouter(
   store: SuggestedChangeServiceDeps['store'],
@@ -159,12 +162,6 @@ export function suggestedChangesRouter(
       : authorizer.can(c, 'read', ref('agent', agentId));
   }
 
-  async function answer(c: Ctx, stored: StoredSuggestedChange, status: 200 | 201 | 202 = 200) {
-    const f = await service.facts(c.get('tenantId') as TenantId)(stored);
-    c.status(status);
-    return c.json(serialize(stored, f));
-  }
-
   /** Read the body and the suggested change, and check the caller may `action` it. */
   async function prepare(
     c: Ctx,
@@ -183,6 +180,34 @@ export function suggestedChangesRouter(
     return denied ?? { body, suggestedChange };
   }
 
+  /** The suggested change as the wire shows it; `detail` adds its block's content before and after. */
+  async function answer(
+    c: Ctx,
+    stored: StoredSuggestedChange,
+    status: 200 | 201 | 202 = 200,
+    detail = false,
+  ) {
+    const f = await service.facts(c.get('tenantId') as TenantId)(stored);
+    const before = detail ? await blockBefore(deps.blocks, stored) : undefined;
+    c.status(status);
+    return c.json(serialize(stored, f, before));
+  }
+
+  /** A refusal from the service, as the API answers it. */
+  async function refuse(c: Ctx, error: SuggestedChangeServiceError) {
+    if (error.code !== 'environment-takes-promotions') return failWith(c, error);
+    return environmentTakesPromotionsResponse(
+      c,
+      c.get('requestId'),
+      authorizer,
+      { kind: 'suggested-change' },
+      {
+        firstProjectId: error.firstProjectId as ProjectId,
+        position: error.position as number,
+      },
+    );
+  }
+
   // ---------- GET / ----------
   r.get('/', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
@@ -191,30 +216,39 @@ export function suggestedChangesRouter(
       status !== undefined &&
       !SUGGESTED_CHANGE_STATUSES.includes(status as SuggestedChangeStatus)
     ) {
-      return badInput(c, `Unknown \`status\`: ${status}`);
+      return badInput(
+        c,
+        `Unknown \`status\`: ${status} (one of ${SUGGESTED_CHANGE_STATUSES.join(', ')})`,
+      );
     }
-    const tier = c.req.query('tier');
-    if (tier !== undefined && !TIERS.includes(tier as SuggestedChangeTier)) {
-      return badInput(c, `Unknown \`tier\`: ${tier} (one of ${TIERS.join(', ')})`);
+    const madeBy = c.req.query('madeBy');
+    if (madeBy !== undefined && !MAKER_KINDS.includes(madeBy as SuggestedChangeMaker['kind'])) {
+      return badInput(c, `Unknown \`madeBy\`: ${madeBy} (one of ${MAKER_KINDS.join(', ')})`);
     }
-    const scope = scopeFromQuery((n) => c.req.query(n), c.req.queries('segment') ?? []);
-    if (scope.kind === 'err') return badInput(c, scope.message);
     const agentId = c.req.query('agentId');
+    const projectId = c.req.query('projectId');
     const cursor = c.req.query('cursor');
     const page = await store.listSuggestedChanges({
       tenantId,
       limit: clampLimit(c.req.query('limit')),
       ...(cursor !== undefined && cursor !== '' && { cursor: cursor as Cursor }),
       ...(agentId !== undefined && agentId !== '' && { agentId: agentId as AgentId }),
-      ...(tier !== undefined && { tier: tier as SuggestedChangeTier }),
-      ...(scope.scope !== undefined && { liveScope: scope.scope }),
+      ...(projectId !== undefined &&
+        projectId !== '' && {
+          liveScope: { kind: 'project', projectId: projectId as ProjectId },
+        }),
     });
     const shown = await readableOnPage(c, page.data);
     const read = service.facts(tenantId);
     const rows = await Promise.all(shown.map(async (p) => serialize(p, await read(p))));
     return c.json({
-      // A status filter applies after deriving, so a page can hold fewer rows than `limit`.
-      data: status === undefined ? rows : rows.filter((row) => row.status === status),
+      // The status and madeBy filters apply after deriving, so a page can
+      // hold fewer rows than `limit`.
+      data: rows.filter(
+        (row) =>
+          (status === undefined || row.status === status) &&
+          (madeBy === undefined || row.madeBy.kind === madeBy),
+      ),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -224,11 +258,11 @@ export function suggestedChangesRouter(
   r.get('/:suggestedChangeId', async (c) => {
     const stored = await load(c);
     if (stored instanceof Response) return stored;
-    return answer(c, stored);
+    return answer(c, stored, 200, true);
   });
 
-  // ---------- POST / (a hand-written suggested change) ----------
-  r.post('/', async (c) => {
+  // ---------- POST / (a suggested change by hand) ----------
+  r.post('/', publishCompiles, async (c) => {
     const body = await readBody(c);
     if (body === undefined) return badInput(c, 'Request body must be a JSON object');
     const parsed = parseCreateBody(body);
@@ -236,19 +270,18 @@ export function suggestedChangesRouter(
     const denied = await deny(c, 'publish', parsed.agentId);
     if (denied !== undefined) return denied;
     const actor = actorOf(c);
-    const outcome = await service.draft({
+    const outcome = await service.create({
       tenantId: c.get('tenantId') as TenantId,
       agentId: parsed.agentId,
-      fromVersion: parsed.fromVersion,
-      scope: parsed.scope,
-      tier: parsed.tier,
+      projectId: parsed.projectId as ProjectId,
       blockId: parsed.blockId,
       content: parsed.content,
-      hypothesis: parsed.hypothesis,
-      ...(parsed.fixes !== undefined && { evidence: { fixes: parsed.fixes } }),
-      drafter: { kind: 'person', by: `${actor.kind}:${actor.id}` },
+      why: parsed.why,
+      ...(parsed.fixes !== undefined && { fixes: parsed.fixes }),
+      madeBy: makerOf(actor),
+      actor,
     });
-    if (outcome.kind === 'err') return failWith(c, outcome.error);
+    if (outcome.kind === 'err') return refuse(c, outcome.error);
     if (outcome.value.deduped) {
       c.header('X-Suggested-Change-Deduped', 'true');
       return answer(c, outcome.value.suggestedChange);
@@ -256,44 +289,23 @@ export function suggestedChangesRouter(
     return answer(c, outcome.value.suggestedChange, 201);
   });
 
-  // ---------- POST /:suggestedChangeId/evaluate ----------
-  r.post('/:suggestedChangeId/evaluate', publishCompiles, async (c) => {
-    const body = await readBody(c);
-    if (body === undefined) return badInput(c, 'Request body must be a JSON object');
-    const parsed = parseEvaluateBody(body);
-    if (typeof parsed === 'string') return badInput(c, parsed);
-    const ready = await prepare(c, 'publish');
-    if (ready instanceof Response) return ready;
-    const outcome = await service.evaluate({
-      tenantId: c.get('tenantId') as TenantId,
-      suggestedChange: ready.suggestedChange,
-      testSetId: parsed.testSetId,
-      objective: parsed.objective,
-      ...(parsed.comparison !== undefined && { comparison: parsed.comparison }),
-      actor: actorOf(c),
-    });
-    if (outcome.kind === 'err') return failWith(c, outcome.error);
-    return answer(c, outcome.value, 202);
-  });
-
-  // ---------- POST /:suggestedChangeId/rescore ----------
-  // The latest evaluation scored again, with what people corrected on its
-  // replays since; the new test run becomes the suggested change's evaluation.
-  r.post('/:suggestedChangeId/rescore', async (c) => {
+  // ---------- POST /:suggestedChangeId/check ----------
+  r.post('/:suggestedChangeId/check', publishCompiles, async (c) => {
     const ready = await prepare(c, 'publish');
     if (ready instanceof Response) return ready;
     const extra = Object.keys(ready.body);
     if (extra.length > 0) {
       return badInput(
         c,
-        `\`${extra[0]}\` isn't a field of a rescore: it takes none (the latest evaluation's test set version and settings)`,
+        `\`${extra[0]}\` isn't a field of a check: it takes none (it runs on the project's test set)`,
       );
     }
-    const outcome = await service.rescore({
+    const outcome = await service.check({
       tenantId: c.get('tenantId') as TenantId,
       suggestedChange: ready.suggestedChange,
+      actor: actorOf(c),
     });
-    if (outcome.kind === 'err') return failWith(c, outcome.error);
+    if (outcome.kind === 'err') return refuse(c, outcome.error);
     return answer(c, outcome.value, 202);
   });
 
@@ -315,7 +327,7 @@ export function suggestedChangesRouter(
       actor: actorOf(c),
       ...(reason.value !== undefined && { reason: reason.value }),
     });
-    if (outcome.kind === 'err') return failWith(c, outcome.error);
+    if (outcome.kind === 'err') return refuse(c, outcome.error);
     const { suggestedChange, promotion } = outcome.value;
     if (promotion.kind !== 'ok') return promotionResponse(c, promotion);
     if (promotion.promotion.status === 'refused') {
@@ -354,62 +366,140 @@ export function suggestedChangesRouter(
 
 // ---------- wire ----------
 
-function evaluationWire(
-  stored: NonNullable<StoredSuggestedChange['evaluation']>,
-  seen: SuggestedChangeEvaluationOutcome | null | undefined,
-): Record<string, unknown> {
-  // The reference run it's held to stays the runtime's: what it found is
-  // `costUsd` and `decisions`.
-  const recorded = {
-    testRunId: stored.testRunId,
-    testSetId: stored.testSetId,
-    objective: stored.objective,
-    startedAt: stored.startedAt,
-    ...(stored.rule !== undefined && { rule: stored.rule }),
-  };
-  if (seen === undefined || seen === null) return recorded;
+/** Who made a suggested change through the API: the caller. */
+function makerOf(actor: PromotionActor): SuggestedChangeCreator {
+  return actor.kind === 'user'
+    ? { kind: 'person', userId: actor.id }
+    : { kind: 'service', id: actor.id };
+}
+
+/** `user:<id>` or `service:<id>`, as a step records who took it, on the wire (`PinActor`). */
+function actorWire(by: string): PromotionActor {
+  const at = by.indexOf(':');
+  const kind = at < 0 ? '' : by.slice(0, at);
+  return kind === 'user' || kind === 'service'
+    ? { kind, id: by.slice(at + 1) }
+    : { kind: 'service', id: by };
+}
+
+/** The content of the block version a suggested change changes; `undefined` when it's gone. */
+async function blockBefore(
+  blocks: BlockRegistryBinding,
+  p: StoredSuggestedChange,
+): Promise<ProposedChange['change']['content'] | undefined> {
+  const { blockId, fromVersion } = p.change;
+  const block = await blocks.getVersion({ tenantId: p.tenantId, blockId, version: fromVersion });
+  if (block === null) return undefined;
+  return block.kind === 'settings'
+    ? { values: block.content.values as Record<string, unknown> }
+    : { template: block.content.template as string };
+}
+
+/** The first line of why, cut to fit, then the block's change. */
+function titleOf(p: StoredSuggestedChange): string {
+  const line = p.hypothesis.split('\n')[0]?.trim() ?? '';
+  const cut = line.length > TITLE_LENGTH ? `${line.slice(0, TITLE_LENGTH).trimEnd()}…` : line;
+  const to = p.candidate === undefined ? 'a new version' : `v${p.candidate.blockVersion}`;
+  return `${cut}: ${p.change.blockId} v${p.change.fromVersion} → ${to}`;
+}
+
+/** A US-dollar amount per conversation: at most four decimals, no trailing zeros. */
+function perConversation(cost: NonNullable<SuggestedChangeSide['costUsd']>): string | undefined {
+  if (cost.cases === 0) return undefined;
+  return (cost.total / cost.cases).toFixed(4).replace(/\.?0+$/, '');
+}
+
+function sideWire(testRunId: string, side: SuggestedChangeSide | undefined) {
+  if (side === undefined) return { testRunId };
+  const cost = side.costUsd === undefined ? undefined : perConversation(side.costUsd);
   return {
-    ...recorded,
-    runStatus: seen.runStatus,
-    ...(seen.baseline !== undefined && { baseline: seen.baseline }),
-    ...(seen.candidate !== undefined && { candidate: seen.candidate }),
-    ...(seen.delta !== undefined && { delta: seen.delta }),
-    ...(seen.spread !== undefined && { spread: seen.spread }),
-    ...(seen.cases !== undefined && { cases: seen.cases }),
-    ...(seen.better !== undefined && { better: seen.better }),
-    ...(seen.costUsd !== undefined && { costUsd: seen.costUsd }),
-    ...(seen.decisions !== undefined && { decisions: seen.decisions }),
+    testRunId,
+    passing: side.passing,
+    of: side.of,
+    ...(cost !== undefined && { costPerConversation: cost }),
+  };
+}
+
+/**
+ * The check: `not-started` before one ran, `running` while either run
+ * is, `failed` when either failed or can't be read, else `done`.
+ */
+function checkWire(p: StoredSuggestedChange, f: SuggestedChangeFacts) {
+  const stored = p.evaluation;
+  if (stored === undefined) return { status: 'not-started' as const };
+  const seen = f.evaluation ?? undefined;
+  let status: 'running' | 'done' | 'failed';
+  if (f.status === 'checking') status = 'running';
+  else if (seen === undefined || f.status === 'check-failed') status = 'failed';
+  else if (seen.runStatus !== 'completed') status = 'failed';
+  else status = 'done';
+  const reference = stored.reference;
+  return {
+    status,
+    testSetId: stored.testSetId,
+    ...(seen?.testSetVersion !== undefined && { testSetVersion: seen.testSetVersion }),
+    ...(reference !== undefined && { now: sideWire(reference.testRunId, seen?.now) }),
+    with: sideWire(stored.testRunId, seen?.with),
+    ...(seen?.newlyFailing !== undefined && { newlyFailing: seen.newlyFailing }),
+    startedAt: stored.startedAt,
   };
 }
 
 export function serialize(
   p: StoredSuggestedChange,
   f: SuggestedChangeFacts,
-): Record<string, unknown> {
+  before?: ProposedChange['change']['content'],
+) {
   const promotion = f.promotion ?? undefined;
+  const version = p.candidate?.agentVersion;
+  const projectId = p.scope.kind === 'project' ? p.scope.projectId : p.projectId;
+  const pinned =
+    f.status === 'pinned' && promotion !== undefined && version !== undefined
+      ? {
+          version,
+          by: promotion.requestedBy,
+          at: promotion.resolvedAt ?? promotion.createdAt,
+        }
+      : undefined;
   return {
     id: p.id as unknown as string,
     agentId: p.agentId as unknown as string,
-    fromVersion: p.fromVersion,
-    scope: liveScopeToWire(p.scope),
-    tier: p.tier,
-    change: p.change,
-    hypothesis: p.hypothesis,
-    ...(p.evidence !== undefined && { evidence: p.evidence }),
-    drafter: p.drafter,
+    ...(projectId !== undefined && { projectId: projectId as unknown as string }),
+    title: titleOf(p),
+    madeBy: suggestedChangeMaker(p),
+    builtOn: {
+      version: p.builtOnVersion ?? p.fromVersion,
+      ...(p.rebuiltAt !== undefined && { rebuiltAt: p.rebuiltAt }),
+    },
+    ...(version !== undefined && { version }),
+    changes: [
+      {
+        kind: 'block' as const,
+        blockId: p.change.blockId,
+        from: p.change.fromVersion,
+        ...(p.candidate !== undefined && { to: p.candidate.blockVersion }),
+        ...(before !== undefined && { before, after: p.change.content }),
+      },
+    ],
+    why: p.hypothesis,
+    fixes: p.evidence?.fixes ?? [],
+    check: checkWire(p, f),
     status: f.status,
-    ...(p.candidate !== undefined && { candidate: p.candidate }),
-    ...(p.evaluation !== undefined && { evaluation: evaluationWire(p.evaluation, f.evaluation) }),
-    ...(promotion !== undefined && {
-      promotion: {
-        id: promotion.id,
-        status: promotion.status ?? 'promoted',
-        ...(promotion.approvalId !== undefined && { approvalId: promotion.approvalId }),
-        ...(f.liveNow !== undefined && { liveNow: f.liveNow }),
+    ...(f.note !== undefined && { note: f.note }),
+    ...(pinned !== undefined && { pinned }),
+    ...(f.status === 'waiting-for-second-person' &&
+      promotion?.approvalId !== undefined && { approvalId: promotion.approvalId }),
+    ...(p.addedAsLatest !== undefined &&
+      version !== undefined && {
+        addedAsLatest: { version, by: actorWire(p.addedAsLatest.by), at: p.addedAsLatest.at },
+      }),
+    ...(p.withdrawn !== undefined && {
+      withdrawn: {
+        by: actorWire(p.withdrawn.by),
+        reason: p.withdrawn.reason,
+        at: p.withdrawn.at,
       },
     }),
-    ...(p.rolledBack !== undefined && { rolledBack: p.rolledBack }),
-    ...(p.withdrawn !== undefined && { withdrawn: p.withdrawn }),
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
   };
@@ -419,14 +509,14 @@ export function serialize(
 
 interface CreateBody {
   readonly agentId: string;
-  readonly fromVersion: string;
-  readonly scope: StoredSuggestedChange['scope'];
-  readonly tier: SuggestedChangeTier;
+  readonly projectId: string;
   readonly blockId: string;
   readonly content: ProposedChange['change']['content'];
-  readonly hypothesis: string;
+  readonly why: string;
   readonly fixes?: readonly string[];
 }
+
+const CREATE_FIELDS = ['agentId', 'projectId', 'block', 'values', 'template', 'why', 'fixes'];
 
 function obj(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -438,91 +528,36 @@ function nonEmpty(value: unknown): value is string {
   return typeof value === 'string' && value.trim() !== '' && value.length <= MAX_TEXT;
 }
 
-function parseContent(tier: SuggestedChangeTier, raw: unknown): string | undefined {
-  const content = obj(raw);
-  const keys = content === undefined ? [] : Object.keys(content);
-  if (tier === 'settings-block') {
-    return content !== undefined && obj(content.values) !== undefined && keys.length === 1
-      ? undefined
-      : '`change.content` for a settings block is { values: { … } } (the schema carries over)';
-  }
-  return content !== undefined && typeof content.template === 'string' && keys.length === 1
-    ? undefined
-    : '`change.content` for a prompt block is { template } (the parameters carry over)';
-}
-
-function parseEvidence(raw: unknown): { fixes?: string[] } | string {
-  if (raw === undefined) return {};
-  const evidence = obj(raw);
-  const ids = evidence?.fixes;
-  const valid =
-    evidence !== undefined &&
-    Object.keys(evidence).every((k) => k === 'fixes') &&
-    (ids === undefined || (Array.isArray(ids) && ids.every((id) => nonEmpty(id))));
-  if (!valid) return '`evidence` is { fixes?: string[] }';
-  return ids === undefined ? {} : { fixes: ids as string[] };
-}
-
 function parseCreateBody(b: Record<string, unknown>): CreateBody | string {
+  const extra = Object.keys(b).find((k) => !CREATE_FIELDS.includes(k));
+  if (extra !== undefined) {
+    return `\`${extra}\` isn't a field of a suggested change: { agentId, projectId, block, values | template, why, fixes? }`;
+  }
   if (!nonEmpty(b.agentId)) return '`agentId` is required';
-  if (!nonEmpty(b.fromVersion)) {
-    return '`fromVersion` is required: the agent version the change applies to';
+  if (!nonEmpty(b.projectId)) {
+    return "`projectId` is required: the project it's for, whose version it's built on";
   }
-  const scope = parseLiveScopeBody(b.scope);
-  if (scope.kind === 'err') return scope.message;
-  if (!TIERS.includes(b.tier as SuggestedChangeTier))
-    return `\`tier\` must be one of ${TIERS.join(', ')}`;
-  const tier = b.tier as SuggestedChangeTier;
-  const change = obj(b.change);
-  if (change === undefined) return '`change` must be an object: { blockId, content }';
-  if (!nonEmpty(change.blockId)) return '`change.blockId` is required';
-  const contentProblem = parseContent(tier, change.content);
-  if (contentProblem !== undefined) return contentProblem;
-  if (!nonEmpty(b.hypothesis)) {
-    return '`hypothesis` is required: what the change should improve, and why';
+  if (!nonEmpty(b.block)) return '`block` is required: the id of the block it changes';
+  const values = b.values === undefined ? undefined : obj(b.values);
+  if (b.values !== undefined && values === undefined) return '`values` must be an object';
+  if (b.template !== undefined && typeof b.template !== 'string') {
+    return '`template` must be a string';
   }
-  const evidence = parseEvidence(b.evidence);
-  if (typeof evidence === 'string') return evidence;
+  if ((values === undefined) === (b.template === undefined)) {
+    return 'Send one of `values` (a settings block) or `template` (a prompt block)';
+  }
+  if (!nonEmpty(b.why)) return '`why` is required: what the change should fix, and why';
+  const fixes = b.fixes;
+  if (fixes !== undefined && !(Array.isArray(fixes) && fixes.every((id) => nonEmpty(id)))) {
+    return '`fixes` is a list of correction ids';
+  }
   return {
     agentId: b.agentId,
-    fromVersion: b.fromVersion,
-    scope: scope.scope,
-    tier,
-    blockId: change.blockId,
-    content: change.content as ProposedChange['change']['content'],
-    hypothesis: b.hypothesis,
-    ...evidence,
-  };
-}
-
-interface EvaluateBody {
-  readonly testSetId: string;
-  readonly objective: SuggestedChangeObjective;
-  readonly comparison?: EvalComparison;
-}
-
-function parseEvaluateBody(b: Record<string, unknown>): EvaluateBody | string {
-  if (!nonEmpty(b.testSetId)) {
-    return '`testSetId` is required: the test set (a corrections test set) to compare on';
-  }
-  if (b.objective !== undefined && !OBJECTIVES.includes(b.objective as SuggestedChangeObjective)) {
-    return `\`objective\` must be one of ${OBJECTIVES.join(', ')}`;
-  }
-  const extra = Object.keys(b).filter(
-    (k) =>
-      !['testSetId', 'objective', 'reads', 'repetitions', 'k', 'groupWeights', 'sample'].includes(
-        k,
-      ),
-  );
-  if (extra.length > 0) {
-    return `\`${extra[0]}\` isn't a field of an evaluation: { testSetId, objective?, reads?, repetitions?, k?, groupWeights?, sample? }`;
-  }
-  const comparison = parseComparison(b);
-  if (comparison.kind === 'err') return comparison.message;
-  return {
-    testSetId: b.testSetId,
-    objective: (b.objective as SuggestedChangeObjective | undefined) ?? 'weightedYesShare',
-    ...(comparison.value !== undefined && { comparison: comparison.value }),
+    projectId: b.projectId,
+    blockId: b.block,
+    content: values !== undefined ? { values } : { template: b.template as string },
+    why: b.why,
+    ...(fixes !== undefined && { fixes: fixes as string[] }),
   };
 }
 
