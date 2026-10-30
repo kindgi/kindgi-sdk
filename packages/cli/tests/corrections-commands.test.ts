@@ -274,6 +274,21 @@ describe('kindgi corrections', () => {
     expect(open.stderr).toBe('');
   });
 
+  test.each([
+    [{ kind: 'improve-run', id: 'ir-7' }, 'improve run ir-7'],
+    [{ kind: 'suggested-change', id: 'sc-3' }, 'suggested change sc-3'],
+  ])('the replaced line names a %o link by its id', async (link, words) => {
+    const live = { id: 'c-1', runId: 'r-1', answer: 'wrong', status: 'being-fixed', link };
+    const out = await run(
+      ['corrections', 'add', '--run=r-1', '--answer=right'],
+      withLive(recorder().rec, [live]),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toBe(
+      `Replaced correction c-1, which was being-fixed (${words}). The new one is sorted afresh, without its status or link.\n`,
+    );
+  });
+
   test('an item named again under a new pointer replaces its entry', async () => {
     const live = {
       id: 'c-1',
