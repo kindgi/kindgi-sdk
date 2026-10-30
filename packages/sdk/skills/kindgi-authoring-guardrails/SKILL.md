@@ -182,27 +182,28 @@ How the pack tooling reads this file:
   recognises a guardrail by a default export with a `kind` and an
   `action` object carrying `on-violation`. It records `id`, `name`,
   `kind`, `action`, `severity`, `scope`, `at`, `sees`, `budget`,
-  `judgeCapabilities`, `sandbox` / `limits` / `network`, and the check: its id (`check` may be the check
-  id as a string, or the check object), its points (`checkPoints`, for a
-  check the module ships) and its config schema (from the check's
-  `configZod`, `configSchema` or `configJsonSchema`, or a top-level
-  `configZod` / `configSchema`), and the declaration's `config` — what
-  the check runs with. It does not record `description`. It checks `config` (none counts as `{}`) against
+  `judgeCapabilities`, `sandbox` / `limits` / `network`, and the check:
+  its id (`check` may be the check id as a string, or the check object),
+  its points (`checkPoints`, for a check the module ships) and its
+  config schema (from the check's `configZod`, `configSchema` or
+  `configJsonSchema`, or a top-level `configZod` / `configSchema`), and
+  the declaration's `config` — what the check runs with. It does not
+  record `description`. It checks `config` (none counts as `{}`) against
   the config schema: a config that doesn't fit, or a required field with
   no default left out, is a file error naming where, and `kindgi build`
   refuses the pack. It also refuses an `llm-judge` guardrail with no
   `judgeCapabilities` (the runtime would refuse it on every turn), an
-  `at` it doesn't know, a malformed
-  `scope.tools` or `points`, what a point can't do in the deploy's paths
-  and words (`guardrail <id>: /action/on-violation: "escalate" is
-  recorded at the final answer only, not at "before-tool"`, and
-  `/scope/tools` for `scope.tools` away from the tool points), and an
-  `at` the module's check doesn't run at (`guardrail <id> runs at
-  'before-tool', which isn't one of its check's points (final-answer)`).
-  A built-in named as a string isn't checked there: deploy refuses one at
-  a point it doesn't run at (at `/at`, `deployment-validation-failed`),
-  and registering answers `422 guardrail-config-invalid`; registering
-  answers `400 validation-failed` for what a point can't do.
+  `at` it doesn't know, a malformed `scope.tools` or `points`, what a
+  point can't do in the deploy's paths and words (`guardrail <id>:
+  /action/on-violation: "escalate" is recorded at the final answer only,
+  not at "before-tool"`, and `/scope/tools` for `scope.tools` away from
+  the tool points), and an `at` the module's check doesn't run at
+  (`guardrail <id> runs at 'before-tool', which isn't one of its check's
+  points (final-answer)`). A built-in named as a string isn't checked
+  there: deploy refuses one at a point it doesn't run at (at `/at`,
+  `deployment-validation-failed`), and registering answers `422
+  guardrail-config-invalid`; registering answers `400 validation-failed`
+  for what a point can't do.
 - The **pack service** loads the same module to run the check. It uses
   the module's `evaluate` export, or the `default` / `check` export when
   that is a function or has an `evaluate` method — here, the named
