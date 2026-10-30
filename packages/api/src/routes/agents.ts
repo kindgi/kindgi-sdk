@@ -398,7 +398,9 @@ export function agentsRouter(
         ),
       );
     }
-    return c.json({ ...serializeAgent(shown.row), ...(await ownerField(tenantId, shown.row)) });
+    // The owner is the agent's, not a version's: it's read off the head
+    // record, whichever version is shown.
+    return c.json({ ...serializeAgent(shown.row), ...(await ownerField(tenantId, latest)) });
   });
 
   /** `owner: { userId, name? }`, the name when the directory has one for the person. */
