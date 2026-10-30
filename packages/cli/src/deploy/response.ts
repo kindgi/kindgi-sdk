@@ -167,10 +167,7 @@ export function renderResponse(
     }
     if (result.kind === 'replayed') {
       banner.push(
-        '  Note: same imageDigest previously landed. Server returned the existing record.',
-      );
-      banner.push(
-        `  Runs already in flight continue on their pinned image (${result.record.imageDigest.slice(0, 20)}…).`,
+        `  Note: same imageDigest (${result.record.imageDigest.slice(0, 20)}…) previously landed. Server returned the existing record.`,
       );
     } else {
       banner.push('  Deploy complete.');
@@ -178,8 +175,8 @@ export function renderResponse(
         `  Runs started from now use image ${result.record.imageDigest.slice(0, 20)}… ` +
           `(artifactVersion ${result.record.artifactVersion}).`,
       );
-      banner.push('  Runs already in flight continue on their pinned image.');
     }
+    banner.push(inFlightLine(result.record));
     banner.push('');
     const summary: Record<string, unknown> = {
       envName: ctx.envName,
@@ -309,6 +306,21 @@ function whyRenumbered(kind: 'agent' | 'flow', e: DeployedVersionRecord): string
     return `${e.authoredVersion} was published before pins; ${e.version} pins its ${blocks}`;
   }
   return `${e.authoredVersion} is taken by a different definition`;
+}
+
+/**
+ * Where a run already in flight sends its tool calls now. A record with a
+ * pack service of its own (`endpoint`) is on a runtime that routes per
+ * deployment: each call goes to the newest deployment that shipped the
+ * version it names, so a deploy that bumps a tool's version leaves the older
+ * one serving the runs that name it. Without one, the runtime has a single
+ * pack service, which runs one build whatever version a call names (or the
+ * deployment ships no pack code, so the line names the case it's about).
+ */
+function inFlightLine(record: DeploymentRecord): string {
+  return record.endpoint !== undefined
+    ? '  Runs already in flight keep their tool versions: each tool call goes to the newest deployment that shipped the version it names.'
+    : "  With one pack service, runs already in flight call the build it runs, as new runs do: a tool version that build doesn't have fails at that tool with tool-version-mismatch.";
 }
 
 /** `versionLines` for a deployment's agents then flows, followed by a blank line; none when there are none. */
