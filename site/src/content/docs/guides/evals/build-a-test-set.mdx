@@ -183,7 +183,9 @@ articles it expects, newest first.
   lists only the cases added by hand.
 - **A test run checks a frozen version** of the set: its cases as they were
   when the run started. `frozenVersion` (`frozen_version` in Python) names
-  the newest one, as `{ testSetId, version }`, and its cases are at
+  the newest one, as `{ testSetId, version }`. Its cases come from
+  `kindgi.testSets.listCases(testSetId, version)`
+  (`client.test_sets.list_cases(test_set_id, version)` in Python), or
   `GET /v1/test-sets/{testSetId}/versions/{version}/cases`. It's absent until
   a test run has frozen the set.
 - Over HTTP, it's `GET /v1/agents/{agentId}/test-set?projectId=…` and

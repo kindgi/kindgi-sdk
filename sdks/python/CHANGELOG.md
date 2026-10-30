@@ -83,8 +83,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   active and retired), `list_cases`, `add_case` (a case by hand, from a
   correction's body on one of the agent's finished runs) and `retire_case`.
   Its cases are the agent's corrections, except Won't fix and Removed ones,
-  and the cases added by hand. The models are `AgentTestSet`,
-  `TestSetCaseCounts`, `TestCase*` and `AddTestCaseBody`.
+  and the cases added by hand. Once a test run has frozen the set, `get`
+  also answers `frozen_version`, the newest version frozen. The models are
+  `AgentTestSet`, `TestSetCaseCounts`, `TestSetFrozenVersion`, `TestCase*`
+  and `AddTestCaseBody`.
 - `kindgi`: **Test sets built from corrections are gone.**
   `client.test_sets.build_from_corrections` is removed, with
   `BuildCorrectedTestSetBody`, `BuildCorrectedTestSetResult` and
