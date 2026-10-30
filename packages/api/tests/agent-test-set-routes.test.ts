@@ -415,6 +415,22 @@ describe('who may', () => {
     expect(authz.checked).not.toContain(`admin agent:${AGENT}`);
   });
 
+  test("a run or a case in a project the caller can't read is a 404, even with publish on the agent", async () => {
+    const r = row();
+    const authz: Authz = { grants: [`publish agent:${AGENT}`], checked: [] };
+    const h = harness([r], { authz, agents });
+    const id = await h.corrected(r, WRONG_ANSWER);
+
+    const added = await h.call('POST', `${SET}/cases`, { runId: r.runId, answer: 'right' });
+    expect(added.status).toBe(404);
+    expect(added.body.error.code).toBe('run-not-found');
+    expect(added.body.error.message).not.toContain(projectA);
+    const retired = await h.call('POST', `${SET}/cases/${id}/retire`, { reason: 'Old.' });
+    expect(retired.status).toBe(404);
+    expect(retired.body.error.code).toBe('test-case-not-found');
+    expect(retired.body.error.message).not.toContain(projectA);
+  });
+
   test("for an agent more than one project serves, a change takes write on the case's project", async () => {
     const r = row({ projectId: projectB });
     const authz: Authz = {

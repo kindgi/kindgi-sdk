@@ -2589,7 +2589,8 @@ export const ERROR_ENTRIES = {
     details: [],
   },
   'test-case-retired': {
-    description: 'The case is retired already. A retired case stays retired: there is no un-retire.',
+    description:
+      'The case is retired already. A retired case stays retired: there is no un-retire.',
     details: [{ key: 'retired', meaning: 'the reason, who retired the case, and when' }],
   },
   'run-failures-not-supported': {

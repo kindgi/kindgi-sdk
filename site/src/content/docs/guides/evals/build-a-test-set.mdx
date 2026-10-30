@@ -21,8 +21,9 @@ nothing to build or copy.
 
 - **An agent with finished runs** in a project, on a runtime such as
   `kindgi dev`, with Kindgi 0.4's CLI.
-- **`read` on the project** to read the test set, when authorization is on,
-  and `publish` on the agent to add or retire cases.
+- **`read` on the project** to read the test set, when authorization is on.
+  To add or retire cases, `publish` on the agent as well, or, for an agent
+  more than one project serves, `write` on the case's project.
 - **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
   Kindgi 0.4's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
 
@@ -266,9 +267,10 @@ reason="…")`, and over HTTP, `POST
 
 ## Test sets built before
 
-Kindgi 0.3 built `corrections` test sets from corrections, with
-`kindgi test-sets from-corrections`. Nothing builds them now. One built
-before is still read by its id, and its cases with `kindgi test-sets cases`,
+Kindgi 0.3 built `judged` eval suites from judged runs, with
+`kindgi eval-suites from-judgments`. Such a suite is a test set of the
+`corrections` kind now, and nothing builds one. One built before is still
+read by its id, and its cases with `kindgi test-sets cases`,
 but `kindgi test-sets list` doesn't list it. The corrections it was built
 from are cases of their agent's test set.
 

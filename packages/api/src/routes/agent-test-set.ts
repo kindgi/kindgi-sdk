@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { type Context, Hono } from 'hono';
+
 import type { AgentId, ConversationBinding } from '@kindgi/agents';
 import { type Action, type ResourceRef, ref } from '@kindgi/authz';
 import type { RunBinding } from '@kindgi/runtime';
@@ -147,7 +148,10 @@ export function agentTestSetRouter(deps: {
       return fail(c, 'permission-denied', 'Adding a case needs a user or a service token.');
     }
     const run = await deps.runs.getRun(tenantId, said.runId as RunId);
-    if (run === null) return fail(c, 'run-not-found', `No run "${said.runId}".`);
+    // A run in a project the caller can't read is no run, as `GET /v1/runs/{runId}` answers.
+    if (run === null || !(await canRead(c, deps.authorizer, run.projectId as unknown as string))) {
+      return fail(c, 'run-not-found', `No run "${said.runId}".`);
+    }
     const projectId = run.projectId as unknown as ProjectId;
     const refused = await fixRefusal(c, deps, agentId, projectId);
     if (refused !== undefined) return refused;
@@ -221,7 +225,8 @@ export function agentTestSetRouter(deps: {
     const notFound = () =>
       fail(c, 'test-case-not-found', `Agent "${agentId}"'s test set has no case "${caseId}".`);
     const found = await corrections.getCase({ tenantId, agentId, caseId });
-    if (found === null) return notFound();
+    // A case in a project the caller can't read is no case, as a correction is.
+    if (found === null || !(await canRead(c, deps.authorizer, found.projectId))) return notFound();
     const refused = await fixRefusal(c, deps, agentId, found.projectId);
     if (refused !== undefined) return refused;
     const outcome = await corrections.retireCase({ tenantId, agentId, caseId, reason, by });
@@ -298,10 +303,19 @@ async function unknownAgent(
   return fail(c, 'agent-not-found', `No agent "${agentId}".`);
 }
 
+/** The caller may read the project (anyone may, without an authorizer). */
+async function canRead(
+  c: Ctx,
+  authorizer: Authorizer | undefined,
+  projectId: string,
+): Promise<boolean> {
+  return authorizer === undefined || (await authorizer.can(c, 'read', ref('project', projectId)));
+}
+
 /**
- * Adding or retiring a case: publish on the agent and read on the case's
- * project; for an agent more than one project serves, write on the case's
- * project.
+ * Adding or retiring a case, once the caller can read its project (a run
+ * or case it can't read is a 404): publish on the agent; for an agent more
+ * than one project serves, write on the case's project.
  */
 async function fixRefusal(
   c: Ctx,
@@ -320,8 +334,5 @@ async function fixRefusal(
       `Permission denied: this needs write on project ${projectId}, where the case is (${refused.decision.reason})`,
     );
   }
-  return (
-    (await refusal(c, deps.authorizer, 'publish', ref('agent', agentId), `agent "${agentId}"`)) ??
-    (await refusal(c, deps.authorizer, 'read', ref('project', projectId), `project ${projectId}`))
-  );
+  return await refusal(c, deps.authorizer, 'publish', ref('agent', agentId), `agent "${agentId}"`);
 }
