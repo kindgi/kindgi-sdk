@@ -59,7 +59,7 @@ export interface JudgeClassesClient {
   ): Promise<JudgeClass>;
 
   /**
-   * Retire a class: no new judgments may name it.
+   * Retire a class: no new corrections may name it.
    *
    * @wire `POST /v1/judge-classes/{judgeClassId}/unregister` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1judge-classes~1{judgeClassId}~1unregister/post`.

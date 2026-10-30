@@ -19,6 +19,7 @@ import {
   makeConnectionsClient,
 } from './resources/connections.js';
 import { type ConversationsClient, makeConversationsClient } from './resources/conversations.js';
+import { type CorrectionsClient, makeCorrectionsClient } from './resources/corrections.js';
 import { type CostClient, makeCostClient } from './resources/cost.js';
 import { type DeploymentsClient, makeDeploymentsClient } from './resources/deployments.js';
 import { type EnvClient, makeEnvClient } from './resources/env.js';
@@ -43,7 +44,6 @@ import {
   makeImprovementPassesClient,
 } from './resources/improvement-passes.js';
 import { type JudgeClassesClient, makeJudgeClassesClient } from './resources/judge-classes.js';
-import { type JudgmentsClient, makeJudgmentsClient } from './resources/judgments.js';
 import { type LicenseClient, makeLicenseClient } from './resources/license.js';
 import { type MailTriggersClient, makeMailTriggersClient } from './resources/mail-triggers.js';
 import { type McpClient, makeMcpClient } from './resources/mcp.js';
@@ -146,7 +146,7 @@ export interface KindgiClient {
   /** Data blocks: versioned prompts and settings an agent version pins. */
   readonly blocks: BlocksClient;
   readonly evalRuns: EvalRunsClient;
-  readonly judgments: JudgmentsClient;
+  readonly corrections: CorrectionsClient;
   readonly judgeClasses: JudgeClassesClient;
   // Identity
   readonly users: UsersClient;
@@ -242,7 +242,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     evalSuites: makeEvalSuitesClient(transport),
     blocks: makeBlocksClient(transport),
     evalRuns: makeEvalRunsClient(transport),
-    judgments: makeJudgmentsClient(transport),
+    corrections: makeCorrectionsClient(transport),
     judgeClasses: makeJudgeClassesClient(transport),
     users: makeUsersClient(transport),
     identity: makeIdentityClient(transport),

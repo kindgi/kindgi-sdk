@@ -67,9 +67,9 @@ export interface ProposalsClient {
   evaluate(id: FixProposalId | string, input: EvaluateProposalInput): Promise<FixProposal>;
 
   /**
-   * Rescore the latest evaluation, after people judged the comparison's new
+   * Rescore the latest evaluation, after people corrected the comparison's new
    * answers on its replay runs: a new comparison that scores the same
-   * replays again, counting those judgments. It becomes the proposal's
+   * replays again, counting those corrections. It becomes the proposal's
    * evaluation; the run rescored stays as it was. Returns the proposal,
    * `evaluating`.
    *
@@ -137,7 +137,7 @@ export interface ImproveInput {
   /** `['settings']` (the default): tunable settings values; `['prompt']`: drafted templates (needs `model`). */
   readonly tiers?: readonly ('settings' | 'prompt')[];
   readonly objective?: ProposalObjective;
-  /** Which judgments it learns from. Omit it for the default: everyone's (`as-recorded`) until the test set's project, its tenant, or the agent improved there has a restricted judge class, then only judgments recorded under one (`restricted-only`). */
+  /** Which corrections it learns from. Omit it for the default: everyone's (`as-recorded`) until the test set's project, its tenant, or the agent improved there has a restricted judge class, then only corrections recorded under one (`restricted-only`). */
   readonly classWeights?: 'restricted-only' | 'as-recorded';
   /** For a prompt pass: the tenant's provider and model that drafts the templates. */
   readonly model?: { readonly providerId: string; readonly model: string };
@@ -179,7 +179,7 @@ export interface CreateProposalInput {
   readonly change: { readonly blockId: string; readonly content: ProposalContent };
   /** What the change should improve, and why. */
   readonly hypothesis: string;
-  readonly evidence?: { readonly judgmentIds?: readonly string[] };
+  readonly evidence?: { readonly fixes?: readonly string[] };
   readonly idempotencyKey?: string;
 }
 

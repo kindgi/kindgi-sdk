@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Test sets built from judgments: `POST /v1/eval-suites/:id/versions/from-judgments`
+ * Test sets built from corrections: `POST /v1/eval-suites/:id/versions/from-corrections`
  * and `GET /v1/eval-suites/:id/versions/:version/cases`.
  */
 
@@ -16,18 +16,18 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
+  CorrectionRegistryBinding,
   EvalSuite,
   EvalSuiteRegistryBinding,
-  JudgmentRegistryBinding,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
 import { inMemoryCaseStore } from './support/in-memory-cases.js';
-import { inMemoryJudgments } from './support/in-memory-judgments.js';
+import { inMemoryCorrections } from './support/in-memory-corrections.js';
 
 const tenantId = randomUUID() as TenantId;
 const project = randomUUID() as ProjectId;
-const TOKEN = 'judged-suites-token';
+const TOKEN = 'corrected-suites-token';
 
 const resolveToken: TokenResolver = async (token) =>
   token === TOKEN ? { tenantId, userId: 'user-1' as UserId } : null;
@@ -68,15 +68,15 @@ type Call = (
 
 interface Harness {
   readonly call: Call;
-  readonly judgments: JudgmentRegistryBinding;
+  readonly corrections: CorrectionRegistryBinding;
   readonly suites: ReturnType<typeof suiteRegistry>;
   readonly expertId: string;
 }
 
 const subject = (version = '2.0.0') => ({ kind: 'agent' as const, id: 'acme.matcher', version });
 
-async function seed(judgments: JudgmentRegistryBinding): Promise<string> {
-  const created = await judgments.createClass({
+async function seed(corrections: CorrectionRegistryBinding): Promise<string> {
+  const created = await corrections.createClass({
     tenantId,
     scope: { kind: 'tenant' },
     name: 'expert',
@@ -92,7 +92,7 @@ async function seed(judgments: JudgmentRegistryBinding): Promise<string> {
     by: string,
     extra: { judgeClassId?: string; reason?: string } = {},
   ) =>
-    judgments.record({
+    corrections.record({
       tenantId,
       projectId: project,
       runId,
@@ -108,7 +108,7 @@ async function seed(judgments: JudgmentRegistryBinding): Promise<string> {
       ...extra,
     });
 
-  // run-1 (oldest): c2 is judged before c1, but c1 is rank 0.
+  // run-1 (oldest): c2 is corrected before c1, but c1 is rank 0.
   const one = {
     input: { query: 'acme' },
     output: { matches: [{ id: 'c1' }, { id: 'c2' }] },
@@ -120,7 +120,7 @@ async function seed(judgments: JudgmentRegistryBinding): Promise<string> {
     reason: 'right',
   });
   await record('run-1', one, { key: 'c1', rank: 0 }, 'no', 'u2', { reason: 'wrong city' });
-  // run-2: one unclassified judgment.
+  // run-2: one unclassified correction.
   await record(
     'run-2',
     { input: { query: 'beta' }, output: { matches: [] } },
@@ -142,22 +142,22 @@ async function seed(judgments: JudgmentRegistryBinding): Promise<string> {
 
 async function harness(): Promise<Harness> {
   const stubs = createStubAppBindings();
-  const judgments = inMemoryJudgments();
+  const corrections = inMemoryCorrections();
   const suites = suiteRegistry();
-  const expertId = await seed(judgments);
-  return { ...makeCall(stubs, judgments, suites), judgments, suites, expertId };
+  const expertId = await seed(corrections);
+  return { ...makeCall(stubs, corrections, suites), corrections, suites, expertId };
 }
 
 function makeCall(
   stubs: ReturnType<typeof createStubAppBindings>,
-  judgments: JudgmentRegistryBinding,
+  corrections: CorrectionRegistryBinding,
   suites: EvalSuiteRegistryBinding,
 ): { readonly call: Call } {
   const app = createApp({
     ...stubs,
     resolveToken,
     runHandler,
-    judgmentRegistry: judgments,
+    correctionRegistry: corrections,
     evalSuiteRegistry: suites,
     evalCaseStore: inMemoryCaseStore(),
   });
@@ -175,7 +175,7 @@ function makeCall(
   return { call };
 }
 
-const BUILD = '/v1/eval-suites/acme.matches/versions/from-judgments';
+const BUILD = '/v1/eval-suites/acme.matches/versions/from-corrections';
 const base = { version: '1.0.0', projectId: project, agentId: 'acme.matcher' };
 
 let h: Harness;
@@ -183,7 +183,7 @@ beforeEach(async () => {
   h = await harness();
 });
 
-describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
+describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
   test('builds cases with the items summed, ranked, and the run copied', async () => {
     const res = await h.call('POST', BUILD, { ...base, description: 'First set' });
     expect(res.status).toBe(201);
@@ -199,12 +199,12 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
       version: '1.0.0',
       kind: 'judged',
       description: 'First set',
-      spec: { source: 'judgments', caseCount: 3, truncated: false },
+      spec: { source: 'corrections', caseCount: 3, truncated: false },
     });
 
     const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
     expect(cases.status).toBe(200);
-    // Newest judged run first.
+    // Newest corrected run first.
     expect(cases.body.data.map((c: { caseId: string }) => c.caseId)).toEqual([
       'run-3',
       'run-2',
@@ -218,7 +218,7 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
       output: { matches: [{ id: 'c1' }, { id: 'c2' }] },
       context: { history: [{ sequence: 0 }], retrieved: ['Acme Corp'] },
     });
-    // Sorted by rank, though c2 was judged first.
+    // Sorted by rank, though c2 was corrected first.
     expect(one.items).toEqual([
       {
         key: 'c1',
@@ -227,10 +227,10 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
         no: 1,
         yesWeight: 3,
         totalWeight: 4,
-        restricted: { yesWeight: 0, totalWeight: 0, judgmentIds: [] },
-        // Every judgment summed into the item, newest first: u2's no, then the expert's yes.
-        judgmentIds: ['j-3', 'j-2'],
-        // Newest first; a classified judgment's reason names its class.
+        restricted: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
+        // Every correction summed into the item, newest first: u2's no, then the expert's yes.
+        correctionIds: ['j-3', 'j-2'],
+        // Newest first; a classified correction's reason names its class.
         reasons: [
           { verdict: 'no', reason: 'wrong city' },
           { verdict: 'yes', reason: 'right', judgeClassId: h.expertId },
@@ -243,13 +243,13 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
         no: 1,
         yesWeight: 0,
         totalWeight: 1,
-        restricted: { yesWeight: 0, totalWeight: 0, judgmentIds: [] },
-        // A judgment without a reason is named too.
-        judgmentIds: ['j-1'],
+        restricted: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
+        // A correction without a reason is named too.
+        correctionIds: ['j-1'],
         reasons: [],
       },
     ]);
-    // An unclassified judgment counts 1; a run without context has none.
+    // An unclassified correction counts 1; a run without context has none.
     expect(cases.body.data[1].items).toEqual([
       {
         key: 'x',
@@ -257,16 +257,16 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
         no: 0,
         yesWeight: 1,
         totalWeight: 1,
-        restricted: { yesWeight: 0, totalWeight: 0, judgmentIds: [] },
-        judgmentIds: ['j-4'],
+        restricted: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
+        correctionIds: ['j-4'],
         reasons: [],
       },
     ]);
     expect(cases.body.data[1].context).toBeUndefined();
   });
 
-  test('a kept judgment with a correction rides onto its case, with its judge class and restriction', async () => {
-    const corrected = await h.judgments.record({
+  test("a kept correction's expected decisions ride onto its case, with its judge class and restriction", async () => {
+    const corrected = await h.corrections.record({
       tenantId,
       projectId: project,
       runId: 'run-corr',
@@ -287,21 +287,21 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
     const built = cases.body.data.find((c: { caseId: string }) => c.caseId === 'run-corr');
     expect(built.corrections).toEqual([
       {
-        judgmentId: corrected.id,
+        correctionId: corrected.id,
         judgeClassId: h.expertId,
         restricted: true,
         calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
         notCalled: ['acme.email'],
       },
     ]);
-    // A run whose kept judgments carry no correction has none.
+    // A run whose kept corrections carry no expected decisions has none.
     const plain = cases.body.data.find((c: { caseId: string }) => c.caseId === 'run-2');
     expect(plain.corrections).toBeUndefined();
   });
 
   test('a re-saved correction replaces the first, so its case carries one (counts once)', async () => {
     const recordAt = (amount: number) =>
-      h.judgments.record({
+      h.corrections.record({
         tenantId,
         projectId: project,
         runId: 'run-once',
@@ -337,7 +337,7 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
       runId: 'run-apart',
       run: { subject: subject(), input: { query: 'sigma' }, output: { decision: 'refund' } },
     };
-    await h.judgments.record({
+    await h.corrections.record({
       ...common,
       item: { key: CORRECTION_ITEM.key },
       verdict: 'no',
@@ -345,7 +345,7 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
       judgeClassId: h.expertId,
       correction: { calls: [{ tool: 'acme.refund', args: { amount: 25 } }], notCalled: [] },
     });
-    await h.judgments.record({
+    await h.corrections.record({
       ...common,
       item: { key: 'decision', pointer: '/decision' },
       verdict: 'yes',
@@ -356,7 +356,7 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
 
     const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
     const built = cases.body.data.find((c: { caseId: string }) => c.caseId === 'run-apart');
-    // The correction survives (before the reserved key, a 'decision' judgment
+    // The correction survives (before the reserved key, a 'decision' correction
     // sharing its key would have merged and dropped it), and the caller's own
     // 'decision' item stays a separate item from the reserved whole-output one.
     expect(built.corrections).toHaveLength(1);
@@ -369,13 +369,13 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
-  test('segments keep only runs started in that segment or below it: a judgment in globex never counts for acme', async () => {
+  test('segments keep only runs started in that segment or below it: a correction in globex never counts for acme', async () => {
     const at = (company: string, more: { key: string; value: string }[] = []) => [
       { key: 'company', value: company },
       ...more,
     ];
     const record = (runId: string, segments: { key: string; value: string }[] | undefined) =>
-      h.judgments.record({
+      h.corrections.record({
         tenantId,
         projectId: project,
         runId,
@@ -405,7 +405,7 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
       'acme-cfo-run',
     ]);
     expect(await ids('2.2.0', at('globex'))).toEqual(['globex-run']);
-    // Runs judged before segments were recorded (seed's run-1..3) and runs with none are in no segment.
+    // Runs corrected before segments were recorded (seed's run-1..3) and runs with none are in no segment.
     expect(await ids('2.3.0', at('initech'))).toEqual([]);
     // The test set says what it was narrowed to.
     expect(h.suites.published.find((s) => s.version === '2.0.0')?.spec).toMatchObject({
@@ -427,20 +427,20 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
     expect(res.body.caseCount).toBe(1);
   });
 
-  test('minJudgments leaves out runs with fewer judgments', async () => {
-    const res = await h.call('POST', BUILD, { ...base, minJudgments: 2 });
+  test('minCorrections leaves out runs with fewer corrections', async () => {
+    const res = await h.call('POST', BUILD, { ...base, minCorrections: 2 });
     expect(res.status).toBe(201);
     expect(res.body.caseCount).toBe(1);
     const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
     expect(cases.body.data.map((c: { caseId: string }) => c.caseId)).toEqual(['run-1']);
   });
 
-  test("judgeClassIds counts only those classes' judgments", async () => {
+  test("judgeClassIds counts only those classes' corrections", async () => {
     const res = await h.call('POST', BUILD, { ...base, judgeClassIds: [h.expertId] });
     expect(res.body.caseCount).toBe(2);
     const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
     const byId = new Map(cases.body.data.map((c: { caseId: string }) => [c.caseId, c]));
-    // run-1 keeps the expert's judgment on c1 and drops the rest.
+    // run-1 keeps the expert's correction on c1 and drops the rest.
     expect((byId.get('run-1') as { items: unknown[] }).items).toEqual([
       {
         key: 'c1',
@@ -449,24 +449,24 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
         no: 0,
         yesWeight: 3,
         totalWeight: 3,
-        restricted: { yesWeight: 0, totalWeight: 0, judgmentIds: [] },
-        // Only the kept class's judgment is named: u2's unclassified no isn't counted.
-        judgmentIds: ['j-2'],
+        restricted: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
+        // Only the kept class's correction is named: u2's unclassified no isn't counted.
+        correctionIds: ['j-2'],
         reasons: [{ verdict: 'yes', reason: 'right', judgeClassId: h.expertId }],
       },
     ]);
     expect(byId.has('run-2')).toBe(false);
   });
 
-  test('a judgment recorded under a restricted class is counted apart too; restricting the class later changes nothing', async () => {
-    // The expert's judgments on run-1 were recorded before the class was restricted.
-    await h.judgments.updateClass({
+  test('a correction recorded under a restricted class is counted apart too; restricting the class later changes nothing', async () => {
+    // The expert's corrections on run-1 were recorded before the class was restricted.
+    await h.corrections.updateClass({
       tenantId,
       judgeClassId: h.expertId,
       assertableBy: { minReviewerRole: 'senior' },
     });
-    // One recorded under the restriction: the route marks it `restricted` once the judge meets it.
-    await h.judgments.record({
+    // One recorded under the restriction: the route marks it `restricted` once whoever recorded it meets it.
+    await h.corrections.record({
       tenantId,
       projectId: project,
       runId: 'run-1',
@@ -486,8 +486,8 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
       key: 'c1',
       yesWeight: 3,
       totalWeight: 4,
-      restricted: { yesWeight: 0, totalWeight: 0, judgmentIds: [] },
-      judgmentIds: ['j-3', 'j-2'],
+      restricted: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
+      correctionIds: ['j-3', 'j-2'],
     });
     // c2: the senior expert's yes (3) is restricted; the unclassified no (1) isn't.
     // Both are named on the item, only the restricted one under `restricted`.
@@ -495,8 +495,8 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
       key: 'c2',
       yesWeight: 3,
       totalWeight: 4,
-      restricted: { yesWeight: 3, totalWeight: 3, judgmentIds: ['j-6'] },
-      judgmentIds: ['j-6', 'j-1'],
+      restricted: { yesWeight: 3, totalWeight: 3, correctionIds: ['j-6'] },
+      correctionIds: ['j-6', 'j-1'],
     });
     // Its reason says it was restricted; the expert's earlier one on c1 doesn't.
     expect(run1.items[1].reasons).toContainEqual({
@@ -512,9 +512,9 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
     });
   });
 
-  test("a comparison's replays aren't cases: a turn judged before the stamp (its output's replay report), and one stamped at its first judgment", async () => {
-    const judgeReplay = (runId: string, output: unknown, context?: { replayOf: string }) =>
-      h.judgments.record({
+  test("a comparison's replays aren't cases: a turn corrected before the stamp (its output's replay report), and one stamped at its first correction", async () => {
+    const correctReplay = (runId: string, output: unknown, context?: { replayOf: string }) =>
+      h.corrections.record({
         tenantId,
         projectId: project,
         runId,
@@ -529,11 +529,11 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
         assertedBy: { kind: 'user', id: 'u1' },
       });
     // Stored before the stamp: only the agent turn's own replay report says so.
-    await judgeReplay('run-replay-old', {
+    await correctReplay('run-replay-old', {
       matches: [{ id: 'c1' }],
       replay: { of: 'run-1', evalRunId: 'eval-1', tools: [] },
     });
-    await judgeReplay('run-replay-new', { matches: [{ id: 'c1' }] }, { replayOf: 'run-1' });
+    await correctReplay('run-replay-new', { matches: [{ id: 'c1' }] }, { replayOf: 'run-1' });
     const built = await h.call('POST', BUILD, base);
     expect(built.status, JSON.stringify(built.body)).toBe(201);
     const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases?limit=50');
@@ -545,7 +545,7 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
   });
 
   test('a binding that lists a replay anyway: the test set still leaves it out', async () => {
-    const all = h.judgments;
+    const all = h.corrections;
     await all.record({
       tenantId,
       projectId: project,
@@ -563,17 +563,17 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
     const listed = (
       await all.get({
         tenantId,
-        judgmentId: (
+        correctionId: (
           await all.list({ tenantId, runId: 'run-replay-listed', limit: 1 })
         ).data[0]?.id as string,
       })
     )?.run;
     // A binding that doesn't filter: it lists the replay with the real runs.
-    const unfiltered: JudgmentRegistryBinding = {
+    const unfiltered: CorrectionRegistryBinding = {
       ...all,
-      listJudgedRuns: async (input) => {
+      listCorrectedRuns: async (input) => {
         const page = await (
-          all.listJudgedRuns as NonNullable<JudgmentRegistryBinding['listJudgedRuns']>
+          all.listCorrectedRuns as NonNullable<CorrectionRegistryBinding['listCorrectedRuns']>
         )(input);
         return {
           ...page,
@@ -582,7 +582,8 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
             {
               projectId: project,
               run: listed as never,
-              judgments: (await all.list({ tenantId, runId: 'run-replay-listed', limit: 10 })).data,
+              corrections: (await all.list({ tenantId, runId: 'run-replay-listed', limit: 10 }))
+                .data,
             },
           ],
         };
@@ -637,8 +638,8 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
     expect(h.suites.published.map((s) => s.version)).toEqual(['1.0.0']);
   });
 
-  test('a binding that cannot list judged runs: 501', async () => {
-    const { listJudgedRuns: _unsupported, ...without } = h.judgments;
+  test('a binding that cannot list corrected runs: 501', async () => {
+    const { listCorrectedRuns: _unsupported, ...without } = h.corrections;
     const { call } = makeCall(createStubAppBindings(), without, h.suites);
     const res = await call('POST', BUILD, base);
     expect(res.status).toBe(501);

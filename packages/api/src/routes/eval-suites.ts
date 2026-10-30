@@ -110,7 +110,7 @@ export function evalSuitesRouter(
           if (c.req.method === 'POST' && under.length === 1 && under[0] === 'runs') {
             return undefined;
           }
-          // A test set built from judgments under a suite id never registered
+          // A test set built from corrections under a suite id never registered
           // (no head row) has no suite to check yet: the build checks `admin`
           // on the project it names, the project the new suite belongs to. A
           // tombstoned suite keeps its head row, so it's checked as an existing
@@ -118,7 +118,7 @@ export function evalSuitesRouter(
           // suite, checks the suite.
           if (
             c.req.method === 'POST' &&
-            c.req.path.endsWith('/versions/from-judgments') &&
+            c.req.path.endsWith('/versions/from-corrections') &&
             !(await binding.headExists({ tenantId: c.get('tenantId') as TenantId, suiteId }))
           ) {
             return undefined;
@@ -524,14 +524,14 @@ export function evalSuitesRouter(
 
 /**
  * What a route under a suite more than one project serves asks
- * (`itemPathCheck`), but for a test set built from judgments: `admin` in
- * the one project whose judged runs it takes, where the new version is
+ * (`itemPathCheck`), but for a test set built from corrections: `admin` in
+ * the one project whose corrected runs it takes, where the new version is
  * made, as an eval run follows its own project (rule 3). A body naming
  * none of the suite's projects is checked on every project, and the
  * route answers what's wrong with it.
  */
 async function suiteCheck(c: Context<AppEnv>, projects: readonly ProjectId[]): Promise<ItemCheck> {
-  if (c.req.method === 'POST' && c.req.path.endsWith('/versions/from-judgments')) {
+  if (c.req.method === 'POST' && c.req.path.endsWith('/versions/from-corrections')) {
     const body = (await c.req.json().catch(() => null)) as { projectId?: unknown } | null;
     const projectId = body?.projectId;
     if (

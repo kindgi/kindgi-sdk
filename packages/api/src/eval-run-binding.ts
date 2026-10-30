@@ -139,7 +139,7 @@ export interface EvalRunFilter {
 
 /**
  * What a comparison eval run compares the candidate against:
- *   - `'recorded'`: the output each case recorded (what was judged);
+ *   - `'recorded'`: the output each case recorded (what was corrected);
  *   - `{ agentId, version }`: that version, replayed under the same rules;
  *   - `{ live }`: the version live in a scope: a project, and a segment
  *     path in it (coarse to fine, as live versions resolve it).
@@ -159,7 +159,7 @@ export type EvalBaseline =
 export type EvalReads = 'recorded' | 'live';
 
 /**
- * Which judgments a comparison counts: every judgment at its class's
+ * Which corrections a comparison counts: every correction at its class's
  * weight (`as-recorded`, the default), or only those recorded while their
  * class was restricted (`assertableBy`), the others weighing 0
  * (`restricted-only`; T200).
@@ -180,7 +180,7 @@ export interface EvalComparison {
    * at 0.4.0"), without publishing a new flow version.
    */
   readonly versions?: FlowVersionOverrides;
-  /** Which judgments count (absent: `as-recorded`). */
+  /** Which corrections count (absent: `as-recorded`). */
   readonly classWeights?: EvalClassWeights;
   /**
    * For an agent candidate: block content its replays run instead of the
@@ -193,8 +193,8 @@ export interface EvalComparison {
   readonly sample?: EvalSample;
   /**
    * Rescore that comparison eval run instead of replaying: its replays'
-   * outputs are scored again, with the judgments recorded on them since
-   * (a changed answer judged on the replay itself). Nothing runs; the run
+   * outputs are scored again, with the corrections recorded on them since
+   * (a changed answer corrected on the replay itself). Nothing runs; the run
    * rescored stays as it was. Same suite version, candidate and sample.
    */
   readonly rescoreOf?: string;

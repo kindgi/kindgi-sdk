@@ -5,10 +5,10 @@ import { describe, expect, test } from 'vitest';
 
 import {
   type CandidateCall,
-  type Correction,
+  type ExpectedDecisions,
   describeCallDifference,
-  gradeCorrection,
-} from '../src/corrections.js';
+  gradeExpectedDecisions,
+} from '../src/expected-decisions.js';
 
 const call = (tool: string, args: Record<string, unknown>, step?: number): CandidateCall => ({
   tool,
@@ -21,44 +21,44 @@ const refused = (tool: string, args: Record<string, unknown>, step?: number): Ca
   refused: true,
 });
 
-describe('gradeCorrection — scope', () => {
-  test('ignores calls to tools the correction does not name', () => {
-    const correction: Correction = {
+describe('gradeExpectedDecisions — scope', () => {
+  test('ignores calls to tools the expected decisions do not name', () => {
+    const decisions: ExpectedDecisions = {
       calls: [{ tool: 'refund', args: { amount: 25 } }],
       notCalled: [],
     };
-    const result = gradeCorrection(correction, [
+    const result = gradeExpectedDecisions(decisions, [
       call('refund', { amount: 25 }),
       call('lookup', { id: 'x' }),
     ]);
     expect(result).toEqual({ pass: true, differences: [] });
   });
 
-  test('an empty correction (no calls, nothing forbidden) passes whatever happened', () => {
-    expect(gradeCorrection({ calls: [], notCalled: [] }, [call('refund', { amount: 25 })])).toEqual(
-      {
-        pass: true,
-        differences: [],
-      },
-    );
+  test('empty expected decisions (no calls, nothing forbidden) pass whatever happened', () => {
+    expect(
+      gradeExpectedDecisions({ calls: [], notCalled: [] }, [call('refund', { amount: 25 })]),
+    ).toEqual({
+      pass: true,
+      differences: [],
+    });
   });
 
   test('an expected call with no pinned fields asks only that the tool was called', () => {
     expect(
-      gradeCorrection({ calls: [{ tool: 'refund', args: {} }], notCalled: [] }, [
+      gradeExpectedDecisions({ calls: [{ tool: 'refund', args: {} }], notCalled: [] }, [
         call('refund', { amount: 999 }),
       ]),
     ).toEqual({ pass: true, differences: [] });
   });
 });
 
-describe('gradeCorrection — the multiset count', () => {
+describe('gradeExpectedDecisions — the multiset count', () => {
   test('too many calls to a named tool fails on the count', () => {
-    const correction: Correction = {
+    const decisions: ExpectedDecisions = {
       calls: [{ tool: 'refund', args: { amount: 25 } }],
       notCalled: [],
     };
-    const result = gradeCorrection(correction, [
+    const result = gradeExpectedDecisions(decisions, [
       call('refund', { amount: 25 }),
       call('refund', { amount: 25 }),
     ]);
@@ -72,14 +72,14 @@ describe('gradeCorrection — the multiset count', () => {
   });
 
   test('too few calls fails on the count', () => {
-    const correction: Correction = {
+    const decisions: ExpectedDecisions = {
       calls: [
         { tool: 'refund', args: { amount: 25 } },
         { tool: 'refund', args: { amount: 25 } },
       ],
       notCalled: [],
     };
-    const result = gradeCorrection(correction, [call('refund', { amount: 25 })]);
+    const result = gradeExpectedDecisions(decisions, [call('refund', { amount: 25 })]);
     expect(result.pass).toBe(false);
     expect(result.differences).toContainEqual({
       tool: 'refund',
@@ -90,7 +90,7 @@ describe('gradeCorrection — the multiset count', () => {
   });
 
   test('the same count, each pairing, passes', () => {
-    const correction: Correction = {
+    const decisions: ExpectedDecisions = {
       calls: [
         { tool: 'refund', args: { amount: 25 } },
         { tool: 'refund', args: { amount: 50 } },
@@ -98,20 +98,24 @@ describe('gradeCorrection — the multiset count', () => {
       notCalled: [],
     };
     expect(
-      gradeCorrection(correction, [call('refund', { amount: 50 }), call('refund', { amount: 25 })])
-        .pass,
+      gradeExpectedDecisions(decisions, [
+        call('refund', { amount: 50 }),
+        call('refund', { amount: 25 }),
+      ]).pass,
     ).toBe(true);
   });
 });
 
-describe('gradeCorrection — partial fields', () => {
-  test('an actual field the correction did not pin is not compared', () => {
-    const correction: Correction = {
+describe('gradeExpectedDecisions — partial fields', () => {
+  test('an actual field the expected decisions did not pin is not compared', () => {
+    const decisions: ExpectedDecisions = {
       calls: [{ tool: 'refund', args: { amount: 25 } }],
       notCalled: [],
     };
     expect(
-      gradeCorrection(correction, [call('refund', { amount: 25, currency: 'USD', note: 'x' })]),
+      gradeExpectedDecisions(decisions, [
+        call('refund', { amount: 25, currency: 'USD', note: 'x' }),
+      ]),
     ).toEqual({
       pass: true,
       differences: [],
@@ -119,11 +123,11 @@ describe('gradeCorrection — partial fields', () => {
   });
 
   test('a pinned field with a different value fails on that field', () => {
-    const correction: Correction = {
+    const decisions: ExpectedDecisions = {
       calls: [{ tool: 'refund', args: { amount: 25 } }],
       notCalled: [],
     };
-    const result = gradeCorrection(correction, [call('refund', { amount: 80 })]);
+    const result = gradeExpectedDecisions(decisions, [call('refund', { amount: 80 })]);
     expect(result.pass).toBe(false);
     expect(result.differences).toContainEqual({
       tool: 'refund',
@@ -135,11 +139,11 @@ describe('gradeCorrection — partial fields', () => {
   });
 
   test('a pinned field the actual call lacks is reported as missing', () => {
-    const correction: Correction = {
+    const decisions: ExpectedDecisions = {
       calls: [{ tool: 'refund', args: { amount: 25, currency: 'USD' } }],
       notCalled: [],
     };
-    const result = gradeCorrection(correction, [call('refund', { amount: 25 })]);
+    const result = gradeExpectedDecisions(decisions, [call('refund', { amount: 25 })]);
     expect(result.pass).toBe(false);
     expect(result.differences).toContainEqual({
       tool: 'refund',
@@ -150,23 +154,23 @@ describe('gradeCorrection — partial fields', () => {
   });
 
   test('a deep object field compares whole, by value, regardless of key order', () => {
-    const correction: Correction = {
+    const decisions: ExpectedDecisions = {
       calls: [{ tool: 'ship', args: { to: { city: 'NYC', zip: '10001' } } }],
       notCalled: [],
     };
     expect(
-      gradeCorrection(correction, [call('ship', { to: { zip: '10001', city: 'NYC' } })]).pass,
+      gradeExpectedDecisions(decisions, [call('ship', { to: { zip: '10001', city: 'NYC' } })]).pass,
     ).toBe(true);
     expect(
-      gradeCorrection(correction, [call('ship', { to: { zip: '10002', city: 'NYC' } })]).pass,
+      gradeExpectedDecisions(decisions, [call('ship', { to: { zip: '10002', city: 'NYC' } })]).pass,
     ).toBe(false);
   });
 });
 
-describe('gradeCorrection — must not call', () => {
+describe('gradeExpectedDecisions — must not call', () => {
   test('a forbidden tool that was called fails, with the count', () => {
-    const correction: Correction = { calls: [], notCalled: ['refund'] };
-    const result = gradeCorrection(correction, [
+    const decisions: ExpectedDecisions = { calls: [], notCalled: ['refund'] };
+    const result = gradeExpectedDecisions(decisions, [
       call('refund', { amount: 25 }),
       call('refund', { amount: 1 }),
     ]);
@@ -175,7 +179,7 @@ describe('gradeCorrection — must not call', () => {
   });
 
   test('a forbidden tool called exactly once fails, with a count of one', () => {
-    const result = gradeCorrection({ calls: [], notCalled: ['refund'] }, [
+    const result = gradeExpectedDecisions({ calls: [], notCalled: ['refund'] }, [
       call('refund', { amount: 25 }),
     ]);
     expect(result.pass).toBe(false);
@@ -184,7 +188,7 @@ describe('gradeCorrection — must not call', () => {
 
   test('a forbidden tool that was not called passes', () => {
     expect(
-      gradeCorrection({ calls: [], notCalled: ['refund'] }, [call('lookup', { id: 'x' })]),
+      gradeExpectedDecisions({ calls: [], notCalled: ['refund'] }, [call('lookup', { id: 'x' })]),
     ).toEqual({
       pass: true,
       differences: [],
@@ -192,11 +196,11 @@ describe('gradeCorrection — must not call', () => {
   });
 });
 
-describe('gradeCorrection — maximum matching, not greedy', () => {
+describe('gradeExpectedDecisions — maximum matching, not greedy', () => {
   // The broad expected call is listed first. A greedy, order-dependent
   // pairing would take the call the narrow expected needs and then fail;
   // a maximum matching pairs them both.
-  const correction: Correction = {
+  const decisions: ExpectedDecisions = {
     calls: [
       { tool: 'refund', args: { currency: 'USD' } },
       { tool: 'refund', args: { amount: 25 } },
@@ -205,7 +209,7 @@ describe('gradeCorrection — maximum matching, not greedy', () => {
   };
 
   test('pairs both when a maximum matching exists', () => {
-    const result = gradeCorrection(correction, [
+    const result = gradeExpectedDecisions(decisions, [
       call('refund', { amount: 25, currency: 'USD' }, 0),
       call('refund', { amount: 80, currency: 'USD' }, 1),
     ]);
@@ -213,11 +217,11 @@ describe('gradeCorrection — maximum matching, not greedy', () => {
   });
 
   test('the result does not depend on the order the actual calls are given', () => {
-    const forwards = gradeCorrection(correction, [
+    const forwards = gradeExpectedDecisions(decisions, [
       call('refund', { amount: 25, currency: 'USD' }, 0),
       call('refund', { amount: 80, currency: 'USD' }, 1),
     ]);
-    const backwards = gradeCorrection(correction, [
+    const backwards = gradeExpectedDecisions(decisions, [
       call('refund', { amount: 80, currency: 'USD' }, 1),
       call('refund', { amount: 25, currency: 'USD' }, 0),
     ]);
@@ -225,9 +229,9 @@ describe('gradeCorrection — maximum matching, not greedy', () => {
   });
 });
 
-describe('gradeCorrection — refused calls are named', () => {
+describe('gradeExpectedDecisions — refused calls are named', () => {
   test('a refused call then a real retry counts both, and the count names the refused one', () => {
-    const result = gradeCorrection(
+    const result = gradeExpectedDecisions(
       { calls: [{ tool: 'refund', args: { amount: 25 } }], notCalled: [] },
       [refused('refund', { amount: 25 }, 0), call('refund', { amount: 25 }, 1)],
     );
@@ -242,7 +246,7 @@ describe('gradeCorrection — refused calls are named', () => {
   });
 
   test('a forbidden tool whose only call was refused names it', () => {
-    const result = gradeCorrection({ calls: [], notCalled: ['refund'] }, [
+    const result = gradeExpectedDecisions({ calls: [], notCalled: ['refund'] }, [
       refused('refund', { amount: 25 }),
     ]);
     expect(result.pass).toBe(false);
@@ -255,7 +259,7 @@ describe('gradeCorrection — refused calls are named', () => {
   });
 
   test('a field difference against a refused call is marked refused', () => {
-    const result = gradeCorrection(
+    const result = gradeExpectedDecisions(
       { calls: [{ tool: 'refund', args: { amount: 25 } }], notCalled: [] },
       [refused('refund', { amount: 80 })],
     );
@@ -271,9 +275,9 @@ describe('gradeCorrection — refused calls are named', () => {
   });
 });
 
-describe('gradeCorrection — order is not compared', () => {
+describe('gradeExpectedDecisions — order is not compared', () => {
   test('two different tools in any order pass', () => {
-    const correction: Correction = {
+    const decisions: ExpectedDecisions = {
       calls: [
         { tool: 'lookup', args: { id: 'x' } },
         { tool: 'refund', args: { amount: 25 } },
@@ -281,19 +285,21 @@ describe('gradeCorrection — order is not compared', () => {
       notCalled: [],
     };
     expect(
-      gradeCorrection(correction, [call('refund', { amount: 25 }), call('lookup', { id: 'x' })])
-        .pass,
+      gradeExpectedDecisions(decisions, [
+        call('refund', { amount: 25 }),
+        call('lookup', { id: 'x' }),
+      ]).pass,
     ).toBe(true);
   });
 });
 
-describe('gradeCorrection — reporting the nearest miss', () => {
+describe('gradeExpectedDecisions — reporting the nearest miss', () => {
   test('an unmatched expected call is blamed on the free actual with the fewest differing fields', () => {
-    const correction: Correction = {
+    const decisions: ExpectedDecisions = {
       calls: [{ tool: 'refund', args: { amount: 25, currency: 'USD' } }],
       notCalled: [],
     };
-    const result = gradeCorrection(correction, [
+    const result = gradeExpectedDecisions(decisions, [
       call('refund', { amount: 25, currency: 'EUR' }, 0), // one field off
       call('refund', { amount: 99, currency: 'JPY' }, 1), // two fields off
     ]);

@@ -8,7 +8,7 @@ import { errorFetch, jsonFetch } from '../support/recording-fetch.js';
 
 const AUTH = { kind: 'apiToken' as const, token: 't' };
 
-const JUDGMENT = {
+const CORRECTION = {
   id: 'j-1',
   tenantId: 'tenant-1',
   projectId: 'proj-1',
@@ -24,10 +24,10 @@ function clientFor(stub: { fetch: typeof fetch }) {
   return createClient({ apiUrl: 'https://api.example.com', auth: AUTH, fetch: stub.fetch });
 }
 
-describe('judgments.create', () => {
-  it('POSTs /v1/judgments with the body and Idempotency-Key', async () => {
-    const stub = jsonFetch(JUDGMENT, { status: 201 });
-    const result = await clientFor(stub).judgments.create(
+describe('corrections.create', () => {
+  it('POSTs /v1/corrections with the body and Idempotency-Key', async () => {
+    const stub = jsonFetch(CORRECTION, { status: 201 });
+    const result = await clientFor(stub).corrections.create(
       {
         runId: 'run-1',
         item: { key: 'c1', pointer: '/matches/0' },
@@ -41,7 +41,7 @@ describe('judgments.create', () => {
     expect(result.id).toBe('j-1');
     const req = stub.calls[0]!;
     expect(req.method).toBe('POST');
-    expect(req.url).toBe('https://api.example.com/v1/judgments');
+    expect(req.url).toBe('https://api.example.com/v1/corrections');
     expect(req.headers['idempotency-key']).toBe('idem-j');
     expect(JSON.parse(req.body!)).toEqual({
       runId: 'run-1',
@@ -54,8 +54,12 @@ describe('judgments.create', () => {
   });
 
   it('works without a judge class', async () => {
-    const stub = jsonFetch(JUDGMENT, { status: 201 });
-    await clientFor(stub).judgments.create({ runId: 'run-1', item: { key: 'c1' }, verdict: 'no' });
+    const stub = jsonFetch(CORRECTION, { status: 201 });
+    await clientFor(stub).corrections.create({
+      runId: 'run-1',
+      item: { key: 'c1' },
+      verdict: 'no',
+    });
     expect(JSON.parse(stub.calls[0]!.body!)).toEqual({
       runId: 'run-1',
       item: { key: 'c1' },
@@ -66,17 +70,17 @@ describe('judgments.create', () => {
   it('surfaces run-not-finished', async () => {
     const stub = errorFetch(409, { code: 'run-not-finished', message: 'Run has no output yet.' });
     await expect(
-      clientFor(stub).judgments.create({ runId: 'run-1', item: { key: 'c1' }, verdict: 'yes' }),
+      clientFor(stub).corrections.create({ runId: 'run-1', item: { key: 'c1' }, verdict: 'yes' }),
     ).rejects.toMatchObject({
       error: { code: 'conflict', reason: 'run-not-finished', serverCode: 'run-not-finished' },
     });
   });
 });
 
-describe('judgments.list', () => {
-  it('GETs /v1/judgments with every filter', async () => {
-    const stub = jsonFetch({ data: [JUDGMENT], hasMore: true, nextCursor: 'c2' });
-    const page = await clientFor(stub).judgments.list({
+describe('corrections.list', () => {
+  it('GETs /v1/corrections with every filter', async () => {
+    const stub = jsonFetch({ data: [CORRECTION], hasMore: true, nextCursor: 'c2' });
+    const page = await clientFor(stub).corrections.list({
       limit: 10,
       runId: 'run-1',
       agentId: 'acme.matcher',
@@ -90,7 +94,7 @@ describe('judgments.list', () => {
     expect(page.items[0]?.id).toBe('j-1');
     expect(page.nextCursor).toBe('c2');
     const url = new URL(stub.calls[0]?.url);
-    expect(url.pathname).toBe('/v1/judgments');
+    expect(url.pathname).toBe('/v1/corrections');
     expect(Object.fromEntries(url.searchParams)).toEqual({
       limit: '10',
       runId: 'run-1',
@@ -106,33 +110,33 @@ describe('judgments.list', () => {
   });
 });
 
-describe('judgments.get', () => {
-  it('GETs /v1/judgments/{id} with the copies', async () => {
+describe('corrections.get', () => {
+  it('GETs /v1/corrections/{id} with the copies', async () => {
     const stub = jsonFetch({
-      ...JUDGMENT,
+      ...CORRECTION,
       run: {
         runId: 'run-1',
-        subject: JUDGMENT.subject,
+        subject: CORRECTION.subject,
         input: {},
         output: { matches: [] },
         capturedAt: '2026-10-01T00:00:00.000Z',
       },
       itemValue: { id: 'c1' },
     });
-    const got = await clientFor(stub).judgments.get('j/1');
+    const got = await clientFor(stub).corrections.get('j/1');
     expect(got.itemValue).toEqual({ id: 'c1' });
-    expect(new URL(stub.calls[0]?.url).pathname).toBe('/v1/judgments/j%2F1');
+    expect(new URL(stub.calls[0]?.url).pathname).toBe('/v1/corrections/j%2F1');
   });
 });
 
-describe('judgments.unregister', () => {
-  it('POSTs /v1/judgments/{id}/unregister and returns nothing', async () => {
-    const stub = jsonFetch({ judgmentId: 'j-1', unregistered: true });
-    const result = await clientFor(stub).judgments.unregister('j-1', { idempotencyKey: 'k' });
+describe('corrections.remove', () => {
+  it('POSTs /v1/corrections/{id}/remove and returns nothing', async () => {
+    const stub = jsonFetch({ correctionId: 'j-1', unregistered: true });
+    const result = await clientFor(stub).corrections.remove('j-1', { idempotencyKey: 'k' });
     expect(result).toBeUndefined();
     const req = stub.calls[0]!;
     expect(req.method).toBe('POST');
-    expect(req.url).toBe('https://api.example.com/v1/judgments/j-1/unregister');
+    expect(req.url).toBe('https://api.example.com/v1/corrections/j-1/remove');
     expect(req.headers['idempotency-key']).toBe('k');
   });
 });

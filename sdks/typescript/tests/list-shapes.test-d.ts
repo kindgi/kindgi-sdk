@@ -146,8 +146,8 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
   test('judgeClasses.list', () => {
     expectTypeOf<Answer<KindgiClient['judgeClasses']['list']>>().toMatchTypeOf<WirePage>();
   });
-  test('judgments.list', () => {
-    expectTypeOf<Answer<KindgiClient['judgments']['list']>>().toMatchTypeOf<WirePage>();
+  test('corrections.list', () => {
+    expectTypeOf<Answer<KindgiClient['corrections']['list']>>().toMatchTypeOf<WirePage>();
   });
   test('mcp.tools', () => {
     expectTypeOf<Answer<KindgiClient['mcp']['tools']>>().toMatchTypeOf<WirePage>();

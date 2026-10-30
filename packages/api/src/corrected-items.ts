@@ -2,8 +2,8 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * The items of a run's output that people judge, and how a new output is
- * scored against the judgments of an old one. Pure, with no dependencies,
+ * The items of a run's output that people correct, and how a new output is
+ * scored against the corrections of an old one. Pure, with no dependencies,
  * so a console can derive items the same way.
  *
  * Items:
@@ -13,14 +13,14 @@
  *     under `output`) is an item, keyed by its own `id` or `key` when it
  *     has one, else by where it sits (a JSON Pointer), with its rank.
  *
- * A judgment carries over to a new output's item when it's the same item:
+ * A correction carries over to a new output's item when it's the same item:
  * an item keyed by its own id is the same item when the key matches; any
  * other (the answer, an element keyed by its place) only when its content
- * is the same too. So a changed answer is a new item, with no judgments.
+ * is the same too. So a changed answer is a new item, with no corrections.
  */
 
 export interface OutputItem {
-  /** The key judgments use for this item. */
+  /** The key corrections use for this item. */
   readonly key: string;
   /** Where it sits in the output (JSON Pointer). */
   readonly pointer: string;
@@ -145,8 +145,8 @@ export function canonical(value: unknown): string {
   return JSON.stringify(value) ?? 'null';
 }
 
-/** What people said about one judged item (as a judged test-set case keeps it). */
-export interface ItemJudgments {
+/** What people said about one corrected item (as a corrected test-set case keeps it). */
+export interface ItemCorrections {
   readonly key: string;
   readonly pointer?: string;
   readonly rank?: number;
@@ -154,67 +154,68 @@ export interface ItemJudgments {
   readonly totalWeight: number;
 }
 
-/** A new output's item and the judged item it is the same as, if any. */
+/** A new output's item and the corrected item it is the same as, if any. */
 export interface MatchedItem {
   readonly item: OutputItem;
-  readonly judged?: ItemJudgments;
+  readonly corrected?: ItemCorrections;
   /**
-   * Judgments of this output itself (a comparison's replay, judged after it
-   * ran), for an item the past output's judgments don't cover.
+   * Corrections of this output itself (a comparison's replay, corrected after it
+   * ran), for an item the past output's corrections don't cover.
    */
-  readonly fresh?: ItemJudgments;
+  readonly fresh?: ItemCorrections;
 }
 
 /**
- * Match a new output's items to the items judged in a past output
- * (`judgedOutput`, where the judged items' pointers point).
+ * Match a new output's items to the items corrected in a past output
+ * (`correctedOutput`, where the corrected items' pointers point).
  */
-export function matchJudged(
+export function matchCorrected(
   items: readonly OutputItem[],
-  judged: readonly ItemJudgments[],
-  judgedOutput: unknown,
+  corrected: readonly ItemCorrections[],
+  correctedOutput: unknown,
 ): readonly MatchedItem[] {
-  const byKey = new Map(judged.map((j) => [j.key, j]));
+  const byKey = new Map(corrected.map((j) => [j.key, j]));
   return items.map((item) => {
     const j = byKey.get(item.key);
     if (j === undefined) return { item };
-    if (item.ownKey) return { item, judged: j };
-    const before = j.pointer === undefined ? undefined : valueAt(judgedOutput, j.pointer);
+    if (item.ownKey) return { item, corrected: j };
+    const before = j.pointer === undefined ? undefined : valueAt(correctedOutput, j.pointer);
     return before !== undefined && canonical(before) === canonical(item.value)
-      ? { item, judged: j }
+      ? { item, corrected: j }
       : { item };
   });
 }
 
 /**
- * Judgments made on the new output itself, by item key, onto the items the
- * past output's judgments don't cover: a replay's answer that changed is a
- * new item, and people (or later a calibrated judge) can judge it there.
+ * Corrections made on the new output itself, by item key, onto the items the
+ * past output's corrections don't cover: a replay's answer that changed is a
+ * new item, and people can correct it there (or, later, a calibrated judge
+ * can grade it).
  */
 export function withFresh(
   matched: readonly MatchedItem[],
-  fresh: readonly ItemJudgments[],
+  fresh: readonly ItemCorrections[],
 ): readonly MatchedItem[] {
   if (fresh.length === 0) return matched;
   const byKey = new Map(fresh.map((j) => [j.key, j]));
   return matched.map((m) => {
-    if (m.judged !== undefined) return m;
+    if (m.corrected !== undefined) return m;
     const j = byKey.get(m.item.key);
     return j === undefined ? m : { ...m, fresh: j };
   });
 }
 
-/** An output scored against judgments: the sums the metrics are made of. */
+/** An output scored against corrections: the sums the metrics are made of. */
 export interface OutputScore {
-  /** Σ yesWeight and Σ totalWeight over the output's judged items. */
+  /** Σ yesWeight and Σ totalWeight over the output's corrected items. */
   readonly yesWeight: number;
   readonly totalWeight: number;
   readonly items: number;
-  readonly judgedItems: number;
-  /** The same sums over the judged items among the first `k` ranked items. */
+  readonly correctedItems: number;
+  /** The same sums over the corrected items among the first `k` ranked items. */
   readonly topK: { readonly yesWeight: number; readonly totalWeight: number };
   /**
-   * The part of these sums judged on this output itself (`withFresh`).
+   * The part of these sums corrected on this output itself (`withFresh`).
    * Absent when none was.
    */
   readonly fresh?: {
@@ -227,15 +228,15 @@ export interface OutputScore {
 export function scoreItems(matched: readonly MatchedItem[], k: number): OutputScore {
   let yesWeight = 0;
   let totalWeight = 0;
-  let judgedItems = 0;
+  let correctedItems = 0;
   const fresh = { yesWeight: 0, totalWeight: 0, items: 0 };
   for (const m of matched) {
-    const j = m.judged ?? m.fresh;
+    const j = m.corrected ?? m.fresh;
     if (j === undefined) continue;
-    judgedItems += 1;
+    correctedItems += 1;
     yesWeight += j.yesWeight;
     totalWeight += j.totalWeight;
-    if (m.judged === undefined) {
+    if (m.corrected === undefined) {
       fresh.items += 1;
       fresh.yesWeight += j.yesWeight;
       fresh.totalWeight += j.totalWeight;
@@ -247,7 +248,7 @@ export function scoreItems(matched: readonly MatchedItem[], k: number): OutputSc
     .slice(0, k);
   const topK = { yesWeight: 0, totalWeight: 0 };
   for (const m of top) {
-    const j = m.judged ?? m.fresh;
+    const j = m.corrected ?? m.fresh;
     if (j === undefined) continue;
     topK.yesWeight += j.yesWeight;
     topK.totalWeight += j.totalWeight;
@@ -256,48 +257,48 @@ export function scoreItems(matched: readonly MatchedItem[], k: number): OutputSc
     yesWeight,
     totalWeight,
     items: matched.length,
-    judgedItems,
+    correctedItems,
     topK,
     ...(fresh.items > 0 && { fresh }),
   };
 }
 
-/** How a new output's items moved against the judged ones. */
+/** How a new output's items moved against the corrected ones. */
 export interface ItemChanges {
-  /** Judged items the new output still has, with their rank before and now. */
+  /** Corrected items the new output still has, with their rank before and now. */
   readonly kept: readonly {
     readonly key: string;
     readonly rankBefore?: number;
     readonly rank?: number;
   }[];
-  /** Judged items the new output no longer has. */
+  /** Corrected items the new output no longer has. */
   readonly dropped: readonly { readonly key: string; readonly rankBefore?: number }[];
   /**
-   * The new output's items the past output's judgments don't cover: for
-   * people to judge on the replay itself. `judged` sums what they said
+   * The new output's items the past output's corrections don't cover: for
+   * people to correct on the replay itself. `corrected` sums what they said
    * there, once they have.
    */
   readonly new: readonly {
     readonly key: string;
     readonly pointer: string;
     readonly rank?: number;
-    readonly judged?: { readonly yesWeight: number; readonly totalWeight: number };
+    readonly corrected?: { readonly yesWeight: number; readonly totalWeight: number };
   }[];
 }
 
 export function itemChanges(
   matched: readonly MatchedItem[],
-  judged: readonly ItemJudgments[],
+  corrected: readonly ItemCorrections[],
 ): ItemChanges {
   const keptKeys = new Set<string>();
   const kept: ItemChanges['kept'][number][] = [];
   const fresh: ItemChanges['new'][number][] = [];
   for (const m of matched) {
-    if (m.judged !== undefined) {
-      keptKeys.add(m.judged.key);
+    if (m.corrected !== undefined) {
+      keptKeys.add(m.corrected.key);
       kept.push({
-        key: m.judged.key,
-        ...(m.judged.rank !== undefined && { rankBefore: m.judged.rank }),
+        key: m.corrected.key,
+        ...(m.corrected.rank !== undefined && { rankBefore: m.corrected.rank }),
         ...(m.item.rank !== undefined && { rank: m.item.rank }),
       });
     } else {
@@ -306,12 +307,12 @@ export function itemChanges(
         pointer: m.item.pointer,
         ...(m.item.rank !== undefined && { rank: m.item.rank }),
         ...(m.fresh !== undefined && {
-          judged: { yesWeight: m.fresh.yesWeight, totalWeight: m.fresh.totalWeight },
+          corrected: { yesWeight: m.fresh.yesWeight, totalWeight: m.fresh.totalWeight },
         }),
       });
     }
   }
-  const dropped = judged
+  const dropped = corrected
     .filter((j) => !keptKeys.has(j.key))
     .map((j) => ({ key: j.key, ...(j.rank !== undefined && { rankBefore: j.rank }) }));
   return { kept, dropped, new: fresh };

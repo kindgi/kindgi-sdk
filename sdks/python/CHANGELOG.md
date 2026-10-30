@@ -13,6 +13,13 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **A judgment is now a correction.** This is a breaking rename, and no
+  old name is kept. `client.judgments` is `client.corrections`, and `unregister`
+  is `remove`, sync and async. The models follow: `Judgment` is `Correction`,
+  `Judged*` models are `Corrected*`, and the `{ calls, not_called }` value that
+  was `Correction` is `ExpectedDecisions`. Fields named for judgments are named
+  for corrections (`correction_id`, `correction_ids`, `correction_count`), and a
+  proposal's evidence lists the corrections it fixes in `fixes`.
 - `kindgi`: **`client.flows.pinned` pins a flow's version per project, org or
   tenant.** A run that names no flow version takes the version pinned for its
   project (the project's own pin, then its org's, then the tenant's), else the

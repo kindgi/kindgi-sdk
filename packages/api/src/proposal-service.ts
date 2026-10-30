@@ -333,7 +333,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
   /**
    * The eval runs a rescore scores again, each a completed comparison of a
    * test set: the latest evaluation's, then the current version's replays
-   * it's held to, if any, so both sides count the same judgments.
+   * it's held to, if any, so both sides count the same corrections.
    */
   async function rescorable(
     tenantId: TenantId,
@@ -700,7 +700,7 @@ export function createProposalService(deps: ProposalServiceDeps) {
 
     /**
      * Rescore the proposal's latest evaluation: its replays scored again,
-     * with what people judged on them since. The new run is the proposal's
+     * with what people corrected on them since. The new run is the proposal's
      * evaluation, so its status follows; the run rescored stays as it was.
      */
     async rescore(input: RescoreProposalInput): Promise<ProposalOutcome<StoredProposal>> {

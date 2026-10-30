@@ -278,15 +278,15 @@ whatever classes exist.
 The suggested change an Improve run writes names the corrections on the cases
 it learned from, never on the rest: the ones its runs on the test
 cases counted and, for an Improve run on the instructions, the ones its
-drafter was shown, including the ones with calls. Its `evidence.judgmentIds`
+drafter was shown, including the ones with calls. Its `evidence.fixes`
 lists up to 100 of them: first the ones the drafter was shown, case by case,
 each case's corrections with calls right after its items marked wrong; then
 the ones behind items marked wrong, then the others. When there are more,
-`evidence.judgmentCount` gives how many. Its runs on the test cases also
+`evidence.correctionCount` gives how many. Its runs on the test cases also
 grade a correction's calls on each replay and show the result, and that
 result decides only whether a change to the model settings is kept
 ([the decisions must stay right](#let-it-try-a-cheaper-model-or-another-temperature)).
-An Improve run on test cases built before correction ids (`judgmentIds`)
+An Improve run on test cases built before correction ids (`correctionIds`)
 names none.
 
 ## Draft the agent's instructions instead

@@ -1,16 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026 Kindgi Inc.
 
-"""A comparison eval run's result, read as the OpenAPI `JudgedComparisonResult`."""
+"""A comparison eval run's result, read as the OpenAPI `CorrectedComparisonResult`."""
 
 from __future__ import annotations
 
-from ._models import EvalRun, JudgedComparisonResult
+from ._models import EvalRun, CorrectedComparisonResult
 
 __all__ = ["comparison_of"]
 
 
-def comparison_of(run: EvalRun) -> JudgedComparisonResult | None:
+def comparison_of(run: EvalRun) -> CorrectedComparisonResult | None:
     """A comparison's result, typed: its `summary` and each case (`per_case`).
 
     `run` is a `judged` eval run (a test set compared with a version). `None`
@@ -20,4 +20,4 @@ def comparison_of(run: EvalRun) -> JudgedComparisonResult | None:
     result = run.result
     if run.kind != "judged" or not isinstance(result, dict) or "summary" not in result:
         return None
-    return JudgedComparisonResult.model_validate(result)
+    return CorrectedComparisonResult.model_validate(result)

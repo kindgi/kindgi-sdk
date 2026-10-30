@@ -45,6 +45,8 @@ import type {
   AgentRegistryBinding,
   AgentReleaseBindings,
   AgentVersionRecord,
+  CorrectedComparisonSummary,
+  CorrectionRegistryBinding,
   EstimateImprovementPassInput,
   EvalRun,
   EvalRunBinding,
@@ -54,8 +56,6 @@ import type {
   ImprovementPass,
   ImprovementPassBinding,
   ImprovementPassEstimateBasis,
-  JudgedComparisonSummary,
-  JudgmentRegistryBinding,
   LivePin,
   Promotion,
   ProposalRule,
@@ -68,7 +68,7 @@ import type {
 import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
-import { inMemoryJudgments } from './support/in-memory-judgments.js';
+import { inMemoryCorrections } from './support/in-memory-corrections.js';
 import { inMemoryProposals } from './support/in-memory-proposals.js';
 import { type ItemRow, itemProjects } from './support/order-items.js';
 
@@ -165,7 +165,7 @@ function agentBinding(
 function summary(
   candidate: { agentId: string; version: string; pinsDigest?: string },
   metric: { delta: number | null; spread?: number },
-): JudgedComparisonSummary {
+): CorrectedComparisonSummary {
   const m = {
     baseline: 0.6,
     candidate: metric.delta === null ? null : 0.6 + metric.delta,
@@ -240,7 +240,7 @@ function evalRunFake(agents: AgentRegistryBinding) {
   const finish = async (
     runId: string,
     outcome:
-      | { delta: number | null; spread?: number; more?: Partial<JudgedComparisonSummary> }
+      | { delta: number | null; spread?: number; more?: Partial<CorrectedComparisonSummary> }
       | 'failed',
   ): Promise<void> => {
     const run = runs.get(runId);
@@ -527,8 +527,8 @@ async function harness(
     orders?: readonly (readonly ProjectId[])[];
     /** The projects that serve each item (an order carries it); absent: one each. */
     items?: ItemRow[];
-    judgmentRegistry?: JudgmentRegistryBinding;
-    /** The project the pass's suite reads judgments from. Default: the agent's project. */
+    correctionRegistry?: CorrectionRegistryBinding;
+    /** The project the pass's suite reads corrections from. Default: the agent's project. */
     suiteProjectId?: ProjectId;
     /** A full suite record `evalSuites.get` returns (or `null` for a missing suite), overriding the default judged stub. */
     suiteRecord?: EvalSuiteRecord | null;
@@ -669,7 +669,7 @@ async function harness(
     ...(opts.projectSuspended !== undefined && { projectSuspended: opts.projectSuspended }),
     ...(opts.orders !== undefined && { environmentOrders: environmentOrders(opts.orders) }),
     ...(opts.items !== undefined && { itemProjects: itemProjects(opts.items) }),
-    ...(opts.judgmentRegistry !== undefined && { judgmentRegistry: opts.judgmentRegistry }),
+    ...(opts.correctionRegistry !== undefined && { correctionRegistry: opts.correctionRegistry }),
     evalSuiteRegistry: evalSuites,
     ...(grants !== undefined && {
       authz: {
@@ -822,8 +822,8 @@ describe('POST /v1/proposals', () => {
     ['an unknown tier', { tier: 'prompt' }],
     ['an evidence field it does not know', { evidence: { finding: 'x' } }],
     [
-      'a judgment count, which only answers carry',
-      { evidence: { judgmentIds: ['j-1'], judgmentCount: 5 } },
+      'a correction count, which only answers carry',
+      { evidence: { fixes: ['j-1'], correctionCount: 5 } },
     ],
   ])('refuses %s (400 bad-input)', async (_name, patch) => {
     const { call } = await harness();
@@ -1096,7 +1096,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
 });
 
 describe('POST /v1/proposals/:id/rescore', () => {
-  test("after people judge the new answers: the same replays scored again become the proposal's evaluation", async () => {
+  test("after people correct the new answers: the same replays scored again become the proposal's evaluation", async () => {
     const { call, id, evalRuns } = await drafted();
     const first = await call('POST', `/v1/proposals/${id}/evaluate`, {
       suiteId: 'acme.scoring-judged',
@@ -1466,7 +1466,7 @@ describe('authorization on the agent', () => {
 });
 
 describe('a proposal a drafter wrote (not a person)', () => {
-  test('it answers with the judgments it names and how many it rests on in all', async () => {
+  test('it answers with the corrections it names and how many it rests on in all', async () => {
     const h = await harness();
     const service = createProposalService({
       store: h.proposals,
@@ -1484,13 +1484,13 @@ describe('a proposal a drafter wrote (not a person)', () => {
       blockId: WEIGHTS,
       content: { values: { recency: 0.6, fit: 0.4 } },
       hypothesis: 'The search found these weights',
-      evidence: { judgmentIds: ['j-1', 'j-2'], judgmentCount: 140 },
+      evidence: { fixes: ['j-1', 'j-2'], correctionCount: 140 },
       drafter: { kind: 'settings-optimizer', version: '1' },
     });
     if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
     const res = await h.call('GET', `/v1/proposals/${drafted.value.proposal.id}`);
     expect(res.status).toBe(200);
-    expect(res.body.evidence).toEqual({ judgmentIds: ['j-1', 'j-2'], judgmentCount: 140 });
+    expect(res.body.evidence).toEqual({ fixes: ['j-1', 'j-2'], correctionCount: 140 });
   });
 
   test('its request waits for a reviewer even where no gate policy asks for one (K2)', async () => {
@@ -1932,16 +1932,16 @@ describe('a proposal a drafter wrote (not a person)', () => {
 });
 
 describe("a change held to the current version's replays (an improvement pass's model settings)", () => {
-  type Correction = readonly [judgmentId: string, pass: boolean];
-  /** What a finished comparison adds: its corrections, judgment by judgment, and its cost. */
+  type Correction = readonly [correctionId: string, pass: boolean];
+  /** What a finished comparison adds: whether each correction passed, and its cost. */
   const more = (
     corrections: readonly Correction[],
     costUsd?: { candidate: number; spread?: number; cases: number },
-  ): Partial<JudgedComparisonSummary> => ({
+  ): Partial<CorrectedComparisonSummary> => ({
     corrections: {
       checked: corrections.length,
       passed: corrections.filter(([, pass]) => pass).length,
-      judgments: corrections.map(([judgmentId, pass]) => ({ judgmentId, pass })),
+      results: corrections.map(([correctionId, pass]) => ({ correctionId, pass })),
     },
     ...(costUsd !== undefined && { costUsd }),
   });
@@ -2422,29 +2422,37 @@ describe('improvement passes', () => {
     expect(again.body.error.code).toBe('improvement-pass-finished');
   });
 
-  test("counts everyone's judgments until the project names a restricted judge class", async () => {
+  test("counts everyone's corrections until the project names a restricted judge class", async () => {
     const passes = inMemoryPasses();
-    const judgments = inMemoryJudgments();
-    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    const corrections = inMemoryCorrections();
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      correctionRegistry: corrections,
+    });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    // No expert (restricted) judge class is named, so every judgment counts.
+    // No expert (restricted) judge class is named, so every correction counts.
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
     expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
     expect(res.body.classWeights).toBe('as-recorded');
   });
 
-  test('switches to trusted judgments once the project names a restricted judge class', async () => {
+  test('switches to trusted corrections once the project names a restricted judge class', async () => {
     const passes = inMemoryPasses();
-    const judgments = inMemoryJudgments();
-    await judgments.createClass({
+    const corrections = inMemoryCorrections();
+    await corrections.createClass({
       tenantId,
       scope: { kind: 'project', projectId },
       name: 'expert',
       weight: 3,
       assertableBy: { principalKinds: ['user'] },
     });
-    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      correctionRegistry: corrections,
+    });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
@@ -2454,15 +2462,19 @@ describe('improvement passes', () => {
 
   test('a tenant-wide restricted judge class names experts for every project', async () => {
     const passes = inMemoryPasses();
-    const judgments = inMemoryJudgments();
-    await judgments.createClass({
+    const corrections = inMemoryCorrections();
+    await corrections.createClass({
       tenantId,
       scope: { kind: 'tenant' },
       name: 'expert',
       weight: 3,
       assertableBy: { principalKinds: ['user'] },
     });
-    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      correctionRegistry: corrections,
+    });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
@@ -2471,15 +2483,19 @@ describe('improvement passes', () => {
 
   test('a restricted class on the agent being improved switches to trusted', async () => {
     const passes = inMemoryPasses();
-    const judgments = inMemoryJudgments();
-    await judgments.createClass({
+    const corrections = inMemoryCorrections();
+    await corrections.createClass({
       tenantId,
       scope: { kind: 'agent', projectId, agentId: AGENT },
       name: 'expert',
       weight: 3,
       assertableBy: { principalKinds: ['user'] },
     });
-    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      correctionRegistry: corrections,
+    });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
@@ -2488,15 +2504,19 @@ describe('improvement passes', () => {
 
   test("a restricted class on another agent doesn't count: still counts everyone", async () => {
     const passes = inMemoryPasses();
-    const judgments = inMemoryJudgments();
-    await judgments.createClass({
+    const corrections = inMemoryCorrections();
+    await corrections.createClass({
       tenantId,
       scope: { kind: 'agent', projectId, agentId: 'acme.other' },
       name: 'expert',
       weight: 3,
       assertableBy: { principalKinds: ['user'] },
     });
-    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      correctionRegistry: corrections,
+    });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
@@ -2505,15 +2525,19 @@ describe('improvement passes', () => {
 
   test("a restricted class in another project doesn't count: still counts everyone", async () => {
     const passes = inMemoryPasses();
-    const judgments = inMemoryJudgments();
-    await judgments.createClass({
+    const corrections = inMemoryCorrections();
+    await corrections.createClass({
       tenantId,
       scope: { kind: 'project', projectId: randomUUID() as ProjectId },
       name: 'expert',
       weight: 3,
       assertableBy: { principalKinds: ['user'] },
     });
-    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      correctionRegistry: corrections,
+    });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
@@ -2522,17 +2546,21 @@ describe('improvement passes', () => {
 
   test("a restricted class on this agent in another project doesn't count: still counts everyone", async () => {
     const passes = inMemoryPasses();
-    const judgments = inMemoryJudgments();
+    const corrections = inMemoryCorrections();
     // Same agent id, but scoped to another project: the agent clause must match
     // the pass's own project, so this must not flip the pass to trusted.
-    await judgments.createClass({
+    await corrections.createClass({
       tenantId,
       scope: { kind: 'agent', projectId: randomUUID() as ProjectId, agentId: AGENT },
       name: 'expert',
       weight: 3,
       assertableBy: { principalKinds: ['user'] },
     });
-    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      correctionRegistry: corrections,
+    });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
@@ -2541,10 +2569,10 @@ describe('improvement passes', () => {
 
   test('finds a restricted judge class past the first page of its scope', async () => {
     const passes = inMemoryPasses();
-    const judgments = inMemoryJudgments();
+    const corrections = inMemoryCorrections();
     // The restricted judge class is the oldest, so it falls on the second page once 100
     // newer open classes are listed ahead of it: the resolver must read on.
-    await judgments.createClass({
+    await corrections.createClass({
       tenantId,
       scope: { kind: 'project', projectId },
       name: 'expert',
@@ -2552,14 +2580,18 @@ describe('improvement passes', () => {
       assertableBy: { principalKinds: ['user'] },
     });
     for (let i = 0; i < 100; i++) {
-      await judgments.createClass({
+      await corrections.createClass({
         tenantId,
         scope: { kind: 'project', projectId },
         name: `open-${i}`,
         weight: 1,
       });
     }
-    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      correctionRegistry: corrections,
+    });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
@@ -2568,12 +2600,12 @@ describe('improvement passes', () => {
 
   test("resolves against the suite's project, not where the agent is made", async () => {
     const passes = inMemoryPasses();
-    const judgments = inMemoryJudgments();
+    const corrections = inMemoryCorrections();
     const suiteProjectId = randomUUID() as ProjectId;
-    // The agent is made in `projectId`, but its suite reads judgments from
+    // The agent is made in `projectId`, but its suite reads corrections from
     // another environment's project, where the restricted judge class lives: the pass
     // counts trusted only, keying off the suite's project.
-    await judgments.createClass({
+    await corrections.createClass({
       tenantId,
       scope: { kind: 'project', projectId: suiteProjectId },
       name: 'expert',
@@ -2583,7 +2615,7 @@ describe('improvement passes', () => {
     const h = await harness({
       tunable: true,
       passes: passes.binding,
-      judgmentRegistry: judgments,
+      correctionRegistry: corrections,
       suiteProjectId,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
@@ -2594,12 +2626,12 @@ describe('improvement passes', () => {
 
   test("a restricted judge class only where the agent is made, not in the suite's project, doesn't count", async () => {
     const passes = inMemoryPasses();
-    const judgments = inMemoryJudgments();
+    const corrections = inMemoryCorrections();
     const suiteProjectId = randomUUID() as ProjectId;
     // The inverse: the restricted judge class is in the agent's own project, but the
     // suite reads from another, so the default must NOT flip — the pass
-    // counts the suite project's judgments, not `from.projectId`'s.
-    await judgments.createClass({
+    // counts the suite project's corrections, not `from.projectId`'s.
+    await corrections.createClass({
       tenantId,
       scope: { kind: 'project', projectId },
       name: 'expert',
@@ -2609,7 +2641,7 @@ describe('improvement passes', () => {
     const h = await harness({
       tunable: true,
       passes: passes.binding,
-      judgmentRegistry: judgments,
+      correctionRegistry: corrections,
       suiteProjectId,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
@@ -2620,14 +2652,14 @@ describe('improvement passes', () => {
 
   test('a non-judged suite keys off its row project, not its spec project', async () => {
     const passes = inMemoryPasses();
-    const judgments = inMemoryJudgments();
+    const corrections = inMemoryCorrections();
     const rowProjectId = randomUUID() as ProjectId;
     const specProjectId = randomUUID() as ProjectId;
     // A non-judged suite records its project on the row, not in `spec`. The
     // restricted judge class is in the row project, so the default flips. Reading
     // `spec.projectId` regardless of kind would miss it; dropping the
     // `?? row project` fallback would read the agent's project instead.
-    await judgments.createClass({
+    await corrections.createClass({
       tenantId,
       scope: { kind: 'project', projectId: rowProjectId },
       name: 'expert',
@@ -2637,7 +2669,7 @@ describe('improvement passes', () => {
     const h = await harness({
       tunable: true,
       passes: passes.binding,
-      judgmentRegistry: judgments,
+      correctionRegistry: corrections,
       suiteRecord: {
         id: 'acme.scoring-judged',
         tenantId,
@@ -2655,11 +2687,11 @@ describe('improvement passes', () => {
 
   test('a missing suite falls back to the project the agent is made in', async () => {
     const passes = inMemoryPasses();
-    const judgments = inMemoryJudgments();
+    const corrections = inMemoryCorrections();
     // The suite binding finds no record; the default then keys off the agent
     // version's project, where this restricted judge class lives. Dropping the
     // `?? from.projectId` fallback would ask only the tenant scope.
-    await judgments.createClass({
+    await corrections.createClass({
       tenantId,
       scope: { kind: 'project', projectId },
       name: 'expert',
@@ -2669,7 +2701,7 @@ describe('improvement passes', () => {
     const h = await harness({
       tunable: true,
       passes: passes.binding,
-      judgmentRegistry: judgments,
+      correctionRegistry: corrections,
       suiteRecord: null,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
@@ -2680,12 +2712,12 @@ describe('improvement passes', () => {
 
   test("a restricted judge class on the agent in the suite's project flips the default", async () => {
     const passes = inMemoryPasses();
-    const judgments = inMemoryJudgments();
+    const corrections = inMemoryCorrections();
     const suiteProjectId = randomUUID() as ProjectId;
     // The agent-scope restricted judge class is in the SUITE's project, not the agent's
     // own. Keying off the suite's project, the agent clause finds it; keying
     // off `from.projectId` would miss it.
-    await judgments.createClass({
+    await corrections.createClass({
       tenantId,
       scope: { kind: 'agent', projectId: suiteProjectId, agentId: AGENT },
       name: 'expert',
@@ -2695,7 +2727,7 @@ describe('improvement passes', () => {
     const h = await harness({
       tunable: true,
       passes: passes.binding,
-      judgmentRegistry: judgments,
+      correctionRegistry: corrections,
       suiteProjectId,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
@@ -2706,13 +2738,13 @@ describe('improvement passes', () => {
 
   test('an explicit classWeights skips the suite read', async () => {
     const passes = inMemoryPasses();
-    const judgments = inMemoryJudgments();
+    const corrections = inMemoryCorrections();
     // With `classWeights` set, the default isn't resolved, so the route must
     // not read the suite at all — the stub throws if it does.
     const h = await harness({
       tunable: true,
       passes: passes.binding,
-      judgmentRegistry: judgments,
+      correctionRegistry: corrections,
       suiteGetThrows: true,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
@@ -2726,7 +2758,7 @@ describe('improvement passes', () => {
 
   test('with no judge-class registry wired, the suite read is skipped', async () => {
     const passes = inMemoryPasses();
-    // No judgmentRegistry, so there are no judge classes to resolve a default
+    // No correctionRegistry, so there are no judge classes to resolve a default
     // from: the route must not read the suite — the stub throws if it does.
     const h = await harness({ tunable: true, passes: passes.binding, suiteGetThrows: true });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
@@ -2738,14 +2770,18 @@ describe('improvement passes', () => {
 
   test('an unrestricted class is not a restricted judge class: still counts everyone', async () => {
     const passes = inMemoryPasses();
-    const judgments = inMemoryJudgments();
-    await judgments.createClass({
+    const corrections = inMemoryCorrections();
+    await corrections.createClass({
       tenantId,
       scope: { kind: 'project', projectId },
       name: 'user',
       weight: 1,
     });
-    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      correctionRegistry: corrections,
+    });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
@@ -2754,8 +2790,12 @@ describe('improvement passes', () => {
 
   test('an explicit classWeights always wins over the project default', async () => {
     const passes = inMemoryPasses();
-    const judgments = inMemoryJudgments();
-    const h = await harness({ tunable: true, passes: passes.binding, judgmentRegistry: judgments });
+    const corrections = inMemoryCorrections();
+    const h = await harness({
+      tunable: true,
+      passes: passes.binding,
+      correctionRegistry: corrections,
+    });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     // No restricted judge class named, but the caller asks for restricted-only outright.
     const res = await h.call('POST', '/v1/proposals/improve', {
@@ -3457,7 +3497,7 @@ describe("a pass started by hand works in one project: the one named, else its s
     },
   ];
   const PROD_SEGMENT = { ...SEGMENT_WIRE, projectId: PROD };
-  /** A test set built from prod's judged runs: made in prod, so only prod reaches it. */
+  /** A test set built from prod's corrected runs: made in prod, so only prod reaches it. */
   const PROD_SET = 'acme.scoring-prod-judged';
   const DEV_SET = 'acme.scoring-judged';
 

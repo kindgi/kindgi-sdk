@@ -19,20 +19,20 @@ import { sampleCases } from '../src/eval-sample.js';
 import type {
   AgentRegistryBinding,
   AgentVersionRecord,
+  CorrectedComparisonSummary,
+  CorrectedEvalCase,
   EvalRun,
   EvalRunBinding,
   EvalSuite,
   EvalSuiteRegistryBinding,
   GatePolicySpec,
-  JudgedComparisonSummary,
-  JudgedEvalCase,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
 import {
   createApp,
+  createCorrectedDispatcher,
   createInProcessEvalRunBinding,
-  createJudgedDispatcher,
   evaluateGate,
 } from '../src/index.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
@@ -54,10 +54,10 @@ const suite: EvalSuite = {
   tenantId,
   version: '1.0.0',
   kind: 'judged',
-  spec: { source: 'judgments', caseCount: CASES.length },
+  spec: { source: 'corrections', caseCount: CASES.length },
 };
 
-function judgedCase(caseId: string, no = false): JudgedEvalCase {
+function correctedCase(caseId: string, no = false): CorrectedEvalCase {
   return {
     caseId,
     subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
@@ -74,19 +74,19 @@ function judgedCase(caseId: string, no = false): JudgedEvalCase {
         reasons: [],
       },
     ],
-  } as JudgedEvalCase;
+  } as CorrectedEvalCase;
 }
 
 describe('sampleCases', () => {
   const sample: { seed: string; holdOutShare: number } = { seed: 'pass-1', holdOutShare: 0.3 };
   const cases = [
-    ...Array.from({ length: 10 }, (_, i) => judgedCase(`no-${i}`, true)),
-    ...Array.from({ length: 30 }, (_, i) => judgedCase(`yes-${i}`)),
+    ...Array.from({ length: 10 }, (_, i) => correctedCase(`no-${i}`, true)),
+    ...Array.from({ length: 30 }, (_, i) => correctedCase(`yes-${i}`)),
   ];
   const ids = (part: 'search' | 'hold-out', seed = sample.seed) =>
     sampleCases(cases, { ...sample, seed, part }).map((c) => c.caseId);
 
-  test('splits by judgment: about the share of the "no" cases and of the others, every case once', () => {
+  test('splits by correction: about the share of the "no" cases and of the others, every case once', () => {
     const holdOut = ids('hold-out');
     const search = ids('search');
     expect(holdOut.length + search.length).toBe(cases.length);
@@ -101,9 +101,9 @@ describe('sampleCases', () => {
   });
 
   test('cases that carry a correction split on their own: two put one in each part, whatever the seed', () => {
-    const corrected = (caseId: string, no = false): JudgedEvalCase => ({
-      ...judgedCase(caseId, no),
-      corrections: [{ judgmentId: `j-${caseId}`, calls: [] } as never],
+    const corrected = (caseId: string, no = false): CorrectedEvalCase => ({
+      ...correctedCase(caseId, no),
+      corrections: [{ correctionId: `j-${caseId}`, calls: [] } as never],
     });
     const withTwo = [corrected('fix-1'), corrected('fix-2', true), ...cases];
     for (const seed of ['pass-1', 'pass-2', 'pass-3', 'pass-4', 'pass-5', 'pass-6']) {
@@ -114,7 +114,7 @@ describe('sampleCases', () => {
         holdOut.filter((id) => id.startsWith('fix-')),
         seed,
       ).toHaveLength(1);
-      // The others still split by judgment, as without them.
+      // The others still split by correction, as without them.
       expect(
         holdOut.filter((id) => id.startsWith('no-')),
         seed,
@@ -123,7 +123,7 @@ describe('sampleCases', () => {
   });
 
   test('a stratum of two puts one in each part; a stratum of one stays in the search part', () => {
-    const two = [judgedCase('a', true), judgedCase('b', true), judgedCase('c')];
+    const two = [correctedCase('a', true), correctedCase('b', true), correctedCase('c')];
     const holdOut = sampleCases(two, { ...sample, part: 'hold-out' }).map((c) => c.caseId);
     expect(holdOut.filter((id) => id !== 'c')).toHaveLength(1);
     expect(holdOut).not.toContain('c');
@@ -234,7 +234,7 @@ async function setup() {
         };
       },
     },
-    dispatchers: { judged: createJudgedDispatcher({ cases, agents }) },
+    dispatchers: { judged: createCorrectedDispatcher({ cases, agents }) },
   });
   const app = createApp({
     ...createStubAppBindings(),
@@ -276,7 +276,7 @@ describe('settings overrides', () => {
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     const run = await settled(binding, res.body.runId);
     expect(run.comparison?.overrides).toEqual({ settings: { 'acme.weights': { recency: 0.9 } } });
-    const summary = (run.result?.summary ?? {}) as JudgedComparisonSummary;
+    const summary = (run.result?.summary ?? {}) as CorrectedComparisonSummary;
     expect(summary.candidate).toMatchObject({
       kind: 'agent',
       pinsDigest: 'sha-2',
@@ -327,7 +327,7 @@ describe('settings overrides', () => {
     });
     expect(ok.status, JSON.stringify(ok.body)).toBe(201);
     const run = await settled(binding, ok.body.runId);
-    expect((run.result?.summary as JudgedComparisonSummary).candidate).toMatchObject({
+    expect((run.result?.summary as CorrectedComparisonSummary).candidate).toMatchObject({
       overrides: { prompts: ['acme.prompt'] },
     });
     const bad = await start({
@@ -362,11 +362,11 @@ describe('a sample of the test set', () => {
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     const run = await settled(binding, res.body.runId);
     const expected = sampleCases(
-      CASES.map((id) => judgedCase(id)),
+      CASES.map((id) => correctedCase(id)),
       sample as Parameters<typeof sampleCases>[1],
     ).map((c) => c.caseId);
     expect([...invoked].sort()).toEqual([...expected].sort());
-    const summary = run.result?.summary as JudgedComparisonSummary;
+    const summary = run.result?.summary as CorrectedComparisonSummary;
     expect(summary.cases).toBe(expected.length);
     expect(summary.sample).toEqual(sample);
   });
@@ -393,7 +393,7 @@ describe('the gate', () => {
     baselineWeight: 10,
     direction: 'higher' as const,
   };
-  const summary = (extra: Partial<JudgedComparisonSummary>): JudgedComparisonSummary => ({
+  const summary = (extra: Partial<CorrectedComparisonSummary>): CorrectedComparisonSummary => ({
     evalRunId: 'er',
     status: 'completed',
     completedAt: new Date().toISOString(),
@@ -415,7 +415,7 @@ describe('the gate', () => {
     metrics: { weightedYesShare: m, judgedCoverage: m, weightedPrecisionAtK: { ...m, k: 10 } },
     ...extra,
   });
-  const gate = (s: JudgedComparisonSummary) =>
+  const gate = (s: CorrectedComparisonSummary) =>
     evaluateGate({
       spec,
       promotion: {
@@ -428,7 +428,7 @@ describe('the gate', () => {
       servingVersion: '1.0.0',
       now: new Date(),
     });
-  const check = (s: JudgedComparisonSummary, name: string) =>
+  const check = (s: CorrectedComparisonSummary, name: string) =>
     gate(s).checks.find((c) => c.name === name);
 
   test('a test run with overrides fails sameContents: try the published version', () => {

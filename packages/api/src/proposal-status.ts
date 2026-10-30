@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { CorrectedComparisonSummary } from './corrected-dispatcher.js';
 import type { EvalRun, EvalRunStatus } from './eval-run-binding.js';
-import type { JudgedComparisonSummary } from './judged-dispatcher.js';
 import type { Promotion } from './live-version-binding.js';
 import type { ProposalObjective, ProposalRule, StoredProposal } from './supervisor-binding.js';
 
@@ -64,7 +64,7 @@ export const FIX_PROPOSAL_STATUSES: readonly FixProposalStatus[] = [
 export interface ProposalEvaluationOutcome {
   readonly runStatus: EvalRunStatus;
   readonly objective: ProposalObjective;
-  /** The recorded (judged) outputs' score. `null` without judged evidence. */
+  /** The recorded (corrected) outputs' score. `null` without evidence from corrections. */
   readonly baseline?: number | null;
   readonly candidate?: number | null;
   readonly delta?: number | null;
@@ -122,10 +122,10 @@ export type ProposalNotKept =
 const EPSILON = 1e-9;
 
 /** A finished comparison's summary, or `null` for any other eval run. */
-export function comparisonSummaryOf(run: EvalRun): JudgedComparisonSummary | null {
+export function comparisonSummaryOf(run: EvalRun): CorrectedComparisonSummary | null {
   const summary = run.result?.summary;
   return run.kind === 'judged' && summary !== null && typeof summary === 'object'
-    ? (summary as JudgedComparisonSummary)
+    ? (summary as CorrectedComparisonSummary)
     : null;
 }
 
@@ -169,8 +169,8 @@ export function evaluationOutcome(
 function heldTo(
   objective: ProposalObjective,
   rule: ProposalRule,
-  candidate: JudgedComparisonSummary,
-  reference: JudgedComparisonSummary,
+  candidate: CorrectedComparisonSummary,
+  reference: CorrectedComparisonSummary,
   better: boolean,
 ): Pick<ProposalEvaluationOutcome, 'costUsd' | 'decisions' | 'kept' | 'notKept'> {
   const decisions = decisionsOf(reference, candidate);
@@ -199,8 +199,8 @@ function heldTo(
  */
 function notCheaper(
   objective: ProposalObjective,
-  candidate: JudgedComparisonSummary,
-  reference: JudgedComparisonSummary,
+  candidate: CorrectedComparisonSummary,
+  reference: CorrectedComparisonSummary,
 ): ProposalNotKept | undefined {
   const current = reference.costUsd;
   const cost = candidate.costUsd;
@@ -222,20 +222,20 @@ function notCheaper(
     : 'not-cheaper';
 }
 
-/** The corrections the reference was checked on, against the candidate's, by judgment. */
+/** The corrections the reference was checked on, against the candidate's, by correction. */
 function decisionsOf(
-  reference: JudgedComparisonSummary,
-  candidate: JudgedComparisonSummary,
+  reference: CorrectedComparisonSummary,
+  candidate: CorrectedComparisonSummary,
 ): ProposalDecisions {
   const passed = new Set(
-    (candidate.corrections?.judgments ?? []).filter((j) => j.pass).map((j) => j.judgmentId),
+    (candidate.corrections?.results ?? []).filter((j) => j.pass).map((j) => j.correctionId),
   );
   let held = 0;
   let broken = 0;
   let stillWrong = 0;
-  const checked = reference.corrections?.judgments ?? [];
+  const checked = reference.corrections?.results ?? [];
   for (const j of checked) {
-    const kept = passed.has(j.judgmentId);
+    const kept = passed.has(j.correctionId);
     if (j.pass && kept) held += 1;
     else if (j.pass) broken += 1;
     else if (!kept) stillWrong += 1;

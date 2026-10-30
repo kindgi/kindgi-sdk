@@ -10,9 +10,9 @@ import { describe, expect, test } from 'vitest';
 
 import type { LiveScope, OrgId, ProjectId } from '@kindgi/types';
 
+import type { ComparisonMetric, CorrectedComparisonSummary } from '../src/corrected-dispatcher.js';
 import type { GatePolicySpec } from '../src/gate-policy-binding.js';
 import { type GateInput, evaluateGate } from '../src/gate.js';
-import type { ComparisonMetric, JudgedComparisonSummary } from '../src/judged-dispatcher.js';
 
 const PROJECT = '00000000-0000-4000-8000-0000000000aa' as ProjectId;
 const ORG = '00000000-0000-4000-8000-0000000000bb' as OrgId;
@@ -32,7 +32,7 @@ function metric(overrides: Partial<ComparisonMetric> = {}): ComparisonMetric {
   };
 }
 
-function summary(overrides: Partial<JudgedComparisonSummary> = {}): JudgedComparisonSummary {
+function summary(overrides: Partial<CorrectedComparisonSummary> = {}): CorrectedComparisonSummary {
   return {
     evalRunId: 'eval-1',
     status: 'completed',
@@ -64,7 +64,7 @@ function summary(overrides: Partial<JudgedComparisonSummary> = {}): JudgedCompar
 function gate(
   spec: GatePolicySpec,
   over: {
-    summary?: JudgedComparisonSummary | null;
+    summary?: CorrectedComparisonSummary | null;
     scope?: LiveScope;
     pinsDigest?: string | null;
     serving?: string;
@@ -205,7 +205,7 @@ describe('baselineIsLive', () => {
 });
 
 describe('scopeCovered', () => {
-  test('a project or segment promotion needs that project’s judgments', () => {
+  test('a project or segment promotion needs that project’s corrections', () => {
     expect(check(gate({}), 'scopeCovered')?.passed).toBe(true);
     const elsewhere = summary({ scope: { projectId: '00000000-0000-4000-8000-0000000000cc' } });
     expect(check(gate({}, { summary: elsewhere }), 'scopeCovered')?.passed).toBe(false);
@@ -217,15 +217,15 @@ describe('scopeCovered', () => {
     expect(check(gate({}, { scope: segment }), 'scopeCovered')?.passed).toBe(true);
   });
 
-  test('an org promotion: tenant-wide judgments, or a project in the org', () => {
+  test('an org promotion: tenant-wide corrections, or a project in the org', () => {
     const org: LiveScope = { kind: 'org', orgId: ORG };
     const inOrg = check(gate({}, { scope: org, summaryProjectOrgId: ORG }), 'scopeCovered');
     expect(inOrg?.passed).toBe(true);
-    expect(inOrg?.message).toBe(`The judgments came from project ${PROJECT}, within org ${ORG}.`);
+    expect(inOrg?.message).toBe(`The corrections came from project ${PROJECT}, within org ${ORG}.`);
     const outside = check(gate({}, { scope: org }), 'scopeCovered');
     expect(outside?.passed).toBe(false);
     expect(outside?.message).toBe(
-      `The judgments came from project ${PROJECT}, outside org ${ORG}.`,
+      `The corrections came from project ${PROJECT}, outside org ${ORG}.`,
     );
     const everywhere = check(
       gate({}, { scope: org, summary: summary({ scope: {} }) }),
@@ -233,11 +233,11 @@ describe('scopeCovered', () => {
     );
     expect(everywhere?.passed).toBe(true);
     expect(everywhere?.message).toBe(
-      `The judgments came from every project, which covers org ${ORG}.`,
+      `The corrections came from every project, which covers org ${ORG}.`,
     );
   });
 
-  test('a tenant promotion takes any judgments', () => {
+  test('a tenant promotion takes any corrections', () => {
     expect(check(gate({}, { scope: { kind: 'tenant' } }), 'scopeCovered')?.passed).toBe(true);
   });
 });
@@ -315,7 +315,7 @@ describe('metrics and evidence', () => {
     ).toBe(false);
   });
 
-  test("a side without judged evidence can't pass", () => {
+  test("a side without evidence from corrections can't pass", () => {
     const empty = summary({
       metrics: {
         ...summary().metrics,

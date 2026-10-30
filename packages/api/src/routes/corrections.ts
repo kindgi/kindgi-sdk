@@ -17,60 +17,60 @@ import {
 } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
-import type { Correction, ExpectedCall } from '../corrections.js';
-import { statusFor, toWireError } from '../errors.js';
-import type { FlowRegistryBinding } from '../flow-binding.js';
-import { canonical } from '../judged-items.js';
+import { canonical } from '../corrected-items.js';
 import {
+  type CorrectedItem,
+  type CorrectedRunContext,
+  type CorrectedSubject,
+  type Correction,
+  type CorrectionAssertedBy,
+  type CorrectionRegistryBinding,
+  type CorrectionWithCopies,
   type JudgeClass,
   type JudgeClassAssertableBy,
   type JudgeClassScope,
-  type JudgedItem,
-  type JudgedRunContext,
-  type JudgedSubject,
-  type Judgment,
-  type JudgmentAssertedBy,
-  type JudgmentRegistryBinding,
-  type JudgmentWithCopies,
   VERDICTS,
   type Verdict,
   judgeClassApplies,
   whyNotAssertable,
-} from '../judgment-binding.js';
+} from '../correction-binding.js';
+import { statusFor, toWireError } from '../errors.js';
+import type { ExpectedCall, ExpectedDecisions } from '../expected-decisions.js';
+import type { FlowRegistryBinding } from '../flow-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import type { AppEnv } from '../types.js';
+import { captureTurnContext } from './correction-context.js';
+import { captureFlowContext } from './correction-flow-context.js';
 import { type Refusal, recordRefusal, refusalError } from './denied.js';
-import { captureTurnContext } from './judgment-context.js';
-import { captureFlowContext } from './judgment-flow-context.js';
 import { clampLimit } from './pagination.js';
 import { parseListScope } from './scope-params.js';
 
 /**
- * Judgments: yes or no, with an optional reason, about one item of a
+ * Corrections: yes or no, with an optional reason, about one item of a
  * run's output, recorded under a judge class.
  *
- * - `POST /v1/judgments`: judge an item of a finished run.
- * - `GET /v1/judgments`: live judgments, filtered by run, agent version,
+ * - `POST /v1/corrections`: correct an item of a finished run.
+ * - `GET /v1/corrections`: live corrections, filtered by run, agent version,
  *   flow, verdict, class, participant or project scope.
- * - `GET /v1/judgments/:id`: one judgment with the stored copies.
- * - `POST /v1/judgments/:id/unregister`: remove a judgment (soft).
+ * - `GET /v1/corrections/:id`: one correction with the stored copies.
+ * - `POST /v1/corrections/:id/remove`: remove a correction (soft).
  *
- * Authorization: judging needs `write` on the run's project (a run
+ * Authorization: correcting needs `write` on the run's project (a run
  * inherits its permissions from its project). Reading and removing go by
- * the judgment's project (`read` / `write`), since a judgment outlives
+ * the correction's project (`read` / `write`), since a correction outlives
  * its run.
  */
-export function judgmentsRouter(
-  binding: JudgmentRegistryBinding,
+export function correctionsRouter(
+  binding: CorrectionRegistryBinding,
   runBinding: RunBinding,
   authorizer?: Authorizer,
   conversations?: ConversationBinding,
   flows?: FlowRegistryBinding,
   /** Whose reviewer role a restricted judge class checks (T200). */
   reviewers?: ReviewerBinding,
-  /** Resolves a judged agent version's tools, so a correction can only name tools it has. */
+  /** Resolves a corrected agent version's tools, so a correction can only name tools it has. */
   agents?: AgentRegistryBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
@@ -83,16 +83,16 @@ export function judgmentsRouter(
       return c.json(toWireError({ code, message, ...details }, requestId));
     };
 
-    const parsed = parseJudgmentBody(await c.req.json().catch(() => null));
+    const parsed = parseCorrectionBody(await c.req.json().catch(() => null));
     if (parsed.kind === 'err') return fail('bad-input', parsed.message);
     const body = parsed.body;
 
     const asserted = assertedByOf(c.get('principal'));
     if (asserted === undefined) {
-      return fail('permission-denied', 'Judging needs a user or a service token.');
+      return fail('permission-denied', 'Correcting needs a user or a service token.');
     }
 
-    const prepared = await prepareJudgment(c, body, runBinding, binding, authorizer, {
+    const prepared = await prepareCorrection(c, body, runBinding, binding, authorizer, {
       asserted,
       reviewers,
     });
@@ -100,9 +100,9 @@ export function judgmentsRouter(
     const { run, subject, projectId, itemValue, conversationId, restricted, replayOf } = prepared;
     const unknownTool = await unknownCorrectionTool(tenantId, subject, body.correction, agents);
     if (unknownTool !== undefined) {
-      return fail('bad-input', `The judged version has no tool "${unknownTool}".`);
+      return fail('bad-input', `The corrected version has no tool "${unknownTool}".`);
     }
-    const first = await isFirstJudgment(binding, tenantId, body.runId);
+    const first = await isFirstCorrection(binding, tenantId, body.runId);
     const captured = first
       ? await captureContext({
           tenantId,
@@ -116,10 +116,10 @@ export function judgmentsRouter(
         })
       : undefined;
     // A comparison's replay is stamped as one with its copy (stored with the
-    // first judgment), so a test set leaves it out (`isReplayCopy`).
+    // first correction), so a test set leaves it out (`isReplayCopy`).
     const context = first && replayOf !== undefined ? { ...(captured ?? {}), replayOf } : captured;
 
-    const judgment = await binding.record({
+    const correction = await binding.record({
       tenantId,
       projectId,
       runId: body.runId,
@@ -143,7 +143,7 @@ export function judgmentsRouter(
       ...(body.participantId !== undefined && { participantId: body.participantId }),
     });
     c.status(201);
-    return c.json(serializeJudgment(judgment));
+    return c.json(serializeCorrection(correction));
   });
 
   r.get('/', async (c) => {
@@ -186,63 +186,66 @@ export function judgmentsRouter(
         ? page.data
         : await authorizer.filterByCan(c, 'read', page.data, (j) => ref('project', j.projectId));
     return c.json({
-      data: visible.map(serializeJudgment),
+      data: visible.map(serializeCorrection),
       hasMore: page.hasMore,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
   });
 
-  r.get('/:judgmentId', async (c) => {
+  r.get('/:correctionId', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
-    const judgmentId = c.req.param('judgmentId');
-    const judgment = await binding.get({ tenantId, judgmentId });
+    const correctionId = c.req.param('correctionId');
+    const correction = await binding.get({ tenantId, correctionId });
     if (
-      judgment === null ||
+      correction === null ||
       (authorizer !== undefined &&
-        !(await authorizer.can(c, 'read', ref('project', judgment.projectId))))
+        !(await authorizer.can(c, 'read', ref('project', correction.projectId))))
     ) {
-      c.status(statusFor('judgment-not-found') as never);
+      c.status(statusFor('correction-not-found') as never);
       return c.json(
         toWireError(
-          { code: 'judgment-not-found', message: `No judgment "${judgmentId}".` },
+          { code: 'correction-not-found', message: `No correction "${correctionId}".` },
           requestId,
         ),
       );
     }
-    return c.json(serializeJudgmentWithCopies(judgment));
+    return c.json(serializeCorrectionWithCopies(correction));
   });
 
-  r.post('/:judgmentId/unregister', async (c) => {
+  r.post('/:correctionId/remove', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
-    const judgmentId = c.req.param('judgmentId');
+    const correctionId = c.req.param('correctionId');
     const notFound = () => {
-      c.status(statusFor('judgment-not-found') as never);
+      c.status(statusFor('correction-not-found') as never);
       return c.json(
         toWireError(
-          { code: 'judgment-not-found', message: `No live judgment "${judgmentId}".` },
+          { code: 'correction-not-found', message: `No live correction "${correctionId}".` },
           requestId,
         ),
       );
     };
-    const judgment = await binding.get({ tenantId, judgmentId });
-    if (judgment === null || judgment.unregisteredAt !== undefined) return notFound();
+    const correction = await binding.get({ tenantId, correctionId });
+    if (correction === null || correction.unregisteredAt !== undefined) return notFound();
     if (
       authorizer !== undefined &&
-      !(await authorizer.can(c, 'write', ref('project', judgment.projectId)))
+      !(await authorizer.can(c, 'write', ref('project', correction.projectId)))
     ) {
       c.status(statusFor('permission-denied') as never);
       return c.json(
         toWireError(
-          { code: 'permission-denied', message: `Not allowed to remove judgment "${judgmentId}".` },
+          {
+            code: 'permission-denied',
+            message: `Not allowed to remove correction "${correctionId}".`,
+          },
           requestId,
         ),
       );
     }
-    const outcome = await binding.unregister({ tenantId, judgmentId });
+    const outcome = await binding.unregister({ tenantId, correctionId });
     if (!outcome.unregistered) return notFound();
-    return c.json({ judgmentId, unregistered: true });
+    return c.json({ correctionId, unregistered: true });
   });
 
   return r;
@@ -258,7 +261,7 @@ export function judgmentsRouter(
  * classes the caller may read.
  */
 export function judgeClassesRouter(
-  binding: JudgmentRegistryBinding,
+  binding: CorrectionRegistryBinding,
   authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
@@ -447,13 +450,13 @@ type Prepared =
         readonly output: unknown;
         readonly segments: readonly ScopeSegment[];
       };
-      readonly subject: JudgedSubject;
+      readonly subject: CorrectedSubject;
       readonly projectId: ProjectId;
       readonly itemValue?: unknown;
       readonly conversationId?: string;
       /** The class was restricted and the caller met it. */
       readonly restricted?: true;
-      /** The run a comparison's replay re-ran, when the judged run is one. */
+      /** The run a comparison's replay re-ran, when the corrected run is one. */
       readonly replayOf?: string;
     }
   | {
@@ -464,41 +467,41 @@ type Prepared =
     };
 
 /**
- * Everything a judgment needs from its run, or why it can't be recorded:
- * the run exists, the caller may judge it, it has finished with an output,
+ * Everything a correction needs from its run, or why it can't be recorded:
+ * the run exists, the caller may correct it, it has finished with an output,
  * the class (if any) applies to it, and the pointer (if any) resolves.
  */
-async function prepareJudgment(
+async function prepareCorrection(
   c: Context<AppEnv>,
-  body: JudgmentBody,
+  body: CorrectionBody,
   runBinding: RunBinding,
-  binding: JudgmentRegistryBinding,
+  binding: CorrectionRegistryBinding,
   authorizer: Authorizer | undefined,
-  who: { readonly asserted: JudgmentAssertedBy; readonly reviewers: ReviewerBinding | undefined },
+  who: { readonly asserted: CorrectionAssertedBy; readonly reviewers: ReviewerBinding | undefined },
 ): Promise<Prepared> {
   const err = (code: string, message: string): Prepared => ({ kind: 'err', code, message });
   const tenantId = c.get('tenantId') as TenantId;
   const run = await runBinding.getRun(tenantId, body.runId as RunId);
   if (run === null) return err('run-not-found', `No run "${body.runId}".`);
   // A run inherits its permissions from its project (as cancelling one
-  // does): judging it needs `write` there.
+  // does): correcting it needs `write` there.
   if (
     authorizer !== undefined &&
     !(await authorizer.can(c, 'write', ref('project', run.projectId as unknown as string)))
   ) {
-    return err('permission-denied', `Not allowed to judge run "${body.runId}".`);
+    return err('permission-denied', `Not allowed to correct run "${body.runId}".`);
   }
-  // An erasure cleared its content: there's nothing to judge (T273 M-5).
+  // An erasure cleared its content: there's nothing to correct (T273 M-5).
   if (run.contentErasedAt !== undefined) {
     return err(
       'run-erased',
-      `Run "${body.runId}" was erased (a person's words were removed): there's nothing to judge.`,
+      `Run "${body.runId}" was erased (a person's words were removed): there's nothing to correct.`,
     );
   }
   if (run.status !== 'completed' || run.output === undefined || run.output === null) {
     return err(
       'run-not-finished',
-      `Run "${body.runId}" has no output to judge yet (status ${run.status}).`,
+      `Run "${body.runId}" has no output to correct yet (status ${run.status}).`,
     );
   }
   const subject = subjectOf(run);
@@ -527,7 +530,7 @@ async function prepareJudgment(
         const refusal: Refusal = {
           action: 'write',
           resource: ref('project', run.projectId as unknown as string),
-          message: `You can't judge as "${judgeClass.name}": ${why}.`,
+          message: `You can't correct as "${judgeClass.name}": ${why}.`,
           failing: 'actor',
           code: 'judge-class-not-allowed',
         };
@@ -556,22 +559,22 @@ async function prepareJudgment(
   return { kind: 'ok', run: copy, subject, projectId, itemValue: found.value, ...extra };
 }
 
-/** Whether the run has no live judgment yet (its copy is stored with the first). */
+/** Whether the run has no live correction yet (its copy is stored with the first). */
 /**
- * What a run's first judgment keeps so the run can be replayed later: a
+ * What a run's first correction keeps so the run can be replayed later: a
  * turn's history and retrieved context; a flow run's tool calls with
  * their results.
  */
 function captureContext(input: {
   readonly tenantId: TenantId;
   readonly runId: string;
-  readonly subject: JudgedSubject;
+  readonly subject: CorrectedSubject;
   readonly output: unknown;
   readonly conversationId: string | undefined;
   readonly runBinding: RunBinding;
   readonly conversations: ConversationBinding | undefined;
   readonly flows: FlowRegistryBinding | undefined;
-}): Promise<JudgedRunContext | undefined> {
+}): Promise<CorrectedRunContext | undefined> {
   const { tenantId, runId, subject, runBinding } = input;
   return subject.kind === 'agent'
     ? captureTurnContext({
@@ -590,8 +593,8 @@ function captureContext(input: {
       });
 }
 
-async function isFirstJudgment(
-  binding: JudgmentRegistryBinding,
+async function isFirstCorrection(
+  binding: CorrectionRegistryBinding,
   tenantId: TenantId,
   runId: string,
 ): Promise<boolean> {
@@ -601,10 +604,10 @@ async function isFirstJudgment(
 
 /** The live class, when it exists and its scope covers the run; else `null`. */
 async function applicableClass(
-  binding: JudgmentRegistryBinding,
+  binding: CorrectionRegistryBinding,
   tenantId: TenantId,
   judgeClassId: string,
-  run: { readonly projectId: ProjectId; readonly subject: JudgedSubject },
+  run: { readonly projectId: ProjectId; readonly subject: CorrectedSubject },
 ): Promise<JudgeClass | null> {
   const judgeClass = await binding.getClass({ tenantId, judgeClassId });
   return judgeClass !== null && judgeClassApplies(judgeClass.scope, run) ? judgeClass : null;
@@ -612,12 +615,12 @@ async function applicableClass(
 
 // ---------- request parsing ----------
 
-interface JudgmentBody {
+interface CorrectionBody {
   readonly runId: string;
-  readonly item: JudgedItem;
+  readonly item: CorrectedItem;
   readonly verdict: Verdict;
   readonly reason?: string;
-  readonly correction?: Correction;
+  readonly correction?: ExpectedDecisions;
   readonly judgeClassId?: string;
   readonly participantId?: string;
 }
@@ -628,8 +631,8 @@ type Parsed<T> =
 
 const MAX_REASON = 4000;
 
-function parseJudgmentBody(raw: unknown): Parsed<JudgmentBody> {
-  const err = (message: string): Parsed<JudgmentBody> => ({ kind: 'err', message });
+function parseCorrectionBody(raw: unknown): Parsed<CorrectionBody> {
+  const err = (message: string): Parsed<CorrectionBody> => ({ kind: 'err', message });
   if (raw === null || typeof raw !== 'object') return err('Send a JSON object.');
   const b = raw as Record<string, unknown>;
   if (!nonEmpty(b.runId)) return err('runId is required.');
@@ -640,7 +643,7 @@ function parseJudgmentBody(raw: unknown): Parsed<JudgmentBody> {
   if (typeof item === 'string') return err(item);
   const optional = optionalFieldError(b);
   if (optional !== undefined) return err(optional);
-  const correction = parseCorrectionField(b.correction, item);
+  const correction = parseExpectedDecisionsField(b.correction, item);
   if (typeof correction === 'string') return err(correction);
   return {
     kind: 'ok',
@@ -677,7 +680,7 @@ function parseExpectedCall(call: unknown): ExpectedCall | string {
   if (Object.keys(cc.args).length > MAX_CORRECTION_ARGS) {
     return `a correction call's args hold at most ${MAX_CORRECTION_ARGS} fields.`;
   }
-  // A value is copied onto the judgment, the case and every eval run's
+  // A value is copied onto the correction, the case and every eval run's
   // differences, so cap each call's args by their canonical size.
   if (canonical(cc.args).length > MAX_CORRECTION_ARGS_SIZE) {
     return `a correction call's args are at most ${MAX_CORRECTION_ARGS_SIZE} characters.`;
@@ -686,12 +689,12 @@ function parseExpectedCall(call: unknown): ExpectedCall | string {
 }
 
 /**
- * A correction on the judgment, or a message saying what's wrong. A tool
- * can't be in both `calls` and `notCalled`, and at least one of them must be
- * non-empty (both empty is a 400). Argument values aren't checked here; the
- * comparator compares them on the replay.
+ * The expected decisions in a `correction` field, or a message saying
+ * what's wrong. A tool can't be in both `calls` and `notCalled`, and at least
+ * one of them must be non-empty (both empty is a 400). Argument values aren't
+ * checked here; the comparator compares them on the replay.
  */
-function parseCorrection(raw: unknown): Correction | string {
+function parseExpectedDecisions(raw: unknown): ExpectedDecisions | string {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     return 'correction must be an object { calls, notCalled }.';
   }
@@ -732,7 +735,7 @@ function parseCorrection(raw: unknown): Correction | string {
 /** What's wrong with the optional fields (class, reason, participant), if anything. */
 function optionalFieldError(b: Record<string, unknown>): string | undefined {
   if (b.judgeClassId !== undefined && !nonEmpty(b.judgeClassId)) {
-    return 'judgeClassId must be a judge class id, or left out for an unclassified judgment.';
+    return 'judgeClassId must be a judge class id, or left out for an unclassified correction.';
   }
   if (b.reason !== undefined && (typeof b.reason !== 'string' || b.reason.length > MAX_REASON)) {
     return `reason must be a string of at most ${MAX_REASON} characters.`;
@@ -743,7 +746,7 @@ function optionalFieldError(b: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
-function parseItem(raw: unknown): JudgedItem | string {
+function parseItem(raw: unknown): CorrectedItem | string {
   if (raw === null || typeof raw !== 'object') return 'item is required: { key, pointer?, rank? }.';
   const i = raw as Record<string, unknown>;
   if (!nonEmpty(i.key)) return 'item.key is required.';
@@ -761,20 +764,20 @@ function parseItem(raw: unknown): JudgedItem | string {
 }
 
 /**
- * The correction item key is reserved for Kindgi. A judgment on it is accepted
- * only when it carries a correction at pointer `""`; any other judgment there,
+ * The correction item key is reserved for Kindgi. A correction on it is accepted
+ * only when it carries a correction at pointer `""`; any other correction there,
  * at any pointer, is a 400. And a correction is accepted only there — so every
  * correction for a run by one expert lands on the same item and counts once, and
- * no caller's own item can collide with it. Returns the message for a judgment
+ * no caller's own item can collide with it. Returns the message for a correction
  * that breaks either rule, else `undefined`.
  */
-function reservedItemError(item: JudgedItem, hasCorrection: boolean): string | undefined {
+function reservedItemError(item: CorrectedItem, hasCorrection: boolean): string | undefined {
   if (item.key === CORRECTION_ITEM.key) {
     if (!hasCorrection) {
-      return `the item "${CORRECTION_ITEM.key}" is reserved for corrections; judge an item of the output instead.`;
+      return `the item "${CORRECTION_ITEM.key}" is reserved for expected decisions; correct an item of the output instead.`;
     }
     if (item.pointer !== undefined && item.pointer !== CORRECTION_ITEM.pointer) {
-      return 'a correction judges the whole output; leave item.pointer as "" or unset.';
+      return 'expected decisions cover the whole output; leave item.pointer as "" or unset.';
     }
     return undefined;
   }
@@ -785,12 +788,15 @@ function reservedItemError(item: JudgedItem, hasCorrection: boolean): string | u
 }
 
 /**
- * The judgment's correction, an error message, or `undefined` when there is
- * none. The correction must parse; and whether or not one is present, the item
- * must obey the reserved-key rule.
+ * The expected decisions in a correction's `correction` field, an error
+ * message, or `undefined` when there are none. They must parse; and whether or
+ * not they are present, the item must obey the reserved-key rule.
  */
-function parseCorrectionField(raw: unknown, item: JudgedItem): Correction | string | undefined {
-  const correction = raw === undefined ? undefined : parseCorrection(raw);
+function parseExpectedDecisionsField(
+  raw: unknown,
+  item: CorrectedItem,
+): ExpectedDecisions | string | undefined {
+  const correction = raw === undefined ? undefined : parseExpectedDecisions(raw);
   if (typeof correction === 'string') return correction;
   return reservedItemError(item, correction !== undefined) ?? correction;
 }
@@ -923,26 +929,26 @@ function classNotFound(c: Context<AppEnv>, id: string): Response {
   );
 }
 
-/** The caller as a judgment records it, from the request's principal. */
+/** The caller as a correction records it, from the request's principal. */
 function assertedByOf(
   principal: AppEnv['Variables']['principal'] | undefined,
-): JudgmentAssertedBy | undefined {
+): CorrectionAssertedBy | undefined {
   if (principal === undefined) return undefined;
   const actor = principal.actor;
   return { kind: actor.kind === 'user' ? 'user' : 'service', id: actor.id };
 }
 
 /**
- * Best-effort: a correction may only name tools the judged agent version
+ * Best-effort: a correction may only name tools the corrected agent version
  * has. Returns the first offending tool, or `undefined` when all are known
  * or the check cannot run. It is skipped for flow subjects (a flow has no
- * single tool list) and when the version cannot be resolved — a judgment
- * outlives its version — so it never blocks an otherwise valid judgment.
+ * single tool list) and when the version cannot be resolved — a correction
+ * outlives its version — so it never blocks an otherwise valid correction.
  */
 async function unknownCorrectionTool(
   tenantId: TenantId,
-  subject: JudgedSubject,
-  correction: Correction | undefined,
+  subject: CorrectedSubject,
+  correction: ExpectedDecisions | undefined,
   agents: AgentRegistryBinding | undefined,
 ): Promise<string | undefined> {
   if (correction === undefined || agents === undefined || subject.kind !== 'agent')
@@ -965,7 +971,7 @@ function subjectOf(run: {
   readonly flowId: string;
   readonly flowVersion: string;
   readonly agent?: { readonly id: string; readonly version: string };
-}): JudgedSubject {
+}): CorrectedSubject {
   return run.agent !== undefined
     ? { kind: 'agent', id: run.agent.id, version: run.agent.version }
     : { kind: 'flow', id: run.flowId, version: run.flowVersion };
@@ -1000,7 +1006,7 @@ export function resolvePointer(
 
 // ---------- serialization ----------
 
-function serializeJudgment(j: Judgment): Record<string, unknown> {
+function serializeCorrection(j: Correction): Record<string, unknown> {
   return {
     id: j.id,
     tenantId: j.tenantId,
@@ -1021,9 +1027,9 @@ function serializeJudgment(j: Judgment): Record<string, unknown> {
   };
 }
 
-function serializeJudgmentWithCopies(j: JudgmentWithCopies): Record<string, unknown> {
+function serializeCorrectionWithCopies(j: CorrectionWithCopies): Record<string, unknown> {
   return {
-    ...serializeJudgment(j),
+    ...serializeCorrection(j),
     run: j.run,
     ...(j.itemValue !== undefined && { itemValue: j.itemValue }),
   };

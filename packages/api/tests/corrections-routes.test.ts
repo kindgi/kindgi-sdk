@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * `/v1/judgments` and `/v1/judge-classes`: judging an item of a finished
+ * `/v1/corrections` and `/v1/judge-classes`: correcting an item of a finished
  * run, supersede, list filters, removal, and the judge-class CRUD.
  */
 
@@ -28,19 +28,19 @@ import { createApp } from '../src/index.js';
 import type {
   AgentRegistryBinding,
   AgentVersionRecord,
-  JudgmentRegistryBinding,
+  CorrectionRegistryBinding,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
 import { isReplayCopy, judgeClassApplies, whyNotAssertable } from '../src/index.js';
-import { inMemoryJudgments } from './support/in-memory-judgments.js';
+import { inMemoryCorrections } from './support/in-memory-corrections.js';
 
 const tenantId = randomUUID() as TenantId;
 const projectA = randomUUID() as ProjectId;
 const projectB = randomUUID() as ProjectId;
-const USER_TOKEN = 'judgments-user-token';
-const KEY_TOKEN = 'judgments-key-token';
-const SENIOR_TOKEN = 'judgments-senior-token';
+const USER_TOKEN = 'corrections-user-token';
+const KEY_TOKEN = 'corrections-key-token';
+const SENIOR_TOKEN = 'corrections-senior-token';
 
 const resolveToken: TokenResolver = async (token) => {
   if (token === USER_TOKEN) return { tenantId, userId: 'user-1' as UserId };
@@ -85,7 +85,7 @@ const registryWithTools = (...ids: readonly string[]): AgentRegistryBinding =>
       ({ tools: ids.map((id) => ({ id, version: '1.0.0' })) }) as unknown as AgentVersionRecord,
   }) as unknown as AgentRegistryBinding;
 
-/** A stub agent registry that cannot resolve the judged version (it is gone). */
+/** A stub agent registry that cannot resolve the corrected version (it is gone). */
 const registryVersionGone = {
   getVersion: async () => null,
 } as unknown as AgentRegistryBinding;
@@ -97,7 +97,7 @@ interface Harness {
     body?: unknown,
     token?: string,
   ) => Promise<{ readonly status: number; readonly body: Record<string, any> }>;
-  readonly binding: JudgmentRegistryBinding;
+  readonly binding: CorrectionRegistryBinding;
 }
 
 /** What a harness's stubbed conversation and run journal return, and how often they were read. */
@@ -139,7 +139,7 @@ function harness(
   authz?: Authz,
   agentRegistry?: AgentRegistryBinding,
 ): Harness & { readonly reads: number[] } {
-  const binding = inMemoryJudgments();
+  const binding = inMemoryCorrections();
   const stubs = createStubAppBindings();
   // [readMessages calls, readJournal calls]
   const counts = [0, 0];
@@ -164,7 +164,7 @@ function harness(
     kernelBinding: { ...stubs.kernelBinding, run },
     resolveToken,
     runHandler,
-    judgmentRegistry: binding,
+    correctionRegistry: binding,
     ...(agentRegistry !== undefined && { agentRegistry }),
     ...(authz !== undefined && {
       authz: {
@@ -208,13 +208,13 @@ async function tenantClass(h: Harness, name = 'expert', weight = 3): Promise<str
   return res.body.id as string;
 }
 
-describe('POST /v1/judgments', () => {
+describe('POST /v1/corrections', () => {
   test('with a pointer: stores the item value and the run copy', async () => {
     const run = row();
     const h = harness([run]);
     const classId = await tenantClass(h);
 
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: 'c2', pointer: '/matches/1', rank: 1 },
       verdict: 'yes',
@@ -232,7 +232,7 @@ describe('POST /v1/judgments', () => {
       judgeClassId: classId,
     });
 
-    const got = await h.call('GET', `/v1/judgments/${res.body.id}`);
+    const got = await h.call('GET', `/v1/corrections/${res.body.id}`);
     expect(got.status).toBe(200);
     expect(got.body.itemValue).toEqual({ id: 'c2' });
     expect(got.body.run).toMatchObject({
@@ -249,7 +249,7 @@ describe('POST /v1/judgments', () => {
       calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
       notCalled: ['acme.email'],
     };
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { ...CORRECTION_ITEM },
       verdict: 'no',
@@ -257,14 +257,14 @@ describe('POST /v1/judgments', () => {
     });
     expect(res.status).toBe(201);
     expect(res.body.correction).toEqual(correction);
-    const got = await h.call('GET', `/v1/judgments/${res.body.id}`);
+    const got = await h.call('GET', `/v1/corrections/${res.body.id}`);
     expect(got.body.correction).toEqual(correction);
   });
 
   test('a tool in both calls and notCalled is a 400', async () => {
     const run = row();
     const h = harness([run]);
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { ...CORRECTION_ITEM },
       verdict: 'no',
@@ -278,7 +278,7 @@ describe('POST /v1/judgments', () => {
   test('a correction with neither a call nor a must-not-call is a 400', async () => {
     const run = row();
     const h = harness([run]);
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { ...CORRECTION_ITEM },
       verdict: 'no',
@@ -292,7 +292,7 @@ describe('POST /v1/judgments', () => {
   test('a correction on any item but the fixed one is a 400', async () => {
     const run = row();
     const h = harness([run]);
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: 'answer', pointer: '' },
       verdict: 'no',
@@ -306,7 +306,7 @@ describe('POST /v1/judgments', () => {
   test('a correction on the fixed key but a non-empty pointer is a 400', async () => {
     const run = row();
     const h = harness([run]);
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: CORRECTION_ITEM.key, pointer: '/matches/0' },
       verdict: 'no',
@@ -316,10 +316,10 @@ describe('POST /v1/judgments', () => {
     expect(res.body.error.message).toContain('whole output');
   });
 
-  test('an ordinary judgment on the reserved item is a 400', async () => {
+  test('an ordinary correction on the reserved item is a 400', async () => {
     const run = row();
     const h = harness([run]);
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { ...CORRECTION_ITEM },
       verdict: 'no',
@@ -329,10 +329,10 @@ describe('POST /v1/judgments', () => {
     expect(res.body.error.message).toContain('reserved');
   });
 
-  test('an ordinary judgment on the reserved key at any pointer is a 400', async () => {
+  test('an ordinary correction on the reserved key at any pointer is a 400', async () => {
     const run = row();
     const h = harness([run]);
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: CORRECTION_ITEM.key, pointer: '/matches/0' },
       verdict: 'yes',
@@ -344,7 +344,7 @@ describe('POST /v1/judgments', () => {
   test('an ordinary caller key the reserved key no longer shadows is accepted', async () => {
     const run = row({ output: { decision: 'refund' } });
     const h = harness([run]);
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: 'decision', pointer: '/decision' },
       verdict: 'yes',
@@ -355,7 +355,7 @@ describe('POST /v1/judgments', () => {
   test('a correction call with oversized args is a 400', async () => {
     const run = row();
     const h = harness([run]);
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { ...CORRECTION_ITEM },
       verdict: 'no',
@@ -371,7 +371,7 @@ describe('POST /v1/judgments', () => {
   test('a correction call with an over-long tool name is a 400', async () => {
     const run = row();
     const h = harness([run]);
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { ...CORRECTION_ITEM },
       verdict: 'no',
@@ -384,7 +384,7 @@ describe('POST /v1/judgments', () => {
   test('a notCalled tool name that is too long is a 400', async () => {
     const run = row();
     const h = harness([run]);
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { ...CORRECTION_ITEM },
       verdict: 'no',
@@ -394,11 +394,11 @@ describe('POST /v1/judgments', () => {
     expect(res.body.error.message).toContain('200');
   });
 
-  test('a second correction by the same judge on the same item replaces the first (counts once)', async () => {
+  test('a second correction by the same caller on the same item replaces the first (counts once)', async () => {
     const run = row();
     const h = harness([run]);
     const post = (amount: number) =>
-      h.call('POST', '/v1/judgments', {
+      h.call('POST', '/v1/corrections', {
         runId: run.runId,
         item: { ...CORRECTION_ITEM },
         verdict: 'no',
@@ -409,9 +409,9 @@ describe('POST /v1/judgments', () => {
     expect(first.status).toBe(201);
     expect(second.status).toBe(201);
     // The first is superseded by the second, so the correction counts once.
-    const gotFirst = await h.call('GET', `/v1/judgments/${first.body.id}`);
+    const gotFirst = await h.call('GET', `/v1/corrections/${first.body.id}`);
     expect(gotFirst.body.supersededBy).toBe(second.body.id);
-    const list = await h.call('GET', `/v1/judgments?runId=${run.runId}`);
+    const list = await h.call('GET', `/v1/corrections?runId=${run.runId}`);
     expect(list.body.data).toHaveLength(1);
     expect(list.body.data[0].id).toBe(second.body.id);
     expect(list.body.data[0].correction).toEqual({
@@ -420,10 +420,10 @@ describe('POST /v1/judgments', () => {
     });
   });
 
-  test('a correction may name tools the judged version has', async () => {
+  test('a correction may name tools the corrected version has', async () => {
     const run = row();
     const h = harness([run], {}, undefined, registryWithTools('acme.refund', 'acme.email'));
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { ...CORRECTION_ITEM },
       verdict: 'no',
@@ -438,7 +438,7 @@ describe('POST /v1/judgments', () => {
   test('a correction naming a call tool the version lacks is a 400', async () => {
     const run = row();
     const h = harness([run], {}, undefined, registryWithTools('acme.refund'));
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { ...CORRECTION_ITEM },
       verdict: 'no',
@@ -452,7 +452,7 @@ describe('POST /v1/judgments', () => {
   test('a correction naming a must-not-call tool the version lacks is a 400', async () => {
     const run = row();
     const h = harness([run], {}, undefined, registryWithTools('acme.refund'));
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { ...CORRECTION_ITEM },
       verdict: 'no',
@@ -462,10 +462,10 @@ describe('POST /v1/judgments', () => {
     expect(res.body.error.message).toContain('acme.ghost');
   });
 
-  test('an unknown tool is allowed when the judged version cannot be resolved', async () => {
+  test('an unknown tool is allowed when the corrected version cannot be resolved', async () => {
     const run = row();
     const h = harness([run], {}, undefined, registryVersionGone);
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { ...CORRECTION_ITEM },
       verdict: 'no',
@@ -477,7 +477,7 @@ describe('POST /v1/judgments', () => {
   test('a flow subject skips the tool check (best-effort)', async () => {
     const { agent: _agent, ...flowRun } = row();
     const h = harness([flowRun], {}, undefined, registryWithTools('acme.refund'));
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: flowRun.runId,
       item: { ...CORRECTION_ITEM },
       verdict: 'no',
@@ -491,13 +491,13 @@ describe('POST /v1/judgments', () => {
     const plain = row();
     const h = harness([acme, plain]);
     for (const run of [acme, plain]) {
-      const res = await h.call('POST', '/v1/judgments', {
+      const res = await h.call('POST', '/v1/corrections', {
         runId: run.runId,
         item: { key: 'c1' },
         verdict: 'no',
       });
       expect(res.status).toBe(201);
-      const got = await h.call('GET', `/v1/judgments/${res.body.id}`);
+      const got = await h.call('GET', `/v1/corrections/${res.body.id}`);
       expect(got.body.run.segments).toEqual(run.segments ?? []);
     }
   });
@@ -506,7 +506,7 @@ describe('POST /v1/judgments', () => {
     const run = row({ status: 'running', output: undefined });
     const h = harness([run]);
     const classId = await tenantClass(h);
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: 'c1' },
       verdict: 'no',
@@ -524,7 +524,7 @@ describe('POST /v1/judgments', () => {
     } as never);
     const h = harness([run]);
     const classId = await tenantClass(h);
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: 'c1' },
       verdict: 'no',
@@ -537,7 +537,7 @@ describe('POST /v1/judgments', () => {
   test('an unknown run: 404 run-not-found', async () => {
     const h = harness([]);
     const classId = await tenantClass(h);
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: randomUUID(),
       item: { key: 'c1' },
       verdict: 'no',
@@ -551,7 +551,7 @@ describe('POST /v1/judgments', () => {
     const run = row();
     const h = harness([run]);
     const classId = await tenantClass(h);
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: 'c9', pointer: '/matches/9' },
       verdict: 'yes',
@@ -569,7 +569,7 @@ describe('POST /v1/judgments', () => {
       name: 'expert',
       weight: 1,
     });
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: 'c1' },
       verdict: 'yes',
@@ -593,25 +593,25 @@ describe('POST /v1/judgments', () => {
         judgeClassId: classId,
       },
     ]) {
-      const res = await h.call('POST', '/v1/judgments', body);
+      const res = await h.call('POST', '/v1/corrections', body);
       expect(res.status).toBe(400);
       expect(res.body.error.code).toBe('bad-input');
     }
   });
 
-  test('judging again supersedes: one live judgment, the old one kept as history', async () => {
+  test('correcting again supersedes: one live correction, the old one kept as history', async () => {
     const run = row();
     const h = harness([run]);
     const classId = await tenantClass(h);
     const body = { runId: run.runId, item: { key: 'c1' }, judgeClassId: classId };
-    const first = await h.call('POST', '/v1/judgments', { ...body, verdict: 'yes' });
-    const second = await h.call('POST', '/v1/judgments', { ...body, verdict: 'no' });
+    const first = await h.call('POST', '/v1/corrections', { ...body, verdict: 'yes' });
+    const second = await h.call('POST', '/v1/corrections', { ...body, verdict: 'no' });
     expect(second.status).toBe(201);
 
-    const live = await h.call('GET', `/v1/judgments?runId=${run.runId}`);
+    const live = await h.call('GET', `/v1/corrections?runId=${run.runId}`);
     expect(live.body.data.map((j: { id: string }) => j.id)).toEqual([second.body.id]);
 
-    const old = await h.call('GET', `/v1/judgments/${first.body.id}`);
+    const old = await h.call('GET', `/v1/corrections/${first.body.id}`);
     expect(old.body.supersededBy).toBe(second.body.id);
     expect(old.body.unregisteredAt).toBeTypeOf('string');
   });
@@ -619,21 +619,21 @@ describe('POST /v1/judgments', () => {
   test('without a judge class: recorded unclassified, no judgeClassId on the wire', async () => {
     const run = row();
     const h = harness([run]);
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: 'c1' },
       verdict: 'yes',
     });
     expect(res.status).toBe(201);
     expect(res.body).not.toHaveProperty('judgeClassId');
-    const got = await h.call('GET', `/v1/judgments/${res.body.id}`);
+    const got = await h.call('GET', `/v1/corrections/${res.body.id}`);
     expect(got.body).not.toHaveProperty('judgeClassId');
   });
 
   test('a judge class that does not exist: 400 judge-class-not-applicable', async () => {
     const run = row();
     const h = harness([run]);
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: 'c1' },
       verdict: 'yes',
@@ -648,9 +648,9 @@ describe('POST /v1/judgments', () => {
     const h = harness([run]);
     const classId = await tenantClass(h);
     const body = { runId: run.runId, item: { key: 'c1' }, judgeClassId: classId, verdict: 'yes' };
-    await h.call('POST', '/v1/judgments', { ...body, participantId: 'end-user-1' });
-    await h.call('POST', '/v1/judgments', { ...body, participantId: 'end-user-2' });
-    const live = await h.call('GET', `/v1/judgments?runId=${run.runId}`);
+    await h.call('POST', '/v1/corrections', { ...body, participantId: 'end-user-1' });
+    await h.call('POST', '/v1/corrections', { ...body, participantId: 'end-user-2' });
+    const live = await h.call('GET', `/v1/corrections?runId=${run.runId}`);
     expect(live.body.data).toHaveLength(2);
   });
 
@@ -665,19 +665,19 @@ describe('POST /v1/judgments', () => {
       judgeClassId: classId,
       assertedBy: { kind: 'user', id: 'someone-else' },
     };
-    const asUser = await h.call('POST', '/v1/judgments', body, USER_TOKEN);
+    const asUser = await h.call('POST', '/v1/corrections', body, USER_TOKEN);
     expect(asUser.body.assertedBy).toEqual({ kind: 'user', id: 'user-1' });
-    const asKey = await h.call('POST', '/v1/judgments', body, KEY_TOKEN);
+    const asKey = await h.call('POST', '/v1/corrections', body, KEY_TOKEN);
     expect(asKey.body.assertedBy).toEqual({ kind: 'service', id: 'key-1' });
   });
 });
 
-describe('judging and authorization', () => {
-  test("judging a run needs write on the run's project, as cancelling one does", async () => {
+describe('correcting and authorization', () => {
+  test("correcting a run needs write on the run's project, as cancelling one does", async () => {
     const run = row();
     const project = run.projectId as unknown as string;
     const granted: Authz = { grants: [`write project:${project}`], checked: [] };
-    const allowed = await harness([run], {}, granted).call('POST', '/v1/judgments', {
+    const allowed = await harness([run], {}, granted).call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: 'c1' },
       verdict: 'yes',
@@ -689,13 +689,13 @@ describe('judging and authorization', () => {
       [run],
       {},
       { grants: [`read project:${project}`], checked: [] },
-    ).call('POST', '/v1/judgments', { runId: run.runId, item: { key: 'c1' }, verdict: 'yes' });
+    ).call('POST', '/v1/corrections', { runId: run.runId, item: { key: 'c1' }, verdict: 'yes' });
     expect(denied.status).toBe(403);
     expect(denied.body.error.code).toBe('permission-denied');
   });
 });
 
-describe("the context captured on a turn's first judgment", () => {
+describe("the context captured on a turn's first correction", () => {
   const messages = [
     { sequence: 0, role: 'user', content: 'hi' },
     { sequence: 1, role: 'assistant', content: 'hello' },
@@ -724,13 +724,13 @@ describe("the context captured on a turn's first judgment", () => {
   test('history before the turn and what was retrieved are stored with the run copy', async () => {
     const run = turn();
     const h = harness([run], { messages, journal });
-    const first = await h.call('POST', '/v1/judgments', {
+    const first = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: 'c1' },
       verdict: 'yes',
     });
     expect(first.status).toBe(201);
-    const got = await h.call('GET', `/v1/judgments/${first.body.id}`);
+    const got = await h.call('GET', `/v1/corrections/${first.body.id}`);
     expect(got.body.run.context).toEqual({
       history: [messages[0], messages[1]],
       retrieved: [{ source: 'kb', text: 'Acme Corp' }],
@@ -756,13 +756,13 @@ describe("the context captured on a turn's first judgment", () => {
         },
       ],
     });
-    const first = await h.call('POST', '/v1/judgments', {
+    const first = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: 'c1' },
       verdict: 'yes',
     });
     expect(first.status).toBe(201);
-    const got = await h.call('GET', `/v1/judgments/${first.body.id}`);
+    const got = await h.call('GET', `/v1/corrections/${first.body.id}`);
     expect(got.body.run.context).toMatchObject({ retrieved: [], recalled });
   });
 
@@ -780,12 +780,12 @@ describe("the context captured on a turn's first judgment", () => {
     const contextOf = async (value: unknown) => {
       const run = turn();
       const h = harness([run], { messages, journal: gated(value) });
-      const res = await h.call('POST', '/v1/judgments', {
+      const res = await h.call('POST', '/v1/corrections', {
         runId: run.runId,
         item: { key: 'c1' },
         verdict: 'yes',
       });
-      return (await h.call('GET', `/v1/judgments/${res.body.id}`)).body.run.context;
+      return (await h.call('GET', `/v1/corrections/${res.body.id}`)).body.run.context;
     };
     expect((await contextOf({ decided: 'approve', rationale: 'fine' })).sessionApproval).toEqual({
       approved: true,
@@ -833,37 +833,37 @@ describe("the context captured on a turn's first judgment", () => {
         recorded('tool-call:call-9:acme.lookup:env', { ORDERS_REGION: 'eu' }),
       ],
     });
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: 'c1' },
       verdict: 'yes',
     });
-    const got = await h.call('GET', `/v1/judgments/${res.body.id}`);
+    const got = await h.call('GET', `/v1/corrections/${res.body.id}`);
     expect(got.body.run.context.toolEnv).toEqual({ 'acme.lookup': { ORDERS_REGION: 'us' } });
   });
 
   test('a turn that never waited at the gate has no decision kept', async () => {
     const run = turn();
     const h = harness([run], { messages, journal });
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: 'c1' },
       verdict: 'yes',
     });
-    const got = await h.call('GET', `/v1/judgments/${res.body.id}`);
+    const got = await h.call('GET', `/v1/corrections/${res.body.id}`);
     expect(got.body.run.context).not.toHaveProperty('sessionApproval');
   });
 
-  test('a second judgment of the run does not read it again', async () => {
+  test('a second correction of the run does not read it again', async () => {
     const run = turn();
     const h = harness([run], { messages, journal });
-    await h.call('POST', '/v1/judgments', {
+    await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: 'c1' },
       verdict: 'yes',
     });
     expect(h.reads).toEqual([1, 1]);
-    const second = await h.call('POST', '/v1/judgments', {
+    const second = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: 'c2' },
       verdict: 'no',
@@ -872,7 +872,7 @@ describe("the context captured on a turn's first judgment", () => {
     expect(h.reads).toEqual([1, 1]);
   });
 
-  test("a comparison's replay is stamped with the run it replays, at its first judgment; any other run isn't", async () => {
+  test("a comparison's replay is stamped with the run it replays, at its first correction; any other run isn't", async () => {
     const replayedTurn = row({ runId: 'run-replay-turn' as RunId, replayOf: 'run-1' as RunId });
     const { agent: _agent, ...flowRun } = row({
       runId: 'run-replay-flow' as RunId,
@@ -881,13 +881,13 @@ describe("the context captured on a turn's first judgment", () => {
     const plain = row({ runId: 'run-plain' as RunId });
     const h = harness([replayedTurn, flowRun, plain], { messages, journal });
     const contextOf = async (runId: string) => {
-      const res = await h.call('POST', '/v1/judgments', {
+      const res = await h.call('POST', '/v1/corrections', {
         runId,
         item: { key: 'c1' },
         verdict: 'yes',
       });
       expect(res.status, JSON.stringify(res.body)).toBe(201);
-      return (await h.call('GET', `/v1/judgments/${res.body.id}`)).body.run.context;
+      return (await h.call('GET', `/v1/corrections/${res.body.id}`)).body.run.context;
     };
     expect((await contextOf('run-replay-turn')).replayOf).toBe('run-1');
     // A flow replay with no tool calls keeps no other context, and is stamped all the same.
@@ -898,20 +898,20 @@ describe("the context captured on a turn's first judgment", () => {
   test('a flow run reads no conversation; with no tool calls to keep, it keeps no context', async () => {
     const { agent: _agent, ...run } = row();
     const h = harness([run], { messages, journal });
-    const res = await h.call('POST', '/v1/judgments', {
+    const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: 'c1' },
       verdict: 'yes',
     });
     expect(res.status).toBe(201);
-    const got = await h.call('GET', `/v1/judgments/${res.body.id}`);
+    const got = await h.call('GET', `/v1/corrections/${res.body.id}`);
     expect(got.body.run.context).toBeUndefined();
     // Its journal was read (for tool calls), its conversation never.
     expect(h.reads[0]).toBe(0);
   });
 });
 
-describe('GET /v1/judgments', () => {
+describe('GET /v1/corrections', () => {
   test('filters by run, agent and version, and verdict', async () => {
     const r1 = row();
     const r2 = row({ agent: agentRef('3.0.0') });
@@ -919,20 +919,20 @@ describe('GET /v1/judgments', () => {
     const r3: KernelRunRecord = flowRun;
     const h = harness([r1, r2, r3]);
     const classId = await tenantClass(h);
-    const judge = (run: KernelRunRecord, key: string, verdict: 'yes' | 'no') =>
-      h.call('POST', '/v1/judgments', {
+    const correct = (run: KernelRunRecord, key: string, verdict: 'yes' | 'no') =>
+      h.call('POST', '/v1/corrections', {
         runId: run.runId,
         item: { key },
         verdict,
         judgeClassId: classId,
       });
-    await judge(r1, 'a', 'yes');
-    await judge(r1, 'b', 'no');
-    await judge(r2, 'a', 'yes');
-    await judge(r3, 'a', 'no');
+    await correct(r1, 'a', 'yes');
+    await correct(r1, 'b', 'no');
+    await correct(r2, 'a', 'yes');
+    await correct(r3, 'a', 'no');
 
     const list = async (qs: string) =>
-      (await h.call('GET', `/v1/judgments?${qs}`)).body.data as {
+      (await h.call('GET', `/v1/corrections?${qs}`)).body.data as {
         runId: string;
         verdict: string;
       }[];
@@ -948,9 +948,9 @@ describe('GET /v1/judgments', () => {
 
   test('agentVersion without agentId, or an unknown verdict: 400', async () => {
     const h = harness([]);
-    const a = await h.call('GET', '/v1/judgments?agentVersion=1.0.0');
+    const a = await h.call('GET', '/v1/corrections?agentVersion=1.0.0');
     expect(a.status).toBe(400);
-    const b = await h.call('GET', '/v1/judgments?verdict=maybe');
+    const b = await h.call('GET', '/v1/corrections?verdict=maybe');
     expect(b.status).toBe(400);
   });
 
@@ -959,44 +959,44 @@ describe('GET /v1/judgments', () => {
     const h = harness([run]);
     const classId = await tenantClass(h);
     for (const key of ['a', 'b', 'c']) {
-      await h.call('POST', '/v1/judgments', {
+      await h.call('POST', '/v1/corrections', {
         runId: run.runId,
         item: { key },
         verdict: 'yes',
         judgeClassId: classId,
       });
     }
-    const page = await h.call('GET', '/v1/judgments?limit=2');
+    const page = await h.call('GET', '/v1/corrections?limit=2');
     expect(page.body.data).toHaveLength(2);
     expect(page.body.hasMore).toBe(true);
   });
 });
 
-describe('POST /v1/judgments/:id/unregister', () => {
-  test('removes the judgment; it stops listing and a second removal is 404', async () => {
+describe('POST /v1/corrections/:id/remove', () => {
+  test('removes the correction; it stops listing and a second removal is 404', async () => {
     const run = row();
     const h = harness([run]);
     const classId = await tenantClass(h);
-    const made = await h.call('POST', '/v1/judgments', {
+    const made = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
       item: { key: 'c1' },
       verdict: 'yes',
       judgeClassId: classId,
     });
-    const gone = await h.call('POST', `/v1/judgments/${made.body.id}/unregister`, {});
+    const gone = await h.call('POST', `/v1/corrections/${made.body.id}/remove`, {});
     expect(gone.status).toBe(200);
-    expect(gone.body).toEqual({ judgmentId: made.body.id, unregistered: true });
+    expect(gone.body).toEqual({ correctionId: made.body.id, unregistered: true });
 
-    expect((await h.call('GET', '/v1/judgments')).body.data).toHaveLength(0);
-    const again = await h.call('POST', `/v1/judgments/${made.body.id}/unregister`, {});
+    expect((await h.call('GET', '/v1/corrections')).body.data).toHaveLength(0);
+    const again = await h.call('POST', `/v1/corrections/${made.body.id}/remove`, {});
     expect(again.status).toBe(404);
-    expect(again.body.error.code).toBe('judgment-not-found');
+    expect(again.body.error.code).toBe('correction-not-found');
   });
 
-  test('an unknown judgment: 404 on get and unregister', async () => {
+  test('an unknown correction: 404 on get and unregister', async () => {
     const h = harness([]);
-    expect((await h.call('GET', '/v1/judgments/nope')).status).toBe(404);
-    expect((await h.call('POST', '/v1/judgments/nope/unregister', {})).status).toBe(404);
+    expect((await h.call('GET', '/v1/corrections/nope')).status).toBe(404);
+    expect((await h.call('POST', '/v1/corrections/nope/remove', {})).status).toBe(404);
   });
 });
 
@@ -1133,10 +1133,10 @@ describe('restricted judge classes (assertableBy, T200)', () => {
     return res.body.id as string;
   }
 
-  const judge = (h: Harness, runId: string, judgeClassId: string, token?: string) =>
+  const correct = (h: Harness, runId: string, judgeClassId: string, token?: string) =>
     h.call(
       'POST',
-      '/v1/judgments',
+      '/v1/corrections',
       { runId, item: { key: 'c1' }, verdict: 'yes', judgeClassId },
       token,
     );
@@ -1145,13 +1145,13 @@ describe('restricted judge classes (assertableBy, T200)', () => {
     const run = row();
     const h = harness([run]);
     const classId = await restrictedClass(h, { minReviewerRole: 'senior' });
-    const refused = await judge(h, run.runId, classId);
+    const refused = await correct(h, run.runId, classId);
     expect(refused.status).toBe(403);
     expect(refused.body.error).toMatchObject({ code: 'judge-class-not-allowed' });
     expect(refused.body.error.message).toBe(
-      'You can\'t judge as "arbiter": it needs a senior reviewer or above, and you aren\'t a reviewer.',
+      'You can\'t correct as "arbiter": it needs a senior reviewer or above, and you aren\'t a reviewer.',
     );
-    const recorded = await judge(h, run.runId, classId, SENIOR_TOKEN);
+    const recorded = await correct(h, run.runId, classId, SENIOR_TOKEN);
     expect(recorded.status).toBe(201);
     expect(recorded.body.restricted).toBe(true);
   });
@@ -1161,7 +1161,7 @@ describe('restricted judge classes (assertableBy, T200)', () => {
     const authz: Authz = { grants: ['*'], checked: [], recorded: [] };
     const h = harness([run], {}, authz);
     const classId = await restrictedClass(h, { minReviewerRole: 'senior' });
-    const refused = await judge(h, run.runId, classId);
+    const refused = await correct(h, run.runId, classId);
     expect(refused.status).toBe(403);
     expect(refused.body.error.code).toBe('judge-class-not-allowed');
     const resource = `project:${run.projectId}`;
@@ -1183,16 +1183,16 @@ describe('restricted judge classes (assertableBy, T200)', () => {
     const run = row();
     const h = harness([run]);
     const usersOnly = await restrictedClass(h, { principalKinds: ['user'] });
-    expect((await judge(h, run.runId, usersOnly, KEY_TOKEN)).status).toBe(403);
-    expect((await judge(h, run.runId, usersOnly)).status).toBe(201);
+    expect((await correct(h, run.runId, usersOnly, KEY_TOKEN)).status).toBe(403);
+    expect((await correct(h, run.runId, usersOnly)).status).toBe(201);
     const named = await h.call('POST', '/v1/judge-classes', {
       scope: { kind: 'tenant' },
       name: 'named',
       weight: 1,
       assertableBy: { principalIds: ['user-2'] },
     });
-    expect((await judge(h, run.runId, named.body.id)).status).toBe(403);
-    expect((await judge(h, run.runId, named.body.id, SENIOR_TOKEN)).status).toBe(201);
+    expect((await correct(h, run.runId, named.body.id)).status).toBe(403);
+    expect((await correct(h, run.runId, named.body.id, SENIOR_TOKEN)).status).toBe(201);
   });
 
   test('PATCH sets the restriction, and null lifts it', async () => {
@@ -1203,11 +1203,11 @@ describe('restricted judge classes (assertableBy, T200)', () => {
       assertableBy: { minReviewerRole: 'admin' },
     });
     expect(set.body.assertableBy).toEqual({ minReviewerRole: 'admin' });
-    expect((await judge(h, run.runId, classId, SENIOR_TOKEN)).status).toBe(403);
+    expect((await correct(h, run.runId, classId, SENIOR_TOKEN)).status).toBe(403);
     const lifted = await h.call('PATCH', `/v1/judge-classes/${classId}`, { assertableBy: null });
     expect(lifted.status).toBe(200);
     expect(lifted.body).not.toHaveProperty('assertableBy');
-    const unrestricted = await judge(h, run.runId, classId);
+    const unrestricted = await correct(h, run.runId, classId);
     expect(unrestricted.status).toBe(201);
     // Recorded while the class was unrestricted: not restricted, whatever the class is later.
     expect(unrestricted.body).not.toHaveProperty('restricted');

@@ -189,7 +189,7 @@ What to check before you upgrade, and what's different after:
     is named by a malformed id is refused with `404 identity-user-not-found`,
     as adding a project member is. Before, an unknown id was added.
   - A judging rule's results count the runs their corrections come from
-    (`runsWithJudgments`).
+    (`runsWithCorrections`).
 - **Models:**
   - Claude Haiku 4.5 asks for up to 16,000 output tokens by default in the
     `anthropic` and `bedrock` presets (it was 8,192). A model's

@@ -67,8 +67,8 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
  * 403s that aren't recorded, by design: they don't refuse the caller. Two
  * more answer `permission-denied` with no principal on the request, so
  * there's no one to record them for: a public run token outside its two
- * progress routes (a run token names a run, not a principal), and judging
- * without a user or a service token (`judgments.ts`).
+ * progress routes (a run token names a run, not a principal), and correcting
+ * without a user or a service token (`corrections.ts`).
  */
 const NOT_A_REFUSAL_OF_THE_CALLER: Readonly<Record<string, string>> = {
   'signer-not-trusted': 'it refuses an artifact, not a caller',
@@ -362,7 +362,7 @@ describe('refusals deeper in a route, which an empty body never reaches, are rec
   });
 
   // `judge-class-not-allowed` needs a run and a restricted judge class: its
-  // recording is pinned in judgments-routes.test.ts.
+  // recording is pinned in corrections-routes.test.ts.
 });
 
 test("a route's details never override the refusal's code, message or what was refused", () => {

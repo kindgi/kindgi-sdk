@@ -41,7 +41,7 @@ each one by the name in the second column.
 | `secret` | Deleted secrets | revoked secrets |
 | `run` | Deleted runs | **finished runs**, counted from when they finished |
 | `policy` | Retired policy versions | unregistered policy versions |
-| `judgment` | Removed corrections | removed corrections, and the history of the answers waiting for a correction: closed items and skipped runs |
+| `correction` | Removed corrections | removed corrections, and the history of the answers waiting for a correction: closed items and skipped runs |
 | `judge_class` | Retired judge classes | retired judge classes |
 | `org` | Deleted orgs | deleted orgs, once their environments' and MCP endpoints' records are purged |
 | `provider` | Removed model providers | unregistered model providers |
@@ -68,11 +68,11 @@ under their own setting:
 
 - **Corrections,** with the copy of the run's input and output each
   corrected run keeps. A correction that isn't removed stays for good. A
-  removed one goes under `judgment`.
+  removed one goes under `correction`.
 - **The history of the answers waiting for a correction:** items that
   closed (`judged`, `dismissed` or `erased`) and runs a rule skipped at its
   cap. They hold ids, versions,
-  statuses and times only. They go under `judgment`, counted from when they
+  statuses and times only. They go under `correction`, counted from when they
   closed or were skipped. A purged run's waiting item closes as `erased`.
 - **Model-call costs,** which are billing history and stay.
 

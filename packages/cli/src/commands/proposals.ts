@@ -177,7 +177,7 @@ const draft: LeafCommand = {
   name: 'draft',
   description:
     "Draft a suggested change by hand: new content for one block the agent version pins (settings values, or the agent's instructions), for one scope. The same change from the same version for the same scope returns the suggested change drafted before. Needs `publish` on the agent.",
-  usage: `kindgi proposals draft --agent=<agent-id> --from-version=<semver> ${SCOPE_USAGE} --block=<block-id> (--values=<json>|@<file> | --template=<text>|@<file>) --hypothesis=<text> [--judgment=<judgment-id>]…`,
+  usage: `kindgi proposals draft --agent=<agent-id> --from-version=<semver> ${SCOPE_USAGE} --block=<block-id> (--values=<json>|@<file> | --template=<text>|@<file>) --hypothesis=<text> [--judgment=<correction-id>]…`,
   optionSpec: {
     agent: { type: 'string', description: 'The agent.' },
     'from-version': {
@@ -210,7 +210,7 @@ const draft: LeafCommand = {
       const blockId = required(ctx, 'block');
       const hypothesis = required(ctx, 'hypothesis');
       const { tier, content } = await contentFrom(ctx);
-      const judgmentIds = listFlag(ctx, 'judgment');
+      const fixes = listFlag(ctx, 'judgment');
       return await ctx.client().proposals.create({
         agentId,
         fromVersion,
@@ -218,7 +218,7 @@ const draft: LeafCommand = {
         tier,
         change: { blockId, content },
         hypothesis,
-        ...(judgmentIds.length > 0 && { evidence: { judgmentIds } }),
+        ...(fixes.length > 0 && { evidence: { fixes } }),
         ...idempotency(ctx),
       });
     }),

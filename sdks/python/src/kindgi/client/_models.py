@@ -312,7 +312,7 @@ class Comparison(BaseModel):
 
 class Evidence(BaseModel):
     """
-    The judged evidence behind each gated metric; for a metric with `maxDrop`, the baseline's too.
+    The evidence from corrections behind each gated metric; for a metric with `maxDrop`, the baseline's too.
     """
 
     model_config = ConfigDict(
@@ -391,7 +391,7 @@ class GatePolicySpec(BaseModel):
     comparison: Comparison | None = None
     evidence: Evidence | None = None
     """
-    The judged evidence behind each gated metric; for a metric with `maxDrop`, the baseline's too.
+    The evidence from corrections behind each gated metric; for a metric with `maxDrop`, the baseline's too.
     """
     metrics: list[Metric] | None = None
     replay: Replay | None = None
@@ -2255,9 +2255,9 @@ class UnregisterJudgeClassResult(BaseModel):
     unregistered: Literal[True]
 
 
-class JudgedSubject(BaseModel):
+class CorrectedSubject(BaseModel):
     """
-    What a judged run ran: an agent at a version, or a flow at a version.
+    What a corrected run ran: an agent at a version, or a flow at a version.
     """
 
     model_config = ConfigDict(
@@ -2269,9 +2269,9 @@ class JudgedSubject(BaseModel):
     version: str
 
 
-class JudgedItem(BaseModel):
+class CorrectedItem(BaseModel):
     """
-    The judged item of a run's output.
+    The corrected item of a run's output.
     """
 
     model_config = ConfigDict(
@@ -2280,7 +2280,7 @@ class JudgedItem(BaseModel):
     )
     key: Annotated[str, Field(min_length=1)]
     """
-    The caller's stable id for the item. `kindgi:correction` is reserved: a judgment on it is accepted only when it carries a correction at pointer `""`.
+    The caller's stable id for the item. `kindgi:correction` is reserved: a correction on it is accepted only when it carries expected decisions (`correction`) at pointer `""`.
     """
     pointer: str | None = None
     """
@@ -2308,9 +2308,9 @@ class NotCalledItem(RootModel[str]):
     root: Annotated[str, Field(max_length=200, min_length=1)]
 
 
-class Correction(BaseModel):
+class ExpectedDecisions(BaseModel):
     """
-    An expert's correction of a run's decisions: the tool calls the agent should have made, and the tools it should not have called at all. Graded deterministically on a replay. A tool can't be in both `calls` and `notCalled`, and one of them must be non-empty (both empty is a 400).
+    What the agent should have done, by an expert's correction of a run's decisions: the tool calls it should have made, and the tools it should not have called at all. Graded deterministically on a replay. A tool can't be in both `calls` and `notCalled`, and one of them must be non-empty (both empty is a 400).
     """
 
     model_config = ConfigDict(
@@ -2327,9 +2327,9 @@ class Correction(BaseModel):
     """
 
 
-class JudgmentAssertedBy(BaseModel):
+class CorrectionAssertedBy(BaseModel):
     """
-    Who asserted a judgment: the authenticated caller, never a typed name.
+    Who asserted a correction: the authenticated caller, never a typed name.
     """
 
     model_config = ConfigDict(
@@ -2343,7 +2343,7 @@ class JudgmentAssertedBy(BaseModel):
     """
 
 
-class Judgment(BaseModel):
+class Correction(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -2352,35 +2352,35 @@ class Judgment(BaseModel):
     tenant_id: Annotated[str, Field(alias="tenantId")]
     project_id: Annotated[str, Field(alias="projectId")]
     run_id: Annotated[str, Field(alias="runId")]
-    subject: JudgedSubject
-    item: JudgedItem
+    subject: CorrectedSubject
+    item: CorrectedItem
     verdict: Annotated[Literal["yes", "no"] | str, _open.OPEN]
     reason: str | None = None
-    correction: Correction | None = None
+    correction: ExpectedDecisions | None = None
     """
     The expert's correction of the run's decisions, when they gave one.
     """
     judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
     """
-    The judge class the judgment is recorded under. Absent when unclassified (counts with weight 1).
+    The judge class the correction is recorded under. Absent when unclassified (counts with weight 1).
     """
     restricted: Literal[True] | None = None
     """
-    Present (true) when the judge class was restricted (`assertableBy`) when the judgment was recorded, so the judge was checked against it. A restriction added or lifted later doesn't change it.
+    Present (true) when the judge class was restricted (`assertableBy`) when the correction was recorded, so whoever recorded it was checked against it. A restriction added or lifted later doesn't change it.
     """
-    asserted_by: Annotated[JudgmentAssertedBy, Field(alias="assertedBy")]
+    asserted_by: Annotated[CorrectionAssertedBy, Field(alias="assertedBy")]
     participant_id: Annotated[str | None, Field(alias="participantId")] = None
     """
-    The app's opaque id for its end user who judged, when an app judged on their behalf.
+    The app's opaque id for its end user who corrected it, when an app corrected it on their behalf.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
     """
-    Set when the judgment was removed or superseded.
+    Set when the correction was removed or superseded.
     """
     superseded_by: Annotated[str | None, Field(alias="supersededBy")] = None
     """
-    The judgment that replaced this one.
+    The correction that replaced this one.
     """
 
 
@@ -2400,12 +2400,12 @@ class SessionApproval(BaseModel):
     """
 
 
-class JudgmentCollectionPage(BaseModel):
+class CorrectionCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Judgment]
+    data: list[Correction]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
     Opaque cursor. Treat as opaque on the client.
@@ -2413,13 +2413,13 @@ class JudgmentCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class CreateJudgmentBody(BaseModel):
+class CreateCorrectionBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     run_id: Annotated[str, Field(alias="runId", min_length=1)]
-    item: JudgedItem
+    item: CorrectedItem
     verdict: Literal["yes", "no"]
     reason: Annotated[str | None, Field(max_length=4000)] = None
     judge_class_id: Annotated[str | None, Field(alias="judgeClassId", min_length=1)] = None
@@ -2428,26 +2428,26 @@ class CreateJudgmentBody(BaseModel):
     """
     participant_id: Annotated[str | None, Field(alias="participantId", min_length=1)] = None
     """
-    An app's opaque id for its end user, when judging on their behalf.
+    An app's opaque id for its end user, when correcting on their behalf.
     """
-    correction: Correction | None = None
+    correction: ExpectedDecisions | None = None
     """
-    Optional. The tool calls the agent should have made, graded on a replay. A correction judges the run's whole output, so it is recorded under one reserved item (`item.key` `"kindgi:correction"`, `item.pointer` `""`): a correction on any other item is a 400, and a second correction of the run by the same expert replaces the first, so it counts once.
+    Optional. The tool calls the agent should have made, graded on a replay. Expected decisions cover the run's whole output, so they are recorded under one reserved item (`item.key` `"kindgi:correction"`, `item.pointer` `""`): expected decisions on any other item are a 400, and a second set from the same expert on the run replaces the first, so it counts once.
     """
 
 
-class UnregisterJudgmentResult(BaseModel):
+class RemoveCorrectionResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    correction_id: Annotated[str, Field(alias="correctionId")]
     unregistered: Literal[True]
 
 
 class Restricted(BaseModel):
     """
-    The same weights, counting only judgments recorded while their class was restricted (`Judgment.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.
+    The same weights, counting only corrections recorded while their class was restricted (`Correction.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.
     """
 
     model_config = ConfigDict(
@@ -2456,9 +2456,9 @@ class Restricted(BaseModel):
     )
     yes_weight: Annotated[float, Field(alias="yesWeight")]
     total_weight: Annotated[float, Field(alias="totalWeight")]
-    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
+    correction_ids: Annotated[list[str] | None, Field(alias="correctionIds")] = None
     """
-    The judgments behind these two. Absent from a test set built before judgment ids.
+    The corrections behind these two. Absent from a test set built before correction ids.
     """
 
 
@@ -2471,17 +2471,17 @@ class Reason(BaseModel):
     reason: str
     judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
     """
-    The judgment's class, when it had one.
+    The correction's class, when it had one.
     """
     restricted: Literal[True] | None = None
     """
-    Set when the judgment was recorded while its class was restricted (`Judgment.restricted`).
+    Set when the correction was recorded while its class was restricted (`Correction.restricted`).
     """
 
 
-class JudgedItemSummary(BaseModel):
+class CorrectedItemSummary(BaseModel):
     """
-    The judgments of one item of a case's output, summed up.
+    The corrections of one item of a case's output, summed up.
     """
 
     model_config = ConfigDict(
@@ -2493,27 +2493,27 @@ class JudgedItemSummary(BaseModel):
     rank: Annotated[int | None, Field(ge=0)] = None
     yes: Annotated[int, Field(ge=0)]
     """
-    How many judgments said yes.
+    How many corrections said yes.
     """
     no: Annotated[int, Field(ge=0)]
     """
-    How many judgments said no.
+    How many corrections said no.
     """
     yes_weight: Annotated[float, Field(alias="yesWeight")]
     """
-    The weight behind "yes" (an unclassified judgment counts 1).
+    The weight behind "yes" (an unclassified correction counts 1).
     """
     total_weight: Annotated[float, Field(alias="totalWeight")]
     """
-    The weight behind all judgments of the item.
+    The weight behind all corrections of the item.
     """
     restricted: Restricted | None = None
     """
-    The same weights, counting only judgments recorded while their class was restricted (`Judgment.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.
+    The same weights, counting only corrections recorded while their class was restricted (`Correction.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.
     """
-    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
+    correction_ids: Annotated[list[str] | None, Field(alias="correctionIds")] = None
     """
-    The judgments summed into the item, by id: what a comparison on this case counts. Absent from a test set built before judgment ids.
+    The corrections summed into the item, by id: what a comparison on this case counts. Absent from a test set built before correction ids.
     """
     reasons: list[Reason]
     """
@@ -2527,7 +2527,7 @@ class PrincipalId(RootModel[str]):
 
 class JudgeClassAssertableBy(BaseModel):
     """
-    Who may assert the class: every part that is set must hold. A class with one is restricted: a judgment recorded while it is carries `restricted`, and a comparison weighted `restricted-only` counts only those.
+    Who may assert the class: every part that is set must hold. A class with one is restricted: a correction recorded while it is carries `restricted`, and a comparison weighted `restricted-only` counts only those.
     """
 
     model_config = ConfigDict(
@@ -2593,9 +2593,9 @@ class JudgeClassId(RootModel[str]):
     root: Annotated[str, Field(min_length=1)]
 
 
-class BuildJudgedSuiteBody(BaseModel):
+class BuildCorrectedSuiteBody(BaseModel):
     """
-    Name the agent (`agentId`) or the flow (`flowId`) whose judged runs to use.
+    Name the agent (`agentId`) or the flow (`flowId`) whose corrected runs to use.
     """
 
     model_config = ConfigDict(
@@ -2615,28 +2615,28 @@ class BuildJudgedSuiteBody(BaseModel):
     flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
     since: AwareDatetime | None = None
     """
-    Runs first judged at or after this time.
+    Runs first corrected at or after this time.
     """
     until: AwareDatetime | None = None
     """
-    Runs first judged before this time.
+    Runs first corrected before this time.
     """
     judge_class_ids: Annotated[list[JudgeClassId] | None, Field(alias="judgeClassIds")] = None
     """
-    Count only judgments recorded under these judge classes.
+    Count only corrections recorded under these judge classes.
     """
-    min_judgments: Annotated[int | None, Field(alias="minJudgments", ge=1)] = None
+    min_corrections: Annotated[int | None, Field(alias="minCorrections", ge=1)] = None
     """
-    Leave out runs with fewer counted judgments. Default 1.
+    Leave out runs with fewer counted corrections. Default 1.
     """
     segments: list[ScopeSegment] | None = None
     """
-    Only runs started in this segment path or below it, coarse to fine (e.g. `company=acme`). A run judged before its segments were recorded with its judgments is in no segment, so it's left out.
+    Only runs started in this segment path or below it, coarse to fine (e.g. `company=acme`). A run corrected before its segments were recorded with its corrections is in no segment, so it's left out.
     """
     description: str | None = None
 
 
-class BuildJudgedSuiteResult(BaseModel):
+class BuildCorrectedSuiteResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -2647,7 +2647,7 @@ class BuildJudgedSuiteResult(BaseModel):
     case_count: Annotated[int, Field(alias="caseCount", ge=0)]
     truncated: bool
     """
-    Whether more judged runs matched than the 1000 cases a set holds.
+    Whether more corrected runs matched than the 1000 cases a set holds.
     """
 
 
@@ -4533,13 +4533,13 @@ class ProposalEvidence(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
+    fixes: list[str] | None = None
     """
-    The judgments that motivated it. An improvement pass's proposal names the judgments it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items judged wrong, then the rest.
+    The corrections it fixes, by id. An improvement pass's proposal names the corrections it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items corrected as wrong, then the rest.
     """
-    judgment_count: Annotated[int | None, Field(alias="judgmentCount", ge=0)] = None
+    correction_count: Annotated[int | None, Field(alias="correctionCount", ge=0)] = None
     """
-    How many judgments it rests on, when `judgmentIds` names only the first of them. Absent when `judgmentIds` names them all.
+    How many corrections it rests on, when `fixes` names only the first of them. Absent when `fixes` names them all.
     """
 
 
@@ -4849,7 +4849,7 @@ class Evidence1(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
+    fixes: list[str] | None = None
 
 
 class ProposalReasonBody(BaseModel):
@@ -6229,7 +6229,7 @@ class RetentionPolicyConflict(BaseModel):
             "run",
             "artifact",
             "policy",
-            "judgment",
+            "correction",
             "judge_class",
             "provider",
             "memory",
@@ -6273,7 +6273,7 @@ class RetentionScheduledItem(BaseModel):
             "run",
             "artifact",
             "policy",
-            "judgment",
+            "correction",
             "judge_class",
             "provider",
             "memory",
@@ -6349,7 +6349,7 @@ class RetentionScheduledPage(BaseModel):
                     "run",
                     "artifact",
                     "policy",
-                    "judgment",
+                    "correction",
                     "judge_class",
                     "provider",
                     "memory",
@@ -6383,7 +6383,7 @@ class RetentionScheduledPage(BaseModel):
                     "run",
                     "artifact",
                     "policy",
-                    "judgment",
+                    "correction",
                     "judge_class",
                     "provider",
                     "memory",
@@ -6427,7 +6427,7 @@ class RetentionSweepBody(BaseModel):
                 "run",
                 "artifact",
                 "policy",
-                "judgment",
+                "correction",
                 "judge_class",
                 "provider",
                 "memory",
@@ -6480,7 +6480,7 @@ class PerDomainItem(BaseModel):
             "run",
             "artifact",
             "policy",
-            "judgment",
+            "correction",
             "judge_class",
             "provider",
             "memory",
@@ -6753,7 +6753,7 @@ class EvalRunFlowRef(BaseModel):
 
 class EvalBaseline1(BaseModel):
     """
-    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
 
     model_config = ConfigDict(
@@ -6778,7 +6778,7 @@ class Live(BaseModel):
 
 class EvalBaseline2(BaseModel):
     """
-    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
 
     model_config = ConfigDict(
@@ -6834,7 +6834,7 @@ class EvalComparison(BaseModel):
     )
     baseline: Annotated[Literal["recorded"] | str, _open.OPEN] | EvalBaseline1 | EvalBaseline2
     """
-    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
     reads: Annotated[Literal["recorded", "live"] | str, _open.OPEN]
     """
@@ -6848,19 +6848,19 @@ class EvalComparison(BaseModel):
         Field(alias="classWeights"),
     ] = None
     """
-    Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).
+    Which corrections count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Correction.restricted`), the others weighing 0 (`restricted-only`).
     """
     overrides: EvalOverrides | None = None
     sample: EvalSample | None = None
     rescore_of: Annotated[str | None, Field(alias="rescoreOf")] = None
     """
-    Rescore that comparison eval run instead of replaying: its replays' outputs are scored again, with the judgments recorded on them since (a changed answer judged on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/eval-runs/{runId}/rescore`.
+    Rescore that comparison eval run instead of replaying: its replays' outputs are scored again, with the corrections recorded on them since (a changed answer corrected on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/eval-runs/{runId}/rescore`.
     """
 
 
 class ComparisonMetric(BaseModel):
     """
-    One metric, the recorded runs beside the candidate. `null` where a side had no judged evidence; `n` / `weight` are the candidate's evidence (cases with judged items, and the judgment weight behind them), `baselineN` / `baselineWeight` the recorded side's.
+    One metric, the recorded runs beside the candidate. `null` where a side had no evidence from corrections; `n` / `weight` are the candidate's evidence (cases with corrected items, and the correction weight behind them), `baselineN` / `baselineWeight` the recorded side's.
     """
 
     model_config = ConfigDict(
@@ -6885,7 +6885,7 @@ class ComparisonMetric(BaseModel):
     """
     fresh_weight: Annotated[float | None, Field(alias="freshWeight", ge=0.0)] = None
     """
-    Of `weight`, the part judged on the candidate's replays themselves (a rescore, after people judged a changed answer there). Absent when none. Not on `weightedPrecisionAtK`.
+    Of `weight`, the part corrected on the candidate's replays themselves (a rescore, after people corrected a changed answer there). Absent when none. Not on `weightedPrecisionAtK`.
     """
 
 
@@ -6929,7 +6929,39 @@ class Metrics(BaseModel):
     weighted_precision_at_k: Annotated[ComparisonMetric, Field(alias="weightedPrecisionAtK")]
 
 
-class JudgedComparisonCost(BaseModel):
+class Result(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    correction_id: Annotated[str, Field(alias="correctionId")]
+    pass_: Annotated[bool, Field(alias="pass")]
+
+
+class Corrections(BaseModel):
+    """
+    Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    checked: Annotated[int, Field(ge=0)]
+    """
+    How many corrections were graded.
+    """
+    passed: Annotated[int, Field(ge=0)]
+    """
+    How many passed (every repetition passed).
+    """
+    results: list[Result] | None = None
+    """
+    Each correction graded: whether it passed (every repetition did). What an improvement pass compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.
+    """
+
+
+class CorrectedComparisonCost(BaseModel):
     """
     What the candidate's replays cost in model calls, as the runtime reported it. Absent from a summary when no case's replays reported a cost.
     """
@@ -6963,7 +6995,7 @@ class TopK(BaseModel):
 
 class Fresh(BaseModel):
     """
-    The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.
+    The part of these sums corrected on this output itself (a replay corrected after it ran). Absent when none was.
     """
 
     model_config = ConfigDict(
@@ -6977,7 +7009,7 @@ class Fresh(BaseModel):
 
 class CandidateItem(BaseModel):
     """
-    An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
+    An output's score: Σ yesWeight and Σ totalWeight over its corrected items, and over those among the first `k` ranked items.
     """
 
     model_config = ConfigDict(
@@ -6987,11 +7019,11 @@ class CandidateItem(BaseModel):
     yes_weight: Annotated[float, Field(alias="yesWeight")]
     total_weight: Annotated[float, Field(alias="totalWeight")]
     items: Annotated[int, Field(ge=0)]
-    judged_items: Annotated[int, Field(alias="judgedItems", ge=0)]
+    corrected_items: Annotated[int, Field(alias="correctedItems", ge=0)]
     top_k: Annotated[TopK, Field(alias="topK")]
     fresh: Fresh | None = None
     """
-    The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.
+    The part of these sums corrected on this output itself (a replay corrected after it ran). Absent when none was.
     """
 
 
@@ -7014,9 +7046,9 @@ class DroppedItem(BaseModel):
     rank_before: Annotated[int | None, Field(alias="rankBefore")] = None
 
 
-class Judged(BaseModel):
+class Corrected(BaseModel):
     """
-    What people said about this item on the replay itself, once they judged it there.
+    What people said about this item on the replay itself, once they corrected it there.
     """
 
     model_config = ConfigDict(
@@ -7035,15 +7067,15 @@ class NewItem(BaseModel):
     key: str
     pointer: str
     rank: int | None = None
-    judged: Judged | None = None
+    corrected: Corrected | None = None
     """
-    What people said about this item on the replay itself, once they judged it there.
+    What people said about this item on the replay itself, once they corrected it there.
     """
 
 
 class Changes(BaseModel):
     """
-    The first repetition's items against the judged ones.
+    The first repetition's items against the corrected ones.
     """
 
     model_config = ConfigDict(
@@ -7145,7 +7177,7 @@ class StartEvalRunBody(BaseModel):
         Annotated[Literal["recorded"] | str, _open.OPEN] | EvalBaseline1 | EvalBaseline2 | None
     ) = None
     """
-    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
     reads: Literal["recorded", "live"] | None = None
     repetitions: Annotated[int | None, Field(ge=1, le=10)] = None
@@ -7155,7 +7187,7 @@ class StartEvalRunBody(BaseModel):
         Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
     ] = None
     """
-    Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).
+    Which corrections count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Correction.restricted`), the others weighing 0 (`restricted-only`).
     """
     overrides: EvalOverrides | None = None
     sample: EvalSample | None = None
@@ -7989,7 +8021,7 @@ class JudgingRuleWhen(BaseModel):
         Field(min_length=1),
     ] = None
     """
-    How the run ended. Only `completed` today: a judgment needs a completed run, so `failed` and `cancelled` are refused (400). Absent: `completed`.
+    How the run ended. Only `completed` today: a correction needs a completed run, so `failed` and `cancelled` are refused (400). Absent: `completed`.
     """
     include_dry_runs: Annotated[bool | None, Field(alias="includeDryRuns")] = None
     """
@@ -8018,7 +8050,7 @@ class JudgingRuleSpec(BaseModel):
     """
     judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
     """
-    Whose judgment it wants: one of this class closes it. Absent: any judgment does.
+    Whose correction it wants: one of this class closes it. Absent: any correction does.
     """
     enabled: bool | None = None
     """
@@ -8047,7 +8079,7 @@ class JudgingRulePatch(BaseModel):
     """
     judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
     """
-    Whose judgment it wants: one of this class closes it. `null`: any judgment does.
+    Whose correction it wants: one of this class closes it. `null`: any correction does.
     """
     enabled: bool | None = None
     """
@@ -8076,7 +8108,7 @@ class JudgingRule(BaseModel):
     """
     judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
     """
-    Whose judgment it wants: one of this class closes it. Absent: any judgment does.
+    Whose correction it wants: one of this class closes it. Absent: any correction does.
     """
     enabled: bool
     created_by: Annotated[str | None, Field(alias="createdBy")] = None
@@ -8120,7 +8152,7 @@ class JudgingClassCount(BaseModel):
 
 class JudgingProgress(BaseModel):
     """
-    The live judgments on the run so far, by class.
+    The live corrections on the run so far, by class.
     """
 
     model_config = ConfigDict(
@@ -8133,7 +8165,7 @@ class JudgingProgress(BaseModel):
 
 class JudgingItemCan(BaseModel):
     """
-    What the caller may do with the item, by the check the routes make (`write` on the project, as judging the run needs).
+    What the caller may do with the item, by the check the routes make (`write` on the project, as correcting the run needs).
     """
 
     model_config = ConfigDict(
@@ -8183,15 +8215,15 @@ class JudgingQueueItem(BaseModel):
     """
     The judge classes its rules want.
     """
-    any_judgment: Annotated[bool, Field(alias="anyJudgment")]
+    any_correction: Annotated[bool, Field(alias="anyCorrection")]
     """
-    One of its rules wants any judgment.
+    One of its rules wants any correction.
     """
     progress: JudgingProgress
     added_at: Annotated[AwareDatetime, Field(alias="addedAt")]
     state: Annotated[Literal["open", "judged", "dismissed", "erased"] | str, _open.OPEN]
     """
-    Where a queued run stands. `judged`: every rule that queued it has the judgment it wants. `erased`: the run's content is gone (erased, or the run purged); the item shows nothing of it.
+    Where a queued run stands. `judged`: every rule that queued it has the correction it wants. `erased`: the run's content is gone (erased, or the run purged); the item shows nothing of it.
     """
     closed_at: Annotated[AwareDatetime | None, Field(alias="closedAt")] = None
     closed_by: Annotated[str | None, Field(alias="closedBy")] = None
@@ -8236,7 +8268,7 @@ class JudgingClassResult(BaseModel):
     """
     `null`: unclassified.
     """
-    judgments: Annotated[int, Field(ge=0)]
+    corrections: Annotated[int, Field(ge=0)]
     yes: Annotated[int, Field(ge=0)]
 
 
@@ -8263,21 +8295,21 @@ class JudgingResultGroup(BaseModel):
     """
     Runs the rule matched and sampled but didn't queue, because `maxOpen` were waiting, even when another rule queued them. Non-zero: the queued runs lean toward quiet times. `added` + `skippedByCap` = every run the rule matched and sampled.
     """
-    judgments: Annotated[int, Field(ge=0)]
+    corrections: Annotated[int, Field(ge=0)]
     """
-    Live judgments on the queued runs: each is one person's verdict on one item of a run's output.
+    Live corrections on the queued runs: each is one person's verdict on one item of a run's output.
     """
-    runs_with_judgments: Annotated[int | None, Field(alias="runsWithJudgments", ge=0)] = None
+    runs_with_corrections: Annotated[int | None, Field(alias="runsWithCorrections", ge=0)] = None
     """
-    The queued runs with at least one live judgment: the runs `judgments` and `yesShare` come from, whatever their item's state now (still `open`, closed as `judged`, or dismissed after someone judged it). Several people judging one run make several judgments but one run here. Absent from a runtime that doesn't count them.
+    The queued runs with at least one live correction: the runs `corrections` and `yesShare` come from, whatever their item's state now (still `open`, closed as `judged`, or dismissed after someone corrected it). Several people correcting one run make several corrections but one run here. Absent from a runtime that doesn't count them.
     """
     yes_share: Annotated[float | None, Field(alias="yesShare")]
     """
-    The `yes` share of those judgments, each weighted by its class (unclassified: 1). `null` with none.
+    The `yes` share of those corrections, each weighted by its class (unclassified: 1). `null` with none.
     """
     by_class: Annotated[list[JudgingClassResult], Field(alias="byClass")]
     """
-    The same judgments by class, unweighted.
+    The same corrections by class, unweighted.
     """
 
 
@@ -8343,7 +8375,7 @@ class JudgingRecentQueued(BaseModel):
     """
     already_reviewed: Annotated[int, Field(alias="alreadyReviewed", ge=0)]
     """
-    Matching recent runs whose run was already judged or dismissed: left as they are, not re-queued. An already-erased run is no longer a match and is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed` together are the matches.
+    Matching recent runs whose run was already corrected or dismissed: left as they are, not re-queued. An already-erased run is no longer a match and is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed` together are the matches.
     """
 
 
@@ -11455,21 +11487,21 @@ class Budget3(BaseModel):
 
 class Threshold(BaseModel):
     """
-    Default 5 judgments, across 3 runs, from 2 judges.
+    Default 5 corrections, across 3 runs, from 2 correctors.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    judgments: Annotated[int | None, Field(ge=1, le=1000)] = None
+    corrections: Annotated[int | None, Field(ge=1, le=1000)] = None
     runs: Annotated[int | None, Field(ge=1, le=1000)] = None
-    judges: Annotated[int | None, Field(ge=1, le=1000)] = None
+    correctors: Annotated[int | None, Field(ge=1, le=1000)] = None
 
 
 class ImproveScheduleInput(BaseModel):
     """
-    An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `classWeights` counts them: by default everyone's corrections until a restricted (experts') judge class is named, then experts' only. When there are enough, across enough runs and judges, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.
+    An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `classWeights` counts them: by default everyone's corrections until a restricted (experts') judge class is named, then experts' only. When there are enough, across enough runs and correctors, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.
     """
 
     model_config = ConfigDict(
@@ -11489,7 +11521,7 @@ class ImproveScheduleInput(BaseModel):
     """
     threshold: Threshold | None = None
     """
-    Default 5 judgments, across 3 runs, from 2 judges.
+    Default 5 corrections, across 3 runs, from 2 correctors.
     """
     monthly_cap_usd: Annotated[float | None, Field(alias="monthlyCapUsd", gt=0.0, le=1000.0)] = None
     """
@@ -12259,7 +12291,7 @@ class Version(BaseModel):
     cases: Annotated[int, Field(ge=0)]
 
 
-class JudgedComparisonSummaryBaselineRecorded(BaseModel):
+class CorrectedComparisonSummaryBaselineRecorded(BaseModel):
     """
     What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
     """
@@ -12272,7 +12304,7 @@ class JudgedComparisonSummaryBaselineRecorded(BaseModel):
     versions: list[Version]
 
 
-class JudgedComparisonSummaryBaselineVersion(BaseModel):
+class CorrectedComparisonSummaryBaselineVersion(BaseModel):
     """
     What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
     """
@@ -12290,7 +12322,7 @@ class JudgedComparisonSummaryBaselineVersion(BaseModel):
 
 class CallDifferenceCount(BaseModel):
     """
-    One way a run's calls differed from a correction; it can quote argument values.
+    One way a run's calls differed from a correction's expected decisions; it can quote argument values.
     """
 
     model_config = ConfigDict(
@@ -12309,7 +12341,7 @@ class CallDifferenceCount(BaseModel):
 
 class CallDifferenceMustNotCall(BaseModel):
     """
-    One way a run's calls differed from a correction; it can quote argument values.
+    One way a run's calls differed from a correction's expected decisions; it can quote argument values.
     """
 
     model_config = ConfigDict(
@@ -12327,7 +12359,7 @@ class CallDifferenceMustNotCall(BaseModel):
 
 class CallDifferenceMissingField(BaseModel):
     """
-    One way a run's calls differed from a correction; it can quote argument values.
+    One way a run's calls differed from a correction's expected decisions; it can quote argument values.
     """
 
     model_config = ConfigDict(
@@ -12346,7 +12378,7 @@ class CallDifferenceMissingField(BaseModel):
 
 class CallDifferenceFieldValue(BaseModel):
     """
-    One way a run's calls differed from a correction; it can quote argument values.
+    One way a run's calls differed from a correction's expected decisions; it can quote argument values.
     """
 
     model_config = ConfigDict(
@@ -12579,7 +12611,7 @@ class Call(BaseModel):
     result: Any | None = None
     from_event: Annotated[Literal[True] | None, Field(alias="fromEvent")] = None
     """
-    An agent step's turn kept the result as outside data: another system's answer to a paused call, or a result its tool says is outside data. A replay hands it to the model as data, as the turn did. Absent for a tool node's call, and for a run judged before the mark was kept.
+    An agent step's turn kept the result as outside data: another system's answer to a paused call, or a result its tool says is outside data. A replay hands it to the model as data, as the turn did. Absent for a tool node's call, and for a run corrected before the mark was kept.
     """
 
 
@@ -12603,9 +12635,9 @@ class Step(BaseModel):
     """
 
 
-class JudgedRunContextFlow(BaseModel):
+class CorrectedRunContextFlow(BaseModel):
     """
-    For a flow run: what it did, kept at its first judgment so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.
+    For a flow run: what it did, kept at its first correction so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.
     """
 
     model_config = ConfigDict(
@@ -12620,22 +12652,22 @@ class JudgedRunContextFlow(BaseModel):
     """
 
 
-class JudgedEvalCaseCorrection(BaseModel):
+class CorrectedEvalCaseCorrection(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    correction_id: Annotated[str, Field(alias="correctionId")]
     """
-    The judgment the correction was recorded on.
+    The correction they were recorded on.
     """
     judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
     """
-    The judgment's class, when it had one.
+    The correction's class, when it had one.
     """
     restricted: Literal[True] | None = None
     """
-    Set when the judgment was recorded while its class was restricted (`Judgment.restricted`).
+    Set when the correction was recorded while its class was restricted (`Correction.restricted`).
     """
     calls: Annotated[list[ExpectedCall], Field(max_length=50)]
     """
@@ -12647,9 +12679,9 @@ class JudgedEvalCaseCorrection(BaseModel):
     """
 
 
-class JudgedComparisonSummaryScope(BaseModel):
+class CorrectedComparisonSummaryScope(BaseModel):
     """
-    Where the test set's judgments came from.
+    Where the test set's corrections came from.
     """
 
     model_config = ConfigDict(
@@ -12659,18 +12691,9 @@ class JudgedComparisonSummaryScope(BaseModel):
     project_id: Annotated[str | None, Field(alias="projectId")] = None
 
 
-class JudgedComparisonSummaryCorrectionsJudgment(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    judgment_id: Annotated[str, Field(alias="judgmentId")]
-    pass_: Annotated[bool, Field(alias="pass")]
-
-
 class ComparisonCaseResultBaseline(BaseModel):
     """
-    An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
+    An output's score: Σ yesWeight and Σ totalWeight over its corrected items, and over those among the first `k` ranked items.
     """
 
     model_config = ConfigDict(
@@ -12680,11 +12703,11 @@ class ComparisonCaseResultBaseline(BaseModel):
     yes_weight: Annotated[float, Field(alias="yesWeight")]
     total_weight: Annotated[float, Field(alias="totalWeight")]
     items: Annotated[int, Field(ge=0)]
-    judged_items: Annotated[int, Field(alias="judgedItems", ge=0)]
+    corrected_items: Annotated[int, Field(alias="correctedItems", ge=0)]
     top_k: Annotated[TopK, Field(alias="topK")]
     fresh: Fresh | None = None
     """
-    The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.
+    The part of these sums corrected on this output itself (a replay corrected after it ran). Absent when none was.
     """
 
 
@@ -12711,7 +12734,7 @@ class ComparisonCaseResultCorrection(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    correction_id: Annotated[str, Field(alias="correctionId")]
     pass_: Annotated[bool, Field(alias="pass")]
     """
     Passed only when every repetition passed.
@@ -13380,7 +13403,7 @@ class Promotion(BaseModel):
     reason: str | None = None
     eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
     """
-    The comparison the change was judged on.
+    The comparison behind the change.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     status: (
@@ -13650,7 +13673,7 @@ class PromoteBody(BaseModel):
     reason: Annotated[str | None, Field(max_length=2000)] = None
     eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
     """
-    The comparison this promotion was judged on.
+    The comparison behind this promotion.
     """
 
 
@@ -14284,7 +14307,7 @@ class JudgeClass(BaseModel):
     """
     weight: Annotated[float, Field(ge=0.0)]
     """
-    How much a judgment of this class counts, relative to the others.
+    How much a correction of this class counts, relative to the others.
     """
     description: str | None = None
     assertable_by: Annotated[JudgeClassAssertableByView | None, Field(alias="assertableBy")] = None
@@ -14343,9 +14366,9 @@ class UpdateJudgeClassBody(BaseModel):
     """
 
 
-class JudgedRunContext(BaseModel):
+class CorrectedRunContext(BaseModel):
     """
-    What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results. For both: the env values its tools were sent.
+    What a corrected run needs besides its input to be replayed, captured when it was first corrected. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results. For both: the env values its tools were sent.
     """
 
     model_config = ConfigDict(
@@ -14372,9 +14395,9 @@ class JudgedRunContext(BaseModel):
     """
     The reviewer's decision at the turn's session approval gate, when the turn waited on one. A replay of the turn follows it.
     """
-    flow: JudgedRunContextFlow | None = None
+    flow: CorrectedRunContextFlow | None = None
     """
-    For a flow run: what it did, kept at its first judgment so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.
+    For a flow run: what it did, kept at its first correction so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.
     """
     tool_env: Annotated[dict[str, dict[str, str]] | None, Field(alias="toolEnv")] = None
     """
@@ -14382,13 +14405,13 @@ class JudgedRunContext(BaseModel):
     """
     replay_of: Annotated[str | None, Field(alias="replayOf")] = None
     """
-    When the judged run is a comparison's replay: the run it re-ran, stamped at its first judgment. A test set built from judgments leaves replays out.
+    When the corrected run is a comparison's replay: the run it re-ran, stamped at its first correction. A test set built from corrections leaves replays out.
     """
 
 
-class JudgedRunCopy(BaseModel):
+class CorrectedRunCopy(BaseModel):
     """
-    The stored copy of a judged run's input and output, taken when it was first judged.
+    The stored copy of a corrected run's input and output, taken when it was first corrected.
     """
 
     model_config = ConfigDict(
@@ -14396,36 +14419,36 @@ class JudgedRunCopy(BaseModel):
         populate_by_name=True,
     )
     run_id: Annotated[str, Field(alias="runId")]
-    subject: JudgedSubject
+    subject: CorrectedSubject
     input: Any
-    context: JudgedRunContext | None = None
+    context: CorrectedRunContext | None = None
     output: Any
     segments: list[ScopeSegment] | None = None
     """
-    The segment path the run was started with (empty: none). Absent for runs judged before it was recorded.
+    The segment path the run was started with (empty: none). Absent for runs corrected before it was recorded.
     """
     captured_at: Annotated[AwareDatetime, Field(alias="capturedAt")]
 
 
-class JudgmentWithCopies(Judgment):
+class CorrectionWithCopies(Correction):
     """
-    A judgment with the stored copies of what was judged.
+    A correction with the stored copies of what was corrected.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    run: JudgedRunCopy
+    run: CorrectedRunCopy
     item_value: Annotated[Any | None, Field(alias="itemValue")] = None
     """
-    The judged item's value, when the judgment pointed at it.
+    The corrected item's value, when the correction pointed at it.
     """
 
 
-class JudgedEvalCase(BaseModel):
+class CorrectedEvalCase(BaseModel):
     """
-    One case of a `judged` eval suite: a copy of a judged run with its items' judgments summed up.
+    One case of a `judged` eval suite: a copy of a corrected run with its items' corrections summed up.
     """
 
     model_config = ConfigDict(
@@ -14434,16 +14457,16 @@ class JudgedEvalCase(BaseModel):
     )
     case_id: Annotated[str, Field(alias="caseId")]
     """
-    The judged run's id.
+    The corrected run's id.
     """
-    subject: JudgedSubject
+    subject: CorrectedSubject
     input: Any
-    context: JudgedRunContext | None = None
+    context: CorrectedRunContext | None = None
     output: Any
-    items: list[JudgedItemSummary]
-    corrections: list[JudgedEvalCaseCorrection] | None = None
+    items: list[CorrectedItemSummary]
+    corrections: list[CorrectedEvalCaseCorrection] | None = None
     """
-    Experts' corrections carried onto this case from its judgments, each graded on the replay. Empty or absent when none. `restricted-only` keeps only the entries whose judgment was restricted.
+    Experts' expected decisions carried onto this case from its corrections, each graded on the replay. Empty or absent when none. `restricted-only` keeps only the entries whose correction was restricted.
     """
     erased: Literal[True] | None = None
     """
@@ -14451,12 +14474,12 @@ class JudgedEvalCase(BaseModel):
     """
 
 
-class JudgedEvalCaseCollectionPage(BaseModel):
+class CorrectedEvalCaseCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[JudgedEvalCase]
+    data: list[CorrectedEvalCase]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
     Opaque cursor. Treat as opaque on the client.
@@ -14736,7 +14759,7 @@ class ProposalEvaluation(BaseModel):
     """
     baseline: float | None = None
     """
-    The recorded outputs' score; `null` without judged evidence.
+    The recorded outputs' score; `null` without evidence from corrections.
     """
     candidate: float | None = None
     """
@@ -14875,7 +14898,7 @@ class ImprovementPass(BaseModel):
         Field(alias="classWeights"),
     ] = None
     """
-    Which judgments its comparisons count. Absent from older servers: `restricted-only`.
+    Which corrections its comparisons count. Absent from older servers: `restricted-only`.
     """
     model: Model1 | None = None
     """
@@ -14972,7 +14995,7 @@ class ImproveBody(BaseModel):
         Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
     ] = None
     """
-    Which judgments the pass learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the pass reads its judgments from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has a restricted judge class, then only judgments recorded under one (`restricted-only`).
+    Which corrections the pass learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the pass reads its corrections from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has a restricted judge class, then only corrections recorded under one (`restricted-only`).
     """
     objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
     budget: Budget2 | None = None
@@ -15339,30 +15362,7 @@ class BlockCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class Corrections(BaseModel):
-    """
-    Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    checked: Annotated[int, Field(ge=0)]
-    """
-    How many corrections were graded.
-    """
-    passed: Annotated[int, Field(ge=0)]
-    """
-    How many passed (every repetition passed).
-    """
-    judgments: list[JudgedComparisonSummaryCorrectionsJudgment] | None = None
-    """
-    Each correction graded, by its judgment: whether it passed (every repetition did). What an improvement pass compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.
-    """
-
-
-class JudgedComparisonSummary(BaseModel):
+class CorrectedComparisonSummary(BaseModel):
     """
     What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a promotion gate reads.
     """
@@ -15379,13 +15379,13 @@ class JudgedComparisonSummary(BaseModel):
     """
     What ran on the cases: an agent version, or a flow version (with any versions it swapped in).
     """
-    baseline: JudgedComparisonSummaryBaselineRecorded | JudgedComparisonSummaryBaselineVersion
+    baseline: CorrectedComparisonSummaryBaselineRecorded | CorrectedComparisonSummaryBaselineVersion
     """
     What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
     """
-    scope: JudgedComparisonSummaryScope
+    scope: CorrectedComparisonSummaryScope
     """
-    Where the test set's judgments came from.
+    Where the test set's corrections came from.
     """
     cases: Annotated[int, Field(ge=0)]
     diverged: Annotated[int, Field(ge=0)]
@@ -15421,7 +15421,7 @@ class JudgedComparisonSummary(BaseModel):
         Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
     ] = None
     """
-    Which judgments counted. Absent from a comparison recorded before restricted classes: `as-recorded`.
+    Which corrections counted. Absent from a comparison recorded before restricted classes: `as-recorded`.
     """
     sample: EvalSample | None = None
     """
@@ -15434,7 +15434,7 @@ class JudgedComparisonSummary(BaseModel):
     """
     Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.
     """
-    cost_usd: Annotated[JudgedComparisonCost | None, Field(alias="costUsd")] = None
+    cost_usd: Annotated[CorrectedComparisonCost | None, Field(alias="costUsd")] = None
 
 
 class CorrectionDifference(BaseModel):
@@ -15442,7 +15442,7 @@ class CorrectionDifference(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    correction_id: Annotated[str, Field(alias="correctionId")]
     repetition: Annotated[int, Field(ge=1)]
     """
     Which repetition (1-based) these differences are from.
@@ -15471,7 +15471,7 @@ class ComparisonCaseResult(BaseModel):
     """
     baseline: ComparisonCaseResultBaseline
     """
-    An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
+    An output's score: Σ yesWeight and Σ totalWeight over its corrected items, and over those among the first `k` ranked items.
     """
     candidate: list[CandidateItem]
     """
@@ -15479,7 +15479,7 @@ class ComparisonCaseResult(BaseModel):
     """
     changes: Changes | None = None
     """
-    The first repetition's items against the judged ones.
+    The first repetition's items against the corrected ones.
     """
     tools: list[ComparisonCaseResultTool] | None = None
     """
@@ -15493,7 +15493,7 @@ class ComparisonCaseResult(BaseModel):
         list[CorrectionDifference] | None, Field(alias="correctionDifferences")
     ] = None
     """
-    The ways each correction's calls differed, by judgment: the differences from the first repetition that failed it, and that repetition's number. Quotes argument values, so an erasure clears it (the verdicts and counts stay in `corrections`).
+    The ways each correction's calls differed, by correction: the differences from the first repetition that failed it, and that repetition's number. Quotes argument values, so an erasure clears it (the verdicts and counts stay in `corrections`).
     """
     cost_usd: Annotated[list[CostUsdItem] | None, Field(alias="costUsd")] = None
     """
@@ -15517,7 +15517,7 @@ class ComparisonCaseResult(BaseModel):
     """
 
 
-class JudgedComparisonResult(BaseModel):
+class CorrectedComparisonResult(BaseModel):
     """
     A comparison's `result` (a `judged` eval run's): the summary and each case. `EvalRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).
     """
@@ -15526,7 +15526,7 @@ class JudgedComparisonResult(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    summary: JudgedComparisonSummary
+    summary: CorrectedComparisonSummary
     per_case: Annotated[list[ComparisonCaseResult], Field(alias="perCase")]
 
 
@@ -16845,7 +16845,7 @@ class ImprovementPassFinishedEvent(BaseModel):
 
 class ImproveScheduleTarget(BaseModel):
     """
-    What an improve schedule works on: the agent, and the live scope its passes propose for and count judgments in.
+    What an improve schedule works on: the agent, and the live scope its passes propose for and count corrections in.
     """
 
     model_config = ConfigDict(

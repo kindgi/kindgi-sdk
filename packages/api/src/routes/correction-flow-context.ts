@@ -2,11 +2,11 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * What a judged flow run did, kept when it's first judged so it can be
+ * What a corrected flow run did, kept when it's first corrected so it can be
  * replayed faithfully later: every tool call it made, with its result,
  * at its tool nodes, in its agent steps' turns, and in its sub-flows.
  * A replay of the run uses these as the past run's results. Best effort
- * and read-only: a part that can't be read is left out, and the judgment
+ * and read-only: a part that can't be read is left out, and the correction
  * never fails over it.
  */
 
@@ -15,17 +15,17 @@ import { isFanoutNode, isLoopNode } from '@kindgi/flow';
 import type { KernelRunRecord, RunBinding } from '@kindgi/runtime';
 import type { FlowId, RunId, TenantId } from '@kindgi/types';
 
-import type { FlowRegistryBinding } from '../flow-binding.js';
 import type {
-  JudgedFlowContext,
-  JudgedFlowStep,
-  JudgedRunContext,
-  JudgedToolCall,
-} from '../judgment-binding.js';
-import { addToolEnv, turnCallIds } from './judgment-context.js';
+  CorrectedFlowContext,
+  CorrectedFlowStep,
+  CorrectedRunContext,
+  CorrectedToolCall,
+} from '../correction-binding.js';
+import type { FlowRegistryBinding } from '../flow-binding.js';
+import { addToolEnv, turnCallIds } from './correction-context.js';
 
-/** The most tool calls a judged flow run keeps. */
-export const MAX_JUDGED_FLOW_CALLS = 500;
+/** The most tool calls a corrected flow run keeps. */
+export const MAX_CORRECTED_FLOW_CALLS = 500;
 /** How deep into sub-flows the capture goes. */
 const MAX_FLOW_DEPTH = 3;
 /** The most child runs read per run. */
@@ -104,14 +104,14 @@ function scopeOf(loopContext: unknown): string | undefined {
 }
 
 class Collector {
-  readonly calls: JudgedToolCall[] = [];
-  readonly steps: JudgedFlowStep[] = [];
-  /** The env values each tool's calls were sent, by tool id (`JudgedRunContext.toolEnv`). */
+  readonly calls: CorrectedToolCall[] = [];
+  readonly steps: CorrectedFlowStep[] = [];
+  /** The env values each tool's calls were sent, by tool id (`CorrectedRunContext.toolEnv`). */
   readonly toolEnv: Record<string, Readonly<Record<string, string>>> = {};
   truncated = false;
 
-  add(call: JudgedToolCall): void {
-    if (this.calls.length >= MAX_JUDGED_FLOW_CALLS) {
+  add(call: CorrectedToolCall): void {
+    if (this.calls.length >= MAX_CORRECTED_FLOW_CALLS) {
       this.truncated = true;
       return;
     }
@@ -239,7 +239,7 @@ async function collectRun(
 }
 
 /**
- * What a judged flow run did (`context.flow`): its tool calls with their
+ * What a corrected flow run did (`context.flow`): its tool calls with their
  * results, and its agent steps' turns. `undefined` when nothing could be
  * read.
  */
@@ -248,7 +248,7 @@ export async function captureFlowContext(input: {
   readonly run: { readonly runId: string; readonly flowId: string; readonly flowVersion: string };
   readonly runBinding: RunBinding;
   readonly flows: FlowRegistryBinding | undefined;
-}): Promise<JudgedRunContext | undefined> {
+}): Promise<CorrectedRunContext | undefined> {
   const c = new Collector();
   try {
     await collectRun(
@@ -261,7 +261,7 @@ export async function captureFlowContext(input: {
     // Best effort: keep what was read.
   }
   if (c.calls.length === 0 && c.steps.length === 0) return undefined;
-  const flow: JudgedFlowContext = {
+  const flow: CorrectedFlowContext = {
     calls: c.calls,
     steps: c.steps,
     ...(c.truncated && { truncated: true }),

@@ -32,7 +32,7 @@ import type { ProjectId, TenantId } from '@kindgi/types';
 
 import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
 import { type BlockPublishIssue, continuityIssues, withCarriedSchema } from './block-publish.js';
-import { canonical } from './judged-items.js';
+import { canonical } from './corrected-items.js';
 import type { PromotionActor } from './live-version-binding.js';
 import { PublishRefused } from './publish-refused.js';
 import type { RollbackAction } from './routes/deployments.js';

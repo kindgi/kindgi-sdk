@@ -4,15 +4,15 @@
 /**
  * A rescore: a new comparison eval run of the same test set version,
  * candidate and settings that replays nothing. It scores the run's replays
- * again, with what people judged on them since (`comparison.rescoreOf`).
+ * again, with what people corrected on them since (`comparison.rescoreOf`).
  * The run rescored stays as it was. `POST /v1/eval-runs/{runId}/rescore`
  * and `POST /v1/proposals/{proposalId}/rescore` both start one.
  */
 
 import type { ProjectId } from '@kindgi/types';
 
+import { DEFAULT_COMPARISON } from './corrected-dispatcher.js';
 import type { EvalRun, EvalRunStartInput } from './eval-run-binding.js';
-import { DEFAULT_COMPARISON } from './judged-dispatcher.js';
 
 /** Why `run` can't be rescored, or `undefined` when it can: a completed comparison of a test set. */
 export function rescoreRefusal(run: EvalRun): string | undefined {

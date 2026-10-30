@@ -40,7 +40,7 @@ export interface GatePolicySpec {
     /** The comparison must have run this test set (and version). */
     readonly suite?: { readonly id: string; readonly version?: string };
   };
-  /** The judged evidence behind each gated metric (`n` cases, total weight). */
+  /** The evidence from corrections behind each gated metric (`n` cases, total weight). */
   readonly evidence?: { readonly minCases?: number; readonly minWeight?: number };
   readonly metrics?: readonly GateMetricSpec[];
   /** Replay counts; each knob left out of the block is 0. No block: no replay checks. */
@@ -58,7 +58,7 @@ export interface GatePolicySpec {
     readonly separateApprover?: boolean;
   };
   /**
-   * Only judgments recorded under a restricted judge class count (T200):
+   * Only corrections recorded under a restricted judge class count (T200):
    * the comparison must be weighted `restricted-only`, so a class anyone
    * may assert can't move the gate.
    */

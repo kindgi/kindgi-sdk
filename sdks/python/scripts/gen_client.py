@@ -11,8 +11,8 @@ repository). Two files are written, both generated — never edit them:
 - `src/kindgi/client/_models.py`: pydantic v2 models for every component
   schema (datamodel-code-generator). Inline request and response schemas are
   first hoisted into components named after their operation. So are an
-  inline object whose own name would be a component's (`JudgedRunContext`'s
-  `flow` is `JudgedRunContextFlow`), and each member of a union with a
+  inline object whose own name would be a component's (`CorrectedRunContext`'s
+  `flow` is `CorrectedRunContextFlow`), and each member of a union with a
   discriminator: a union component's after it (`Scope`'s `ScopeTenant`,
   `ScopeOrg`, `ScopeProject`), an inline union's after its owner and field
   (`MCPEndpoint`'s `config`: `MCPEndpointConfigStdio`).
@@ -852,7 +852,7 @@ def model_locations(
 ) -> dict[str, list[str]]:
     """Where each model sits. A component's own model sits at its name; any other at each chain
     of fields from one, a field by its wire name and, in a union, by its member
-    (`member_keys`): `JudgedComparisonResult.cases.tool`, `CompleteApprovalResult.resume[kind=ok]`.
+    (`member_keys`): `CorrectedComparisonResult.cases.tool`, `CompleteApprovalResult.resume[kind=ok]`.
     """
     models = model_fields(tree)
     components = doc["components"]["schemas"]

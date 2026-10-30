@@ -13,6 +13,7 @@ import { connectionAppsCommand } from './connection-apps.js';
 import { connectionsCommand } from './connections.js';
 import { consoleCommand } from './console.js';
 import { conversationsCommand } from './conversations.js';
+import { correctionsCommand } from './corrections.js';
 import { deployCommand } from './deploy.js';
 import { deploymentsCommand } from './deployments.js';
 import { devCommand } from './dev.js';
@@ -32,7 +33,6 @@ import { initCommand } from './init.js';
 import { judgeClassesCommand } from './judge-classes.js';
 import { judgingQueueCommand } from './judging-queue.js';
 import { judgingRulesCommand } from './judging-rules.js';
-import { judgmentsCommand } from './judgments.js';
 import { keyCommand } from './key.js';
 import { licenseCommand } from './license.js';
 import { mailTriggersCommand } from './mail-triggers.js';
@@ -106,7 +106,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   approvalsCommand,
   reviewersCommand,
   observationsCommand,
-  judgmentsCommand,
+  correctionsCommand,
   judgeClassesCommand,
   judgingRulesCommand,
   judgingQueueCommand,

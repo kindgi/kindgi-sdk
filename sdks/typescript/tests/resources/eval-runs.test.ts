@@ -68,7 +68,7 @@ describe('evalRuns.start — projectId (POST /v1/eval-suites/:suiteId/runs requi
   });
 });
 
-/** A comparison's result as the runtime returns it (fits the OpenAPI `JudgedComparisonResult`). */
+/** A comparison's result as the runtime returns it (fits the OpenAPI `CorrectedComparisonResult`). */
 const COMPARISON_RESULT = {
   summary: {
     evalRunId: 'er-1',
@@ -159,7 +159,7 @@ const COMPARISON_RESULT = {
         yesWeight: 1,
         totalWeight: 2,
         items: 2,
-        judgedItems: 2,
+        correctedItems: 2,
         topK: {
           yesWeight: 1,
           totalWeight: 2,
@@ -170,7 +170,7 @@ const COMPARISON_RESULT = {
           yesWeight: 1.5,
           totalWeight: 2,
           items: 2,
-          judgedItems: 2,
+          correctedItems: 2,
           topK: {
             yesWeight: 1.5,
             totalWeight: 2,
@@ -218,7 +218,7 @@ const COMPARISON_RESULT = {
         yesWeight: 0,
         totalWeight: 1,
         items: 1,
-        judgedItems: 1,
+        correctedItems: 1,
         topK: {
           yesWeight: 0,
           totalWeight: 1,

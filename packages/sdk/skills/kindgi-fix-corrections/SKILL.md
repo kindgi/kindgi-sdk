@@ -4,7 +4,7 @@ description: >
   Turn the experts' corrections of a Kindgi agent into fixes. Load this when
   the person says "fix what the experts corrected", "the agent keeps getting
   <X> wrong, correct it", "turn the refund agent's corrections into changes",
-  or points you at an agent's "no" judgments. The loop: pull the runs an
+  or points you at an agent's "no" corrections. The loop: pull the runs an
   expert marked wrong, read why, and sort each correction to where it belongs
   — a rule in code, a setting, an approval rule, or the agent's instructions —
   add a pack test per correction, then publish and ask a person to make the
@@ -18,7 +18,7 @@ version: "0.2.0"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 sources:
-  - packages/cli/src/commands/judgments.ts
+  - packages/cli/src/commands/corrections.ts
   - packages/cli/src/commands/runs.ts
   - packages/cli/src/commands/blocks.ts
   - packages/cli/src/commands/agents.ts
@@ -73,7 +73,7 @@ corrections and the tools to change each layer.
 
 ## The loop
 
-1. **Pull the corrections**: the live version's "no" judgments, each read
+1. **Pull the corrections**: the live version's "no" corrections, each read
    in full with its run. [pull-corrections.md](pull-corrections.md)
 2. **Sort each correction to its layer**: the table below.
 3. **Make the change, with a test per correction.**
@@ -94,4 +94,4 @@ One correction taken through all four steps:
 | "Store credit before cash", "too stiff", "say when the money arrives" | the agent's **instructions** | leave it to Improve, run on the test cases (`kindgi proposals improve`, the improve guide in `publish-and-promote.md`) |
 
 If a correction fits none of these, treat it as a code rule when it must
-hold every time, and as instructions when it's a matter of judgment.
+hold every time, and as instructions when it's a matter of correction.

@@ -460,7 +460,7 @@ agent's runs, counted the way the Improve run will count them:
 
 ```sh
 pnpm exec kindgi schedules create --cron="0 3 * * *" --improve=acme.rank.scorer --project=<project-id> --segment=company:acme \
-  --input='{"tiers": ["settings"], "threshold": {"judgments": 5, "runs": 3, "judges": 2}, "monthlyCapUsd": 20}' --label="acme improve"
+  --input='{"tiers": ["settings"], "threshold": {"corrections": 5, "runs": 3, "correctors": 2}, "monthlyCapUsd": 20}' --label="acme improve"
 ```
 
 - `--improve=acme.rank.scorer` is the agent to improve.
@@ -497,8 +497,8 @@ It prints the schedule, with the defaults applied to its input:
     "objective": "weightedYesShare",
     "threshold": {
       "runs": 3,
-      "judges": 2,
-      "judgments": 5
+      "correctors": 2,
+      "corrections": 5
     },
     "classWeights": "restricted-only",
     "monthlyCapUsd": 20
@@ -515,15 +515,15 @@ everyone's until the tenant, the project, or the agent being improved has a
 then only the ones recorded under one. With `classWeights` in the schedule's
 input, it counts the way that value says. The last Improve run is one that
 didn't fail or get cancelled, whoever started it. With enough of them, across
-enough runs, from enough judges, it starts an Improve run on fresh test cases
+enough runs, from enough correctors, it starts an Improve run on fresh test cases
 of those runs, `improve.<pass-id>`. Otherwise the fire is `skipped`, and its note says which
 count was short.
 
-That schedule's first fire, started with `run-now`, was skipped: one judge
-short. Then the threshold was lowered to one judge:
+That schedule's first fire, started with `run-now`, was skipped: one corrector
+short. Then the threshold was lowered to one corrector:
 
 ```sh
-pnpm exec kindgi schedules update <schedule-id> --input='{"tiers": ["settings"], "threshold": {"judgments": 5, "runs": 3, "judges": 1}, "monthlyCapUsd": 20}'
+pnpm exec kindgi schedules update <schedule-id> --input='{"tiers": ["settings"], "threshold": {"corrections": 5, "runs": 3, "correctors": 1}, "monthlyCapUsd": 20}'
 ```
 
 It prints the schedule, with its new input. The next fire started an Improve
@@ -552,8 +552,8 @@ note would say "answers marked wrong" and "people who corrected".
   cover the scope it changes. Make it live more widely by hand after review.
 - **Its input,** `--input`, takes the Improve run's options, `threshold` and
   `monthlyCapUsd`. It's kept with the defaults applied: the thresholds
-  default to 5 corrections (`judgments`), across 3 runs (`runs`), from 2
-  people (`judges`), and the cap to 20 US dollars a month.
+  default to 5 corrections (`corrections`), across 3 runs (`runs`), from 2
+  correctors (`correctors`), and the cap to 20 US dollars a month.
 - **A monthly cap:** once the schedule's Improve runs this month, in UTC,
   have cost `monthlyCapUsd`, its fires are skipped until the next month. An
   Improve run's budget is never more than what's left of it. Its cost counts

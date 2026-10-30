@@ -1392,13 +1392,13 @@ const SecretNamePathParam: ParameterSpec = {
   schema: { type: 'string', minLength: 1 },
 };
 
-// ---------------- judgments + judge classes: parameters ----------------
+// ---------------- corrections + judge classes: parameters ----------------
 
-const JudgmentIdPathParam: ParameterSpec = {
-  name: 'judgmentId',
+const CorrectionIdPathParam: ParameterSpec = {
+  name: 'correctionId',
   in: 'path',
   required: true,
-  description: 'Judgment id.',
+  description: 'Correction id.',
   schema: { type: 'string', minLength: 1 },
 };
 
@@ -1410,7 +1410,7 @@ const JudgeClassIdPathParam: ParameterSpec = {
   schema: { type: 'string', minLength: 1 },
 };
 
-const judgmentQuery = (name: string, description: string, schema: JsonSchema): ParameterSpec => ({
+const correctionQuery = (name: string, description: string, schema: JsonSchema): ParameterSpec => ({
   name,
   in: 'query',
   required: false,
@@ -1418,32 +1418,39 @@ const judgmentQuery = (name: string, description: string, schema: JsonSchema): P
   schema,
 });
 
-const JudgmentListQueryParams: readonly ParameterSpec[] = [
-  judgmentQuery('runId', 'Only judgments of this run.', { type: 'string', minLength: 1 }),
-  judgmentQuery('agentId', 'Only judgments of runs of this agent.', {
+const CorrectionListQueryParams: readonly ParameterSpec[] = [
+  correctionQuery('runId', 'Only corrections of this run.', { type: 'string', minLength: 1 }),
+  correctionQuery('agentId', 'Only corrections of runs of this agent.', {
     type: 'string',
     minLength: 1,
   }),
-  judgmentQuery('agentVersion', 'Only judgments of runs of this agent version. Needs `agentId`.', {
+  correctionQuery(
+    'agentVersion',
+    'Only corrections of runs of this agent version. Needs `agentId`.',
+    {
+      type: 'string',
+      minLength: 1,
+    },
+  ),
+  correctionQuery('flowId', 'Only corrections of runs of this flow.', {
     type: 'string',
     minLength: 1,
   }),
-  judgmentQuery('flowId', 'Only judgments of runs of this flow.', { type: 'string', minLength: 1 }),
-  judgmentQuery('verdict', 'Only judgments with this verdict.', {
+  correctionQuery('verdict', 'Only corrections with this verdict.', {
     type: 'string',
     enum: ['yes', 'no'],
   }),
-  judgmentQuery('judgeClassId', 'Only judgments recorded under this judge class.', {
+  correctionQuery('judgeClassId', 'Only corrections recorded under this judge class.', {
     type: 'string',
     minLength: 1,
   }),
-  judgmentQuery('participantId', "Only judgments made for this app end user's opaque id.", {
+  correctionQuery('participantId', "Only corrections made for this app end user's opaque id.", {
     type: 'string',
     minLength: 1,
   }),
 ];
 
-const JudgeClassScopeKindQueryParam: ParameterSpec = judgmentQuery(
+const JudgeClassScopeKindQueryParam: ParameterSpec = correctionQuery(
   'scopeKind',
   'Only classes of this scope kind. `project` and `agent` need `projectId`; `agent` also needs `agentId`.',
   { type: 'string', enum: ['tenant', 'project', 'agent'] },
@@ -1458,13 +1465,13 @@ const ScheduleProjectIdQueryParam: ParameterSpec = {
   schema: { type: 'string', format: 'uuid' },
 };
 
-const JudgeClassProjectIdQueryParam: ParameterSpec = judgmentQuery(
+const JudgeClassProjectIdQueryParam: ParameterSpec = correctionQuery(
   'projectId',
   'Project of the scope, for `scopeKind=project|agent`.',
   { type: 'string', minLength: 1 },
 );
 
-const JudgeClassAgentIdQueryParam: ParameterSpec = judgmentQuery(
+const JudgeClassAgentIdQueryParam: ParameterSpec = correctionQuery(
   'agentId',
   'Agent of the scope, for `scopeKind=agent`.',
   { type: 'string', minLength: 1 },
@@ -5170,7 +5177,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'proposals.rescore',
     summary: "Rescore a proposal's latest evaluation",
     description:
-      "After people judge a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those judgments, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.",
+      "After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those corrections, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.",
     tags: ['proposals'],
     security: 'bearer',
     parameters: [ProposalIdPathParam, IdempotencyKeyParam],
@@ -5806,91 +5813,91 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
 
-  // ---------- judgments ----------
+  // ---------- corrections ----------
   {
     method: 'post',
-    honoPath: '/v1/judgments',
-    openapiPath: '/v1/judgments',
-    operationId: 'judgments.create',
-    summary: "Judge an item of a run's output",
+    honoPath: '/v1/corrections',
+    openapiPath: '/v1/corrections',
+    operationId: 'corrections.create',
+    summary: "Correct an item of a run's output",
     description:
-      "Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified judgments count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first judgment of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. Judging again as the same caller for the same run, item key and `participantId` supersedes the earlier judgment. Needs `judge` on the run.",
-    tags: ['judgments'],
+      "Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified corrections count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first correction of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. A second correction by the same caller for the same run, item key and `participantId` supersedes the earlier one. Needs `write` on the run's project.",
+    tags: ['corrections'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('CreateJudgmentBody') },
+    requestBody: { required: true, schema: ref('CreateCorrectionBody') },
     responses: {
-      '201': { description: 'Judgment recorded.', schema: ref('Judgment') },
+      '201': { description: 'Correction recorded.', schema: ref('Correction') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
         'Malformed body, or `item-not-found` (the pointer resolves to nothing in the output), or `judge-class-not-applicable`.',
       ),
       '403': ErrorResponse(
-        '`permission-denied`: not allowed to judge this run. `judge-class-not-allowed`: the judge class is restricted (`assertableBy`) and the caller may not assert it.',
+        '`permission-denied`: not allowed to correct this run. `judge-class-not-allowed`: the judge class is restricted (`assertableBy`) and the caller may not assert it.',
       ),
       '404': ErrorResponse('`run-not-found`.'),
-      '409': ErrorResponse('`run-not-finished`: the run has no output to judge yet.'),
+      '409': ErrorResponse('`run-not-finished`: the run has no output to correct yet.'),
       '410': ErrorResponse(
-        "`run-erased`: an erasure cleared the run's content (a person's words were removed); there's nothing to judge.",
+        "`run-erased`: an erasure cleared the run's content (a person's words were removed); there's nothing to correct.",
       ),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/judgments',
-    openapiPath: '/v1/judgments',
-    operationId: 'judgments.list',
-    summary: 'List judgments',
+    honoPath: '/v1/corrections',
+    openapiPath: '/v1/corrections',
+    operationId: 'corrections.list',
+    summary: 'List corrections',
     description:
-      'Live judgments (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.',
-    tags: ['judgments'],
+      'Live corrections (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.',
+    tags: ['corrections'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
-      ...JudgmentListQueryParams,
+      ...CorrectionListQueryParams,
       ScopeKindQueryParam,
       ScopeIdQueryParam,
     ],
     responses: {
-      '200': { description: 'Page of judgments.', schema: ref('JudgmentCollectionPage') },
+      '200': { description: 'Page of corrections.', schema: ref('CorrectionCollectionPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed query parameter.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/judgments/:judgmentId',
-    openapiPath: '/v1/judgments/{judgmentId}',
-    operationId: 'judgments.get',
-    summary: 'Fetch a judgment with its copies',
+    honoPath: '/v1/corrections/:correctionId',
+    openapiPath: '/v1/corrections/{correctionId}',
+    operationId: 'corrections.get',
+    summary: 'Fetch a correction with its copies',
     description:
-      "Returns the judgment (live or not) with the stored copy of the run's input and output and, when the judgment pointed at an item, its value.",
-    tags: ['judgments'],
+      "Returns the correction (live or not) with the stored copy of the run's input and output and, when the correction pointed at an item, its value.",
+    tags: ['corrections'],
     security: 'bearer',
-    parameters: [JudgmentIdPathParam],
+    parameters: [CorrectionIdPathParam],
     responses: {
-      '200': { description: 'Judgment with copies.', schema: ref('JudgmentWithCopies') },
+      '200': { description: 'Correction with copies.', schema: ref('CorrectionWithCopies') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No judgment with that id under this tenant.'),
+      '404': ErrorResponse('No correction with that id under this tenant.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/judgments/:judgmentId/unregister',
-    openapiPath: '/v1/judgments/{judgmentId}/unregister',
-    operationId: 'judgments.unregister',
-    summary: 'Remove a judgment',
+    honoPath: '/v1/corrections/:correctionId/remove',
+    openapiPath: '/v1/corrections/{correctionId}/remove',
+    operationId: 'corrections.remove',
+    summary: 'Remove a correction',
     description:
-      'Soft delete: the judgment stops listing; retention policy decides when it is purged.',
-    tags: ['judgments'],
+      'Soft delete: the correction stops listing; retention policy decides when it is purged.',
+    tags: ['corrections'],
     security: 'bearer',
-    parameters: [JudgmentIdPathParam, IdempotencyKeyParam],
+    parameters: [CorrectionIdPathParam, IdempotencyKeyParam],
     responses: {
-      '200': { description: 'Removed.', schema: ref('UnregisterJudgmentResult') },
+      '200': { description: 'Removed.', schema: ref('RemoveCorrectionResult') },
       ...CommonMutationErrors,
       '403': ErrorResponse('`permission-denied`.'),
-      '404': ErrorResponse('No live judgment with that id under this tenant.'),
+      '404': ErrorResponse('No live correction with that id under this tenant.'),
     },
   },
 
@@ -5944,7 +5951,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'judgeClasses.get',
     summary: 'Fetch a judge class',
     description:
-      'Also returns a retired class (`unregisteredAt` set): judgments keep naming theirs.',
+      'Also returns a retired class (`unregisteredAt` set): corrections keep naming theirs.',
     tags: ['judge-classes'],
     security: 'bearer',
     parameters: [JudgeClassIdPathParam],
@@ -5977,7 +5984,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/judge-classes/{judgeClassId}/unregister',
     operationId: 'judgeClasses.unregister',
     summary: 'Retire a judge class',
-    description: 'No new judgments may name it; existing judgments keep it.',
+    description: 'No new corrections may name it; existing corrections keep it.',
     tags: ['judge-classes'],
     security: 'bearer',
     parameters: [JudgeClassIdPathParam, IdempotencyKeyParam],
@@ -6648,18 +6655,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'post',
-    honoPath: '/v1/eval-suites/:suiteId/versions/from-judgments',
-    openapiPath: '/v1/eval-suites/{suiteId}/versions/from-judgments',
-    operationId: 'evalSuites.buildFromJudgments',
-    summary: 'Build a test set from judgments',
+    honoPath: '/v1/eval-suites/:suiteId/versions/from-corrections',
+    openapiPath: '/v1/eval-suites/{suiteId}/versions/from-corrections',
+    operationId: 'evalSuites.buildFromCorrections',
+    summary: 'Build a test set from corrections',
     description:
-      "Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.",
+      "Publishes a `judged` eval suite version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `judgeClassIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.",
     tags: ['eval-suites'],
     security: 'bearer',
     parameters: [EvalSuiteIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('BuildJudgedSuiteBody') },
+    requestBody: { required: true, schema: ref('BuildCorrectedSuiteBody') },
     responses: {
-      '201': { description: 'Version published.', schema: ref('BuildJudgedSuiteResult') },
+      '201': { description: 'Version published.', schema: ref('BuildCorrectedSuiteResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse("Malformed body; or `projectId` isn't a project id (a UUID)."),
       '403': ErrorResponse('`permission-denied`.'),
@@ -6678,7 +6685,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/eval-suites/{suiteId}/versions/{version}/cases',
     operationId: 'evalSuites.listCases',
     summary: 'List the cases of a judged eval suite version',
-    description: 'Cursor-paginated, in the order the cases were stored (newest judged run first).',
+    description:
+      'Cursor-paginated, in the order the cases were stored (newest corrected run first).',
     tags: ['eval-suites'],
     security: 'bearer',
     parameters: [
@@ -6688,7 +6696,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CursorQueryParam,
     ],
     responses: {
-      '200': { description: 'Page of cases.', schema: ref('JudgedEvalCaseCollectionPage') },
+      '200': { description: 'Page of cases.', schema: ref('CorrectedEvalCaseCollectionPage') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No eval suite with that id.'),
     },
@@ -6970,7 +6978,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'evalRuns.rescore',
     summary: 'Rescore a comparison eval run',
     description:
-      "Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the judgments recorded on them since (a changed answer judged on the replay itself; `changes.new` lists the items to judge). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.",
+      "Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.",
     tags: ['eval-runs'],
     security: 'bearer',
     parameters: [EvalRunIdPathParam],
@@ -6979,7 +6987,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'The rescore started.', schema: ref('StartEvalRunResult') },
       ...CommonAuthErrors,
       '400': ErrorResponse(
-        "`bad-input`: `projectId` is required (this runtime doesn't record the run's project), or isn't a project here. `dispatcher-input-invalid`: this runtime can't rescore (it doesn't read replays and their judgments again).",
+        "`bad-input`: `projectId` is required (this runtime doesn't record the run's project), or isn't a project here. `dispatcher-input-invalid`: this runtime can't rescore (it doesn't read replays and their corrections again).",
       ),
       '404': ErrorResponse('No eval run with that id under this tenant.'),
       '409': ErrorResponse(
@@ -8969,7 +8977,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.judgingRules.list',
     summary: "List a project's judging rules",
     description:
-      "The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's judgment when they end. Needs `read` on the project.",
+      "The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's correction when they end. Needs `read` on the project.",
     tags: ['judging'],
     security: 'bearer',
     parameters: [
@@ -8996,7 +9004,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.judgingRules.create',
     summary: 'Create a judging rule',
     description:
-      "Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's judgment; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.",
+      "Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's correction; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.",
     tags: ['judging'],
     security: 'bearer',
     parameters: [
@@ -9219,7 +9227,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.judgingRules.results',
     summary: "A judging rule's results",
     description:
-      "By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live judgments on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.",
+      "By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live corrections on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.",
     tags: ['judging'],
     security: 'bearer',
     parameters: [
@@ -9252,7 +9260,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.judgingRules.queueRecent',
     summary: "Queue a rule's recent matches",
     description:
-      "Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already judged or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.",
+      "Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already corrected or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.",
     tags: ['judging'],
     security: 'bearer',
     parameters: [
@@ -9282,7 +9290,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.judgingQueue.list',
     summary: "The project's judging queue",
     description:
-      "Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose judgment they want and the judgments so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the judgment it wants. `forMe=true`: the items any judgment closes, or that want a class the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.",
+      "Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a class the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.",
     tags: ['judging'],
     security: 'bearer',
     parameters: [
@@ -9325,7 +9333,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         name: 'forMe',
         in: 'query',
         required: false,
-        description: '`true`: what the caller is asked to judge.',
+        description: '`true`: what the caller is asked to correct.',
         schema: { type: 'boolean' },
       },
       {
@@ -9363,7 +9371,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.judgingQueue.dismiss',
     summary: 'Dismiss a queued run',
     description:
-      'Not worth judging: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as judging the run does.',
+      'Not worth correcting: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as correcting the run does.',
     tags: ['judging'],
     security: 'bearer',
     parameters: [
@@ -9391,7 +9399,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.judgingQueue.reopen',
     summary: 'Reopen a dismissed run',
     description:
-      'Back in the open queue. Only a dismissed item reopens: a judged one was closed by its judgments. Needs `write` on the project.',
+      'Back in the open queue. Only a dismissed item reopens: a judged one was closed by its corrections. Needs `write` on the project.',
     tags: ['judging'],
     security: 'bearer',
     parameters: [

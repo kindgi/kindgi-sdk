@@ -111,14 +111,14 @@ export type ProposalDrafter =
 
 /** What a proposal rests on. */
 export interface ProposalEvidence {
-  /** The judgments that motivated it. */
-  readonly judgmentIds?: readonly string[];
+  /** The corrections it fixes, by id. */
+  readonly fixes?: readonly string[];
   /**
-   * How many judgments it rests on, when `judgmentIds` names only the first
-   * of them: an improvement pass names at most 100. Absent when
-   * `judgmentIds` names them all.
+   * How many corrections it rests on, when `fixes` names only the first
+   * of them: an improvement pass names at most 100. Absent when `fixes`
+   * names them all.
    */
-  readonly judgmentCount?: number;
+  readonly correctionCount?: number;
 }
 
 /** The versions evaluating a proposal published: inert until a promotion makes them live. */
