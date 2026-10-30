@@ -104,6 +104,13 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   Improve run and the Improve run webhook event (`passRate`). The gate's
   check `baselineIsLive` is `baselineIsPinned`, and the `gate-policy-*` errors
   are `release-gate-*`.
+- `kindgi`: **A deployment promotion's make-live is now a pin.** This is a
+  breaking rename, and no old name is kept. `client.deployments.promote`
+  takes `pin` where it took `make_live`, and its answer lists the carried
+  agents in `pinned` where it said `live` (`pinned_flows` stays), as does an
+  error's `details` after some were pinned. The models follow:
+  `DeploymentLivePin` and `DeploymentLivePinGate` are `DeploymentPinnedAgent`
+  and `DeploymentPinGate`.
 
 ## 0.3.0
 

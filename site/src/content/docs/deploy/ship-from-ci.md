@@ -239,7 +239,7 @@ stops on it, and 1 when it couldn't ask:
 | `kindgi promote --from --to`, and with `--check` | it moved, or would | never | a value the build needs isn't set in the target, or an error |
 | `kindgi test-runs start --wait` | the run completed | it failed or was cancelled | it's still running after 30 minutes, or an error |
 | `kindgi agents pin --wait` | the version is Pinned | the release gate refused it, its approval was rejected or expired, the request was superseded, or the wait ran out | an error, or 3 reads of the pin in a row failed |
-| `kindgi promote --make-live --wait` | every version it carries is Pinned | one isn't | an error, or 3 reads of a promotion in a row failed |
+| `kindgi promote --pin --wait` | every version it carries is Pinned | one isn't | an error, or 3 reads of a promotion in a row failed |
 
 A usage error exits 2.
 
@@ -363,8 +363,8 @@ The last three steps of `promote-prod` do it for one agent:
   for it in prod. Name each agent that should go further, with its own test
   run and `agents pin` steps.
 - **When prod's release gate asks only for an approval,** with no
-  test run, `kindgi promote --from=staging --to=prod --make-live --wait` does
-  the whole step for every agent the build carries. `--make-live` can't name
+  test run, `kindgi promote --from=staging --to=prod --pin --wait` does
+  the whole step for every agent the build carries. `--pin` can't name
   a test run, so a release gate that needs one holds every version it carries.
 
 [Gate a pin](../../guides/evals/release-an-agent-version/#gate-a-pin)

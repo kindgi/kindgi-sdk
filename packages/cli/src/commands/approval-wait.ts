@@ -4,7 +4,7 @@
 /**
  * `--wait[=<duration>]` on the commands that pin an agent version
  * through its scope's release gate (`kindgi agents pin`,
- * `kindgi promote --make-live`): read a pin that waits for an
+ * `kindgi promote --pin`): read a pin that waits for an
  * approval until a reviewer decides it, or until the wait runs out.
  *
  * The wait never withdraws the approval. Once it's approved, the version

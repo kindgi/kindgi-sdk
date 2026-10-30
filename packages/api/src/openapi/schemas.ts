@@ -11591,10 +11591,10 @@ export const DeploymentPromotionBodySchema: JsonSchema = {
       maxLength: 1000,
       description: 'Why, kept in the `deployment-promoted` audit record.',
     },
-    makeLive: {
+    pin: {
       type: 'boolean',
       description:
-        "Make every agent version the promotion carries live in the target project, each through its scope's gate, and pin every flow version it carries there (the project's pin), so a run there that names no version takes it. The answer's `live` reports each agent and `pinnedFlows` each flow. An error answered after some were already pinned lists those in `error.details.live` and `error.details.pinnedFlows`, in the answer's shapes.",
+        "Pin every agent version the promotion carries in the target project, each through its scope's release gate, and every flow version it carries (the project's pin), so a run there that names no version takes it. The answer's `pinned` reports each agent and `pinnedFlows` each flow. An error answered after some were already pinned lists those in `error.details.pinned` and `error.details.pinnedFlows`, in the answer's shapes.",
     },
   },
 };
@@ -11662,8 +11662,8 @@ export const LeftBehindVersionSchema: JsonSchema = {
   },
 };
 
-/** The gate's say on a carried version's pin, there when it isn't live yet or ran checks. */
-export const DeploymentLivePinGateSchema: JsonSchema = {
+/** The gate's say on a carried version's pin, there when it isn't pinned yet or ran checks. */
+export const DeploymentPinGateSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['status', 'changeId'],
@@ -11682,8 +11682,8 @@ export const DeploymentLivePinGateSchema: JsonSchema = {
   },
 };
 
-/** A carried agent version a make-live pinned, or tried to, in the target project. */
-export const DeploymentLivePinSchema: JsonSchema = {
+/** A carried agent version a promotion pinned, or tried to, in the target project. */
+export const DeploymentPinnedAgentSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'version', 'pinned'],
@@ -11693,13 +11693,13 @@ export const DeploymentLivePinSchema: JsonSchema = {
     pinned: {
       type: 'boolean',
       description:
-        'Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).',
+        'Pinned now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).',
     },
-    gate: { $ref: '#/components/schemas/DeploymentLivePinGate' },
+    gate: { $ref: '#/components/schemas/DeploymentPinGate' },
   },
 };
 
-/** A carried flow version a make-live pinned in the target project. */
+/** A carried flow version a promotion pinned in the target project. */
 export const DeploymentPinnedFlowSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -11728,17 +11728,17 @@ export const DeploymentPromotionSchema: JsonSchema = {
       items: { $ref: '#/components/schemas/LeftBehindVersion' },
       description: "Edits of the build's agents and flows that stay behind; absent when none.",
     },
-    live: {
+    pinned: {
       type: 'array',
-      items: { $ref: '#/components/schemas/DeploymentLivePin' },
+      items: { $ref: '#/components/schemas/DeploymentPinnedAgent' },
       description:
-        'Each carried agent pinned live in the target; present only when `makeLive` was asked.',
+        "Each carried agent's pin in the target, done or held by its gate; present only when `pin` was asked.",
     },
     pinnedFlows: {
       type: 'array',
       items: { $ref: '#/components/schemas/DeploymentPinnedFlow' },
       description:
-        "Each carried flow version pinned in the target (the project's pin); present only when `makeLive` was asked of a runtime that pins flows.",
+        "Each carried flow version pinned in the target (the project's pin); present only when `pin` was asked of a runtime that pins flows.",
     },
   },
 };
@@ -16493,8 +16493,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PromotionMovedVersion', PromotionMovedVersionSchema],
   ['PromotionMoves', PromotionMovesSchema],
   ['LeftBehindVersion', LeftBehindVersionSchema],
-  ['DeploymentLivePinGate', DeploymentLivePinGateSchema],
-  ['DeploymentLivePin', DeploymentLivePinSchema],
+  ['DeploymentPinGate', DeploymentPinGateSchema],
+  ['DeploymentPinnedAgent', DeploymentPinnedAgentSchema],
   ['DeploymentPinnedFlow', DeploymentPinnedFlowSchema],
   ['DeploymentPromotion', DeploymentPromotionSchema],
   ['PromotionNextEnvironment', PromotionNextEnvironmentSchema],

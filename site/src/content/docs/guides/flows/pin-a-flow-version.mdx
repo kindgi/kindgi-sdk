@@ -264,11 +264,11 @@ environment of the order at once. The pin is refused with
 `409 pin-scope-spans-environments`; pin it for each project instead. A pin
 for a later environment of an order is fine: runs there take it.
 
-A promotion into the next environment that makes what it carries live
-(`makeLive`) also pins each flow version it carries for that project, and
-the answer lists them in `pinnedFlows`. Once a flow is pinned in a project,
-a promotion without `makeLive` keeps the pinned flow in use there: move the
-pin, or promote with `makeLive`.
+A promotion into the next environment with `pin` pins each agent version
+it carries in that project, and each flow version too: the answer lists
+the flows in `pinnedFlows`. Once a flow is pinned in a project, a
+promotion without `pin` keeps the pinned flow in use there: move the pin,
+or promote with `pin`.
 
 ## Remove a pin
 

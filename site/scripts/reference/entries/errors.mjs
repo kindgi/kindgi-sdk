@@ -797,7 +797,7 @@ export const ERROR_ENTRIES = {
   },
   'pin-scope-spans-environments': {
     description:
-      "An agent, flow or tool with a project in an environment order is pinned one project at a time: a pin for the whole tenant or an organization would act in every environment of the order at once, so it's refused. Pin an agent or a flow in each environment's project (or a segment of it), and a tool in the order's first environment, where agent and flow versions are made. To take a build from one environment to the next and pin it there, promote it (`kindgi promote --make-live`). Nothing is changed.",
+      "An agent, flow or tool with a project in an environment order is pinned one project at a time: a pin for the whole tenant or an organization would act in every environment of the order at once, so it's refused. Pin an agent or a flow in each environment's project (or a segment of it), and a tool in the order's first environment, where agent and flow versions are made. To take a build from one environment to the next and pin it there, promote it (`kindgi promote --pin`). Nothing is changed.",
     details: [],
   },
   'tool-not-pinnable': {

@@ -389,22 +389,23 @@ export function resultText(result: DeploymentPromotion, to: string): string {
   const head = result.created
     ? `Promoted: deployment ${id} in ${to}.\n`
     : `${to} has this build already, as deployment ${id}: nothing new was deployed. The carried edits are recorded with it.\n`;
-  const live = result.live ?? [];
-  const pin = (p: (typeof live)[number]) =>
+  const pinned = result.pinned ?? [];
+  const pin = (p: (typeof pinned)[number]) =>
     p.pinned
-      ? `  ${p.id} ${p.version} — live`
+      ? `  ${p.id} ${p.version} — pinned`
       : `  ${p.id} ${p.version} — ${GATE_WORDS[p.gate?.status ?? ''] ?? 'held by the gate'}`;
-  const liveText = live.length === 0 ? '' : `Live in ${to}:\n${live.map(pin).join('\n')}\n`;
-  // `makeLive` also pins each flow version the promotion carries, for the target.
+  const pinnedText =
+    pinned.length === 0 ? '' : `Agent pins in ${to}:\n${pinned.map(pin).join('\n')}\n`;
+  // `pin` also pins each flow version the promotion carries, for the target.
   const flows = result.pinnedFlows ?? [];
   const flowsText =
     flows.length === 0
       ? ''
       : `Flows pinned in ${to}:\n${flows.map((f) => `  ${f.id} ${f.version}`).join('\n')}\n`;
-  return `${head}${liveText}${flowsText}`;
+  return `${head}${pinnedText}${flowsText}`;
 }
 
-/** A carried version that isn't live, by its gate's status; any other is held by the gate. */
+/** A carried version that isn't pinned, by its gate's status; any other is held by the gate. */
 const GATE_WORDS: Readonly<Record<string, string>> = {
   'pending-approval': 'waiting for an approval',
   rejected: 'its approval was rejected',
@@ -412,10 +413,10 @@ const GATE_WORDS: Readonly<Record<string, string>> = {
   superseded: 'approved, but superseded',
 };
 
-type LivePin = NonNullable<DeploymentPromotion['live']>[number];
+type PinnedAgent = NonNullable<DeploymentPromotion['pinned']>[number];
 
 /** A carried version waiting for an approval, as the wait's lines name it. */
-function waitingVersion(pin: LivePin): WaitingVersion {
+function waitingVersion(pin: PinnedAgent): WaitingVersion {
   return {
     agentId: pin.id,
     toVersion: pin.version,
@@ -425,8 +426,8 @@ function waitingVersion(pin: LivePin): WaitingVersion {
 
 /**
  * `--wait`: wait for each carried version that waits for an approval, all
- * within one deadline, and stop at the first that doesn't go live. A
- * version held by a failed check can't go live, so then nothing waits.
+ * within one deadline, and stop at the first that isn't pinned. A
+ * version held by a failed check can't be pinned, so then nothing waits.
  * The answer has each version as it ended, and `end` says when the wait
  * ended before every version did: stopped, or a promotion it couldn't read.
  */
@@ -437,15 +438,15 @@ async function waitForPins(
   waitMs: number,
   out: ProgressLines,
 ): Promise<PinsWaited> {
-  const live = result.live ?? [];
-  const held = live.find((p) => !p.pinned && p.gate?.status !== 'pending-approval');
+  const pinned = result.pinned ?? [];
+  const held = pinned.find((p) => !p.pinned && p.gate?.status !== 'pending-approval');
   if (held !== undefined) {
     out.problem(
-      `Not waiting: ${held.id} ${held.version} is held by the gate, so not every version goes live.`,
+      `Not waiting: ${held.id} ${held.version} is held by the gate, so not every version is pinned.`,
     );
     return { result };
   }
-  const waiting = live.filter((p) => !p.pinned);
+  const waiting = pinned.filter((p) => !p.pinned);
   for (const p of waiting) out.line(waitingLine(waitingVersion(p), waitMs));
   const deadline = waitDeadline(ctx, waitMs);
   const ended = new Map<string, Pin>();
@@ -460,19 +461,19 @@ async function waitForPins(
     );
     if (waited.pin !== undefined) ended.set(changeId, waited.pin);
     const end = sayHowItEnded(waited, waitingVersion(p), waitMs, out);
-    if (end === 'live') continue;
-    return { result: withEnded(result, ended), ...(end !== 'not-live' && { end }) };
+    if (end === 'pinned') continue;
+    return { result: withEnded(result, ended), ...(end !== 'not-pinned' && { end }) };
   }
   return { result: withEnded(result, ended) };
 }
 
-/** Say how one carried version's wait ended, unless it went live. */
+/** Say how one carried version's wait ended, unless it was pinned. */
 function sayHowItEnded(
   waited: ApprovalWaited<Pin | undefined>,
   version: WaitingVersion,
   waitMs: number,
   out: ProgressLines,
-): 'live' | 'not-live' | NonNullable<PinsWaited['end']> {
+): 'pinned' | 'not-pinned' | NonNullable<PinsWaited['end']> {
   switch (waited.kind) {
     case 'stopped':
       out.line(`Stopped waiting. ${stillOpenLine(version)}`);
@@ -482,11 +483,11 @@ function sayHowItEnded(
       return 'unreadable';
     case 'still-waiting':
       out.problem(`Still waiting after ${waitWords(waitMs)}. ${stillOpenLine(version)}`);
-      return 'not-live';
+      return 'not-pinned';
     case 'decided':
-      if (waited.pin.status === 'pinned') return 'live';
+      if (waited.pin.status === 'pinned') return 'pinned';
       out.problem(endedLine(waited.pin));
-      return 'not-live';
+      return 'not-pinned';
   }
 }
 
@@ -506,8 +507,8 @@ function withEnded(
   result: DeploymentPromotion,
   ended: ReadonlyMap<string, Pin>,
 ): DeploymentPromotion {
-  if (result.live === undefined || ended.size === 0) return result;
-  const live = result.live.map((pin): LivePin => {
+  if (result.pinned === undefined || ended.size === 0) return result;
+  const pinned = result.pinned.map((pin): PinnedAgent => {
     const gate = pin.gate;
     const change = gate !== undefined ? ended.get(gate.changeId) : undefined;
     if (gate === undefined || change?.status === undefined) return pin;
@@ -517,7 +518,7 @@ function withEnded(
       gate: { ...gate, status: change.status },
     };
   });
-  return { ...result, live };
+  return { ...result, pinned };
 }
 
 /** The values a `409 promotion-values-not-ready` names; `undefined` for any other error. */
@@ -529,12 +530,12 @@ function valuesRefused(err: unknown): readonly DeploymentValue[] | undefined {
   return Array.isArray(values) ? (values as DeploymentValue[]) : undefined;
 }
 
-/** `--wait`, which goes only with `--make-live`, and not with `--check`. */
+/** `--wait`, which goes only with `--pin`, and not with `--check`. */
 function promoteWaitFlag(ctx: CommandContext): number | undefined {
   const waitMs = waitFlag(ctx);
-  if (waitMs !== undefined && (ctx.options.check === true || ctx.options['make-live'] !== true)) {
+  if (waitMs !== undefined && (ctx.options.check === true || ctx.options.pin !== true)) {
     throw new UsageError(
-      '--wait waits for the versions --make-live makes live: it goes with --make-live, without --check',
+      '--wait waits for the versions --pin pins: it goes with --pin, without --check',
     );
   }
   return waitMs;
@@ -542,7 +543,7 @@ function promoteWaitFlag(ctx: CommandContext): number | undefined {
 
 /**
  * The promotion's answer: each carried version as it ended, after any
- * `--wait`, rendered by `render`. It exits 3 when one isn't live, 130
+ * `--wait`, rendered by `render`. It exits 3 when one isn't pinned, 130
  * when the wait is stopped, and 1 when it couldn't read a promotion.
  */
 async function promotedAnswer(
@@ -555,9 +556,9 @@ async function promotedAnswer(
   const out = progressLines(ctx.progress, ctx.globals.format === 'quiet');
   const waited: PinsWaited =
     waitMs === undefined ? { result } : await waitForPins(ctx, client, result, waitMs, out);
-  const notLive = (waited.result.live ?? []).some((p) => !p.pinned);
+  const notPinned = (waited.result.pinned ?? []).some((p) => !p.pinned);
   const exit =
-    waited.end !== undefined ? END_EXIT[waited.end] : notLive ? ANSWER_NO_EXIT_CODE : undefined;
+    waited.end !== undefined ? END_EXIT[waited.end] : notPinned ? ANSWER_NO_EXIT_CODE : undefined;
   return {
     stdout: render(waited.result),
     stderr: out.kept(),
@@ -595,7 +596,7 @@ async function promoteBuild(ctx: CommandContext): Promise<Answer> {
     result = await deployments.promote(deploymentId, {
       toProjectId: route.toProjectId,
       ...(reason !== undefined && { reason }),
-      ...(ctx.options['make-live'] === true && { makeLive: true }),
+      ...(ctx.options.pin === true && { pin: true }),
     });
   } catch (err) {
     // A value went missing since the check.
@@ -615,9 +616,9 @@ const promote: LeafCommand = {
   kind: 'leaf',
   name: 'promote',
   description:
-    "Move a build to the next environment of its environment order, staging to prod, say: the same signed image, with the edits made since to its agents and flows. Prints what moves, then each value the build needs there that isn't set, with the command that sets it; exits 1 while one isn't. `--check` stops before moving anything. With `--make-live`, exits 3 when a carried version doesn't go live: held by the gate, or waiting for an approval (`--wait` waits for the decision). In a pack, --from and --to are its environment names; outside one, project ids or slugs.",
+    "Move a build to the next environment of its environment order, staging to prod, say: the same signed image, with the edits made since to its agents and flows. Prints what moves, then each value the build needs there that isn't set, with the command that sets it; exits 1 while one isn't. `--check` stops before moving anything. With `--pin`, exits 3 when a carried version isn't pinned: held by the gate, or waiting for an approval (`--wait` waits for the decision). In a pack, --from and --to are its environment names; outside one, project ids or slugs.",
   usage:
-    'kindgi promote --from=<env> --to=<env> [--deployment=<id>] [--reason=<text>] [--check] [--make-live [--wait[=<duration>]]] [--path=<dir>]',
+    'kindgi promote --from=<env> --to=<env> [--deployment=<id>] [--reason=<text>] [--check] [--pin [--wait[=<duration>]]] [--path=<dir>]',
   optionSpec: {
     from: {
       type: 'string',
@@ -639,10 +640,10 @@ const promote: LeafCommand = {
       type: 'boolean',
       description: 'What would move, and the values not set in --to. Changes nothing.',
     },
-    'make-live': {
+    pin: {
       type: 'boolean',
       description:
-        "Make every agent version the promotion carries live in --to, each through its scope's gate, and pin every flow version it carries there. Prints each, and any waiting on a gate; exits 3 when one doesn't go live.",
+        "Pin every agent version the promotion carries in --to, each through its scope's release gate, and every flow version it carries. Prints each, and any waiting on a gate; exits 3 when one isn't pinned.",
     },
     ...WAIT_FLAG,
     path: { type: 'string', description: 'The pack root. Default: the current directory.' },

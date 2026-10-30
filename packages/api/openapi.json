@@ -19892,9 +19892,9 @@
             "maxLength": 1000,
             "description": "Why, kept in the `deployment-promoted` audit record."
           },
-          "makeLive": {
+          "pin": {
             "type": "boolean",
-            "description": "Make every agent version the promotion carries live in the target project, each through its scope's gate, and pin every flow version it carries there (the project's pin), so a run there that names no version takes it. The answer's `live` reports each agent and `pinnedFlows` each flow. An error answered after some were already pinned lists those in `error.details.live` and `error.details.pinnedFlows`, in the answer's shapes."
+            "description": "Pin every agent version the promotion carries in the target project, each through its scope's release gate, and every flow version it carries (the project's pin), so a run there that names no version takes it. The answer's `pinned` reports each agent and `pinnedFlows` each flow. An error answered after some were already pinned lists those in `error.details.pinned` and `error.details.pinnedFlows`, in the answer's shapes."
           }
         }
       },
@@ -20028,7 +20028,7 @@
           }
         }
       },
-      "DeploymentLivePinGate": {
+      "DeploymentPinGate": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -20074,7 +20074,7 @@
           }
         }
       },
-      "DeploymentLivePin": {
+      "DeploymentPinnedAgent": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -20091,10 +20091,10 @@
           },
           "pinned": {
             "type": "boolean",
-            "description": "Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`)."
+            "description": "Pinned now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`)."
           },
           "gate": {
-            "$ref": "#/components/schemas/DeploymentLivePinGate"
+            "$ref": "#/components/schemas/DeploymentPinGate"
           }
         }
       },
@@ -20140,19 +20140,19 @@
             },
             "description": "Edits of the build's agents and flows that stay behind; absent when none."
           },
-          "live": {
+          "pinned": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/DeploymentLivePin"
+              "$ref": "#/components/schemas/DeploymentPinnedAgent"
             },
-            "description": "Each carried agent pinned live in the target; present only when `makeLive` was asked."
+            "description": "Each carried agent's pin in the target, done or held by its gate; present only when `pin` was asked."
           },
           "pinnedFlows": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/DeploymentPinnedFlow"
             },
-            "description": "Each carried flow version pinned in the target (the project's pin); present only when `makeLive` was asked of a runtime that pins flows."
+            "description": "Each carried flow version pinned in the target (the project's pin); present only when `pin` was asked of a runtime that pins flows."
           }
         }
       },

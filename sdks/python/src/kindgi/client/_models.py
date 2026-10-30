@@ -8691,9 +8691,9 @@ class DeploymentPromotionBody(BaseModel):
     """
     Why, kept in the `deployment-promoted` audit record.
     """
-    make_live: Annotated[bool | None, Field(alias="makeLive")] = None
+    pin: bool | None = None
     """
-    Make every agent version the promotion carries live in the target project, each through its scope's gate, and pin every flow version it carries there (the project's pin), so a run there that names no version takes it. The answer's `live` reports each agent and `pinnedFlows` each flow. An error answered after some were already pinned lists those in `error.details.live` and `error.details.pinnedFlows`, in the answer's shapes.
+    Pin every agent version the promotion carries in the target project, each through its scope's release gate, and every flow version it carries (the project's pin), so a run there that names no version takes it. The answer's `pinned` reports each agent and `pinnedFlows` each flow. An error answered after some were already pinned lists those in `error.details.pinned` and `error.details.pinnedFlows`, in the answer's shapes.
     """
 
 
@@ -8738,7 +8738,7 @@ class LeftBehindVersion(BaseModel):
     """
 
 
-class DeploymentLivePinGate(BaseModel):
+class DeploymentPinGate(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -8759,7 +8759,7 @@ class DeploymentLivePinGate(BaseModel):
     checks: list[GateCheck] | None = None
 
 
-class DeploymentLivePin(BaseModel):
+class DeploymentPinnedAgent(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -8768,9 +8768,9 @@ class DeploymentLivePin(BaseModel):
     version: str
     pinned: bool
     """
-    Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).
+    Pinned now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).
     """
-    gate: DeploymentLivePinGate | None = None
+    gate: DeploymentPinGate | None = None
 
 
 class DeploymentPinnedFlow(BaseModel):
@@ -15726,13 +15726,13 @@ class DeploymentPromotion(BaseModel):
     """
     Edits of the build's agents and flows that stay behind; absent when none.
     """
-    live: list[DeploymentLivePin] | None = None
+    pinned: list[DeploymentPinnedAgent] | None = None
     """
-    Each carried agent pinned live in the target; present only when `makeLive` was asked.
+    Each carried agent's pin in the target, done or held by its gate; present only when `pin` was asked.
     """
     pinned_flows: Annotated[list[DeploymentPinnedFlow] | None, Field(alias="pinnedFlows")] = None
     """
-    Each carried flow version pinned in the target (the project's pin); present only when `makeLive` was asked of a runtime that pins flows.
+    Each carried flow version pinned in the target (the project's pin); present only when `pin` was asked of a runtime that pins flows.
     """
 
 

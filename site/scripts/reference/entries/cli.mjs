@@ -1304,8 +1304,8 @@ export const CLI_EXAMPLES = {
     },
     {
       purpose:
-        'Promote to prod and make each agent the build carries live there, each through its release gate.',
-      line: 'kindgi promote --from=staging --to=prod --make-live --reason="release 12"',
+        'Promote to prod and pin each agent the build carries there, each through its release gate.',
+      line: 'kindgi promote --from=staging --to=prod --pin --reason="release 12"',
     },
     {
       purpose: 'See what would move to prod and which values it lacks, changing nothing.',

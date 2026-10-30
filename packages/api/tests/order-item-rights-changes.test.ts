@@ -11,8 +11,8 @@
  * version is `write` where the item's new versions are made. A version
  * the caller can't see is asked as one that doesn't exist. An item with
  * one project is checked as before, check for check. A deployment's
- * promotion that makes what it moved live asks the agent pin routes' one
- * check (`agentPinChangeRefusal`).
+ * promotion that pins what it moved asks the agent pin routes' one check
+ * (`agentPinChangeRefusal`).
  */
 
 import { randomUUID } from 'node:crypto';

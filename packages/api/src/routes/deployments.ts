@@ -271,8 +271,8 @@ export interface DeploymentsRouterBindings {
    * The flows' and tools' pinned versions: each tool a deployed agent or
    * flow runs pins the version pinned for the deploy's project (an
    * agent's, when it's in the reference's range), else as without it; and
-   * a promotion asked to make what it carried live (`{ makeLive: true }`)
-   * pins each carried flow version in the target. Absent: neither.
+   * a promotion asked to pin what it carried (`{ pin: true }`) pins each
+   * carried flow version in the target. Absent: neither.
    */
   readonly pinnedVersions?: PinnedVersionBinding;
   /** Data blocks: an agent's block references are pinned at deploy with its tools. */
@@ -340,15 +340,15 @@ export interface DeploymentsRouterBindings {
   readonly auditEvents?: AuditEventBinding;
   /**
    * The agents' pinned versions and gated pins, for a promotion asked
-   * to make what it carried live (`{ makeLive: true }`): each carried
-   * agent is pinned in the target through the same gate a pin route uses
-   * (`requestPin`). Absent: `makeLive` answers `501`.
+   * to pin what it carried (`{ pin: true }`): each carried agent is
+   * pinned in the target through the same gate a pin route uses
+   * (`requestPin`). Absent: `pin` answers `501`.
    */
   readonly agentPins?: AgentPinBindings;
-  /** What the make-live gate reads besides the pins (`requestPin`): comparisons, projects, the reference scope. */
+  /** What a promotion's pin gate reads besides the pins (`requestPin`): comparisons, projects, the reference scope. */
   readonly agentPinGateDeps?: AgentPinGateDeps;
   /**
-   * Rights on an agent more than one project serves, for a make-live: an
+   * Rights on an agent more than one project serves, for a promotion's pin: an
    * agent in an order is pinned by an admin of the target project, and a
    * pin wider than one project is refused (`agentPinChangeRefusal`). Absent, or
    * with no authorizer: today's `pin` check.

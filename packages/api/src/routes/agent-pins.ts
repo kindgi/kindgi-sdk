@@ -514,7 +514,7 @@ async function resolveApproval(
  * The answer to a pin request: 201 pinned, 202 waiting for
  * approval, 422 `gate-failed` with the checks, or the error. `extra` is
  * merged into whichever answer comes out — the caller carries fields it
- * knows the outcome alone can't, such as a make-live's pins so far.
+ * knows the outcome alone can't, such as a promotion's pins so far.
  */
 export function pinResponse(
   c: Ctx,

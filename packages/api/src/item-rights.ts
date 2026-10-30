@@ -934,7 +934,7 @@ function spansEnvironments(
  * with a project scope, or with no rights to ask, `undefined` — today's
  * checks hold. It reads no body and answers nothing but the refusal. The
  * suggested change's pin calls it after its own `deny`, as the
- * pin routes and a deployment's make-live call it through
+ * pin routes and a deployment promotion's pin call it through
  * `agentPinChangeRefusal`.
  */
 export async function widthRefusal(

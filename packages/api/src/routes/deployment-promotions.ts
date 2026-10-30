@@ -229,8 +229,8 @@ export interface PromotionMoves {
   readonly guardrails: readonly DeployedPrimitive[];
 }
 
-/** The gate's say on a carried version's pin: there when it isn't live yet (an approval or a failed check), or ran checks. */
-export interface DeploymentLivePinGate {
+/** The gate's say on a carried version's pin: there when it isn't pinned yet (an approval or a failed check), or ran checks. */
+export interface DeploymentPinGate {
   readonly status: PinStatus;
   readonly changeId: string;
   readonly releaseGate?: ReleaseGateRef | null;
@@ -238,16 +238,16 @@ export interface DeploymentLivePinGate {
   readonly checks?: readonly GateCheck[];
 }
 
-/** A carried agent version the make-live pinned, or tried to, in the target project. */
-export interface DeploymentLivePin {
+/** A carried agent version the promotion pinned, or tried to, in the target project. */
+export interface DeploymentPinnedAgent {
   readonly id: string;
   readonly version: string;
-  /** Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`). */
+  /** Pinned now (`true`), or waiting on a gate — an approval, or a check it failed (`false`). */
   readonly pinned: boolean;
-  readonly gate?: DeploymentLivePinGate;
+  readonly gate?: DeploymentPinGate;
 }
 
-/** A carried flow version the make-live pinned in the target project. */
+/** A carried flow version the promotion pinned in the target project. */
 export interface DeploymentPinnedFlow {
   readonly id: string;
   readonly version: string;
@@ -255,8 +255,8 @@ export interface DeploymentPinnedFlow {
 
 /**
  * What a promotion did. The handler builds it once and answers it through
- * `promotionAnswer`, so what's added after the write (making versions
- * live) has one place to go.
+ * `promotionAnswer`, so what's added after the write (pinning versions)
+ * has one place to go.
  */
 export interface PromotionResult {
   /** The target's deployment: a new one, or the one it had already. */
@@ -266,11 +266,11 @@ export interface PromotionResult {
   readonly leftBehind: readonly LeftBehindVersion[];
   /** `true`: a new deployment (`201`); `false`: the target had it (`200`). */
   readonly created: boolean;
-  /** Each carried agent pinned live in the target, present only when `makeLive` was asked. */
-  readonly live?: readonly DeploymentLivePin[];
+  /** Each carried agent's pin in the target, done or held by its gate; present only when `pin` was asked. */
+  readonly pinned?: readonly DeploymentPinnedAgent[];
   /**
    * Each carried flow version pinned in the target, present only when
-   * `makeLive` was asked of a runtime that pins flows.
+   * `pin` was asked of a runtime that pins flows.
    */
   readonly pinnedFlows?: readonly DeploymentPinnedFlow[];
 }
@@ -310,7 +310,7 @@ export function promotionAnswer(c: Context<AppEnv>, result: PromotionResult): Re
     created: result.created,
     moved: result.moved,
     ...(result.leftBehind.length > 0 && { leftBehind: result.leftBehind }),
-    ...(result.live !== undefined && { live: result.live }),
+    ...(result.pinned !== undefined && { pinned: result.pinned }),
     ...(result.pinnedFlows !== undefined && { pinnedFlows: result.pinnedFlows }),
   });
 }
@@ -347,8 +347,8 @@ interface PromotionPlan {
 interface PromotionBody {
   readonly toProjectId: ProjectId;
   readonly reason?: string;
-  /** Make every agent version the promotion carries live in the target project, and pin every flow version it carries there. */
-  readonly makeLive?: boolean;
+  /** Pin every agent version the promotion carries in the target project, each through its scope's release gate, and every flow version it carries. */
+  readonly pin?: boolean;
 }
 
 const MAX_REASON = 1000;
@@ -414,9 +414,9 @@ export function mountDeploymentPromotions(
 }
 
 /**
- * After the move commits: record it, and — when `makeLive` was asked — pin
- * every carried agent live in the target and every carried flow there
- * (`makeCarriedLive`), adding `live` and `pinnedFlows` to the answer.
+ * After the move commits: record it, and — when `pin` was asked — pin
+ * every carried agent and every carried flow in the target
+ * (`pinCarried`), adding `pinned` and `pinnedFlows` to the answer.
  * Answers the promotion either way.
  */
 async function finishPromotion(
@@ -431,12 +431,12 @@ async function finishPromotion(
   if (result.created || carried.length > 0) {
     await auditPromotion(c, bindings, plan, result, carried, body.reason);
   }
-  if (body.makeLive !== true) return promotionAnswer(c, result);
-  const made = await makeCarriedLive(c, bindings, authorizer, plan, result, body.reason);
-  return made instanceof Response ? made : promotionAnswer(c, { ...result, ...made });
+  if (body.pin !== true) return promotionAnswer(c, result);
+  const pins = await pinCarried(c, bindings, authorizer, plan, result, body.reason);
+  return pins instanceof Response ? pins : promotionAnswer(c, { ...result, ...pins });
 }
 
-/** A moved agent or flow with its version: the ones `makeLive` pins. */
+/** A moved agent or flow with its version: the ones `pin` pins. */
 const versioned = (v: MovedVersion): v is MovedVersion & { version: string } =>
   v.version !== undefined;
 
@@ -472,7 +472,7 @@ async function authorizeCarriedFlows(
  * so a run there that names no version takes it, as it would with no pin.
  * Rights were decided for every flow before any pin
  * (`authorizeCarriedFlows`). A write the binding refuses is answered with
- * the pins so far: the agents' in `error.details.live`, the flows' in
+ * the pins so far: the agents' in `error.details.pinned`, the flows' in
  * `error.details.pinnedFlows`.
  */
 async function pinCarriedFlows(
@@ -482,7 +482,7 @@ async function pinCarriedFlows(
   flows: readonly (MovedVersion & { version: string })[],
   scope: PinScope,
   reason: string | undefined,
-  live: readonly DeploymentLivePin[],
+  pinned: readonly DeploymentPinnedAgent[],
 ): Promise<readonly DeploymentPinnedFlow[] | Response> {
   const pinnedFlows: DeploymentPinnedFlow[] = [];
   for (const flow of flows) {
@@ -498,7 +498,7 @@ async function pinCarriedFlows(
     });
     if (outcome.kind === 'err') {
       return pinWriteFailure(c, c.get('requestId'), 'flow', flow.id, outcome.error, version, {
-        ...(live.length > 0 && { live }),
+        ...(pinned.length > 0 && { pinned }),
         ...(pinnedFlows.length > 0 && { pinnedFlows }),
       });
     }
@@ -529,8 +529,8 @@ async function gateUnsupportedBefore(
 }
 
 /**
- * Authorize making every carried agent live in the target — a project scope
- * at `toProjectId`, `agentPinChangeRefusal`, the one the pin routes use — before
+ * Authorize pinning every carried agent in the target — a project scope at
+ * `toProjectId`, `agentPinChangeRefusal`, the one the pin routes use — before
  * any pin, so a refusal is the 403 answered with nothing pinned. The 403 to
  * answer, or `undefined` when every agent is cleared (or the authorizer is
  * off, as it is in a plain composition).
@@ -557,7 +557,7 @@ async function authorizeCarried(
 }
 
 /**
- * Pin every carried agent version live in the target project, through the
+ * Pin every carried agent version in the target project, through the
  * same gate a pin route does (`requestPin`). The promotion is
  * already committed, so this runs after it. Everything decidable before a
  * pin is decided for every agent first, so a refusal is answered with
@@ -568,8 +568,8 @@ async function authorizeCarried(
  * the grant or the deployment and promote again: the move is idempotent,
  * and so is a pin in place). The width check in `agentPinChangeRefusal` never
  * fires here: the scope is one project. Then each version is requested
- * through its scope's gate: live now, waiting for an approval, or refused
- * by a check, each reported in `live`. (`requestPin`'s own
+ * through its scope's gate: pinned now, waiting for an approval, or refused
+ * by a check, each reported in `pinned`. (`requestPin`'s own
  * out-of-scope check — `reachable` for the agent by its id, not where its
  * versions run — passes here under a reach rule that reaches an item from
  * every project of its environment order: the target is the next
@@ -580,17 +580,17 @@ async function authorizeCarried(
  * agents' before any pin; without one, nothing pins a flow, so the shipped
  * version is the one in use there already. Returns the pins, or the
  * response to answer instead (a 403, a gate this deployment can't record,
- * or a write error carrying the pins so far in `error.details.live` and
+ * or a write error carrying the pins so far in `error.details.pinned` and
  * `error.details.pinnedFlows`).
  */
-async function makeCarriedLive(
+async function pinCarried(
   c: Context<AppEnv>,
   bindings: DeploymentsRouterBindings,
   authorizer: Authorizer | undefined,
   plan: PromotionPlan,
   result: PromotionResult,
   reason: string | undefined,
-): Promise<Pick<PromotionResult, 'live' | 'pinnedFlows'> | Response> {
+): Promise<Pick<PromotionResult, 'pinned' | 'pinnedFlows'> | Response> {
   const { agentPins, agentRegistry, agentPinGateDeps, pinnedVersions } = bindings;
   if (agentPins === undefined || agentRegistry === undefined || agentPinGateDeps === undefined) {
     return unsupported(c);
@@ -606,7 +606,7 @@ async function makeCarriedLive(
   if (denied !== undefined) return denied;
   const gated = await gateUnsupportedBefore(c, agentPins, tenantId, pinnable, scope);
   if (gated !== undefined) return gated;
-  const live: DeploymentLivePin[] = [];
+  const pinned: DeploymentPinnedAgent[] = [];
   for (const agent of pinnable) {
     const outcome = await requestPin(agentRegistry, agentPins, agentPinGateDeps, {
       tenantId,
@@ -617,13 +617,13 @@ async function makeCarriedLive(
       ...(reason !== undefined && { reason }),
     });
     // What the pre-checks leave is answered with the pins already made, so
-    // the caller sees what went live.
+    // the caller sees what was pinned.
     if (outcome.kind !== 'ok') {
-      return pinResponse(c, outcome, live.length > 0 ? { live } : {});
+      return pinResponse(c, outcome, pinned.length > 0 ? { pinned } : {});
     }
-    live.push(livePinOf(agent, outcome.pin, outcome.checks));
+    pinned.push(pinnedAgentOf(agent, outcome.pin, outcome.checks));
   }
-  if (pinnedVersions === undefined) return { live };
+  if (pinnedVersions === undefined) return { pinned };
   const pinnedFlows = await pinCarriedFlows(
     c,
     pinnedVersions,
@@ -631,20 +631,20 @@ async function makeCarriedLive(
     flows,
     pinScope,
     reason,
-    live,
+    pinned,
   );
-  return pinnedFlows instanceof Response ? pinnedFlows : { live, pinnedFlows };
+  return pinnedFlows instanceof Response ? pinnedFlows : { pinned, pinnedFlows };
 }
 
-/** A carried agent's `live` entry from its pin change: pinned unless a gate holds it, with the gate's say when it does or ran checks. */
-function livePinOf(
+/** A carried agent's `pinned` entry from its pin change: pinned unless a gate holds it, with the gate's say when it does or ran checks. */
+function pinnedAgentOf(
   agent: MovedVersion & { version: string },
   pin: Pin,
   outcomeChecks: readonly GateCheck[] | undefined,
-): DeploymentLivePin {
+): DeploymentPinnedAgent {
   const pinned = (pin.status ?? 'pinned') === 'pinned';
   const checks = pin.checks ?? outcomeChecks;
-  const gate: DeploymentLivePinGate | undefined =
+  const gate: DeploymentPinGate | undefined =
     !pinned || (checks !== undefined && checks.length > 0)
       ? {
           status: pin.status ?? 'pinned',
@@ -677,23 +677,23 @@ async function promotionBody(
     return badInput(c, 'The body must be a JSON object.');
   }
   const body = raw as Record<string, unknown>;
-  const allowed = takesReason ? ['toProjectId', 'reason', 'makeLive'] : ['toProjectId'];
+  const allowed = takesReason ? ['toProjectId', 'reason', 'pin'] : ['toProjectId'];
   const unknownKey = Object.keys(body).find((k) => !allowed.includes(k));
   if (unknownKey !== undefined) return badInput(c, `Unknown field \`${unknownKey}\`.`);
-  const { toProjectId, reason, makeLive } = body;
+  const { toProjectId, reason, pin } = body;
   if (typeof toProjectId !== 'string' || toProjectId.length === 0) {
     return badInput(c, '`toProjectId` must name the project to promote the deployment to.');
   }
   if (reason !== undefined && (typeof reason !== 'string' || reason.length > MAX_REASON)) {
     return badInput(c, `\`reason\` must be a string of at most ${MAX_REASON} characters.`);
   }
-  if (makeLive !== undefined && typeof makeLive !== 'boolean') {
-    return badInput(c, '`makeLive` must be `true` or `false`.');
+  if (pin !== undefined && typeof pin !== 'boolean') {
+    return badInput(c, '`pin` must be `true` or `false`.');
   }
   return {
     toProjectId: toProjectId as ProjectId,
     ...(typeof reason === 'string' && { reason }),
-    ...(typeof makeLive === 'boolean' && { makeLive }),
+    ...(typeof pin === 'boolean' && { pin }),
   };
 }
 

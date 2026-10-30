@@ -2505,8 +2505,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.flowRegistry !== undefined && { flowRegistry: input.flowRegistry }),
           ...(input.agentPins !== undefined && { agentPinned: input.agentPins.pinned }),
           ...(input.pinnedVersions !== undefined && { pinnedVersions: input.pinnedVersions }),
-          // A promotion asked to make its carried agents live pins each in
-          // the target through the same gate a live route uses.
+          // A promotion asked to pin its carried agents pins each in the
+          // target through the same gate the agent pin route uses.
           ...(input.agentPins !== undefined && {
             agentPins: input.agentPins,
             agentPinGateDeps: {
