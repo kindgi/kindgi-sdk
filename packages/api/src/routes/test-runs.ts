@@ -11,17 +11,6 @@ import type { Cursor, FlowId, ProjectId, RunId, Semver, TenantId, Timestamp } fr
 import { VERSIONS_NEED_A_FLOW } from '../corrected-dispatcher.js';
 import { statusFor, toWireError } from '../errors.js';
 import { rescoreRefusal, rescoreStart } from '../eval-rescore.js';
-import {
-  type AgentRef,
-  TEST_RUN_STATUSES,
-  type EvalComparison,
-  type TestRun,
-  type TestRunBinding,
-  type TestRunFilter,
-  type TestRunStartOutcome,
-  type TestRunStatus,
-  type FlowRef,
-} from '../test-run-binding.js';
 import { type ItemRights, filterOwned, ownProject, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
@@ -29,6 +18,17 @@ import {
   outOfScopeResponse,
   referencesOutOfScope,
 } from '../reference-scope.js';
+import {
+  type AgentRef,
+  type EvalComparison,
+  type FlowRef,
+  TEST_RUN_STATUSES,
+  type TestRun,
+  type TestRunBinding,
+  type TestRunFilter,
+  type TestRunStartOutcome,
+  type TestRunStatus,
+} from '../test-run-binding.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import { parseComparison } from './eval-comparison.js';
