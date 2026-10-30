@@ -56,6 +56,9 @@ doesn't change what the step runs.
 1. **Pin the version in use,** 1.0.0, for the project.
 2. **Publish the new version,** 1.1.0, as you published 1.0.0. Runs in the
    project still take 1.0.0.
+   On a self-hosted runtime with one pack service, 1.0.0 runs only while
+   your pack still has the tool versions it locked
+   ([A self-hosted runtime runs what your pack has](../../agents/agent-and-tool-versions/#a-self-hosted-runtime-runs-what-your-pack-has)).
 3. **Try it by naming it:** a run with `flowVersion` 1.1.0 runs it; every
    other run there still takes 1.0.0.
 4. **Move the pin** to 1.1.0 once it does what you want. Runs take it from the

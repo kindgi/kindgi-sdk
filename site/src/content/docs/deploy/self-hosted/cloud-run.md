@@ -31,6 +31,8 @@ password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or tr
 - **Your pack's service** (`kindgi-pack`): your tools' code, for every
   project the runtime serves
   ([Your tools' code](../../../concepts/security/#your-tools-code)).
+  It runs only the tool versions in `pack_image`'s build
+  ([A self-hosted runtime runs what your pack has](../../../guides/agents/agent-and-tool-versions/#a-self-hosted-runtime-runs-what-your-pack-has)).
   Internal ingress, and IAM-protected: only the runtime's service account
   may call it, with a Google ID token on every call. Its CPU is allocated only while a call runs,
   so the instance `pack_min_instances` keeps up bills at Cloud Run's lower

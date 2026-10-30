@@ -238,6 +238,10 @@ This one service runs the tools' code of every project the runtime serves,
 in the same processes, with one environment.
 [Your tools' code](../../../concepts/security/#your-tools-code) says what
 that means, and how to keep projects apart.
+It runs only the tool versions in the build you started it with: after you
+start a newer one, an agent or flow version that locked a tool version the
+build no longer has fails when it calls that tool
+([A self-hosted runtime runs what your pack has](../../../guides/agents/agent-and-tool-versions/#a-self-hosted-runtime-runs-what-your-pack-has)).
 
 ## 5. Configure and start the runtime
 
