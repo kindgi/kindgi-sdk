@@ -1,4 +1,4 @@
-# Step 4 — Publish, and ask to make it live
+# Step 4 — Publish, and ask to pin it
 
 For a **setting** change, suggest a change for the project the corrections
 came from — no code change:
@@ -22,8 +22,8 @@ kindgi suggested-changes create --agent=acme-store.refunds --project=<project-id
 For a **code** change, `kindgi deploy` publishes the new version with the
 changed tool.
 
-A suggested change needs `publish` on the agent, and promoting needs `promote` — the permission that makes a version
-live, which an agent's admins hold.
+A suggested change needs `publish` on the agent, and pinning needs `pin` — the
+permission that pins a version, which an agent's admins hold.
 
 If the person keeps test cases built from the corrected runs, try the new
 version on them first:
@@ -35,28 +35,28 @@ kindgi test-runs start <test-set-id> --project=<project-id> \
 
 Where an expert said what the run should have done, its summary's
 `corrections` says how many of those the version now passes (`passed` of
-`checked`). No release gate policy checks it: quote it in the promote
+`checked`). No release gate checks it: quote it in the pin
 `--reason`.
 
-Either way, ask a person to make the new version live, naming the
+Either way, ask a person to pin the new version, naming the
 corrections it fixes. Check first what will happen, then ask:
 
 ```sh
-kindgi agents promote acme-store.refunds 1.0.4 --project=<project-id> --check
-kindgi agents promote acme-store.refunds 1.0.4 --project=<project-id> \
+kindgi agents pin acme-store.refunds 1.0.4 --project=<project-id> --check
+kindgi agents pin acme-store.refunds 1.0.4 --project=<project-id> \
   --reason="Fixes 1 correction: our return window is 14 days"
 ```
 
 - The scope is `--tenant` (every project), `--org=<org-id>`, or
   `--project=<project-id> [--segment=<key:value>]…` (one project).
-- `--check` changes nothing and answers whether it *would* make it live,
-  needs an approval, or fails the release gate policy.
+- `--check` changes nothing and answers whether it *would* pin it,
+  needs an approval, or fails the release gate.
 - `--reason` is kept on the record — write what the corrections were, so the
   approver reads the change in plain words.
-- The outcome is `promoted`, or `pending-approval` when the scope's release
-  gate policy has `approvals` and a second person must approve — the "a
+- The outcome is `pinned`, or `pending-approval` when the scope's release
+  gate has `approvals` and a second person must approve — the "a
   second person checks it" step, working as it should. (Whoever asked can't
-  approve their own request, unless the policy sets `separateApprover: false`.)
+  approve their own request, unless the release gate sets `separateApprover: false`.)
 - `--check` and the request exit 3 when the answer is no or the request
   waits for an approval. Read the printed outcome: exit 3 isn't an error.
 
@@ -65,8 +65,8 @@ kindgi agents promote acme-store.refunds 1.0.4 --project=<project-id> \
 - Experts record corrections in the console, or with
   `kindgi corrections add --run=<run-id> --item=<key> --no --reason=<text>`.
 - The guide for a person:
-  <https://docs.kindgi.com/v0.3/guides/evals/fix-what-experts-corrected/>
+  <https://docs.kindgi.com/v0.3/guides/improve/fix-what-experts-corrected/>
 - Letting Improve try wordings:
-  <https://docs.kindgi.com/v0.3/guides/evals/improve-an-agent/>
+  <https://docs.kindgi.com/v0.3/guides/improve/improve-an-agent/>
 - Changing a setting or a prompt by hand:
-  <https://docs.kindgi.com/v0.3/guides/evals/change-a-prompt-or-setting/>
+  <https://docs.kindgi.com/v0.3/guides/improve/change-a-prompt-or-setting/>

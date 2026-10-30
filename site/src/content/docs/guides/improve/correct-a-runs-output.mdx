@@ -554,7 +554,7 @@ your experts don't pick runs one at a time. As a run of the project ends,
 each rule checks it. A run that any rule matches joins the project's queue of
 answers waiting for a correction, **To correct** in the console, once.
 
-To make a rule, ask your coding agent: "Queue a sample of my agent's live runs
+To make a rule, ask your coding agent: "Queue a sample of my agent's pinned-version runs
 for people to correct." For reference, the code looks like this:
 
 <Tabs syncKey="lang">
@@ -568,8 +568,8 @@ const kindgi = createClient();
 const project = await kindgi.projects.getDefault();
 
 const rule = await kindgi.projects.queueRules.create(project.id, {
-  name: 'Live refund runs',
-  when: { agentIds: ['acme.refunds'], versions: ['live'] },
+  name: 'Pinned refund runs',
+  when: { agentIds: ['acme.refunds'], versions: ['pinned'] },
   sample: 0.05, // 5% of them
   maxOpen: 20, // at most 20 waiting at once
 });
@@ -588,8 +588,8 @@ project = kindgi.projects.get_default()
 
 rule = kindgi.projects.queue_rules.create(
     project.id,
-    name="Live refund runs",
-    when={"agent_ids": ["acme.refunds"], "versions": ["live"]},
+    name="Pinned refund runs",
+    when={"agent_ids": ["acme.refunds"], "versions": ["pinned"]},
     sample=0.05,  # 5% of them
     max_open=20,  # at most 20 waiting at once
 )
@@ -615,8 +615,8 @@ public final class QueueRule {
 
     Project project = kindgi.projects().getDefault();
     var rule = kindgi.projects().queueRules().create(project.id(), QueueRuleSpec.builder()
-        .name("Live refund runs")
-        .when(QueueRuleWhen.builder().agentIds(List.of("acme.refunds")).versions(List.of("live")).build())
+        .name("Pinned refund runs")
+        .when(QueueRuleWhen.builder().agentIds(List.of("acme.refunds")).versions(List.of("pinned")).build())
         .sample(0.05) // 5% of them
         .maxOpen(20L) // at most 20 waiting at once
         .build());
@@ -646,8 +646,8 @@ object QueueRule {
 
     val project = kindgi.projects().getDefault()
     val rule = kindgi.projects().queueRules().create(project.id, QueueRuleSpec.builder()
-      .name("Live refund runs")
-      .when(QueueRuleWhen.builder().agentIds(List("acme.refunds").asJava).versions(List("live").asJava).build())
+      .name("Pinned refund runs")
+      .when(QueueRuleWhen.builder().agentIds(List("acme.refunds").asJava).versions(List("pinned").asJava).build())
       .sample(0.05) // 5% of them
       .maxOpen(20L) // at most 20 waiting at once
       .build())
@@ -663,7 +663,7 @@ d57204bd-e0d2-4a2c-ade9-d87b83761e41 1
 </TabItem>
 </Tabs>
 
-- `when` is which runs it matches: here, runs of `acme.refunds`'s live
+- `when` is which runs it matches: here, runs of `acme.refunds`'s pinned
   version.
 - `sample` is the share of them to queue, `0.05` for 5%.
 - `maxOpen` stops the rule adding runs while that many of its runs wait.
@@ -676,13 +676,13 @@ it, here one made with `sample: 1` and `maxOpen: 2`:
   "ruleId": "19191620-85c3-4e2a-bd87-a0270d15ab53",
   "projectId": "153a0091-613e-4c34-9535-da8194f9068e",
   "version": 1,
-  "name": "Live refund runs",
+  "name": "Pinned refund runs",
   "when": {
     "agentIds": [
       "acme.refunds"
     ],
     "versions": [
-      "live"
+      "pinned"
     ]
   },
   "sample": 1,

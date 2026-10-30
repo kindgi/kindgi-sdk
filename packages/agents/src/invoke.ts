@@ -91,7 +91,7 @@ export async function invokeAgent(
         version: input.agent.version,
         conversationId: input.conversationId,
         ...(input.versionVia !== undefined && { via: input.versionVia }),
-        ...(input.liveScope !== undefined && { liveScope: input.liveScope }),
+        ...(input.pinnedScope !== undefined && { pinnedScope: input.pinnedScope }),
       },
       ...(input.segments !== undefined && { segments: input.segments }),
       ...(input.parent !== undefined && { parent: input.parent }),

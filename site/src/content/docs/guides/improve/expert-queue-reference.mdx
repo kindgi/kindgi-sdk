@@ -9,7 +9,7 @@ This page lists everything about correcting runs: what a correction holds,
 where it goes until it's fixed, how corrector groups weigh it, what queue rules match, what the answers
 waiting for a correction hold, how a rule's results count, and what the
 console's Quality section shows. To correct a run, follow
-[Correct a run's output](../judge-a-runs-output/).
+[Correct a run's output](../correct-a-runs-output/).
 
 ## Corrections
 
@@ -217,8 +217,8 @@ What a rule matches, in `when`, each field narrowing it:
 - **`agentIds`** or **`flowIds`**: runs of these agents or flows, one or the
   other, not both. A rule naming an agent matches the agent's own runs, not
   its turns as a step of a flow.
-- **`versions`**: these versions exactly, or `live`: runs that ran the
-  agent's live version rather than one the caller named. So the rule follows
+- **`versions`**: these versions exactly, or `pinned`: runs that ran the
+  agent's pinned version rather than one the caller named. So the rule follows
   each release.
 - **`status`**: how the run ended. Only `completed`, since only a completed
   run can be corrected. It's also the default.
@@ -240,7 +240,7 @@ it, `queueRules.preview` takes the same fields. It answers how many of the
 project's last 100 runs it would have queued, with its `sample` but not its
 `maxOpen`. `last` sets how many runs, up to 500. Give an existing rule's
 `ruleId` to sample as it does. Without one, the count is an estimate. A run
-that doesn't record how its version was chosen never matches `live`.
+that doesn't record how its version was chosen never matches `pinned`.
 
 To catch a rule up on runs that ended before it was made,
 `queueRules.queueRecent` queues its matches among the project's recent
@@ -381,7 +381,7 @@ Each row is a run in the queue:
 
 - **What ran:** the agent or flow and its version, and when it finished. It
   links the run's **Corrections** tab, where you correct it, as
-  [Correct a run's answer](../judge-a-runs-output/#correct-a-runs-answer) shows.
+  [Correct a run's answer](../correct-a-runs-output/#correct-a-runs-answer) shows.
 - **Why it's here:** the rules that queued it.
 - **Where it stands:** what it still needs, such as "Needs an expert
   correction (1 so far, unclassified)", or how a closed one ended.
@@ -455,11 +455,11 @@ words:
 
 - how much it counts, such as "Counts 3× an unclassified one";
 - where it applies, such as "This project";
-- who may give it, such as "Only people" or "Only services". Who may give a
+- who may give it, such as "Only people" or "Only services". Who may give an
   expert group is counted here, never listed;
 - the rules that want it.
 
-Below the list, the tab says what makes an expert: "Corrections in a
+Below the list, the tab says what makes an expert: "Corrections in an
 expert group are the experts' corrections: "Count only experts" counts
 only those."
 
@@ -478,4 +478,4 @@ evaluated**, **Need a look** and **Closed**, each shown only when it has
 any, with its count, such as "Need a look (1)". Each says where it stands,
 such as "Not better on the test cases", with the share marked right it was
 evaluated on. Each links its page: "Each suggested change's page holds its
-actions: evaluate, ask to make it live, withdraw."
+actions: evaluate, ask to pin it, withdraw."

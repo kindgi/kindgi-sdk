@@ -236,67 +236,68 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
-    "agents.live.resolve": Operation(
-        "agents.live.resolve", "GET", "/v1/agents/{agentId}/live", "json", False
+    "agents.pinned.resolve": Operation(
+        "agents.pinned.resolve", "GET", "/v1/agents/{agentId}/pinned", "json", False
     ),
-    "agents.live.list": Operation(
-        "agents.live.list", "GET", "/v1/agents/{agentId}/live-versions", "json", False
+    "agents.pinned.list": Operation(
+        "agents.pinned.list", "GET", "/v1/agents/{agentId}/pinned-versions", "json", False
     ),
-    "agents.promotions.list": Operation(
-        "agents.promotions.list", "GET", "/v1/agents/{agentId}/promotions", "json", False
+    "agents.pinned.pin": Operation(
+        "agents.pinned.pin", "POST", "/v1/agents/{agentId}/pinned/pin", "json", True
     ),
-    "agents.promotions.create": Operation(
-        "agents.promotions.create", "POST", "/v1/agents/{agentId}/promotions", "json", True
+    "agents.pinned.check": Operation(
+        "agents.pinned.check", "POST", "/v1/agents/{agentId}/pinned/check", "json", False
     ),
-    "agents.promotions.check": Operation(
-        "agents.promotions.check", "POST", "/v1/agents/{agentId}/promotions/check", "json", False
+    "agents.releaseGate.resolve": Operation(
+        "agents.releaseGate.resolve", "GET", "/v1/agents/{agentId}/release-gate", "json", False
     ),
-    "agents.gatePolicy.resolve": Operation(
-        "agents.gatePolicy.resolve", "GET", "/v1/agents/{agentId}/gate-policy", "json", False
+    "releaseGates.list": Operation("releaseGates.list", "GET", "/v1/release-gates", "json", False),
+    "releaseGates.publish": Operation(
+        "releaseGates.publish", "POST", "/v1/release-gates", "json", True
     ),
-    "gatePolicies.list": Operation("gatePolicies.list", "GET", "/v1/gate-policies", "json", False),
-    "gatePolicies.publish": Operation(
-        "gatePolicies.publish", "POST", "/v1/gate-policies", "json", True
+    "releaseGates.get": Operation(
+        "releaseGates.get", "GET", "/v1/release-gates/{releaseGateId}", "json", False
     ),
-    "gatePolicies.get": Operation(
-        "gatePolicies.get", "GET", "/v1/gate-policies/{policyId}", "json", False
-    ),
-    "gatePolicies.versions.list": Operation(
-        "gatePolicies.versions.list", "GET", "/v1/gate-policies/{policyId}/versions", "json", False
-    ),
-    "gatePolicies.versions.get": Operation(
-        "gatePolicies.versions.get",
+    "releaseGates.versions.list": Operation(
+        "releaseGates.versions.list",
         "GET",
-        "/v1/gate-policies/{policyId}/versions/{version}",
+        "/v1/release-gates/{releaseGateId}/versions",
         "json",
         False,
     ),
-    "gatePolicies.versions.unregister": Operation(
-        "gatePolicies.versions.unregister",
-        "POST",
-        "/v1/gate-policies/{policyId}/versions/{version}/unregister",
-        "json",
-        False,
-    ),
-    "gatePolicies.versions.reinstate": Operation(
-        "gatePolicies.versions.reinstate",
-        "POST",
-        "/v1/gate-policies/{policyId}/versions/{version}/reinstate",
-        "json",
-        False,
-    ),
-    "agents.promotions.get": Operation(
-        "agents.promotions.get",
+    "releaseGates.versions.get": Operation(
+        "releaseGates.versions.get",
         "GET",
-        "/v1/agents/{agentId}/promotions/{promotionId}",
+        "/v1/release-gates/{releaseGateId}/versions/{version}",
         "json",
         False,
     ),
-    "agents.live.rollback": Operation(
-        "agents.live.rollback", "POST", "/v1/agents/{agentId}/live/rollback", "json", True
+    "releaseGates.versions.unregister": Operation(
+        "releaseGates.versions.unregister",
+        "POST",
+        "/v1/release-gates/{releaseGateId}/versions/{version}/unregister",
+        "json",
+        False,
     ),
-    "agents.live.unpin": Operation(
-        "agents.live.unpin", "POST", "/v1/agents/{agentId}/live/unpin", "json", True
+    "releaseGates.versions.reinstate": Operation(
+        "releaseGates.versions.reinstate",
+        "POST",
+        "/v1/release-gates/{releaseGateId}/versions/{version}/reinstate",
+        "json",
+        False,
+    ),
+    "agents.pinned.history": Operation(
+        "agents.pinned.history", "GET", "/v1/agents/{agentId}/pin-history", "json", False
+    ),
+    "agents.pinned.getChange": Operation(
+        "agents.pinned.getChange",
+        "GET",
+        "/v1/agents/{agentId}/pin-history/{changeId}",
+        "json",
+        False,
+    ),
+    "agents.pinned.unpin": Operation(
+        "agents.pinned.unpin", "POST", "/v1/agents/{agentId}/pinned/unpin", "json", True
     ),
     "flows.list": Operation("flows.list", "GET", "/v1/flows", "json", False),
     "flows.publish": Operation("flows.publish", "POST", "/v1/flows", "json", True),
@@ -2898,8 +2899,8 @@ class ApprovalsResource:
         )
 
 
-class AgentsLiveResource:
-    """`client.agents.live` — the `agents.live` operations."""
+class AgentsPinnedResource:
+    """`client.agents.pinned` — the `agents.pinned` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
@@ -2912,90 +2913,84 @@ class AgentsLiveResource:
         project_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.LiveVersionResolution:
-        """The version a run would use. `GET /v1/agents/{agentId}/live`
+    ) -> _models.AgentPinnedVersionResolution:
+        """The version a run would use. `GET /v1/agents/{agentId}/pinned`
 
-        Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
+        Resolves the version a run of this agent would use for a project and segment path: the most specific pinned version (segment path, project, org, tenant), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
         """
         return self._client._request(
-            _OPERATIONS["agents.live.resolve"],
+            _OPERATIONS["agents.pinned.resolve"],
             path={"agentId": agent_id},
             query={"projectId": project_id, "segment": _segments(segments)},
             headers={},
-            response=_models.LiveVersionResolution,
+            response=_models.AgentPinnedVersionResolution,
             timeout=timeout,
         )
 
-    def list(self, agent_id: str | UUID, /, *, timeout: float | None = None) -> _models.LivePinList:
-        """List an agent's live versions. `GET /v1/agents/{agentId}/live-versions`
+    def list(
+        self, agent_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.AgentPinnedVersionList:
+        """List an agent's pinned versions. `GET /v1/agents/{agentId}/pinned-versions`
 
-        Every scope with a live version pinned, and the promotion that set it.
+        Every scope with a pinned version, and the pin change that set it.
         """
         return self._client._request(
-            _OPERATIONS["agents.live.list"],
+            _OPERATIONS["agents.pinned.list"],
             path={"agentId": agent_id},
             query={},
             headers={},
-            response=_models.LivePinList,
+            response=_models.AgentPinnedVersionList,
             timeout=timeout,
         )
 
-    def rollback(
+    def pin(
         self,
         agent_id: str | UUID,
-        body: _models.RollbackBody | Mapping[str, Any] | None = None,
+        body: _models.AgentPinBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Promotion:
-        """Roll a scope back to its previous live version. `POST /v1/agents/{agentId}/live/rollback`
+    ) -> _models.Pin:
+        """Pin a version for a scope. `POST /v1/agents/{agentId}/pinned/pin`
 
-        Back to the scope's previous live version, or `toVersion`. Recorded like a promotion. Needs `promote` on the agent.
+        Pins `version` for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every pin is recorded, with who asked and why. Needs `pin` on the agent.
         """
         return self._client._request(
-            _OPERATIONS["agents.live.rollback"],
+            _OPERATIONS["agents.pinned.pin"],
             path={"agentId": agent_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.RollbackBody, body, fields),
-            response=_models.Promotion,
+            body=_body(_models.AgentPinBody, body, fields),
+            response=_models.Pin,
             timeout=timeout,
         )
 
-    def unpin(
+    def check(
         self,
         agent_id: str | UUID,
-        body: _models.UnpinBody | Mapping[str, Any] | None = None,
+        body: _models.AgentPinBody | Mapping[str, Any] | None = None,
         /,
         *,
-        idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Promotion:
-        """Remove a scope's live version. `POST /v1/agents/{agentId}/live/unpin`
+    ) -> _models.PinCheck:
+        """Check a pin against its gate. `POST /v1/agents/{agentId}/pinned/check`
 
-        Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a promotion. Needs `promote` on the agent.
+        What `POST …/pinned/pin` with the same body would do, with nothing recorded: `would-pin`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, pin. Needs `read` on the agent.
         """
         return self._client._request(
-            _OPERATIONS["agents.live.unpin"],
+            _OPERATIONS["agents.pinned.check"],
             path={"agentId": agent_id},
             query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.UnpinBody, body, fields),
-            response=_models.Promotion,
+            headers={},
+            body=_body(_models.AgentPinBody, body, fields),
+            response=_models.PinCheck,
             timeout=timeout,
         )
 
-
-class AgentsPromotionsResource:
-    """`client.agents.promotions` — the `agents.promotions` operations."""
-
-    def __init__(self, client: SyncClientBase) -> None:
-        self._client = client
-
-    def list(
+    def history(
         self,
         agent_id: str | UUID,
         /,
@@ -3006,13 +3001,13 @@ class AgentsPromotionsResource:
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.PromotionPage:
-        """List an agent's promotions. `GET /v1/agents/{agentId}/promotions`
+    ) -> _models.PinPage:
+        """List an agent's pin history. `GET /v1/agents/{agentId}/pin-history`
 
-        The history of live-version changes (promotions, rollbacks, unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.
+        The history of pinned-version changes (pins and unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.
         """
         return self._client._request(
-            _OPERATIONS["agents.promotions.list"],
+            _OPERATIONS["agents.pinned.history"],
             path={"agentId": agent_id},
             query={
                 "limit": limit,
@@ -3022,73 +3017,50 @@ class AgentsPromotionsResource:
                 "segment": _segments(segments),
             },
             headers={},
-            response=_models.PromotionPage,
+            response=_models.PinPage,
             timeout=timeout,
         )
 
-    def create(
+    def get_change(
+        self, agent_id: str | UUID, change_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Pin:
+        """Get a pin change. `GET /v1/agents/{agentId}/pin-history/{changeId}`"""
+        return self._client._request(
+            _OPERATIONS["agents.pinned.getChange"],
+            path={"agentId": agent_id, "changeId": change_id},
+            query={},
+            headers={},
+            response=_models.Pin,
+            timeout=timeout,
+        )
+
+    def unpin(
         self,
         agent_id: str | UUID,
-        body: _models.PromoteBody | Mapping[str, Any] | None = None,
+        body: _models.AgentUnpinBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Promotion:
-        """Make a version live for a scope. `POST /v1/agents/{agentId}/promotions`
+    ) -> _models.Pin:
+        """Remove a scope's pinned version. `POST /v1/agents/{agentId}/pinned/unpin`
 
-        Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.
+        Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a pin. Needs `pin` on the agent.
         """
         return self._client._request(
-            _OPERATIONS["agents.promotions.create"],
+            _OPERATIONS["agents.pinned.unpin"],
             path={"agentId": agent_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PromoteBody, body, fields),
-            response=_models.Promotion,
-            timeout=timeout,
-        )
-
-    def check(
-        self,
-        agent_id: str | UUID,
-        body: _models.PromoteBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.PromotionCheck:
-        """Check a promotion against its gate. `POST /v1/agents/{agentId}/promotions/check`
-
-        What `POST …/promotions` with the same body would do, with nothing recorded: `would-promote`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, promote. Needs `read` on the agent.
-        """
-        return self._client._request(
-            _OPERATIONS["agents.promotions.check"],
-            path={"agentId": agent_id},
-            query={},
-            headers={},
-            body=_body(_models.PromoteBody, body, fields),
-            response=_models.PromotionCheck,
-            timeout=timeout,
-        )
-
-    def get(
-        self, agent_id: str | UUID, promotion_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.Promotion:
-        """Get a promotion. `GET /v1/agents/{agentId}/promotions/{promotionId}`"""
-        return self._client._request(
-            _OPERATIONS["agents.promotions.get"],
-            path={"agentId": agent_id, "promotionId": promotion_id},
-            query={},
-            headers={},
-            response=_models.Promotion,
+            body=_body(_models.AgentUnpinBody, body, fields),
+            response=_models.Pin,
             timeout=timeout,
         )
 
 
-class AgentsGatePolicyResource:
-    """`client.agents.gate_policy` — the `agents.gatePolicy` operations."""
+class AgentsReleaseGateResource:
+    """`client.agents.release_gate` — the `agents.releaseGate` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
@@ -3102,17 +3074,17 @@ class AgentsGatePolicyResource:
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.GatePolicyResolution:
-        """The gate policy for a scope. `GET /v1/agents/{agentId}/gate-policy`
+    ) -> _models.ReleaseGateResolution:
+        """The release gate for a scope. `GET /v1/agents/{agentId}/release-gate`
 
-        The gate policy a promotion of the agent for the scope would be checked against: the most specific scope with an active policy (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `policy: null` when none applies.
+        The release gate a pin of the agent for the scope would be checked against: the most specific scope with an active gate (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `releaseGate: null` when none applies.
         """
         return self._client._request(
-            _OPERATIONS["agents.gatePolicy.resolve"],
+            _OPERATIONS["agents.releaseGate.resolve"],
             path={"agentId": agent_id},
             query={"scopeKind": scope_kind, "scopeId": scope_id, "segment": _segments(segments)},
             headers={},
-            response=_models.GatePolicyResolution,
+            response=_models.ReleaseGateResolution,
             timeout=timeout,
         )
 
@@ -3122,9 +3094,8 @@ class AgentsResource:
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
-        self.live = AgentsLiveResource(client)
-        self.promotions = AgentsPromotionsResource(client)
-        self.gate_policy = AgentsGatePolicyResource(client)
+        self.pinned = AgentsPinnedResource(client)
+        self.release_gate = AgentsReleaseGateResource(client)
 
     def list(
         self,
@@ -3321,80 +3292,80 @@ class AgentsResource:
         )
 
 
-class GatePoliciesVersionsResource:
-    """`client.gate_policies.versions` — the `gatePolicies.versions` operations."""
+class ReleaseGatesVersionsResource:
+    """`client.release_gates.versions` — the `releaseGates.versions` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
 
     def list(
-        self, policy_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.GatePolicyPage:
-        """List a gate policy's versions. `GET /v1/gate-policies/{policyId}/versions`
+        self, release_gate_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGatePage:
+        """List a release gate's versions. `GET /v1/release-gates/{releaseGateId}/versions`
 
         Every version, oldest first, unregistered ones too (with `unregisteredAt`).
         """
         return self._client._request(
-            _OPERATIONS["gatePolicies.versions.list"],
-            path={"policyId": policy_id},
+            _OPERATIONS["releaseGates.versions.list"],
+            path={"releaseGateId": release_gate_id},
             query={},
             headers={},
-            response=_models.GatePolicyPage,
+            response=_models.ReleaseGatePage,
             timeout=timeout,
         )
 
     def get(
-        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.GatePolicy:
-        """Get a gate policy version. `GET /v1/gate-policies/{policyId}/versions/{version}`"""
+        self, release_gate_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGate:
+        """Get a release gate version. `GET /v1/release-gates/{releaseGateId}/versions/{version}`"""
         return self._client._request(
-            _OPERATIONS["gatePolicies.versions.get"],
-            path={"policyId": policy_id, "version": version},
+            _OPERATIONS["releaseGates.versions.get"],
+            path={"releaseGateId": release_gate_id, "version": version},
             query={},
             headers={},
-            response=_models.GatePolicy,
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
     def unregister(
-        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.GatePolicy:
-        """Unregister a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/unregister`
+        self, release_gate_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGate:
+        """Unregister a release gate version. `POST /v1/release-gates/{releaseGateId}/versions/{version}/unregister`
 
-        The version stops applying; the policy's latest remaining active version applies, or, with none, the scope above's policy. Promotions keep the version they were checked against. Needs `admin` on the tenant.
+        The version stops applying; the gate's latest remaining active version applies, or, with none, the scope above's gate. Pins keep the version they were checked against. Needs `admin` on the tenant.
         """
         return self._client._request(
-            _OPERATIONS["gatePolicies.versions.unregister"],
-            path={"policyId": policy_id, "version": version},
+            _OPERATIONS["releaseGates.versions.unregister"],
+            path={"releaseGateId": release_gate_id, "version": version},
             query={},
             headers={},
-            response=_models.GatePolicy,
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
     def reinstate(
-        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.GatePolicy:
-        """Reinstate a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/reinstate`
+        self, release_gate_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGate:
+        """Reinstate a release gate version. `POST /v1/release-gates/{releaseGateId}/versions/{version}/reinstate`
 
         Needs `admin` on the tenant.
         """
         return self._client._request(
-            _OPERATIONS["gatePolicies.versions.reinstate"],
-            path={"policyId": policy_id, "version": version},
+            _OPERATIONS["releaseGates.versions.reinstate"],
+            path={"releaseGateId": release_gate_id, "version": version},
             query={},
             headers={},
-            response=_models.GatePolicy,
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
 
-class GatePoliciesResource:
-    """`client.gate_policies` — the `gatePolicies` operations."""
+class ReleaseGatesResource:
+    """`client.release_gates` — the `releaseGates` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
-        self.versions = GatePoliciesVersionsResource(client)
+        self.versions = ReleaseGatesVersionsResource(client)
 
     def list(
         self,
@@ -3407,13 +3378,13 @@ class GatePoliciesResource:
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.GatePolicyPage:
-        """List gate policies. `GET /v1/gate-policies`
+    ) -> _models.ReleaseGatePage:
+        """List release gates. `GET /v1/release-gates`
 
-        Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.
+        Each release gate's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.
         """
         return self._client._request(
-            _OPERATIONS["gatePolicies.list"],
+            _OPERATIONS["releaseGates.list"],
             path={},
             query={
                 "limit": limit,
@@ -3424,44 +3395,46 @@ class GatePoliciesResource:
                 "segment": _segments(segments),
             },
             headers={},
-            response=_models.GatePolicyPage,
+            response=_models.ReleaseGatePage,
             timeout=timeout,
         )
 
     def publish(
         self,
-        body: _models.PublishGatePolicyBody | Mapping[str, Any] | None = None,
+        body: _models.PublishReleaseGateBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.GatePolicy:
-        """Publish a gate policy. `POST /v1/gate-policies`
+    ) -> _models.ReleaseGate:
+        """Publish a release gate. `POST /v1/release-gates`
 
-        Registers a gate policy, or a new version of one: what a promotion of `agentId` for `scope` must show. One policy per agent and scope: another policy id for a scope that has one is refused with `409 gate-policy-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 gate-policy-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may promote can't loosen their own gate.
+        Registers a release gate, or a new version of one: what a pin of `agentId` for `scope` must show. One gate per agent and scope: another gate id for a scope that has one is refused with `409 release-gate-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 release-gate-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may pin can't loosen their own gate.
         """
         return self._client._request(
-            _OPERATIONS["gatePolicies.publish"],
+            _OPERATIONS["releaseGates.publish"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PublishGatePolicyBody, body, fields),
-            response=_models.GatePolicy,
+            body=_body(_models.PublishReleaseGateBody, body, fields),
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
-    def get(self, policy_id: str | UUID, /, *, timeout: float | None = None) -> _models.GatePolicy:
-        """Get a gate policy. `GET /v1/gate-policies/{policyId}`
+    def get(
+        self, release_gate_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGate:
+        """Get a release gate. `GET /v1/release-gates/{releaseGateId}`
 
-        The policy's latest active version.
+        The release gate's latest active version.
         """
         return self._client._request(
-            _OPERATIONS["gatePolicies.get"],
-            path={"policyId": policy_id},
+            _OPERATIONS["releaseGates.get"],
+            path={"releaseGateId": release_gate_id},
             query={},
             headers={},
-            response=_models.GatePolicy,
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
@@ -4718,7 +4691,7 @@ class SuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Pin a suggested change's version for its project. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
 
-        A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/promotions` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `promote` on the agent. Allowed from `ready`.
+        A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `pin` on the agent. Allowed from `ready`.
         """
         return self._client._request(
             _OPERATIONS["suggestedChanges.pin"],
@@ -4818,7 +4791,7 @@ class ImproveRunsResource:
     ) -> _models.ImproveRun:
         """Start an Improve run. `POST /v1/improve-runs`
 
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the Improve run, `running`. The Improve run works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the Improve run's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the Improve run to work on (`400 validation-failed`, with `details.reason`): for a settings Improve run, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt Improve run, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions an Improve run makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No Improve run starts in a suspended project (`409 project-suspended`), and an Improve run going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the Improve run, `running`. The Improve run works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the Improve run's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the Improve run to work on (`400 validation-failed`, with `details.reason`): for a settings Improve run, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt Improve run, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions an Improve run makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a pinned version for the whole tenant (`409 suggested-change-needs-pin`). No Improve run starts in a suspended project (`409 project-suspended`), and an Improve run going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.
         """
         return self._client._request(
             _OPERATIONS["improveRuns.start"],
@@ -4996,7 +4969,7 @@ class LicenseResource:
     def usage(self, /, *, since: str, timeout: float | None = None) -> _models.LicenseUsage:
         """How much the deployment was used since a time. `GET /v1/license/usage`
 
-        What a free license key's renewal carries (`kindgi license renew --runtime`): the runs started since `since` (not dry runs, replays, evals or child runs), the distinct people who started runs or decided approvals (counted in each tenant and summed, so a person in two tenants counts twice), the projects in production when the runtime can put projects in production (`PUT /v1/projects/{projectId}/production`), and the runtime's version. Counts only: no content, names or ids. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, reads it; anyone else is refused (`license-operator-only`), and the refusal recorded, before `since` is read. A deployment that doesn't report it answers 404.
+        What a free license key's renewal carries (`kindgi license renew --runtime`): the runs started since `since` (not dry runs, replays, test runs or child runs), the distinct people who started runs or decided approvals (counted in each tenant and summed, so a person in two tenants counts twice), the projects in production when the runtime can put projects in production (`PUT /v1/projects/{projectId}/production`), and the runtime's version. Counts only: no content, names or ids. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, reads it; anyone else is refused (`license-operator-only`), and the refusal recorded, before `since` is read. A deployment that doesn't report it answers 404.
         """
         return self._client._request(
             _OPERATIONS["license.usage"],
@@ -6560,7 +6533,7 @@ class TestSetsResource:
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.CorrectedEvalCaseCollectionPage:
+    ) -> _models.CorrectedTestCaseCollectionPage:
         """List the cases of a corrections test set version. `GET /v1/test-sets/{testSetId}/versions/{version}/cases`
 
         Cursor-paginated, in the order the cases were stored (newest corrected run first).
@@ -6570,7 +6543,7 @@ class TestSetsResource:
             path={"testSetId": test_set_id, "version": version},
             query={"limit": limit, "cursor": cursor},
             headers={},
-            response=_models.CorrectedEvalCaseCollectionPage,
+            response=_models.CorrectedTestCaseCollectionPage,
             timeout=timeout,
         )
 
@@ -8785,7 +8758,7 @@ class ProjectsPinnedVersionsResource:
     ) -> _models.ProjectPinnedVersionPage:
         """List the pinned versions that cover a project. `GET /v1/projects/{projectId}/pinned-versions`
 
-        Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/live-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.
+        Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/pinned-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.
         """
         return self._client._request(
             _OPERATIONS["projects.pinnedVersions.list"],
@@ -12658,8 +12631,8 @@ class AsyncApprovalsResource:
         )
 
 
-class AsyncAgentsLiveResource:
-    """`client.agents.live` — the `agents.live` operations."""
+class AsyncAgentsPinnedResource:
+    """`client.agents.pinned` — the `agents.pinned` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
@@ -12672,92 +12645,84 @@ class AsyncAgentsLiveResource:
         project_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.LiveVersionResolution:
-        """The version a run would use. `GET /v1/agents/{agentId}/live`
+    ) -> _models.AgentPinnedVersionResolution:
+        """The version a run would use. `GET /v1/agents/{agentId}/pinned`
 
-        Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
+        Resolves the version a run of this agent would use for a project and segment path: the most specific pinned version (segment path, project, org, tenant), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
         """
         return await self._client._request(
-            _OPERATIONS["agents.live.resolve"],
+            _OPERATIONS["agents.pinned.resolve"],
             path={"agentId": agent_id},
             query={"projectId": project_id, "segment": _segments(segments)},
             headers={},
-            response=_models.LiveVersionResolution,
+            response=_models.AgentPinnedVersionResolution,
             timeout=timeout,
         )
 
     async def list(
         self, agent_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.LivePinList:
-        """List an agent's live versions. `GET /v1/agents/{agentId}/live-versions`
+    ) -> _models.AgentPinnedVersionList:
+        """List an agent's pinned versions. `GET /v1/agents/{agentId}/pinned-versions`
 
-        Every scope with a live version pinned, and the promotion that set it.
+        Every scope with a pinned version, and the pin change that set it.
         """
         return await self._client._request(
-            _OPERATIONS["agents.live.list"],
+            _OPERATIONS["agents.pinned.list"],
             path={"agentId": agent_id},
             query={},
             headers={},
-            response=_models.LivePinList,
+            response=_models.AgentPinnedVersionList,
             timeout=timeout,
         )
 
-    async def rollback(
+    async def pin(
         self,
         agent_id: str | UUID,
-        body: _models.RollbackBody | Mapping[str, Any] | None = None,
+        body: _models.AgentPinBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Promotion:
-        """Roll a scope back to its previous live version. `POST /v1/agents/{agentId}/live/rollback`
+    ) -> _models.Pin:
+        """Pin a version for a scope. `POST /v1/agents/{agentId}/pinned/pin`
 
-        Back to the scope's previous live version, or `toVersion`. Recorded like a promotion. Needs `promote` on the agent.
+        Pins `version` for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every pin is recorded, with who asked and why. Needs `pin` on the agent.
         """
         return await self._client._request(
-            _OPERATIONS["agents.live.rollback"],
+            _OPERATIONS["agents.pinned.pin"],
             path={"agentId": agent_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.RollbackBody, body, fields),
-            response=_models.Promotion,
+            body=_body(_models.AgentPinBody, body, fields),
+            response=_models.Pin,
             timeout=timeout,
         )
 
-    async def unpin(
+    async def check(
         self,
         agent_id: str | UUID,
-        body: _models.UnpinBody | Mapping[str, Any] | None = None,
+        body: _models.AgentPinBody | Mapping[str, Any] | None = None,
         /,
         *,
-        idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Promotion:
-        """Remove a scope's live version. `POST /v1/agents/{agentId}/live/unpin`
+    ) -> _models.PinCheck:
+        """Check a pin against its gate. `POST /v1/agents/{agentId}/pinned/check`
 
-        Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a promotion. Needs `promote` on the agent.
+        What `POST …/pinned/pin` with the same body would do, with nothing recorded: `would-pin`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, pin. Needs `read` on the agent.
         """
         return await self._client._request(
-            _OPERATIONS["agents.live.unpin"],
+            _OPERATIONS["agents.pinned.check"],
             path={"agentId": agent_id},
             query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.UnpinBody, body, fields),
-            response=_models.Promotion,
+            headers={},
+            body=_body(_models.AgentPinBody, body, fields),
+            response=_models.PinCheck,
             timeout=timeout,
         )
 
-
-class AsyncAgentsPromotionsResource:
-    """`client.agents.promotions` — the `agents.promotions` operations."""
-
-    def __init__(self, client: AsyncClientBase) -> None:
-        self._client = client
-
-    async def list(
+    async def history(
         self,
         agent_id: str | UUID,
         /,
@@ -12768,13 +12733,13 @@ class AsyncAgentsPromotionsResource:
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.PromotionPage:
-        """List an agent's promotions. `GET /v1/agents/{agentId}/promotions`
+    ) -> _models.PinPage:
+        """List an agent's pin history. `GET /v1/agents/{agentId}/pin-history`
 
-        The history of live-version changes (promotions, rollbacks, unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.
+        The history of pinned-version changes (pins and unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.
         """
         return await self._client._request(
-            _OPERATIONS["agents.promotions.list"],
+            _OPERATIONS["agents.pinned.history"],
             path={"agentId": agent_id},
             query={
                 "limit": limit,
@@ -12784,73 +12749,50 @@ class AsyncAgentsPromotionsResource:
                 "segment": _segments(segments),
             },
             headers={},
-            response=_models.PromotionPage,
+            response=_models.PinPage,
             timeout=timeout,
         )
 
-    async def create(
+    async def get_change(
+        self, agent_id: str | UUID, change_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Pin:
+        """Get a pin change. `GET /v1/agents/{agentId}/pin-history/{changeId}`"""
+        return await self._client._request(
+            _OPERATIONS["agents.pinned.getChange"],
+            path={"agentId": agent_id, "changeId": change_id},
+            query={},
+            headers={},
+            response=_models.Pin,
+            timeout=timeout,
+        )
+
+    async def unpin(
         self,
         agent_id: str | UUID,
-        body: _models.PromoteBody | Mapping[str, Any] | None = None,
+        body: _models.AgentUnpinBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Promotion:
-        """Make a version live for a scope. `POST /v1/agents/{agentId}/promotions`
+    ) -> _models.Pin:
+        """Remove a scope's pinned version. `POST /v1/agents/{agentId}/pinned/unpin`
 
-        Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.
+        Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a pin. Needs `pin` on the agent.
         """
         return await self._client._request(
-            _OPERATIONS["agents.promotions.create"],
+            _OPERATIONS["agents.pinned.unpin"],
             path={"agentId": agent_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PromoteBody, body, fields),
-            response=_models.Promotion,
-            timeout=timeout,
-        )
-
-    async def check(
-        self,
-        agent_id: str | UUID,
-        body: _models.PromoteBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.PromotionCheck:
-        """Check a promotion against its gate. `POST /v1/agents/{agentId}/promotions/check`
-
-        What `POST …/promotions` with the same body would do, with nothing recorded: `would-promote`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, promote. Needs `read` on the agent.
-        """
-        return await self._client._request(
-            _OPERATIONS["agents.promotions.check"],
-            path={"agentId": agent_id},
-            query={},
-            headers={},
-            body=_body(_models.PromoteBody, body, fields),
-            response=_models.PromotionCheck,
-            timeout=timeout,
-        )
-
-    async def get(
-        self, agent_id: str | UUID, promotion_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.Promotion:
-        """Get a promotion. `GET /v1/agents/{agentId}/promotions/{promotionId}`"""
-        return await self._client._request(
-            _OPERATIONS["agents.promotions.get"],
-            path={"agentId": agent_id, "promotionId": promotion_id},
-            query={},
-            headers={},
-            response=_models.Promotion,
+            body=_body(_models.AgentUnpinBody, body, fields),
+            response=_models.Pin,
             timeout=timeout,
         )
 
 
-class AsyncAgentsGatePolicyResource:
-    """`client.agents.gate_policy` — the `agents.gatePolicy` operations."""
+class AsyncAgentsReleaseGateResource:
+    """`client.agents.release_gate` — the `agents.releaseGate` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
@@ -12864,17 +12806,17 @@ class AsyncAgentsGatePolicyResource:
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.GatePolicyResolution:
-        """The gate policy for a scope. `GET /v1/agents/{agentId}/gate-policy`
+    ) -> _models.ReleaseGateResolution:
+        """The release gate for a scope. `GET /v1/agents/{agentId}/release-gate`
 
-        The gate policy a promotion of the agent for the scope would be checked against: the most specific scope with an active policy (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `policy: null` when none applies.
+        The release gate a pin of the agent for the scope would be checked against: the most specific scope with an active gate (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `releaseGate: null` when none applies.
         """
         return await self._client._request(
-            _OPERATIONS["agents.gatePolicy.resolve"],
+            _OPERATIONS["agents.releaseGate.resolve"],
             path={"agentId": agent_id},
             query={"scopeKind": scope_kind, "scopeId": scope_id, "segment": _segments(segments)},
             headers={},
-            response=_models.GatePolicyResolution,
+            response=_models.ReleaseGateResolution,
             timeout=timeout,
         )
 
@@ -12884,9 +12826,8 @@ class AsyncAgentsResource:
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
-        self.live = AsyncAgentsLiveResource(client)
-        self.promotions = AsyncAgentsPromotionsResource(client)
-        self.gate_policy = AsyncAgentsGatePolicyResource(client)
+        self.pinned = AsyncAgentsPinnedResource(client)
+        self.release_gate = AsyncAgentsReleaseGateResource(client)
 
     async def list(
         self,
@@ -13083,80 +13024,80 @@ class AsyncAgentsResource:
         )
 
 
-class AsyncGatePoliciesVersionsResource:
-    """`client.gate_policies.versions` — the `gatePolicies.versions` operations."""
+class AsyncReleaseGatesVersionsResource:
+    """`client.release_gates.versions` — the `releaseGates.versions` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
 
     async def list(
-        self, policy_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.GatePolicyPage:
-        """List a gate policy's versions. `GET /v1/gate-policies/{policyId}/versions`
+        self, release_gate_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGatePage:
+        """List a release gate's versions. `GET /v1/release-gates/{releaseGateId}/versions`
 
         Every version, oldest first, unregistered ones too (with `unregisteredAt`).
         """
         return await self._client._request(
-            _OPERATIONS["gatePolicies.versions.list"],
-            path={"policyId": policy_id},
+            _OPERATIONS["releaseGates.versions.list"],
+            path={"releaseGateId": release_gate_id},
             query={},
             headers={},
-            response=_models.GatePolicyPage,
+            response=_models.ReleaseGatePage,
             timeout=timeout,
         )
 
     async def get(
-        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.GatePolicy:
-        """Get a gate policy version. `GET /v1/gate-policies/{policyId}/versions/{version}`"""
+        self, release_gate_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGate:
+        """Get a release gate version. `GET /v1/release-gates/{releaseGateId}/versions/{version}`"""
         return await self._client._request(
-            _OPERATIONS["gatePolicies.versions.get"],
-            path={"policyId": policy_id, "version": version},
+            _OPERATIONS["releaseGates.versions.get"],
+            path={"releaseGateId": release_gate_id, "version": version},
             query={},
             headers={},
-            response=_models.GatePolicy,
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
     async def unregister(
-        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.GatePolicy:
-        """Unregister a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/unregister`
+        self, release_gate_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGate:
+        """Unregister a release gate version. `POST /v1/release-gates/{releaseGateId}/versions/{version}/unregister`
 
-        The version stops applying; the policy's latest remaining active version applies, or, with none, the scope above's policy. Promotions keep the version they were checked against. Needs `admin` on the tenant.
+        The version stops applying; the gate's latest remaining active version applies, or, with none, the scope above's gate. Pins keep the version they were checked against. Needs `admin` on the tenant.
         """
         return await self._client._request(
-            _OPERATIONS["gatePolicies.versions.unregister"],
-            path={"policyId": policy_id, "version": version},
+            _OPERATIONS["releaseGates.versions.unregister"],
+            path={"releaseGateId": release_gate_id, "version": version},
             query={},
             headers={},
-            response=_models.GatePolicy,
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
     async def reinstate(
-        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.GatePolicy:
-        """Reinstate a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/reinstate`
+        self, release_gate_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGate:
+        """Reinstate a release gate version. `POST /v1/release-gates/{releaseGateId}/versions/{version}/reinstate`
 
         Needs `admin` on the tenant.
         """
         return await self._client._request(
-            _OPERATIONS["gatePolicies.versions.reinstate"],
-            path={"policyId": policy_id, "version": version},
+            _OPERATIONS["releaseGates.versions.reinstate"],
+            path={"releaseGateId": release_gate_id, "version": version},
             query={},
             headers={},
-            response=_models.GatePolicy,
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
 
-class AsyncGatePoliciesResource:
-    """`client.gate_policies` — the `gatePolicies` operations."""
+class AsyncReleaseGatesResource:
+    """`client.release_gates` — the `releaseGates` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
-        self.versions = AsyncGatePoliciesVersionsResource(client)
+        self.versions = AsyncReleaseGatesVersionsResource(client)
 
     async def list(
         self,
@@ -13169,13 +13110,13 @@ class AsyncGatePoliciesResource:
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.GatePolicyPage:
-        """List gate policies. `GET /v1/gate-policies`
+    ) -> _models.ReleaseGatePage:
+        """List release gates. `GET /v1/release-gates`
 
-        Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.
+        Each release gate's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.
         """
         return await self._client._request(
-            _OPERATIONS["gatePolicies.list"],
+            _OPERATIONS["releaseGates.list"],
             path={},
             query={
                 "limit": limit,
@@ -13186,46 +13127,46 @@ class AsyncGatePoliciesResource:
                 "segment": _segments(segments),
             },
             headers={},
-            response=_models.GatePolicyPage,
+            response=_models.ReleaseGatePage,
             timeout=timeout,
         )
 
     async def publish(
         self,
-        body: _models.PublishGatePolicyBody | Mapping[str, Any] | None = None,
+        body: _models.PublishReleaseGateBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.GatePolicy:
-        """Publish a gate policy. `POST /v1/gate-policies`
+    ) -> _models.ReleaseGate:
+        """Publish a release gate. `POST /v1/release-gates`
 
-        Registers a gate policy, or a new version of one: what a promotion of `agentId` for `scope` must show. One policy per agent and scope: another policy id for a scope that has one is refused with `409 gate-policy-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 gate-policy-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may promote can't loosen their own gate.
+        Registers a release gate, or a new version of one: what a pin of `agentId` for `scope` must show. One gate per agent and scope: another gate id for a scope that has one is refused with `409 release-gate-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 release-gate-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may pin can't loosen their own gate.
         """
         return await self._client._request(
-            _OPERATIONS["gatePolicies.publish"],
+            _OPERATIONS["releaseGates.publish"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PublishGatePolicyBody, body, fields),
-            response=_models.GatePolicy,
+            body=_body(_models.PublishReleaseGateBody, body, fields),
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
     async def get(
-        self, policy_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.GatePolicy:
-        """Get a gate policy. `GET /v1/gate-policies/{policyId}`
+        self, release_gate_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGate:
+        """Get a release gate. `GET /v1/release-gates/{releaseGateId}`
 
-        The policy's latest active version.
+        The release gate's latest active version.
         """
         return await self._client._request(
-            _OPERATIONS["gatePolicies.get"],
-            path={"policyId": policy_id},
+            _OPERATIONS["releaseGates.get"],
+            path={"releaseGateId": release_gate_id},
             query={},
             headers={},
-            response=_models.GatePolicy,
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
@@ -14484,7 +14425,7 @@ class AsyncSuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Pin a suggested change's version for its project. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
 
-        A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/promotions` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `promote` on the agent. Allowed from `ready`.
+        A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `pin` on the agent. Allowed from `ready`.
         """
         return await self._client._request(
             _OPERATIONS["suggestedChanges.pin"],
@@ -14584,7 +14525,7 @@ class AsyncImproveRunsResource:
     ) -> _models.ImproveRun:
         """Start an Improve run. `POST /v1/improve-runs`
 
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the Improve run, `running`. The Improve run works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the Improve run's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the Improve run to work on (`400 validation-failed`, with `details.reason`): for a settings Improve run, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt Improve run, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions an Improve run makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No Improve run starts in a suspended project (`409 project-suspended`), and an Improve run going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the Improve run, `running`. The Improve run works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the Improve run's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the Improve run to work on (`400 validation-failed`, with `details.reason`): for a settings Improve run, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt Improve run, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions an Improve run makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a pinned version for the whole tenant (`409 suggested-change-needs-pin`). No Improve run starts in a suspended project (`409 project-suspended`), and an Improve run going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.
         """
         return await self._client._request(
             _OPERATIONS["improveRuns.start"],
@@ -14762,7 +14703,7 @@ class AsyncLicenseResource:
     async def usage(self, /, *, since: str, timeout: float | None = None) -> _models.LicenseUsage:
         """How much the deployment was used since a time. `GET /v1/license/usage`
 
-        What a free license key's renewal carries (`kindgi license renew --runtime`): the runs started since `since` (not dry runs, replays, evals or child runs), the distinct people who started runs or decided approvals (counted in each tenant and summed, so a person in two tenants counts twice), the projects in production when the runtime can put projects in production (`PUT /v1/projects/{projectId}/production`), and the runtime's version. Counts only: no content, names or ids. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, reads it; anyone else is refused (`license-operator-only`), and the refusal recorded, before `since` is read. A deployment that doesn't report it answers 404.
+        What a free license key's renewal carries (`kindgi license renew --runtime`): the runs started since `since` (not dry runs, replays, test runs or child runs), the distinct people who started runs or decided approvals (counted in each tenant and summed, so a person in two tenants counts twice), the projects in production when the runtime can put projects in production (`PUT /v1/projects/{projectId}/production`), and the runtime's version. Counts only: no content, names or ids. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, reads it; anyone else is refused (`license-operator-only`), and the refusal recorded, before `since` is read. A deployment that doesn't report it answers 404.
         """
         return await self._client._request(
             _OPERATIONS["license.usage"],
@@ -16330,7 +16271,7 @@ class AsyncTestSetsResource:
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.CorrectedEvalCaseCollectionPage:
+    ) -> _models.CorrectedTestCaseCollectionPage:
         """List the cases of a corrections test set version. `GET /v1/test-sets/{testSetId}/versions/{version}/cases`
 
         Cursor-paginated, in the order the cases were stored (newest corrected run first).
@@ -16340,7 +16281,7 @@ class AsyncTestSetsResource:
             path={"testSetId": test_set_id, "version": version},
             query={"limit": limit, "cursor": cursor},
             headers={},
-            response=_models.CorrectedEvalCaseCollectionPage,
+            response=_models.CorrectedTestCaseCollectionPage,
             timeout=timeout,
         )
 
@@ -18561,7 +18502,7 @@ class AsyncProjectsPinnedVersionsResource:
     ) -> _models.ProjectPinnedVersionPage:
         """List the pinned versions that cover a project. `GET /v1/projects/{projectId}/pinned-versions`
 
-        Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/live-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.
+        Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/pinned-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.
         """
         return await self._client._request(
             _OPERATIONS["projects.pinnedVersions.list"],
@@ -20894,7 +20835,7 @@ class Resources:
     service_accounts: ServiceAccountsResource
     approvals: ApprovalsResource
     agents: AgentsResource
-    gate_policies: GatePoliciesResource
+    release_gates: ReleaseGatesResource
     flows: FlowsResource
     tools: ToolsResource
     guardrails: GuardrailsResource
@@ -20955,7 +20896,7 @@ class Resources:
         self.service_accounts = ServiceAccountsResource(client)
         self.approvals = ApprovalsResource(client)
         self.agents = AgentsResource(client)
-        self.gate_policies = GatePoliciesResource(client)
+        self.release_gates = ReleaseGatesResource(client)
         self.flows = FlowsResource(client)
         self.tools = ToolsResource(client)
         self.guardrails = GuardrailsResource(client)
@@ -21018,7 +20959,7 @@ class AsyncResources:
     service_accounts: AsyncServiceAccountsResource
     approvals: AsyncApprovalsResource
     agents: AsyncAgentsResource
-    gate_policies: AsyncGatePoliciesResource
+    release_gates: AsyncReleaseGatesResource
     flows: AsyncFlowsResource
     tools: AsyncToolsResource
     guardrails: AsyncGuardrailsResource
@@ -21079,7 +21020,7 @@ class AsyncResources:
         self.service_accounts = AsyncServiceAccountsResource(client)
         self.approvals = AsyncApprovalsResource(client)
         self.agents = AsyncAgentsResource(client)
-        self.gate_policies = AsyncGatePoliciesResource(client)
+        self.release_gates = AsyncReleaseGatesResource(client)
         self.flows = AsyncFlowsResource(client)
         self.tools = AsyncToolsResource(client)
         self.guardrails = AsyncGuardrailsResource(client)

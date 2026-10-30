@@ -33,8 +33,8 @@ import {
   type UpdateCronTriggerInput,
 } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
+import { agentPinScopeToWire, parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
 import { parseImproveScheduleInput } from './improve-runs.js';
-import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
 import {
   type OwnedTrigger,
@@ -856,7 +856,7 @@ function targetFields(target: TriggerTarget): Record<string, unknown> {
         ...(target.agentVersion !== undefined && { agentVersion: target.agentVersion }),
       };
     case 'improve':
-      return { improve: { agentId: target.agentId, scope: liveScopeToWire(target.scope) } };
+      return { improve: { agentId: target.agentId, scope: agentPinScopeToWire(target.scope) } };
   }
 }
 
@@ -1017,7 +1017,7 @@ function parseImproveTarget(
   agentVersion: unknown,
 ): { kind: 'ok'; value: TriggerTarget } | { kind: 'err'; message: string } {
   const shape =
-    'An improve schedule names `improve: { agentId, scope }`: the agent its Improve runs work on, and the live scope they suggest changes for';
+    'An improve schedule names `improve: { agentId, scope }`: the agent its Improve runs work on, and the pinned scope they suggest changes for';
   if (flowVersion !== undefined || agentVersion !== undefined) {
     return {
       kind: 'err',
@@ -1036,7 +1036,7 @@ function parseImproveTarget(
   ) {
     return { kind: 'err', message: shape };
   }
-  const scope = parseLiveScopeBody(o.scope);
+  const scope = parseAgentPinScopeBody(o.scope);
   if (scope.kind === 'err') return { kind: 'err', message: `\`improve.scope\`: ${scope.message}` };
   return { kind: 'ok', value: { kind: 'improve', agentId: o.agentId, scope: scope.scope } };
 }

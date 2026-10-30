@@ -87,13 +87,13 @@ uv run kindgi corrections add --run=<run-id> --item=kb-102 --pointer=/output/art
 
 Each call adds the article to your one correction of the run, as one of its
 `items`, and prints your correction so far, as
-[Correct a run's answer](../judge-a-runs-output/#correct-a-runs-answer) shows.
+[Correct a run's answer](../correct-a-runs-output/#correct-a-runs-answer) shows.
 The clients' `corrections.create` takes the whole list at once:
 `items: [{ key: 'kb-101', pointer: '/output/articles/0', rank: 0, verdict: 'right' }, …]`.
 
 In the console, a finished run's **Correct this run** opens its Corrections
 tab. It lists the answer, and each element of a list in the output, each with
-**Yes** and **No**. [Correct a run's output](../judge-a-runs-output/) has the
+**Yes** and **No**. [Correct a run's output](../correct-a-runs-output/) has the
 rest: reasons, your users' corrections, and corrector groups.
 
 ## Build the test cases
@@ -240,7 +240,7 @@ counts.
   - `--agent-version`: one version's runs;
   - `--since` and `--until`: when the run was first corrected;
   - `--group`: count only corrections of these
-    [corrector groups](../judge-a-runs-output/#weight-corrections-by-corrector-group);
+    [corrector groups](../correct-a-runs-output/#weight-corrections-by-corrector-group);
   - `--min-corrections`: leave out runs with fewer corrections.
 - **Up to 1000 cases.** `truncated: true` says there were more: narrow the
   runs, or build several sets of test cases.
@@ -373,13 +373,13 @@ One of them:
   about the answer. The weighted counts are
   `yesWeight` of `totalWeight`, and a correction with no group weighs 1.
   `expert` has the weights of the
-  [expert group](../judge-a-runs-output/#restrict-who-may-correct-as-a-group)
+  [expert group](../correct-a-runs-output/#restrict-who-may-correct-as-a-group)
   corrections alone, such as `{ "yesWeight": 3, "totalWeight": 3 }`.
   `correctionIds` (runtime 0.2.0 or later) names every correction counted in
   the item, and `expert.correctionIds` the expert-group ones. Test cases
   built before these ids have neither.
 - **`corrections`** (runtime 0.2.0 or later) has the run's corrections
-  that say [what it should have done](../judge-a-runs-output/#say-what-it-should-have-done),
+  that say [what it should have done](../correct-a-runs-output/#say-what-it-should-have-done),
   with `decisions: "wrong"`: each one's `shouldCall` and `mustNotCall`, as
   `calls` and `notCalled`, its `correctionId`, its `correctorGroupId` when it
   had a group, and `expert: true` when that group was restricted. A case without them
@@ -404,5 +404,5 @@ original run.
 ## Next
 
 - [Try a version on the test cases](../compare-an-agent-version/)
-- [Correct a run's output](../judge-a-runs-output/)
+- [Correct a run's output](../correct-a-runs-output/)
 - [Corrections reference](../expert-queue-reference/)

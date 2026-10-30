@@ -1,14 +1,14 @@
 ---
 title: Suggest a change, and test it
-description: Suggest new settings or new instructions for what a project runs, check them against the version it runs on the project's test cases, and pin them through the project's release gate policy, or add them as the project's Latest.
+description: Suggest new settings or new instructions for what a project runs, check them against the version it runs on the project's test cases, and pin them through the project's release gate, or add them as the project's Latest.
 sidebar:
   order: 6
 ---
 
 This guide suggests new settings or new instructions for what a project
 runs, checks them against the version it runs on the project's test cases,
-and pins them for the project through its release gate policy, or adds them
-as the project's Latest.
+and pins them for the project through its release gate, or adds them as
+the project's Latest.
 
 A **suggested change** is new content for one data block, in what one
 project runs: new settings values, or new instructions. You make it. Kindgi
@@ -16,7 +16,7 @@ builds it on the agent version the project runs: it publishes the block
 version and makes the agent version that pins it. Then it checks the new
 version and the one it's built on, on the same test cases. The new versions
 serve nothing until you pin the suggested change, and a pinned suggested
-change is a pin like any other, which `kindgi agents rollback` puts back.
+change is a pin like any other, which `kindgi agents unpin` removes.
 
 A deploy makes suggested changes too, for its new code:
 [A deploy's suggested changes](#a-deploys-suggested-changes) says how.
@@ -34,10 +34,9 @@ A deploy makes suggested changes too, for its new code:
   one is refused with
   `409 suggested-change-nothing-to-check`.
 - **A version of the agent that the project runs.** A suggested change is
-  built on it. To pin one, the project needs a live version, its own or one
-  that covers it, as
-  [Make a version live](../release-an-agent-version/#make-a-version-live)
-  shows. Where the agent runs nothing, making one is refused with
+  built on it. To pin one, the project needs a pinned version, its own or
+  one that covers it, as
+  [Pin a version](../release-an-agent-version/#pin-a-version) shows. Where the agent runs nothing, making one is refused with
   `409 nothing-runs-in-scope`.
 - **The order's first environment,** for a project in an environment order.
   In a later environment, making one is refused with
@@ -47,8 +46,8 @@ A deploy makes suggested changes too, for its new code:
   refuses a suggested change with `501 suggested-change-check-unsupported`.
   Under `kindgi dev`, making one is refused, as
   [Under `kindgi dev`](#under-kindgi-dev) shows.
-- **`publish` on the agent** to make, check and withdraw, and **`promote`**
-  to pin or add as Latest. For an agent that several projects serve, it's
+- **`publish` on the agent** to make, check and withdraw, and **`pin`** to
+  pin or add as Latest. For an agent that several projects serve, it's
   `write` on the project where its versions are made, and `admin` in the
   suggested change's project to pin or add as Latest.
 
@@ -363,7 +362,7 @@ in each project that runs a pinned other version of the agent. A project on
 Latest runs the new version at once, and gets none. With environment
 orders, the version reaches the next project when the deployment is
 promoted into it, and the suggested change is made then. A promotion that
-makes the version live there makes none.
+pins the version there makes none.
 
 - `madeBy` is `deploy`, with the deployment and who deployed or promoted it.
 - Its one change is the code: `kind` is `code`, with the deployment and its
@@ -463,7 +462,7 @@ doesn't exist.
 | `checking` | Its check's runs are queued or running. |
 | `check-failed` | Its check failed or was cancelled, or never started (`check.status` is `not-started`). |
 | `ready` | Its check finished: `check` says how each version did. A pin that didn't go through leaves it here, with a `note`. |
-| `waiting-for-second-person` | Asked to pin it; the release gate policy passed, and the approval in `approvalId` is open. |
+| `waiting-for-second-person` | Asked to pin it; the release gate passed, and the approval in `approvalId` is open. |
 | `pinned` | Its version was pinned for its project. |
 | `added-as-latest` | Its version was added as its project's Latest. |
 | `withdrawn` | Withdrawn. |

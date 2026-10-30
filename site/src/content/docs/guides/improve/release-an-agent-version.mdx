@@ -1,14 +1,14 @@
 ---
 title: Release an agent version
-description: Make a version live for the whole tenant, an org, a project or a segment of its runs, see which version a run gets and why, roll back or unpin, and read the history.
+description: Pin a version for the whole tenant, an org, a project or a segment of its runs, see which version a run gets and why, unpin, and read the pin history.
 sidebar:
   order: 5
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-This guide makes an agent version live where you choose, checks which
-version a run gets, rolls back, and gates a release behind your test cases.
+This guide pins an agent version where you choose, checks which
+version a run gets, unpins, and gates a pin behind your test cases.
 
 A run that names no version gets the agent's **Latest** in its project: the
 version the newest deployment into the project shipped, or the one a person
@@ -16,10 +16,10 @@ published there in full, whichever came last. A version derived from an edit
 to its prompts or settings isn't Latest by itself, and neither is a higher
 number. Once a new version has done better on your test cases, as
 [Try a version on the test cases](../compare-an-agent-version/) shows, you
-can make it **live** where you choose: the whole tenant, an org, a project, or
+can **pin** it where you choose: the whole tenant, an org, a project, or
 a segment of a project's runs, such as one company's. Runs there use it from
-the next run, nothing changes anywhere else, and you can roll back at once.
-[Live versions reference](../live-versions-reference/) has every rule,
+the next run, nothing changes anywhere else, and you can unpin at once.
+[Pinned versions reference](../pinned-versions-reference/) has every rule,
 refusal and console page.
 
 ## Before you start
@@ -29,43 +29,43 @@ refusal and console page.
   with versions 1.0.0, 1.1.0, 1.2.0 and 1.3.0.
 - **A project's id,** for a project or a segment: `kindgi projects list`
   lists them.
-- **For a release gate policy:** a run of the version on your test cases, and
+- **For a release gate:** a run of the version on your test cases, and
   a second reviewer to approve.
 - **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
   Kindgi 0.2's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
 
-## Make a version live
+## Pin a version
 
-A live version is what a run that names no version gets.
+A pinned version is what a run that names no version gets.
 
-Make 1.0.0 live for the whole tenant:
+Pin 1.0.0 for the whole tenant:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi agents promote acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the version we checked"
+pnpm exec kindgi agents pin acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the version we checked"
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi agents promote acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the version we checked"
+uv run kindgi agents pin acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the version we checked"
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw agents promote acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the version we checked"
+./kindgiw agents pin acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the version we checked"
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw agents promote acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the version we checked"
+./kindgiw agents pin acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the version we checked"
 ```
 
 </TabItem>
@@ -75,14 +75,14 @@ uv run kindgi agents promote acme.order-desk 1.0.0 --tenant --reason="1.0.0 is t
 - `--tenant` is the scope: the whole tenant.
 - `--reason` is kept on the record.
 
-It prints the request to make it live:
+It prints the pin request:
 
 ```json
 {
   "id": "ea4e7c15-7990-41b6-b153-0847a83f2e9d",
   "agentId": "acme.order-desk",
   "scope": { "kind": "tenant" },
-  "action": "promote",
+  "action": "pin",
   "fromVersion": null,
   "toVersion": "1.0.0",
   "requestedBy": { "kind": "user", "id": "5c0a7e11-0000-4000-8000-0000000000aa" },
@@ -129,20 +129,20 @@ uv run kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where 
     "id": "acme.order-desk",
     "version": "1.0.0",
     "conversationId": "4af092ea-5e8e-42f1-832e-b7ba1ed6e3d8",
-    "via": "live",
-    "liveScope": { "kind": "tenant" }
+    "via": "pinned",
+    "pinnedScope": { "kind": "tenant" }
   },
 ```
 
-`via: "live"` says it got the live version of the scope in `liveScope`.
-[How a run gets its version](../live-versions-reference/#how-a-run-gets-its-version)
-lists every `via`. A version only goes live this way: publishing a newer
-version doesn't change what a scope with a live version runs.
+`via: "pinned"` says it got the pinned version of the scope in `pinnedScope`.
+[How a run gets its version](../pinned-versions-reference/#how-a-run-gets-its-version)
+lists every `via`. A version is only pinned this way: publishing a newer
+version doesn't change what a scope with a pinned version runs.
 
-## Make it live for some runs only
+## Pin it for some runs only
 
 A narrower scope tries a version with some runs first. The most specific
-live version wins: a **segment** path in a project, then the **project**, the
+pinned version wins: a **segment** path in a project, then the **project**, the
 project's **org**, the **tenant**, and then the project's Latest. A segment
 path is one or more `key:value` steps, coarse to fine, that a run is started
 with: `company:acme`, or `company:acme` then `role:counsel`.
@@ -153,28 +153,28 @@ Try 1.1.0 with acme's runs only:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi agents promote acme.order-desk 1.1.0 --project=<project-id> --segment=company:acme --reason="Trying 1.1.0 with acme first"
+pnpm exec kindgi agents pin acme.order-desk 1.1.0 --project=<project-id> --segment=company:acme --reason="Trying 1.1.0 with acme first"
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi agents promote acme.order-desk 1.1.0 --project=<project-id> --segment=company:acme --reason="Trying 1.1.0 with acme first"
+uv run kindgi agents pin acme.order-desk 1.1.0 --project=<project-id> --segment=company:acme --reason="Trying 1.1.0 with acme first"
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw agents promote acme.order-desk 1.1.0 --project=<project-id> --segment=company:acme --reason="Trying 1.1.0 with acme first"
+./kindgiw agents pin acme.order-desk 1.1.0 --project=<project-id> --segment=company:acme --reason="Trying 1.1.0 with acme first"
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw agents promote acme.order-desk 1.1.0 --project=<project-id> --segment=company:acme --reason="Trying 1.1.0 with acme first"
+./kindgiw agents pin acme.order-desk 1.1.0 --project=<project-id> --segment=company:acme --reason="Trying 1.1.0 with acme first"
 ```
 
 </TabItem>
@@ -184,7 +184,7 @@ uv run kindgi agents promote acme.order-desk 1.1.0 --project=<project-id> --segm
 - `--segment=company:acme` is the segment path in it.
 - `--org=<org-id>` names an org instead.
 
-It prints the request to make it live, with the segment as its `scope`.
+It prints the pin request, with the segment as its `scope`.
 
 A run started with that segment gets 1.1.0:
 
@@ -224,8 +224,8 @@ uv run kindgi runs start --agent=acme.order-desk --project=<project-id> --segmen
     "id": "acme.order-desk",
     "version": "1.1.0",
     "conversationId": "d35be284-99c0-4437-9186-b951386db8b3",
-    "via": "live",
-    "liveScope": {
+    "via": "pinned",
+    "pinnedScope": {
       "kind": "segment",
       "projectId": "367e1657-8067-4a1d-8ec4-bfa3c5fc5865",
       "path": [{ "key": "company", "value": "acme" }]
@@ -233,40 +233,40 @@ uv run kindgi runs start --agent=acme.order-desk --project=<project-id> --segmen
   },
 ```
 
-A run with `--segment=company:globex` has no live version of its own, so it
+A run with `--segment=company:globex` has no pinned version of its own, so it
 gets the tenant's, 1.0.0. Without `--project`, a run is in its agent's own
 project, which is Default for what `kindgi deploy` registers.
 
 ## See which version a run would get
 
-`kindgi agents live` answers without starting a run:
+`kindgi agents pinned` answers without starting a run:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi agents live acme.order-desk --project=<project-id> --segment=company:acme
+pnpm exec kindgi agents pinned acme.order-desk --project=<project-id> --segment=company:acme
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi agents live acme.order-desk --project=<project-id> --segment=company:acme
+uv run kindgi agents pinned acme.order-desk --project=<project-id> --segment=company:acme
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw agents live acme.order-desk --project=<project-id> --segment=company:acme
+./kindgiw agents pinned acme.order-desk --project=<project-id> --segment=company:acme
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw agents live acme.order-desk --project=<project-id> --segment=company:acme
+./kindgiw agents pinned acme.order-desk --project=<project-id> --segment=company:acme
 ```
 
 </TabItem>
@@ -276,8 +276,8 @@ uv run kindgi agents live acme.order-desk --project=<project-id> --segment=compa
 {
   "agentId": "acme.order-desk",
   "version": "1.1.0",
-  "via": "live",
-  "liveScope": {
+  "via": "pinned",
+  "pinnedScope": {
     "kind": "segment",
     "projectId": "367e1657-8067-4a1d-8ec4-bfa3c5fc5865",
     "path": [{ "key": "company", "value": "acme" }]
@@ -285,13 +285,13 @@ uv run kindgi agents live acme.order-desk --project=<project-id> --segment=compa
 }
 ```
 
-`kindgi agents live-versions acme.order-desk` lists every scope with a live
+`kindgi agents pinned-versions acme.order-desk` lists every scope with a pinned
 version, and since when.
 
 ## From your app
 
-Your app can do the same. Ask your coding agent: "I want to make a new version
-of my agent live for one company's runs, and check which version a run gets."
+Your app can do the same. Ask your coding agent: "I want to pin a new version
+of my agent for one company's runs, and check which version a run gets."
 For reference, the script looks like this, with the project's id as its
 argument:
 
@@ -306,16 +306,16 @@ const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the runni
 const projectId = process.argv[2];
 const acme = [{ key: 'company', value: 'acme' }];
 
-// Make 1.1.0 live for acme's runs in this project.
-await kindgi.agents.promotions.create('acme.order-desk', {
+// Pin 1.1.0 for acme's runs in this project.
+await kindgi.agents.pinned.pin('acme.order-desk', {
   version: '1.1.0',
   scope: { kind: 'segment', projectId, path: acme },
   reason: 'Trying 1.1.0 with acme first',
 });
 
 // Which version would a run there use, and why?
-const live = await kindgi.agents.live.resolve('acme.order-desk', { projectId, segments: acme });
-console.log(live.version, live.via, live.liveScope?.kind);
+const pinned = await kindgi.agents.pinned.resolve('acme.order-desk', { projectId, segments: acme });
+console.log(pinned.version, pinned.via, pinned.pinnedScope?.kind);
 
 // A run that names no version gets it.
 const run = await kindgi.runs.start({
@@ -340,8 +340,8 @@ kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 project_id = sys.argv[1]
 acme = [{"key": "company", "value": "acme"}]
 
-# Make 1.1.0 live for acme's runs in this project.
-kindgi.agents.promotions.create(
+# Pin 1.1.0 for acme's runs in this project.
+kindgi.agents.pinned.pin(
     "acme.order-desk",
     version="1.1.0",
     scope={"kind": "segment", "project_id": project_id, "path": acme},
@@ -349,8 +349,8 @@ kindgi.agents.promotions.create(
 )
 
 # Which version would a run there use, and why?
-live = kindgi.agents.live.resolve("acme.order-desk", project_id=project_id, segments=acme)
-print(live.version, live.via, live.live_scope.kind if live.live_scope else None)
+pinned = kindgi.agents.pinned.resolve("acme.order-desk", project_id=project_id, segments=acme)
+print(pinned.version, pinned.via, pinned.pinned_scope.kind if pinned.pinned_scope else None)
 
 # A run that names no version gets it.
 run = kindgi.runs.start(
@@ -369,67 +369,19 @@ if run.agent is not None:  # set on an agent's runs
 It prints the version a run there would get, then the version the run got:
 
 ```text
-1.1.0 live segment
-1.1.0 live
+1.1.0 pinned segment
+1.1.0 pinned
 ```
 
-`kindgi.agents.live.list`, `rollback` and `unpin`, and
-`kindgi.agents.promotions.list` and `get`, do what the commands on this page
+`kindgi.agents.pinned.list`, `unpin`, `history` and `getChange`
+(`agents.pinned.get_change` in Python) do what the commands on this page
 do.
 
-## Roll back, or unpin
+## Unpin
 
-A rollback puts a scope back on the version that was live there before, at
-once:
-
-<Tabs syncKey="lang">
-<TabItem label="TypeScript">
-
-```sh
-pnpm exec kindgi agents rollback acme.order-desk --tenant --reason="1.2.0 answers worse"
-```
-
-</TabItem>
-<TabItem label="Python">
-
-```sh
-uv run kindgi agents rollback acme.order-desk --tenant --reason="1.2.0 answers worse"
-```
-
-</TabItem>
-<TabItem label="Java">
-
-```sh
-./kindgiw agents rollback acme.order-desk --tenant --reason="1.2.0 answers worse"
-```
-
-</TabItem>
-<TabItem label="Scala">
-
-```sh
-./kindgiw agents rollback acme.order-desk --tenant --reason="1.2.0 answers worse"
-```
-
-</TabItem>
-</Tabs>
-
-`--to=<version>` rolls back to another version instead. It prints the
-rollback:
-
-```json
-{
-  "id": "7da674c5-c835-42c0-8cde-59571afd0915",
-  "agentId": "acme.order-desk",
-  "scope": { "kind": "tenant" },
-  "action": "rollback",
-  "fromVersion": "1.2.0",
-  "toVersion": "1.0.0",
-  …
-}
-```
-
-`kindgi agents unpin` removes a scope's own live version. Its runs then use
-the scope above, or the project's Latest when nothing above is live:
+`kindgi agents unpin` removes a scope's own pinned version. Its runs then use
+the scope above, or the project's Latest when nothing above is pinned. To go
+back to an earlier version, pin it again:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -462,72 +414,72 @@ uv run kindgi agents unpin acme.order-desk --tenant --reason="Back to the latest
 </TabItem>
 </Tabs>
 
-Every request to make a version live, rollback and unpin is kept, with who
+Every request to pin a version and every unpin is kept, with who
 asked and why.
-`kindgi agents promotions list acme.order-desk --table` lists them, as
-[The history](../live-versions-reference/#go-live-history) shows.
-[Rollbacks and unpins](../live-versions-reference/#rollbacks-and-unpins)
+`kindgi agents pin-history list acme.order-desk --table` lists them, as
+[The pin history](../pinned-versions-reference/#pin-history) shows.
+[Unpins](../pinned-versions-reference/#unpins)
 lists what each refuses.
 
-## Gate a release
+## Gate a pin
 
-A **release gate policy** says what a request to make a version live must
-show before the version goes live for a scope: a recent run on your test
+A **release gate** says what a request to pin a version must
+show before the version is pinned for a scope: a recent run on your test
 cases, enough corrected cases, figures at least this good, a clean replay and,
-if you want, a reviewer's approval. An agent has one policy per scope. A
-request to make a version live is checked by the most specific one covering
+if you want, a reviewer's approval. An agent has one release gate per scope. A
+request to pin a version is checked by the most specific one covering
 its scope, at its latest version.
 
-### Set a release gate policy
+### Set a release gate
 
-A scope with a release gate policy needs a live version of its own, so give
+A scope with a release gate needs a pinned version of its own, so give
 the tenant one first:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi agents promote acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the version we checked"
+pnpm exec kindgi agents pin acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the version we checked"
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi agents promote acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the version we checked"
+uv run kindgi agents pin acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the version we checked"
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw agents promote acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the version we checked"
+./kindgiw agents pin acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the version we checked"
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw agents promote acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the version we checked"
+./kindgiw agents pin acme.order-desk 1.0.0 --tenant --reason="1.0.0 is the version we checked"
 ```
 
 </TabItem>
 </Tabs>
 
-Ask your coding agent to write the policy:
+Ask your coding agent to write the release gate:
 
 ```text
-Before a new version of my agent goes live, I want it to have done well on my test cases, and a senior reviewer to approve it.
+Before a new version of my agent is pinned, I want it to have done well on my test cases, and a senior reviewer to approve it.
 ```
 
-For reference, the policy it writes looks like this. This guide saves it as
+For reference, the release gate it writes looks like this. This guide saves it as
 `gate.json`:
 
 ```json
 {
   "comparison": { "maxAgeHours": 168 },
   "evidence": { "minCases": 3 },
-  "metrics": [{ "name": "weightedYesShare", "minCandidate": 0.6, "maxDrop": 0.02 }],
+  "metrics": [{ "name": "passRate", "minCandidate": 0.6, "maxDrop": 0.02 }],
   "replay": { "maxRefusedWrites": 0 },
   "approvals": { "role": "senior" }
 }
@@ -539,89 +491,89 @@ Then publish it:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi gate-policies publish acme.order-desk-release --policy-version=1.0.0 --agent=acme.order-desk --tenant --spec=@gate.json --description="What a release of the order desk must show"
+pnpm exec kindgi release-gates publish acme.order-desk-release --release-gate-version=1.0.0 --agent=acme.order-desk --tenant --spec=@gate.json --description="What a release of the order desk must show"
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi gate-policies publish acme.order-desk-release --policy-version=1.0.0 --agent=acme.order-desk --tenant --spec=@gate.json --description="What a release of the order desk must show"
+uv run kindgi release-gates publish acme.order-desk-release --release-gate-version=1.0.0 --agent=acme.order-desk --tenant --spec=@gate.json --description="What a release of the order desk must show"
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw gate-policies publish acme.order-desk-release --policy-version=1.0.0 --agent=acme.order-desk --tenant --spec=@gate.json --description="What a release of the order desk must show"
+./kindgiw release-gates publish acme.order-desk-release --release-gate-version=1.0.0 --agent=acme.order-desk --tenant --spec=@gate.json --description="What a release of the order desk must show"
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw gate-policies publish acme.order-desk-release --policy-version=1.0.0 --agent=acme.order-desk --tenant --spec=@gate.json --description="What a release of the order desk must show"
+./kindgiw release-gates publish acme.order-desk-release --release-gate-version=1.0.0 --agent=acme.order-desk --tenant --spec=@gate.json --description="What a release of the order desk must show"
 ```
 
 </TabItem>
 </Tabs>
 
-- `acme.order-desk-release` is the policy's id, and `--policy-version` its
+- `acme.order-desk-release` is the release gate's id, and `--release-gate-version` its
   version.
 - `--agent` and `--tenant` are the agent and the scope it gates.
-- `--spec=@gate.json` reads the policy from the file.
+- `--spec=@gate.json` reads the release gate from the file.
 
-Requests to make `acme.order-desk` live anywhere in the tenant now go
-through the release gate policy, unless a narrower scope has one of its own.
-[Release gate policies](../live-versions-reference/#release-gate-policies) has what
+Requests to pin `acme.order-desk` anywhere in the tenant now go
+through the release gate, unless a narrower scope has one of its own.
+[Release gates](../pinned-versions-reference/#release-gates) has what
 each part asks, and who may publish one.
 
-### Check before you make it live
+### Check before you pin it
 
-`--check` asks the release gate policy without recording anything:
+`--check` asks the release gate without recording anything:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi agents promote acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --check
+pnpm exec kindgi agents pin acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --check
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi agents promote acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --check
+uv run kindgi agents pin acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --check
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw agents promote acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --check
+./kindgiw agents pin acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --check
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw agents promote acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --check
+./kindgiw agents pin acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --check
 ```
 
 </TabItem>
 </Tabs>
 
 `--test-run=<comparison-id>` names the run of 1.3.0 on the test cases, where
-`<comparison-id>` is its test run's id. It prints what the policy would say:
+`<comparison-id>` is its test run's id. It prints what the release gate would say:
 
 ```json
 {
   "outcome": "needs-approval",
-  "policy": { "id": "acme.order-desk-release", "version": "1.0.0" },
+  "releaseGate": { "id": "acme.order-desk-release", "version": "1.0.0" },
   "checks": [
-    { "name": "comparison.freshness", "passed": true, "message": "The test run finished 0.013 hours ago; the policy accepts up to 168.", … },
-    { "name": "baselineIsLive", "passed": true, "message": "The test run measured this version against the live version, acme.order-desk 1.0.0.", … },
-    { "name": "metric.weightedYesShare.minCandidate", "passed": true, "message": "The weighted share marked right is 1; the policy needs at least 0.6.", … },
+    { "name": "comparison.freshness", "passed": true, "message": "The test run finished 0.013 hours ago; the gate accepts up to 168.", … },
+    { "name": "baselineIsPinned", "passed": true, "message": "The test run measured this version against the pinned version, acme.order-desk 1.0.0.", … },
+    { "name": "metric.passRate.minCandidate", "passed": true, "message": "The weighted share marked right is 1; the gate needs at least 0.6.", … },
     …
   ],
   "approval": { "role": "senior", "count": 1, "separateApprover": true }
@@ -629,80 +581,80 @@ uv run kindgi agents promote acme.order-desk 1.3.0 --tenant --test-run=<comparis
 ```
 
 `gate-failed` lists each check that failed, such as
-`` This policy needs a test run: name one with `testRunId` (a finished test run that tried this version on the test cases). ``
+`` This release gate needs a test run: name one with `testRunId` (a finished test run that tried this version on the test cases). ``
 when there's no `--test-run`.
 
-`--check` exits 0 for `would-promote` and 3 for the other two, so a script
+`--check` exits 0 for `would-pin` and 3 for the other two, so a script
 can stop on the answer.
 
 When the test cases have corrections that say what the run should have
 done, the summary of the run on the test cases also says how many the
 version passed, in `corrections`
 ([What it should have done](../compare-an-agent-version/#what-it-should-have-done)).
-No release gate policy checks it, so name it in the `--reason`, such as
+No release gate checks it, so name it in the `--reason`, such as
 `--reason="Passes 3 of 3 corrections"`.
 
-### Make it live through the release gate policy
+### Pin through the release gate
 
-Ask to make it live the same way, without `--check`:
+Ask to pin it the same way, without `--check`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi agents promote acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --reason="1.3.0 did as well on the order checks"
+pnpm exec kindgi agents pin acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --reason="1.3.0 did as well on the order checks"
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi agents promote acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --reason="1.3.0 did as well on the order checks"
+uv run kindgi agents pin acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --reason="1.3.0 did as well on the order checks"
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw agents promote acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --reason="1.3.0 did as well on the order checks"
+./kindgiw agents pin acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --reason="1.3.0 did as well on the order checks"
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw agents promote acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --reason="1.3.0 did as well on the order checks"
+./kindgiw agents pin acme.order-desk 1.3.0 --tenant --test-run=<comparison-id> --reason="1.3.0 did as well on the order checks"
 ```
 
 </TabItem>
 </Tabs>
 
-It prints the request, with its status, or the policy's refusal:
+It prints the request, with its status, or the release gate's refusal:
 
-- **When the policy has no `approvals`,** a request that passes goes live
-  at once, `"status": "promoted"`.
+- **When the release gate has no `approvals`,** a request that passes is pinned
+  at once, `"status": "pinned"`.
 - **When it has,** it waits: `"status": "pending-approval"`, with an
   `approvalId`. The scope keeps its version until a reviewer approves.
 - **When it fails,** nothing changes. It's refused with every failed check,
-  such as `The release gate policy refused acme.order-desk 1.3.0: The weighted share marked right rests on 3 corrected cases for this version; the policy needs at least 20. …`,
+  such as `The release gate refused acme.order-desk 1.3.0: The weighted share marked right rests on 3 corrected cases for this version; the gate needs at least 20. …`,
   and kept in the history as `refused`.
 
-It exits 0 when the version is live, and 3 when it waits for an approval or
-the policy refused it.
+It exits 0 when the version is pinned, and 3 when it waits for an approval or
+the release gate refused it.
 
 To wait for the reviewer, add `--wait`. It names the approval it waits for and
-the command that approves it, then exits 0 once the version is live, or 3 when
+the command that approves it, then exits 0 once the version is pinned, or 3 when
 the approval is rejected or expires or the wait runs out: an hour, or the time
 `--wait=30m` gives. It exits 3 too when the request is superseded: it was
 approved, but something the check measured had changed by then, such as the
-version serving the scope or its release gate policy, so promote it again: the
+version serving the scope or its release gate, so pin it again: the
 check runs anew. It exits 1 when it can't read the request 3 times in a row,
 after printing what it read last. Neither that nor Ctrl-C stops the request:
-once it's approved, the version goes live.
+once it's approved, the version is pinned.
 
 ### Approve it
 
-The request is an approval like any other, for a reviewer with the policy's
+The request is an approval like any other, for a reviewer with the release gate's
 role, as [Decide an approval](../../approvals/decide-an-approval/) shows:
 
 <Tabs syncKey="lang">
@@ -736,32 +688,32 @@ uv run kindgi approvals complete <approval-id> --decision=approve --rationale="C
 </TabItem>
 </Tabs>
 
-`<approval-id>` is the request's `approvalId`. The version goes live, and
-the request is `promoted`. Whoever asked can't approve their own request:
+`<approval-id>` is the request's `approvalId`. The version is pinned, and
+the request is `pinned`. Whoever asked can't approve their own request:
 
 ```text
 Approval <approval-id> was asked for by you: someone else must approve it
 ```
 
-That holds unless the policy's `approvals` has `"separateApprover": false`.
+That holds unless the release gate's `approvals` has `"separateApprover": false`.
 A deployment that one person uses with the API token has nobody else to
-approve, so its release gate policies with `approvals` need
+approve, so its release gates with `approvals` need
 `"separateApprover": false`.
 With [people of their own](../../../deploy/people-and-keys/), register a
 second reviewer instead.
 
-### Make it live from your app
+### Pin from your app
 
-Your app checks the release gate policy, then makes the version live. Ask your
-coding agent: "Check the release gate policy for my new agent version, and
-make it live unless the policy refuses." For reference, the script looks like
+Your app checks the release gate, then pins the version. Ask your
+coding agent: "Check the release gate for my new agent version, and
+pin it unless the gate refuses." For reference, the script looks like
 this, with the id of the run on the test cases as its argument:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```ts
-// promote-gated.ts
+// pin-gated.ts
 import { createClient } from '@kindgi/sdk/client';
 
 const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
@@ -774,13 +726,13 @@ const request = {
 };
 
 // What would the gate say? Nothing is recorded.
-const check = await kindgi.agents.promotions.check('acme.order-desk', request);
+const check = await kindgi.agents.pinned.check('acme.order-desk', request);
 console.log(check.outcome);
 for (const c of check.checks.filter((c) => !c.passed)) console.log(c.message);
 
 if (check.outcome !== 'gate-failed') {
-  const promotion = await kindgi.agents.promotions.create('acme.order-desk', request);
-  console.log(promotion.status, promotion.approvalId ?? '');
+  const change = await kindgi.agents.pinned.pin('acme.order-desk', request);
+  console.log(change.status, change.approvalId ?? '');
 }
 ```
 
@@ -788,7 +740,7 @@ if (check.outcome !== 'gate-failed') {
 <TabItem label="Python">
 
 ```python
-# promote_gated.py
+# pin_gated.py
 import sys
 
 from kindgi.client import Kindgi
@@ -802,21 +754,21 @@ request = {
 }
 
 # What would the gate say? Nothing is recorded.
-check = kindgi.agents.promotions.check("acme.order-desk", **request)
+check = kindgi.agents.pinned.check("acme.order-desk", **request)
 print(check.outcome)
 for c in check.checks:
     if not c.passed:
         print(c.message)
 
 if check.outcome != "gate-failed":
-    promotion = kindgi.agents.promotions.create("acme.order-desk", **request)
-    print(promotion.status, promotion.approval_id or "")
+    change = kindgi.agents.pinned.pin("acme.order-desk", **request)
+    print(change.status, change.approval_id or "")
 ```
 
 </TabItem>
 </Tabs>
 
-It prints the release gate policy's outcome, then the request waiting for its
+It prints the release gate's outcome, then the request waiting for its
 approval:
 
 ```text
@@ -824,13 +776,13 @@ needs-approval
 pending-approval fa6fbbcf-7b0d-4c70-b462-d6a78bbcfd11
 ```
 
-`kindgi.gatePolicies.publish`, or `gate_policies.publish` in Python, and
-`kindgi.agents.gatePolicy.resolve`, or `agents.gate_policy.resolve`, do what
-`kindgi gate-policies publish` and `kindgi agents gate-policy` do.
+`kindgi.releaseGates.publish`, or `release_gates.publish` in Python, and
+`kindgi.agents.releaseGate.resolve`, or `agents.release_gate.resolve`, do what
+`kindgi release-gates publish` and `kindgi agents release-gate` do.
 
 ## Next
 
-- [Live versions reference](../live-versions-reference/)
+- [Pinned versions reference](../pinned-versions-reference/)
 - [Try a version on the test cases](../compare-an-agent-version/)
 - [Decide an approval](../../approvals/decide-an-approval/)
 - [Agent and tool versions](../../agents/agent-and-tool-versions/)

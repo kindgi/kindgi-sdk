@@ -797,7 +797,7 @@ export const ERROR_ENTRIES = {
   },
   'pin-scope-spans-environments': {
     description:
-      "A flow or tool with a project in an environment order is pinned one project at a time: a pin for the whole tenant or an organization would act in every environment of the order at once. Pin a flow in each environment's project, and a tool in the order's first environment, where agent and flow versions are made.",
+      "An agent, flow or tool with a project in an environment order is pinned one project at a time: a pin for the whole tenant or an organization would act in every environment of the order at once, so it's refused. Pin an agent or a flow in each environment's project (or a segment of it), and a tool in the order's first environment, where agent and flow versions are made. To take a build from one environment to the next and pin it there, promote it (`kindgi promote --pin`). Nothing is changed.",
     details: [],
   },
   'tool-not-pinnable': {
@@ -809,11 +809,6 @@ export const ERROR_ENTRIES = {
         meaning: 'the tool',
       },
     ],
-  },
-  'live-scope-spans-environments': {
-    description:
-      "An agent with a project in an environment order is made live one project at a time, whether one project serves it or several. A live change for the whole tenant or an organization would reach every environment of the order at once, so it's refused. Name a project in the change's scope, or a segment of it. To take a build from one environment to the next and make it live there, promote it (`kindgi promote --make-live`). Nothing is changed.",
-    details: [],
   },
   'guardrail-config-invalid': {
     description:
@@ -1092,7 +1087,7 @@ export const ERROR_ENTRIES = {
         meaning: 'the run that failed',
       },
     ],
-    seeAlso: ['guides/evals/change-a-prompt-or-setting'],
+    seeAlso: ['guides/improve/change-a-prompt-or-setting'],
   },
   'tool-invocation-failed': {
     description:
@@ -1230,7 +1225,7 @@ export const ERROR_ENTRIES = {
   },
   'approvals-pending-limit': {
     description:
-      "A gate asked for an approval while the tenant's approvals waiting for a decision were at its limit (set by whoever runs the server). Nothing waits for an approval nobody can see: the step fails, naming the limit. `POST /v1/runs` answers `429` when the call waits for its run; with `options.wait: false` it answers `202`, and the run fails with this code. A request to make a version live whose release gate policy wants an approval is refused with it. Once some of the approvals waiting are decided, try again.",
+      "A gate asked for an approval while the tenant's approvals waiting for a decision were at its limit (set by whoever runs the server). Nothing waits for an approval nobody can see: the step fails, naming the limit. `POST /v1/runs` answers `429` when the call waits for its run; with `options.wait: false` it answers `202`, and the run fails with this code. A request to pin a version whose release gate wants an approval is refused with it. Once some of the approvals waiting are decided, try again.",
     details: [
       {
         key: 'approvalsPending',
@@ -1387,7 +1382,7 @@ export const ERROR_ENTRIES = {
   'invalid-transition': {
     description: "The API doesn't send this code.",
     details: [],
-    seeAlso: ['guides/evals/propose-a-change'],
+    seeAlso: ['guides/improve/suggest-a-change'],
   },
   'audit-bundle-not-found': {
     description:
@@ -1425,7 +1420,7 @@ export const ERROR_ENTRIES = {
   'observation-not-found': {
     description: "The API doesn't send this code.",
     details: [],
-    seeAlso: ['guides/evals/improve-an-agent'],
+    seeAlso: ['guides/improve/improve-an-agent'],
   },
   'provenance-not-found': {
     description:
@@ -1500,7 +1495,7 @@ export const ERROR_ENTRIES = {
         meaning: 'the suggested change id that was looked up',
       },
     ],
-    seeAlso: ['guides/evals/propose-a-change'],
+    seeAlso: ['guides/improve/suggest-a-change'],
   },
   'suggested-change-invalid-state-transition': {
     description:
@@ -1519,7 +1514,7 @@ export const ERROR_ENTRIES = {
   },
   'suggested-change-needs-pin': {
     description:
-      'The agent has no live version for the whole tenant, so a new version would serve every scope nothing is pinned for. Make its current version live tenant-wide, then retry.',
+      'The agent has no pinned version for the whole tenant, so a new version would serve every scope nothing is pinned for. Pin its current version for the tenant first, then retry.',
     details: [],
   },
   'suggested-change-not-for-a-project': {
@@ -1619,7 +1614,7 @@ export const ERROR_ENTRIES = {
   'version-already-exists': {
     description: "The API doesn't send this code.",
     details: [],
-    seeAlso: ['guides/evals/propose-a-change'],
+    seeAlso: ['guides/improve/suggest-a-change'],
   },
   'supervisor-header-missing': {
     description: "The API doesn't send this code.",
@@ -1946,7 +1941,7 @@ export const ERROR_ENTRIES = {
         meaning: 'the run id that was looked up',
       },
     ],
-    seeAlso: ['guides/evals/compare-an-agent-version'],
+    seeAlso: ['guides/improve/compare-an-agent-version'],
   },
   'test-run-not-rescorable': {
     description:
@@ -1962,7 +1957,7 @@ export const ERROR_ENTRIES = {
     description:
       "No correction exists with that id, or it's in a project your key can't read. Removing one also needs it to be live.",
     details: [],
-    seeAlso: ['guides/evals/judge-a-runs-output'],
+    seeAlso: ['guides/improve/correct-a-runs-output'],
   },
   'correction-status-change-not-allowed': {
     description:
@@ -2022,19 +2017,14 @@ export const ERROR_ENTRIES = {
       "The agent has no active version with that number: it was never registered or has since been unregistered. Pick a version from the agent's version list.",
     details: [],
   },
-  'promotion-not-found': {
-    description: "No entry with that id exists in this agent's go-live history.",
+  'pin-not-found': {
+    description: "No entry with that id exists in this agent's pin history.",
     details: [],
-    seeAlso: ['guides/evals/release-an-agent-version'],
-  },
-  'nothing-to-roll-back': {
-    description:
-      "The scope's live version has no earlier version to go back to. Unpin the scope to fall back to the scope above, or name a version to roll back to.",
-    details: [],
+    seeAlso: ['guides/improve/release-an-agent-version'],
   },
   'not-pinned': {
     description:
-      "The scope has no pin of its own (for an agent, no live version of its own), so there's nothing to roll back or unpin. Pin a version for the scope first.",
+      "The scope has no pin of its own (for an agent, no pinned version of its own), so there's nothing to unpin. Pin a version for the scope first.",
     details: [],
   },
   'nothing-runs-in-scope': {
@@ -2056,19 +2046,19 @@ export const ERROR_ENTRIES = {
   },
   'gate-failed': {
     description:
-      'A release gate policy refused making the version live because one or more of its checks failed. The refusal is recorded; read the failing checks and fix what they name.',
+      'A release gate refused pinning the version because one or more of its checks failed. The refusal is recorded; read the failing checks and fix what they name.',
     details: [
       {
-        key: 'promotionId',
-        meaning: 'the recorded refused request to make it live',
+        key: 'changeId',
+        meaning: 'the recorded refused pin request',
       },
       {
-        key: 'policy',
-        meaning: 'the release gate policy that applied (id and version), or null',
+        key: 'releaseGate',
+        meaning: 'the release gate that applied (id and version), or null',
       },
       {
         key: 'checks',
-        meaning: 'every check the release gate policy ran, with whether each passed',
+        meaning: 'every check the release gate ran, with whether each passed',
       },
       {
         key: 'suggestedChangeId',
@@ -2076,20 +2066,20 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'promotion-superseded': {
+  'pin-superseded': {
     description:
-      "The scope's live version changed while the release gate policy was being checked, so the check no longer applies. Check the go-live again against the new live version.",
+      "The scope's pinned version changed while the release gate was being checked, so the check no longer applies. Check the pin again against the new pinned version.",
     details: [
       {
-        key: 'live',
+        key: 'pinned',
         meaning:
-          "from a deployment promotion with `makeLive`, when some were: the carried agents pinned before this one, in the answer's `live` shape",
+          "from a deployment promotion with `pin`, when some were: the carried agents pinned before this one, in the answer's `pinned` shape",
       },
     ],
   },
-  'promotion-gate-unsupported': {
+  'pin-gate-unsupported': {
     description:
-      "A release gate policy applies to this go-live, and the deployment can't record a gated go-live, so the go-live is refused. From a deployment promotion with `makeLive`, the build has already moved and nothing is pinned in the target.",
+      "A release gate applies to this pin, and the deployment can't record a gated pin, so the pin is refused. From a deployment promotion with `pin`, the build has already moved and nothing is pinned in the target.",
     details: [],
   },
   'separate-approver-required': {
@@ -2114,55 +2104,54 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['guides/approvals/decide-an-approval'],
   },
-  'gate-policy-not-found': {
-    description:
-      'No release gate policy with that id exists, or it has no version with that number.',
+  'release-gate-not-found': {
+    description: 'No release gate with that id exists, or it has no version with that number.',
     details: [
       {
-        key: 'policyId',
-        meaning: 'the policy id that was looked up',
+        key: 'releaseGateId',
+        meaning: 'the release gate id that was looked up',
       },
     ],
-    seeAlso: ['POST /v1/gate-policies'],
+    seeAlso: ['POST /v1/release-gates'],
   },
-  'gate-policy-already-registered': {
+  'release-gate-already-registered': {
     description:
-      'The release gate policy already has a version with that number. Publish with a new version number.',
+      'The release gate already has a version with that number. Publish with a new version number.',
     details: [],
   },
-  'gate-policy-scope-taken': {
+  'release-gate-scope-taken': {
     description:
-      'Another release gate policy already gates this agent for the same scope. Publish a new version of that policy instead, or unregister it first.',
+      'Another release gate already gates this agent for the same scope. Publish a new version of that gate instead, or unregister it first.',
     details: [
       {
         key: 'heldBy',
-        meaning: 'id of the policy that holds the scope',
+        meaning: 'id of the release gate that holds the scope',
       },
     ],
   },
-  'gate-policy-scope-changed': {
+  'release-gate-scope-changed': {
     description:
-      "A new version of a release gate policy can't change the agent or the scope the policy gates. Create a new policy for the other agent or scope.",
+      "A new version of a release gate can't change the agent or the scope it gates. Create a new release gate for the other agent or scope.",
     details: [],
   },
-  'gate-policy-scope-unpinned': {
+  'release-gate-scope-unpinned': {
     description:
-      'The scope has no live version of its own, so the release gate policy would not take effect. Pin a version for the scope first.',
+      'The scope has no pinned version of its own, so the release gate would not take effect. Pin a version for the scope first.',
     details: [],
   },
-  'gate-policy-needs-pin': {
+  'release-gate-needs-pin': {
     description:
-      "The scope has a release gate policy, and a gated scope keeps its own live version, so it can't be unpinned. Unregister the release gate policy first, or roll back instead.",
+      "The scope has a release gate, and a gated scope keeps its own pinned version, so it can't be unpinned. Unregister the release gate first, or pin an earlier version instead.",
     details: [],
   },
-  'gate-policy-descendant-unpinned': {
+  'release-gate-descendant-unpinned': {
     description:
-      'The change would also move a narrower scope that a release gate policy applies to and that has no live version of its own, bypassing that policy. Pin that scope at its current version first.',
+      'The change would also move a narrower scope that a release gate applies to and that has no pinned version of its own, bypassing that gate. Pin that scope at its current version first.',
     details: [
       {
-        key: 'live',
+        key: 'pinned',
         meaning:
-          "from a deployment promotion with `makeLive`, when some were: the carried agents pinned before this one, in the answer's `live` shape",
+          "from a deployment promotion with `pin`, when some were: the carried agents pinned before this one, in the answer's `pinned` shape",
       },
     ],
   },
@@ -2602,9 +2591,9 @@ export const ERROR_ENTRIES = {
       "The runtime runs without an authorization store, so it can't say what the caller may do. Read whoami's `tenantAdmin` and `reviewerRole` instead.",
     details: [],
   },
-  'agent-version-live': {
+  'agent-version-pinned': {
     description:
-      "The version is live in one or more scopes, so it can't be unregistered. Roll back, unpin or make another version live there first.",
+      "The version is pinned in one or more scopes, so it can't be unregistered. Unpin it, or pin another version there first.",
     details: [
       {
         key: 'agentId',
@@ -2616,7 +2605,7 @@ export const ERROR_ENTRIES = {
       },
       {
         key: 'scopes',
-        meaning: 'the scopes where it is live',
+        meaning: 'the scopes where it is pinned',
       },
     ],
   },
@@ -2733,7 +2722,7 @@ export const ERROR_ENTRIES = {
         meaning: 'its final status',
       },
     ],
-    seeAlso: ['guides/evals/compare-an-agent-version'],
+    seeAlso: ['guides/improve/compare-an-agent-version'],
   },
   'dispatcher-not-registered': {
     description:
@@ -2744,7 +2733,7 @@ export const ERROR_ENTRIES = {
         meaning: 'the test set kind with no dispatcher',
       },
     ],
-    seeAlso: ['guides/evals/compare-an-agent-version'],
+    seeAlso: ['guides/improve/compare-an-agent-version'],
   },
   'dispatcher-input-invalid': {
     description:

@@ -174,21 +174,21 @@ pnpm exec kindgi runs start --agent=acme-desk.reply-drafter --input='{"userMessa
 
 Going live takes two steps, in this order.
 
-**1. Make the agent's version live.** Until an agent has a live version,
+**1. Pin the agent's version.** Until an agent has a pinned version,
 each run gets its project's Latest, the version the newest deploy shipped,
-so every deploy changes what runs at once. Make the version you tried live
-in the project. Then later deploys change nothing until you make a version
-live again.
+so every deploy changes what runs at once. Pin the version you tried in
+the project. Then later deploys change nothing until you pin a version
+again.
 
-Ask your coding agent: "Make the version of `acme-desk.reply-drafter` that I
-tried live in the Default project." For reference:
+Ask your coding agent: "Pin the version of `acme-desk.reply-drafter` that I
+tried in the Default project." For reference:
 
 ```sh
-pnpm exec kindgi agents promote acme-desk.reply-drafter <version> --project=<project-id> --reason="The version we tried"
+pnpm exec kindgi agents pin acme-desk.reply-drafter <version> --project=<project-id> --reason="The version we tried"
 ```
 
 `kindgi projects list` lists the projects, with their ids. In the console,
-the agent's **Live versions** page shows where each version is live.
+the agent's **Pinned versions** page shows where each version is pinned.
 
 **2. Put the project in production.**
 
@@ -204,18 +204,18 @@ says what being in production changes. How many projects can be in
 production at once is in
 [Kindgi Cloud's limits](../limits/#projects-in-production).
 
-A project in production and an agent's live version are different things.
-The project's **Go live** says that its runs are real work. An agent's live
+A project in production and an agent's pinned version are different things.
+The project's **Go live** says that its runs are real work. An agent's pinned
 version says which version those runs get.
 
 ## Change your agent once it's live
 
 Your workspace has one environment, and an agent stays in the project it
 was first deployed to. So you try a new version in the same project, by
-its version, before you make it live.
+its version, before you pin it.
 
 1. **Deploy the new version** as before. The deploy prints its version
-   number. While the agent has a live version, its runs keep getting that
+   number. While the agent has a pinned version, its runs keep getting that
    version.
 2. **Try the new version by its version number.** In the console, choose
    it under **Version** in the **Start run** form. From the CLI, it's
@@ -224,40 +224,40 @@ its version, before you make it live.
    workspace's keys and secrets, and its tools do what they do.
 3. **Try it on your test cases,** if you have some. A run on the test cases
    replays them with the new version
-   ([Try a version on the test cases](../../guides/evals/compare-an-agent-version/)).
-4. **Make it live:**
-   `kindgi agents promote acme-desk.reply-drafter <new version> --project=<project-id> --reason=…`.
+   ([Try a version on the test cases](../../guides/improve/compare-an-agent-version/)).
+4. **Pin it:**
+   `kindgi agents pin acme-desk.reply-drafter <new version> --project=<project-id> --reason=…`.
    Runs get it from the next run, except that a conversation that's
    already open keeps the version it started with
-   ([Conversations keep their version](../../guides/evals/live-versions-reference/#conversations-keep-their-version)).
-5. **Roll back if you need to:**
-   `kindgi agents rollback acme-desk.reply-drafter --project=<project-id> --reason=…`.
-   This puts back the version that was live before, at once.
+   ([Conversations keep their version](../../guides/improve/pinned-versions-reference/#conversations-keep-their-version)).
+5. **Undo it if you need to:**
+   `kindgi agents unpin acme-desk.reply-drafter --project=<project-id> --reason=…`,
+   or pin the earlier version again.
 
 Several new versions can wait at once. Each deploy that changes the code
 registers a version, and you can run any of them by its number. You make
-one of them live; the others stay, and you can still run them.
+one of them; the others stay, and you can still run them.
 
-[Release an agent version](../../guides/evals/release-an-agent-version/)
-shows each step, a release for some runs only, and a release gate policy
+[Release an agent version](../../guides/improve/release-an-agent-version/)
+shows each step, a release for some runs only, and a release gate
 that needs a reviewer.
-[Live versions reference](../../guides/evals/live-versions-reference/) has
+[Pinned versions reference](../../guides/improve/pinned-versions-reference/) has
 every rule and refusal.
 
 ### Secrets and keys aren't part of a version
 
 A version holds the agent, not its values. Each run reads its secrets and
-model keys when it runs, from your workspace's values on `prod`. So the live
+model keys when it runs, from your workspace's values on `prod`. So the pinned
 version and every version that's waiting read the same values:
 
 - A new secret that only the new version reads can go in before you
-  make it live.
-- Changing a value that the live version reads changes live runs from the
-  next run, before you make anything live.
+  pin it.
+- Changing a value that the pinned version reads changes its runs from the
+  next run, before you pin anything else.
 - `kindgi deploy --hosted --env=prod --sync-secrets` writes the pack's
   `.env.prod` values right after the deploy, into those same values. So it
-  can change what the live version reads, though you haven't made the new
-  version live.
+  can change what the pinned version reads, though you haven't pinned the new
+  version.
 
 ## If something goes wrong
 

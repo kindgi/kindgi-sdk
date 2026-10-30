@@ -30,10 +30,10 @@
 import type { BlockDefinition } from '@kindgi/agents';
 import type { ProjectId, TenantId } from '@kindgi/types';
 
+import type { PinActor } from './agent-pin-binding.js';
 import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
 import { type BlockPublishIssue, continuityIssues, withCarriedSchema } from './block-publish.js';
 import { canonical } from './corrected-items.js';
-import type { PromotionActor } from './live-version-binding.js';
 import { PublishRefused } from './publish-refused.js';
 import type { RollbackAction } from './routes/deployments.js';
 
@@ -135,7 +135,7 @@ export async function publishPackBlocks(input: {
   readonly projectId: ProjectId;
   readonly planned: readonly PlannedBlock[];
   readonly rolled: RollbackAction[];
-  readonly publishedBy: PromotionActor;
+  readonly publishedBy: PinActor;
   readonly deploymentId: string;
 }): Promise<readonly BlockDefinition[]> {
   const { blocks, tenantId, projectId, publishedBy } = input;

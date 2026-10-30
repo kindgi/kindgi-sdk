@@ -18,9 +18,9 @@ import {
 } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
-  EVAL_KINDS,
-  type EvalKind,
+  TEST_SET_KINDS,
   type TestSet,
+  type TestSetKind,
   type TestSetRecord,
   type TestSetRegistryBinding,
   agentTestSetIdReserved,
@@ -190,13 +190,13 @@ export function testSetsRouter(
     // items with an active version only (the default).
     const includeRetired = c.req.query('includeRetired') === 'true';
 
-    if (kindRaw !== undefined && kindRaw.length > 0 && !isEvalKind(kindRaw)) {
+    if (kindRaw !== undefined && kindRaw.length > 0 && !isTestSetKind(kindRaw)) {
       c.status(statusFor('bad-input') as never);
       return c.json(
         toWireError(
           {
             code: 'bad-input',
-            message: `Unknown eval kind "${kindRaw}". Expected one of: ${EVAL_KINDS.join(', ')}.`,
+            message: `Unknown eval kind "${kindRaw}". Expected one of: ${TEST_SET_KINDS.join(', ')}.`,
           },
           requestId,
         ),
@@ -215,7 +215,7 @@ export function testSetsRouter(
       tenantId,
       limit,
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
-      ...(kindRaw !== undefined && kindRaw.length > 0 && { evalKind: kindRaw as EvalKind }),
+      ...(kindRaw !== undefined && kindRaw.length > 0 && { evalKind: kindRaw as TestSetKind }),
       ...(nameRaw !== undefined && nameRaw.length > 0 && { nameFilter: nameRaw }),
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
@@ -573,8 +573,8 @@ function serializeTestSet(s: TestSetRecord): Record<string, unknown> {
   };
 }
 
-function isEvalKind(value: string): value is EvalKind {
-  return (EVAL_KINDS as readonly string[]).includes(value);
+function isTestSetKind(value: string): value is TestSetKind {
+  return (TEST_SET_KINDS as readonly string[]).includes(value);
 }
 
 const SEMVER_RE = /^\d+\.\d+\.\d+$/;
@@ -606,10 +606,10 @@ function validateTestSet(
       message: 'testSet.version must be a semver string (e.g. "1.0.0")',
     });
   }
-  if (typeof b.kind !== 'string' || !isEvalKind(b.kind)) {
+  if (typeof b.kind !== 'string' || !isTestSetKind(b.kind)) {
     issues.push({
       path: 'kind',
-      message: `testSet.kind must be one of: ${EVAL_KINDS.join(', ')}`,
+      message: `testSet.kind must be one of: ${TEST_SET_KINDS.join(', ')}`,
     });
   }
   // tenantId is optional on the wire — when present, it must match the
@@ -649,7 +649,7 @@ function validateTestSet(
     id: b.id as string,
     tenantId,
     version: b.version as string,
-    kind: b.kind as EvalKind,
+    kind: b.kind as TestSetKind,
     ...(typeof b.description === 'string' && { description: b.description }),
     spec: b.spec as Readonly<Record<string, unknown>>,
   };

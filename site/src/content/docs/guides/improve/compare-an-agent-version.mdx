@@ -84,7 +84,7 @@ It prints the run, with its metrics:
 
 ```json
 {
-  "runId": "b0b9f27a-14d9-4a4d-bc46-31aea6948d5f",
+  "testRunId": "b0b9f27a-14d9-4a4d-bc46-31aea6948d5f",
   "status": "completed",
   "result": {
     "summary": {
@@ -92,8 +92,8 @@ It prints the run, with its metrics:
       "candidate": { "kind": "agent", "agentId": "acme-ops.article-picker", "version": "0.2.0" },
       "baseline": { "kind": "recorded", "versions": [{ "agentId": "acme-ops.article-picker", "version": "0.1.0", "cases": 3 }] },
       "metrics": {
-        "weightedYesShare": { "baseline": 0.3333333333333333, "candidate": 1, "delta": 0.6666666666666667, "n": 3, … },
-        "judgedCoverage": { "baseline": 0.75, "candidate": 0.5, "delta": -0.25, "n": 3, … },
+        "passRate": { "baseline": 0.3333333333333333, "candidate": 1, "delta": 0.6666666666666667, "n": 3, … },
+        "caseCoverage": { "baseline": 0.75, "candidate": 0.5, "delta": -0.25, "n": 3, … },
         "weightedPrecisionAtK": { "k": 10, "baseline": 0.3333333333333333, "candidate": 1, "delta": 0.6666666666666667, "n": 3, … }
       },
       "diverged": 1,
@@ -126,16 +126,16 @@ const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the runni
 const projectId = process.argv[2];
 
 // Replay version 0.2.0 on each case of the test set.
-const { runId } = await kindgi.testRuns.start(
+const { testRunId } = await kindgi.testRuns.start(
   'acme.article-picks',
   { agentRef: { agentId: 'acme-ops.article-picker', version: '0.2.0' } },
   { projectId },
 );
 
-let run = await kindgi.testRuns.get(runId);
+let run = await kindgi.testRuns.get(testRunId);
 while (run.status === 'pending' || run.status === 'running') {
   await new Promise((resolve) => setTimeout(resolve, 2000));
-  run = await kindgi.testRuns.get(runId);
+  run = await kindgi.testRuns.get(testRunId);
 }
 
 const comparison = comparisonOf(run); // undefined until it's finished
@@ -145,8 +145,8 @@ for (const [name, metric] of Object.entries(comparison?.summary.metrics ?? {})) 
 ```
 
 ```text
-judgedCoverage: 0.75 → 0.5
-weightedYesShare: 0.3333333333333333 → 1
+caseCoverage: 0.75 → 0.5
+passRate: 0.3333333333333333 → 1
 weightedPrecisionAtK: 0.3333333333333333 → 1
 ```
 
@@ -170,25 +170,25 @@ started = kindgi.test_runs.start(
     agent_ref={"agent_id": "acme-ops.article-picker", "version": "0.2.0"},
 )
 
-run = kindgi.test_runs.get(str(started.run_id))
+run = kindgi.test_runs.get(str(started.test_run_id))
 while run.status in ("pending", "running"):
     time.sleep(2)
-    run = kindgi.test_runs.get(str(started.run_id))
+    run = kindgi.test_runs.get(str(started.test_run_id))
 
 comparison = comparison_of(run)  # None until it's finished
 if comparison is not None:
     metrics = comparison.summary.metrics
     for name, metric in [
-        ("judgedCoverage", metrics.judged_coverage),
-        ("weightedYesShare", metrics.weighted_yes_share),
+        ("caseCoverage", metrics.case_coverage),
+        ("passRate", metrics.pass_rate),
         ("weightedPrecisionAtK", metrics.weighted_precision_at_k),
     ]:
         print(f"{name}: {metric.baseline} → {metric.candidate}")
 ```
 
 ```text
-judgedCoverage: 0.75 → 0.5
-weightedYesShare: 0.3333333333333333 → 1.0
+caseCoverage: 0.75 → 0.5
+passRate: 0.3333333333333333 → 1.0
 weightedPrecisionAtK: 0.3333333333333333 → 1.0
 ```
 
@@ -224,10 +224,10 @@ public final class Compare {
                     TestRunAgentRef.builder().agentId("acme-ops.article-picker").version("0.2.0").build())
                 .build());
 
-    TestRun run = kindgi.testRuns().get(started.runId());
+    TestRun run = kindgi.testRuns().get(started.testRunId());
     while (run.status().equals(TestRun.Status.PENDING) || run.status().equals(TestRun.Status.RUNNING)) {
       Thread.sleep(2000);
-      run = kindgi.testRuns().get(started.runId());
+      run = kindgi.testRuns().get(started.testRunId());
     }
 
     // comparisonOf is empty until the run finishes, or for a dry run.
@@ -235,8 +235,8 @@ public final class Compare {
         .ifPresent(
             comparison -> {
               CorrectedComparisonSummary.Metrics metrics = comparison.summary().metrics();
-              print("judgedCoverage", metrics.judgedCoverage());
-              print("weightedYesShare", metrics.weightedYesShare());
+              print("caseCoverage", metrics.caseCoverage());
+              print("passRate", metrics.passRate());
               print("weightedPrecisionAtK", metrics.weightedPrecisionAtK());
             });
   }
@@ -250,8 +250,8 @@ public final class Compare {
 ```
 
 ```text
-judgedCoverage: 0.75 → 0.5
-weightedYesShare: 0.3333333333333333 → 1.0
+caseCoverage: 0.75 → 0.5
+passRate: 0.3333333333333333 → 1.0
 weightedPrecisionAtK: 0.3333333333333333 → 1.0
 ```
 
@@ -278,11 +278,11 @@ value minus its lowest. In the clients, it's `repetitions`.
 Each metric has its value for the recorded runs (`baseline`) and for the
 version (`candidate`), the `delta`, and `n`, the cases it's based on.
 
-- **`weightedYesShare`,** "Share marked right" in the console: of the items in
+- **`passRate`,** "Share marked right" in the console: of the items in
   the answer that people corrected, the share they marked right, weighted by
   corrector group. 0.1.0's answers had 3 marked right of 9 corrected articles.
   0.2.0's had 3 of 3: it kept only the right article each time.
-- **`judgedCoverage`,** "Corrected items": the share of the answer's items
+- **`caseCoverage`,** "Corrected items": the share of the answer's items
   that people corrected. Items no one corrected bring it down. Here, each
   answer's text is an item too, and no one corrected it.
 - **`weightedPrecisionAtK`,** "Top 10 marked right": marked right among the
@@ -296,8 +296,8 @@ reworded answer is a new item, with no corrections yet.
 
 ### Count only experts' corrections
 
-`--group-weights=experts-only` counts only the corrections made under a
-[expert group](../judge-a-runs-output/#restrict-who-may-correct-as-a-group).
+`--group-weights=experts-only` counts only the corrections made under an
+[expert group](../correct-a-runs-output/#restrict-who-may-correct-as-a-group).
 An item none of them corrected counts as not corrected. In TypeScript, it's
 `groupWeights: 'experts-only'`, and in Python
 `group_weights="experts-only"`. The summary says which it used, in
@@ -308,8 +308,8 @@ afterwards:
 
 | | `as-recorded` | `experts-only` |
 | --- | --- | --- |
-| `weightedYesShare` | 0.556 (5 of 9) | 0.5 (3 of 6) |
-| `judgedCoverage` | 1 | 0.667 |
+| `passRate` | 0.556 (5 of 9) | 0.5 (3 of 6) |
+| `caseCoverage` | 1 | 0.667 |
 
 **Case by case,** `perCase` has, for each case:
 
@@ -349,7 +349,7 @@ afterwards:
 ### What it should have done
 
 When the test cases' runs have corrections that say
-[what the run should have done](../judge-a-runs-output/#say-what-it-should-have-done)
+[what the run should have done](../correct-a-runs-output/#say-what-it-should-have-done)
 (runtime 0.2.0 or later), each one is checked against what the version
 did on that case:
 
@@ -373,9 +373,9 @@ CAPTURE: one perCase entry with "corrections": [{ "correctionId": …, "pass": f
 CAPTURE: "corrections": { "checked": …, "passed": … } from the same run's summary
 ```
 
-With `--group-weights=experts-only`, only the ones made under a
-expert group are checked. No release gate policy checks them: read them
-before you [make the version live](../release-an-agent-version/#check-before-you-make-it-live).
+With `--group-weights=experts-only`, only the ones made under an
+expert group are checked. No release gate checks them: read them
+before you [pin the version](../release-an-agent-version/#check-before-you-pin-it).
 
 ## What a replay does
 
@@ -438,7 +438,7 @@ and `testRunId`. Lists of runs leave them out. `kindgi runs list
 --test-run=<run-id>` lists those of one run on the test cases, and
 `--replays=include` or `--replays=only` adds them to any list. Conversation
 lists leave out their conversations the same way: `kindgi conversations list
---replays=only` lists them. You can [correct](../judge-a-runs-output/) them
+--replays=only` lists them. You can [correct](../correct-a-runs-output/) them
 like any run: that's how a version's new items get their corrections.
 
 **A run on the test cases stopped** before it finished, because the runtime
@@ -503,7 +503,7 @@ tool:
     "versions": { "tools": { "acme-ops.find-articles": "0.2.0" } }
   },
   "metrics": {
-    "weightedYesShare": { "baseline": 0.5, "candidate": 1, … },
+    "passRate": { "baseline": 0.5, "candidate": 1, … },
     …
   },
   …
@@ -544,7 +544,7 @@ counts it in `stopped`, and the refused call in `refusedWrites`. The other
 cases are rated as usual. A step's agent turn doesn't stop the flow: its
 refused calls go back to the model, as they do when you try an agent version.
 
-When a version does better, make it live where you choose, as
+When a version does better, pin it where you choose, as
 [Release an agent version](../release-an-agent-version/) shows.
 
 ## In the console
@@ -579,4 +579,4 @@ no output to rate."
 
 - [Release an agent version](../release-an-agent-version/)
 - [Change a prompt or a setting without a deploy](../change-a-prompt-or-setting/)
-- [Correct a run's output](../judge-a-runs-output/)
+- [Correct a run's output](../correct-a-runs-output/)

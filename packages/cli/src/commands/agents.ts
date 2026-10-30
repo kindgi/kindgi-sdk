@@ -4,11 +4,11 @@
 import { KindgiApiError } from '@kindgi/client';
 import type {
   AgentCollectionPage,
-  LivePin,
-  LivePinList,
-  LiveScope,
-  Promotion,
-  PromotionPage,
+  AgentPinScope,
+  AgentPinnedVersion,
+  AgentPinnedVersionList,
+  Pin,
+  PinPage,
 } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
@@ -192,7 +192,7 @@ const versions: LeafCommand = {
     ),
 };
 
-// ---------- live versions and promotions ----------
+// ---------- pinned versions and the pin history ----------
 
 const SEGMENT_FLAG: ParseArgsOption = {
   type: 'string',
@@ -216,9 +216,9 @@ export const SCOPE_USAGE =
   '(--tenant | --org=<org-id> | --project=<project-id> [--segment=<key:value>]…)';
 
 /** The scope the flags name. Writes need one; a history filter may name none. */
-export function scopeFrom(ctx: CommandContext, required: true): LiveScope;
-export function scopeFrom(ctx: CommandContext, required: false): LiveScope | undefined;
-export function scopeFrom(ctx: CommandContext, required: boolean): LiveScope | undefined {
+export function scopeFrom(ctx: CommandContext, required: true): AgentPinScope;
+export function scopeFrom(ctx: CommandContext, required: false): AgentPinScope | undefined;
+export function scopeFrom(ctx: CommandContext, required: boolean): AgentPinScope | undefined {
   const tenant = ctx.options.tenant === true;
   const orgId = stringFlag(ctx, 'org');
   const projectId = stringFlag(ctx, 'project');
@@ -239,7 +239,7 @@ export function scopeFrom(ctx: CommandContext, required: boolean): LiveScope | u
 }
 
 /** A scope in a table cell: `tenant`, `org <id>`, `project <id>`, `project <id> company=acme/role=x`. */
-export function scopeCell(scope: LiveScope): string {
+export function scopeCell(scope: AgentPinScope): string {
   switch (scope.kind) {
     case 'tenant':
       return 'tenant';
@@ -270,32 +270,32 @@ const WRITE_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
   },
 };
 
-const live: LeafCommand = {
+const pinned: LeafCommand = {
   kind: 'leaf',
-  name: 'live',
+  name: 'pinned',
   description:
-    'Show the version a run of this agent would use for a project and segment path, and why: a live version (with its scope) or the latest.',
-  usage: 'kindgi agents live <agent-id> [--project=<project-id> [--segment=<key:value>]…]',
+    'Show the version a run of this agent would use for a project and segment path, and why: a pinned version (with its scope) or the latest.',
+  usage: 'kindgi agents pinned <agent-id> [--project=<project-id> [--segment=<key:value>]…]',
   optionSpec: {
     project: { type: 'string', description: "The run's project, by id." },
     segment: SEGMENT_FLAG,
   },
   run: (ctx) =>
-    runSdk(ctx, 'agents live', async () => {
+    runSdk(ctx, 'agents pinned', async () => {
       const agentId = requiredPositional(ctx, 0, 'agent-id');
       const projectId = stringFlag(ctx, 'project');
       const segments = segmentsFlag(ctx);
       if (segments.length > 0 && projectId === undefined) {
         throw new UsageError('--segment needs --project');
       }
-      return await ctx.client().agents.live.resolve(agentId, {
+      return await ctx.client().agents.pinned.resolve(agentId, {
         ...(projectId !== undefined && { projectId }),
         ...(segments.length > 0 && { segments }),
       });
     }),
 };
 
-const LIVE_VERSIONS_TABLE: TableSpec<LivePinList, LivePin> = {
+const PINNED_VERSIONS_TABLE: TableSpec<AgentPinnedVersionList, AgentPinnedVersion> = {
   rows: (p) => p.data,
   columns: [
     { header: 'SCOPE', get: (pin) => scopeCell(pin.scope) },
@@ -304,53 +304,51 @@ const LIVE_VERSIONS_TABLE: TableSpec<LivePinList, LivePin> = {
   ],
 };
 
-const liveVersions: LeafCommand = {
+const pinnedVersions: LeafCommand = {
   kind: 'leaf',
-  name: 'live-versions',
-  description: 'List every scope with a live version of this agent pinned.',
-  usage: 'kindgi agents live-versions <agent-id>',
+  name: 'pinned-versions',
+  description: 'List every scope with a version of this agent pinned.',
+  usage: 'kindgi agents pinned-versions <agent-id>',
   run: (ctx) =>
     runSdk(
       ctx,
-      'agents live-versions',
-      async () => await ctx.client().agents.live.list(requiredPositional(ctx, 0, 'agent-id')),
-      LIVE_VERSIONS_TABLE,
+      'agents pinned-versions',
+      async () => await ctx.client().agents.pinned.list(requiredPositional(ctx, 0, 'agent-id')),
+      PINNED_VERSIONS_TABLE,
     ),
 };
 
-const promote: LeafCommand = {
+const pin: LeafCommand = {
   kind: 'leaf',
-  name: 'promote',
+  name: 'pin',
   description:
-    "Make a version live for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version. With a release gate policy for the scope, the run on the test cases named by --test-run is checked first: the answer's `status` is `promoted`, or `pending-approval` (a reviewer approves it); a refusal lists every check. `--check` asks what would happen, changing nothing. Exits 3 when the answer is no: the gate refuses the version, or it waits for an approval (`--wait` waits for the decision).",
-  usage: `kindgi agents promote <agent-id> <version> ${SCOPE_USAGE} [--test-run=<test-run-id>] [--reason=<text>] [--check] [--wait[=<duration>]]`,
+    "Pin a version for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version. With a release gate for the scope, the run on the test cases named by --test-run is checked first: the answer's `status` is `pinned`, or `pending-approval` (a reviewer approves it); a refusal lists every check. `--check` asks what would happen, changing nothing. Exits 3 when the answer is no: the gate refuses the version, or it waits for an approval (`--wait` waits for the decision).",
+  usage: `kindgi agents pin <agent-id> <version> ${SCOPE_USAGE} [--test-run=<test-run-id>] [--reason=<text>] [--check] [--wait[=<duration>]]`,
   optionSpec: {
     ...SCOPE_FLAGS,
     'test-run': {
       type: 'string',
-      description: 'The run on the test cases the release gate policy checks, kept on the record.',
+      description: 'The run on the test cases the release gate checks, kept on the record.',
     },
     check: {
       type: 'boolean',
       description:
-        'What the release gate policy would say: would-promote, needs-approval or gate-failed. Changes nothing. Exits 3 unless it would promote.',
+        'What the release gate would say: would-pin, needs-approval or gate-failed. Changes nothing. Exits 3 unless it would pin.',
     },
     ...WAIT_FLAG,
     ...WRITE_FLAGS,
   },
-  run: (ctx) => runSdkRendered(ctx, 'agents promote', () => promoteAgent(ctx), gateFailed),
+  run: (ctx) => runSdkRendered(ctx, 'agents pin', () => pinAgent(ctx), gateFailed),
 };
 
-/** A release gate policy's refusal (`422 gate-failed`): the command's answer, not a failure. */
+/** A release gate's refusal (`422 gate-failed`): the command's answer, not a failure. */
 function gateFailed(err: unknown): boolean {
   if (!(err instanceof KindgiApiError)) return false;
   const e = err.error;
   return e.code === 'server' && e.serverCode === 'gate-failed';
 }
 
-async function promoteAgent(
-  ctx: CommandContext,
-): Promise<Rendered & { readonly exitCode?: number }> {
+async function pinAgent(ctx: CommandContext): Promise<Rendered & { readonly exitCode?: number }> {
   const agentId = requiredPositional(ctx, 0, 'agent-id');
   const version = requiredPositional(ctx, 1, 'version');
   const testRunId = stringFlag(ctx, 'test-run');
@@ -362,105 +360,73 @@ async function promoteAgent(
     ...(testRunId !== undefined && { testRunId }),
   };
   const format = ctx.globals.format;
-  const promotions = ctx.client().agents.promotions;
+  const pins = ctx.client().agents.pinned;
   if (ctx.options.check === true) {
     if (waitMs !== undefined) {
-      throw new UsageError('--wait waits for a promotion, and --check makes none: leave one out');
+      throw new UsageError('--wait waits for a pin, and --check makes none: leave one out');
     }
-    const check = await promotions.check(agentId, input);
+    const check = await pins.check(agentId, input);
     return {
       ...renderJson(check, format),
-      ...(check.outcome !== 'would-promote' && { exitCode: ANSWER_NO_EXIT_CODE }),
+      ...(check.outcome !== 'would-pin' && { exitCode: ANSWER_NO_EXIT_CODE }),
     };
   }
-  const promotion = await promotions.create(agentId, input, idempotency(ctx));
-  if (promotion.status !== 'pending-approval') return renderJson(promotion, format);
+  const change = await pins.pin(agentId, input, idempotency(ctx));
+  if (change.status !== 'pending-approval') return renderJson(change, format);
   if (waitMs === undefined) {
     return {
-      stdout: renderJson(promotion, format).stdout,
-      stderr: successNote(
-        format,
-        `${stillOpenLine(promotion)} \`--wait\` waits for the decision.\n`,
-      ),
+      stdout: renderJson(change, format).stdout,
+      stderr: successNote(format, `${stillOpenLine(change)} \`--wait\` waits for the decision.\n`),
       exitCode: ANSWER_NO_EXIT_CODE,
     };
   }
   const out = progressLines(ctx.progress, format === 'quiet');
-  out.line(waitingLine(promotion, waitMs));
+  out.line(waitingLine(change, waitMs));
   const waited = await waitForApproval(
     ctx,
-    promotion,
-    () => promotions.get(agentId, promotion.id),
+    change,
+    () => pins.getChange(agentId, change.id),
     waitDeadline(ctx, waitMs),
   );
   return waitedAnswer(waited, waitMs, format, out);
 }
 
-/** What `agents promote --wait` answers: the promotion as the wait ended it, and how it ended. */
+/** What `agents pin --wait` answers: the pin as the wait ended it, and how it ended. */
 function waitedAnswer(
   waited: ApprovalWaited,
   waitMs: number,
   format: OutputFormat,
   out: ProgressLines,
 ): Rendered & { readonly exitCode?: number } {
-  const stdout = renderJson(waited.promotion, format).stdout;
+  const stdout = renderJson(waited.pin, format).stdout;
   switch (waited.kind) {
     case 'stopped':
-      out.line(`Stopped waiting. ${stillOpenLine(waited.promotion)}`);
+      out.line(`Stopped waiting. ${stillOpenLine(waited.pin)}`);
       return { stdout, stderr: out.kept(), exitCode: 130 };
     case 'still-waiting':
-      out.problem(`Still waiting after ${waitWords(waitMs)}. ${stillOpenLine(waited.promotion)}`);
+      out.problem(`Still waiting after ${waitWords(waitMs)}. ${stillOpenLine(waited.pin)}`);
       return { stdout, stderr: out.kept(), exitCode: ANSWER_NO_EXIT_CODE };
     case 'unreadable':
-      out.problem(unreadableLine(waited.promotion, waited.message));
+      out.problem(unreadableLine(waited.pin, waited.message));
       return { stdout, stderr: out.kept(), exitCode: 1 };
     case 'decided':
-      if (waited.promotion.status === 'promoted') return { stdout, stderr: out.kept() };
-      out.problem(endedLine(waited.promotion));
+      if (waited.pin.status === 'pinned') return { stdout, stderr: out.kept() };
+      out.problem(endedLine(waited.pin));
       return { stdout, stderr: out.kept(), exitCode: ANSWER_NO_EXIT_CODE };
   }
 }
 
-const gatePolicy: LeafCommand = {
+const releaseGate: LeafCommand = {
   kind: 'leaf',
-  name: 'gate-policy',
+  name: 'release-gate',
   description:
-    'Show the release gate policy that making a version of this agent live for a scope is checked against (the most specific scope with one), or null.',
-  usage: `kindgi agents gate-policy <agent-id> ${SCOPE_USAGE}`,
+    'Show the release gate that pinning a version of this agent for a scope is checked against (the most specific scope with one), or null.',
+  usage: `kindgi agents release-gate <agent-id> ${SCOPE_USAGE}`,
   optionSpec: SCOPE_FLAGS,
   run: (ctx) =>
-    runSdk(ctx, 'agents gate-policy', async () => {
+    runSdk(ctx, 'agents release-gate', async () => {
       const agentId = requiredPositional(ctx, 0, 'agent-id');
-      return await ctx.client().agents.gatePolicy.resolve(agentId, scopeFrom(ctx, true));
-    }),
-};
-
-const rollback: LeafCommand = {
-  kind: 'leaf',
-  name: 'rollback',
-  description: 'Put a scope back on its previous live version, or on the version given.',
-  usage: `kindgi agents rollback <agent-id> ${SCOPE_USAGE} [--to=<semver>] [--reason=<text>]`,
-  optionSpec: {
-    ...SCOPE_FLAGS,
-    to: {
-      type: 'string',
-      description: 'An earlier version to go back to (default: the previous one).',
-    },
-    ...WRITE_FLAGS,
-  },
-  run: (ctx) =>
-    runSdk(ctx, 'agents rollback', async () => {
-      const agentId = requiredPositional(ctx, 0, 'agent-id');
-      const toVersion = stringFlag(ctx, 'to');
-      return await ctx.client().agents.live.rollback(
-        agentId,
-        {
-          scope: scopeFrom(ctx, true),
-          ...(toVersion !== undefined && { toVersion }),
-          ...reasonFlag(ctx),
-        },
-        idempotency(ctx),
-      );
+      return await ctx.client().agents.releaseGate.resolve(agentId, scopeFrom(ctx, true));
     }),
 };
 
@@ -468,7 +434,7 @@ const unpin: LeafCommand = {
   kind: 'leaf',
   name: 'unpin',
   description:
-    "Remove a scope's own live version: its runs use the next scope up (or the latest when nothing is pinned).",
+    "Remove a scope's own pin: its runs use the next scope up (or the latest when nothing is pinned).",
   usage: `kindgi agents unpin <agent-id> ${SCOPE_USAGE} [--reason=<text>]`,
   optionSpec: { ...SCOPE_FLAGS, ...WRITE_FLAGS },
   run: (ctx) =>
@@ -476,7 +442,7 @@ const unpin: LeafCommand = {
       const agentId = requiredPositional(ctx, 0, 'agent-id');
       return await ctx
         .client()
-        .agents.live.unpin(
+        .agents.pinned.unpin(
           agentId,
           { scope: scopeFrom(ctx, true), ...reasonFlag(ctx) },
           idempotency(ctx),
@@ -485,20 +451,20 @@ const unpin: LeafCommand = {
 };
 
 /**
- * Where a history row stands: a promotion's `status`; a promotion made
- * before gates (no status) went live, and a rollback or unpin is
- * immediate. A refused or pending row changed nothing live.
+ * Where a history row stands: a pin's `status`; a pin made before
+ * gates (no status) took effect, and an unpin is immediate. A refused
+ * or pending row changed nothing.
  */
-function promotionStatus(p: Promotion): string {
-  return p.status ?? (p.action === 'promote' ? 'promoted' : 'done');
+function pinStatus(p: Pin): string {
+  return p.status ?? (p.action === 'pin' ? 'pinned' : 'done');
 }
 
-const PROMOTIONS_TABLE: TableSpec<PromotionPage, Promotion> = {
+const PIN_HISTORY_TABLE: TableSpec<PinPage, Pin> = {
   rows: (p) => p.data,
   columns: [
     { header: 'ID', get: (p) => p.id },
     { header: 'ACTION', get: (p) => p.action },
-    { header: 'STATUS', get: promotionStatus },
+    { header: 'STATUS', get: pinStatus },
     { header: 'SCOPE', get: (p) => scopeCell(p.scope) },
     { header: 'FROM', get: (p) => p.fromVersion ?? '-' },
     { header: 'TO', get: (p) => p.toVersion ?? '-' },
@@ -507,47 +473,47 @@ const PROMOTIONS_TABLE: TableSpec<PromotionPage, Promotion> = {
   ],
 };
 
-const promotionsList: LeafCommand = {
+const pinHistoryList: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description:
-    "List an agent's go-live history, newest first: requests to make a version live, rollbacks and unpins; name a scope for only its history.",
-  usage: `kindgi agents promotions list <agent-id> [${SCOPE_USAGE}] [--limit=<n>] [--cursor=<c>]`,
+    "List an agent's pin history, newest first: requests to pin a version, and unpins; name a scope for only its history.",
+  usage: `kindgi agents pin-history list <agent-id> [${SCOPE_USAGE}] [--limit=<n>] [--cursor=<c>]`,
   optionSpec: { ...SCOPE_FLAGS, ...PAGE_FLAGS },
   run: (ctx) =>
     runSdk(
       ctx,
-      'agents promotions list',
+      'agents pin-history list',
       async () => {
         const agentId = requiredPositional(ctx, 0, 'agent-id');
         const scope = scopeFrom(ctx, false);
-        return await ctx.client().agents.promotions.list(agentId, {
+        return await ctx.client().agents.pinned.history(agentId, {
           ...page(ctx),
           ...(scope !== undefined && { scope }),
         });
       },
-      PROMOTIONS_TABLE,
+      PIN_HISTORY_TABLE,
     ),
 };
 
-const promotionsGet: LeafCommand = {
+const pinHistoryGet: LeafCommand = {
   kind: 'leaf',
   name: 'get',
-  description: "Fetch one entry of an agent's go-live history.",
-  usage: 'kindgi agents promotions get <agent-id> <promotion-id>',
+  description: "Fetch one entry of an agent's pin history.",
+  usage: 'kindgi agents pin-history get <agent-id> <change-id>',
   run: (ctx) =>
-    runSdk(ctx, 'agents promotions get', async () => {
+    runSdk(ctx, 'agents pin-history get', async () => {
       const agentId = requiredPositional(ctx, 0, 'agent-id');
-      const promotionId = requiredPositional(ctx, 1, 'promotion-id');
-      return await ctx.client().agents.promotions.get(agentId, promotionId);
+      const changeId = requiredPositional(ctx, 1, 'change-id');
+      return await ctx.client().agents.pinned.getChange(agentId, changeId);
     }),
 };
 
-const promotions: Command = {
+const pinHistory: Command = {
   kind: 'group',
-  name: 'promotions',
-  description: 'The history of what was made live, rolled back or unpinned.',
-  subcommands: [promotionsList, promotionsGet],
+  name: 'pin-history',
+  description: 'The history of what was pinned or unpinned.',
+  subcommands: [pinHistoryList, pinHistoryGet],
 };
 
 export const agentsCommand: Command = {
@@ -560,12 +526,11 @@ export const agentsCommand: Command = {
     publish,
     unregister,
     versions,
-    live,
-    liveVersions,
-    promote,
-    gatePolicy,
-    rollback,
+    pinned,
+    pinnedVersions,
+    pin,
+    releaseGate,
     unpin,
-    promotions,
+    pinHistory,
   ],
 };

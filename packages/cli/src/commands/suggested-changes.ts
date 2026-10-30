@@ -45,7 +45,7 @@ const STATUSES: readonly SuggestedChangeStatus[] = [
   'added-as-latest',
   'withdrawn',
 ];
-export const OBJECTIVES = ['weightedYesShare', 'weightedPrecisionAtK'] as const;
+export const OBJECTIVES = ['passRate', 'weightedPrecisionAtK'] as const;
 
 /** The status `check --wait` waits through. */
 const CHECKING: ReadonlySet<string> = new Set(['checking']);
@@ -326,7 +326,7 @@ const pin: LeafCommand = {
   kind: 'leaf',
   name: 'pin',
   description:
-    "Pin a suggested change's version for its project, through the project's release gate policy with its check. The suggested change is `pinned`, or `waiting-for-second-person` (a reviewer decides the approval: `kindgi approvals complete`); a refusal by the release gate policy lists every check, and leaves it `ready`. Allowed when `ready`, for a project that runs a pin. Needs `promote` on the agent.",
+    "Pin a suggested change's version for its project, through the project's release gate with its check. The suggested change is `pinned`, or `waiting-for-second-person` (a reviewer decides the approval: `kindgi approvals complete`); a refusal by the release gate lists every check, and leaves it `ready`. Allowed when `ready`, for a project that runs a pin. Needs `pin` on the agent.",
   usage: 'kindgi suggested-changes pin <suggested-change-id> [--reason=<text>]',
   optionSpec: {
     reason: { type: 'string', description: 'Why, kept on the request to pin it.' },
@@ -383,6 +383,6 @@ export const suggestedChangesCommand: Command = {
   kind: 'group',
   name: 'suggested-changes',
   description:
-    "Suggested changes: new content for a data block in what a project runs; checked on the project's test cases, then pinned through the project's release gate policy, or added as the project's Latest (list / get / create / check / pin / add-as-latest / withdraw).",
+    "Suggested changes: new content for a data block in what a project runs; checked on the project's test cases, then pinned through the project's release gate, or added as the project's Latest (list / get / create / check / pin / add-as-latest / withdraw).",
   subcommands: [list, get, create, check, pin, addAsLatest, withdraw],
 };

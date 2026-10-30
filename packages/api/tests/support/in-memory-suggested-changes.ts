@@ -11,7 +11,7 @@ import type { StoredSuggestedChange, SupervisorBinding } from '../../src/index.j
  * The suggested changes half of a `SupervisorBinding` in memory, keeping the
  * contract a store keeps: newest first, dedup by fingerprint among
  * suggested changes not withdrawn, and each recorded step a compare-and-set on
- * `revision` (an `evaluation` clears `promotionId`). `before` runs before
+ * `revision` (an `evaluation` clears `pinChangeId`). `before` runs before
  * each record, so a test can slip a competing write in.
  */
 export function inMemorySuggestedChanges(): SupervisorBinding & {
@@ -27,13 +27,14 @@ export function inMemorySuggestedChanges(): SupervisorBinding & {
   const store = {
     rows,
     before: undefined as (() => void) | undefined,
-    async listSuggestedChanges({ tenantId, limit, cursor, agentId, tier, liveScope }) {
+    async listSuggestedChanges({ tenantId, limit, cursor, agentId, tier, pinnedScope }) {
       const all = [...rows.values()]
         .filter((p) => p.tenantId === tenantId)
         .filter((p) => agentId === undefined || p.agentId === agentId)
         .filter((p) => tier === undefined || p.tier === tier)
         .filter(
-          (p) => liveScope === undefined || JSON.stringify(p.scope) === JSON.stringify(liveScope),
+          (p) =>
+            pinnedScope === undefined || JSON.stringify(p.scope) === JSON.stringify(pinnedScope),
         )
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       const at = cursor === undefined ? 0 : Number(cursor);
@@ -75,12 +76,12 @@ export function inMemorySuggestedChanges(): SupervisorBinding & {
           next = { ...base, candidate: step.candidate };
           break;
         case 'evaluation': {
-          const { promotionId: _cleared, ...rest } = base;
+          const { pinChangeId: _cleared, ...rest } = base;
           next = { ...rest, evaluation: step.evaluation };
           break;
         }
-        case 'promotion':
-          next = { ...base, promotionId: step.promotionId };
+        case 'pin':
+          next = { ...base, pinChangeId: step.pinChangeId };
           break;
         case 'rebuilt': {
           const { candidate: _c, evaluation: _e, promotionId: _p, ...rest } = base;

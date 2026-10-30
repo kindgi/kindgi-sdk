@@ -32,8 +32,9 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { agentTestSetId, createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
 import type {
+  AgentPinBindings,
+  AgentPinResolveInput,
   AgentRegistryBinding,
-  AgentReleaseBindings,
   Deployment,
   DeploymentBinding,
   DeploymentPrimitiveCounts,
@@ -42,7 +43,6 @@ import type {
   GuardrailRegistryBinding,
   ImageRegistryBinding,
   ImageRegistryError,
-  LiveResolveInput,
   PinnedResolveInput,
   ProviderRegistryBinding,
   RunHandlerBinding,
@@ -730,7 +730,7 @@ function makeApp(opts: {
   agentRegistry?: AgentRegistryBinding;
   toolRegistry?: ToolRegistryBinding;
   flowRegistry?: FlowRegistryBinding;
-  /** More of the app's bindings, as given (e.g. `agentReleases`). */
+  /** More of the app's bindings, as given (e.g. `agentPins`). */
   extra?: Partial<Parameters<typeof createApp>[0]>;
   /** A binding the app goes without (`tools`: no tool registry, so agents and flows register unpinned). */
   omit?: 'deployment' | 'signing' | 'image' | 'tools';
@@ -4487,7 +4487,7 @@ describe('POST /v1/deployments/:deploymentId/secrets — Idempotency-Key', () =>
   });
 });
 
-// ---------------- agents are pinned (evals step 2) ----------------
+// ---------------- agents are pinned ----------------
 
 /** A tool registry keyed by (id, version), as the runtime's is. */
 function makeVersionedToolRegistry(): ToolRegistryBinding & { versions: (id: string) => string[] } {
@@ -4734,8 +4734,8 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
     return setupWith(undefined, ...packs);
   }
 
-  function setupWith(agentReleases: AgentReleaseBindings | undefined, ...packs: SignedDeploy[]) {
-    return setupWithApp(agentReleases !== undefined ? { agentReleases } : {}, ...packs);
+  function setupWith(agentPins: AgentPinBindings | undefined, ...packs: SignedDeploy[]) {
+    return setupWithApp(agentPins !== undefined ? { agentPins } : {}, ...packs);
   }
 
   function setupWithApp(extra: Partial<Parameters<typeof createApp>[0]>, ...packs: SignedDeploy[]) {
@@ -5102,12 +5102,12 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
     expect(agents.versions()).toEqual([]);
   });
 
-  test("with live versions, a deployed flow's agent pins to what's live for the project, not the version this deploy registered (T268)", async () => {
+  test("with pinned versions, a deployed flow's agent pins to what's pinned for the project, not the version this deploy registered (T268)", async () => {
     const pack = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.4.0', flowVersion: '2.0.0' });
-    const asked: LiveResolveInput[] = [];
-    const releases = {
-      live: {
-        async resolve(input: LiveResolveInput) {
+    const asked: AgentPinResolveInput[] = [];
+    const pinStore = {
+      pinned: {
+        async resolve(input: AgentPinResolveInput) {
           asked.push(input);
           return input.agentId === 'acme.matcher'
             ? { version: '1.3.0' as Semver, scope: { kind: 'tenant' as const } }
@@ -5115,9 +5115,9 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
         },
         list: async () => [],
       },
-      promotions: {},
-    } as unknown as AgentReleaseBindings;
-    const { flows, deploy } = setupWith(releases, pack);
+      changes: {},
+    } as unknown as AgentPinBindings;
+    const { flows, deploy } = setupWith(pinStore, pack);
 
     const res = await deploy(pack);
     expect(res.status).toBe(201);

@@ -51,8 +51,8 @@ import { type RunFailure, runFailure } from '../run-failure.js';
 import { runWaitingFor } from '../run-waiting-for.js';
 import type { AppEnv } from '../types.js';
 import type { CompleteWaitTokenInput, WaitTokenBinding } from '../wait-token-binding.js';
+import { agentPinScopeToWire } from './agent-pin-scope-wire.js';
 import { deniedBy } from './denied.js';
-import { liveScopeToWire } from './live-scope-wire.js';
 import type { DecodedCursor } from './pagination.js';
 import { clampLimit, decodeCursor, isCursorTime } from './pagination.js';
 import { participantRefusal } from './participant-access.js';
@@ -1264,8 +1264,8 @@ function serializeRun(
         version: row.agent.version,
         conversationId: row.agent.conversationId as unknown as string,
         ...(row.agent.via !== undefined && { via: row.agent.via }),
-        ...(row.agent.liveScope !== undefined && {
-          liveScope: liveScopeToWire(row.agent.liveScope),
+        ...(row.agent.pinnedScope !== undefined && {
+          pinnedScope: agentPinScopeToWire(row.agent.pinnedScope),
         }),
       },
     }),

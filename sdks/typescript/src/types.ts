@@ -435,7 +435,7 @@ export type SuggestedChangeContent =
   | { readonly template: string };
 
 /** The metric that says whether a candidate is better. */
-export type SuggestedChangeObjective = 'weightedYesShare' | 'weightedPrecisionAtK';
+export type SuggestedChangeObjective = 'passRate' | 'weightedPrecisionAtK';
 
 /** A user, or a service token. */
 export interface SuggestedChangeActor {

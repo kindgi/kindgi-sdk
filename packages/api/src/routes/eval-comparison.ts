@@ -7,10 +7,10 @@ import type { ProjectId, Semver } from '@kindgi/types';
 
 import { DEFAULT_COMPARISON } from '../corrected-dispatcher.js';
 import type {
-  EvalBaseline,
-  EvalComparison,
-  EvalOverrides,
-  EvalSample,
+  TestRunBaseline,
+  TestRunComparison,
+  TestRunOverrides,
+  TestRunSample,
 } from '../test-run-binding.js';
 import { parseSegmentsBody } from './segments.js';
 
@@ -24,32 +24,32 @@ function obj(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function parseLive(raw: unknown): EvalBaseline | string {
-  const live = obj(raw);
-  if (live === undefined) return '`baseline.live` must be an object';
-  if (live.projectId !== undefined && typeof live.projectId !== 'string') {
-    return '`baseline.live.projectId` must be a string';
+function parsePinned(raw: unknown): TestRunBaseline | string {
+  const pinned = obj(raw);
+  if (pinned === undefined) return '`baseline.pinned` must be an object';
+  if (pinned.projectId !== undefined && typeof pinned.projectId !== 'string') {
+    return '`baseline.pinned.projectId` must be a string';
   }
-  const path = parseSegmentsBody(live.segments, 'baseline.live.segments');
+  const path = parseSegmentsBody(pinned.segments, 'baseline.pinned.segments');
   if (path.kind === 'err') return path.message;
-  if (path.segments !== undefined && live.projectId === undefined) {
-    return '`baseline.live.segments` is a segment path in a project: it needs `baseline.live.projectId`';
+  if (path.segments !== undefined && pinned.projectId === undefined) {
+    return '`baseline.pinned.segments` is a segment path in a project: it needs `baseline.pinned.projectId`';
   }
   return {
-    live: {
-      ...(typeof live.projectId === 'string' && { projectId: live.projectId as ProjectId }),
+    pinned: {
+      ...(typeof pinned.projectId === 'string' && { projectId: pinned.projectId as ProjectId }),
       ...(path.segments !== undefined && { segments: path.segments }),
     },
   };
 }
 
-function parseBaseline(raw: unknown): EvalBaseline | string {
+function parseBaseline(raw: unknown): TestRunBaseline | string {
   if (raw === 'recorded') return 'recorded';
   const o = obj(raw);
   if (o === undefined) {
-    return "`baseline` must be 'recorded', { agentId, version } or { live: { projectId?, segments? } }";
+    return "`baseline` must be 'recorded', { agentId, version } or { pinned: { projectId?, segments? } }";
   }
-  if (o.live !== undefined) return parseLive(o.live);
+  if (o.pinned !== undefined) return parsePinned(o.pinned);
   if (typeof o.agentId !== 'string' || o.agentId === '' || typeof o.version !== 'string') {
     return '`baseline` as a version needs `agentId` and `version`';
   }
@@ -91,7 +91,7 @@ function integerIn(raw: unknown, name: string, max: number): number | string {
 }
 
 /** `overrides: { settings?, prompts? }`; `undefined` when it names nothing. */
-function parseOverrides(raw: unknown): EvalOverrides | undefined | string {
+function parseOverrides(raw: unknown): TestRunOverrides | undefined | string {
   const o = obj(raw);
   if (o === undefined) return '`overrides` must be an object: { settings?, prompts? }';
   const extra = Object.keys(o).filter((key) => key !== 'settings' && key !== 'prompts');
@@ -136,7 +136,7 @@ function parseOverrides(raw: unknown): EvalOverrides | undefined | string {
 }
 
 /** `sample: { part, seed, holdOutShare }`, or an error message. */
-function parseSample(raw: unknown): EvalSample | string {
+function parseSample(raw: unknown): TestRunSample | string {
   const o = obj(raw);
   const share = o?.holdOutShare;
   if (
@@ -165,7 +165,7 @@ function parseSample(raw: unknown): EvalSample | string {
 export function parseComparison(
   b: Readonly<Record<string, unknown>>,
 ):
-  | { readonly kind: 'ok'; readonly value?: EvalComparison }
+  | { readonly kind: 'ok'; readonly value?: TestRunComparison }
   | { readonly kind: 'err'; readonly message: string } {
   const { baseline, reads, repetitions, k, groupWeights } = b;
   const versions = b.versions === undefined ? undefined : parseVersions(b.versions);

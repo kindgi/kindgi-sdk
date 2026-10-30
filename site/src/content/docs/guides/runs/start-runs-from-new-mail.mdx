@@ -48,7 +48,7 @@ in it:
 pnpm exec kindgi mail-triggers create --agent=acme.support-desk --mailbox=google --label="support inbox"
 ```
 
-- **What it runs:** `--agent` runs the agent's live version, or else its
+- **What it runs:** `--agent` runs the agent's pinned version, or else its
   latest. `--agent-version` pins one. `--flow` runs a flow, and needs
   `--flow-version`. There's no `--input`: each run's input is the mail
   that started it.

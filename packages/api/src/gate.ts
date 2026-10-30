@@ -2,30 +2,30 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { ReviewerRole } from '@kindgi/authz';
-import type { LiveScope } from '@kindgi/types';
+import type { AgentPinScope } from '@kindgi/types';
 
 import type { ComparisonMetric, CorrectedComparisonSummary } from './corrected-dispatcher.js';
-import type { GateMetricName, GateMetricSpec, GatePolicySpec } from './gate-policy-binding.js';
-import type { EvalSample } from './test-run-binding.js';
+import type { GateMetricName, GateMetricSpec, ReleaseGateSpec } from './release-gate-binding.js';
+import type { TestRunSample } from './test-run-binding.js';
 
 /**
- * The promotion gate (evals step 4b): a policy's checks against a
- * comparison's summary. Pure; the promotion route and `…/check` both
- * call it, so a check answers exactly what a promotion would.
+ * The release gate: a gate's checks against a
+ * comparison's summary. Pure; the pin route and `…/check` both call it,
+ * so a check answers exactly what a pin would.
  */
 
-/** One check, as the promotion records it and every client shows it. */
+/** One check, as the pin records it and every client shows it. */
 export interface GateCheck {
   /** Stable: `metric.weightedPrecisionAtK.minCandidate`, `replay.maxDiverged`, … */
   readonly name: string;
   readonly passed: boolean;
-  /** A plain sentence saying what was found against what the policy asks. */
+  /** A plain sentence saying what was found against what the gate asks. */
   readonly message: string;
   readonly value?: number | string;
   readonly threshold?: number | string;
 }
 
-/** What a passing promotion still needs: a reviewer's approval. */
+/** What a passing pin still needs: a reviewer's approval. */
 export interface GateApproval {
   readonly role: ReviewerRole;
   /** How many reviewers decide (one, today). */
@@ -34,22 +34,22 @@ export interface GateApproval {
 }
 
 export interface GateInput {
-  readonly spec: GatePolicySpec;
-  /** What's being promoted. */
-  readonly promotion: {
+  readonly spec: ReleaseGateSpec;
+  /** What's being pinned. */
+  readonly pin: {
     readonly agentId: string;
     readonly version: string;
-    /** The promoted version's `pinsDigest`; `null` for a version published before pins. */
+    /** The version's `pinsDigest`; `null` for a version published before pins. */
     readonly pinsDigest: string | null;
-    readonly scope: LiveScope;
+    readonly scope: AgentPinScope;
   };
   /** The comparison named by `testRunId`; `null` when none was. */
   readonly summary: CorrectedComparisonSummary | null;
-  /** The version serving the promotion's scope now: what "no regression" is measured against. */
+  /** The version serving the pin's scope now: what "no regression" is measured against. */
   readonly servingVersion: string;
   /**
    * The org of the project the comparison's corrections came from (for an
-   * org promotion). Absent: that project has no org, or none was looked up.
+   * org pin). Absent: that project has no org, or none was looked up.
    */
   readonly summaryProjectOrgId?: string;
   readonly now: Date;
@@ -58,7 +58,7 @@ export interface GateInput {
 export interface GateResult {
   readonly checks: readonly GateCheck[];
   readonly passed: boolean;
-  /** Set when the policy asks for an approval. */
+  /** Set when the gate asks for an approval. */
   readonly approval?: GateApproval;
 }
 
@@ -66,7 +66,7 @@ export interface GateResult {
 const EPSILON = 1e-9;
 
 /** Whether the spec checks anything only a comparison shows. */
-function needsComparison(spec: GatePolicySpec): boolean {
+function needsComparison(spec: ReleaseGateSpec): boolean {
   return (
     spec.comparison !== undefined ||
     spec.evidence !== undefined ||
@@ -76,7 +76,7 @@ function needsComparison(spec: GatePolicySpec): boolean {
   );
 }
 
-export function gateApproval(spec: GatePolicySpec): GateApproval | undefined {
+export function gateApproval(spec: ReleaseGateSpec): GateApproval | undefined {
   if (spec.approvals === undefined) return undefined;
   return {
     role: spec.approvals.role ?? 'senior',
@@ -97,7 +97,7 @@ export function evaluateGate(input: GateInput): GateResult {
         name: 'comparison.required',
         passed: false,
         message:
-          'This policy needs a test run: name one with `testRunId` (a finished test run that tried this version on the test cases).',
+          'This release gate needs a test run: name one with `testRunId` (a finished test run that tried this version on the test cases).',
       });
     }
     return result(checks, approval);
@@ -128,7 +128,7 @@ export function evaluateGate(input: GateInput): GateResult {
       message:
         counted === 'experts-only'
           ? "The test run counted only experts' corrections."
-          : "The policy counts only experts' corrections; the test run counted everyone's. Re-run it with `groupWeights: 'experts-only'`.",
+          : "The gate counts only experts' corrections; the test run counted everyone's. Re-run it with `groupWeights: 'experts-only'`.",
       value: counted,
       threshold: 'experts-only',
     });
@@ -146,7 +146,7 @@ function result(checks: readonly GateCheck[], approval: GateApproval | undefined
   };
 }
 
-function statusCheck(spec: GatePolicySpec, summary: CorrectedComparisonSummary): GateCheck {
+function statusCheck(spec: ReleaseGateSpec, summary: CorrectedComparisonSummary): GateCheck {
   const maxErrors = spec.replay?.maxErrors ?? 0;
   const base = { name: 'comparison.status', value: summary.status } as const;
   if (summary.status === 'completed') {
@@ -156,7 +156,7 @@ function statusCheck(spec: GatePolicySpec, summary: CorrectedComparisonSummary):
     return {
       ...base,
       passed: true,
-      message: `The test run finished with ${count(summary.errors, 'case')} in error; the policy allows ${maxErrors}.`,
+      message: `The test run finished with ${count(summary.errors, 'case')} in error; the gate allows ${maxErrors}.`,
       threshold: maxErrors,
     };
   }
@@ -166,7 +166,7 @@ function statusCheck(spec: GatePolicySpec, summary: CorrectedComparisonSummary):
     message:
       summary.status === 'failed'
         ? 'The test run failed.'
-        : `The test run finished with ${count(summary.errors, 'case')} in error; the policy allows ${maxErrors}.`,
+        : `The test run finished with ${count(summary.errors, 'case')} in error; the gate allows ${maxErrors}.`,
     ...(summary.status === 'partial' && { threshold: maxErrors }),
   };
 }
@@ -181,7 +181,7 @@ function freshnessCheck(
   return {
     name: 'comparison.freshness',
     passed,
-    message: `The test run finished ${round(ageHours)} hours ago; the policy accepts up to ${maxAgeHours}.`,
+    message: `The test run finished ${round(ageHours)} hours ago; the gate accepts up to ${maxAgeHours}.`,
     value: round(ageHours),
     threshold: maxAgeHours,
   };
@@ -201,7 +201,7 @@ function testSetCheck(
     passed,
     message: passed
       ? `The test run used test cases ${ran}.`
-      : `The test run used test cases ${ran}; the policy needs ${wanted}.`,
+      : `The test run used test cases ${ran}; the gate needs ${wanted}.`,
     value: ran,
     threshold: wanted,
   };
@@ -211,7 +211,7 @@ function testSetCheck(
  * A comparison on part of the test set: the hold-out part proves a
  * candidate; the search part chose it, so its numbers flatter it.
  */
-function sampleCheck(sample: EvalSample): GateCheck {
+function sampleCheck(sample: TestRunSample): GateCheck {
   const passed = sample.part === 'hold-out';
   return {
     name: 'comparison.sample',
@@ -225,15 +225,15 @@ function sampleCheck(sample: EvalSample): GateCheck {
 }
 
 function sameContentsCheck(input: GateInput): GateCheck {
-  const { promotion, summary } = input;
+  const { pin, summary } = input;
   const candidate = summary?.candidate;
   const name = 'sameContents';
-  const promoted = `${promotion.agentId} ${promotion.version}`;
+  const target = `${pin.agentId} ${pin.version}`;
   if (candidate === undefined || candidate.kind !== 'agent') {
     return {
       name,
       passed: false,
-      message: `The test run tried a flow; try the agent itself (${promoted}) on the test cases.`,
+      message: `The test run tried a flow; try the agent itself (${target}) on the test cases.`,
     };
   }
   const compared = `${candidate.agentId} ${candidate.version}`;
@@ -244,20 +244,20 @@ function sameContentsCheck(input: GateInput): GateCheck {
       message: `The test run tried ${compared} with other content for ${[...(candidate.overrides.settings ?? []), ...(candidate.overrides.prompts ?? [])].join(', ')} than it pins (one of the changes Improve tried): try the published version on the test cases.`,
     };
   }
-  if (candidate.agentId !== promotion.agentId || candidate.version !== promotion.version) {
+  if (candidate.agentId !== pin.agentId || candidate.version !== pin.version) {
     return {
       name,
       passed: false,
-      message: `The test run tried ${compared}, not ${promoted}.`,
+      message: `The test run tried ${compared}, not ${target}.`,
       value: compared,
-      threshold: promoted,
+      threshold: target,
     };
   }
-  if (promotion.pinsDigest === null) {
+  if (pin.pinsDigest === null) {
     return {
       name,
       passed: false,
-      message: `${promoted} was published before versions recorded their pins: republish it to pin it, then try that version on the test cases.`,
+      message: `${target} was published before versions recorded their pins: republish it to pin it, then try that version on the test cases.`,
     };
   }
   if (candidate.pinsDigest === undefined) {
@@ -267,21 +267,21 @@ function sameContentsCheck(input: GateInput): GateCheck {
       message: 'The test run predates recording what it tried (its pinsDigest): re-run it.',
     };
   }
-  const passed = candidate.pinsDigest === promotion.pinsDigest;
+  const passed = candidate.pinsDigest === pin.pinsDigest;
   return {
     name,
     passed,
     message: passed
-      ? `The test run tried ${promoted} with the same pins.`
-      : `The test run tried ${promoted} with other pins than it has now: re-run it.`,
+      ? `The test run tried ${target} with the same pins.`
+      : `The test run tried ${target} with other pins than it has now: re-run it.`,
     value: candidate.pinsDigest,
-    threshold: promotion.pinsDigest,
+    threshold: pin.pinsDigest,
   };
 }
 
 function baselineCheck(summary: CorrectedComparisonSummary, input: GateInput): GateCheck {
-  const name = 'baselineIsLive';
-  const serving = `${input.promotion.agentId} ${input.servingVersion}`;
+  const name = 'baselineIsPinned';
+  const serving = `${input.pin.agentId} ${input.servingVersion}`;
   const versions =
     summary.baseline.kind === 'recorded'
       ? summary.baseline.versions.map((v) =>
@@ -292,7 +292,7 @@ function baselineCheck(summary: CorrectedComparisonSummary, input: GateInput): G
     return {
       name,
       passed: false,
-      message: `The test run measured this version against ${versions.length} versions (${versions.join(', ')}); it must be measured against the live version, ${serving}.`,
+      message: `The test run measured this version against ${versions.length} versions (${versions.join(', ')}); it must be measured against the pinned version, ${serving}.`,
       value: versions.join(', '),
       threshold: serving,
     };
@@ -302,8 +302,8 @@ function baselineCheck(summary: CorrectedComparisonSummary, input: GateInput): G
     name,
     passed,
     message: passed
-      ? `The test run measured this version against the live version, ${serving}.`
-      : `The test run measured this version against ${versions[0]}; the live version is ${serving}. Re-run it against that one.`,
+      ? `The test run measured this version against the pinned version, ${serving}.`
+      : `The test run measured this version against ${versions[0]}; the pinned version is ${serving}. Re-run it against that one.`,
     value: versions[0] ?? '',
     threshold: serving,
   };
@@ -312,7 +312,7 @@ function baselineCheck(summary: CorrectedComparisonSummary, input: GateInput): G
 function scopeCheck(summary: CorrectedComparisonSummary, input: GateInput): GateCheck {
   const name = 'scopeCovered';
   const from = summary.scope.projectId;
-  const scope = input.promotion.scope;
+  const scope = input.pin.scope;
   const correctedIn = from === undefined ? 'every project' : `project ${from}`;
   switch (scope.kind) {
     case 'tenant':
@@ -336,8 +336,8 @@ function scopeCheck(summary: CorrectedComparisonSummary, input: GateInput): Gate
         name,
         passed,
         message: passed
-          ? `The corrections came from project ${scope.projectId}, the one it goes live in.`
-          : `The corrections came from ${correctedIn}; it goes live in project ${scope.projectId}, so it needs that project's corrections.`,
+          ? `The corrections came from project ${scope.projectId}, the one it is being pinned in.`
+          : `The corrections came from ${correctedIn}; it is being pinned in project ${scope.projectId}, so it needs that project's corrections.`,
       };
     }
   }
@@ -361,7 +361,7 @@ const REPLAY_KNOBS = [
 ] as const;
 
 function replayChecks(
-  replay: NonNullable<GatePolicySpec['replay']>,
+  replay: NonNullable<ReleaseGateSpec['replay']>,
   summary: CorrectedComparisonSummary,
 ): GateCheck[] {
   return REPLAY_KNOBS.map(([knob, field, one, many]) => {
@@ -370,7 +370,7 @@ function replayChecks(
     return {
       name: `replay.${knob}`,
       passed: value <= max,
-      message: `${value} ${value === 1 ? one : many}; the policy allows ${max}.`,
+      message: `${value} ${value === 1 ? one : many}; the gate allows ${max}.`,
       value,
       threshold: max,
     };
@@ -379,9 +379,9 @@ function replayChecks(
 
 function metricLabel(name: GateMetricName, metric: ComparisonMetric): string {
   switch (name) {
-    case 'weightedYesShare':
+    case 'passRate':
       return 'The weighted share marked right';
-    case 'judgedCoverage':
+    case 'caseCoverage':
       return 'The share of answers corrected';
     case 'weightedPrecisionAtK':
       return `Precision at ${metric.k ?? 'k'}`;
@@ -390,7 +390,7 @@ function metricLabel(name: GateMetricName, metric: ComparisonMetric): string {
 
 function metricChecks(
   spec: GateMetricSpec,
-  policy: GatePolicySpec,
+  gate: ReleaseGateSpec,
   summary: CorrectedComparisonSummary,
 ): GateCheck[] {
   const metric = summary.metrics[spec.name];
@@ -403,13 +403,13 @@ function metricChecks(
       passed: metric.k === spec.k,
       message:
         metric.k === spec.k
-          ? `The test run ranked the top ${spec.k}, as the policy asks.`
-          : `The test run ranked the top ${metric.k ?? '?'}; the policy checks the top ${spec.k}. Re-run it with \`k: ${spec.k}\`.`,
+          ? `The test run ranked the top ${spec.k}, as the gate asks.`
+          : `The test run ranked the top ${metric.k ?? '?'}; the gate checks the top ${spec.k}. Re-run it with \`k: ${spec.k}\`.`,
       ...(metric.k !== undefined && { value: metric.k }),
       threshold: spec.k,
     });
   }
-  checks.push(...evidenceChecks(spec, policy, metric, label));
+  checks.push(...evidenceChecks(spec, gate, metric, label));
   if (spec.minCandidate !== undefined) {
     const value = metric.candidate;
     checks.push({
@@ -417,8 +417,8 @@ function metricChecks(
       passed: value !== null && value + EPSILON >= spec.minCandidate,
       message:
         value === null
-          ? `${label} has no corrected answers for this version; the policy needs at least ${fmt(spec.minCandidate)}.`
-          : `${label} is ${fmt(value)}; the policy needs at least ${fmt(spec.minCandidate)}.`,
+          ? `${label} has no corrected answers for this version; the gate needs at least ${fmt(spec.minCandidate)}.`
+          : `${label} is ${fmt(value)}; the gate needs at least ${fmt(spec.minCandidate)}.`,
       ...(value !== null && { value: round(value) }),
       threshold: spec.minCandidate,
     });
@@ -431,8 +431,8 @@ function metricChecks(
       passed: candidate !== null && floor !== null && candidate + EPSILON >= floor,
       message:
         candidate === null || baseline === null
-          ? `${label} can't be compared: ${candidate === null ? 'this version' : 'the live version'} has no corrected answers.`
-          : `${label} is ${fmt(candidate)} against the live version's ${fmt(baseline)}; the policy allows a drop of at most ${fmt(spec.maxDrop)}.`,
+          ? `${label} can't be compared: ${candidate === null ? 'this version' : 'the pinned version'} has no corrected answers.`
+          : `${label} is ${fmt(candidate)} against the pinned version's ${fmt(baseline)}; the gate allows a drop of at most ${fmt(spec.maxDrop)}.`,
       ...(candidate !== null && baseline !== null && { value: round(candidate - baseline) }),
       threshold: -spec.maxDrop,
     });
@@ -442,11 +442,11 @@ function metricChecks(
 
 function evidenceChecks(
   spec: GateMetricSpec,
-  policy: GatePolicySpec,
+  gate: ReleaseGateSpec,
   metric: ComparisonMetric,
   label: string,
 ): GateCheck[] {
-  const evidence = policy.evidence;
+  const evidence = gate.evidence;
   if (evidence === undefined) return [];
   const at = `evidence.${spec.name}`;
   const sides: { prefix: string; whose: string; n: number; weight: number }[] = [
@@ -456,7 +456,7 @@ function evidenceChecks(
   if (spec.maxDrop !== undefined) {
     sides.push({
       prefix: 'baseline',
-      whose: 'the live version',
+      whose: 'the pinned version',
       n: metric.baselineN,
       weight: metric.baselineWeight,
     });
@@ -469,7 +469,7 @@ function evidenceChecks(
       checks.push({
         name: key('MinCases'),
         passed: side.n >= evidence.minCases,
-        message: `${label} rests on ${count(side.n, 'corrected case')} for ${side.whose}; the policy needs at least ${evidence.minCases}.`,
+        message: `${label} rests on ${count(side.n, 'corrected case')} for ${side.whose}; the gate needs at least ${evidence.minCases}.`,
         value: side.n,
         threshold: evidence.minCases,
       });
@@ -478,7 +478,7 @@ function evidenceChecks(
       checks.push({
         name: key('MinWeight'),
         passed: side.weight + EPSILON >= evidence.minWeight,
-        message: `${label} rests on corrections weighing ${fmt(side.weight)} for ${side.whose}; the policy needs at least ${fmt(evidence.minWeight)}.`,
+        message: `${label} rests on corrections weighing ${fmt(side.weight)} for ${side.whose}; the gate needs at least ${fmt(evidence.minWeight)}.`,
         value: round(side.weight),
         threshold: evidence.minWeight,
       });

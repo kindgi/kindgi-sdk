@@ -5,10 +5,10 @@ import type { Principal } from '@kindgi/authz';
 import type { Flow, FlowVersionOverrides } from '@kindgi/flow';
 import type { HandlerRegistry } from '@kindgi/handler';
 import type {
+  AgentPinScope,
   AgentVersionVia,
   ConversationId,
   FlowVersionVia,
-  LiveScope,
   NodeId,
   PinScope,
   ProjectId,
@@ -70,8 +70,8 @@ export interface RunAgentRef {
   readonly conversationId: ConversationId;
   /** Why this version ran (absent on runs from before it was recorded). */
   readonly via?: AgentVersionVia;
-  /** The pin that chose it, when `via` is `live`. */
-  readonly liveScope?: LiveScope;
+  /** The pin that chose it, when `via` is `pinned`. */
+  readonly pinnedScope?: AgentPinScope;
 }
 
 /** Marks a run as a replay: a test run re-running a past run (`of`). */
@@ -369,7 +369,7 @@ export interface RunFlowInput {
   readonly flowVersionVia?: FlowVersionVia;
   readonly flowPinnedScope?: PinScope;
   /**
-   * The run's segment path (ordered, coarse to fine), which picks live agent
+   * The run's segment path (ordered, coarse to fine), which picks pinned agent
    * versions; a child run inherits its parent's.
    */
   readonly segments?: readonly ScopeSegment[];

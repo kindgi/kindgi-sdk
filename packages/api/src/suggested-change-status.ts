@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { Pin } from './agent-pin-binding.js';
 import type { CorrectedComparisonSummary } from './corrected-dispatcher.js';
-import type { Promotion } from './live-version-binding.js';
 import type {
   ProposedChange,
   StoredSuggestedChange,
@@ -15,7 +15,7 @@ import type { TestRun, TestRunStatus } from './test-run-binding.js';
 
 /**
  * Where a suggested change stands. Never stored: it follows from its own
- * steps, its check's test runs and its promotion.
+ * steps, its check's test runs and its pin.
  *
  * - `checking`: its check's runs are queued or running.
  * - `check-failed`: its check failed or was cancelled, or never started
@@ -301,7 +301,7 @@ function decisionsOf(
   return { checked: checked.length, held, broken, stillWrong };
 }
 
-const PROMOTION_NOTE: Readonly<
+const PIN_NOTE: Readonly<
   Record<
     'refused' | 'rejected' | 'expired' | 'superseded',
     Exclude<SuggestedChangeNote['kind'], 'not-running'>
@@ -315,24 +315,24 @@ const PROMOTION_NOTE: Readonly<
 
 /**
  * A suggested change's status from what's recorded: its own steps first
- * (withdrawn, added as Latest, rolled back), then its promotion, then its
- * check. `promotion` and `evaluation` are what its ids resolve to
+ * (withdrawn, added as Latest, rolled back), then its pin, then its
+ * check. `pin` and `evaluation` are what its ids resolve to
  * (`undefined` when it has none). One stored before these statuses reads
  * the same way: a rollback was a pin, and a draft never checked is
  * `check-failed`.
  */
 export function suggestedChangeStatus(
   suggestedChange: StoredSuggestedChange,
-  promotion: Promotion | null | undefined,
+  pin: Pin | null | undefined,
   evaluation: SuggestedChangeEvaluationOutcome | null | undefined,
 ): SuggestedChangeStatus {
   if (suggestedChange.withdrawn !== undefined) return 'withdrawn';
   if (suggestedChange.addedAsLatest !== undefined) return 'added-as-latest';
   if (suggestedChange.rolledBack !== undefined) return 'pinned';
-  if (promotion !== undefined && promotion !== null) {
-    const status = promotion.status ?? 'promoted';
+  if (pin !== undefined && pin !== null) {
+    const status = pin.status ?? 'pinned';
     if (status === 'pending-approval') return 'waiting-for-second-person';
-    if (status === 'promoted') return 'pinned';
+    if (status === 'pinned') return 'pinned';
   }
   if (evaluation === undefined || evaluation === null) return 'check-failed';
   switch (evaluation.runStatus) {
@@ -348,13 +348,11 @@ export function suggestedChangeStatus(
 }
 
 /** The note on a `ready` suggested change whose pin didn't go through. */
-export function suggestedChangeNote(
-  promotion: Promotion | null | undefined,
-): SuggestedChangeNote | undefined {
-  const status = promotion?.status;
-  if (promotion === undefined || promotion === null || status === undefined) return undefined;
-  if (status === 'pending-approval' || status === 'promoted') return undefined;
-  return { kind: PROMOTION_NOTE[status], promotionId: promotion.id };
+export function suggestedChangeNote(pin: Pin | null | undefined): SuggestedChangeNote | undefined {
+  const status = pin?.status;
+  if (pin === undefined || pin === null || status === undefined) return undefined;
+  if (status === 'pending-approval' || status === 'pinned') return undefined;
+  return { kind: PIN_NOTE[status], promotionId: pin.id };
 }
 
 /** A finished check's status: with a reference, `ready` once that's finished too. */

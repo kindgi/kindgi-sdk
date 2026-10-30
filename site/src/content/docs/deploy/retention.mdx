@@ -545,7 +545,7 @@ later):
 
 - **A run's end** (`run-outcome`): one record for each run, however it
   ends. It's written with the end itself, so no run ends without one;
-  runs that ended before the upgrade have none. Child runs, replays, eval
+  runs that ended before the upgrade have none. Child runs, replays, test
   runs and dry runs each have theirs, and the record says which. It says
   how the run ended, and its only text is the run's failure message.
 - **A guardrail violation** (`guardrail-violation`): one record for each

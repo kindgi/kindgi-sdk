@@ -3,8 +3,8 @@
 
 import type {
   AgentId,
+  AgentPinScope,
   Cursor,
-  LiveScope,
   ObservationId,
   ProjectId,
   ProvenanceId,
@@ -16,7 +16,7 @@ import type {
   Timestamp,
 } from '@kindgi/types';
 
-import type { PromotionActor } from './live-version-binding.js';
+import type { PinActor } from './agent-pin-binding.js';
 
 /**
  * Caller-plugged store behind suggested changes (`/v1/suggested-changes`)
@@ -25,14 +25,14 @@ import type { PromotionActor } from './live-version-binding.js';
  * doesn't own the storage.
  *
  * A suggested change is a change to one data block an agent version pins (new
- * settings values, or a new prompt template), for one live scope. The
+ * settings values, or a new prompt template), for one pin scope. The
  * API package runs its lifecycle from bindings that exist already:
  * evaluating publishes the block version and derives the agent version
- * (both serve nowhere until promoted) and starts a comparison test run;
- * requesting runs the scope's gated promotion. This binding only keeps
+ * (both serve nowhere until pinned) and starts a comparison test run;
+ * requesting runs the scope's gated pin. This binding only keeps
  * the rows: what was proposed, then each step's outcome, recorded with
  * a compare-and-set on `revision`. A suggested change's status is never stored:
- * the route derives it from the test run and the promotion
+ * the route derives it from the test run and the pin
  * (`suggestedChangeStatus`).
  *
  * `queryObservations` is the supervisor readback for `/v1/observations`
@@ -139,7 +139,7 @@ export type SuggestedChangeMaker =
   | { readonly kind: 'improve-run'; readonly improveRunId: string; readonly scheduleId?: string }
   | { readonly kind: 'person'; readonly userId: string }
   | { readonly kind: 'service'; readonly id: string }
-  | { readonly kind: 'deploy'; readonly deploymentId: string; readonly by: PromotionActor }
+  | { readonly kind: 'deploy'; readonly deploymentId: string; readonly by: PinActor }
   | { readonly kind: 'offer'; readonly fromProjectId: string; readonly pinChangeId: string };
 
 /** What a suggested change rests on. */
@@ -154,7 +154,7 @@ export interface SuggestedChangeEvidence {
   readonly correctionCount?: number;
 }
 
-/** The versions evaluating a suggested change published: inert until a promotion makes them live. */
+/** The versions evaluating a suggested change published: inert until a pin makes them serve. */
 export interface SuggestedChangeCandidate {
   /** The derived agent version (`derivedFrom.suggestedChangeId` names this suggested change). */
   readonly agentVersion: string;
@@ -164,7 +164,7 @@ export interface SuggestedChangeCandidate {
 }
 
 /** The metric that says whether a candidate is better. */
-export type SuggestedChangeObjective = 'weightedYesShare' | 'weightedPrecisionAtK';
+export type SuggestedChangeObjective = 'passRate' | 'weightedPrecisionAtK';
 
 /**
  * How a candidate is kept: `better`, it beat the recorded outputs on the
@@ -200,8 +200,8 @@ export interface StoredSuggestedChange {
   readonly agentId: AgentId;
   /** The agent version the change applies to. */
   readonly fromVersion: string;
-  /** The live scope it's for. */
-  readonly scope: LiveScope;
+  /** The pin scope it's for. */
+  readonly scope: AgentPinScope;
   readonly tier: StoredSuggestedChangeTier;
   readonly change: StoredChange;
   readonly why: string;
@@ -234,12 +234,12 @@ export interface StoredSuggestedChange {
   readonly revision: number;
   readonly candidate?: SuggestedChangeCandidate;
   readonly evaluation?: SuggestedChangeEvaluationRef;
-  /** The promotion its pin made (the latest, after a re-pin). */
-  readonly promotionId?: string;
+  /** The pin change its pin made (the latest, after a re-pin). */
+  readonly pinChangeId?: string;
   readonly rolledBack?: {
     readonly at: Timestamp;
-    /** The rollback's own promotion row. */
-    readonly promotionId: string;
+    /** The rollback's own pin change row. */
+    readonly changeId: string;
     readonly by: string;
     readonly reason?: string;
   };
@@ -254,8 +254,8 @@ export interface ListSuggestedChangesInput {
   readonly cursor?: Cursor;
   readonly agentId?: AgentId;
   readonly tier?: SuggestedChangeTier;
-  /** Only suggested changes for exactly this live scope. */
-  readonly liveScope?: LiveScope;
+  /** Only suggested changes for exactly this pin scope. */
+  readonly pinnedScope?: AgentPinScope;
 }
 
 export interface GetSuggestedChangeInput {
@@ -269,7 +269,7 @@ export interface CreateSuggestedChangeInput {
   readonly projectId?: ProjectId;
   readonly agentId: AgentId;
   readonly fromVersion: string;
-  readonly scope: LiveScope;
+  readonly scope: AgentPinScope;
   readonly tier: StoredSuggestedChangeTier;
   readonly change: StoredChange;
   readonly why: string;
@@ -285,17 +285,17 @@ export type CreateSuggestedChangeOutcome =
 
 /**
  * One step's outcome, recorded on the suggested change. An `evaluation` replaces
- * the one before and clears `promotionId`: a new comparison starts the
+ * the one before and clears `pinChangeId`: a new comparison starts the
  * request over. A `candidate` is recorded once per version it's built on.
  * A `rebuilt` moves it onto the version its project runs now: it sets
  * `builtOnVersion`, `rebuiltAt` and its `change` on that version, and
- * clears its `candidate`, `evaluation` and `promotionId`. It keeps its
+ * clears its `candidate`, `evaluation` and `pinChangeId`. It keeps its
  * fingerprint, so the same change made on the new version is a new one.
  */
 export type SuggestedChangeStep =
   | { readonly kind: 'candidate'; readonly candidate: SuggestedChangeCandidate }
   | { readonly kind: 'evaluation'; readonly evaluation: SuggestedChangeEvaluationRef }
-  | { readonly kind: 'promotion'; readonly promotionId: string }
+  | { readonly kind: 'pin'; readonly pinChangeId: string }
   | {
       readonly kind: 'rebuilt';
       readonly builtOnVersion: string;

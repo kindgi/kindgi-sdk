@@ -258,7 +258,7 @@ const start: LeafCommand = {
       type: 'string',
       multiple: true,
       description:
-        "One step of the run's segment path, `key:value` (e.g. `company:acme`); repeat it in order, coarse to fine. It picks the agent's live version.",
+        "One step of the run's segment path, `key:value` (e.g. `company:acme`); repeat it in order, coarse to fine. It picks the agent's pinned version.",
     },
     'idempotency-key': {
       type: 'string',

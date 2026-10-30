@@ -737,7 +737,7 @@ one of two ways:
   or instructions, publishes the block version, makes the agent version that
   pins it, and tries both agent versions on the project's test cases. It
   needs no code change and no deploy.
-  [Suggest a change, and test it](../propose-a-change/) says how.
+  [Suggest a change, and test it](../suggest-a-change/) says how.
 - **A deploy:** reference the new block version from the agent in the pack,
   and `kindgi deploy`.
 
@@ -749,7 +749,7 @@ An agent version that pins another settings block version than the one it
 came from runs read-only tools such as `acme-ops.refund-check` live on the
 test cases, rather than reusing the recorded results. So the new refund limit
 shows in the answers. Those cases count as `diverged`, which a release gate
-policy with `replay` and `maxDiverged: 0` refuses.
+with `replay` and `maxDiverged: 0` refuses.
 
 ## In the console
 
@@ -776,4 +776,4 @@ the block's file instead.
 
 - [Try a version on the test cases](../compare-an-agent-version/)
 - [Release an agent version](../release-an-agent-version/)
-- [Suggest a change, and test it](../propose-a-change/)
+- [Suggest a change, and test it](../suggest-a-change/)

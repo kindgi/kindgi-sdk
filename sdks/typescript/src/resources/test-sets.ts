@@ -15,15 +15,15 @@
 import type {
   BuildCorrectedTestSetBody,
   BuildCorrectedTestSetResult,
-  CorrectedEvalCase,
-  CorrectedEvalCaseCollectionPage,
-  EvalKind,
+  CorrectedTestCase,
+  CorrectedTestCaseCollectionPage,
   PublishTestSetBody,
   PublishTestSetResult,
   ReinstateTestSetVersionResult,
   ScopeKind,
   TestSet,
   TestSetCollectionPage,
+  TestSetKind,
   UnregisterTestSetResult,
 } from '../generated/api.js';
 import { type InvalidRequestError, KindgiApiError } from '../errors.js';
@@ -50,8 +50,8 @@ export type UnregisterTestSetVersionResult = UnregisterTestSetResult;
 export type BuildFromCorrectionsInput = BuildCorrectedTestSetBody;
 export type BuildFromCorrectionsResult = BuildCorrectedTestSetResult;
 /** One case of a `corrections` test set: a copy of a corrected run with its items' corrections summed up. */
-export type TestSetCase = CorrectedEvalCase;
-export type TestSetCasePage = CorrectedEvalCaseCollectionPage;
+export type TestSetCase = CorrectedTestCase;
+export type TestSetCasePage = CorrectedTestCaseCollectionPage;
 
 export interface ListTestSetCasesQuery {
   readonly limit?: number;
@@ -67,7 +67,7 @@ export interface PublishTestSetOptions {
 export interface ListTestSetsFilter {
   readonly limit?: number;
   readonly cursor?: string;
-  readonly kind?: EvalKind;
+  readonly kind?: TestSetKind;
   readonly name?: string;
   readonly scopeKind?: ScopeKind;
   readonly scopeId?: string;

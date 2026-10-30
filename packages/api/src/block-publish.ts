@@ -5,10 +5,10 @@ import { type BlockDefinition, settingsSchemaIssues, validateBlock } from '@kind
 import { highestVersion, nextVersion } from '@kindgi/tools';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
+import type { PinActor } from './agent-pin-binding.js';
 import type { BlockRecord, BlockRegistryBinding, BlockVersionSource } from './block-binding.js';
 import { firstEnvironmentOf } from './environment-entry.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
-import type { PromotionActor } from './live-version-binding.js';
 
 /** One thing wrong with a block version, as `validation-failed` lists them. */
 export interface BlockPublishIssue {
@@ -84,7 +84,7 @@ export interface PublishBlockEditInput {
    */
   readonly orders?: Pick<EnvironmentOrderBinding, 'orderOf'>;
   /** Who publishes it, stored with the version. */
-  readonly publishedBy: PromotionActor;
+  readonly publishedBy: PinActor;
   /** Where it comes from, stored with the version: the suggested change. */
   readonly source: BlockVersionSource;
 }

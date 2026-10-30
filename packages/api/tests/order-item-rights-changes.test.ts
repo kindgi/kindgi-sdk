@@ -4,14 +4,14 @@
 /**
  * Changing an item more than one project serves (an environment order
  * carries it from staging to prod). A change in one project needs the
- * right on that project only, never the item's own on top (a promotion,
- * a rollback or an unpin there). A change that reaches every project (a
- * tenant's or an org's live version, unregistering or reinstating a
+ * right on that project only, never the item's own on top (a pin
+ * or an unpin there). A change that reaches every project (a
+ * tenant's or an org's pinned version, unregistering or reinstating a
  * version) needs it on every project that version can run in. A version
  * the caller can't see is asked as one that doesn't exist. An item with
  * one project is checked as before, check for check. A deployment's
- * promotion that makes what it moved live asks the live routes' one
- * check (`liveChangeRefusal`).
+ * promotion that pins what it moved asks the agent pin routes' one check
+ * (`agentPinChangeRefusal`).
  */
 
 import { randomUUID } from 'node:crypto';
@@ -19,21 +19,21 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import { userPrincipal } from '@kindgi/authz';
-import type { LiveScope, ProjectId, Semver, TenantId, Timestamp, UserId } from '@kindgi/types';
+import type { AgentPinScope, ProjectId, Semver, TenantId, Timestamp, UserId } from '@kindgi/types';
 import { Hono } from 'hono';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
-  AgentReleaseBindings,
+  AgentPinBindings,
+  AgentPinnedVersion,
   CreateAppInput,
-  LivePin,
   OrderItemKind,
-  Promotion,
+  Pin,
   TokenResolver,
 } from '../src/index.js';
-import { itemRightsOf, liveChangeRefusal } from '../src/item-rights.js';
+import { agentPinChangeRefusal, itemRightsOf } from '../src/item-rights.js';
 import { type Authorizer, createAuthorizer } from '../src/middleware/authorize.js';
 import type { AppEnv } from '../src/types.js';
 import { environmentOrders } from './support/environment-orders.js';
@@ -81,7 +81,7 @@ const KINDS = [
 
 /**
  * `0.9.0` was made in prod, before the order; `1.0.0` was made in staging
- * and promoted to prod; `1.1.0` is in staging only, the newest.
+ * and pinned in prod; `1.1.0` is in staging only, the newest.
  */
 function rows(): ItemRow[] {
   return [
@@ -124,7 +124,7 @@ const PEOPLE: Record<string, readonly Grant[]> = {
   solo: [
     ...on(OTHER, 'read', 'write', 'admin'),
     ...[...KINDS.map((k) => k.kind), 'guardrail'].flatMap((type) =>
-      ['read', 'write', 'admin', 'publish', 'promote'].map((a) => `${a} ${type}:${SOLO}` as Grant),
+      ['read', 'write', 'admin', 'publish', 'pin'].map((a) => `${a} ${type}:${SOLO}` as Grant),
     ),
   ],
 };
@@ -181,20 +181,20 @@ function registry(idKey: string, changed: string[]) {
   });
 }
 
-/** Live pins and promotions of `acme.desk`: one per version, in the project it runs in. */
-function releasesFake(changed: string[]) {
-  const pin = (version: string, projectId: ProjectId): LivePin => ({
+/** Pins and their changes of `acme.desk`: one per version, in the project it runs in. */
+function pinsFake(changed: string[]) {
+  const pin = (version: string, projectId: ProjectId): AgentPinnedVersion => ({
     agentId: SERVED,
     scope: { kind: 'project', projectId },
     version: version as Semver,
-    promotionId: `p-${version}`,
+    changeId: `p-${version}`,
     setAt: NOW,
   });
-  const promotion = (from: string, to: string, projectId: ProjectId): Promotion => ({
+  const change = (from: string, to: string, projectId: ProjectId): Pin => ({
     id: `p-${to}-${projectId === PROD ? 'prod' : 'staging'}`,
     agentId: SERVED,
     scope: { kind: 'project', projectId },
-    action: 'promote',
+    action: 'pin',
     fromVersion: from as Semver,
     toVersion: to as Semver,
     requestedBy: { kind: 'user', id: 'both' },
@@ -204,8 +204,8 @@ function releasesFake(changed: string[]) {
     changed.push(name);
     throw new Error(`test: ${name} reached`);
   };
-  const releases: AgentReleaseBindings = {
-    live: {
+  const pinStore: AgentPinBindings = {
+    pinned: {
       async resolve() {
         return null;
       },
@@ -216,24 +216,23 @@ function releasesFake(changed: string[]) {
       },
     },
     latest: noLatest,
-    promotions: {
-      promote: reached('promote'),
-      rollback: reached('rollback'),
+    changes: {
+      pin: reached('pin'),
       unpin: reached('unpin'),
       async list({ agentId }: { agentId: string }) {
         return {
           data:
             agentId === SERVED
-              ? [promotion('1.0.0', '1.1.0', STAGING), promotion('0.9.0', '1.0.0', PROD)]
+              ? [change('1.0.0', '1.1.0', STAGING), change('0.9.0', '1.0.0', PROD)]
               : [],
         };
       },
       async get() {
         return null;
       },
-    } as unknown as AgentReleaseBindings['promotions'],
+    } as unknown as AgentPinBindings['changes'],
   };
-  return releases;
+  return pinStore;
 }
 
 /** The app over every kind. Without `served`, no item-projects binding: every item has one project. */
@@ -248,7 +247,7 @@ function harness(opts: { served?: boolean } = {}) {
   const app = createApp({
     ...createStubAppBindings(),
     ...registries,
-    agentReleases: releasesFake(changed),
+    agentPins: pinsFake(changed),
     // Mounts the test-set build; without `listCorrectedRuns` it answers 501
     // once its checks pass.
     correctionRegistry: {},
@@ -282,7 +281,7 @@ function harness(opts: { served?: boolean } = {}) {
 }
 
 const project = (projectId: ProjectId) => ({ kind: 'project', projectId });
-const LIVE_SCOPES = [
+const PIN_SCOPES = [
   {
     name: "prod's",
     scope: project(PROD),
@@ -313,21 +312,20 @@ const LIVE_SCOPES = [
   },
 ] as const;
 
-const LIVE_CHANGES = [
-  { path: 'promotions', method: 'promote', body: { version: '1.0.0' } },
-  { path: 'live/rollback', method: 'rollback', body: {} },
-  { path: 'live/unpin', method: 'unpin', body: {} },
+const PIN_CHANGES = [
+  { path: 'pinned/pin', method: 'pin', body: { version: '1.0.0' } },
+  { path: 'pinned/unpin', method: 'unpin', body: {} },
 ] as const;
 
-describe.each(LIVE_CHANGES)(
-  "changing what's live for an agent an order carries: $path",
+describe.each(PIN_CHANGES)(
+  "changing what's pinned for an agent an order carries: $path",
   (change) => {
-    test.each(LIVE_SCOPES)(
-      "$name live version: admin there, and not the agent's own on top",
+    test.each(PIN_SCOPES)(
+      "$name pinned version: admin there, and not the agent's own on top",
       async (s) => {
         const { call, changed } = harness();
         const path = `/v1/agents/${SERVED}/${change.path}`;
-        // A pin or a rollback (not an unpin) wider than one project would
+        // A pin (not an unpin) wider than one project would
         // span the order's environments: `409`, after the authorization,
         // so the handler is never reached.
         const spans =
@@ -338,7 +336,7 @@ describe.each(LIVE_CHANGES)(
         expect(ok.asked).toEqual(s.on.map((p) => `${s.allowed} admin project:${p}`));
         if (spans) {
           expect(ok.status, ok.text).toBe(409);
-          expect(ok.body.error.code).toBe('live-scope-spans-environments');
+          expect(ok.body.error.code).toBe('pin-scope-spans-environments');
         } else {
           expect(ok.status, ok.text).not.toBe(403);
         }
@@ -354,9 +352,9 @@ describe.each(LIVE_CHANGES)(
 );
 
 describe('a project-scoped key', () => {
-  test("a staging key can't pin a live version in prod, though its user runs prod", async () => {
+  test("a staging key can't pin a version in prod, though its user runs prod", async () => {
     const { call, changed } = harness();
-    const res = await call(`both@${STAGING}`, 'POST', `/v1/agents/${SERVED}/promotions`, {
+    const res = await call(`both@${STAGING}`, 'POST', `/v1/agents/${SERVED}/pinned/pin`, {
       version: '1.0.0',
       scope: project(PROD),
     });
@@ -365,9 +363,9 @@ describe('a project-scoped key', () => {
     expect(changed).toEqual([]);
   });
 
-  test("a staging key can't change what's live for the whole tenant", async () => {
+  test("a staging key can't change what's pinned for the whole tenant", async () => {
     const { call } = harness();
-    const res = await call(`both@${STAGING}`, 'POST', `/v1/agents/${SERVED}/live/unpin`, {
+    const res = await call(`both@${STAGING}`, 'POST', `/v1/agents/${SERVED}/pinned/unpin`, {
       scope: { kind: 'tenant' },
     });
     expect(res.status, res.text).toBe(403);
@@ -375,12 +373,12 @@ describe('a project-scoped key', () => {
 
   test('a prod key pins in prod', async () => {
     const { call, changed } = harness();
-    const res = await call(`prod-admin@${PROD}`, 'POST', `/v1/agents/${SERVED}/promotions`, {
+    const res = await call(`prod-admin@${PROD}`, 'POST', `/v1/agents/${SERVED}/pinned/pin`, {
       version: '1.0.0',
       scope: project(PROD),
     });
     expect(res.status, res.text).not.toBe(403);
-    expect(changed).toEqual(['promote']);
+    expect(changed).toEqual(['pin']);
   });
 });
 
@@ -520,41 +518,41 @@ describe('building a test set from corrections under a test set an order carries
   });
 });
 
-describe("an agent's live versions and promotions, read by a prod member", () => {
-  test('live-versions lists only the pins of versions that run in prod', async () => {
+describe("an agent's pinned versions and pin history, read by a prod member", () => {
+  test('pinned-versions lists only the pins of versions that run in prod', async () => {
     const { call } = harness();
-    const res = await call('prod-reader', 'GET', `/v1/agents/${SERVED}/live-versions`);
+    const res = await call('prod-reader', 'GET', `/v1/agents/${SERVED}/pinned-versions`);
     expect(res.status, res.text).toBe(200);
     expect(res.body.data.map((p: { version: string }) => p.version)).toEqual(['0.9.0', '1.0.0']);
   });
 
-  test('promotions lists only those whose versions run in prod', async () => {
+  test('pin-history lists only those whose versions run in prod', async () => {
     const { call } = harness();
-    const res = await call('prod-reader', 'GET', `/v1/agents/${SERVED}/promotions`);
+    const res = await call('prod-reader', 'GET', `/v1/agents/${SERVED}/pin-history`);
     expect(res.status, res.text).toBe(200);
     expect(res.body.data.map((p: { toVersion: string }) => p.toVersion)).toEqual(['1.0.0']);
   });
 
   test('a staging admin who reads prod sees every pin', async () => {
     const { call } = harness();
-    const res = await call('staging-admin', 'GET', `/v1/agents/${SERVED}/live-versions`);
+    const res = await call('staging-admin', 'GET', `/v1/agents/${SERVED}/pinned-versions`);
     expect(res.body.data).toHaveLength(3);
   });
 
-  test("a prod member can't see whether a staging-only version is live", async () => {
+  test("a prod member can't see whether a staging-only version is pinned", async () => {
     const { call } = harness();
     const res = await call('prod-reader', 'GET', `/v1/agents/${SERVED}/versions/1.1.0`);
     expect(res.status, res.text).toBe(404);
   });
 });
 
-describe("liveChangeRefusal: the one check a change to what's live asks", () => {
+describe("agentPinChangeRefusal: the one check a change to what's pinned asks", () => {
   /** Asks it as `who` at `scope`, in a request whose body it must leave unread. */
   async function refusal(
     who: string,
     agentId: string,
-    scope: LiveScope | undefined,
-    opts: { served?: boolean; setsLive?: boolean; orders?: ProjectId[][] } = {},
+    scope: AgentPinScope | undefined,
+    opts: { served?: boolean; setsPin?: boolean; orders?: ProjectId[][] } = {},
   ) {
     const authz = grantsAuthz(PEOPLE);
     const authorizer = createAuthorizer(authz.authz.authzCheckBinding);
@@ -567,14 +565,14 @@ describe("liveChangeRefusal: the one check a change to what's live asks", () => 
     const r = new Hono<AppEnv>();
     r.post('/', async (c) => {
       c.set('tenantId' as never, tenantId as never);
-      c.set('requestId' as never, 'req-live-change' as never);
+      c.set('requestId' as never, 'req-pin-change' as never);
       c.set('principal' as never, userPrincipal(who as UserId, tenantId) as never);
-      const refused = await liveChangeRefusal(c, {
+      const refused = await agentPinChangeRefusal(c, {
         authorizer,
         rights,
         agentId,
         scope,
-        ...(opts.setsLive !== undefined && { setsLive: opts.setsLive }),
+        ...(opts.setsPin !== undefined && { setsPin: opts.setsPin }),
       });
       bodyRead = Object.keys(c.req.bodyCache).length > 0;
       return refused ?? c.json({ allowed: true });
@@ -589,10 +587,10 @@ describe("liveChangeRefusal: the one check a change to what's live asks", () => 
     };
   }
 
-  test.each(LIVE_SCOPES)(
-    '$name live version: admin there, as the live routes ask it',
+  test.each(PIN_SCOPES)(
+    '$name pinned version: admin there, as the pin routes ask it',
     async (s) => {
-      const scope = s.scope as unknown as LiveScope;
+      const scope = s.scope as unknown as AgentPinScope;
       const ok = await refusal(s.allowed, SERVED, scope);
       expect(ok.body).toEqual({ allowed: true });
       expect(ok.asked).toEqual(s.on.map((p) => `${s.allowed} admin project:${p}`));
@@ -606,97 +604,101 @@ describe("liveChangeRefusal: the one check a change to what's live asks", () => 
   );
 
   test.each([true, false])(
-    'an agent with one project (an item-projects binding: %s): promote on the agent, as before',
+    'an agent with one project (an item-projects binding: %s): pin on the agent, as before',
     async (served) => {
-      const scope = project(OTHER) as unknown as LiveScope;
+      const scope = project(OTHER) as unknown as AgentPinScope;
       const ok = await refusal('solo', SOLO, scope, { served });
       expect(ok.body).toEqual({ allowed: true });
-      expect(ok.asked).toEqual([`solo promote agent:${SOLO}`]);
+      expect(ok.asked).toEqual([`solo pin agent:${SOLO}`]);
 
       const no = await refusal('prod-admin', SOLO, scope, { served });
       expect(no.status).toBe(403);
       expect(no.body.error).toMatchObject({
         code: 'permission-denied',
-        details: { action: 'promote', resource: `agent:${SOLO}` },
-        requestId: 'req-live-change',
+        details: { action: 'pin', resource: `agent:${SOLO}` },
+        requestId: 'req-pin-change',
       });
-      expect(no.asked).toEqual([`prod-admin promote agent:${SOLO}`]);
+      expect(no.asked).toEqual([`prod-admin pin agent:${SOLO}`]);
       expect(no.bodyRead).toBe(false);
     },
   );
 
-  test.each(LIVE_SCOPES.filter((s) => s.scope.kind === 'tenant' || s.scope.kind === 'org'))(
-    '$name set-live for an agent an order carries: `409` after the authorization passes',
+  test.each(PIN_SCOPES.filter((s) => s.scope.kind === 'tenant' || s.scope.kind === 'org'))(
+    '$name pin for an agent an order carries: `409` after the authorization passes',
     async (s) => {
-      const res = await refusal(s.allowed, SERVED, s.scope as unknown as LiveScope, {
-        setsLive: true,
+      const res = await refusal(s.allowed, SERVED, s.scope as unknown as AgentPinScope, {
+        setsPin: true,
       });
       expect(res.status).toBe(409);
-      expect(res.body.error.code).toBe('live-scope-spans-environments');
+      expect(res.body.error.code).toBe('pin-scope-spans-environments');
       // The authorization ran first, on every project, so an unauthorized wide pin is the 403.
       expect(res.asked).toEqual(s.on.map((p) => `${s.allowed} admin project:${p}`));
       expect(res.bodyRead).toBe(false);
     },
   );
 
-  test.each(LIVE_SCOPES.filter((s) => s.scope.kind === 'project' || s.scope.kind === 'segment'))(
-    '$name set-live within one project: allowed, no width refusal',
+  test.each(PIN_SCOPES.filter((s) => s.scope.kind === 'project' || s.scope.kind === 'segment'))(
+    '$name pin within one project: allowed, no width refusal',
     async (s) => {
-      const res = await refusal(s.allowed, SERVED, s.scope as unknown as LiveScope, {
-        setsLive: true,
+      const res = await refusal(s.allowed, SERVED, s.scope as unknown as AgentPinScope, {
+        setsPin: true,
       });
       expect(res.body).toEqual({ allowed: true });
     },
   );
 
-  test('a tenant-wide unpin (not a set-live) for an agent an order carries: allowed', async () => {
-    const res = await refusal('both', SERVED, { kind: 'tenant' }, { setsLive: false });
+  test('a tenant-wide unpin (not a pin) for an agent an order carries: allowed', async () => {
+    const res = await refusal('both', SERVED, { kind: 'tenant' }, { setsPin: false });
     expect(res.body).toEqual({ allowed: true });
     expect(res.asked).toEqual([`both admin project:${STAGING}`, `both admin project:${PROD}`]);
   });
 
-  test('a one-project agent set-live tenant-wide: today’s promote check, never a width refusal', async () => {
-    const res = await refusal('solo', SOLO, { kind: 'tenant' }, { setsLive: true });
+  test('a one-project agent pin tenant-wide: today’s pin check, never a width refusal', async () => {
+    const res = await refusal('solo', SOLO, { kind: 'tenant' }, { setsPin: true });
     expect(res.body).toEqual({ allowed: true });
-    expect(res.asked).toEqual([`solo promote agent:${SOLO}`]);
+    expect(res.asked).toEqual([`solo pin agent:${SOLO}`]);
   });
 
   // M1: the width refusal is keyed on order membership, not on project count.
   // One project serves this agent, and that project is an order's first
-  // environment, so a tenant- or org-wide set-live still spans the order.
+  // environment, so a tenant- or org-wide pin still spans the order.
   test.each([
     { name: 'tenant-wide', scope: { kind: 'tenant' } as const },
     { name: 'org-wide', scope: { kind: 'org', orgId: ORG } as const },
   ])(
-    'a one-project agent whose project is in an order: a $name set-live spans it (409), after today’s promote check',
+    'a one-project agent whose project is in an order: a $name pin spans it (409), after today’s pin check',
     async ({ scope }) => {
-      const res = await refusal('solo', SOLO, scope as unknown as LiveScope, {
-        setsLive: true,
+      const res = await refusal('solo', SOLO, scope as unknown as AgentPinScope, {
+        setsPin: true,
         orders: [[OTHER, PROD]],
       });
       expect(res.status).toBe(409);
-      expect(res.body.error.code).toBe('live-scope-spans-environments');
+      expect(res.body.error.code).toBe('pin-scope-spans-environments');
       // S1/N5: the message names the scope asked for and the order it spans,
       // so a reword that drops either regresses here.
       expect(res.body.error.message).toContain(
         scope.kind === 'org' ? 'org-wide pin' : 'tenant-wide pin',
       );
       expect(res.body.error.message).toContain('environment order at once');
-      // The authorization still ran first (today’s promote on the agent).
-      expect(res.asked).toEqual([`solo promote agent:${SOLO}`]);
+      // The shape a flow's and a tool's refusal use: it names the agent, and
+      // says nothing was pinned.
+      expect(res.body.error.message).toContain(`of agent "${SOLO}" would act across`);
+      expect(res.body.error.message).toMatch(/Nothing was pinned\.$/);
+      // The authorization still ran first (today’s pin on the agent).
+      expect(res.asked).toEqual([`solo pin agent:${SOLO}`]);
       expect(res.bodyRead).toBe(false);
     },
   );
 
   // The inverse: more than one project serves the agent, but none is in any
-  // order, so a wide set-live is today’s multi-project admin check, not a 409.
-  test('a multi-project agent in no order set-live tenant-wide: today’s admin check, never a width refusal', async () => {
+  // order, so a wide pin is today’s multi-project admin check, not a 409.
+  test('a multi-project agent in no order pin tenant-wide: today’s admin check, never a width refusal', async () => {
     const res = await refusal(
       'both',
       SERVED,
       { kind: 'tenant' },
       {
-        setsLive: true,
+        setsPin: true,
         orders: [[OTHER]],
       },
     );
@@ -719,7 +721,7 @@ describe("liveChangeRefusal: the one check a change to what's live asks", () => 
     let outcome: unknown;
     const r = new Hono<AppEnv>();
     r.post('/', async (c) => {
-      outcome = await liveChangeRefusal(c, {
+      outcome = await agentPinChangeRefusal(c, {
         authorizer: silent,
         rights: undefined,
         agentId: SOLO,

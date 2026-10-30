@@ -74,7 +74,7 @@ export interface TestCaseExpectedDecisions extends ExpectedDecisions {
 }
 
 /** One case of a `corrections` test set: a copy of a corrected run and what people said about it. */
-export interface CorrectedEvalCase {
+export interface CorrectedTestCase {
   /**
    * The case's id. A frozen case of an agent's test set has its
    * correction's id, or a `case-` id when it was added by hand. A
@@ -107,7 +107,7 @@ export interface EvalCasePutInput {
   readonly tenantId: TenantId;
   readonly testSetId: string;
   readonly version: string;
-  readonly cases: readonly CorrectedEvalCase[];
+  readonly cases: readonly CorrectedTestCase[];
 }
 
 export interface EvalCaseListInput {
@@ -119,7 +119,7 @@ export interface EvalCaseListInput {
 }
 
 export interface EvalCasePage {
-  readonly data: readonly CorrectedEvalCase[];
+  readonly data: readonly CorrectedTestCase[];
   readonly hasMore: boolean;
   readonly nextCursor?: Cursor;
 }

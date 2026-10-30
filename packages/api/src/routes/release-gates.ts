@@ -4,39 +4,38 @@
 import { type Context, Hono } from 'hono';
 
 import { ref } from '@kindgi/authz';
-import type { Cursor, LiveScope, TenantId } from '@kindgi/types';
+import type { AgentPinScope, Cursor, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
-import type { GatePolicyBinding, GatePolicyError } from '../gate-policy-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import type { ReleaseGateBinding, ReleaseGateError } from '../release-gate-binding.js';
 import type { AppEnv } from '../types.js';
-import { scopeFromQuery } from './agent-releases.js';
-import { parseGatePolicySpec } from './gate-policy-spec.js';
-import { serializeGatePolicy } from './gate-policy-wire.js';
-import { parseLiveScopeBody } from './live-scope-wire.js';
+import { parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
+import { scopeFromQuery } from './agent-pins.js';
 import { clampLimit } from './pagination.js';
+import { parseReleaseGateSpec } from './release-gate-spec.js';
+import { serializeReleaseGate } from './release-gate-wire.js';
 
 const SEMVER_RE = /^\d+\.\d+\.\d+$/;
 const ID_RE = /^[a-z0-9][a-z0-9._-]{0,127}$/;
 
 /**
- * Gate policies (evals step 4b): what a promotion of an agent must show
- * before a version goes live for a scope. The same registry shape as
- * retention policies:
- *   GET  /                                      each policy's latest active version (?agentId=, scope)
- *   GET  /:policyId                             its latest active version
- *   GET  /:policyId/versions[/:version]         every version, or one
+ * Release gates: what an agent version must show before it is pinned for
+ * a scope. The same registry shape as retention policies:
+ *   GET  /                                      each gate's latest active version (?agentId=, scope)
+ *   GET  /:releaseGateId                        its latest active version
+ *   GET  /:releaseGateId/versions[/:version]    every version, or one
  *   POST /                                      publish {id, version, agentId, scope, spec, description?}
- *   POST /:policyId/versions/:version/unregister|reinstate
+ *   POST /:releaseGateId/versions/:version/unregister|reinstate
  *
- * Writes need `admin` on the tenant: whoever may promote mustn't be able
- * to loosen the gate on their own promotion. Reads need `read` on the
- * policy's scope (a segment's: its project), as corrector groups do: one the
+ * Writes need `admin` on the tenant: whoever may pin mustn't be able to
+ * loosen the gate on their own pin. Reads need `read` on the gate's
+ * scope (a segment's: its project), as corrector groups do: one the
  * caller can't read answers 404, as if it weren't there, and the list
  * shows only those they can.
  */
-export function gatePoliciesRouter(
-  binding: GatePolicyBinding,
+export function releaseGatesRouter(
+  binding: ReleaseGateBinding,
   authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
@@ -49,10 +48,10 @@ export function gatePoliciesRouter(
     });
   }
 
-  /** Whether the caller may read a policy: `read` on its scope. */
-  const canRead = async (c: Ctx, policy: { readonly scope: LiveScope }): Promise<boolean> =>
+  /** Whether the caller may read a release gate: `read` on its scope. */
+  const canRead = async (c: Ctx, gate: { readonly scope: AgentPinScope }): Promise<boolean> =>
     authorizer === undefined ||
-    authorizer.can(c, 'read', scopeRef(c.get('tenantId') as TenantId, policy.scope));
+    authorizer.can(c, 'read', scopeRef(c.get('tenantId') as TenantId, gate.scope));
 
   r.get('/', async (c) => {
     const requestId = c.get('requestId');
@@ -74,44 +73,46 @@ export function gatePoliciesRouter(
             scopeRef(c.get('tenantId') as TenantId, p.scope),
           );
     return c.json({
-      data: visible.map(serializeGatePolicy),
+      data: visible.map(serializeReleaseGate),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
   });
 
-  r.get('/:policyId', async (c) => {
+  r.get('/:releaseGateId', async (c) => {
     const found = await binding.get({
       tenantId: c.get('tenantId') as TenantId,
-      id: c.req.param('policyId'),
+      id: c.req.param('releaseGateId'),
     });
-    if (found === null || !(await canRead(c, found))) return notFound(c, c.req.param('policyId'));
-    return c.json(serializeGatePolicy(found));
+    if (found === null || !(await canRead(c, found))) {
+      return notFound(c, c.req.param('releaseGateId'));
+    }
+    return c.json(serializeReleaseGate(found));
   });
 
-  r.get('/:policyId/versions', async (c) => {
+  r.get('/:releaseGateId/versions', async (c) => {
     const versions = await binding.listVersions({
       tenantId: c.get('tenantId') as TenantId,
-      id: c.req.param('policyId'),
+      id: c.req.param('releaseGateId'),
     });
-    // A policy's versions share its scope (`gate-policy-scope-changed`).
+    // A gate's versions share its scope (`release-gate-scope-changed`).
     const first = versions[0];
     if (first === undefined || !(await canRead(c, first))) {
-      return notFound(c, c.req.param('policyId'));
+      return notFound(c, c.req.param('releaseGateId'));
     }
-    return c.json({ data: versions.map(serializeGatePolicy), hasMore: false });
+    return c.json({ data: versions.map(serializeReleaseGate), hasMore: false });
   });
 
-  r.get('/:policyId/versions/:version', async (c) => {
+  r.get('/:releaseGateId/versions/:version', async (c) => {
     const found = await binding.getVersion({
       tenantId: c.get('tenantId') as TenantId,
-      id: c.req.param('policyId'),
+      id: c.req.param('releaseGateId'),
       version: c.req.param('version'),
     });
     if (found === null || !(await canRead(c, found))) {
-      return notFound(c, c.req.param('policyId'), c.req.param('version'));
+      return notFound(c, c.req.param('releaseGateId'), c.req.param('version'));
     }
-    return c.json(serializeGatePolicy(found));
+    return c.json(serializeReleaseGate(found));
   });
 
   r.post('/', async (c) => {
@@ -129,7 +130,7 @@ export function gatePoliciesRouter(
         toWireError(
           {
             code: 'validation-failed',
-            message: `The gate policy isn't valid: ${parsed.issues.map((i) => `${i.path}: ${i.message}`).join('; ')}`,
+            message: `The release gate isn't valid: ${parsed.issues.map((i) => `${i.path}: ${i.message}`).join('; ')}`,
             issues: parsed.issues,
           },
           requestId,
@@ -142,18 +143,18 @@ export function gatePoliciesRouter(
     });
     if (outcome.kind === 'err') return failed(c, requestId, outcome.error);
     c.status(201);
-    return c.json(serializeGatePolicy(outcome.value));
+    return c.json(serializeReleaseGate(outcome.value));
   });
 
   for (const action of ['unregister', 'reinstate'] as const) {
-    r.post(`/:policyId/versions/:version/${action}`, async (c) => {
+    r.post(`/:releaseGateId/versions/:version/${action}`, async (c) => {
       const outcome = await binding[action]({
         tenantId: c.get('tenantId') as TenantId,
-        id: c.req.param('policyId'),
+        id: c.req.param('releaseGateId'),
         version: c.req.param('version'),
       });
       if (outcome.kind === 'err') return failed(c, c.get('requestId'), outcome.error);
-      return c.json(serializeGatePolicy(outcome.value));
+      return c.json(serializeReleaseGate(outcome.value));
     });
   }
 
@@ -162,8 +163,8 @@ export function gatePoliciesRouter(
 
 type Ctx = Context<AppEnv>;
 
-/** The resource a gate policy's scope is: what reading it needs `read` on. */
-function scopeRef(tenantId: TenantId, scope: LiveScope) {
+/** The resource a release gate's scope is: what reading it needs `read` on. */
+function scopeRef(tenantId: TenantId, scope: AgentPinScope) {
   switch (scope.kind) {
     case 'tenant':
       return ref('tenant', tenantId as unknown as string);
@@ -180,24 +181,24 @@ function badInput(c: Ctx, requestId: string, message: string) {
   return c.json(toWireError({ code: 'bad-input', message }, requestId));
 }
 
-function notFound(c: Ctx, policyId: string, version?: string) {
-  c.status(statusFor('gate-policy-not-found') as never);
+function notFound(c: Ctx, releaseGateId: string, version?: string) {
+  c.status(statusFor('release-gate-not-found') as never);
   return c.json(
     toWireError(
       {
-        code: 'gate-policy-not-found',
+        code: 'release-gate-not-found',
         message:
           version === undefined
-            ? `No active gate policy "${policyId}"`
-            : `Gate policy "${policyId}" has no version ${version}`,
-        policyId,
+            ? `No active release gate "${releaseGateId}"`
+            : `Release gate "${releaseGateId}" has no version ${version}`,
+        releaseGateId,
       },
       c.get('requestId'),
     ),
   );
 }
 
-function failed(c: Ctx, requestId: string, error: GatePolicyError) {
+function failed(c: Ctx, requestId: string, error: ReleaseGateError) {
   c.status(statusFor(error.code) as never);
   return c.json(toWireError({ ...error }, requestId));
 }
@@ -207,7 +208,7 @@ type Issue = { readonly path: string; readonly message: string };
 function parsePublishBody(body: unknown):
   | {
       kind: 'ok';
-      value: Omit<Parameters<GatePolicyBinding['publish']>[0], 'tenantId'>;
+      value: Omit<Parameters<ReleaseGateBinding['publish']>[0], 'tenantId'>;
     }
   | { kind: 'err'; issues: readonly Issue[] } {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) {
@@ -217,7 +218,7 @@ function parsePublishBody(body: unknown):
   const issues: Issue[] = [];
   for (const key of Object.keys(b)) {
     if (!['id', 'version', 'agentId', 'scope', 'spec', 'description'].includes(key)) {
-      issues.push({ path: `/${key}`, message: `\`${key}\` isn't a gate policy field` });
+      issues.push({ path: `/${key}`, message: `\`${key}\` isn't a release gate field` });
     }
   }
   if (typeof b.id !== 'string' || !ID_RE.test(b.id)) {
@@ -231,11 +232,11 @@ function parsePublishBody(body: unknown):
     issues.push({ path: '/version', message: '`version` must be a semver version (e.g. "1.0.0")' });
   }
   if (typeof b.agentId !== 'string' || b.agentId === '') {
-    issues.push({ path: '/agentId', message: '`agentId` is required: the agent the policy gates' });
+    issues.push({ path: '/agentId', message: '`agentId` is required: the agent the gate checks' });
   }
-  const scope = parseLiveScopeBody(b.scope);
+  const scope = parseAgentPinScopeBody(b.scope);
   if (scope.kind === 'err') issues.push({ path: '/scope', message: scope.message });
-  const spec = parseGatePolicySpec(b.spec);
+  const spec = parseReleaseGateSpec(b.spec);
   if (spec.kind === 'err') issues.push(...spec.issues);
   if (b.description !== undefined && (typeof b.description !== 'string' || b.description === '')) {
     issues.push({ path: '/description', message: '`description` must be a non-empty string' });

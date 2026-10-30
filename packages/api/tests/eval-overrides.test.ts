@@ -5,7 +5,7 @@
  * An Improve run's comparisons: settings `overrides` (unpublished
  * values for blocks the candidate pins, checked when the run starts) and
  * a `sample` of the test set (a deterministic search / hold-out split).
- * Neither may gate a promotion except a hold-out sample.
+ * Neither may gate a pin except a hold-out sample.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -20,8 +20,8 @@ import type {
   AgentRegistryBinding,
   AgentVersionRecord,
   CorrectedComparisonSummary,
-  CorrectedEvalCase,
-  GatePolicySpec,
+  CorrectedTestCase,
+  ReleaseGateSpec,
   RunHandlerBinding,
   TestRun,
   TestRunBinding,
@@ -57,7 +57,7 @@ const testSet: TestSet = {
   spec: { source: 'corrections', caseCount: CASES.length },
 };
 
-function correctedCase(caseId: string, no = false): CorrectedEvalCase {
+function correctedCase(caseId: string, no = false): CorrectedTestCase {
   return {
     caseId,
     subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
@@ -74,7 +74,7 @@ function correctedCase(caseId: string, no = false): CorrectedEvalCase {
         reasons: [],
       },
     ],
-  } as CorrectedEvalCase;
+  } as CorrectedTestCase;
 }
 
 describe('sampleCases', () => {
@@ -101,7 +101,7 @@ describe('sampleCases', () => {
   });
 
   test('cases that carry a correction split on their own: two put one in each part, whatever the seed', () => {
-    const corrected = (caseId: string, no = false): CorrectedEvalCase => ({
+    const corrected = (caseId: string, no = false): CorrectedTestCase => ({
       ...correctedCase(caseId, no),
       corrections: [{ correctionId: `j-${caseId}`, calls: [] } as never],
     });
@@ -383,7 +383,7 @@ describe('a sample of the test set', () => {
 });
 
 describe('the gate', () => {
-  const spec: GatePolicySpec = { metrics: [{ name: 'weightedYesShare', minCandidate: 0.5 }] };
+  const spec: ReleaseGateSpec = { metrics: [{ name: 'passRate', minCandidate: 0.5 }] };
   const m = {
     baseline: 0.5,
     candidate: 0.8,
@@ -413,13 +413,13 @@ describe('the gate', () => {
     reads: 'recorded',
     sampling: { models: [] },
     repetitions: 1,
-    metrics: { weightedYesShare: m, judgedCoverage: m, weightedPrecisionAtK: { ...m, k: 10 } },
+    metrics: { passRate: m, caseCoverage: m, weightedPrecisionAtK: { ...m, k: 10 } },
     ...extra,
   });
   const gate = (s: CorrectedComparisonSummary) =>
     evaluateGate({
       spec,
-      promotion: {
+      pin: {
         agentId: 'acme.agent',
         version: '2.0.0',
         pinsDigest: 'sha-2',

@@ -355,7 +355,7 @@ It can trust signing keys, so keep it out of CI: trusting CI's signing key
 is a person's step, and CI's keys are each made for one job
 ([The keys CI uses](../ship-from-ci/#the-keys-ci-uses)). On Kindgi Cloud,
 CI's deploy key is a tenant admin's key too, with no capability. It can
-still promote to prod, replace release gate policies, and make service
+still promote to prod, replace release gates, and make service
 accounts and keys, so main's own protection is what guards prod there
 ([The deploy key](../ship-from-ci/#the-deploy-key)).
 

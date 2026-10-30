@@ -1,12 +1,12 @@
 ---
 title: Fix what the experts corrected
-description: Pull the runs an expert marked wrong, sort each correction to where it belongs — a rule in code, a setting, an approval rule, or the instructions — add a pack test for each, then publish a new version and ask a person to make it live, naming the corrections it fixes.
+description: Pull the runs an expert marked wrong, sort each correction to where it belongs — a rule in code, a setting, an approval rule, or the instructions — add a pack test for each, then publish a new version and ask a person to pin it, naming the corrections it fixes.
 sidebar:
   order: 8
 ---
 
 An expert — a support lead, a claims reviewer, an editor —
-[marks a run's answer wrong and says why](../judge-a-runs-output/). This
+[marks a run's answer wrong and says why](../correct-a-runs-output/). This
 guide turns those corrections into changes to the agent, each at the layer
 where it belongs, so the agent stops making the mistake and you can see the
 mistake is gone.
@@ -21,17 +21,17 @@ its `kindgi-fix-corrections` skill, which walks it through these same steps.
 ## Before you start
 
 - **an agent whose settings and instructions are [data blocks](../change-a-prompt-or-setting/),** so a setting or a wording changes without a code deploy;
-- **corrections to work from:** runs the experts [marked wrong, with a reason](../judge-a-runs-output/);
+- **corrections to work from:** runs the experts [marked wrong, with a reason](../correct-a-runs-output/);
 - **a coding agent,** or someone who runs the CLI, to make the changes and add the tests;
-- **permission to change things:** `publish` on the agent to suggest a change to a settings block, and `promote` to make a version live.
+- **permission to change things:** `publish` on the agent to suggest a change to a settings block, and `pin` to pin a version.
 
 ## The loop
 
 1. **Pull the corrections** — the agent's corrections that aren't fixed yet, with what was wrong and the run.
 2. **Sort each** to a rule in code, a setting, an approval rule, or the instructions.
 3. **Change that layer, with a test per correction** so the mistake can't come back.
-4. **Publish a new version and ask to make it live,** naming the corrections it fixes.
-5. A person reviews and makes it live; the release gate policy's `approvals` means a second person checks it.
+4. **Publish a new version and ask to pin it,** naming the corrections it fixes.
+5. A person reviews and pins it; the release gate's `approvals` means a second person checks it.
 
 Most corrections make the agent stricter or change how it talks, and those a
 coding agent can make. Some ask for a policy *looser* than the one in force —
@@ -51,11 +51,11 @@ Start from the version the agent is running now, so you don't re-fix something
 an earlier version already fixed:
 
 ```sh
-pnpm exec kindgi agents live acme-store.refunds --project=<project-id>
+pnpm exec kindgi agents pinned acme-store.refunds --project=<project-id>
 ```
 
 Then list that version's corrections — and newer versions' as you go
-(`agents live-versions` lists everywhere a version is live):
+(`agents pinned-versions` lists everywhere a version is pinned):
 
 ```sh
 pnpm exec kindgi corrections list --agent=acme-store.refunds --agent-version=1.0.3
@@ -86,7 +86,7 @@ done.
 
 An expert can also have said exactly what the run should have done (runtime
 0.2.0 or later): the correction then says `decisions: "wrong"`, with
-[`shouldCall` and `mustNotCall`](../judge-a-runs-output/#say-what-it-should-have-done),
+[`shouldCall` and `mustNotCall`](../correct-a-runs-output/#say-what-it-should-have-done),
 the calls it should have made and the tools it shouldn't have called. Take
 those as what the test checks. Leave it on the run: test cases built from
 these runs check each new version against it.
@@ -136,7 +136,7 @@ A correction the owner would rather own (a setting) or the approver owns (an
 approval rule) is theirs to make: give them the command or the console page,
 and don't make the change for them.
 
-## Publish, and ask to make it live
+## Publish, and ask to pin it
 
 For a **setting**, suggest a change for the project the corrections came
 from — no code change:
@@ -162,26 +162,26 @@ If you keep test cases built from the corrected runs,
 [try the new version on them](../compare-an-agent-version/#what-it-should-have-done)
 first. Where an expert said what the run should have done, the summary's
 `corrections` says how many of those the version now passes, `passed` of
-`checked`. No release gate policy checks it, so put it in the `--reason`.
+`checked`. No release gate checks it, so put it in the `--reason`.
 
-Then ask a person to make it live, naming the corrections. Check first what
-will happen, then make it live:
+Then ask a person to pin it, naming the corrections. Check first what
+will happen, then pin it:
 
 ```sh
-pnpm exec kindgi agents promote acme-store.refunds 1.0.4 --project=<project-id> --check
-pnpm exec kindgi agents promote acme-store.refunds 1.0.4 --project=<project-id> \
+pnpm exec kindgi agents pin acme-store.refunds 1.0.4 --project=<project-id> --check
+pnpm exec kindgi agents pin acme-store.refunds 1.0.4 --project=<project-id> \
   --reason="Fixes 1 correction: our return window is 14 days"
 ```
 
-- Where it goes live: `--tenant` (every project), `--org=<org-id>`, or
+- Where it is pinned: `--tenant` (every project), `--org=<org-id>`, or
   `--project=<project-id>` (one project).
-- `--check` changes nothing and answers whether it would go live, needs an
-  approval, or fails a release gate policy.
+- `--check` changes nothing and answers whether it would be pinned, needs an
+  approval, or fails a release gate.
 - `--reason` is kept on the record: write what the corrections were, so the
   approver reads the change in plain words.
-- The outcome is `promoted`, or `pending-approval` when the release gate
-  policy there has `approvals` and a second person must approve. The release
-  gate policy's `approvals` is how you
+- The outcome is `pinned`, or `pending-approval` when the release gate
+  there has `approvals` and a second person must approve. The release
+  gate's `approvals` is how you
   [get that second person](../release-an-agent-version/).
 - `--check` and the request exit 3 when the answer is no or the request
   waits for an approval. Read the printed outcome: exit 3 isn't an error.
@@ -206,7 +206,7 @@ not a one-off.
   change only changes a block the version already pins, so it can't introduce
   this one. The
   schema and value live outside the pack and outside code review, so show them
-  to the person and name them in the `--reason` you make it live with.
+  to the person and name them in the `--reason` you pin it with.
 
 ```json
 {
@@ -217,14 +217,14 @@ not a one-off.
 }
 ```
 
-Ask to make it live with `--reason="Fixes 1 correction: our return window is
+Ask to pin it with `--reason="Fixes 1 correction: our return window is
 14 days"`. The refund limit — the most a refund can be without a person — is
 never raised here: the cap stays in the tool's code, and the large-refund tool
 still always asks.
 
 ## Next
 
-- [Correct a run's output](../judge-a-runs-output/)
+- [Correct a run's output](../correct-a-runs-output/)
 - [Change a prompt or a setting without a deploy](../change-a-prompt-or-setting/)
 - [Improve an agent](../improve-an-agent/)
 - [Release an agent version](../release-an-agent-version/)

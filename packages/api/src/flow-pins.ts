@@ -8,6 +8,7 @@ import { highestVersion } from '@kindgi/tools';
 import type { Cursor, FlowId, ProjectId, TenantId, ToolId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from './agent-binding.js';
+import type { AgentPinBindings } from './agent-pin-binding.js';
 import {
   type ToolPinLookup,
   type UnpinnableRef,
@@ -16,7 +17,6 @@ import {
 } from './agent-pins.js';
 import { type DeployedVersionOutcome, deployVersion } from './deploy-versions.js';
 import type { FlowRegistryBinding, FlowVersionRecord } from './flow-binding.js';
-import type { AgentReleaseBindings } from './live-version-binding.js';
 import { PublishRefused } from './publish-refused.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
 import { whatRuns } from './what-runs.js';
@@ -29,8 +29,8 @@ export type FlowPinsOutcome =
  * Where a flow version is published, so its agent pins are what a run
  * there would get: what runs in the project (`whatRuns`).
  */
-export interface FlowPinsLive {
-  readonly releases: Pick<AgentReleaseBindings, 'live' | 'latest'>;
+export interface FlowAgentPins {
+  readonly bindings: Pick<AgentPinBindings, 'pinned' | 'latest'>;
   readonly projectId: ProjectId;
 }
 
@@ -41,11 +41,12 @@ export interface FlowPinsLive {
  * its org, then the tenant), else its latest active version; and each
  * agent it runs at no named version to
  * the version a run that names none gets in the flow's project. That's
- * the agent's live version there (project, then its org, then the
- * tenant), else its Latest there, with `releases`; else its highest. A gated agent's flow runs what
- * its promotions let go live, not an unpromoted newer version; and an
- * agent step under one of its gate policies set on a segment runs the
- * version live there, not its pin (the runtime decides that per run). A
+ * the agent's pinned version there (project, then its org, then the
+ * tenant), else its Latest there, with `agentPins`; else its highest. A
+ * gated agent's flow runs what its pins let through, not an unpinned
+ * newer version; and an agent step under one of its release gates set on
+ * a segment runs the version pinned there, not its pin (the runtime
+ * decides that per run). A
  * tool or agent with no published version makes the flow unpinnable: the
  * caller refuses the publish, naming each, rather than store a partly
  * pinned version.
@@ -55,7 +56,7 @@ export async function resolveFlowPins(
   agents: AgentRegistryBinding,
   tenantId: TenantId,
   flow: Flow,
-  live?: FlowPinsLive,
+  agentPins?: FlowAgentPins,
   toolPins?: ToolPinLookup,
 ): Promise<FlowPinsOutcome> {
   const refs = flowRefs(flow);
@@ -76,7 +77,7 @@ export async function resolveFlowPins(
       });
   }
   for (const id of refs.agents) {
-    const version = await implicitAgentVersion(agents, live, tenantId, id);
+    const version = await implicitAgentVersion(agents, agentPins, tenantId, id);
     if (version !== undefined) pinned.agents[id] = version;
     else
       issues.push({
@@ -89,21 +90,21 @@ export async function resolveFlowPins(
 }
 
 /**
- * The version a run of agent `id` that names none gets now in `live`'s
+ * The version a run of agent `id` that names none gets now in `agentPins`'s
  * project: the pin on the way up, else Latest (`whatRuns`); `undefined`
  * when no version runs there.
  */
 async function implicitAgentVersion(
   agents: AgentRegistryBinding,
-  live: FlowPinsLive | undefined,
+  agentPins: FlowAgentPins | undefined,
   tenantId: TenantId,
   id: string,
 ): Promise<string | undefined> {
-  if (live !== undefined) {
-    const runs = await whatRuns(live.releases, {
+  if (agentPins !== undefined) {
+    const runs = await whatRuns(agentPins.bindings, {
       tenantId,
       agentId: id,
-      projectId: live.projectId,
+      projectId: agentPins.projectId,
     });
     return runs?.version as unknown as string | undefined;
   }

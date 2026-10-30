@@ -11,9 +11,9 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
-  EvalKind,
   RunHandlerBinding,
   TestSet,
+  TestSetKind,
   TestSetRegistryBinding,
   TokenResolver,
 } from '../src/index.js';
@@ -155,7 +155,7 @@ function testSetSpec(
   overrides: {
     id?: string;
     version?: string;
-    kind?: EvalKind;
+    kind?: TestSetKind;
     spec?: Record<string, unknown>;
     description?: string;
   } = {},
@@ -189,7 +189,7 @@ function testSetPostBody(
   overrides: {
     id?: string;
     version?: string;
-    kind?: EvalKind;
+    kind?: TestSetKind;
     spec?: Record<string, unknown>;
     description?: string;
     projectId?: string;
@@ -218,7 +218,7 @@ async function seed(binding: TestSetRegistryBinding, body: Record<string, unknow
     id: body.id as string,
     tenantId,
     version: body.version as string,
-    kind: body.kind as EvalKind,
+    kind: body.kind as TestSetKind,
     ...(body.description !== undefined && { description: body.description as string }),
     spec: (body.spec ?? {}) as Readonly<Record<string, unknown>>,
   };

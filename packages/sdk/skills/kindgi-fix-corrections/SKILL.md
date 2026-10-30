@@ -8,7 +8,7 @@ description: >
   expert marked wrong, read why, and sort each correction to where it belongs
   — a rule in code, a setting, an approval rule, or the agent's instructions —
   add a pack test per correction, then publish and ask a person to make the
-  new version live, naming the corrections it fixes. Making a version live
+  new version pinned, naming the corrections it fixes. Pinning a version
   and approving it stay with the person, and a correction that would loosen
   anything — raise a limit, widen a window, drop a check — goes to the owner,
   not the agent.
@@ -61,9 +61,9 @@ corrections and the tools to change each layer.
    test, or in the instructions through Improve. The corrections you make carry
    out a rule the agent got wrong, tighten a rule, or change how the agent talks
    — never loosen the policy.
-2. **Making a version live is the person's.** You publish a new version and
-   *ask* for it with `kindgi agents promote … --reason`. When the scope's
-   release gate policy has `approvals`, the promotion waits for a second person
+2. **Pinning a version is the person's.** You publish a new version and
+   *ask* for it with `kindgi agents pin … --reason`. When the scope's
+   release gate has `approvals`, the pin waits for a second person
    (`pending-approval`) — don't try to get around it.
 3. **The pulled runs hold real conversations.** A run you pull is a real
    customer's. Keep it out of git. Write every pack test with invented data
@@ -73,13 +73,13 @@ corrections and the tools to change each layer.
 
 ## The loop
 
-1. **Pull the corrections**: the live version's "no" corrections, each read
+1. **Pull the corrections**: the pinned version's "no" corrections, each read
    in full with its run. [pull-corrections.md](pull-corrections.md)
 2. **Sort each correction to its layer**: the table below.
 3. **Make the change, with a test per correction.**
    [make-the-change.md](make-the-change.md)
-4. **Publish, and ask a person to make it live**, with the guides to point
-   people to. [publish-and-promote.md](publish-and-promote.md)
+4. **Publish, and ask a person to pin it**, with the guides to point
+   people to. [publish-and-pin.md](publish-and-pin.md)
 
 One correction taken through all four steps:
 [worked-example.md](worked-example.md).
@@ -91,7 +91,7 @@ One correction taken through all four steps:
 | "Never refund shipping", "final sale: no refund", "over 50 on a first order, ask a person" | a rule in **code** — the tool checks it every time; a cap sends the case to a tool that always asks | edit the tool and add a test (your language's `kindgi-authoring-tools`), then `kindgi deploy` |
 | "Our return window is 14 days, not 30" | a **setting** the owner can change | suggest a change to the settings block (Step 4) |
 | "Always have a person approve a refund" | an **approval rule** — a tenant policy that makes a tool always ask; it keys on the tool, not its arguments | a person sets it (the owner or the approver); point them to it, don't change it in code |
-| "Store credit before cash", "too stiff", "say when the money arrives" | the agent's **instructions** | leave it to Improve, run on the test cases (`kindgi improve runs start`, the improve guide in `publish-and-promote.md`) |
+| "Store credit before cash", "too stiff", "say when the money arrives" | the agent's **instructions** | leave it to Improve, run on the test cases (`kindgi improve runs start`, the improve guide in `publish-and-pin.md`) |
 
 If a correction fits none of these, treat it as a code rule when it must
 hold every time, and as instructions when it's a matter of correction.

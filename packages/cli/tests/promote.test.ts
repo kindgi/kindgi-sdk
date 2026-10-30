@@ -118,8 +118,8 @@ async function run(
     /** No pack config: the cwd has none. */
     readonly noPack?: boolean;
     readonly projects?: readonly Record<string, unknown>[];
-    /** `agents.promotions.get`: a carried version's promotion, as a `--wait` reads it. */
-    readonly promotionsGet?: (agentId: string, promotionId: string) => unknown;
+    /** `agents.pinned.getChange`: a carried version's pin, as a `--wait` reads it. */
+    readonly pinnedGet?: (agentId: string, changeId: string) => unknown;
     /** Ctrl-C. */
     readonly stopSignal?: AbortSignal;
   } = {},
@@ -148,10 +148,10 @@ async function run(
       calls.push(['client', url]);
       return {
         agents: {
-          promotions: {
-            get: async (agentId: string, promotionId: string) => {
-              calls.push(['promotions.get', agentId, promotionId]);
-              return opts.promotionsGet?.(agentId, promotionId);
+          pinned: {
+            getChange: async (agentId: string, changeId: string) => {
+              calls.push(['pinned.getChange', agentId, changeId]);
+              return opts.pinnedGet?.(agentId, changeId);
             },
           },
         },
@@ -326,17 +326,17 @@ describe('kindgi promote', () => {
     expect(out.stdout).toContain('prod has this build already, as deployment dep-prod-0');
   });
 
-  test('--make-live: asks for it, then prints each agent version live or held by its gate, and each flow version pinned; one not live exits 3', async () => {
+  test('--pin: asks for it, then prints each agent version pinned or held by its gate, and each flow version pinned; one not pinned exits 3', async () => {
     const gate = (status: string) => ({
       status,
-      promotionId: '00000000-0000-4000-8000-000000000001',
+      changeId: '00000000-0000-4000-8000-000000000001',
     });
-    const { out, calls } = await run(['promote', '--from=staging', '--to=prod', '--make-live'], {
+    const { out, calls } = await run(['promote', '--from=staging', '--to=prod', '--pin'], {
       promote: () => ({
         deployment: deployment('dep-prod-1'),
         created: true,
         moved: MOVES,
-        live: [
+        pinned: [
           { id: 'acme.matcher', version: '1.0.2', pinned: true },
           { id: 'acme.router', version: '2.1.0', pinned: false, gate: gate('pending-approval') },
           { id: 'acme.drafter', version: '0.4.0', pinned: false, gate: gate('refused') },
@@ -347,13 +347,13 @@ describe('kindgi promote', () => {
     expect(out.exitCode).toBe(3);
     expect(named(calls, 'promote')[0]?.[2]).toMatchObject({
       toProjectId: 'p-prod',
-      makeLive: true,
+      pin: true,
     });
     expect(out.stdout).toContain(
       [
         'Promoted: deployment dep-prod-1 in prod.',
-        'Live in prod:',
-        '  acme.matcher 1.0.2 — live',
+        'Agent pins in prod:',
+        '  acme.matcher 1.0.2 — pinned',
         '  acme.router 2.1.0 — waiting for an approval',
         '  acme.drafter 0.4.0 — held by the gate',
         'Flows pinned in prod:',
@@ -363,10 +363,10 @@ describe('kindgi promote', () => {
     );
   });
 
-  test('without --make-live, nothing is asked for and no live or pinned lines are printed', async () => {
+  test('without --pin, nothing is asked for and no pinned lines are printed', async () => {
     const { out, calls } = await run(['promote', '--from=staging', '--to=prod']);
-    expect(named(calls, 'promote')[0]?.[2]).not.toHaveProperty('makeLive');
-    expect(out.stdout).not.toContain('Live in');
+    expect(named(calls, 'promote')[0]?.[2]).not.toHaveProperty('pin');
+    expect(out.stdout).not.toContain('Agent pins in');
     expect(out.stdout).not.toContain('Flows pinned in');
   });
 
@@ -578,19 +578,19 @@ describe('kindgi promote', () => {
   });
 });
 
-describe('kindgi promote --make-live: exit 3 when a carried version does not go live', () => {
+describe('kindgi promote --pin: exit 3 when a carried version is not pinned', () => {
   const PROMOTED = { deployment: deployment('dep-prod-1'), created: true, moved: MOVES };
-  const gate = (status: string, promotionId: string, approvalId?: string) => ({
+  const gate = (status: string, changeId: string, approvalId?: string) => ({
     status,
-    promotionId,
+    changeId,
     policy: null,
     ...(approvalId !== undefined && { approvalId }),
   });
-  const LIVE = {
+  const PINNED = {
     id: 'acme.matcher',
     version: '1.0.2',
     pinned: true,
-    gate: gate('promoted', 'pr-0'),
+    gate: gate('pinned', 'pr-0'),
   };
   const WAITING = {
     id: 'acme.helper',
@@ -610,64 +610,64 @@ describe('kindgi promote --make-live: exit 3 when a carried version does not go 
     pinned: false,
     gate: gate('pending-approval', 'pr-3', 'ap-3'),
   };
-  const promotion = (status: string, pin: typeof WAITING = WAITING) => ({
-    id: pin.gate.promotionId,
+  const pinOf = (status: string, pin: typeof WAITING = WAITING) => ({
+    id: pin.gate.changeId,
     agentId: pin.id,
     toVersion: pin.version,
     status,
     approvalId: pin.gate.approvalId,
   });
-  /** `promotions.get` answers each read with the next of `statuses`, then the last. */
+  /** `pinned.getChange` answers each read with the next of `statuses`, then the last. */
   const reads = (...statuses: string[]) => {
     let i = 0;
-    return () => promotion(statuses[Math.min(i++, statuses.length - 1)] as string);
+    return () => pinOf(statuses[Math.min(i++, statuses.length - 1)] as string);
   };
-  /** `promotions.get` for WAITING and WAITING_TOO, each with its own `reads`. */
+  /** `pinned.getChange` for WAITING and WAITING_TOO, each with its own `reads`. */
   const readsOfBoth = (helper: readonly string[], critic: readonly string[]) => {
     const next = { 'pr-1': 0, 'pr-3': 0 } as Record<string, number>;
-    return (_agentId: string, promotionId: string) => {
-      const [pin, statuses] = promotionId === 'pr-1' ? [WAITING, helper] : [WAITING_TOO, critic];
-      const i = next[promotionId] ?? 0;
-      next[promotionId] = i + 1;
-      return promotion(statuses[Math.min(i, statuses.length - 1)] as string, pin);
+    return (_agentId: string, changeId: string) => {
+      const [pin, statuses] = changeId === 'pr-1' ? [WAITING, helper] : [WAITING_TOO, critic];
+      const i = next[changeId] ?? 0;
+      next[changeId] = i + 1;
+      return pinOf(statuses[Math.min(i, statuses.length - 1)] as string, pin);
     };
   };
 
-  test('every carried version live: exit 0, and makeLive is asked for', async () => {
-    const { out, calls } = await run(['promote', '--from=staging', '--to=prod', '--make-live'], {
-      promote: () => ({ ...PROMOTED, live: [LIVE] }),
+  test('every carried version pinned: exit 0, and pin is asked for', async () => {
+    const { out, calls } = await run(['promote', '--from=staging', '--to=prod', '--pin'], {
+      promote: () => ({ ...PROMOTED, pinned: [PINNED] }),
     });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(named(calls, 'promote')).toEqual([
-      ['promote', 'dep-s1', { toProjectId: 'p-prod', makeLive: true }],
+      ['promote', 'dep-s1', { toProjectId: 'p-prod', pin: true }],
     ]);
-    expect(out.stdout).toContain('Live in prod:\n  acme.matcher 1.0.2 — live\n');
+    expect(out.stdout).toContain('Agent pins in prod:\n  acme.matcher 1.0.2 — pinned\n');
   });
 
   test('one waits for an approval, one is held: each said, exit 3, and nothing waits without --wait', async () => {
-    const { out, calls } = await run(['promote', '--from=staging', '--to=prod', '--make-live'], {
-      promote: () => ({ ...PROMOTED, live: [LIVE, WAITING, HELD] }),
+    const { out, calls } = await run(['promote', '--from=staging', '--to=prod', '--pin'], {
+      promote: () => ({ ...PROMOTED, pinned: [PINNED, WAITING, HELD] }),
     });
     expect(out.exitCode).toBe(3);
     expect(out.stdout).toContain(
-      'Live in prod:\n  acme.matcher 1.0.2 — live\n  acme.helper 2.1.0 — waiting for an approval\n  acme.writer 3.0.0 — held by the gate\n',
+      'Agent pins in prod:\n  acme.matcher 1.0.2 — pinned\n  acme.helper 2.1.0 — waiting for an approval\n  acme.writer 3.0.0 — held by the gate\n',
     );
-    expect(named(calls, 'promotions.get')).toEqual([]);
+    expect(named(calls, 'pinned.getChange')).toEqual([]);
   });
 
-  test('--wait: reads the waiting version until it is approved, exit 0, and the answer shows it live', async () => {
+  test('--wait: reads the waiting version until it is approved, exit 0, and the answer shows it pinned', async () => {
     const { out, calls } = await run(
-      ['promote', '--from=staging', '--to=prod', '--make-live', '--wait=1m', '--json'],
+      ['promote', '--from=staging', '--to=prod', '--pin', '--wait=1m', '--json'],
       {
-        promote: () => ({ ...PROMOTED, live: [LIVE, WAITING] }),
-        promotionsGet: reads('pending-approval', 'pending-approval', 'promoted'),
+        promote: () => ({ ...PROMOTED, pinned: [PINNED, WAITING] }),
+        pinnedGet: reads('pending-approval', 'pending-approval', 'pinned'),
       },
     );
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(named(calls, 'promotions.get')).toEqual([
-      ['promotions.get', 'acme.helper', 'pr-1'],
-      ['promotions.get', 'acme.helper', 'pr-1'],
-      ['promotions.get', 'acme.helper', 'pr-1'],
+    expect(named(calls, 'pinned.getChange')).toEqual([
+      ['pinned.getChange', 'acme.helper', 'pr-1'],
+      ['pinned.getChange', 'acme.helper', 'pr-1'],
+      ['pinned.getChange', 'acme.helper', 'pr-1'],
     ]);
     expect(named(calls, 'pause')).toEqual([
       ['pause', 5000],
@@ -676,27 +676,29 @@ describe('kindgi promote --make-live: exit 3 when a carried version does not go 
     expect(out.stderr).toContain(
       'Waiting up to 1m for approval ap-1 of acme.helper 2.1.0: `kindgi approvals complete ap-1 --decision=approve` approves it.',
     );
-    expect(JSON.parse(out.stdout).promotion.live).toEqual([
-      LIVE,
-      { ...WAITING, pinned: true, gate: { ...WAITING.gate, status: 'promoted' } },
+    expect(JSON.parse(out.stdout).promotion.pinned).toEqual([
+      PINNED,
+      { ...WAITING, pinned: true, gate: { ...WAITING.gate, status: 'pinned' } },
     ]);
   });
 
   test('--wait: a rejected approval ends the wait, exit 3, said in the text', async () => {
-    const { out } = await run(['promote', '--from=staging', '--to=prod', '--make-live', '--wait'], {
-      promote: () => ({ ...PROMOTED, live: [WAITING] }),
-      promotionsGet: reads('pending-approval', 'rejected'),
+    const { out } = await run(['promote', '--from=staging', '--to=prod', '--pin', '--wait'], {
+      promote: () => ({ ...PROMOTED, pinned: [WAITING] }),
+      pinnedGet: reads('pending-approval', 'rejected'),
     });
     expect(out.exitCode).toBe(3);
     expect(out.stdout).toContain('  acme.helper 2.1.0 — its approval was rejected\n');
-    expect(out.stderr).toContain("Approval ap-1 was rejected: acme.helper 2.1.0 doesn't go live.");
+    expect(out.stderr).toContain(
+      "Approval ap-1 was rejected: acme.helper 2.1.0 doesn't get pinned.",
+    );
     expect(out.stderr).toContain('Waiting up to 1h for approval ap-1');
   });
 
-  test('--wait: a superseded promotion ends the wait, exit 3, and both lines say it was approved', async () => {
-    const { out } = await run(['promote', '--from=staging', '--to=prod', '--make-live', '--wait'], {
-      promote: () => ({ ...PROMOTED, live: [WAITING] }),
-      promotionsGet: reads('pending-approval', 'superseded'),
+  test('--wait: a superseded pin ends the wait, exit 3, and both lines say it was approved', async () => {
+    const { out } = await run(['promote', '--from=staging', '--to=prod', '--pin', '--wait'], {
+      promote: () => ({ ...PROMOTED, pinned: [WAITING] }),
+      pinnedGet: reads('pending-approval', 'superseded'),
     });
     expect(out.exitCode).toBe(3);
     expect(out.stdout).toContain('  acme.helper 2.1.0 — approved, but superseded\n');
@@ -705,10 +707,10 @@ describe('kindgi promote --make-live: exit 3 when a carried version does not go 
 
   test('--wait: the wait runs out, exit 3, and the approval stays open', async () => {
     const { out, calls } = await run(
-      ['promote', '--from=staging', '--to=prod', '--make-live', '--wait=12s'],
+      ['promote', '--from=staging', '--to=prod', '--pin', '--wait=12s'],
       {
-        promote: () => ({ ...PROMOTED, live: [WAITING] }),
-        promotionsGet: reads('pending-approval'),
+        promote: () => ({ ...PROMOTED, pinned: [WAITING] }),
+        pinnedGet: reads('pending-approval'),
       },
     );
     expect(out.exitCode).toBe(3);
@@ -719,44 +721,44 @@ describe('kindgi promote --make-live: exit 3 when a carried version does not go 
       ['pause', 2000],
     ]);
     expect(out.stderr).toContain(
-      "Still waiting after 12s. Approval ap-1 stays open: once it's approved, acme.helper 2.1.0 goes live.",
+      "Still waiting after 12s. Approval ap-1 stays open: once it's approved, acme.helper 2.1.0 is pinned.",
     );
     expect(out.stdout).toContain('  acme.helper 2.1.0 — waiting for an approval\n');
   });
 
   test('--wait: two waiting versions, each read until it is approved, within one deadline: exit 0', async () => {
     const { out, calls } = await run(
-      ['promote', '--from=staging', '--to=prod', '--make-live', '--wait=1m', '--json'],
+      ['promote', '--from=staging', '--to=prod', '--pin', '--wait=1m', '--json'],
       {
-        promote: () => ({ ...PROMOTED, live: [WAITING, WAITING_TOO] }),
-        promotionsGet: readsOfBoth(
-          ['pending-approval', 'promoted'],
-          ['pending-approval', 'pending-approval', 'promoted'],
+        promote: () => ({ ...PROMOTED, pinned: [WAITING, WAITING_TOO] }),
+        pinnedGet: readsOfBoth(
+          ['pending-approval', 'pinned'],
+          ['pending-approval', 'pending-approval', 'pinned'],
         ),
       },
     );
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(named(calls, 'promotions.get')).toEqual([
-      ['promotions.get', 'acme.helper', 'pr-1'],
-      ['promotions.get', 'acme.helper', 'pr-1'],
-      ['promotions.get', 'acme.critic', 'pr-3'],
-      ['promotions.get', 'acme.critic', 'pr-3'],
-      ['promotions.get', 'acme.critic', 'pr-3'],
+    expect(named(calls, 'pinned.getChange')).toEqual([
+      ['pinned.getChange', 'acme.helper', 'pr-1'],
+      ['pinned.getChange', 'acme.helper', 'pr-1'],
+      ['pinned.getChange', 'acme.critic', 'pr-3'],
+      ['pinned.getChange', 'acme.critic', 'pr-3'],
+      ['pinned.getChange', 'acme.critic', 'pr-3'],
     ]);
     expect(out.stderr).toContain('Waiting up to 1m for approval ap-1 of acme.helper 2.1.0');
     expect(out.stderr).toContain('Waiting up to 1m for approval ap-3 of acme.critic 1.4.0');
-    expect(JSON.parse(out.stdout).promotion.live).toEqual([
-      { ...WAITING, pinned: true, gate: { ...WAITING.gate, status: 'promoted' } },
-      { ...WAITING_TOO, pinned: true, gate: { ...WAITING_TOO.gate, status: 'promoted' } },
+    expect(JSON.parse(out.stdout).promotion.pinned).toEqual([
+      { ...WAITING, pinned: true, gate: { ...WAITING.gate, status: 'pinned' } },
+      { ...WAITING_TOO, pinned: true, gate: { ...WAITING_TOO.gate, status: 'pinned' } },
     ]);
   });
 
   test('--wait: the first version takes part of the deadline, so the second waits only what is left: exit 3', async () => {
     const { out, calls } = await run(
-      ['promote', '--from=staging', '--to=prod', '--make-live', '--wait=12s'],
+      ['promote', '--from=staging', '--to=prod', '--pin', '--wait=12s'],
       {
-        promote: () => ({ ...PROMOTED, live: [WAITING, WAITING_TOO] }),
-        promotionsGet: readsOfBoth(['pending-approval', 'promoted'], ['pending-approval']),
+        promote: () => ({ ...PROMOTED, pinned: [WAITING, WAITING_TOO] }),
+        pinnedGet: readsOfBoth(['pending-approval', 'pinned'], ['pending-approval']),
       },
     );
     expect(out.exitCode).toBe(3);
@@ -767,36 +769,36 @@ describe('kindgi promote --make-live: exit 3 when a carried version does not go 
       ['pause', 2000],
     ]);
     expect(out.stderr).toContain(
-      "Still waiting after 12s. Approval ap-3 stays open: once it's approved, acme.critic 1.4.0 goes live.",
+      "Still waiting after 12s. Approval ap-3 stays open: once it's approved, acme.critic 1.4.0 is pinned.",
     );
     expect(out.stdout).toContain(
-      '  acme.helper 2.1.0 — live\n  acme.critic 1.4.0 — waiting for an approval\n',
+      '  acme.helper 2.1.0 — pinned\n  acme.critic 1.4.0 — waiting for an approval\n',
     );
   });
 
-  test('--wait: Ctrl-C stops the wait, not the promotion: exit 130, and the approval stays open', async () => {
+  test('--wait: Ctrl-C stops the wait, not the pin: exit 130, and the approval stays open', async () => {
     const controller = new AbortController();
-    const { out } = await run(['promote', '--from=staging', '--to=prod', '--make-live', '--wait'], {
-      promote: () => ({ ...PROMOTED, live: [WAITING] }),
-      promotionsGet: () => {
+    const { out } = await run(['promote', '--from=staging', '--to=prod', '--pin', '--wait'], {
+      promote: () => ({ ...PROMOTED, pinned: [WAITING] }),
+      pinnedGet: () => {
         controller.abort();
-        return promotion('pending-approval');
+        return pinOf('pending-approval');
       },
       stopSignal: controller.signal,
     });
     expect(out.exitCode).toBe(130);
     expect(out.stderr).toContain(
-      "Stopped waiting. Approval ap-1 stays open: once it's approved, acme.helper 2.1.0 goes live.",
+      "Stopped waiting. Approval ap-1 stays open: once it's approved, acme.helper 2.1.0 is pinned.",
     );
     expect(out.stdout).toContain('  acme.helper 2.1.0 — waiting for an approval\n');
   });
 
   test('--wait: 3 failed reads in a row end the wait, exit 1; the versions are printed as last read, and the approval stays open', async () => {
     const { out, calls } = await run(
-      ['promote', '--from=staging', '--to=prod', '--make-live', '--wait'],
+      ['promote', '--from=staging', '--to=prod', '--pin', '--wait'],
       {
-        promote: () => ({ ...PROMOTED, live: [LIVE, WAITING, WAITING_TOO] }),
-        promotionsGet: () => {
+        promote: () => ({ ...PROMOTED, pinned: [PINNED, WAITING, WAITING_TOO] }),
+        pinnedGet: () => {
           throw new KindgiApiError(
             fromWire({ code: 'unavailable', message: 'Down for a moment' }, 503),
           );
@@ -805,43 +807,41 @@ describe('kindgi promote --make-live: exit 3 when a carried version does not go 
     );
     expect(out.exitCode).toBe(1);
     // The first read needs no pause; each read again does. The second version is never read.
-    expect(named(calls, 'promotions.get')).toEqual([
-      ['promotions.get', 'acme.helper', 'pr-1'],
-      ['promotions.get', 'acme.helper', 'pr-1'],
-      ['promotions.get', 'acme.helper', 'pr-1'],
+    expect(named(calls, 'pinned.getChange')).toEqual([
+      ['pinned.getChange', 'acme.helper', 'pr-1'],
+      ['pinned.getChange', 'acme.helper', 'pr-1'],
+      ['pinned.getChange', 'acme.helper', 'pr-1'],
     ]);
     expect(named(calls, 'pause')).toEqual([
       ['pause', 5000],
       ['pause', 5000],
     ]);
+    expect(out.stderr).toContain("Couldn't read the pin of acme.helper 2.1.0 3 times in a row (");
     expect(out.stderr).toContain(
-      "Couldn't read the promotion of acme.helper 2.1.0 3 times in a row (",
-    );
-    expect(out.stderr).toContain(
-      "). Approval ap-1 stays open: once it's approved, acme.helper 2.1.0 goes live.",
+      "). Approval ap-1 stays open: once it's approved, acme.helper 2.1.0 is pinned.",
     );
     expect(out.stdout).toContain(
-      'Live in prod:\n  acme.matcher 1.0.2 — live\n  acme.helper 2.1.0 — waiting for an approval\n  acme.critic 1.4.0 — waiting for an approval\n',
+      'Agent pins in prod:\n  acme.matcher 1.0.2 — pinned\n  acme.helper 2.1.0 — waiting for an approval\n  acme.critic 1.4.0 — waiting for an approval\n',
     );
   });
 
-  test('--wait: a version held by the gate cannot go live, so nothing waits: exit 3', async () => {
+  test('--wait: a version held by the gate cannot be pinned, so nothing waits: exit 3', async () => {
     const { out, calls } = await run(
-      ['promote', '--from=staging', '--to=prod', '--make-live', '--wait'],
-      { promote: () => ({ ...PROMOTED, live: [WAITING, HELD] }) },
+      ['promote', '--from=staging', '--to=prod', '--pin', '--wait'],
+      { promote: () => ({ ...PROMOTED, pinned: [WAITING, HELD] }) },
     );
     expect(out.exitCode).toBe(3);
-    expect(named(calls, 'promotions.get')).toEqual([]);
+    expect(named(calls, 'pinned.getChange')).toEqual([]);
     expect(out.stderr).toContain(
-      'Not waiting: acme.writer 3.0.0 is held by the gate, so not every version goes live.',
+      'Not waiting: acme.writer 3.0.0 is held by the gate, so not every version is pinned.',
     );
   });
 
   test.each([
     [['--wait']],
-    [['--make-live', '--wait', '--check']],
-    [['--make-live', '--wait=soon']],
-    [['--make-live', '--wait=0m']],
+    [['--pin', '--wait', '--check']],
+    [['--pin', '--wait=soon']],
+    [['--pin', '--wait=0m']],
   ])('%j is refused before anything is read: exit 2', async (flags) => {
     const { out, calls } = await run(['promote', '--from=staging', '--to=prod', ...flags]);
     expect(out.exitCode).toBe(2);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `kindgi suggested-changes …`: suggested changes (evals step 5). */
+/** `kindgi suggested-changes …`: suggested changes. */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -432,7 +432,7 @@ const IMPROVE_RUN = {
   scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
   testSetId: 'acme.judged',
   tiers: ['settings'],
-  objective: 'weightedYesShare',
+  objective: 'passRate',
   budget: { maxCostUsd: 5, maxCandidates: 30 },
   requestedBy: 'user:alice',
   status: 'running',
