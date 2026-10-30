@@ -339,6 +339,13 @@ describe('queue rules', () => {
             'Only a completed run can be corrected, so `when.status` takes `completed` only',
           ] as const,
       ),
+      ...[['live'], ['pinned', 'latest'], ['1.2']].map(
+        (versions) =>
+          [
+            { ...RULE, when: { agentIds: ['acme.refunds'], versions } },
+            '`when.versions` takes exact versions, such as `1.2.0`, or `pinned`',
+          ] as const,
+      ),
       [
         { ...RULE, when: { agentIds: [] } },
         '`when.agentIds` must be a list of 1 to 50 non-empty strings',
