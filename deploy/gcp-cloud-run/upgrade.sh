@@ -818,25 +818,25 @@ EOT
      with pg_terminate_backend, or let it finish). The old revision keeps
      serving meanwhile. After them, the server indexes the flow records
      without holding back writes to them.
-   - If seed_user_id has an upper-case letter, 0.3.0 reads it in lower case
-     and makes a new seed user with that id. The old one keeps its grants
-     and the keys minted for it, but it's no longer the seed user. Mint keys
-     for the new one, then revoke the old one's keys and, with
+   - If seed_user_id has an upper-case letter, 0.3.0 and later read it in
+     lower case and make a new seed user with that id. The old one keeps its
+     grants and the keys minted for it, but it's no longer the seed user.
+     Mint keys for the new one, then revoke the old one's keys and, with
      openfga_api_url set, take away its tenant admin.
-   - If seed_tenant_id has an upper-case letter, 0.3.0 reads it in lower
-     case, and at start the server logs a warning naming the steps left,
-     with your id filled in. Until they're done, keep seed_tenant_id as it
-     is, and register a new identity provider only once 0.3.0 serves all
-     the traffic. With KINDGI_ARTIFACTS in server_env, first move the stored
-     files from tenants/<id as set> to tenants/<id in lower case>. In a gcs:
-     bucket:
+   - If seed_tenant_id has an upper-case letter, 0.3.0 and later read it in
+     lower case, and at start the server logs a warning naming the steps
+     left, with your id filled in. Until they're done, keep seed_tenant_id
+     as it is, and register a new identity provider only once the new
+     runtime serves all the traffic. With KINDGI_ARTIFACTS in server_env,
+     first move the stored files from tenants/<id as set> to
+     tenants/<id in lower case>. In a gcs: bucket:
        gcloud storage rsync --recursive \
          gs://<bucket>/tenants/<id as set> \
          gs://<bucket>/tenants/<id in lower case>
        gcloud storage rm --recursive --all-versions \
          gs://<bucket>/tenants/<id as set>
-     With openfga_api_url set, once 0.3.0 serves all the traffic, run this
-     once, with 0.3.0's kindgi-runtime:
+     With openfga_api_url set, once the new runtime serves all the traffic,
+     run this once, with the new runtime's kindgi-runtime:
        kindgi-runtime tenants repair --tenant <id in lower case> \
          --old-spelling <id as set>
      Then set seed_tenant_id in lower case, and apply.
