@@ -53,7 +53,7 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'token-sign-in-not-allowed',
   'token-sign-in-off',
   'key-project-mismatch',
-  'judge-class-not-allowed',
+  'corrector-group-not-allowed',
   'host-access-denied',
   'license-operator-only',
   'capability-not-mintable',
@@ -361,7 +361,7 @@ describe('refusals deeper in a route, which an empty body never reaches, are rec
     ]);
   });
 
-  // `judge-class-not-allowed` needs a run and a restricted judge class: its
+  // `corrector-group-not-allowed` needs a run and an expert group: its
   // recording is pinned in corrections-routes.test.ts.
 });
 

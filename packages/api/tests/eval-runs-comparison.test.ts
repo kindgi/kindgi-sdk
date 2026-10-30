@@ -127,7 +127,7 @@ describe('a comparison eval run over the API', () => {
       reads: 'live',
       repetitions: 2,
       k: 5,
-      classWeights: 'restricted-only',
+      groupWeights: 'experts-only',
     });
     expect(res.status).toBe(201);
     const { runId } = (await res.json()) as { runId: string };
@@ -139,7 +139,7 @@ describe('a comparison eval run over the API', () => {
       cases: 1,
       repetitions: 2,
       reads: 'live',
-      classWeights: 'restricted-only',
+      groupWeights: 'experts-only',
     });
 
     const got = await app.request(`/v1/eval-runs/${runId}`, {
@@ -150,7 +150,7 @@ describe('a comparison eval run over the API', () => {
       reads: 'live',
       repetitions: 2,
       k: 5,
-      classWeights: 'restricted-only',
+      groupWeights: 'experts-only',
     });
   });
 
@@ -162,7 +162,7 @@ describe('a comparison eval run over the API', () => {
     expect((run.result as { summary: CorrectedComparisonSummary }).summary).toMatchObject({
       reads: 'recorded',
       repetitions: 1,
-      classWeights: 'as-recorded',
+      groupWeights: 'as-recorded',
     });
   });
 
@@ -171,7 +171,7 @@ describe('a comparison eval run over the API', () => {
     [{ repetitions: 0 }, '`repetitions` must be an integer from 1 to 10'],
     [{ repetitions: 11 }, '`repetitions` must be an integer from 1 to 10'],
     [{ k: 1.5 }, '`k` must be an integer from 1 to 100'],
-    [{ classWeights: 'some' }, "`classWeights` must be 'as-recorded'"],
+    [{ groupWeights: 'some' }, "`groupWeights` must be 'as-recorded'"],
     [{ baseline: 'yesterday' }, '`baseline` must be'],
     [{ baseline: { agentId: 'acme.agent' } }, 'needs `agentId` and `version`'],
     [

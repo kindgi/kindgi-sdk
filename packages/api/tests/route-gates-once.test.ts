@@ -28,7 +28,7 @@ import type { TokenResolver } from '../src/index.js';
 import { fullAppInput } from './support/full-app.js';
 
 const tenantId = '00000000-0000-4000-8000-0000000000aa' as TenantId;
-/** Stands for the project each harness creates: the judging gate answers 404 for one that isn't there. */
+/** Stands for the project each harness creates: the expert queue gate answers 404 for one that isn't there. */
 const PROJECT = '{project}';
 const ID = '00000000-0000-4000-8000-0000000000ff';
 
@@ -118,37 +118,37 @@ const ONCE: readonly {
   readonly decided: string;
   readonly thenAsks?: string;
 }[] = [
-  // A project's judging rules and queue: `read` on the project, a change `write`.
+  // A project's queue rules and queue: `read` on the project, a change `write`.
   {
-    router: 'judging',
+    router: 'expert-queue',
     method: 'GET',
-    path: `/projects/${PROJECT}/judging-rules`,
+    path: `/projects/${PROJECT}/queue-rules`,
     decided: `read ${project}`,
   },
   {
-    router: 'judging',
+    router: 'expert-queue',
     method: 'POST',
-    path: `/projects/${PROJECT}/judging-rules`,
+    path: `/projects/${PROJECT}/queue-rules`,
     decided: `write ${project}`,
   },
   {
-    router: 'judging',
+    router: 'expert-queue',
     method: 'GET',
-    path: `/projects/${PROJECT}/judging-rules/${ID}`,
+    path: `/projects/${PROJECT}/queue-rules/${ID}`,
     decided: `read ${project}`,
   },
   // The list asks `write` itself, for its items' `can` (whether you may dismiss or reopen).
   {
-    router: 'judging',
+    router: 'expert-queue',
     method: 'GET',
-    path: `/projects/${PROJECT}/judging-queue`,
+    path: `/projects/${PROJECT}/expert-queue`,
     decided: `read ${project}`,
     thenAsks: `write ${project}`,
   },
   {
-    router: 'judging',
+    router: 'expert-queue',
     method: 'POST',
-    path: `/projects/${PROJECT}/judging-queue/${ID}/dismiss`,
+    path: `/projects/${PROJECT}/expert-queue/${ID}/dismiss`,
     decided: `write ${project}`,
   },
   // A project's sites: a tenant admin's.
@@ -241,17 +241,17 @@ const REFUSED: readonly {
   readonly decided: string;
 }[] = [
   {
-    router: 'judging',
+    router: 'expert-queue',
     token: READER,
     method: 'POST',
-    path: `/projects/${PROJECT}/judging-rules`,
+    path: `/projects/${PROJECT}/queue-rules`,
     decided: `write ${project}`,
   },
   {
-    router: 'judging',
+    router: 'expert-queue',
     token: NOBODY,
     method: 'GET',
-    path: `/projects/${PROJECT}/judging-queue`,
+    path: `/projects/${PROJECT}/expert-queue`,
     decided: `read ${project}`,
   },
   {
@@ -366,8 +366,8 @@ describe('no gate is registered on a path and its /* form', () => {
     // It reads the routers it should: each one's '/*' gate is found.
     expect(gated).toEqual(
       expect.arrayContaining([
-        'routes/judging.ts: /:projectId/judging-rules/*',
-        'routes/judging.ts: /:projectId/judging-queue/*',
+        'routes/expert-queue.ts: /:projectId/queue-rules/*',
+        'routes/expert-queue.ts: /:projectId/expert-queue/*',
         'routes/sites.ts: /:projectId/sites/*',
         'routes/auth.ts: /providers/*',
         'routes/agents.ts: /:agentId/*',

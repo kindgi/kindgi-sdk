@@ -45,7 +45,7 @@ function recorder() {
 }
 
 describe('kindgi corrections', () => {
-  test('add sends the item, verdict, class and participant', async () => {
+  test('add sends the item, verdict, group and participant', async () => {
     const { calls, rec } = recorder();
     const out = await run(
       [
@@ -57,7 +57,7 @@ describe('kindgi corrections', () => {
         '--rank=1',
         '--yes',
         '--reason=right company',
-        '--class=jc-1',
+        '--group=jc-1',
         '--participant=end-user-1',
       ],
       { corrections: { create: rec('create', { id: 'j-1' }) } },
@@ -71,7 +71,7 @@ describe('kindgi corrections', () => {
           item: { key: 'c2', pointer: '/matches/1', rank: 1 },
           verdict: 'yes',
           reason: 'right company',
-          judgeClassId: 'jc-1',
+          correctorGroupId: 'jc-1',
           participantId: 'end-user-1',
         },
       ],
@@ -139,7 +139,7 @@ describe('kindgi corrections', () => {
     expect(out.stderr).toContain('Malformed JSON input');
   });
 
-  test('add without a class is unclassified', async () => {
+  test('add without a group is unclassified', async () => {
     const { calls, rec } = recorder();
     const out = await run(['corrections', 'add', '--run=r-1', '--item=c1', '--no'], {
       corrections: { create: rec('create') },
@@ -172,7 +172,7 @@ describe('kindgi corrections', () => {
         '--agent-version=2.0.0',
         '--flow=acme.flow',
         '--verdict=no',
-        '--class=jc-1',
+        '--group=jc-1',
         '--participant=u-1',
         '--project=p-1',
         '--limit=5',
@@ -190,7 +190,7 @@ describe('kindgi corrections', () => {
           agentVersion: '2.0.0',
           flowId: 'acme.flow',
           verdict: 'no',
-          judgeClassId: 'jc-1',
+          correctorGroupId: 'jc-1',
           participantId: 'u-1',
           scope: { kind: 'project', projectId: 'p-1' },
           limit: 5,
@@ -226,14 +226,14 @@ describe('kindgi corrections', () => {
   });
 });
 
-describe('kindgi judge-classes', () => {
+describe('kindgi corrector-groups', () => {
   test('list narrows by scope', async () => {
     const { calls, rec } = recorder();
-    const client = { judgeClasses: { list: rec('list', { data: [], hasMore: false }) } };
-    await run(['judge-classes', 'list'], client);
-    await run(['judge-classes', 'list', '--tenant'], client);
-    await run(['judge-classes', 'list', '--project=p-1'], client);
-    await run(['judge-classes', 'list', '--agent=acme.matcher', '--project=p-1'], client);
+    const client = { correctorGroups: { list: rec('list', { data: [], hasMore: false }) } };
+    await run(['corrector-groups', 'list'], client);
+    await run(['corrector-groups', 'list', '--tenant'], client);
+    await run(['corrector-groups', 'list', '--project=p-1'], client);
+    await run(['corrector-groups', 'list', '--agent=acme.matcher', '--project=p-1'], client);
     expect(calls).toEqual([
       ['list', {}],
       ['list', { scope: { kind: 'tenant' } }],
@@ -243,27 +243,27 @@ describe('kindgi judge-classes', () => {
   });
 
   test('--agent needs --project; --tenant stands alone', async () => {
-    const client = { judgeClasses: {} };
-    expect((await run(['judge-classes', 'list', '--agent=a'], client)).stderr).toContain(
+    const client = { correctorGroups: {} };
+    expect((await run(['corrector-groups', 'list', '--agent=a'], client)).stderr).toContain(
       '--agent needs --project',
     );
     expect(
-      (await run(['judge-classes', 'list', '--tenant', '--project=p'], client)).stderr,
+      (await run(['corrector-groups', 'list', '--tenant', '--project=p'], client)).stderr,
     ).toContain('--tenant cannot be combined');
   });
 
-  test('add creates a class in a scope', async () => {
+  test('add creates a group in a scope', async () => {
     const { calls, rec } = recorder();
     const out = await run(
       [
-        'judge-classes',
+        'corrector-groups',
         'add',
         '--name=expert',
         '--weight=3',
         '--tenant',
         '--description=Domain experts',
       ],
-      { judgeClasses: { create: rec('create', { id: 'jc-1' }) } },
+      { correctorGroups: { create: rec('create', { id: 'jc-1' }) } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
@@ -275,32 +275,33 @@ describe('kindgi judge-classes', () => {
   });
 
   test('add needs a name, a weight of 0 or more, and a scope', async () => {
-    const client = { judgeClasses: {} };
+    const client = { correctorGroups: {} };
     expect(
-      (await run(['judge-classes', 'add', '--weight=1', '--tenant'], client)).stderr,
+      (await run(['corrector-groups', 'add', '--weight=1', '--tenant'], client)).stderr,
     ).toContain('--name');
-    expect((await run(['judge-classes', 'add', '--name=x', '--tenant'], client)).stderr).toContain(
-      '--weight',
-    );
     expect(
-      (await run(['judge-classes', 'add', '--name=x', '--weight=-1', '--tenant'], client)).stderr,
+      (await run(['corrector-groups', 'add', '--name=x', '--tenant'], client)).stderr,
+    ).toContain('--weight');
+    expect(
+      (await run(['corrector-groups', 'add', '--name=x', '--weight=-1', '--tenant'], client))
+        .stderr,
     ).toContain('--weight must be a number');
     expect(
-      (await run(['judge-classes', 'add', '--name=x', '--weight=1'], client)).stderr,
+      (await run(['corrector-groups', 'add', '--name=x', '--weight=1'], client)).stderr,
     ).toContain('Give a scope');
   });
 
-  test('add and set take who may assert a class; set --unrestricted lifts it', async () => {
+  test('add and set take who may assert a group; set --unrestricted lifts it', async () => {
     const { calls, rec } = recorder();
     const client = {
-      judgeClasses: {
+      correctorGroups: {
         create: rec('create', { id: 'jc-1' }),
         update: rec('update', { id: 'jc-1' }),
       },
     };
     const added = await run(
       [
-        'judge-classes',
+        'corrector-groups',
         'add',
         '--name=expert',
         '--weight=3',
@@ -313,8 +314,8 @@ describe('kindgi judge-classes', () => {
       client,
     );
     expect(added.exitCode, added.stderr).toBe(0);
-    await run(['judge-classes', 'set', 'jc-1', '--principal-kind=service'], client);
-    await run(['judge-classes', 'set', 'jc-1', '--unrestricted'], client);
+    await run(['corrector-groups', 'set', 'jc-1', '--principal-kind=service'], client);
+    await run(['corrector-groups', 'set', 'jc-1', '--unrestricted'], client);
     expect(calls).toEqual([
       [
         'create',
@@ -335,8 +336,8 @@ describe('kindgi judge-classes', () => {
   });
 
   test('a restriction flag must name a role or kind there is', async () => {
-    const client = { judgeClasses: {} };
-    const add = ['judge-classes', 'add', '--name=x', '--weight=1', '--tenant'];
+    const client = { correctorGroups: {} };
+    const add = ['corrector-groups', 'add', '--name=x', '--weight=1', '--tenant'];
     expect((await run([...add, '--min-reviewer-role=chief'], client)).stderr).toContain(
       '--min-reviewer-role must be one of standard, senior, admin',
     );
@@ -344,7 +345,7 @@ describe('kindgi judge-classes', () => {
       '--principal-kind must be user or service',
     );
     expect(
-      (await run(['judge-classes', 'set', 'jc-1', '--unrestricted', '--principal-id=u'], client))
+      (await run(['corrector-groups', 'set', 'jc-1', '--unrestricted', '--principal-id=u'], client))
         .stderr,
     ).toContain('--unrestricted cannot be combined');
   });
@@ -352,14 +353,14 @@ describe('kindgi judge-classes', () => {
   test('set changes weight and/or description; remove retires', async () => {
     const { calls, rec } = recorder();
     const client = {
-      judgeClasses: {
+      correctorGroups: {
         update: rec('update', { id: 'jc-1' }),
         unregister: rec('unregister', undefined),
       },
     };
-    expect((await run(['judge-classes', 'set', 'jc-1', '--weight=0'], client)).exitCode).toBe(0);
-    expect((await run(['judge-classes', 'set', 'jc-1'], client)).exitCode).toBe(2);
-    const removed = await run(['judge-classes', 'remove', 'jc-1'], client);
+    expect((await run(['corrector-groups', 'set', 'jc-1', '--weight=0'], client)).exitCode).toBe(0);
+    expect((await run(['corrector-groups', 'set', 'jc-1'], client)).exitCode).toBe(2);
+    const removed = await run(['corrector-groups', 'remove', 'jc-1'], client);
     expect(removed.exitCode, removed.stderr).toBe(0);
     expect(calls).toEqual([
       ['update', 'jc-1', { weight: 0 }],

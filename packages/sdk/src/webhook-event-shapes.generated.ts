@@ -381,9 +381,9 @@ export const WEBHOOK_EVENT_SHAPES = {
               },
             },
             optional: {
-              classWeights: {
+              groupWeights: {
                 kind: 'string',
-                enum: ['as-recorded', 'restricted-only'],
+                enum: ['as-recorded', 'experts-only'],
               },
               model: {
                 kind: 'object',

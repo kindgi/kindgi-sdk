@@ -1392,7 +1392,7 @@ const SecretNamePathParam: ParameterSpec = {
   schema: { type: 'string', minLength: 1 },
 };
 
-// ---------------- corrections + judge classes: parameters ----------------
+// ---------------- corrections + corrector groups: parameters ----------------
 
 const CorrectionIdPathParam: ParameterSpec = {
   name: 'correctionId',
@@ -1402,11 +1402,11 @@ const CorrectionIdPathParam: ParameterSpec = {
   schema: { type: 'string', minLength: 1 },
 };
 
-const JudgeClassIdPathParam: ParameterSpec = {
-  name: 'judgeClassId',
+const CorrectorGroupIdPathParam: ParameterSpec = {
+  name: 'correctorGroupId',
   in: 'path',
   required: true,
-  description: 'Judge class id.',
+  description: 'Corrector group id.',
   schema: { type: 'string', minLength: 1 },
 };
 
@@ -1440,7 +1440,7 @@ const CorrectionListQueryParams: readonly ParameterSpec[] = [
     type: 'string',
     enum: ['yes', 'no'],
   }),
-  correctionQuery('judgeClassId', 'Only corrections recorded under this judge class.', {
+  correctionQuery('correctorGroupId', 'Only corrections recorded under this corrector group.', {
     type: 'string',
     minLength: 1,
   }),
@@ -1450,9 +1450,9 @@ const CorrectionListQueryParams: readonly ParameterSpec[] = [
   }),
 ];
 
-const JudgeClassScopeKindQueryParam: ParameterSpec = correctionQuery(
+const CorrectorGroupScopeKindQueryParam: ParameterSpec = correctionQuery(
   'scopeKind',
-  'Only classes of this scope kind. `project` and `agent` need `projectId`; `agent` also needs `agentId`.',
+  'Only groups of this scope kind. `project` and `agent` need `projectId`; `agent` also needs `agentId`.',
   { type: 'string', enum: ['tenant', 'project', 'agent'] },
 );
 
@@ -1465,13 +1465,13 @@ const ScheduleProjectIdQueryParam: ParameterSpec = {
   schema: { type: 'string', format: 'uuid' },
 };
 
-const JudgeClassProjectIdQueryParam: ParameterSpec = correctionQuery(
+const CorrectorGroupProjectIdQueryParam: ParameterSpec = correctionQuery(
   'projectId',
   'Project of the scope, for `scopeKind=project|agent`.',
   { type: 'string', minLength: 1 },
 );
 
-const JudgeClassAgentIdQueryParam: ParameterSpec = correctionQuery(
+const CorrectorGroupAgentIdQueryParam: ParameterSpec = correctionQuery(
   'agentId',
   'Agent of the scope, for `scopeKind=agent`.',
   { type: 'string', minLength: 1 },
@@ -5821,7 +5821,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'corrections.create',
     summary: "Correct an item of a run's output",
     description:
-      "Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified corrections count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first correction of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. A second correction by the same caller for the same run, item key and `participantId` supersedes the earlier one. Needs `write` on the run's project.",
+      "Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a corrector group that applies to the run's project or agent (unclassified corrections count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first correction of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. A second correction by the same caller for the same run, item key and `participantId` supersedes the earlier one. Needs `write` on the run's project.",
     tags: ['corrections'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5830,10 +5830,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Correction recorded.', schema: ref('Correction') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        'Malformed body, or `item-not-found` (the pointer resolves to nothing in the output), or `judge-class-not-applicable`.',
+        'Malformed body, or `item-not-found` (the pointer resolves to nothing in the output), or `corrector-group-not-applicable`.',
       ),
       '403': ErrorResponse(
-        '`permission-denied`: not allowed to correct this run. `judge-class-not-allowed`: the judge class is restricted (`assertableBy`) and the caller may not assert it.',
+        '`permission-denied`: not allowed to correct this run. `corrector-group-not-allowed`: the corrector group is restricted (`assertableBy`) and the caller may not assert it.',
       ),
       '404': ErrorResponse('`run-not-found`.'),
       '409': ErrorResponse('`run-not-finished`: the run has no output to correct yet.'),
@@ -5849,7 +5849,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'corrections.list',
     summary: 'List corrections',
     description:
-      'Live corrections (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.',
+      'Live corrections (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, corrector group or participant; `?scopeKind + ?scopeId` narrow to a project.',
     tags: ['corrections'],
     security: 'bearer',
     parameters: [
@@ -5901,98 +5901,101 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
 
-  // ---------- judge classes ----------
+  // ---------- corrector groups ----------
   {
     method: 'post',
-    honoPath: '/v1/judge-classes',
-    openapiPath: '/v1/judge-classes',
-    operationId: 'judgeClasses.create',
-    summary: 'Create a judge class',
+    honoPath: '/v1/corrector-groups',
+    openapiPath: '/v1/corrector-groups',
+    operationId: 'correctorGroups.create',
+    summary: 'Create a corrector group',
     description:
-      'A named kind of judge with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live classes of a scope. Needs `admin` on the tenant (tenant scope) or the project.',
-    tags: ['judge-classes'],
+      'A named kind of person who corrects with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live groups of a scope. Needs `admin` on the tenant (tenant scope) or the project.',
+    tags: ['corrector-groups'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('CreateJudgeClassBody') },
+    requestBody: { required: true, schema: ref('CreateCorrectorGroupBody') },
     responses: {
-      '201': { description: 'Judge class created.', schema: ref('JudgeClass') },
+      '201': { description: 'Corrector group created.', schema: ref('CorrectorGroup') },
       ...CommonMutationErrors,
       '403': ErrorResponse('`permission-denied`.'),
-      '409': ErrorResponse('`judge-class-name-taken`, or an idempotency conflict.'),
+      '409': ErrorResponse('`corrector-group-name-taken`, or an idempotency conflict.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/judge-classes',
-    openapiPath: '/v1/judge-classes',
-    operationId: 'judgeClasses.list',
-    summary: 'List judge classes',
+    honoPath: '/v1/corrector-groups',
+    openapiPath: '/v1/corrector-groups',
+    operationId: 'correctorGroups.list',
+    summary: 'List corrector groups',
     description:
-      'Live classes, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.',
-    tags: ['judge-classes'],
+      'Live groups, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.',
+    tags: ['corrector-groups'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
       CursorQueryParam,
-      JudgeClassScopeKindQueryParam,
-      JudgeClassProjectIdQueryParam,
-      JudgeClassAgentIdQueryParam,
+      CorrectorGroupScopeKindQueryParam,
+      CorrectorGroupProjectIdQueryParam,
+      CorrectorGroupAgentIdQueryParam,
     ],
     responses: {
-      '200': { description: 'Page of judge classes.', schema: ref('JudgeClassCollectionPage') },
+      '200': {
+        description: 'Page of corrector groups.',
+        schema: ref('CorrectorGroupCollectionPage'),
+      },
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed scope parameters.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/judge-classes/:judgeClassId',
-    openapiPath: '/v1/judge-classes/{judgeClassId}',
-    operationId: 'judgeClasses.get',
-    summary: 'Fetch a judge class',
+    honoPath: '/v1/corrector-groups/:correctorGroupId',
+    openapiPath: '/v1/corrector-groups/{correctorGroupId}',
+    operationId: 'correctorGroups.get',
+    summary: 'Fetch a corrector group',
     description:
-      'Also returns a retired class (`unregisteredAt` set): corrections keep naming theirs.',
-    tags: ['judge-classes'],
+      'Also returns a retired group (`unregisteredAt` set): corrections keep naming theirs.',
+    tags: ['corrector-groups'],
     security: 'bearer',
-    parameters: [JudgeClassIdPathParam],
+    parameters: [CorrectorGroupIdPathParam],
     responses: {
-      '200': { description: 'Judge class.', schema: ref('JudgeClass') },
+      '200': { description: 'Corrector group.', schema: ref('CorrectorGroup') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No judge class with that id under this tenant.'),
+      '404': ErrorResponse('No corrector group with that id under this tenant.'),
     },
   },
   {
     method: 'patch',
-    honoPath: '/v1/judge-classes/:judgeClassId',
-    openapiPath: '/v1/judge-classes/{judgeClassId}',
-    operationId: 'judgeClasses.update',
-    summary: "Change a judge class's weight or description",
-    tags: ['judge-classes'],
+    honoPath: '/v1/corrector-groups/:correctorGroupId',
+    openapiPath: '/v1/corrector-groups/{correctorGroupId}',
+    operationId: 'correctorGroups.update',
+    summary: "Change a corrector group's weight or description",
+    tags: ['corrector-groups'],
     security: 'bearer',
-    parameters: [JudgeClassIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('UpdateJudgeClassBody') },
+    parameters: [CorrectorGroupIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('UpdateCorrectorGroupBody') },
     responses: {
-      '200': { description: 'Updated judge class.', schema: ref('JudgeClass') },
+      '200': { description: 'Updated corrector group.', schema: ref('CorrectorGroup') },
       ...CommonMutationErrors,
       '403': ErrorResponse('`permission-denied`.'),
-      '404': ErrorResponse('No live judge class with that id under this tenant.'),
+      '404': ErrorResponse('No live corrector group with that id under this tenant.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/judge-classes/:judgeClassId/unregister',
-    openapiPath: '/v1/judge-classes/{judgeClassId}/unregister',
-    operationId: 'judgeClasses.unregister',
-    summary: 'Retire a judge class',
+    honoPath: '/v1/corrector-groups/:correctorGroupId/unregister',
+    openapiPath: '/v1/corrector-groups/{correctorGroupId}/unregister',
+    operationId: 'correctorGroups.unregister',
+    summary: 'Retire a corrector group',
     description: 'No new corrections may name it; existing corrections keep it.',
-    tags: ['judge-classes'],
+    tags: ['corrector-groups'],
     security: 'bearer',
-    parameters: [JudgeClassIdPathParam, IdempotencyKeyParam],
+    parameters: [CorrectorGroupIdPathParam, IdempotencyKeyParam],
     responses: {
-      '200': { description: 'Retired.', schema: ref('UnregisterJudgeClassResult') },
+      '200': { description: 'Retired.', schema: ref('UnregisterCorrectorGroupResult') },
       ...CommonMutationErrors,
       '403': ErrorResponse('`permission-denied`.'),
-      '404': ErrorResponse('No live judge class with that id under this tenant.'),
+      '404': ErrorResponse('No live corrector group with that id under this tenant.'),
     },
   },
 
@@ -6660,7 +6663,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'evalSuites.buildFromCorrections',
     summary: 'Build a test set from corrections',
     description:
-      "Publishes a `judged` eval suite version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `judgeClassIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.",
+      "Publishes a `judged` eval suite version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.",
     tags: ['eval-suites'],
     security: 'bearer',
     parameters: [EvalSuiteIdPathParam, IdempotencyKeyParam],
@@ -8972,13 +8975,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
-    honoPath: '/v1/projects/:projectId/judging-rules',
-    openapiPath: '/v1/projects/{projectId}/judging-rules',
-    operationId: 'projects.judgingRules.list',
-    summary: "List a project's judging rules",
+    honoPath: '/v1/projects/:projectId/queue-rules',
+    openapiPath: '/v1/projects/{projectId}/queue-rules',
+    operationId: 'projects.queueRules.list',
+    summary: "List a project's queue rules",
     description:
       "The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's correction when they end. Needs `read` on the project.",
-    tags: ['judging'],
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -8992,20 +8995,20 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CursorQueryParam,
     ],
     responses: {
-      '200': { description: 'A page of rules.', schema: ref('JudgingRulePage') },
+      '200': { description: 'A page of rules.', schema: ref('QueueRulePage') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No project with that id (`project-not-found`).'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/projects/:projectId/judging-rules',
-    openapiPath: '/v1/projects/{projectId}/judging-rules',
-    operationId: 'projects.judgingRules.create',
-    summary: 'Create a judging rule',
+    honoPath: '/v1/projects/:projectId/queue-rules',
+    openapiPath: '/v1/projects/{projectId}/queue-rules',
+    operationId: 'projects.queueRules.create',
+    summary: 'Create a queue rule',
     description:
       "Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's correction; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.",
-    tags: ['judging'],
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -9017,24 +9020,24 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       IdempotencyKeyParam,
     ],
-    requestBody: { required: true, schema: ref('JudgingRuleSpec') },
+    requestBody: { required: true, schema: ref('QueueRuleSpec') },
     responses: {
-      '201': { description: 'The rule, version 1.', schema: ref('JudgingRule') },
+      '201': { description: 'The rule, version 1.', schema: ref('QueueRule') },
       ...CommonMutationErrors,
       '404': ErrorResponse(
-        'No project with that id (`project-not-found`), or no live judge class `judgeClassId` (`judge-class-not-found`).',
+        'No project with that id (`project-not-found`), or no live corrector group `correctorGroupId` (`corrector-group-not-found`).',
       ),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/projects/:projectId/judging-rules/preview',
-    openapiPath: '/v1/projects/{projectId}/judging-rules/preview',
-    operationId: 'projects.judgingRules.preview',
+    honoPath: '/v1/projects/:projectId/queue-rules/preview',
+    openapiPath: '/v1/projects/{projectId}/queue-rules/preview',
+    operationId: 'projects.queueRules.preview',
     summary: 'What a rule would have queued',
     description:
       'Among the project\'s last `last` top-level runs (not replays), how many a rule with these fields (and its `sample`) would have queued. The rule editor\'s "would have added N of the last 100". Lists are comma-separated. Needs `read` on the project.',
-    tags: ['judging'],
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -9103,7 +9106,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
     ],
     responses: {
-      '200': { description: 'The preview.', schema: ref('JudgingRulePreview') },
+      '200': { description: 'The preview.', schema: ref('QueueRulePreview') },
       ...CommonAuthErrors,
       '400': ErrorResponse('A malformed field (`bad-input`).'),
       '404': ErrorResponse('No project with that id (`project-not-found`).'),
@@ -9111,12 +9114,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
-    honoPath: '/v1/projects/:projectId/judging-rules/:ruleId',
-    openapiPath: '/v1/projects/{projectId}/judging-rules/{ruleId}',
-    operationId: 'projects.judgingRules.get',
-    summary: 'Fetch a judging rule',
+    honoPath: '/v1/projects/:projectId/queue-rules/:ruleId',
+    openapiPath: '/v1/projects/{projectId}/queue-rules/{ruleId}',
+    operationId: 'projects.queueRules.get',
+    summary: 'Fetch a queue rule',
     description: 'Its latest version. Needs `read` on the project.',
-    tags: ['judging'],
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -9129,20 +9132,20 @@ export const OPERATIONS: readonly OperationSpec[] = [
       { name: 'ruleId', in: 'path', required: true, schema: { type: 'string' } },
     ],
     responses: {
-      '200': { description: 'The rule.', schema: ref('JudgingRule') },
+      '200': { description: 'The rule.', schema: ref('QueueRule') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No such rule in the project (`judging-rule-not-found`).'),
+      '404': ErrorResponse('No such rule in the project (`queue-rule-not-found`).'),
     },
   },
   {
     method: 'patch',
-    honoPath: '/v1/projects/:projectId/judging-rules/:ruleId',
-    openapiPath: '/v1/projects/{projectId}/judging-rules/{ruleId}',
-    operationId: 'projects.judgingRules.update',
-    summary: 'Change a judging rule',
+    honoPath: '/v1/projects/:projectId/queue-rules/:ruleId',
+    openapiPath: '/v1/projects/{projectId}/queue-rules/{ruleId}',
+    operationId: 'projects.queueRules.update',
+    summary: 'Change a queue rule',
     description:
       'A new version with these fields changed (`when` is replaced whole). Earlier versions are kept: `…/versions` shows who changed what, when. Needs `write` on the project.',
-    tags: ['judging'],
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -9154,24 +9157,24 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       { name: 'ruleId', in: 'path', required: true, schema: { type: 'string' } },
     ],
-    requestBody: { required: true, schema: ref('JudgingRulePatch') },
+    requestBody: { required: true, schema: ref('QueueRulePatch') },
     responses: {
-      '200': { description: 'The new version.', schema: ref('JudgingRule') },
+      '200': { description: 'The new version.', schema: ref('QueueRule') },
       ...CommonMutationErrors,
       '404': ErrorResponse(
-        'No such rule (`judging-rule-not-found`), or no live judge class `judgeClassId` (`judge-class-not-found`).',
+        'No such rule (`queue-rule-not-found`), or no live corrector group `correctorGroupId` (`corrector-group-not-found`).',
       ),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/projects/:projectId/judging-rules/:ruleId/unregister',
-    openapiPath: '/v1/projects/{projectId}/judging-rules/{ruleId}/unregister',
-    operationId: 'projects.judgingRules.unregister',
-    summary: 'Stop a judging rule',
+    honoPath: '/v1/projects/:projectId/queue-rules/:ruleId/unregister',
+    openapiPath: '/v1/projects/{projectId}/queue-rules/{ruleId}/unregister',
+    operationId: 'projects.queueRules.unregister',
+    summary: 'Stop a queue rule',
     description:
       'It queues nothing more; its versions and the items it queued stay. `unregistered: false` when it was already stopped. Needs `write` on the project.',
-    tags: ['judging'],
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -9186,21 +9189,21 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': {
         description: 'Whether it was stopped now.',
-        schema: ref('JudgingRuleUnregisterResult'),
+        schema: ref('QueueRuleUnregisterResult'),
       },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No such rule (`judging-rule-not-found`).'),
+      '404': ErrorResponse('No such rule (`queue-rule-not-found`).'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/projects/:projectId/judging-rules/:ruleId/versions',
-    openapiPath: '/v1/projects/{projectId}/judging-rules/{ruleId}/versions',
-    operationId: 'projects.judgingRules.versions',
-    summary: "A judging rule's versions",
+    honoPath: '/v1/projects/:projectId/queue-rules/:ruleId/versions',
+    openapiPath: '/v1/projects/{projectId}/queue-rules/{ruleId}/versions',
+    operationId: 'projects.queueRules.versions',
+    summary: "A queue rule's versions",
     description:
       'Every version, newest first: who wrote it, when, and what it said. Needs `read` on the project.',
-    tags: ['judging'],
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -9215,20 +9218,20 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CursorQueryParam,
     ],
     responses: {
-      '200': { description: 'A page of versions.', schema: ref('JudgingRulePage') },
+      '200': { description: 'A page of versions.', schema: ref('QueueRulePage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No such rule (`judging-rule-not-found`).'),
+      '404': ErrorResponse('No such rule (`queue-rule-not-found`).'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/projects/:projectId/judging-rules/:ruleId/results',
-    openapiPath: '/v1/projects/{projectId}/judging-rules/{ruleId}/results',
-    operationId: 'projects.judgingRules.results',
-    summary: "A judging rule's results",
+    honoPath: '/v1/projects/:projectId/queue-rules/:ruleId/results',
+    openapiPath: '/v1/projects/{projectId}/queue-rules/{ruleId}/results',
+    operationId: 'projects.queueRules.results',
+    summary: "A queue rule's results",
     description:
-      "By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live corrections on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.",
-    tags: ['judging'],
+      "By the rule's version and the agent's: the runs it queued (open, corrected, dismissed, erased), the ones its `maxOpen` skipped, and the live corrections on them, with their group-weighted `yes` share and a count by group. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.",
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -9248,20 +9251,20 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
     ],
     responses: {
-      '200': { description: 'The results.', schema: ref('JudgingRuleResults') },
+      '200': { description: 'The results.', schema: ref('QueueRuleResults') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No such rule (`judging-rule-not-found`).'),
+      '404': ErrorResponse('No such rule (`queue-rule-not-found`).'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/projects/:projectId/judging-rules/:ruleId/queue-recent',
-    openapiPath: '/v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent',
-    operationId: 'projects.judgingRules.queueRecent',
+    honoPath: '/v1/projects/:projectId/queue-rules/:ruleId/queue-recent',
+    openapiPath: '/v1/projects/{projectId}/queue-rules/{ruleId}/queue-recent',
+    operationId: 'projects.queueRules.queueRecent',
     summary: "Queue a rule's recent matches",
     description:
       "Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already corrected or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.",
-    tags: ['judging'],
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -9273,25 +9276,25 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       { name: 'ruleId', in: 'path', required: true, schema: { type: 'string' } },
     ],
-    requestBody: { required: true, schema: ref('JudgingQueueRecentInput') },
+    requestBody: { required: true, schema: ref('ExpertQueueRecentInput') },
     responses: {
       '200': {
         description: 'The matches, split into queued, already queued and already reviewed.',
-        schema: ref('JudgingRecentQueued'),
+        schema: ref('ExpertQueueRecentQueued'),
       },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No such rule (`judging-rule-not-found`).'),
+      '404': ErrorResponse('No such rule (`queue-rule-not-found`).'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/projects/:projectId/judging-queue',
-    openapiPath: '/v1/projects/{projectId}/judging-queue',
-    operationId: 'projects.judgingQueue.list',
-    summary: "The project's judging queue",
+    honoPath: '/v1/projects/:projectId/expert-queue',
+    openapiPath: '/v1/projects/{projectId}/expert-queue',
+    operationId: 'projects.expertQueue.list',
+    summary: "The project's expert queue",
     description:
-      "Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a class the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.",
-    tags: ['judging'],
+      "Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a group the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.",
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -9305,8 +9308,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         name: 'state',
         in: 'query',
         required: false,
-        description: 'open, judged, dismissed or erased.',
-        schema: { $ref: '#/components/schemas/JudgingQueueState' },
+        description: 'open, corrected, dismissed or erased.',
+        schema: { $ref: '#/components/schemas/ExpertQueueState' },
       },
       {
         name: 'agentId',
@@ -9323,10 +9326,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: { type: 'string' },
       },
       {
-        name: 'judgeClassId',
+        name: 'correctorGroupId',
         in: 'query',
         required: false,
-        description: 'Only items that want this class.',
+        description: 'Only items that want this group.',
         schema: { type: 'string' },
       },
       {
@@ -9358,7 +9361,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CursorQueryParam,
     ],
     responses: {
-      '200': { description: 'A page of queued runs.', schema: ref('JudgingQueuePage') },
+      '200': { description: 'A page of queued runs.', schema: ref('ExpertQueuePage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('A malformed filter (`bad-input`).'),
       '404': ErrorResponse('No project with that id (`project-not-found`).'),
@@ -9366,13 +9369,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'post',
-    honoPath: '/v1/projects/:projectId/judging-queue/:runId/dismiss',
-    openapiPath: '/v1/projects/{projectId}/judging-queue/{runId}/dismiss',
-    operationId: 'projects.judgingQueue.dismiss',
+    honoPath: '/v1/projects/:projectId/expert-queue/:runId/dismiss',
+    openapiPath: '/v1/projects/{projectId}/expert-queue/{runId}/dismiss',
+    operationId: 'projects.expertQueue.dismiss',
     summary: 'Dismiss a queued run',
     description:
       'Not worth correcting: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as correcting the run does.',
-    tags: ['judging'],
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -9384,23 +9387,23 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       { name: 'runId', in: 'path', required: true, schema: { type: 'string' } },
     ],
-    requestBody: { required: false, schema: ref('JudgingDismissBody') },
+    requestBody: { required: false, schema: ref('ExpertQueueDismissBody') },
     responses: {
-      '200': { description: 'The item, dismissed.', schema: ref('JudgingQueueItem') },
+      '200': { description: 'The item, dismissed.', schema: ref('ExpertQueueItem') },
       ...CommonMutationErrors,
-      '404': ErrorResponse("The run isn't in the project's queue (`judging-item-not-found`)."),
-      '409': ErrorResponse("The item isn't open (`judging-item-not-open`)."),
+      '404': ErrorResponse("The run isn't in the project's queue (`expert-queue-item-not-found`)."),
+      '409': ErrorResponse("The item isn't open (`expert-queue-item-not-open`)."),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/projects/:projectId/judging-queue/:runId/reopen',
-    openapiPath: '/v1/projects/{projectId}/judging-queue/{runId}/reopen',
-    operationId: 'projects.judgingQueue.reopen',
+    honoPath: '/v1/projects/:projectId/expert-queue/:runId/reopen',
+    openapiPath: '/v1/projects/{projectId}/expert-queue/{runId}/reopen',
+    operationId: 'projects.expertQueue.reopen',
     summary: 'Reopen a dismissed run',
     description:
-      'Back in the open queue. Only a dismissed item reopens: a judged one was closed by its corrections. Needs `write` on the project.',
-    tags: ['judging'],
+      'Back in the open queue. Only a dismissed item reopens: a corrected one was closed by its corrections. Needs `write` on the project.',
+    tags: ['expert-queue'],
     security: 'bearer',
     parameters: [
       {
@@ -9413,10 +9416,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       { name: 'runId', in: 'path', required: true, schema: { type: 'string' } },
     ],
     responses: {
-      '200': { description: 'The item, open again.', schema: ref('JudgingQueueItem') },
+      '200': { description: 'The item, open again.', schema: ref('ExpertQueueItem') },
       ...CommonMutationErrors,
-      '404': ErrorResponse("The run isn't in the project's queue (`judging-item-not-found`)."),
-      '409': ErrorResponse("The item wasn't dismissed (`judging-item-not-open`)."),
+      '404': ErrorResponse("The run isn't in the project's queue (`expert-queue-item-not-found`)."),
+      '409': ErrorResponse("The item wasn't dismissed (`expert-queue-item-not-open`)."),
     },
   },
   {

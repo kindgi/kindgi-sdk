@@ -1,6 +1,6 @@
 ---
 title: Correct a run's output
-description: Record a yes or no, with a reason, on each item of a finished run's output, from your app, the CLI or the console, and weight corrections by judge class.
+description: Record a yes or no, with a reason, on each item of a finished run's output, from your app, the CLI or the console, and weight corrections by corrector group.
 sidebar:
   order: 1
 ---
@@ -17,7 +17,7 @@ returned. People who know the work, your users or your experts, correct it.
 The corrections then tell you how an agent or flow version does: you
 [build test cases](../build-a-test-set/) from them, and
 [try a new version](../compare-an-agent-version/) on them.
-[Corrections reference](../judging-reference/) has every field, rule and
+[Corrections reference](../expert-queue-reference/) has every field, rule and
 console page.
 
 ## Before you start
@@ -206,13 +206,13 @@ object RecordCorrection {
 
 The run now has the correction. Only a finished run can be corrected, and
 the pointer must find something.
-[Corrections](../judging-reference/#corrections) has the rules and the
+[Corrections](../expert-queue-reference/#corrections) has the rules and the
 refusals.
 
 In the console, a finished run's page has **Correct this run**, or a
 **Corrections** tab once it has corrections. It lists the answer and each
 element of a list in the output, each with **Yes** and **No** and the counts
-so far. It lists each correction with who made it, its class and its reason.
+so far. It lists each correction with who made it, its group and its reason.
 
 ## Say what it should have done
 
@@ -350,7 +350,7 @@ uv run kindgi corrections remove <correction-id>
 
 - `<run-id>` is the run's id, and `<correction-id>` a correction's `id`, from
   the list.
-- `list` also filters by agent and version, flow, verdict, judge class,
+- `list` also filters by agent and version, flow, verdict, corrector group,
   participant and project.
 
 `list` prints a page of corrections as JSON: `data`, `hasMore`, and
@@ -361,98 +361,98 @@ A correction keeps copies of the run's input and output, so it outlives the
 run's own retention. The clients have the same: `corrections.list`,
 `corrections.get` and `corrections.remove`.
 
-## Weight corrections by judge class
+## Weight corrections by corrector group
 
-Without a class, every correction counts once. A **judge class** counts some
+Without a group, every correction counts once. A **corrector group** counts some
 people's corrections more, for the tenant, a project, or an agent in a
 project.
 
-Add a class, then correct as it:
+Add a group, then correct as it:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi judge-classes add --name=expert --weight=3 --project=<project-id>
-pnpm exec kindgi corrections add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+pnpm exec kindgi corrector-groups add --name=expert --weight=3 --project=<project-id>
+pnpm exec kindgi corrections add --run=<run-id> --item=answer --pointer=/response/content --yes --group=<corrector-group-id>
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi judge-classes add --name=expert --weight=3 --project=<project-id>
-uv run kindgi corrections add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+uv run kindgi corrector-groups add --name=expert --weight=3 --project=<project-id>
+uv run kindgi corrections add --run=<run-id> --item=answer --pointer=/response/content --yes --group=<corrector-group-id>
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw judge-classes add --name=expert --weight=3 --project=<project-id>
-./kindgiw corrections add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+./kindgiw corrector-groups add --name=expert --weight=3 --project=<project-id>
+./kindgiw corrections add --run=<run-id> --item=answer --pointer=/response/content --yes --group=<corrector-group-id>
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw judge-classes add --name=expert --weight=3 --project=<project-id>
-./kindgiw corrections add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+./kindgiw corrector-groups add --name=expert --weight=3 --project=<project-id>
+./kindgiw corrections add --run=<run-id> --item=answer --pointer=/response/content --yes --group=<corrector-group-id>
 ```
 
 </TabItem>
 </Tabs>
 
-- `--name` names the class, and `--weight=3` counts its corrections three
+- `--name` names the group, and `--weight=3` counts its corrections three
   times.
 - `--project=<project-id>` is the project it applies to.
   [Build the test cases](../build-a-test-set/#build-the-test-cases) shows how to
   find a project's id.
-- `--class=<judge-class-id>` is the class's `id`, which `add` printed. In the
-  clients, it's `judgeClassId`.
+- `--group=<corrector-group-id>` is the group's `id`, which `add` printed. In the
+  clients, it's `correctorGroupId`.
 
-The correction now counts with the class's weight.
+The correction now counts with the group's weight.
 
-### Restrict who may correct as a class
+### Restrict who may correct as a group
 
-A restricted class says who may correct as it, so the people using your app
+An expert group says who may correct as it, so the people using your app
 can't move the figures that release a version.
 
-Add the class with a restriction, before your reviewers correct runs:
+Add the group with a restriction, before your reviewers correct runs:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+pnpm exec kindgi corrector-groups add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+uv run kindgi corrector-groups add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+./kindgiw corrector-groups add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
+./kindgiw corrector-groups add --name=expert --weight=3 --tenant --min-reviewer-role=senior --description="Order desk leads"
 ```
 
 </TabItem>
 </Tabs>
 
-- `--tenant` makes it the tenant's class.
+- `--tenant` makes it the tenant's group.
 - `--min-reviewer-role=senior` lets only a
   [reviewer](../../approvals/decide-an-approval/#reviewers-and-roles) of that
   role or above correct as it: `standard`, `senior` or `admin`.
@@ -468,14 +468,14 @@ Error [auth]: You can't correct as "expert": it needs a senior reviewer or above
 Error [auth]: You can't correct as "tokens": only service tokens may assert it.
 ```
 
-A correction made under a restriction carries `"restricted": true`. It's
+A correction made under a restriction carries `"expert": true`. It's
 decided when the correction is made, so corrections recorded before the
-restriction don't count as restricted.
-[Judge classes](../judging-reference/#judge-classes) has the rest.
+restriction don't count as expert.
+[Corrector groups](../expert-queue-reference/#corrector-groups) has the rest.
 
 ## Queue the runs to correct
 
-**Judging rules** pick the project's runs that need a person's correction, so
+**Queue rules** pick the project's runs that need a person's correction, so
 your experts don't pick runs one at a time. As a run of the project ends,
 each rule checks it. A run that any rule matches joins the project's queue of
 answers waiting for a correction, **To correct** in the console, once.
@@ -487,13 +487,13 @@ for people to correct." For reference, the code looks like this:
 <TabItem label="TypeScript">
 
 ```ts
-// judging-rule.ts
+// queue-rule.ts
 import { createClient } from '@kindgi/sdk/client';
 
 const kindgi = createClient();
 const project = await kindgi.projects.getDefault();
 
-const rule = await kindgi.projects.judgingRules.create(project.id, {
+const rule = await kindgi.projects.queueRules.create(project.id, {
   name: 'Live refund runs',
   when: { agentIds: ['acme.refunds'], versions: ['live'] },
   sample: 0.05, // 5% of them
@@ -506,13 +506,13 @@ console.log(rule.ruleId, rule.version);
 <TabItem label="Python">
 
 ```python
-# judging_rule.py
+# queue_rule.py
 from kindgi.client import Kindgi
 
 kindgi = Kindgi()
 project = kindgi.projects.get_default()
 
-rule = kindgi.projects.judging_rules.create(
+rule = kindgi.projects.queue_rules.create(
     project.id,
     name="Live refund runs",
     when={"agent_ids": ["acme.refunds"], "versions": ["live"]},
@@ -526,23 +526,23 @@ print(rule.rule_id, rule.version)
 <TabItem label="Java">
 
 ```java
-// src/main/java/com/acme/app/JudgingRule.java
+// src/main/java/com/acme/app/QueueRule.java
 package com.acme.app;
 
 import com.kindgi.client.Kindgi;
-import com.kindgi.client.models.JudgingRuleSpec;
-import com.kindgi.client.models.JudgingRuleWhen;
+import com.kindgi.client.models.QueueRuleSpec;
+import com.kindgi.client.models.QueueRuleWhen;
 import com.kindgi.client.models.Project;
 import java.util.List;
 
-public final class JudgingRule {
+public final class QueueRule {
   public static void main(String[] args) {
     Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
     Project project = kindgi.projects().getDefault();
-    var rule = kindgi.projects().judgingRules().create(project.id(), JudgingRuleSpec.builder()
+    var rule = kindgi.projects().queueRules().create(project.id(), QueueRuleSpec.builder()
         .name("Live refund runs")
-        .when(JudgingRuleWhen.builder().agentIds(List.of("acme.refunds")).versions(List.of("live")).build())
+        .when(QueueRuleWhen.builder().agentIds(List.of("acme.refunds")).versions(List.of("live")).build())
         .sample(0.05) // 5% of them
         .maxOpen(20L) // at most 20 waiting at once
         .build());
@@ -559,21 +559,21 @@ public final class JudgingRule {
 <TabItem label="Scala">
 
 ```scala
-// src/main/scala/acme/app/JudgingRule.scala
+// src/main/scala/acme/app/QueueRule.scala
 package acme.app
 
 import com.kindgi.client.Kindgi
-import com.kindgi.client.models.{JudgingRuleSpec, JudgingRuleWhen}
+import com.kindgi.client.models.{QueueRuleSpec, QueueRuleWhen}
 import scala.jdk.CollectionConverters._
 
-object JudgingRule {
+object QueueRule {
   def main(args: Array[String]): Unit = {
     val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
     val project = kindgi.projects().getDefault()
-    val rule = kindgi.projects().judgingRules().create(project.id, JudgingRuleSpec.builder()
+    val rule = kindgi.projects().queueRules().create(project.id, QueueRuleSpec.builder()
       .name("Live refund runs")
-      .when(JudgingRuleWhen.builder().agentIds(List("acme.refunds").asJava).versions(List("live").asJava).build())
+      .when(QueueRuleWhen.builder().agentIds(List("acme.refunds").asJava).versions(List("live").asJava).build())
       .sample(0.05) // 5% of them
       .maxOpen(20L) // at most 20 waiting at once
       .build())
@@ -620,7 +620,7 @@ it, here one made with `sample: 1` and `maxOpen: 2`:
 ```
 
 From now on, the runs it matches join the queue as they end. It never runs a
-model or spends anything. [Judging rules](../judging-reference/#judging-rules)
+model or spends anything. [Queue rules](../expert-queue-reference/#queue-rules)
 has every field, and how to try a rule before you make it.
 
 ### Work through the queue
@@ -633,13 +633,13 @@ correction." For reference, the code looks like this:
 <TabItem label="TypeScript">
 
 ```ts
-// judging-queue.ts
+// expert-queue.ts
 import { createClient } from '@kindgi/sdk/client';
 
 const kindgi = createClient();
 const project = await kindgi.projects.getDefault();
 
-const waiting = await kindgi.projects.judgingQueue.list(project.id, { forMe: true });
+const waiting = await kindgi.projects.expertQueue.list(project.id, { forMe: true });
 console.log(waiting.total, waiting.data.length);
 ```
 
@@ -647,13 +647,13 @@ console.log(waiting.total, waiting.data.length);
 <TabItem label="Python">
 
 ```python
-# judging_queue.py
+# expert_queue.py
 from kindgi.client import Kindgi
 
 kindgi = Kindgi()
 project = kindgi.projects.get_default()
 
-waiting = kindgi.projects.judging_queue.list(project.id, for_me=True)
+waiting = kindgi.projects.expert_queue.list(project.id, for_me=True)
 print(waiting.total, len(waiting.data))
 ```
 
@@ -661,21 +661,21 @@ print(waiting.total, len(waiting.data))
 <TabItem label="Java">
 
 ```java
-// src/main/java/com/acme/app/JudgingQueue.java
+// src/main/java/com/acme/app/ExpertQueue.java
 package com.acme.app;
 
 import com.kindgi.client.Kindgi;
-import com.kindgi.client.models.JudgingQueuePage;
+import com.kindgi.client.models.ExpertQueuePage;
 import com.kindgi.client.models.Project;
-import com.kindgi.client.resources.ProjectsJudgingQueueListParams;
+import com.kindgi.client.resources.ProjectsExpertQueueListParams;
 
-public final class JudgingQueue {
+public final class ExpertQueue {
   public static void main(String[] args) {
     Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
     Project project = kindgi.projects().getDefault();
-    JudgingQueuePage waiting = kindgi.projects().judgingQueue()
-        .list(project.id(), ProjectsJudgingQueueListParams.builder().forMe(true).build());
+    ExpertQueuePage waiting = kindgi.projects().expertQueue()
+        .list(project.id(), ProjectsExpertQueueListParams.builder().forMe(true).build());
     System.out.println(waiting.total() + " " + waiting.data().size());
   }
 }
@@ -689,19 +689,19 @@ public final class JudgingQueue {
 <TabItem label="Scala">
 
 ```scala
-// src/main/scala/acme/app/JudgingQueue.scala
+// src/main/scala/acme/app/ExpertQueue.scala
 package acme.app
 
 import com.kindgi.client.Kindgi
-import com.kindgi.client.resources.ProjectsJudgingQueueListParams
+import com.kindgi.client.resources.ProjectsExpertQueueListParams
 
-object JudgingQueue {
+object ExpertQueue {
   def main(args: Array[String]): Unit = {
     val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
     val project = kindgi.projects().getDefault()
-    val waiting = kindgi.projects().judgingQueue()
-      .list(project.id, ProjectsJudgingQueueListParams.builder().forMe(true).build())
+    val waiting = kindgi.projects().expertQueue()
+      .list(project.id, ProjectsExpertQueueListParams.builder().forMe(true).build())
     println(s"${waiting.total} ${waiting.data.size}")
   }
 }
@@ -714,7 +714,7 @@ object JudgingQueue {
 </TabItem>
 </Tabs>
 
-`forMe: true` keeps the items you can close: those that want a class you
+`forMe: true` keeps the items you can close: those that want a group you
 may correct as, or any correction. It prints how many such items wait in all,
 and how many are on this page. One item, as that rule queued it:
 
@@ -733,11 +733,11 @@ and how many are on this page. One item, as that rule queued it:
       "version": 1
     }
   ],
-  "wantedClassIds": [],
+  "wantedGroupIds": [],
   "anyCorrection": true,
   "progress": {
     "total": 0,
-    "byClass": []
+    "byGroup": []
   },
   "addedAt": "2026-10-10T02:44:01.447Z",
   "state": "open",
@@ -749,10 +749,10 @@ and how many are on this page. One item, as that rule queued it:
 ```
 
 Correct each item's run, as [Correct an item](#correct-an-item) shows. An
-item closes as `judged` once each rule that queued it has the correction it
-wants. `judgingQueue.dismiss`, with an optional reason, takes a run not worth
+item closes as `corrected` once each rule that queued it has the correction it
+wants. `expertQueue.dismiss`, with an optional reason, takes a run not worth
 correcting out of the queue.
-[Answers waiting for a correction](../judging-reference/#answers-waiting-for-a-correction)
+[Answers waiting for a correction](../expert-queue-reference/#answers-waiting-for-a-correction)
 has every field and count.
 
 Reading the rules and the queue takes read access to the project. Changing a
@@ -763,4 +763,4 @@ a run does.
 
 - [Build test cases from corrections](../build-a-test-set/)
 - [Try a version on the test cases](../compare-an-agent-version/)
-- [Corrections reference](../judging-reference/)
+- [Corrections reference](../expert-queue-reference/)

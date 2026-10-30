@@ -11,20 +11,20 @@ import type { Cursor, TenantId, Timestamp } from '@kindgi/types';
 import { callerRef } from '../caller.js';
 import {
   type CorrectionRegistryBinding,
-  type JudgeClassAsserter,
+  type CorrectorGroupAsserter,
   whyNotAssertable,
 } from '../correction-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type {
-  JudgingError,
-  JudgingQueueBinding,
-  JudgingQueueItem,
-  JudgingQueueState,
-  JudgingRule,
-  JudgingRulePatch,
-  JudgingRuleSpec,
-  JudgingRunStatus,
-} from '../judging-queue-binding.js';
+  ExpertQueueBinding,
+  ExpertQueueError,
+  ExpertQueueItem,
+  ExpertQueueRunStatus,
+  ExpertQueueState,
+  QueueRule,
+  QueueRulePatch,
+  QueueRuleSpec,
+} from '../expert-queue-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
@@ -32,24 +32,24 @@ import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 
 /**
- * A project's judging rules and the queue they fill (mounted at
+ * A project's queue rules and the queue they fill (mounted at
  * `/v1/projects`):
  *
- *   - `GET|POST  /:projectId/judging-rules`
- *   - `GET       /:projectId/judging-rules/preview`
- *   - `GET|PATCH /:projectId/judging-rules/:ruleId`, `POST …/unregister`
- *   - `GET       /:projectId/judging-rules/:ruleId/versions`, `…/results`
- *   - `POST      /:projectId/judging-rules/:ruleId/queue-recent`
- *   - `GET       /:projectId/judging-queue`
- *   - `POST      /:projectId/judging-queue/:runId/dismiss`, `…/reopen`
+ *   - `GET|POST  /:projectId/queue-rules`
+ *   - `GET       /:projectId/queue-rules/preview`
+ *   - `GET|PATCH /:projectId/queue-rules/:ruleId`, `POST …/unregister`
+ *   - `GET       /:projectId/queue-rules/:ruleId/versions`, `…/results`
+ *   - `POST      /:projectId/queue-rules/:ruleId/queue-recent`
+ *   - `GET       /:projectId/expert-queue`
+ *   - `POST      /:projectId/expert-queue/:runId/dismiss`, `…/reopen`
  *
  * Reading needs `read` on the project; changing a rule, and dismissing or
  * reopening an item, need `write` there, the check that recording a
  * correction on the run makes. The queue lists only the project's own runs,
  * and an item carries none of a run's content.
  */
-export function judgingRouter(
-  binding: JudgingQueueBinding,
+export function expertQueueRouter(
+  binding: ExpertQueueBinding,
   deps: {
     readonly authorizer?: Authorizer;
     readonly corrections?: CorrectionRegistryBinding;
@@ -85,10 +85,10 @@ export function judgingRouter(
     await next();
     return undefined;
   };
-  // A trailing '/*' matches the bare path too ('/:projectId/judging-rules'
+  // A trailing '/*' matches the bare path too ('/:projectId/queue-rules'
   // itself): each gate is registered once, so a request is checked once.
-  r.use('/:projectId/judging-rules/*', projectGate);
-  r.use('/:projectId/judging-queue/*', projectGate);
+  r.use('/:projectId/queue-rules/*', projectGate);
+  r.use('/:projectId/expert-queue/*', projectGate);
 
   const inProject = (c: Context<AppEnv>) => ({
     tenantId: c.get('tenantId') as TenantId,
@@ -100,7 +100,7 @@ export function judgingRouter(
   };
 
   // ---------- rules ----------
-  r.get('/:projectId/judging-rules', async (c) => {
+  r.get('/:projectId/queue-rules', async (c) => {
     const cursor = c.req.query('cursor');
     const page = await binding.listRules({
       ...inProject(c),
@@ -110,22 +110,22 @@ export function judgingRouter(
     return c.json(rulePage(page));
   });
 
-  r.post('/:projectId/judging-rules', async (c) => {
+  r.post('/:projectId/queue-rules', async (c) => {
     const parsed = parseSpec(await c.req.json().catch(() => undefined), 'create');
     if (typeof parsed === 'string') return fail(c, 'bad-input', parsed);
-    const known = await classKnown(c, parsed.judgeClassId ?? undefined);
+    const known = await groupKnown(c, parsed.correctorGroupId ?? undefined);
     if (known !== undefined) return known;
     const created = await binding.createRule({
       ...inProject(c),
-      spec: parsed as JudgingRuleSpec,
+      spec: parsed as QueueRuleSpec,
       ...by(c),
     });
-    if (created.kind === 'err') return judgingFail(c, created.error);
+    if (created.kind === 'err') return expertQueueFail(c, created.error);
     c.status(201);
     return c.json(serializeRule(created.value));
   });
 
-  r.get('/:projectId/judging-rules/preview', async (c) => {
+  r.get('/:projectId/queue-rules/preview', async (c) => {
     const spec = parseSpec(specFromQuery(c), 'preview');
     if (typeof spec === 'string') return fail(c, 'bad-input', spec);
     const lastRaw = c.req.query('last');
@@ -140,23 +140,23 @@ export function judgingRouter(
     return c.json(
       await binding.preview({
         ...inProject(c),
-        spec: { name: 'preview', ...spec } as JudgingRuleSpec,
+        spec: { name: 'preview', ...spec } as QueueRuleSpec,
         last,
         ...(ruleId !== undefined && { ruleId }),
       }),
     );
   });
 
-  r.get('/:projectId/judging-rules/:ruleId', async (c) => {
+  r.get('/:projectId/queue-rules/:ruleId', async (c) => {
     const rule = await binding.getRule({ ...inProject(c), ruleId: c.req.param('ruleId') });
     if (rule === null) return ruleNotFound(c);
     return c.json(serializeRule(rule));
   });
 
-  r.patch('/:projectId/judging-rules/:ruleId', async (c) => {
+  r.patch('/:projectId/queue-rules/:ruleId', async (c) => {
     const parsed = parseSpec(await c.req.json().catch(() => undefined), 'patch');
     if (typeof parsed === 'string') return fail(c, 'bad-input', parsed);
-    const known = await classKnown(c, parsed.judgeClassId ?? undefined);
+    const known = await groupKnown(c, parsed.correctorGroupId ?? undefined);
     if (known !== undefined) return known;
     const updated = await binding.updateRule({
       ...inProject(c),
@@ -164,11 +164,11 @@ export function judgingRouter(
       patch: parsed,
       ...by(c),
     });
-    if (updated.kind === 'err') return judgingFail(c, updated.error);
+    if (updated.kind === 'err') return expertQueueFail(c, updated.error);
     return c.json(serializeRule(updated.value));
   });
 
-  r.post('/:projectId/judging-rules/:ruleId/unregister', async (c) => {
+  r.post('/:projectId/queue-rules/:ruleId/unregister', async (c) => {
     const ruleId = c.req.param('ruleId');
     const done = await binding.unregisterRule({ ...inProject(c), ruleId, ...by(c) });
     if (!done.unregistered && (await binding.getRule({ ...inProject(c), ruleId })) === null) {
@@ -178,7 +178,7 @@ export function judgingRouter(
     return c.json({ ruleId, unregistered: done.unregistered });
   });
 
-  r.get('/:projectId/judging-rules/:ruleId/versions', async (c) => {
+  r.get('/:projectId/queue-rules/:ruleId/versions', async (c) => {
     const cursor = c.req.query('cursor');
     const page = await binding.ruleVersions({
       ...inProject(c),
@@ -190,7 +190,7 @@ export function judgingRouter(
     return c.json(rulePage(page));
   });
 
-  r.get('/:projectId/judging-rules/:ruleId/results', async (c) => {
+  r.get('/:projectId/queue-rules/:ruleId/results', async (c) => {
     const since = c.req.query('since');
     if (since !== undefined && Number.isNaN(Date.parse(since))) {
       return fail(c, 'bad-input', '`since` must be a date-time');
@@ -200,11 +200,11 @@ export function judgingRouter(
       ruleId: c.req.param('ruleId'),
       ...(since !== undefined && { since: new Date(since).toISOString() as Timestamp }),
     });
-    if (out.kind === 'err') return judgingFail(c, out.error);
+    if (out.kind === 'err') return expertQueueFail(c, out.error);
     return c.json(out.value);
   });
 
-  r.post('/:projectId/judging-rules/:ruleId/queue-recent', async (c) => {
+  r.post('/:projectId/queue-rules/:ruleId/queue-recent', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       last?: unknown;
       since?: unknown;
@@ -238,18 +238,18 @@ export function judgingRouter(
       ...(since !== undefined && { since }),
       ...by(c),
     });
-    if (out.kind === 'err') return judgingFail(c, out.error);
+    if (out.kind === 'err') return expertQueueFail(c, out.error);
     return c.json(out.value);
   });
 
   // ---------- the queue ----------
-  r.get('/:projectId/judging-queue', async (c) => {
+  r.get('/:projectId/expert-queue', async (c) => {
     const q = (name: string) => {
       const v = c.req.query(name);
       return v === undefined || v === '' ? undefined : v;
     };
     const state = q('state');
-    if (state !== undefined && !STATES.includes(state as JudgingQueueState)) {
+    if (state !== undefined && !STATES.includes(state as ExpertQueueState)) {
       return fail(c, 'bad-input', `\`state\` must be one of: ${STATES.join(', ')}`);
     }
     for (const name of ['addedAfter', 'closedAfter']) {
@@ -262,7 +262,7 @@ export function judgingRouter(
     if (forMe !== undefined && forMe !== 'true' && forMe !== 'false') {
       return fail(c, 'bad-input', '`forMe` must be true or false');
     }
-    const wantedFrom = forMe === 'true' ? await classesTheCallerMayAssert(c) : undefined;
+    const wantedFrom = forMe === 'true' ? await groupsTheCallerMayAssert(c) : undefined;
     const limit = q('limit') === '0' ? 0 : clampLimit(c.req.query('limit'));
     const iso = (v: string | undefined) =>
       v === undefined ? undefined : (new Date(v).toISOString() as Timestamp);
@@ -271,10 +271,12 @@ export function judgingRouter(
     const page = await binding.listQueue({
       ...inProject(c),
       limit,
-      ...(state !== undefined && { state: state as JudgingQueueState }),
+      ...(state !== undefined && { state: state as ExpertQueueState }),
       ...(q('agentId') !== undefined && { agentId: q('agentId') as string }),
       ...(q('ruleId') !== undefined && { ruleId: q('ruleId') as string }),
-      ...(q('judgeClassId') !== undefined && { judgeClassId: q('judgeClassId') as string }),
+      ...(q('correctorGroupId') !== undefined && {
+        correctorGroupId: q('correctorGroupId') as string,
+      }),
       ...(wantedFrom !== undefined && { wantedFrom }),
       ...(addedAfter !== undefined && { addedAfter }),
       ...(closedAfter !== undefined && { closedAfter }),
@@ -290,7 +292,7 @@ export function judgingRouter(
   });
 
   for (const action of ['dismiss', 'reopen'] as const) {
-    r.post(`/:projectId/judging-queue/:runId/${action}`, async (c) => {
+    r.post(`/:projectId/expert-queue/:runId/${action}`, async (c) => {
       const body = (await c.req.json().catch(() => ({}))) as { reason?: unknown } | null;
       if (body !== null && typeof body !== 'object')
         return fail(c, 'bad-input', 'The body must be a JSON object');
@@ -303,7 +305,7 @@ export function judgingRouter(
         action === 'dismiss'
           ? await binding.dismiss({ ...input, ...(typeof reason === 'string' && { reason }) })
           : await binding.reopen(input);
-      if (out.kind === 'err') return judgingFail(c, out.error);
+      if (out.kind === 'err') return expertQueueFail(c, out.error);
       return c.json(serializeItem(out.value, true));
     });
   }
@@ -314,13 +316,13 @@ export function judgingRouter(
     return authorizer.can(c, 'write', ref('project', c.req.param('projectId') as string));
   }
 
-  /** The live judge classes the caller may assert (`forMe`), by the check recording a correction makes. */
-  async function classesTheCallerMayAssert(c: Context<AppEnv>): Promise<string[]> {
+  /** The live corrector groups the caller may assert (`forMe`), by the check recording a correction makes. */
+  async function groupsTheCallerMayAssert(c: Context<AppEnv>): Promise<string[]> {
     if (corrections === undefined) return [];
     const actor = c.get('principal')?.actor;
     if (actor === undefined) return [];
     const reviewerRole = await callerReviewerRole(c, reviewers);
-    const asserter: JudgeClassAsserter = {
+    const asserter: CorrectorGroupAsserter = {
       kind: actor.kind === 'user' ? 'user' : 'service',
       id: actor.id,
       ...(reviewerRole !== undefined && { reviewerRole }),
@@ -328,7 +330,7 @@ export function judgingRouter(
     const out: string[] = [];
     let cursor: Cursor | undefined;
     do {
-      const page = await corrections.listClasses({
+      const page = await corrections.listGroups({
         tenantId: c.get('tenantId') as TenantId,
         limit: 100,
         ...(cursor !== undefined && { cursor }),
@@ -346,17 +348,17 @@ export function judgingRouter(
     return out;
   }
 
-  /** `undefined` when the class is unset or live; else the answer to send. */
-  async function classKnown(c: Context<AppEnv>, judgeClassId: string | undefined) {
-    if (judgeClassId === undefined || corrections === undefined) return undefined;
-    const cls = await corrections.getClass({
+  /** `undefined` when the group is unset or live; else the answer to send. */
+  async function groupKnown(c: Context<AppEnv>, correctorGroupId: string | undefined) {
+    if (correctorGroupId === undefined || corrections === undefined) return undefined;
+    const cls = await corrections.getGroup({
       tenantId: c.get('tenantId') as TenantId,
-      judgeClassId,
+      correctorGroupId,
     });
     if (cls !== null) return undefined;
-    return judgingFail(c, {
-      code: 'judge-class-not-found',
-      message: `No live judge class "${judgeClassId}".`,
+    return expertQueueFail(c, {
+      code: 'corrector-group-not-found',
+      message: `No live corrector group "${correctorGroupId}".`,
     });
   }
 
@@ -364,14 +366,14 @@ export function judgingRouter(
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const STATES: readonly JudgingQueueState[] = ['open', 'judged', 'dismissed', 'erased'];
+const STATES: readonly ExpertQueueState[] = ['open', 'corrected', 'dismissed', 'erased'];
 /**
  * The run endings a rule may match today: a correction needs a completed run
  * (`routes/corrections.ts`, `run-not-finished`), and an item that can't be
- * corrected could only ever be dismissed. `JudgingRunStatus` keeps `failed`
+ * corrected could only ever be dismissed. `ExpertQueueRunStatus` keeps `failed`
  * and `cancelled`, so allowing them later changes no response type.
  */
-const JUDGEABLE: readonly JudgingRunStatus[] = ['completed'];
+const JUDGEABLE: readonly ExpertQueueRunStatus[] = ['completed'];
 const MAX_PREVIEW = 500;
 const MAX_LIST = 50;
 const MAX_TEXT = 200;
@@ -395,15 +397,15 @@ function specFromQuery(c: Context<AppEnv>): Record<string, unknown> {
 }
 
 /** A rule body, or why not. `patch`: every field optional; `preview`: no name. */
-function parseSpec(raw: unknown, mode: 'create' | 'patch' | 'preview'): JudgingRulePatch | string {
+function parseSpec(raw: unknown, mode: 'create' | 'patch' | 'preview'): QueueRulePatch | string {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     return 'The body must be a JSON object';
   }
   const b = raw as Record<string, unknown>;
-  const allowed = ['name', 'when', 'sample', 'maxOpen', 'judgeClassId', 'enabled'];
+  const allowed = ['name', 'when', 'sample', 'maxOpen', 'correctorGroupId', 'enabled'];
   const extra = Object.keys(b).filter((k) => !allowed.includes(k));
   if (extra.length > 0) return `Unknown field(s): ${extra.join(', ')}`;
-  const out: { -readonly [K in keyof JudgingRulePatch]?: JudgingRulePatch[K] } = {};
+  const out: { -readonly [K in keyof QueueRulePatch]?: QueueRulePatch[K] } = {};
 
   if (b.name !== undefined || mode === 'create') {
     if (typeof b.name !== 'string' || b.name.trim() === '' || b.name.length > MAX_TEXT) {
@@ -432,7 +434,7 @@ function parseSpec(raw: unknown, mode: 'create' | 'patch' | 'preview'): JudgingR
       ) {
         return `\`when.${name}\` must be a list of 1 to ${MAX_LIST} non-empty strings`;
       }
-      if (name === 'status' && v.some((x) => !JUDGEABLE.includes(x as JudgingRunStatus))) {
+      if (name === 'status' && v.some((x) => !JUDGEABLE.includes(x as ExpertQueueRunStatus))) {
         return 'Only a completed run can be corrected, so `when.status` takes `completed` only';
       }
       parsed[name] = [...new Set(v as string[])];
@@ -453,7 +455,7 @@ function parseSpec(raw: unknown, mode: 'create' | 'patch' | 'preview'): JudgingR
     }
     out.sample = b.sample;
   }
-  // A change may remove the cap or the class: `null`.
+  // A change may remove the cap or the group: `null`.
   const removable = mode === 'patch' ? ', or `null` to remove it' : '';
   if (b.maxOpen !== undefined && mode !== 'preview') {
     if (b.maxOpen === null && mode === 'patch') out.maxOpen = null;
@@ -465,11 +467,11 @@ function parseSpec(raw: unknown, mode: 'create' | 'patch' | 'preview'): JudgingR
       return `\`maxOpen\` must be a whole number from 1 to ${MAX_OPEN}${removable}`;
     } else out.maxOpen = b.maxOpen as number;
   }
-  if (b.judgeClassId !== undefined && mode !== 'preview') {
-    if (b.judgeClassId === null && mode === 'patch') out.judgeClassId = null;
-    else if (typeof b.judgeClassId !== 'string' || b.judgeClassId === '') {
-      return `\`judgeClassId\` must be a non-empty string${removable}`;
-    } else out.judgeClassId = b.judgeClassId;
+  if (b.correctorGroupId !== undefined && mode !== 'preview') {
+    if (b.correctorGroupId === null && mode === 'patch') out.correctorGroupId = null;
+    else if (typeof b.correctorGroupId !== 'string' || b.correctorGroupId === '') {
+      return `\`correctorGroupId\` must be a non-empty string${removable}`;
+    } else out.correctorGroupId = b.correctorGroupId;
   }
   if (b.enabled !== undefined && mode !== 'preview') {
     if (typeof b.enabled !== 'boolean') return '`enabled` must be a boolean';
@@ -478,7 +480,7 @@ function parseSpec(raw: unknown, mode: 'create' | 'patch' | 'preview'): JudgingR
   return out;
 }
 
-function serializeRule(rule: JudgingRule): Record<string, unknown> {
+function serializeRule(rule: QueueRule): Record<string, unknown> {
   return {
     ruleId: rule.ruleId,
     projectId: rule.projectId,
@@ -487,7 +489,7 @@ function serializeRule(rule: JudgingRule): Record<string, unknown> {
     when: rule.when,
     sample: rule.sample,
     ...(rule.maxOpen !== undefined && { maxOpen: rule.maxOpen }),
-    ...(rule.judgeClassId !== undefined && { judgeClassId: rule.judgeClassId }),
+    ...(rule.correctorGroupId !== undefined && { correctorGroupId: rule.correctorGroupId }),
     enabled: rule.enabled,
     ...(rule.createdBy !== undefined && { createdBy: rule.createdBy }),
     createdAt: rule.createdAt,
@@ -496,7 +498,7 @@ function serializeRule(rule: JudgingRule): Record<string, unknown> {
 }
 
 function rulePage(page: {
-  readonly data: readonly JudgingRule[];
+  readonly data: readonly QueueRule[];
   readonly hasMore: boolean;
   readonly nextCursor?: Cursor;
 }): Record<string, unknown> {
@@ -508,7 +510,7 @@ function rulePage(page: {
 }
 
 /** An item, with what the caller may do with it (`write`: the project check correcting needs). */
-function serializeItem(item: JudgingQueueItem, write: boolean): Record<string, unknown> {
+function serializeItem(item: ExpertQueueItem, write: boolean): Record<string, unknown> {
   return {
     runId: item.runId,
     projectId: item.projectId,
@@ -518,7 +520,7 @@ function serializeItem(item: JudgingQueueItem, write: boolean): Record<string, u
     runStatus: item.runStatus,
     completedAt: item.completedAt,
     rules: item.rules.map((x) => ({ ruleId: x.ruleId, version: x.version })),
-    wantedClassIds: item.wantedClassIds,
+    wantedGroupIds: item.wantedGroupIds,
     anyCorrection: item.anyCorrection,
     progress: item.progress,
     addedAt: item.addedAt,
@@ -540,14 +542,14 @@ function fail(
   return c.json(toWireError({ code, message, ...extra }, c.get('requestId')));
 }
 
-function judgingFail(c: Context<AppEnv>, error: JudgingError) {
+function expertQueueFail(c: Context<AppEnv>, error: ExpertQueueError) {
   c.status(statusFor(error.code) as never);
   return c.json(toWireError({ code: error.code, message: error.message }, c.get('requestId')));
 }
 
 function ruleNotFound(c: Context<AppEnv>) {
-  return judgingFail(c, {
-    code: 'judging-rule-not-found',
-    message: `No judging rule "${c.req.param('ruleId')}" in this project.`,
+  return expertQueueFail(c, {
+    code: 'queue-rule-not-found',
+    message: `No queue rule "${c.req.param('ruleId')}" in this project.`,
   });
 }

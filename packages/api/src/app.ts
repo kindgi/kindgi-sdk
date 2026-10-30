@@ -42,6 +42,7 @@ import type { EvalCaseStoreBinding } from './eval-case-binding.js';
 import type { EvalRunBinding } from './eval-run-binding.js';
 import type { EvalSuiteRegistryBinding } from './eval-suite-binding.js';
 import type { EventBusBinding } from './event-bus-binding.js';
+import type { ExpertQueueBinding } from './expert-queue-binding.js';
 import type { FlowRegistryBinding } from './flow-binding.js';
 import type { GuardrailRegistryBinding } from './guardrail-binding.js';
 import type { RunHandlerBinding } from './handler-binding.js';
@@ -52,7 +53,6 @@ import type { ImageRegistryBinding } from './image-registry-binding.js';
 import type { ImprovementPassBinding } from './improvement-pass-binding.js';
 import type { ItemProjectsBinding } from './item-projects-binding.js';
 import { itemRightsOf, itemServingOf } from './item-rights.js';
-import type { JudgingQueueBinding } from './judging-queue-binding.js';
 import type { AgentReleaseBindings } from './live-version-binding.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
 import type { MemoryBinding } from './memory-binding.js';
@@ -141,7 +141,7 @@ import {
 } from './routes/connections.js';
 import { conversationsRouter } from './routes/conversations.js';
 import { correctedSuitesRouter } from './routes/corrected-suites.js';
-import { correctionsRouter, judgeClassesRouter } from './routes/corrections.js';
+import { correctionsRouter, correctorGroupsRouter } from './routes/corrections.js';
 import { costRouter } from './routes/cost.js';
 import { deploymentsRouter } from './routes/deployments.js';
 import { envRouter } from './routes/env.js';
@@ -150,6 +150,7 @@ import { environmentsRouter } from './routes/environments.js';
 import { evalRunsRouters } from './routes/eval-runs.js';
 import { evalSuitesRouter } from './routes/eval-suites.js';
 import { eventTriggersRouter } from './routes/event-triggers.js';
+import { expertQueueRouter } from './routes/expert-queue.js';
 import { exportSigningKeysRouter } from './routes/export-signing-keys.js';
 import { flowsRouter } from './routes/flows.js';
 import { gatePoliciesRouter } from './routes/gate-policies.js';
@@ -157,7 +158,6 @@ import { guardrailsRouter } from './routes/guardrails.js';
 import { hooksRouter } from './routes/hooks.js';
 import { identityRouter } from './routes/identity.js';
 import { improvementPassesRouter, mountImproveRoute } from './routes/improvement-passes.js';
-import { judgingRouter } from './routes/judging.js';
 import { type LicenseStatusBinding, licenseRouter } from './routes/license.js';
 import { mailTriggersRouter } from './routes/mail-triggers.js';
 import { mcpRouter } from './routes/mcp.js';
@@ -959,18 +959,18 @@ export interface CreateAppInput {
   readonly evalRunBinding?: EvalRunBinding;
   /**
    * Optional. Mounts corrections, yes or no with an optional reason about
-   * one item of a run's output (`/v1/corrections`), and the judge classes
-   * they're recorded under, each with a weight (`/v1/judge-classes`).
+   * one item of a run's output (`/v1/corrections`), and the corrector groups
+   * they're recorded under, each with a weight (`/v1/corrector-groups`).
    * Caller-plugged: the API package doesn't own their storage.
    */
   readonly correctionRegistry?: CorrectionRegistryBinding;
   /**
-   * Optional. A project's judging rules and the queue they fill, under
-   * `/v1/projects/:projectId/judging-rules` and `…/judging-queue`: which
+   * Optional. A project's queue rules and the queue they fill, under
+   * `/v1/projects/:projectId/queue-rules` and `…/expert-queue`: which
    * runs need a person's correction. Without it, those routes aren't
    * mounted.
    */
-  readonly judgingQueue?: JudgingQueueBinding;
+  readonly expertQueue?: ExpertQueueBinding;
   /**
    * Optional. With `evalSuiteRegistry` and `correctionRegistry`, mounts test
    * sets built from corrections: `POST /v1/eval-suites/:suiteId/versions/from-corrections`
@@ -1917,7 +1917,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       releases: input.agentReleases,
       ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
       ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
-      ...(input.correctionRegistry !== undefined && { judgeClasses: input.correctionRegistry }),
+      ...(input.correctionRegistry !== undefined && { correctorGroups: input.correctionRegistry }),
       ...(input.evalSuiteRegistry !== undefined && { suites: input.evalSuiteRegistry }),
     };
     v1.route(
@@ -2298,12 +2298,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.agentRegistry,
       ),
     );
-    v1.route('/judge-classes', judgeClassesRouter(input.correctionRegistry, authorizer));
+    v1.route('/corrector-groups', correctorGroupsRouter(input.correctionRegistry, authorizer));
   }
-  if (input.judgingQueue !== undefined) {
+  if (input.expertQueue !== undefined) {
     v1.route(
       '/projects',
-      judgingRouter(input.judgingQueue, {
+      expertQueueRouter(input.expertQueue, {
         ...(authorizer !== undefined && { authorizer }),
         ...(input.correctionRegistry !== undefined && { corrections: input.correctionRegistry }),
         ...(input.reviewerBinding !== undefined && { reviewers: input.reviewerBinding }),

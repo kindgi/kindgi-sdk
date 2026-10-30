@@ -33,7 +33,7 @@ describe('corrections.create', () => {
         item: { key: 'c1', pointer: '/matches/0' },
         verdict: 'yes',
         reason: 'Right company.',
-        judgeClassId: 'jc-1',
+        correctorGroupId: 'jc-1',
         participantId: 'end-user-1',
       },
       { idempotencyKey: 'idem-j' },
@@ -48,12 +48,12 @@ describe('corrections.create', () => {
       item: { key: 'c1', pointer: '/matches/0' },
       verdict: 'yes',
       reason: 'Right company.',
-      judgeClassId: 'jc-1',
+      correctorGroupId: 'jc-1',
       participantId: 'end-user-1',
     });
   });
 
-  it('works without a judge class', async () => {
+  it('works without a corrector group', async () => {
     const stub = jsonFetch(CORRECTION, { status: 201 });
     await clientFor(stub).corrections.create({
       runId: 'run-1',
@@ -87,7 +87,7 @@ describe('corrections.list', () => {
       agentVersion: '2.0.0',
       flowId: 'acme.flow',
       verdict: 'yes',
-      judgeClassId: 'jc-1',
+      correctorGroupId: 'jc-1',
       participantId: 'end-user-1',
       scope: { kind: 'project', projectId: 'proj-1' },
     });
@@ -102,7 +102,7 @@ describe('corrections.list', () => {
       agentVersion: '2.0.0',
       flowId: 'acme.flow',
       verdict: 'yes',
-      judgeClassId: 'jc-1',
+      correctorGroupId: 'jc-1',
       participantId: 'end-user-1',
       scopeKind: 'project',
       scopeId: 'proj-1',

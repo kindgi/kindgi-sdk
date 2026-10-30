@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { JudgingRulePatch, JudgingRuleSpec, JudgingRuleWhen } from '@kindgi/client';
+import type { QueueRulePatch, QueueRuleSpec, QueueRuleWhen } from '@kindgi/client';
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
 import {
@@ -70,7 +70,7 @@ function hasWhenFlags(ctx: CommandContext): boolean {
 }
 
 /** The `when` a rule matches, built from the match flags. Absent fields don't narrow. */
-function whenFromFlags(ctx: CommandContext): JudgingRuleWhen {
+function whenFromFlags(ctx: CommandContext): QueueRuleWhen {
   const agentIds = listFlag(ctx, 'agent');
   const flowIds = listFlag(ctx, 'flow');
   const versions = listFlag(ctx, 'agent-version');
@@ -86,7 +86,7 @@ function whenFromFlags(ctx: CommandContext): JudgingRuleWhen {
     ...(agentIds.length > 0 && { agentIds }),
     ...(flowIds.length > 0 && { flowIds }),
     ...(versions.length > 0 && { versions }),
-    ...(status.length > 0 && { status: status as NonNullable<JudgingRuleWhen['status']> }),
+    ...(status.length > 0 && { status: status as NonNullable<QueueRuleWhen['status']> }),
     ...(ctx.options['include-dry-runs'] === true && { includeDryRuns: true }),
   };
 }
@@ -95,9 +95,9 @@ const create: LeafCommand = {
   kind: 'leaf',
   name: 'create',
   description:
-    'Create a judging rule: which of the project’s finished runs a person is asked to correct, and how many to queue.',
+    'Create a queue rule: which of the project’s finished runs a person is asked to correct, and how many to queue.',
   usage:
-    'kindgi judging-rules create --name=<name> [--project=<id>] [--agent=<id>] [--flow=<id>] [--agent-version=<v>] [--status=completed] [--include-dry-runs] [--sample=<0-1>] [--max-open=<n>] [--class=<judge-class-id>] [--disabled] [--queue-last=<n>] [--queue-since=<time>]',
+    'kindgi queue-rules create --name=<name> [--project=<id>] [--agent=<id>] [--flow=<id>] [--agent-version=<v>] [--status=completed] [--include-dry-runs] [--sample=<0-1>] [--max-open=<n>] [--group=<corrector-group-id>] [--disabled] [--queue-last=<n>] [--queue-since=<time>]',
   optionSpec: {
     ...PROJECT_OPTION,
     name: { type: 'string', description: 'A name for the rule. Required.' },
@@ -111,10 +111,10 @@ const create: LeafCommand = {
       type: 'string',
       description: 'Add nothing while this rule has this many open items. Without it, no cap.',
     },
-    class: {
+    group: {
       type: 'string',
       description:
-        'The judge class whose correction closes an item. Without it, any correction closes it.',
+        'The corrector group whose correction closes an item. Without it, any correction closes it.',
     },
     disabled: { type: 'boolean', description: 'Create the rule disabled (it matches nothing).' },
     'queue-last': {
@@ -129,26 +129,26 @@ const create: LeafCommand = {
     },
   },
   run: (ctx) =>
-    runSdk(ctx, 'judging-rules create', async () => {
+    runSdk(ctx, 'queue-rules create', async () => {
       const name = stringFlag(ctx, 'name');
       if (name === undefined) throw new UsageError('--name=<name> is required');
       const projectId = await projectIdFlag(ctx);
       const sample = sampleFlag(ctx);
       const maxOpen = integerFlag(ctx, 'max-open');
-      const judgeClassId = stringFlag(ctx, 'class');
-      const spec: JudgingRuleSpec = {
+      const correctorGroupId = stringFlag(ctx, 'group');
+      const spec: QueueRuleSpec = {
         name,
         when: whenFromFlags(ctx),
         ...(sample !== undefined && { sample }),
         ...(maxOpen !== undefined && { maxOpen }),
-        ...(judgeClassId !== undefined && { judgeClassId }),
+        ...(correctorGroupId !== undefined && { correctorGroupId }),
         ...(ctx.options.disabled === true && { enabled: false }),
       };
-      const rule = await ctx.client().projects.judgingRules.create(projectId, spec);
+      const rule = await ctx.client().projects.queueRules.create(projectId, spec);
       const last = integerFlag(ctx, 'queue-last');
       const since = timeFlag(ctx, 'queue-since');
       if (last === undefined && since === undefined) return rule;
-      const queued = await ctx.client().projects.judgingRules.queueRecent(projectId, rule.ruleId, {
+      const queued = await ctx.client().projects.queueRules.queueRecent(projectId, rule.ruleId, {
         ...(last !== undefined && { last }),
         ...(since !== undefined && { since }),
       });
@@ -159,8 +159,8 @@ const create: LeafCommand = {
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: 'List the project’s live judging rules (their latest versions), oldest first.',
-  usage: 'kindgi judging-rules list [--project=<id>] [--limit=<n>] [--cursor=<c>]',
+  description: 'List the project’s live queue rules (their latest versions), oldest first.',
+  usage: 'kindgi queue-rules list [--project=<id>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     ...PROJECT_OPTION,
     limit: { type: 'string', description: 'The most rules to return.' },
@@ -170,11 +170,11 @@ const list: LeafCommand = {
     },
   },
   run: (ctx) =>
-    runSdk(ctx, 'judging-rules list', async () => {
+    runSdk(ctx, 'queue-rules list', async () => {
       const projectId = await projectIdFlag(ctx);
       const limit = integerFlag(ctx, 'limit');
       const cursor = stringFlag(ctx, 'cursor');
-      return await ctx.client().projects.judgingRules.list(projectId, {
+      return await ctx.client().projects.queueRules.list(projectId, {
         ...(limit !== undefined && { limit }),
         ...(cursor !== undefined && { cursor }),
       });
@@ -184,14 +184,14 @@ const list: LeafCommand = {
 const show: LeafCommand = {
   kind: 'leaf',
   name: 'show',
-  description: 'Show a judging rule’s latest version.',
-  usage: 'kindgi judging-rules show <rule-id> [--project=<id>]',
+  description: 'Show a queue rule’s latest version.',
+  usage: 'kindgi queue-rules show <rule-id> [--project=<id>]',
   optionSpec: { ...PROJECT_OPTION },
   run: (ctx) =>
-    runSdk(ctx, 'judging-rules show', async () => {
+    runSdk(ctx, 'queue-rules show', async () => {
       const ruleId = requiredPositional(ctx, 0, 'rule-id');
       const projectId = await projectIdFlag(ctx);
-      return await ctx.client().projects.judgingRules.get(projectId, ruleId);
+      return await ctx.client().projects.queueRules.get(projectId, ruleId);
     }),
 };
 
@@ -200,8 +200,8 @@ function refuseConflictingUpdateFlags(ctx: CommandContext): void {
   if (integerFlag(ctx, 'max-open') !== undefined && ctx.options['clear-max-open'] === true) {
     throw new UsageError('Give --max-open or --clear-max-open, not both');
   }
-  if (stringFlag(ctx, 'class') !== undefined && ctx.options['clear-class'] === true) {
-    throw new UsageError('Give --class or --clear-class, not both');
+  if (stringFlag(ctx, 'group') !== undefined && ctx.options['clear-group'] === true) {
+    throw new UsageError('Give --group or --clear-group, not both');
   }
   if (ctx.options.enable === true && ctx.options.disable === true) {
     throw new UsageError('Give --enable or --disable, not both');
@@ -209,26 +209,26 @@ function refuseConflictingUpdateFlags(ctx: CommandContext): void {
 }
 
 /** The patch an `update` sends: the given fields replaced, `when` whole. Refuses an empty change. */
-function patchFromFlags(ctx: CommandContext): JudgingRulePatch {
+function patchFromFlags(ctx: CommandContext): QueueRulePatch {
   refuseConflictingUpdateFlags(ctx);
   const name = stringFlag(ctx, 'name');
   const sample = sampleFlag(ctx);
   const maxOpen = integerFlag(ctx, 'max-open');
-  const judgeClassId = stringFlag(ctx, 'class');
-  const patch: JudgingRulePatch = {
+  const correctorGroupId = stringFlag(ctx, 'group');
+  const patch: QueueRulePatch = {
     ...(name !== undefined && { name }),
     ...(hasWhenFlags(ctx) && { when: whenFromFlags(ctx) }),
     ...(sample !== undefined && { sample }),
     ...(maxOpen !== undefined && { maxOpen }),
     ...(ctx.options['clear-max-open'] === true && { maxOpen: null }),
-    ...(judgeClassId !== undefined && { judgeClassId }),
-    ...(ctx.options['clear-class'] === true && { judgeClassId: null }),
+    ...(correctorGroupId !== undefined && { correctorGroupId }),
+    ...(ctx.options['clear-group'] === true && { correctorGroupId: null }),
     ...(ctx.options.enable === true && { enabled: true }),
     ...(ctx.options.disable === true && { enabled: false }),
   };
   if (Object.keys(patch).length === 0) {
     throw new UsageError(
-      'Give at least one change: --name, a match flag, --sample, --max-open/--clear-max-open, --class/--clear-class, or --enable/--disable',
+      'Give at least one change: --name, a match flag, --sample, --max-open/--clear-max-open, --group/--clear-group, or --enable/--disable',
     );
   }
   return patch;
@@ -238,9 +238,9 @@ const update: LeafCommand = {
   kind: 'leaf',
   name: 'update',
   description:
-    'Change a judging rule: a new version with the given fields replaced. The match flags replace the rule’s `when` whole.',
+    'Change a queue rule: a new version with the given fields replaced. The match flags replace the rule’s `when` whole.',
   usage:
-    'kindgi judging-rules update <rule-id> [--project=<id>] [--name=<name>] [--agent=<id>] [--flow=<id>] [--agent-version=<v>] [--status=completed] [--include-dry-runs] [--sample=<0-1>] [--max-open=<n> | --clear-max-open] [--class=<id> | --clear-class] [--enable | --disable]',
+    'kindgi queue-rules update <rule-id> [--project=<id>] [--name=<name>] [--agent=<id>] [--flow=<id>] [--agent-version=<v>] [--status=completed] [--include-dry-runs] [--sample=<0-1>] [--max-open=<n> | --clear-max-open] [--group=<id> | --clear-group] [--enable | --disable]',
   optionSpec: {
     ...PROJECT_OPTION,
     name: { type: 'string', description: 'A new name for the rule.' },
@@ -248,42 +248,45 @@ const update: LeafCommand = {
     sample: { type: 'string', description: 'A new sample share, greater than 0 and at most 1.' },
     'max-open': { type: 'string', description: 'A new open-items cap.' },
     'clear-max-open': { type: 'boolean', description: 'Remove the open-items cap.' },
-    class: { type: 'string', description: 'A new judge class whose correction closes an item.' },
-    'clear-class': {
+    group: {
+      type: 'string',
+      description: 'A new corrector group whose correction closes an item.',
+    },
+    'clear-group': {
       type: 'boolean',
-      description: 'Remove the judge class; any correction closes an item.',
+      description: 'Remove the corrector group; any correction closes an item.',
     },
     enable: { type: 'boolean', description: 'Enable the rule.' },
     disable: { type: 'boolean', description: 'Disable the rule.' },
   },
   run: (ctx) =>
-    runSdk(ctx, 'judging-rules update', async () => {
+    runSdk(ctx, 'queue-rules update', async () => {
       const ruleId = requiredPositional(ctx, 0, 'rule-id');
       const projectId = await projectIdFlag(ctx);
       const patch = patchFromFlags(ctx);
-      return await ctx.client().projects.judgingRules.update(projectId, ruleId, patch);
+      return await ctx.client().projects.queueRules.update(projectId, ruleId, patch);
     }),
 };
 
 const remove: LeafCommand = {
   kind: 'leaf',
   name: 'remove',
-  description: 'Unregister a judging rule, so it queues nothing more. Its queued items stay.',
-  usage: 'kindgi judging-rules remove <rule-id> [--project=<id>]',
+  description: 'Unregister a queue rule, so it queues nothing more. Its queued items stay.',
+  usage: 'kindgi queue-rules remove <rule-id> [--project=<id>]',
   optionSpec: { ...PROJECT_OPTION },
   run: (ctx) =>
-    runSdk(ctx, 'judging-rules remove', async () => {
+    runSdk(ctx, 'queue-rules remove', async () => {
       const ruleId = requiredPositional(ctx, 0, 'rule-id');
       const projectId = await projectIdFlag(ctx);
-      return await ctx.client().projects.judgingRules.unregister(projectId, ruleId);
+      return await ctx.client().projects.queueRules.unregister(projectId, ruleId);
     }),
 };
 
 const versions: LeafCommand = {
   kind: 'leaf',
   name: 'versions',
-  description: 'List every version of a judging rule, newest first.',
-  usage: 'kindgi judging-rules versions <rule-id> [--project=<id>] [--limit=<n>] [--cursor=<c>]',
+  description: 'List every version of a queue rule, newest first.',
+  usage: 'kindgi queue-rules versions <rule-id> [--project=<id>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     ...PROJECT_OPTION,
     limit: { type: 'string', description: 'The most versions to return.' },
@@ -293,12 +296,12 @@ const versions: LeafCommand = {
     },
   },
   run: (ctx) =>
-    runSdk(ctx, 'judging-rules versions', async () => {
+    runSdk(ctx, 'queue-rules versions', async () => {
       const ruleId = requiredPositional(ctx, 0, 'rule-id');
       const projectId = await projectIdFlag(ctx);
       const limit = integerFlag(ctx, 'limit');
       const cursor = stringFlag(ctx, 'cursor');
-      return await ctx.client().projects.judgingRules.versions(projectId, ruleId, {
+      return await ctx.client().projects.queueRules.versions(projectId, ruleId, {
         ...(limit !== undefined && { limit }),
         ...(cursor !== undefined && { cursor }),
       });
@@ -309,8 +312,8 @@ const results: LeafCommand = {
   kind: 'leaf',
   name: 'results',
   description:
-    'A judging rule’s results since a time, by the rule’s version and the agent’s, never pooled.',
-  usage: 'kindgi judging-rules results <rule-id> [--project=<id>] [--since=<time>]',
+    'A queue rule’s results since a time, by the rule’s version and the agent’s, never pooled.',
+  usage: 'kindgi queue-rules results <rule-id> [--project=<id>] [--since=<time>]',
   optionSpec: {
     ...PROJECT_OPTION,
     since: {
@@ -320,11 +323,11 @@ const results: LeafCommand = {
     },
   },
   run: (ctx) =>
-    runSdk(ctx, 'judging-rules results', async () => {
+    runSdk(ctx, 'queue-rules results', async () => {
       const ruleId = requiredPositional(ctx, 0, 'rule-id');
       const projectId = await projectIdFlag(ctx);
       const since = timeFlag(ctx, 'since');
-      return await ctx.client().projects.judgingRules.results(projectId, ruleId, since);
+      return await ctx.client().projects.queueRules.results(projectId, ruleId, since);
     }),
 };
 
@@ -334,7 +337,7 @@ const preview: LeafCommand = {
   description:
     'What a rule would queue among the project’s recent runs, without queueing anything.',
   usage:
-    'kindgi judging-rules preview [--project=<id>] [--agent=<id>] [--flow=<id>] [--agent-version=<v>] [--status=completed] [--include-dry-runs] [--sample=<0-1>] [--last=<n>] [--rule=<rule-id>]',
+    'kindgi queue-rules preview [--project=<id>] [--agent=<id>] [--flow=<id>] [--agent-version=<v>] [--status=completed] [--include-dry-runs] [--sample=<0-1>] [--last=<n>] [--rule=<rule-id>]',
   optionSpec: {
     ...PROJECT_OPTION,
     ...WHEN_OPTIONS,
@@ -353,12 +356,12 @@ const preview: LeafCommand = {
     },
   },
   run: (ctx) =>
-    runSdk(ctx, 'judging-rules preview', async () => {
+    runSdk(ctx, 'queue-rules preview', async () => {
       const projectId = await projectIdFlag(ctx);
       const sample = sampleFlag(ctx);
       const last = integerFlag(ctx, 'last');
       const ruleId = stringFlag(ctx, 'rule');
-      return await ctx.client().projects.judgingRules.preview(projectId, {
+      return await ctx.client().projects.queueRules.preview(projectId, {
         ...whenFromFlags(ctx),
         ...(sample !== undefined && { sample }),
         ...(last !== undefined && { last }),
@@ -372,8 +375,7 @@ const queueRecent: LeafCommand = {
   name: 'queue-recent',
   description:
     'Queue the rule’s matches among recent runs, to catch it up on runs that ended before it was there. The open-items cap is not applied.',
-  usage:
-    'kindgi judging-rules queue-recent <rule-id> [--project=<id>] [--last=<n>] [--since=<time>]',
+  usage: 'kindgi queue-rules queue-recent <rule-id> [--project=<id>] [--last=<n>] [--since=<time>]',
   optionSpec: {
     ...PROJECT_OPTION,
     last: {
@@ -388,7 +390,7 @@ const queueRecent: LeafCommand = {
     },
   },
   run: (ctx) =>
-    runSdk(ctx, 'judging-rules queue-recent', async () => {
+    runSdk(ctx, 'queue-rules queue-recent', async () => {
       const ruleId = requiredPositional(ctx, 0, 'rule-id');
       const projectId = await projectIdFlag(ctx);
       const last = integerFlag(ctx, 'last');
@@ -396,17 +398,17 @@ const queueRecent: LeafCommand = {
       if (last === undefined && since === undefined) {
         throw new UsageError('Give --last=<n> and/or --since=<time>');
       }
-      return await ctx.client().projects.judgingRules.queueRecent(projectId, ruleId, {
+      return await ctx.client().projects.queueRules.queueRecent(projectId, ruleId, {
         ...(last !== undefined && { last }),
         ...(since !== undefined && { since }),
       });
     }),
 };
 
-export const judgingRulesCommand: Command = {
+export const queueRulesCommand: Command = {
   kind: 'group',
-  name: 'judging-rules',
+  name: 'queue-rules',
   description:
-    "A project's judging rules — which finished runs a person is asked to correct (create / list / show / update / remove / versions / results / preview / queue-recent).",
+    "A project's queue rules — which finished runs a person is asked to correct (create / list / show / update / remove / versions / results / preview / queue-recent).",
   subcommands: [create, list, show, update, remove, versions, results, preview, queueRecent],
 };

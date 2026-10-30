@@ -42,12 +42,12 @@ function recorder() {
   return { calls, rec };
 }
 
-describe('kindgi judging-rules', () => {
-  test('create sends the name, the match, the sample, the cap and the class', async () => {
+describe('kindgi queue-rules', () => {
+  test('create sends the name, the match, the sample, the cap and the group', async () => {
     const { calls, rec } = recorder();
     const out = await run(
       [
-        'judging-rules',
+        'queue-rules',
         'create',
         '--project=p-1',
         '--name=experts',
@@ -60,10 +60,10 @@ describe('kindgi judging-rules', () => {
         '--include-dry-runs',
         '--sample=0.5',
         '--max-open=20',
-        '--class=jc-1',
+        '--group=jc-1',
         '--disabled',
       ],
-      { projects: { judgingRules: { create: rec('create', { ruleId: 'jr-1' }) } } },
+      { projects: { queueRules: { create: rec('create', { ruleId: 'jr-1' }) } } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
@@ -81,7 +81,7 @@ describe('kindgi judging-rules', () => {
           },
           sample: 0.5,
           maxOpen: 20,
-          judgeClassId: 'jc-1',
+          correctorGroupId: 'jc-1',
           enabled: false,
         },
       ],
@@ -91,8 +91,8 @@ describe('kindgi judging-rules', () => {
 
   test('create with no match flags sends an empty `when`', async () => {
     const { calls, rec } = recorder();
-    const out = await run(['judging-rules', 'create', '--project=p-1', '--name=all'], {
-      projects: { judgingRules: { create: rec('create', { ruleId: 'jr-2' }) } },
+    const out = await run(['queue-rules', 'create', '--project=p-1', '--name=all'], {
+      projects: { queueRules: { create: rec('create', { ruleId: 'jr-2' }) } },
     });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['create', 'p-1', { name: 'all', when: {} }]]);
@@ -100,12 +100,9 @@ describe('kindgi judging-rules', () => {
 
   test('create --disabled makes the rule disabled', async () => {
     const { calls, rec } = recorder();
-    const out = await run(
-      ['judging-rules', 'create', '--project=p-1', '--name=off', '--disabled'],
-      {
-        projects: { judgingRules: { create: rec('create', { ruleId: 'jr-off' }) } },
-      },
-    );
+    const out = await run(['queue-rules', 'create', '--project=p-1', '--name=off', '--disabled'], {
+      projects: { queueRules: { create: rec('create', { ruleId: 'jr-off' }) } },
+    });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['create', 'p-1', { name: 'off', when: {}, enabled: false }]]);
   });
@@ -114,7 +111,7 @@ describe('kindgi judging-rules', () => {
     const { calls, rec } = recorder();
     const out = await run(
       [
-        'judging-rules',
+        'queue-rules',
         'create',
         '--project=p-1',
         '--name=r',
@@ -123,7 +120,7 @@ describe('kindgi judging-rules', () => {
       ],
       {
         projects: {
-          judgingRules: {
+          queueRules: {
             create: rec('create', { ruleId: 'jr-3' }),
             queueRecent: rec('queueRecent', { queued: 5, alreadyQueued: 1, alreadyReviewed: 2 }),
           },
@@ -142,21 +139,17 @@ describe('kindgi judging-rules', () => {
   });
 
   test('create needs a name and a valid sample and status', async () => {
-    const client = { projects: { judgingRules: {} } };
-    expect((await run(['judging-rules', 'create', '--project=p-1'], client)).stderr).toContain(
+    const client = { projects: { queueRules: {} } };
+    expect((await run(['queue-rules', 'create', '--project=p-1'], client)).stderr).toContain(
       '--name',
     );
     expect(
-      (await run(['judging-rules', 'create', '--project=p-1', '--name=x', '--sample=2'], client))
+      (await run(['queue-rules', 'create', '--project=p-1', '--name=x', '--sample=2'], client))
         .stderr,
     ).toContain('--sample must be a share');
     expect(
-      (
-        await run(
-          ['judging-rules', 'create', '--project=p-1', '--name=x', '--status=weird'],
-          client,
-        )
-      ).stderr,
+      (await run(['queue-rules', 'create', '--project=p-1', '--name=x', '--status=weird'], client))
+        .stderr,
     ).toContain('--status takes only');
   });
 
@@ -164,7 +157,7 @@ describe('kindgi judging-rules', () => {
     const { calls, rec } = recorder();
     const client = {
       projects: {
-        judgingRules: {
+        queueRules: {
           list: rec('list', { data: [], hasMore: false }),
           get: rec('get', { ruleId: 'jr-1' }),
           versions: rec('versions', { data: [], hasMore: false }),
@@ -173,23 +166,17 @@ describe('kindgi judging-rules', () => {
       },
     };
     expect(
-      (await run(['judging-rules', 'list', '--project=p-1', '--limit=5', '--cursor=c1'], client))
+      (await run(['queue-rules', 'list', '--project=p-1', '--limit=5', '--cursor=c1'], client))
         .exitCode,
     ).toBe(0);
-    expect((await run(['judging-rules', 'show', 'jr-1', '--project=p-1'], client)).exitCode).toBe(
-      0,
-    );
+    expect((await run(['queue-rules', 'show', 'jr-1', '--project=p-1'], client)).exitCode).toBe(0);
     expect(
-      (await run(['judging-rules', 'versions', 'jr-1', '--project=p-1', '--limit=3'], client))
+      (await run(['queue-rules', 'versions', 'jr-1', '--project=p-1', '--limit=3'], client))
         .exitCode,
     ).toBe(0);
     expect(
-      (
-        await run(
-          ['judging-rules', 'results', 'jr-1', '--project=p-1', '--since=2026-10-01'],
-          client,
-        )
-      ).exitCode,
+      (await run(['queue-rules', 'results', 'jr-1', '--project=p-1', '--since=2026-10-01'], client))
+        .exitCode,
     ).toBe(0);
     expect(calls).toEqual([
       ['list', 'p-1', { limit: 5, cursor: 'c1' }],
@@ -203,7 +190,7 @@ describe('kindgi judging-rules', () => {
     const { calls, rec } = recorder();
     const out = await run(
       [
-        'judging-rules',
+        'queue-rules',
         'preview',
         '--project=p-1',
         '--agent=acme.x',
@@ -211,7 +198,7 @@ describe('kindgi judging-rules', () => {
         '--last=50',
         '--rule=jr-1',
       ],
-      { projects: { judgingRules: { preview: rec('preview', { considered: 50, matched: 10 }) } } },
+      { projects: { queueRules: { preview: rec('preview', { considered: 50, matched: 10 }) } } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
@@ -223,24 +210,17 @@ describe('kindgi judging-rules', () => {
     const { calls, rec } = recorder();
     const client = {
       projects: {
-        judgingRules: {
+        queueRules: {
           queueRecent: rec('queueRecent', { queued: 3, alreadyQueued: 0, alreadyReviewed: 1 }),
         },
       },
     };
     const out = await run(
-      [
-        'judging-rules',
-        'queue-recent',
-        'jr-1',
-        '--project=p-1',
-        '--last=100',
-        '--since=2026-10-01',
-      ],
+      ['queue-rules', 'queue-recent', 'jr-1', '--project=p-1', '--last=100', '--since=2026-10-01'],
       client,
     );
     expect(out.exitCode, out.stderr).toBe(0);
-    const neither = await run(['judging-rules', 'queue-recent', 'jr-1', '--project=p-1'], client);
+    const neither = await run(['queue-rules', 'queue-recent', 'jr-1', '--project=p-1'], client);
     expect(neither.exitCode).toBe(2);
     expect(neither.stderr).toContain('--last');
     expect(calls).toEqual([
@@ -250,10 +230,10 @@ describe('kindgi judging-rules', () => {
 
   test('update sends a patch, the match flags replacing `when` whole', async () => {
     const { calls, rec } = recorder();
-    const client = { projects: { judgingRules: { update: rec('update', { ruleId: 'jr-1' }) } } };
+    const client = { projects: { queueRules: { update: rec('update', { ruleId: 'jr-1' }) } } };
     await run(
       [
-        'judging-rules',
+        'queue-rules',
         'update',
         'jr-1',
         '--project=p-1',
@@ -261,19 +241,19 @@ describe('kindgi judging-rules', () => {
         '--agent=acme.x',
         '--sample=0.25',
         '--max-open=5',
-        '--class=jc-2',
+        '--group=jc-2',
         '--enable',
       ],
       client,
     );
     await run(
       [
-        'judging-rules',
+        'queue-rules',
         'update',
         'jr-1',
         '--project=p-1',
         '--clear-max-open',
-        '--clear-class',
+        '--clear-group',
         '--disable',
       ],
       client,
@@ -288,22 +268,22 @@ describe('kindgi judging-rules', () => {
           when: { agentIds: ['acme.x'] },
           sample: 0.25,
           maxOpen: 5,
-          judgeClassId: 'jc-2',
+          correctorGroupId: 'jc-2',
           enabled: true,
         },
       ],
-      ['update', 'p-1', 'jr-1', { maxOpen: null, judgeClassId: null, enabled: false }],
+      ['update', 'p-1', 'jr-1', { maxOpen: null, correctorGroupId: null, enabled: false }],
     ]);
   });
 
   test('update refuses conflicting flags and an empty change', async () => {
-    const client = { projects: { judgingRules: {} } };
-    const base = ['judging-rules', 'update', 'jr-1', '--project=p-1'];
+    const client = { projects: { queueRules: {} } };
+    const base = ['queue-rules', 'update', 'jr-1', '--project=p-1'];
     expect((await run([...base, '--max-open=5', '--clear-max-open'], client)).stderr).toContain(
       'Give --max-open or --clear-max-open',
     );
-    expect((await run([...base, '--class=jc-1', '--clear-class'], client)).stderr).toContain(
-      'Give --class or --clear-class',
+    expect((await run([...base, '--group=jc-1', '--clear-group'], client)).stderr).toContain(
+      'Give --group or --clear-group',
     );
     expect((await run([...base, '--enable', '--disable'], client)).stderr).toContain(
       'Give --enable or --disable',
@@ -313,9 +293,9 @@ describe('kindgi judging-rules', () => {
 
   test('remove unregisters the rule', async () => {
     const { calls, rec } = recorder();
-    const out = await run(['judging-rules', 'remove', 'jr-1', '--project=p-1'], {
+    const out = await run(['queue-rules', 'remove', 'jr-1', '--project=p-1'], {
       projects: {
-        judgingRules: { unregister: rec('unregister', { ruleId: 'jr-1', unregistered: true }) },
+        queueRules: { unregister: rec('unregister', { ruleId: 'jr-1', unregistered: true }) },
       },
     });
     expect(out.exitCode, out.stderr).toBe(0);
@@ -325,10 +305,10 @@ describe('kindgi judging-rules', () => {
 
   test('without --project it writes into the Default project', async () => {
     const { calls, rec } = recorder();
-    const out = await run(['judging-rules', 'list'], {
+    const out = await run(['queue-rules', 'list'], {
       projects: {
         getDefault: rec('getDefault', { id: 'default-p' }),
-        judgingRules: { list: rec('list', { data: [], hasMore: false }) },
+        queueRules: { list: rec('list', { data: [], hasMore: false }) },
       },
     });
     expect(out.exitCode, out.stderr).toBe(0);

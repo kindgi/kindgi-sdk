@@ -516,10 +516,10 @@ function parseEvaluateBody(b: Record<string, unknown>): EvaluateBody | string {
   }
   const extra = Object.keys(b).filter(
     (k) =>
-      !['suiteId', 'objective', 'reads', 'repetitions', 'k', 'classWeights', 'sample'].includes(k),
+      !['suiteId', 'objective', 'reads', 'repetitions', 'k', 'groupWeights', 'sample'].includes(k),
   );
   if (extra.length > 0) {
-    return `\`${extra[0]}\` isn't a field of an evaluation: { suiteId, objective?, reads?, repetitions?, k?, classWeights?, sample? }`;
+    return `\`${extra[0]}\` isn't a field of an evaluation: { suiteId, objective?, reads?, repetitions?, k?, groupWeights?, sample? }`;
   }
   const comparison = parseComparison(b);
   if (comparison.kind === 'err') return comparison.message;

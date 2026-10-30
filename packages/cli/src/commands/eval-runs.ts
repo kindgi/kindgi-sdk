@@ -23,7 +23,7 @@ const STATUSES = ['pending', 'running', 'completed', 'failed', 'cancelled'] as c
 type Status = (typeof STATUSES)[number];
 
 export const READS = ['recorded', 'live'] as const;
-export const CLASS_WEIGHTS = ['as-recorded', 'restricted-only'] as const;
+export const GROUP_WEIGHTS = ['as-recorded', 'experts-only'] as const;
 
 /** A flag that takes one of `values`; `undefined` when absent. */
 export function oneOfFlag<T extends string>(
@@ -225,7 +225,7 @@ const start: LeafCommand = {
   description:
     "Start an eval run. On test cases (a `judged` suite), the run tries a version (`--agent` with `--agent-version`, or `--flow` with `--flow-version`) against the recorded runs: each case is replayed without doing anything the past run didn't, and the result's summary has the metrics.",
   usage:
-    'kindgi eval-runs start <suite-id> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id> [--flow-version=<v>] [--with=<id>@<version> ...]) [--baseline=recorded|<agentId>@<version>|live] [--baseline-project=<id>] [--baseline-segment=<key>:<value> ...] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--class-weights=as-recorded|restricted-only] [--dry-run] [--wait]',
+    'kindgi eval-runs start <suite-id> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id> [--flow-version=<v>] [--with=<id>@<version> ...]) [--baseline=recorded|<agentId>@<version>|live] [--baseline-project=<id>] [--baseline-segment=<key>:<value> ...] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--group-weights=as-recorded|experts-only] [--dry-run] [--wait]',
   optionSpec: {
     project: { type: 'string', description: 'The project the run belongs to. Required.' },
     agent: { type: 'string', description: 'Run this agent.' },
@@ -273,10 +273,10 @@ const start: LeafCommand = {
       type: 'string',
       description: 'How many ranked items weighted precision@k looks at (1 to 100, default 10).',
     },
-    'class-weights': {
+    'group-weights': {
       type: 'string',
       description:
-        "Which corrections count: `as-recorded` (the default: each at its judge class's weight) or `restricted-only` (only corrections of classes restricted to experts; a release gate policy with `onlyRestrictedClasses` needs it).",
+        "Which corrections count: `as-recorded` (the default: each at its corrector group's weight) or `experts-only` (only corrections of groups restricted to experts; a release gate policy with `onlyExpertGroups` needs it).",
     },
     'dry-run': { type: 'boolean', description: 'Check the request without running anything.' },
     wait: {
@@ -292,7 +292,7 @@ const start: LeafCommand = {
       if (projectId === undefined) throw new UsageError('--project=<id> is required');
       const target = targetFrom(ctx);
       const reads = oneOfFlag(ctx, 'reads', READS);
-      const classWeights = oneOfFlag(ctx, 'class-weights', CLASS_WEIGHTS);
+      const groupWeights = oneOfFlag(ctx, 'group-weights', GROUP_WEIGHTS);
       const baseline = baselineFrom(ctx);
       const repetitions = integerFlag(ctx, 'repetitions');
       const k = integerFlag(ctx, 'k');
@@ -304,7 +304,7 @@ const start: LeafCommand = {
         ...(reads !== undefined && { reads }),
         ...(repetitions !== undefined && { repetitions }),
         ...(k !== undefined && { k }),
-        ...(classWeights !== undefined && { classWeights }),
+        ...(groupWeights !== undefined && { groupWeights }),
         ...(ctx.options['dry-run'] === true && { dryRun: true }),
       };
       const evalRuns = ctx.client().evalRuns;

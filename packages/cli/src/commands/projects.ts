@@ -3,7 +3,7 @@
 
 /**
  * `kindgi projects`: find the project ids the `--project=<id>` flags take
- * (blocks, eval suites and runs, judge classes, agents derive), make and
+ * (blocks, eval suites and runs, corrector groups, agents derive), make and
  * rename projects, and put a project in production. Mirrors the clients'
  * `projects.list`, `projects.getDefault`, `projects.get`,
  * `projects.create`, `projects.update` and `projects.setProduction`.

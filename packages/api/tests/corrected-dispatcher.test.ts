@@ -453,34 +453,34 @@ describe('a case its project or tenant takes no new runs for (halt)', () => {
   });
 });
 
-describe('classWeights (T200)', () => {
-  /** Case A corrected by a restricted class on its answer and m2 only; case B by none. */
-  const restricted = (yesWeight: number, totalWeight: number) => ({
-    restricted: { yesWeight, totalWeight },
+describe('groupWeights (T200)', () => {
+  /** Case A corrected by an expert group on its answer and m2 only; case B by none. */
+  const expertSums = (yesWeight: number, totalWeight: number) => ({
+    expert: { yesWeight, totalWeight },
   });
   const caseARestricted: CorrectedEvalCase = {
     ...caseA,
     items: [
-      item('answer', 1, 1, { pointer: '/appended/3/content', ...restricted(1, 1) }),
-      item('m1', 2, 2, { pointer: '/output/matches/0', rank: 0, ...restricted(0, 0) }),
-      item('m2', 0, 1, { pointer: '/output/matches/1', rank: 1, ...restricted(0, 1) }),
+      item('answer', 1, 1, { pointer: '/appended/3/content', ...expertSums(1, 1) }),
+      item('m1', 2, 2, { pointer: '/output/matches/0', rank: 0, ...expertSums(0, 0) }),
+      item('m2', 0, 1, { pointer: '/output/matches/1', rank: 1, ...expertSums(0, 1) }),
     ],
   };
 
   test('as recorded by default, and the summary says so', async () => {
     const { summary } = await compare({ cases: [caseARestricted, caseB] });
-    expect(summary.classWeights).toBe('as-recorded');
+    expect(summary.groupWeights).toBe('as-recorded');
     expect(summary.metrics.weightedYesShare).toMatchObject({ baseline: 0.6, baselineWeight: 5 });
   });
 
-  test('restricted-only counts only what restricted classes corrected', async () => {
+  test('experts-only counts only what expert groups corrected', async () => {
     const result = await compare({
-      comparison: { ...DEFAULT_COMPARISON, classWeights: 'restricted-only' },
+      comparison: { ...DEFAULT_COMPARISON, groupWeights: 'experts-only' },
       cases: [caseARestricted, caseB],
     });
     expect(wireErrors(result)).toEqual([]);
     const { summary } = result;
-    expect(summary.classWeights).toBe('restricted-only');
+    expect(summary.groupWeights).toBe('experts-only');
     // Baseline: A's answer (1 of 1) and m2 (0 of 1); m1 and all of B uncorrected.
     expect(summary.metrics.weightedYesShare).toMatchObject({
       baseline: 0.5,
@@ -699,11 +699,11 @@ describe('a rescore: the replays scored again, with what people corrected on the
    */
   async function rescoreAfter(
     correct: (j: ReturnType<typeof inMemoryCorrections>) => Promise<void>,
-    options: { classWeights?: 'restricted-only'; gone?: readonly string[] } = {},
+    options: { groupWeights?: 'experts-only'; gone?: readonly string[] } = {},
   ) {
     const comparison: EvalComparison = {
       ...DEFAULT_COMPARISON,
-      ...(options.classWeights !== undefined && { classWeights: options.classWeights }),
+      ...(options.groupWeights !== undefined && { groupWeights: options.groupWeights }),
     };
     const first = await compare({ comparison });
     const corrections = inMemoryCorrections();
@@ -829,15 +829,15 @@ describe('a rescore: the replays scored again, with what people corrected on the
     expect(r.perCase.map((c) => c.candidate)).toEqual(r.first.perCase.map((c) => c.candidate));
   });
 
-  test('restricted-only: a fresh correction counts only if its class was restricted', async () => {
+  test('experts-only: a fresh correction counts only if its group was restricted', async () => {
     const unrestricted = await rescoreAfter(correctAnswer('yes'), {
-      classWeights: 'restricted-only',
+      groupWeights: 'experts-only',
     });
     expect(
       unrestricted.perCase.find((c) => c.caseId === 'case-b')?.candidate[0]?.fresh,
     ).toBeUndefined();
-    const restricted = await rescoreAfter(correctAnswer('yes', { restricted: true }), {
-      classWeights: 'restricted-only',
+    const restricted = await rescoreAfter(correctAnswer('yes', { expert: true }), {
+      groupWeights: 'experts-only',
     });
     expect(restricted.perCase.find((c) => c.caseId === 'case-b')?.candidate[0]?.fresh).toEqual({
       yesWeight: 1,
@@ -1013,14 +1013,14 @@ describe('corrections graded on the replay', () => {
     });
   });
 
-  test('restricted-only grades only the corrections recorded under a restricted class', async () => {
+  test('experts-only grades only the corrections recorded under an expert group', async () => {
     const corrected: CorrectedEvalCase = {
       ...caseA,
       caseId: 'case-c',
       corrections: [
         {
           correctionId: 'j-restricted',
-          restricted: true,
+          expert: true,
           calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
           notCalled: [],
         },
@@ -1032,7 +1032,7 @@ describe('corrections graded on the replay', () => {
       ],
     };
     const { perCase, summary } = await compare({
-      comparison: { ...DEFAULT_COMPARISON, repetitions: 1, classWeights: 'restricted-only' },
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 1, groupWeights: 'experts-only' },
       cases: [corrected],
       answer: () => outcomeWith('case-c', [toolCall('acme.refund', { amount: 25 })]),
     });

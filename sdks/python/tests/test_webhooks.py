@@ -255,7 +255,7 @@ def test_parse_event_reads_an_improvement_pass_finished() -> None:
                 "suiteId": "acme.scorer.improve",
                 "tiers": ["settings"],
                 "objective": "weightedYesShare",
-                "classWeights": "restricted-only",
+                "groupWeights": "experts-only",
                 "budget": {"maxCostUsd": 5, "maxCandidates": 30},
                 "requestedBy": "service:schedule",
                 "status": "completed",

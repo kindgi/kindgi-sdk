@@ -8,7 +8,7 @@ import { errorFetch, jsonFetch } from '../support/recording-fetch.js';
 
 const AUTH = { kind: 'apiToken' as const, token: 't' };
 
-const CLASS = {
+const GROUP = {
   id: 'jc-1',
   tenantId: 'tenant-1',
   scope: { kind: 'tenant' },
@@ -22,10 +22,10 @@ function clientFor(stub: { fetch: typeof fetch }) {
   return createClient({ apiUrl: 'https://api.example.com', auth: AUTH, fetch: stub.fetch });
 }
 
-describe('judgeClasses.create', () => {
-  it('POSTs /v1/judge-classes with scope, name and weight', async () => {
-    const stub = jsonFetch(CLASS, { status: 201 });
-    const created = await clientFor(stub).judgeClasses.create(
+describe('correctorGroups.create', () => {
+  it('POSTs /v1/corrector-groups with scope, name and weight', async () => {
+    const stub = jsonFetch(GROUP, { status: 201 });
+    const created = await clientFor(stub).correctorGroups.create(
       {
         scope: { kind: 'agent', projectId: 'proj-1', agentId: 'acme.matcher' },
         name: 'expert',
@@ -36,7 +36,7 @@ describe('judgeClasses.create', () => {
     expect(created.id).toBe('jc-1');
     const req = stub.calls[0]!;
     expect(req.method).toBe('POST');
-    expect(req.url).toBe('https://api.example.com/v1/judge-classes');
+    expect(req.url).toBe('https://api.example.com/v1/corrector-groups');
     expect(req.headers['idempotency-key']).toBe('idem-c');
     expect(JSON.parse(req.body!)).toEqual({
       scope: { kind: 'agent', projectId: 'proj-1', agentId: 'acme.matcher' },
@@ -45,30 +45,34 @@ describe('judgeClasses.create', () => {
     });
   });
 
-  it('surfaces judge-class-name-taken', async () => {
-    const stub = errorFetch(409, { code: 'judge-class-name-taken', message: 'Taken.' });
+  it('surfaces corrector-group-name-taken', async () => {
+    const stub = errorFetch(409, { code: 'corrector-group-name-taken', message: 'Taken.' });
     await expect(
-      clientFor(stub).judgeClasses.create({ scope: { kind: 'tenant' }, name: 'expert', weight: 1 }),
+      clientFor(stub).correctorGroups.create({
+        scope: { kind: 'tenant' },
+        name: 'expert',
+        weight: 1,
+      }),
     ).rejects.toMatchObject({
       error: {
         code: 'conflict',
-        reason: 'judge-class-name-taken',
-        serverCode: 'judge-class-name-taken',
+        reason: 'corrector-group-name-taken',
+        serverCode: 'corrector-group-name-taken',
       },
     });
   });
 });
 
-describe('judgeClasses.list', () => {
-  it('GETs /v1/judge-classes, encoding the scope', async () => {
-    const stub = jsonFetch({ data: [CLASS], hasMore: false });
-    const page = await clientFor(stub).judgeClasses.list({
+describe('correctorGroups.list', () => {
+  it('GETs /v1/corrector-groups, encoding the scope', async () => {
+    const stub = jsonFetch({ data: [GROUP], hasMore: false });
+    const page = await clientFor(stub).correctorGroups.list({
       scope: { kind: 'agent', projectId: 'proj-1', agentId: 'acme.matcher' },
       limit: 5,
     });
     expect(page.items[0]?.name).toBe('expert');
     const url = new URL(stub.calls[0]?.url);
-    expect(url.pathname).toBe('/v1/judge-classes');
+    expect(url.pathname).toBe('/v1/corrector-groups');
     expect(Object.fromEntries(url.searchParams)).toEqual({
       limit: '5',
       scopeKind: 'agent',
@@ -79,33 +83,33 @@ describe('judgeClasses.list', () => {
 
   it('a tenant scope is scopeKind alone', async () => {
     const stub = jsonFetch({ data: [], hasMore: false });
-    await clientFor(stub).judgeClasses.list({ scope: { kind: 'tenant' } });
+    await clientFor(stub).correctorGroups.list({ scope: { kind: 'tenant' } });
     expect(Object.fromEntries(new URL(stub.calls[0]?.url).searchParams)).toEqual({
       scopeKind: 'tenant',
     });
   });
 });
 
-describe('judgeClasses.get / update / unregister', () => {
-  it('GETs one class', async () => {
-    const stub = jsonFetch(CLASS);
-    expect((await clientFor(stub).judgeClasses.get('jc-1')).weight).toBe(3);
-    expect(stub.calls[0]?.url).toBe('https://api.example.com/v1/judge-classes/jc-1');
+describe('correctorGroups.get / update / unregister', () => {
+  it('GETs one group', async () => {
+    const stub = jsonFetch(GROUP);
+    expect((await clientFor(stub).correctorGroups.get('jc-1')).weight).toBe(3);
+    expect(stub.calls[0]?.url).toBe('https://api.example.com/v1/corrector-groups/jc-1');
   });
 
   it('PATCHes weight and description', async () => {
-    const stub = jsonFetch({ ...CLASS, weight: 5 });
-    const updated = await clientFor(stub).judgeClasses.update('jc-1', { weight: 5 });
+    const stub = jsonFetch({ ...GROUP, weight: 5 });
+    const updated = await clientFor(stub).correctorGroups.update('jc-1', { weight: 5 });
     expect(updated.weight).toBe(5);
     const req = stub.calls[0]!;
     expect(req.method).toBe('PATCH');
     expect(JSON.parse(req.body!)).toEqual({ weight: 5 });
   });
 
-  it('sends who may assert a class, and null to lift it', async () => {
+  it('sends who may assert a group, and null to lift it', async () => {
     const assertableBy = { minReviewerRole: 'senior', principalKinds: ['user'] } as const;
-    const stub = jsonFetch({ ...CLASS, assertableBy }, { status: 201 });
-    const created = await clientFor(stub).judgeClasses.create({
+    const stub = jsonFetch({ ...GROUP, assertableBy }, { status: 201 });
+    const created = await clientFor(stub).correctorGroups.create({
       scope: { kind: 'tenant' },
       name: 'expert',
       weight: 3,
@@ -114,16 +118,16 @@ describe('judgeClasses.get / update / unregister', () => {
     expect(created.assertableBy).toEqual(assertableBy);
     expect(JSON.parse(stub.calls[0]?.body ?? '{}').assertableBy).toEqual(assertableBy);
 
-    const lifted = jsonFetch(CLASS);
-    await clientFor(lifted).judgeClasses.update('jc-1', { assertableBy: null });
+    const lifted = jsonFetch(GROUP);
+    await clientFor(lifted).correctorGroups.update('jc-1', { assertableBy: null });
     expect(JSON.parse(lifted.calls[0]?.body ?? '{}')).toEqual({ assertableBy: null });
   });
 
   it('POSTs unregister and returns nothing', async () => {
-    const stub = jsonFetch({ judgeClassId: 'jc-1', unregistered: true });
-    expect(await clientFor(stub).judgeClasses.unregister('jc-1')).toBeUndefined();
+    const stub = jsonFetch({ correctorGroupId: 'jc-1', unregistered: true });
+    expect(await clientFor(stub).correctorGroups.unregister('jc-1')).toBeUndefined();
     const req = stub.calls[0]!;
     expect(req.method).toBe('POST');
-    expect(req.url).toBe('https://api.example.com/v1/judge-classes/jc-1/unregister');
+    expect(req.url).toBe('https://api.example.com/v1/corrector-groups/jc-1/unregister');
   });
 });

@@ -157,7 +157,7 @@ function parseSample(raw: unknown): EvalSample | string {
 
 /**
  * A comparison eval run's settings from the start body: `baseline`,
- * `reads`, `repetitions`, `k`, `classWeights` and a flow candidate's
+ * `reads`, `repetitions`, `k`, `groupWeights` and a flow candidate's
  * `versions`.
  * `undefined` when none is given (the defaults apply); an error message
  * for a bad one.
@@ -167,7 +167,7 @@ export function parseComparison(
 ):
   | { readonly kind: 'ok'; readonly value?: EvalComparison }
   | { readonly kind: 'err'; readonly message: string } {
-  const { baseline, reads, repetitions, k, classWeights } = b;
+  const { baseline, reads, repetitions, k, groupWeights } = b;
   const versions = b.versions === undefined ? undefined : parseVersions(b.versions);
   if (typeof versions === 'string') return { kind: 'err', message: versions };
   const overrides = b.overrides === undefined ? undefined : parseOverrides(b.overrides);
@@ -180,21 +180,21 @@ export function parseComparison(
     repetitions === undefined &&
     k === undefined &&
     versions === undefined &&
-    classWeights === undefined &&
+    groupWeights === undefined &&
     overrides === undefined &&
     sample === undefined
   ) {
     return { kind: 'ok' };
   }
   if (
-    classWeights !== undefined &&
-    classWeights !== 'as-recorded' &&
-    classWeights !== 'restricted-only'
+    groupWeights !== undefined &&
+    groupWeights !== 'as-recorded' &&
+    groupWeights !== 'experts-only'
   ) {
     return {
       kind: 'err',
       message:
-        "`classWeights` must be 'as-recorded' (every correction at its class's weight) or 'restricted-only' (only corrections recorded under a restricted class)",
+        "`groupWeights` must be 'as-recorded' (every correction at its group's weight) or 'experts-only' (only corrections recorded under an expert group)",
     };
   }
   const parsedBaseline =
@@ -220,7 +220,7 @@ export function parseComparison(
       repetitions: reps,
       k: topK,
       ...(versions !== undefined && { versions }),
-      ...(classWeights !== undefined && { classWeights }),
+      ...(groupWeights !== undefined && { groupWeights }),
       ...(overrides !== undefined && { overrides }),
       ...(sample !== undefined && { sample }),
     },

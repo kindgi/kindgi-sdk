@@ -2,11 +2,11 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * A project's judging rules and queue, over an in-memory binding: who may
+ * A project's queue rules and queue, over an in-memory binding: who may
  * read and who may change them (`read` / `write` on the project, as correcting
  * a run needs), the rule body's checks, versions on change, what the caller
  * may do with each item (`can`), `limit=0` totals, `forMe` asking for the
- * classes the caller may assert, dismiss and reopen, and the preview.
+ * groups the caller may assert, dismiss and reopen, and the preview.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -22,13 +22,13 @@ import { createStubAppBindings } from '../src/testing/index.js';
 import { createApp } from '../src/index.js';
 import type {
   CorrectionRegistryBinding,
-  JudgeClass,
-  JudgingQueueBinding,
-  JudgingQueueItem,
-  JudgingQueueListInput,
-  JudgingRule,
-  JudgingRulePatch,
-  JudgingRuleSpec,
+  CorrectorGroup,
+  ExpertQueueBinding,
+  ExpertQueueItem,
+  ExpertQueueListInput,
+  QueueRule,
+  QueueRulePatch,
+  QueueRuleSpec,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
@@ -44,14 +44,14 @@ const RESULT_GROUP = {
   agentVersion: '1.1.0',
   added: 3,
   open: 1,
-  judged: 1,
+  corrected: 1,
   dismissed: 1,
   erased: 0,
   skippedByCap: 0,
   corrections: 4,
   runsWithCorrections: 2,
   yesShare: 0.75,
-  byClass: [{ judgeClassId: null, corrections: 4, yes: 3 }],
+  byGroup: [{ correctorGroupId: null, corrections: 4, yes: 3 }],
 };
 
 const resolveToken: TokenResolver = async (token) =>
@@ -80,7 +80,7 @@ const runHandler: RunHandlerBinding = {
   resumeRun: async () => ({ kind: 'err', error: { code: 'bad-input', message: 'noop' } }),
 };
 
-const CLASSES: JudgeClass[] = [
+const GROUPS: CorrectorGroup[] = [
   {
     id: 'cls-expert',
     tenantId,
@@ -103,18 +103,18 @@ const CLASSES: JudgeClass[] = [
 ];
 
 const corrections = {
-  listClasses: async () => ({ data: CLASSES, hasMore: false }),
-  getClass: async ({ judgeClassId }: { judgeClassId: string }) =>
-    CLASSES.find((c) => c.id === judgeClassId) ?? null,
+  listGroups: async () => ({ data: GROUPS, hasMore: false }),
+  getGroup: async ({ correctorGroupId }: { correctorGroupId: string }) =>
+    GROUPS.find((c) => c.id === correctorGroupId) ?? null,
 } as unknown as CorrectionRegistryBinding;
 
 /** An in-memory binding, enough for the routes: versions, a queue, and what each call was asked. */
 function memoryBinding() {
-  const rules = new Map<string, JudgingRule[]>();
-  const items = new Map<string, JudgingQueueItem>();
-  const asked: JudgingQueueListInput[] = [];
+  const rules = new Map<string, QueueRule[]>();
+  const items = new Map<string, ExpertQueueItem>();
+  const asked: ExpertQueueListInput[] = [];
   const previewed: {
-    readonly spec: JudgingRuleSpec;
+    readonly spec: QueueRuleSpec;
     readonly last: number;
     readonly ruleId?: string;
   }[] = [];
@@ -130,9 +130,9 @@ function memoryBinding() {
     projectId: string,
     ruleId: string,
     version: number,
-    spec: JudgingRuleSpec | (JudgingRulePatch & Pick<JudgingRuleSpec, 'name' | 'when'>),
+    spec: QueueRuleSpec | (QueueRulePatch & Pick<QueueRuleSpec, 'name' | 'when'>),
     by?: string,
-  ): JudgingRule => ({
+  ): QueueRule => ({
     ruleId,
     projectId,
     version,
@@ -140,13 +140,13 @@ function memoryBinding() {
     when: spec.when,
     sample: spec.sample ?? 1,
     ...(spec.maxOpen !== undefined && spec.maxOpen !== null && { maxOpen: spec.maxOpen }),
-    ...(spec.judgeClassId !== undefined &&
-      spec.judgeClassId !== null && { judgeClassId: spec.judgeClassId }),
+    ...(spec.correctorGroupId !== undefined &&
+      spec.correctorGroupId !== null && { correctorGroupId: spec.correctorGroupId }),
     enabled: spec.enabled ?? true,
     ...(by !== undefined && { createdBy: by }),
     createdAt: at(),
   });
-  const binding: JudgingQueueBinding = {
+  const binding: ExpertQueueBinding = {
     async createRule({ projectId, spec, by }) {
       const r = rule(projectId, randomUUID(), 1, spec, by);
       rules.set(r.ruleId, [r]);
@@ -156,7 +156,7 @@ function memoryBinding() {
       const versions = rules.get(ruleId);
       const latest = versions?.at(-1);
       if (versions === undefined || latest === undefined) {
-        return { kind: 'err', error: { code: 'judging-rule-not-found', message: 'no' } };
+        return { kind: 'err', error: { code: 'queue-rule-not-found', message: 'no' } };
       }
       const next = rule(latest.projectId, ruleId, latest.version + 1, { ...latest, ...patch }, by);
       versions.push(next);
@@ -169,7 +169,7 @@ function memoryBinding() {
       return rules.get(ruleId)?.at(-1) ?? null;
     },
     async listRules() {
-      return { data: [...rules.values()].map((v) => v.at(-1) as JudgingRule), hasMore: false };
+      return { data: [...rules.values()].map((v) => v.at(-1) as QueueRule), hasMore: false };
     },
     async ruleVersions({ ruleId }) {
       return { data: [...(rules.get(ruleId) ?? [])].reverse(), hasMore: false };
@@ -184,9 +184,9 @@ function memoryBinding() {
     async dismiss({ runId, by, reason }) {
       const item = items.get(runId);
       if (item === undefined)
-        return { kind: 'err', error: { code: 'judging-item-not-found', message: 'no' } };
+        return { kind: 'err', error: { code: 'expert-queue-item-not-found', message: 'no' } };
       if (item.state !== 'open')
-        return { kind: 'err', error: { code: 'judging-item-not-open', message: 'not open' } };
+        return { kind: 'err', error: { code: 'expert-queue-item-not-open', message: 'not open' } };
       const next = {
         ...item,
         state: 'dismissed' as const,
@@ -200,9 +200,12 @@ function memoryBinding() {
     async reopen({ runId }) {
       const item = items.get(runId);
       if (item === undefined)
-        return { kind: 'err', error: { code: 'judging-item-not-found', message: 'no' } };
+        return { kind: 'err', error: { code: 'expert-queue-item-not-found', message: 'no' } };
       if (item.state !== 'dismissed')
-        return { kind: 'err', error: { code: 'judging-item-not-open', message: 'not dismissed' } };
+        return {
+          kind: 'err',
+          error: { code: 'expert-queue-item-not-open', message: 'not dismissed' },
+        };
       const { closedAt: _a, reason: _r, ...rest } = item;
       const next = { ...rest, state: 'open' as const };
       items.set(runId, next);
@@ -211,7 +214,7 @@ function memoryBinding() {
     async results({ ruleId }) {
       return rules.has(ruleId)
         ? { kind: 'ok', value: { ruleId, groups: [RESULT_GROUP] } }
-        : { kind: 'err', error: { code: 'judging-rule-not-found', message: 'no' } };
+        : { kind: 'err', error: { code: 'queue-rule-not-found', message: 'no' } };
     },
     async preview({ spec, last, ruleId }) {
       previewed.push({ spec, last, ...(ruleId !== undefined && { ruleId }) });
@@ -219,7 +222,7 @@ function memoryBinding() {
     },
     async queueRecent({ ruleId, last, since, by }) {
       if (!rules.has(ruleId)) {
-        return { kind: 'err', error: { code: 'judging-rule-not-found', message: 'no' } };
+        return { kind: 'err', error: { code: 'queue-rule-not-found', message: 'no' } };
       }
       queueRecentCalls.push({
         ruleId,
@@ -240,9 +243,9 @@ function memoryBinding() {
       runStatus: 'completed',
       completedAt: at(),
       rules: [{ ruleId: 'r-1', version: 2 }],
-      wantedClassIds: ['cls-expert'],
+      wantedGroupIds: ['cls-expert'],
       anyCorrection: false,
-      progress: { total: 0, byClass: [] },
+      progress: { total: 0, byGroup: [] },
       addedAt: at(),
       state: 'open',
     });
@@ -256,7 +259,7 @@ function harness(opts: { readonly projects?: boolean } = {}) {
     ...createStubAppBindings(),
     resolveToken,
     runHandler,
-    judgingQueue: memory.binding,
+    expertQueue: memory.binding,
     correctionRegistry: corrections,
     ...(projects !== undefined && {
       projectBinding: projects.projects,
@@ -283,13 +286,13 @@ const RULE = {
   when: { agentIds: ['acme.refunds'], versions: ['live'], status: ['completed'] },
   sample: 0.5,
   maxOpen: 20,
-  judgeClassId: 'cls-expert',
+  correctorGroupId: 'cls-expert',
 };
 
-describe('judging rules', () => {
+describe('queue rules', () => {
   test('an editor creates and changes a rule; each change is a new version; a viewer reads them', async () => {
     const h = harness();
-    const created = await h.call(EDITOR, 'POST', '/judging-rules', RULE);
+    const created = await h.call(EDITOR, 'POST', '/queue-rules', RULE);
     expect(created.status).toBe(201);
     expect(created.body).toMatchObject({
       ...RULE,
@@ -299,27 +302,27 @@ describe('judging rules', () => {
     });
     const ruleId = created.body.ruleId;
 
-    const changed = await h.call(EDITOR, 'PATCH', `/judging-rules/${ruleId}`, { sample: 0.1 });
+    const changed = await h.call(EDITOR, 'PATCH', `/queue-rules/${ruleId}`, { sample: 0.1 });
     expect(changed.body).toMatchObject({ version: 2, sample: 0.1, maxOpen: 20 });
-    // `null` removes the cap and the class; only a change takes it.
-    const uncapped = await h.call(EDITOR, 'PATCH', `/judging-rules/${ruleId}`, {
+    // `null` removes the cap and the group; only a change takes it.
+    const uncapped = await h.call(EDITOR, 'PATCH', `/queue-rules/${ruleId}`, {
       maxOpen: null,
-      judgeClassId: null,
+      correctorGroupId: null,
     });
     expect(uncapped.body).toMatchObject({ version: 3, sample: 0.1 });
     expect(uncapped.body).not.toHaveProperty('maxOpen');
-    expect(uncapped.body).not.toHaveProperty('judgeClassId');
-    const nullOnCreate = await h.call(EDITOR, 'POST', '/judging-rules', { ...RULE, maxOpen: null });
+    expect(uncapped.body).not.toHaveProperty('correctorGroupId');
+    const nullOnCreate = await h.call(EDITOR, 'POST', '/queue-rules', { ...RULE, maxOpen: null });
     expect(nullOnCreate.status).toBe(400);
 
-    const versions = await h.call(VIEWER, 'GET', `/judging-rules/${ruleId}/versions`);
-    expect(versions.body.data.map((v: JudgingRule) => v.version)).toEqual([3, 2, 1]);
-    expect((await h.call(VIEWER, 'GET', '/judging-rules')).body.data).toHaveLength(1);
+    const versions = await h.call(VIEWER, 'GET', `/queue-rules/${ruleId}/versions`);
+    expect(versions.body.data.map((v: QueueRule) => v.version)).toEqual([3, 2, 1]);
+    expect((await h.call(VIEWER, 'GET', '/queue-rules')).body.data).toHaveLength(1);
   });
 
   test('a viewer may not change rules', async () => {
     const h = harness();
-    expect((await h.call(VIEWER, 'POST', '/judging-rules', RULE)).status).toBe(403);
+    expect((await h.call(VIEWER, 'POST', '/queue-rules', RULE)).status).toBe(403);
   });
 
   test("a rule's body is checked", async () => {
@@ -346,23 +349,26 @@ describe('judging rules', () => {
       ],
       [{ when: {} }, '`name` must be a non-empty string of at most 200 characters'],
     ] as const) {
-      const r = await h.call(EDITOR, 'POST', '/judging-rules', body);
+      const r = await h.call(EDITOR, 'POST', '/queue-rules', body);
       expect(r.status, JSON.stringify(body)).toBe(400);
       expect(r.body.error.message).toBe(message);
     }
   });
 
-  test("a judge class that isn't live is refused", async () => {
+  test("a corrector group that isn't live is refused", async () => {
     const h = harness();
-    const r = await h.call(EDITOR, 'POST', '/judging-rules', { ...RULE, judgeClassId: 'cls-nope' });
+    const r = await h.call(EDITOR, 'POST', '/queue-rules', {
+      ...RULE,
+      correctorGroupId: 'cls-nope',
+    });
     expect(r.status).toBe(404);
-    expect(r.body.error.code).toBe('judge-class-not-found');
+    expect(r.body.error.code).toBe('corrector-group-not-found');
   });
 
   test("a rule's results: each group's counts, the runs its corrections come from included", async () => {
     const h = harness();
-    const created = await h.call(EDITOR, 'POST', '/judging-rules', RULE);
-    const res = await h.call(VIEWER, 'GET', `/judging-rules/${created.body.ruleId}/results`);
+    const created = await h.call(EDITOR, 'POST', '/queue-rules', RULE);
+    const res = await h.call(VIEWER, 'GET', `/queue-rules/${created.body.ruleId}/results`);
     expect(res.status).toBe(200);
     expect(res.body.groups).toEqual([RESULT_GROUP]);
     // Four corrections from two runs: the share's runs, not its corrections.
@@ -371,10 +377,10 @@ describe('judging rules', () => {
 
   test('an unknown rule: 404', async () => {
     const h = harness();
-    expect((await h.call(VIEWER, 'GET', '/judging-rules/nope')).body.error.code).toBe(
-      'judging-rule-not-found',
+    expect((await h.call(VIEWER, 'GET', '/queue-rules/nope')).body.error.code).toBe(
+      'queue-rule-not-found',
     );
-    expect((await h.call(VIEWER, 'GET', '/judging-rules/nope/results')).status).toBe(404);
+    expect((await h.call(VIEWER, 'GET', '/queue-rules/nope/results')).status).toBe(404);
   });
 
   test('the preview reads the rule from the query, and bounds `last`', async () => {
@@ -382,17 +388,17 @@ describe('judging rules', () => {
     const r = await h.call(
       VIEWER,
       'GET',
-      '/judging-rules/preview?agentIds=acme.refunds&status=completed&sample=0.05&last=200',
+      '/queue-rules/preview?agentIds=acme.refunds&status=completed&sample=0.05&last=200',
     );
     expect(r.body).toEqual({ considered: 200, matched: 3 });
     expect(h.previewed.at(-1)).toMatchObject({
       spec: { when: { agentIds: ['acme.refunds'], status: ['completed'] }, sample: 0.05 },
       last: 200,
     });
-    expect((await h.call(VIEWER, 'GET', '/judging-rules/preview?last=501')).status).toBe(400);
-    expect((await h.call(VIEWER, 'GET', '/judging-rules/preview?status=crashed')).status).toBe(400);
-    expect((await h.call(VIEWER, 'GET', '/judging-rules/preview?status=failed')).status).toBe(400);
-    await h.call(VIEWER, 'GET', '/judging-rules/preview?agentIds=acme.refunds&ruleId=r-1');
+    expect((await h.call(VIEWER, 'GET', '/queue-rules/preview?last=501')).status).toBe(400);
+    expect((await h.call(VIEWER, 'GET', '/queue-rules/preview?status=crashed')).status).toBe(400);
+    expect((await h.call(VIEWER, 'GET', '/queue-rules/preview?status=failed')).status).toBe(400);
+    await h.call(VIEWER, 'GET', '/queue-rules/preview?agentIds=acme.refunds&ruleId=r-1');
     expect(h.previewed.at(-1)).toMatchObject({ ruleId: 'r-1' });
   });
 });
@@ -400,23 +406,23 @@ describe('judging rules', () => {
 describe('queue the recent matches', () => {
   test("an editor queues a rule's recent matches; `last`/`since` reach the binding", async () => {
     const h = harness();
-    const ruleId = (await h.call(EDITOR, 'POST', '/judging-rules', RULE)).body.ruleId;
+    const ruleId = (await h.call(EDITOR, 'POST', '/queue-rules', RULE)).body.ruleId;
 
-    const queued = await h.call(EDITOR, 'POST', `/judging-rules/${ruleId}/queue-recent`, {
+    const queued = await h.call(EDITOR, 'POST', `/queue-rules/${ruleId}/queue-recent`, {
       last: 100,
     });
     expect(queued.status).toBe(200);
     expect(queued.body).toEqual({ queued: 2, alreadyQueued: 1, alreadyReviewed: 4 });
     expect(h.queueRecentCalls.at(-1)).toEqual({ ruleId, last: 100, by: 'user:editor' });
 
-    await h.call(EDITOR, 'POST', `/judging-rules/${ruleId}/queue-recent`, {
+    await h.call(EDITOR, 'POST', `/queue-rules/${ruleId}/queue-recent`, {
       since: '2026-10-01T00:00:00.000Z',
     });
     expect(h.queueRecentCalls.at(-1)).toMatchObject({ since: '2026-10-01T00:00:00.000Z' });
     expect(h.queueRecentCalls.at(-1)).not.toHaveProperty('last');
 
     // A bare date reads as UTC midnight and is normalized; both bounds may be given.
-    await h.call(EDITOR, 'POST', `/judging-rules/${ruleId}/queue-recent`, {
+    await h.call(EDITOR, 'POST', `/queue-rules/${ruleId}/queue-recent`, {
       last: 50,
       since: '2026-10-01',
     });
@@ -428,9 +434,9 @@ describe('queue the recent matches', () => {
 
   test('the body is checked, and at least one of `last`/`since` is required', async () => {
     const h = harness();
-    const ruleId = (await h.call(EDITOR, 'POST', '/judging-rules', RULE)).body.ruleId;
+    const ruleId = (await h.call(EDITOR, 'POST', '/queue-rules', RULE)).body.ruleId;
     const bad = async (body: unknown) =>
-      (await h.call(EDITOR, 'POST', `/judging-rules/${ruleId}/queue-recent`, body)).status;
+      (await h.call(EDITOR, 'POST', `/queue-rules/${ruleId}/queue-recent`, body)).status;
     expect(await bad({})).toBe(400);
     expect(await bad({ last: 0 })).toBe(400);
     expect(await bad({ last: 1001 })).toBe(400);
@@ -442,26 +448,26 @@ describe('queue the recent matches', () => {
 
   test('queueing needs write, and the rule must exist', async () => {
     const h = harness();
-    const ruleId = (await h.call(EDITOR, 'POST', '/judging-rules', RULE)).body.ruleId;
+    const ruleId = (await h.call(EDITOR, 'POST', '/queue-rules', RULE)).body.ruleId;
     expect(
-      (await h.call(VIEWER, 'POST', `/judging-rules/${ruleId}/queue-recent`, { last: 10 })).status,
+      (await h.call(VIEWER, 'POST', `/queue-rules/${ruleId}/queue-recent`, { last: 10 })).status,
     ).toBe(403);
-    const unknown = await h.call(EDITOR, 'POST', '/judging-rules/r-nope/queue-recent', {
+    const unknown = await h.call(EDITOR, 'POST', '/queue-rules/r-nope/queue-recent', {
       last: 10,
     });
     expect(unknown.status).toBe(404);
-    expect(unknown.body.error.code).toBe('judging-rule-not-found');
+    expect(unknown.body.error.code).toBe('queue-rule-not-found');
   });
 });
 
-describe('the judging queue', () => {
+describe('the expert queue', () => {
   test('each item says what the caller may do with it', async () => {
     const h = harness();
     h.queue('run-1');
-    const asEditor = await h.call(EDITOR, 'GET', '/judging-queue');
+    const asEditor = await h.call(EDITOR, 'GET', '/expert-queue');
     expect(asEditor.body.data[0].can).toEqual({ dismiss: true, reopen: false });
     expect(asEditor.body.data[0].rules).toEqual([{ ruleId: 'r-1', version: 2 }]);
-    const asViewer = await h.call(VIEWER, 'GET', '/judging-queue');
+    const asViewer = await h.call(VIEWER, 'GET', '/expert-queue');
     expect(asViewer.body.data[0].can).toEqual({ dismiss: false, reopen: false });
     expect(asViewer.body.total).toBe(1);
   });
@@ -470,24 +476,24 @@ describe('the judging queue', () => {
     const h = harness();
     h.queue('run-1');
     h.queue('run-2');
-    const r = await h.call(VIEWER, 'GET', '/judging-queue?state=open&limit=0');
+    const r = await h.call(VIEWER, 'GET', '/expert-queue?state=open&limit=0');
     expect(r.body).toMatchObject({ data: [], total: 2 });
   });
 
-  test('forMe asks for the classes the caller may assert, by their assertableBy', async () => {
+  test('forMe asks for the groups the caller may assert, by their assertableBy', async () => {
     const h = harness();
-    await h.call(VIEWER, 'GET', '/judging-queue?forMe=true');
+    await h.call(VIEWER, 'GET', '/expert-queue?forMe=true');
     // A standard reviewer may assert "user" (unrestricted), not "expert" (senior and above).
     expect(h.asked.at(-1)?.wantedFrom).toEqual(['cls-user']);
-    await h.call(VIEWER, 'GET', '/judging-queue');
+    await h.call(VIEWER, 'GET', '/expert-queue');
     expect(h.asked.at(-1)?.wantedFrom).toBeUndefined();
   });
 
   test('dismiss, then reopen; each needs write, and the item must be in the right state', async () => {
     const h = harness();
     h.queue('run-1');
-    expect((await h.call(VIEWER, 'POST', '/judging-queue/run-1/dismiss', {})).status).toBe(403);
-    const dismissed = await h.call(EDITOR, 'POST', '/judging-queue/run-1/dismiss', {
+    expect((await h.call(VIEWER, 'POST', '/expert-queue/run-1/dismiss', {})).status).toBe(403);
+    const dismissed = await h.call(EDITOR, 'POST', '/expert-queue/run-1/dismiss', {
       reason: 'a test run',
     });
     expect(dismissed.body).toMatchObject({
@@ -495,30 +501,30 @@ describe('the judging queue', () => {
       reason: 'a test run',
       can: { dismiss: false, reopen: true },
     });
-    const again = await h.call(EDITOR, 'POST', '/judging-queue/run-1/dismiss', {});
+    const again = await h.call(EDITOR, 'POST', '/expert-queue/run-1/dismiss', {});
     expect(again.status).toBe(409);
-    expect(again.body.error.code).toBe('judging-item-not-open');
-    const reopened = await h.call(EDITOR, 'POST', '/judging-queue/run-1/reopen');
+    expect(again.body.error.code).toBe('expert-queue-item-not-open');
+    const reopened = await h.call(EDITOR, 'POST', '/expert-queue/run-1/reopen');
     expect(reopened.body).toMatchObject({ state: 'open', can: { dismiss: true, reopen: false } });
-    expect((await h.call(EDITOR, 'POST', '/judging-queue/run-x/dismiss', {})).status).toBe(404);
+    expect((await h.call(EDITOR, 'POST', '/expert-queue/run-x/dismiss', {})).status).toBe(404);
   });
 
   test('filters are checked', async () => {
     const h = harness();
-    expect((await h.call(VIEWER, 'GET', '/judging-queue?state=lost')).status).toBe(400);
-    expect((await h.call(VIEWER, 'GET', '/judging-queue?addedAfter=yesterday')).status).toBe(400);
-    expect((await h.call(VIEWER, 'GET', '/judging-queue?forMe=yes')).status).toBe(400);
+    expect((await h.call(VIEWER, 'GET', '/expert-queue?state=lost')).status).toBe(400);
+    expect((await h.call(VIEWER, 'GET', '/expert-queue?addedAfter=yesterday')).status).toBe(400);
+    expect((await h.call(VIEWER, 'GET', '/expert-queue?forMe=yes')).status).toBe(400);
   });
 });
 
 describe('the project in the path', () => {
   test("a project id that isn't one: 400; one the tenant hasn't: 404", async () => {
     const h = harness({ projects: true });
-    const bad = await h.app.request('/v1/projects/acme/judging-queue', {
+    const bad = await h.app.request('/v1/projects/acme/expert-queue', {
       headers: { authorization: `Bearer ${VIEWER}` },
     });
     expect(bad.status).toBe(400);
-    const unknown = await h.call(VIEWER, 'GET', '/judging-queue');
+    const unknown = await h.call(VIEWER, 'GET', '/expert-queue');
     expect(unknown.status).toBe(404);
     expect(unknown.body.error.code).toBe('project-not-found');
   });

@@ -159,12 +159,12 @@ export type EvalBaseline =
 export type EvalReads = 'recorded' | 'live';
 
 /**
- * Which corrections a comparison counts: every correction at its class's
+ * Which corrections a comparison counts: every correction at its group's
  * weight (`as-recorded`, the default), or only those recorded while their
- * class was restricted (`assertableBy`), the others weighing 0
- * (`restricted-only`; T200).
+ * group was restricted (`assertableBy`), the others weighing 0
+ * (`experts-only`; T200).
  */
-export type EvalClassWeights = 'as-recorded' | 'restricted-only';
+export type EvalGroupWeights = 'as-recorded' | 'experts-only';
 
 /** How a comparison eval run runs its cases (absent: the run isn't a comparison). */
 export interface EvalComparison {
@@ -181,7 +181,7 @@ export interface EvalComparison {
    */
   readonly versions?: FlowVersionOverrides;
   /** Which corrections count (absent: `as-recorded`). */
-  readonly classWeights?: EvalClassWeights;
+  readonly groupWeights?: EvalGroupWeights;
   /**
    * For an agent candidate: block content its replays run instead of the
    * version's pinned content (settings values, a prompt template: an

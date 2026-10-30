@@ -10,7 +10,7 @@ import type { Command, LeafCommand } from './types.js';
 
 const VERDICTS = ['yes', 'no'] as const;
 
-/** The string flags given, under their request field names (`{ class: 'judgeClassId' }`). */
+/** The string flags given, under their request field names (`{ group: 'correctorGroupId' }`). */
 function givenFlags<F extends string>(
   ctx: CommandContext,
   fields: Readonly<Record<string, F>>,
@@ -72,7 +72,7 @@ const add: LeafCommand = {
   description:
     "Correct one item of a finished run's output: mark the answer right (`--yes`) or wrong (`--no`), with an optional reason. Correcting the same item again as the same caller replaces the earlier correction.",
   usage:
-    'kindgi corrections add --run=<run-id> --item=<key> [--pointer=<json-pointer>] [--rank=<n>] (--yes | --no) [--reason=<text>] [--correction=<json-or-@file>] [--class=<judge-class-id>] [--participant=<id>]',
+    'kindgi corrections add --run=<run-id> --item=<key> [--pointer=<json-pointer>] [--rank=<n>] (--yes | --no) [--reason=<text>] [--correction=<json-or-@file>] [--group=<corrector-group-id>] [--participant=<id>]',
   optionSpec: {
     run: { type: 'string', description: 'The run whose output is corrected. Required.' },
     item: {
@@ -99,10 +99,10 @@ const add: LeafCommand = {
       description:
         'What the agent should have done, as JSON or `@<file>`: `{ "calls": [{ "tool": "<tool-id>", "args": { … } }], "notCalled": ["<tool-id>"] }`. `args` are the partial top-level fields to compare (those left out are not compared); `notCalled` lists tools that should not have been called at all. Graded on a replay. Recorded against the whole output, so a later correction of the same run by the same caller replaces it; `--item`/`--pointer`/`--rank` aren\'t needed.',
     },
-    class: {
+    group: {
       type: 'string',
       description:
-        'The judge class id to record the correction under. Without one, the correction is unclassified.',
+        'The corrector group id to record the correction under. Without one, the correction is unclassified.',
     },
     participant: {
       type: 'string',
@@ -126,7 +126,7 @@ const add: LeafCommand = {
         ...(correction !== undefined && { correction }),
         ...givenFlags(ctx, {
           reason: 'reason',
-          class: 'judgeClassId',
+          group: 'correctorGroupId',
           participant: 'participantId',
         }),
       });
@@ -138,7 +138,7 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List corrections, newest first (replaced and removed ones are left out).',
   usage:
-    'kindgi corrections list [--run=<run-id>] [--agent=<id> [--agent-version=<v>]] [--flow=<id>] [--verdict=yes|no] [--class=<judge-class-id>] [--participant=<id>] [--project=<id>] [--limit=<n>] [--cursor=<c>]',
+    'kindgi corrections list [--run=<run-id>] [--agent=<id> [--agent-version=<v>]] [--flow=<id>] [--verdict=yes|no] [--group=<corrector-group-id>] [--participant=<id>] [--project=<id>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     run: { type: 'string', description: 'Only corrections of this run.' },
     agent: { type: 'string', description: 'Only corrections of runs of this agent.' },
@@ -148,7 +148,7 @@ const list: LeafCommand = {
     },
     flow: { type: 'string', description: 'Only corrections of runs of this flow.' },
     verdict: { type: 'string', description: 'Only this verdict: `yes` or `no`.' },
-    class: { type: 'string', description: 'Only corrections under this judge class id.' },
+    group: { type: 'string', description: 'Only corrections under this corrector group id.' },
     participant: {
       type: 'string',
       description: "Only corrections made for this end user's opaque id.",
@@ -184,7 +184,7 @@ const list: LeafCommand = {
           agent: 'agentId',
           'agent-version': 'agentVersion',
           flow: 'flowId',
-          class: 'judgeClassId',
+          group: 'correctorGroupId',
           participant: 'participantId',
         }),
         ...(verdict !== undefined && { verdict: verdict as (typeof VERDICTS)[number] }),

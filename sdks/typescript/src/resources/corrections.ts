@@ -61,7 +61,7 @@ export interface CorrectionFilter {
   readonly agentVersion?: string;
   readonly flowId?: string;
   readonly verdict?: Verdict;
-  readonly judgeClassId?: string;
+  readonly correctorGroupId?: string;
   readonly participantId?: string;
   /** Narrow to a project (or org). */
   readonly scope?: ScopeRef;
@@ -90,7 +90,9 @@ export function makeCorrectionsClient(transport: Transport): CorrectionsClient {
           ...(filter?.agentVersion !== undefined && { agentVersion: filter.agentVersion }),
           ...(filter?.flowId !== undefined && { flowId: filter.flowId }),
           ...(filter?.verdict !== undefined && { verdict: filter.verdict }),
-          ...(filter?.judgeClassId !== undefined && { judgeClassId: filter.judgeClassId }),
+          ...(filter?.correctorGroupId !== undefined && {
+            correctorGroupId: filter.correctorGroupId,
+          }),
           ...(filter?.participantId !== undefined && { participantId: filter.participantId }),
           ...(filter?.scope !== undefined && scopeToQuery(filter.scope)),
         },

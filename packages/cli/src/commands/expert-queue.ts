@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { JudgingQueueState } from '@kindgi/client';
+import type { ExpertQueueState } from '@kindgi/client';
 import { UsageError } from '../errors.js';
 import {
   integerFlag,
@@ -14,7 +14,7 @@ import {
 import type { Command, LeafCommand, ParseArgsOption } from './types.js';
 
 /** Where a queued run stands, the values `--state` takes. */
-const QUEUE_STATES = ['open', 'judged', 'dismissed', 'erased'] as const;
+const QUEUE_STATES = ['open', 'corrected', 'dismissed', 'erased'] as const;
 
 const PROJECT_OPTION: Readonly<Record<string, ParseArgsOption>> = {
   project: {
@@ -28,20 +28,20 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List the runs in the project’s To correct list, oldest first.',
   usage:
-    'kindgi judging-queue list [--project=<id>] [--state=open|judged|dismissed|erased] [--agent=<id>] [--rule=<id>] [--class=<id>] [--for-me] [--added-after=<time>] [--closed-after=<time>] [--limit=<n>] [--cursor=<c>]',
+    'kindgi expert-queue list [--project=<id>] [--state=open|corrected|dismissed|erased] [--agent=<id>] [--rule=<id>] [--group=<id>] [--for-me] [--added-after=<time>] [--closed-after=<time>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     ...PROJECT_OPTION,
     state: {
       type: 'string',
-      description: 'Only items in this state: `open`, `judged`, `dismissed` or `erased`.',
+      description: 'Only items in this state: `open`, `corrected`, `dismissed` or `erased`.',
     },
     agent: { type: 'string', description: 'Only runs of this agent.' },
     rule: { type: 'string', description: 'Only runs a given rule queued.' },
-    class: { type: 'string', description: 'Only items wanting this judge class.' },
+    group: { type: 'string', description: 'Only items wanting this corrector group.' },
     'for-me': {
       type: 'boolean',
       description:
-        'Only items a correction of mine would close (any correction, or one of my classes).',
+        'Only items a correction of mine would close (any correction, or one of my groups).',
     },
     'added-after': {
       type: 'string',
@@ -58,7 +58,7 @@ const list: LeafCommand = {
     },
   },
   run: (ctx) =>
-    runSdk(ctx, 'judging-queue list', async () => {
+    runSdk(ctx, 'expert-queue list', async () => {
       const projectId = await projectIdFlag(ctx);
       const state = stringFlag(ctx, 'state');
       if (state !== undefined && !(QUEUE_STATES as readonly string[]).includes(state)) {
@@ -66,16 +66,16 @@ const list: LeafCommand = {
       }
       const agentId = stringFlag(ctx, 'agent');
       const ruleId = stringFlag(ctx, 'rule');
-      const judgeClassId = stringFlag(ctx, 'class');
+      const correctorGroupId = stringFlag(ctx, 'group');
       const addedAfter = timeFlag(ctx, 'added-after');
       const closedAfter = timeFlag(ctx, 'closed-after');
       const limit = integerFlag(ctx, 'limit');
       const cursor = stringFlag(ctx, 'cursor');
-      return await ctx.client().projects.judgingQueue.list(projectId, {
-        ...(state !== undefined && { state: state as JudgingQueueState }),
+      return await ctx.client().projects.expertQueue.list(projectId, {
+        ...(state !== undefined && { state: state as ExpertQueueState }),
         ...(agentId !== undefined && { agentId }),
         ...(ruleId !== undefined && { ruleId }),
-        ...(judgeClassId !== undefined && { judgeClassId }),
+        ...(correctorGroupId !== undefined && { correctorGroupId }),
         ...(ctx.options['for-me'] === true && { forMe: true }),
         ...(addedAfter !== undefined && { addedAfter }),
         ...(closedAfter !== undefined && { closedAfter }),
@@ -89,17 +89,17 @@ const dismiss: LeafCommand = {
   kind: 'leaf',
   name: 'dismiss',
   description: 'Dismiss a queued run so it needs no correction; `reopen` undoes it.',
-  usage: 'kindgi judging-queue dismiss <run-id> [--project=<id>] [--reason=<text>]',
+  usage: 'kindgi expert-queue dismiss <run-id> [--project=<id>] [--reason=<text>]',
   optionSpec: {
     ...PROJECT_OPTION,
     reason: { type: 'string', description: 'Why, recorded with the item.' },
   },
   run: (ctx) =>
-    runSdk(ctx, 'judging-queue dismiss', async () => {
+    runSdk(ctx, 'expert-queue dismiss', async () => {
       const runId = requiredPositional(ctx, 0, 'run-id');
       const projectId = await projectIdFlag(ctx);
       const reason = stringFlag(ctx, 'reason');
-      return await ctx.client().projects.judgingQueue.dismiss(projectId, runId, reason);
+      return await ctx.client().projects.expertQueue.dismiss(projectId, runId, reason);
     }),
 };
 
@@ -107,19 +107,19 @@ const reopen: LeafCommand = {
   kind: 'leaf',
   name: 'reopen',
   description: 'Reopen a dismissed item, so it waits for a correction again.',
-  usage: 'kindgi judging-queue reopen <run-id> [--project=<id>]',
+  usage: 'kindgi expert-queue reopen <run-id> [--project=<id>]',
   optionSpec: { ...PROJECT_OPTION },
   run: (ctx) =>
-    runSdk(ctx, 'judging-queue reopen', async () => {
+    runSdk(ctx, 'expert-queue reopen', async () => {
       const runId = requiredPositional(ctx, 0, 'run-id');
       const projectId = await projectIdFlag(ctx);
-      return await ctx.client().projects.judgingQueue.reopen(projectId, runId);
+      return await ctx.client().projects.expertQueue.reopen(projectId, runId);
     }),
 };
 
-export const judgingQueueCommand: Command = {
+export const expertQueueCommand: Command = {
   kind: 'group',
-  name: 'judging-queue',
+  name: 'expert-queue',
   description:
     "A project's To correct list — the runs a rule puts up for a person's correction, open or closed (list / dismiss / reopen).",
   subcommands: [list, dismiss, reopen],

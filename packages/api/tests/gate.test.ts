@@ -396,18 +396,18 @@ describe('the verdict', () => {
   });
 });
 
-describe('onlyRestrictedClasses (T200)', () => {
-  test('needs a comparison weighted restricted-only', () => {
-    expect(gate({ onlyRestrictedClasses: true }, { summary: null }).checks).toEqual([
+describe('onlyExpertGroups (T200)', () => {
+  test('needs a comparison weighted experts-only', () => {
+    expect(gate({ onlyExpertGroups: true }, { summary: null }).checks).toEqual([
       expect.objectContaining({ name: 'comparison.required', passed: false }),
     ]);
-    const asRecorded = check(gate({ onlyRestrictedClasses: true }), 'classWeights.restrictedOnly');
+    const asRecorded = check(gate({ onlyExpertGroups: true }), 'groupWeights.expertsOnly');
     expect(asRecorded).toMatchObject({ passed: false, value: 'as-recorded' });
-    expect(asRecorded?.message).toContain("classWeights: 'restricted-only'");
+    expect(asRecorded?.message).toContain("groupWeights: 'experts-only'");
     const restricted = gate(
-      { onlyRestrictedClasses: true },
-      { summary: summary({ classWeights: 'restricted-only' }) },
+      { onlyExpertGroups: true },
+      { summary: summary({ groupWeights: 'experts-only' }) },
     );
-    expect(check(restricted, 'classWeights.restrictedOnly')?.passed).toBe(true);
+    expect(check(restricted, 'groupWeights.expertsOnly')?.passed).toBe(true);
   });
 });
