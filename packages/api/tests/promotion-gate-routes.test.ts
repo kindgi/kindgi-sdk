@@ -21,8 +21,6 @@ import type {
   AgentRegistryBinding,
   AgentReleaseBindings,
   CorrectedComparisonSummary,
-  TestRun,
-  TestRunBinding,
   GatePolicy,
   GatePolicySpec,
   LivePin,
@@ -31,6 +29,8 @@ import type {
   PromotionError,
   PromotionRequestInput,
   RunHandlerBinding,
+  TestRun,
+  TestRunBinding,
   TokenResolver,
 } from '../src/index.js';
 

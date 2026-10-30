@@ -214,7 +214,7 @@ describe('an improve schedule', () => {
     ],
     [
       { ...hourly, improve: { agentId: 'acme.scorer', scope: { kind: 'tenant' } } },
-      "a pass's evidence must cover the scope it changes",
+      "an Improve run's evidence must cover the scope it changes",
     ],
     [{ ...hourly, projectId: randomUUID() }, "in the schedule's project"],
     [
