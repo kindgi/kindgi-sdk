@@ -23,12 +23,18 @@ export type Paging =
   /** One answer, one record. */
   | 'one';
 
-/** Where a child kind's path parameters come from: each one, the field of the parent's record that fills it. */
+/**
+ * Where a child kind's path parameters come from: each one, the field of
+ * the parent's record that fills it. A parent that is itself a child kind
+ * lends its own parent's fields where its item has none.
+ */
 export interface ParentRef {
   /** The parent kind's name; it comes earlier in the plan. */
   readonly kind: string;
   /** Path parameter -> the parent record's field. */
   readonly params: Readonly<Record<string, string>>;
+  /** Query parameter -> the parent record's field, for a route that takes its parent's id there. */
+  readonly query?: Readonly<Record<string, string>>;
 }
 
 /** A kind of record, and how it's read. */
@@ -241,6 +247,26 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     paging: cursor,
     parent: { kind: 'agents', params: { agentId: 'id' } },
     covers: ['/v1/agents/{agentId}/promotions/{promotionId}'],
+  },
+  {
+    name: 'agent-projects',
+    route: '/v1/agents/{agentId}/projects',
+    paging: whole,
+    parent: { kind: 'agents', params: { agentId: 'id' } },
+  },
+  {
+    // An agent's test set in each project it serves: the cases added by
+    // hand are stored only here; its corrections that are cases are in
+    // corrections too.
+    name: 'agent-test-set-cases',
+    route: '/v1/agents/{agentId}/test-set/cases',
+    paging: cursor,
+    parent: {
+      kind: 'agent-projects',
+      params: { agentId: 'agentId' },
+      query: { projectId: 'projectId' },
+    },
+    query: { include: 'retired' },
   },
   {
     name: 'gate-policies',
@@ -635,7 +661,8 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
     'computed from runs, approvals, cost-records and projects (the metering ledger counts them)',
   '/v1/agents/{agentId}/live': 'computed from agent-live-versions',
   '/v1/agents/{agentId}/gate-policy': 'computed from gate-policies',
-  '/v1/agents/{agentId}/projects': 'computed from agent-versions and deployments',
+  '/v1/agents/{agentId}/test-set':
+    'computed from corrections, agent-test-set-cases and test-set-versions',
   '/v1/flows/{flowId}/pinned': 'computed from flow-pinned-versions and flow-versions',
   '/v1/tools/{toolId}/pinned': 'computed from tool-pinned-versions and tool-versions',
   '/v1/guardrails/{guardrailId}/outcomes': 'computed from runs',

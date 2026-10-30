@@ -275,6 +275,34 @@ describe('kindgi exports create', () => {
     ]);
   });
 
+  test('an agent’s test set in each project it serves: a hand case and a retired one, as stored', async () => {
+    const hand = { id: 'case-1', kind: 'hand', runId: 'run-1' };
+    const retired = {
+      id: 'case-2',
+      kind: 'hand',
+      runId: 'run-2',
+      retired: { reason: 'Old policy', at: '2026-10-20T10:00:00.000Z' },
+    };
+    const fake = server({
+      '/v1/agents': [{ id: 'acme.desk' }],
+      '/v1/agents/acme.desk/projects': [{ projectId: 'p-1' }],
+      '/v1/agents/acme.desk/test-set/cases': (url) =>
+        json(200, {
+          data: url.searchParams.get('projectId') === 'p-1' ? [hand, retired] : [],
+          hasMore: false,
+        }),
+    });
+    const res = await cli(fake);
+    expect(res.exitCode, res.stderr).toBe(0);
+    expect(fake.calls).toContain(
+      'GET /v1/agents/acme.desk/test-set/cases?include=retired&projectId=p-1&limit=100',
+    );
+    expect(await lines('agent-test-set-cases')).toEqual([
+      { parent: { agentId: 'acme.desk', projectId: 'p-1' }, item: hand },
+      { parent: { agentId: 'acme.desk', projectId: 'p-1' }, item: retired },
+    ]);
+  });
+
   test('env and secrets are read for each env name at each scope; a secret’s versions at its own', async () => {
     const fake = server({
       '/v1/environments': [{ envName: 'prod' }],
