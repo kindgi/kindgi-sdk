@@ -37,6 +37,7 @@ import type {
   DeploymentPrimitiveCounts,
   DeploymentRegisterInput,
   FlowRegistryBinding,
+  GuardrailRegisterInput,
   GuardrailRegistryBinding,
   ImageRegistryBinding,
   ImageRegistryError,
@@ -348,12 +349,26 @@ function makeInMemoryToolRegistry(opts: { refreshes?: boolean } = {}): ToolRegis
 
 let lastGuardrailRegisterProjectId: ProjectId | undefined;
 
-/** Guardrails by tenant, each row in its project, as the registry keeps them. */
+/**
+ * Guardrails by tenant, each row in its project with the points its pack
+ * check runs at when a deploy gave them, as the registry keeps them.
+ */
+interface GuardrailRow {
+  readonly guardrail: unknown;
+  readonly projectId: ProjectId;
+  readonly checkPoints?: readonly string[];
+}
+
 function makeInMemoryGuardrailRegistry(
   opts: { refreshes?: boolean } = {},
 ): GuardrailRegistryBinding {
-  const store = new Map<string, Map<string, { guardrail: unknown; projectId: ProjectId }>>();
-  const forT = (t: TenantId): Map<string, { guardrail: unknown; projectId: ProjectId }> => {
+  const store = new Map<string, Map<string, GuardrailRow>>();
+  const recordOf = (row: GuardrailRow): never =>
+    ({
+      ...(row.guardrail as Record<string, unknown>),
+      ...(row.checkPoints !== undefined && { checkPoints: row.checkPoints }),
+    }) as never;
+  const forT = (t: TenantId): Map<string, GuardrailRow> => {
     const k = t as unknown as string;
     let s = store.get(k);
     if (s === undefined) {
@@ -367,18 +382,23 @@ function makeInMemoryGuardrailRegistry(
       const rows = [...forT(tenantId).entries()]
         .filter(([id]) => nameFilter === undefined || id.startsWith(nameFilter))
         .filter(([, row]) => scope?.kind !== 'project' || row.projectId === scope.projectId);
-      return { data: rows.map(([, row]) => row.guardrail) as never[] };
+      return { data: rows.map(([, row]) => recordOf(row)) };
     },
     async get({ tenantId, guardrailId }) {
-      return (forT(tenantId).get(guardrailId as unknown as string)?.guardrail as never) ?? null;
+      const row = forT(tenantId).get(guardrailId as unknown as string);
+      return row === undefined ? null : recordOf(row);
     },
-    async register({ tenantId, projectId, guardrail }) {
+    async register({ tenantId, projectId, guardrail, checkPoints }) {
       lastGuardrailRegisterProjectId = projectId;
       const s = forT(tenantId);
       if (s.has(guardrail.id as unknown as string)) {
         return { kind: 'already-registered', guardrailId: guardrail.id };
       }
-      s.set(guardrail.id as unknown as string, { guardrail, projectId });
+      s.set(guardrail.id as unknown as string, {
+        guardrail,
+        projectId,
+        ...(checkPoints !== undefined && { checkPoints }),
+      });
       return { kind: 'ok', guardrailId: guardrail.id };
     },
     async unregister({ tenantId, guardrailId }) {
@@ -390,6 +410,7 @@ function makeInMemoryGuardrailRegistry(
         guardrailId,
         codeArtifactRef,
         configSchema,
+        checkPoints,
         expected,
       }) {
         const s = forT(tenantId);
@@ -401,6 +422,7 @@ function makeInMemoryGuardrailRegistry(
           canon({
             codeArtifactRef: held.codeArtifactRef ?? null,
             configSchema: held.configSchema ?? null,
+            checkPoints: row.checkPoints ?? null,
           }) !== canon(expected)
         ) {
           return { refreshed: false };
@@ -417,6 +439,7 @@ function makeInMemoryGuardrailRegistry(
             ...(codeArtifactRef !== null && { codeArtifactRef }),
             ...(configSchema !== null && { configSchema }),
           },
+          ...(checkPoints !== null && { checkPoints }),
         });
         return { refreshed: true };
       },
@@ -1634,8 +1657,57 @@ describe('POST /v1/deployments — happy path', () => {
       sees: 'conversation',
       scope: { tools: ['acme.woo.*'] },
     });
-    // The index's list of the check's points is the deployment's to read, not the guardrail's.
-    expect(guardrail.checkPoints).toBeUndefined();
+    // The registry keeps the check's points beside the guardrail: the runtime runs the check at them.
+    expect(guardrail.checkPoints).toEqual(['before-tool', 'final-answer']);
+  });
+
+  test("the registry gets a pack check's points beside the guardrail, never in it: the known ones, in order, else the final answer", async () => {
+    const index = pointIndex({ checkId: 'acme.checks.args' }) as { guardrails: unknown[] };
+    index.guardrails.push(
+      {
+        id: 'acme.args-at-tools',
+        kind: 'zero-llm',
+        action: { 'on-violation': 'halt' },
+        checkModulePath: './guardrails/args-at-tools.js',
+        checkId: 'acme.checks.tool-args',
+        checkPoints: ['final-answer', 'before-tool', 'before-tool', 'mid-thought'],
+        at: 'before-tool',
+      },
+      {
+        id: 'acme.no-refund-tool',
+        kind: 'zero-llm',
+        action: { 'on-violation': 'halt' },
+        checkModulePath: './guardrails/no-refund-tool.js',
+        checkId: 'never-call-tool',
+        checkBuiltIn: true,
+        config: { tools: ['acme.woo.refund'] },
+        at: 'before-tool',
+      },
+    );
+    const fixture = buildSignedDeploy({ index: index as Record<string, unknown> });
+    const { app, guardrailRegistry } = makeApp({ fixture });
+    const register = guardrailRegistry.register.bind(guardrailRegistry);
+    const given: GuardrailRegisterInput[] = [];
+    (guardrailRegistry as { register: GuardrailRegistryBinding['register'] }).register = async (
+      input,
+    ) => {
+      given.push(input);
+      return register(input);
+    };
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status, await res.clone().text()).toBe(201);
+    expect(given.map((input) => [input.guardrail.id, input.checkPoints])).toEqual([
+      // An older CLI's index lists none: the final answer only.
+      ['acme.no-refunds', ['final-answer']],
+      ['acme.args-at-tools', ['before-tool', 'final-answer']],
+      // A built-in's points are the runtime's.
+      ['acme.no-refund-tool', undefined],
+    ]);
+    for (const input of given) expect(input.guardrail).not.toHaveProperty('checkPoints');
   });
 
   test("a guardrail naming a built-in, which the index lists no points for, takes the built-in's points", async () => {
@@ -6100,12 +6172,49 @@ describe("POST /v1/deployments — a guardrail id that's already live", () => {
   });
 
   test.each([
+    ['only its point', { at: 'before-tool' }],
+    ['only what its check sees', { sees: 'conversation' }],
+  ])(
+    'in this project with %s changed: 409 guardrail-already-registered, the old one kept',
+    async (_why, changed) => {
+      // A deploy that kept it would run it where, and on what, the pack no longer says.
+      const CHECK = {
+        checkId: 'acme.aperture.checks.quotes',
+        checkPoints: ['before-tool', 'final-answer'],
+      };
+      const first = buildSignedDeploy({
+        artifactVersion: '20260920.1',
+        index: indexWith('20260920.1', CHECK),
+      });
+      const second = laterImage({ ...CHECK, ...changed });
+      const { guardrailRegistry, deploy } = twoImages(second, { first });
+      expect((await deploy(first)).status).toBe(201);
+
+      const answer = await deploy(second);
+      expect(answer.status).toBe(409);
+      expect((JSON.parse(answer.text) as { error: { code: string } }).error.code).toBe(
+        'guardrail-already-registered',
+      );
+      const kept = (await guardrailRegistry.get({
+        tenantId,
+        guardrailId: 'acme.no-fabricated-quotes' as never,
+      })) as unknown as Record<string, unknown>;
+      expect([kept.at, kept.sees]).toEqual([undefined, undefined]);
+    },
+  );
+
+  test.each([
     [
       'stored by a 0.1.4 deploy (no configSchema), the pack now carrying one',
       {},
       { configSchema: { type: 'object', properties: { min: { type: 'integer' } } } },
     ],
     ['stored with a field a later release added', { checkBuiltIn: false }, {}],
+    [
+      'stored with no `at` or `sees`, the pack naming their defaults',
+      {},
+      { at: 'final-answer', sees: 'turn' },
+    ],
   ])('in this project, %s: kept, the deploy goes through', async (_why, stored, indexed) => {
     const fixture = buildSignedDeploy({ index: indexWith('20260920.1', indexed) });
     const { app, guardrailRegistry } = makeApp({ fixture });
@@ -6620,6 +6729,8 @@ describe('sameGuardrailDefinition', () => {
     ['an undefined field', g({ description: undefined })],
     ['a configSchema only one has', g({ configSchema: { type: 'object' } })],
     ['a field a later release adds', g({ checkBuiltIn: true })],
+    ["the final answer named, where it's absent", g({ at: 'final-answer' })],
+    ["'turn' named, where it's absent", g({ sees: 'turn' })],
     [
       'another image and artifact version',
       g({
@@ -6640,6 +6751,8 @@ describe('sameGuardrailDefinition', () => {
     ['another check', g({ check: 'never-call-tool' })],
     ['another description', g({ description: 'Quotes must be cited.' })],
     ['a config', g({ config: { min: 1 } })],
+    ['another point', g({ at: 'before-tool' })],
+    ['another view of the conversation', g({ sees: 'conversation' })],
     [
       'another module path',
       g({ codeArtifactRef: { ...(base.codeArtifactRef as object), modulePath: './other.js' } }),
@@ -6772,7 +6885,7 @@ describe('POST /v1/deployments — a redeploy refreshes what it derived', () => 
     expect((await made.deploy(second)).status).toBe(409);
     expect(rollbackWarns(logger)).toEqual([
       {
-        message: `deploy rollback: couldn't put back the code pointer and config schema of guardrail "acme.no-fabricated-quotes", so it stays as this deploy left it`,
+        message: `deploy rollback: couldn't put back the code pointer, config schema and check points of guardrail "acme.no-fabricated-quotes", so it stays as this deploy left it`,
         fields: { primitive: 'guardrail', id: 'acme.no-fabricated-quotes', err: down },
       },
       {
@@ -6784,6 +6897,80 @@ describe('POST /v1/deployments — a redeploy refreshes what it derived', () => 
       guardrail: '20260921.1',
       schema: SCHEMA,
       tool: '20260921.1',
+    });
+  });
+
+  describe("a pack check's points", () => {
+    const CHECK = { checkId: 'acme.aperture.checks.quotes' };
+    const firstAt = (checkPoints: unknown) =>
+      buildSignedDeploy({
+        artifactVersion: '20260920.1',
+        index: indexWith('20260920.1', { ...CHECK, checkPoints }),
+      });
+    const pointsOf = async (made: ReturnType<typeof twoImages>) =>
+      (
+        (await made.guardrailRegistry.get({
+          tenantId,
+          guardrailId: 'acme.no-fabricated-quotes' as never,
+        })) as unknown as { checkPoints?: unknown }
+      ).checkPoints;
+
+    test('a redeploy whose check now runs at other points keeps the guardrail and gives it those points', async () => {
+      const second = laterImage({ ...CHECK, checkPoints: ['before-tool', 'final-answer'] });
+      const made = twoImages(second, { refreshes: true, first: firstAt(['final-answer']) });
+      expect((await made.deploy(made.first)).status).toBe(201);
+      expect(await pointsOf(made)).toEqual(['final-answer']);
+      const answer = await made.deploy(second);
+      expect(answer.status, answer.text).toBe(201);
+      expect(await pointsOf(made)).toEqual(['before-tool', 'final-answer']);
+    });
+
+    test('a guardrail an earlier deploy registered without points (final answer only) is given them', async () => {
+      const second = laterImage({ ...CHECK, checkPoints: ['before-tool', 'final-answer'] });
+      const made = twoImages(second, { refreshes: true, first: firstAt(undefined) });
+      const register = made.guardrailRegistry.register.bind(made.guardrailRegistry);
+      (made.guardrailRegistry as { register: GuardrailRegistryBinding['register'] }).register =
+        async ({ checkPoints: _points, ...input }) => register(input);
+      expect((await made.deploy(made.first)).status).toBe(201);
+      expect(await pointsOf(made)).toBeUndefined();
+      (made.guardrailRegistry as { register: GuardrailRegistryBinding['register'] }).register =
+        register;
+      expect((await made.deploy(second)).status).toBe(201);
+      expect(await pointsOf(made)).toEqual(['before-tool', 'final-answer']);
+    });
+
+    test('a deploy refused after giving them puts the old points back', async () => {
+      const index = indexWith('20260921.1', {
+        ...CHECK,
+        checkPoints: ['before-tool', 'final-answer'],
+      }) as { guardrails: unknown[] };
+      index.guardrails.push({
+        id: 'acme.elsewhere',
+        kind: 'zero-llm',
+        check: 'must-cite',
+        action: { 'on-violation': 'halt' },
+      });
+      const second = buildSignedDeploy({
+        artifactVersion: '20260921.1',
+        keyId: SECOND_KEY_ID,
+        index: index as Record<string, unknown>,
+      });
+      const made = twoImages(second, { refreshes: true, first: firstAt(['final-answer']) });
+      expect((await made.deploy(made.first)).status).toBe(201);
+      await made.guardrailRegistry.register({
+        tenantId,
+        projectId: randomUUID() as ProjectId,
+        guardrail: {
+          id: 'acme.elsewhere',
+          kind: 'zero-llm',
+          check: 'must-cite',
+          action: { 'on-violation': 'halt' },
+        } as never,
+        enqueueTuples: () => [],
+      });
+
+      expect((await made.deploy(second)).status).toBe(409);
+      expect(await pointsOf(made)).toEqual(['final-answer']);
     });
   });
 
@@ -6838,6 +7025,7 @@ describe('POST /v1/deployments — a redeploy refreshes what it derived', () => 
           guardrailId: 'acme.no-fabricated-quotes' as never,
           codeArtifactRef: third('./guardrails/must-cite.js'),
           configSchema: THIRD_SCHEMA,
+          checkPoints: null,
         });
       }
       return get(input);
