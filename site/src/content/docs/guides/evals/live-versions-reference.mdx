@@ -266,38 +266,40 @@ Pin that scope in place, and make the version live again.
 
 ## In the console
 
-- An agent's page says which version a run in this project gets, such as
-  "Runs here use 1.0.0", and why: "It's live for every project (the
-  tenant-wide default)." It links to its **Live versions** page.
-- **Live versions** has the same headline, and **Check a segment path**, a
+- An agent's page tags the version a run in this project gets **Pinned** or
+  **Latest**, and its **Versions and rollbacks** button opens the agent's
+  **Pinned versions** page.
+- **Pinned versions** says which version a run in this project gets, such as
+  "Runs here use 1.0.0", and why: "It's pinned for every project (the
+  tenant-wide default)." It has **Check a segment path**, a
   key and a value, to see what a run on a path would get. It lists every pin
   that reaches this project with its part, each with **Roll back** and
   **Unpin**: "Runs here take it", or "Runs on this path take it" for a
-  segment. Then it has the **Go-live history**, with who and why.
-- **Make a version live** picks the version and where it goes live: this
-  project, every project in its org when it's in one, every project, or a
-  segment path in this project. It says what will happen before you make it
-  live, such as "Runs in this project (Support) will use 1.3.0."
-- A run's page says why it ran its version, such as "Live for company = acme
-  in this project (Default)".
-- **Release gate policies,** on the Live versions page, has each policy in
+  segment. Then it has the **Pin history**, with who and why.
+- **Pin a version** picks the version and where it's pinned: this project,
+  every project in its org when it's in one, every project, or a segment
+  path in this project. It says what will happen before you pin it, such as
+  "Runs in this project (Support) will use 1.3.0."
+- A run's page says why it ran its version, such as "pinned for company =
+  acme in this project (Default)".
+- **Release gate policies,** on the Pinned versions page, has each policy in
   sentences, with its versions, **New version** and **Add a release gate
   policy**. The sentences read like "Share marked right: at least 60%, and no
-  more than 2 points below the live version" and "Then a senior reviewer
+  more than 2 points below the pinned version" and "Then a senior reviewer
   approves it, someone other than whoever asked".
 - **Add a release gate policy** has **Count only experts**: "The run must
   count only experts' corrections (start it with "Count only experts"), so a
   correction anyone may give can't change what the release gate policy
   decides."
-- **Make a version live** has **Run on the test cases (optional)**, a
+- **Pin a version** has **Run on the test cases (optional)**, a
   finished run of the version on the test cases. One that counted only
   restricted classes says "restricted classes only". It runs the release gate
   policy's check before anything is recorded: "The release gate policy passes
   (release gate policy acme.order-desk-release 1.0.0) Then a senior reviewer
-  approves it, someone other than you, and it goes live.", with each check.
-  Its button follows: **Ask to make 1.3.0 live**, or "The release gate policy
+  approves it, someone other than you, and it's pinned.", with each check.
+  Its button follows: **Ask to pin 1.3.0**, or "The release gate policy
   refuses it".
-- A request waiting for approval shows on Live versions, with **Open the
-  approval**. Its approval page shows the request to make it live, who asked
-  and why, the run on the test cases and the policy, and each check. Once
-  approved, it says "Made 1.3.0 live, replacing 1.0.0".
+- A request waiting for approval shows on Pinned versions, with **Open the
+  approval**. Its approval page shows the request to pin it, who asked and
+  why, the run on the test cases and the policy, and each check. Once
+  approved, it says "Pinned 1.3.0, replacing 1.0.0".
