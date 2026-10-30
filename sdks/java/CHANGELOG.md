@@ -10,6 +10,8 @@ candidates, and theirs are just below it.
 
 ## Unreleased
 
+- `kindgi-pack`, `kindgi-pack-scala`: **an `llm-judge` guardrail is judged.** `Guardrail.define(id).kind("llm-judge").judgeCapabilities(Map.of("needs", List.of(Map.of("feature", "structured-output"))))` (Scala: `.judgeCapabilities(Map("needs" -> List(Map("feature" -> "structured-output"))))`) names what the judge model is routed by, and the index carries it; `check(...)` refuses an `llm-judge` guardrail without it. Before, the index schema refused the field, so `set("judgeCapabilities", ...)` failed the build, and without it the runtime refused the guardrail on every turn.
+
 ## 0.3.0
 
 - `kindgi-client`: **`flows().pinned()` pins a flow's version per project, org or tenant.** A run that names no flow version takes the version pinned for its project (the project's own pin, then its org's, then the tenant's), else the newest version the project reaches, so a new version can be published and tried by naming it without going into use. `resolve`, `list`, `pin`, `unpin` and `history`. A `Run` says how its version was chosen, in `flowVersionVia` (`explicit`, `pinned` or `latest`) and, for a pin, `flowPinnedScope`.
