@@ -278,7 +278,8 @@ Kindgi 0.3 built `judged` eval suites from judged runs, with
 `kindgi eval-suites from-judgments`. Such a suite is a test set of the
 `corrections` kind now, and nothing builds one. One built before is still
 read by its id, and its cases with `kindgi test-sets cases`,
-but `kindgi test-sets list` doesn't list it. The corrections it was built
+and `kindgi test-sets list` lists it only with `--kind=corrections`, with
+the agents' own test sets. The corrections it was built
 from are cases of their agent's test set.
 
 ## Next

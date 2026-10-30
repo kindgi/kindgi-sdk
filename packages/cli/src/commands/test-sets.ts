@@ -13,6 +13,7 @@ const KINDS = [
   'human-review',
   'benchmark',
   'custom',
+  'corrections',
 ] as const;
 type Kind = (typeof KINDS)[number];
 
@@ -45,7 +46,10 @@ const list: LeafCommand = {
   usage: `kindgi test-sets list [--project=<id>] [--kind=${KINDS.join('|')}] [--include-retired] [--limit=<n>] [--cursor=<c>]`,
   optionSpec: {
     project: { type: 'string', description: 'Only test sets in this project.' },
-    kind: { type: 'string', description: `Only this kind: ${KINDS.join(', ')}.` },
+    kind: {
+      type: 'string',
+      description: `Only this kind: ${KINDS.join(', ')}. \`corrections\` lists agents' own test sets, which the list leaves out otherwise.`,
+    },
     'include-retired': {
       type: 'boolean',
       description:
