@@ -13,7 +13,15 @@ import { describe, expect, test } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import type { KernelRunRecord, RunBinding } from '@kindgi/runtime';
-import type { ConversationId, ProjectId, RunId, TenantId, Timestamp, UserId } from '@kindgi/types';
+import type {
+  AgentId,
+  ConversationId,
+  ProjectId,
+  RunId,
+  TenantId,
+  Timestamp,
+  UserId,
+} from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -23,9 +31,10 @@ import type {
   CorrectionRecordInput,
   CorrectionRegistryBinding,
   RunHandlerBinding,
+  TestSetRegistryBinding,
   TokenResolver,
 } from '../src/index.js';
-import { expectOf } from '../src/index.js';
+import { agentTestSetId, expectOf } from '../src/index.js';
 import { isTestSetPath } from '../src/routes/agent-test-set.js';
 import { inMemoryCorrections } from './support/in-memory-corrections.js';
 import { itemProjects } from './support/order-items.js';
@@ -87,6 +96,7 @@ function harness(
     readonly authz?: Authz;
     readonly agents?: AgentRegistryBinding;
     readonly served?: ReturnType<typeof itemProjects>;
+    readonly testSets?: TestSetRegistryBinding;
   } = {},
 ) {
   const binding: CorrectionRegistryBinding = inMemoryCorrections();
@@ -110,6 +120,7 @@ function harness(
     correctionRegistry: binding,
     ...(opts.agents !== undefined && { agentRegistry: opts.agents }),
     ...(opts.served !== undefined && { itemProjects: opts.served }),
+    ...(opts.testSets !== undefined && { testSetRegistry: opts.testSets }),
     ...(authz !== undefined && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -269,6 +280,33 @@ describe("an agent's test set", () => {
   });
 });
 
+test("frozenVersion is the newest version frozen of the project's test set, under agentTestSetId", async () => {
+  const asked: string[] = [];
+  const frozenId = agentTestSetId(AGENT as AgentId, projectA);
+  const testSets = {
+    get: async ({ testSetId }: { readonly testSetId: string }) => {
+      asked.push(testSetId);
+      return testSetId === frozenId
+        ? { id: testSetId, tenantId, version: '1.0.3', kind: 'corrections', spec: {} }
+        : null;
+    },
+  } as unknown as TestSetRegistryBinding;
+  const h = harness([], { testSets });
+
+  const inA = await h.call('GET', `${SET}?projectId=${projectA}`);
+  expect(inA.status, JSON.stringify(inA.body)).toBe(200);
+  expect(inA.body.frozenVersion).toEqual({
+    testSetId: `agent:${AGENT}:${projectA}`,
+    version: '1.0.3',
+  });
+  // Nothing frozen in project B yet, and no registry at all: no frozenVersion.
+  const inB = await h.call('GET', `${SET}?projectId=${projectB}`);
+  expect(inB.body).not.toHaveProperty('frozenVersion');
+  expect(asked).toEqual([frozenId, agentTestSetId(AGENT as AgentId, projectB)]);
+  const none = await harness([]).call('GET', `${SET}?projectId=${projectA}`);
+  expect(none.body).not.toHaveProperty('frozenVersion');
+});
+
 describe('a case added by hand', () => {
   test("is a case with no status: it's listed with the set, and never as a correction", async () => {
     const r = row();
@@ -293,7 +331,10 @@ describe('a case added by hand', () => {
     expect(both.body.data.map((k: { id: string }) => k.id)).toEqual([added.body.id, corrected]);
     const list = await h.call('GET', '/v1/corrections');
     expect(list.body.data.map((j: { id: string }) => j.id)).toEqual([corrected]);
-    const counts = await h.call('GET', `/v1/corrections/counts?scopeKind=project&scopeId=${projectA}`);
+    const counts = await h.call(
+      'GET',
+      `/v1/corrections/counts?scopeKind=project&scopeId=${projectA}`,
+    );
     expect(counts.body).toMatchObject({ open: 1 });
   });
 

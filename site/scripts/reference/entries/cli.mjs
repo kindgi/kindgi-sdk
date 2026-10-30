@@ -2084,8 +2084,8 @@ export const CLI_EXAMPLES = {
   ],
   'test-sets list': [
     {
-      purpose: 'List the corrections test sets of a project.',
-      line: 'kindgi test-sets list --project=<project-id> --kind=corrections',
+      purpose: 'List the accuracy test sets of a project.',
+      line: 'kindgi test-sets list --project=<project-id> --kind=accuracy',
     },
     {
       purpose: 'List test sets including retired ones.',

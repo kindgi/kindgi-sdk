@@ -2702,6 +2702,22 @@ class TestSetCaseCounts(BaseModel):
     retired: Annotated[int, Field(ge=0)]
 
 
+class TestSetFrozenVersion(BaseModel):
+    """
+    The newest version frozen of this project's test set, which a test run checks: its cases are at `GET /v1/test-sets/{testSetId}/versions/{version}/cases`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    test_set_id: Annotated[str, Field(alias="testSetId")]
+    """
+    `agent:<agentId>:<projectId>`.
+    """
+    version: str
+
+
 class AgentTestSet(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -2713,6 +2729,10 @@ class AgentTestSet(BaseModel):
     last_added_at: Annotated[AwareDatetime | None, Field(alias="lastAddedAt")] = None
     """
     When the newest case was added. Absent while it has none.
+    """
+    frozen_version: Annotated[TestSetFrozenVersion | None, Field(alias="frozenVersion")] = None
+    """
+    Absent until a test run has frozen it, or when the server freezes none.
     """
 
 

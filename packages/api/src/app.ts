@@ -2339,6 +2339,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           conversations: input.conversationBinding,
         }),
         ...(input.flowRegistry !== undefined && { flows: input.flowRegistry }),
+        ...(input.testSetRegistry !== undefined && { testSets: input.testSetRegistry }),
       }),
     );
   }

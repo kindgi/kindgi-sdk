@@ -5907,6 +5907,19 @@ export const TestSetCaseCountsSchema: JsonSchema = {
   },
 };
 
+/** The newest version a freeze made of a project's test set. */
+export const TestSetFrozenVersionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['testSetId', 'version'],
+  description:
+    "The newest version frozen of this project's test set, which a test run checks: its cases are at `GET /v1/test-sets/{testSetId}/versions/{version}/cases`.",
+  properties: {
+    testSetId: { type: 'string', description: '`agent:<agentId>:<projectId>`.' },
+    version: { type: 'string' },
+  },
+};
+
 export const AgentTestSetSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -5919,6 +5932,10 @@ export const AgentTestSetSchema: JsonSchema = {
       type: 'string',
       format: 'date-time',
       description: 'When the newest case was added. Absent while it has none.',
+    },
+    frozenVersion: {
+      $ref: '#/components/schemas/TestSetFrozenVersion',
+      description: 'Absent until a test run has frozen it, or when the server freezes none.',
     },
   },
 };
@@ -16645,6 +16662,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['TestCase', TestCaseSchema],
   ['TestCaseCollectionPage', TestCaseCollectionPageSchema],
   ['TestSetCaseCounts', TestSetCaseCountsSchema],
+  ['TestSetFrozenVersion', TestSetFrozenVersionSchema],
   ['AgentTestSet', AgentTestSetSchema],
   ['CorrectedItemSummary', CorrectedItemSummarySchema],
   ['CorrectorGroupAssertableBy', CorrectorGroupAssertableBySchema],

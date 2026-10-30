@@ -964,6 +964,7 @@
   "TestSet": ["TestSet"],
   "TestSetCaseCounts": ["TestSetCaseCounts"],
   "TestSetCollectionPage": ["TestSetCollectionPage"],
+  "TestSetFrozenVersion": ["TestSetFrozenVersion"],
   "Threshold": ["ImproveScheduleInput.threshold"],
   "TimeRange": ["CostAggregateResult.timeRange"],
   "TokenSignInResult": ["TokenSignInResult"],

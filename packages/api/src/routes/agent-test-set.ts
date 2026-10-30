@@ -15,6 +15,7 @@ import type { FlowRegistryBinding } from '../flow-binding.js';
 import { type ItemRights, forbidden } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { TEST_CASE_KINDS, type TestCaseKind } from '../test-case-binding.js';
+import { type TestSetRegistryBinding, agentTestSetId } from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
 import {
   captureContext,
@@ -66,6 +67,8 @@ export function agentTestSetRouter(deps: {
   readonly agents?: AgentRegistryBinding;
   readonly conversations?: ConversationBinding;
   readonly flows?: FlowRegistryBinding;
+  /** Where a freeze publishes the project's versions (`agentTestSetId`): the summary's `frozenVersion`. */
+  readonly testSets?: TestSetRegistryBinding;
 }): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   const { corrections } = deps;
@@ -85,11 +88,16 @@ export function agentTestSetRouter(deps: {
       )) ?? (await unknownAgent(c, deps.agents, agentId));
     if (refused !== undefined) return refused;
     const counts = await corrections.testSet({ tenantId, agentId, projectId });
+    const frozen = await deps.testSets?.get({
+      tenantId,
+      testSetId: agentTestSetId(agentId as AgentId, projectId),
+    });
     return c.json({
       agentId,
       projectId,
       cases: { active: counts.active, retired: counts.retired },
       ...(counts.lastAddedAt !== undefined && { lastAddedAt: counts.lastAddedAt }),
+      ...(frozen != null && { frozenVersion: { testSetId: frozen.id, version: frozen.version } }),
     });
   });
 
