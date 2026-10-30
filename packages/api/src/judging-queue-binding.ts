@@ -4,12 +4,12 @@
 import type { Cursor, Result, TenantId, Timestamp } from '@kindgi/types';
 
 /**
- * Which runs need a judgment: a project's judging rules, and the queue
+ * Which runs need a correction: a project's judging rules, and the queue
  * they fill. A rule says which of the project's runs to ask a person to
- * judge (an agent or flow, its version, how the run ended, a share of
+ * correct (an agent or flow, its version, how the run ended, a share of
  * them, at most so many waiting at once); a run that matches when it ends
  * is queued once, however many rules matched, and its item closes when
- * every matching rule has the judgment it wants.
+ * every matching rule has the correction it wants.
  *
  * Rules only list runs: nothing here starts a model or spends. A rule is
  * versioned as gate policies are: each change is a new version, the
@@ -32,7 +32,7 @@ export interface JudgingRuleWhen {
    */
   readonly versions?: readonly string[];
   /**
-   * How the run ended. Only `completed` today: a judgment needs a completed
+   * How the run ended. Only `completed` today: a correction needs a completed
    * run, so `failed` and `cancelled` are refused. Absent: `completed`.
    */
   readonly status?: readonly JudgingRunStatus[];
@@ -52,7 +52,7 @@ export interface JudgingRuleSpec {
   readonly sample?: number;
   /** Add nothing while this rule has this many open items. Absent: no cap. */
   readonly maxOpen?: number;
-  /** Whose judgment the rule wants: a judgment of this class closes it. Absent: any judgment does. */
+  /** Whose correction the rule wants: a correction of this class closes it. Absent: any correction does. */
   readonly judgeClassId?: string;
   /** Default `true`. */
   readonly enabled?: boolean;
@@ -112,10 +112,10 @@ export interface JudgingQueueItem {
   readonly completedAt: Timestamp;
   /** The rules that queued it, each at the version that did. */
   readonly rules: readonly JudgingItemRule[];
-  /** The judge classes its rules want; `anyJudgment` when one of them wants any judgment. */
+  /** The judge classes its rules want; `anyCorrection` when one of them wants any correction. */
   readonly wantedClassIds: readonly string[];
-  readonly anyJudgment: boolean;
-  /** The live judgments on the run so far, by class (`null`: unclassified). */
+  readonly anyCorrection: boolean;
+  /** The live corrections on the run so far, by class (`null`: unclassified). */
   readonly progress: {
     readonly total: number;
     readonly byClass: readonly { readonly judgeClassId: string | null; readonly count: number }[];
@@ -157,26 +157,26 @@ export interface JudgingResultGroup {
    * skipped run counts here even when another rule queued it.
    */
   readonly skippedByCap: number;
-  /** Live judgments on the queued runs: each is one person's verdict on one item of a run's output. */
-  readonly judgments: number;
+  /** Live corrections on the queued runs: each is one person's verdict on one item of a run's output. */
+  readonly corrections: number;
   /**
-   * The queued runs with at least one live judgment: the runs `judgments`
+   * The queued runs with at least one live correction: the runs `corrections`
    * and `yesShare` come from, whatever their queue item's state now (still
-   * `open`, closed as `judged`, or dismissed after someone judged it).
-   * Several people judging one run make
-   * several judgments but one run here, so a range can be sized by runs.
+   * `open`, closed as `judged`, or dismissed after someone corrected it).
+   * Several people correcting one run make
+   * several corrections but one run here, so a range can be sized by runs.
    * Absent from a runtime that doesn't count them.
    */
-  readonly runsWithJudgments?: number;
-  /** The `yes` share of those judgments, each weighted by its class (unclassified: 1). `null` with no judgments. */
+  readonly runsWithCorrections?: number;
+  /** The `yes` share of those corrections, each weighted by its class (unclassified: 1). `null` with no corrections. */
   readonly yesShare: number | null;
-  /** The same judgments by class (`null`: unclassified), unweighted. */
+  /** The same corrections by class (`null`: unclassified), unweighted. */
   readonly byClass: readonly JudgingClassResult[];
 }
 
 export interface JudgingClassResult {
   readonly judgeClassId: string | null;
-  readonly judgments: number;
+  readonly corrections: number;
   readonly yes: number;
 }
 
@@ -195,7 +195,7 @@ export interface JudgingRecentQueued {
   /** Matching recent runs this rule had already queued and that are still open (deduped per `(rule, run)`). */
   readonly alreadyQueued: number;
   /**
-   * Matching recent runs whose run was already judged or dismissed: left as
+   * Matching recent runs whose run was already corrected or dismissed: left as
    * they are, not re-queued. An already-erased run is no longer a match and
    * is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed`
    * together are the matches.
@@ -225,7 +225,7 @@ export interface JudgingQueueListInput extends InProject {
   readonly agentId?: string;
   readonly ruleId?: string;
   readonly judgeClassId?: string;
-  /** Only items any judgment closes, or that want one of these classes (the caller's `forMe`). */
+  /** Only items any correction closes, or that want one of these classes (the caller's `forMe`). */
   readonly wantedFrom?: readonly string[];
   readonly addedAfter?: Timestamp;
   readonly closedAfter?: Timestamp;
@@ -310,7 +310,7 @@ export interface JudgingQueueBinding {
    * as run-end matching is. For catching a rule up on past runs; `maxOpen`
    * is not applied. At least one of `last`, `since` is given. The answer
    * splits the matches into `queued`, `alreadyQueued` and `alreadyReviewed`:
-   * a run already judged or dismissed is left as it is, and an erased run is
+   * a run already corrected or dismissed is left as it is, and an erased run is
    * no longer a match.
    */
   queueRecent(

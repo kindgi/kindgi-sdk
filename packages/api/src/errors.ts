@@ -252,8 +252,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // Admin plane — eval-run dispatch.
   'eval-run-not-found': 404,
   'eval-run-not-rescorable': 409,
-  // Judgments (yes/no on a run's output items) and judge classes.
-  'judgment-not-found': 404,
+  // Corrections (yes/no on a run's output items) and judge classes.
+  'correction-not-found': 404,
   'judge-class-not-found': 404,
   /** A judging rule that isn't in the project (`/v1/projects/:projectId/judging-rules/:ruleId`). */
   'judging-rule-not-found': 404,
@@ -421,7 +421,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'unsupported-media-type': 415,
   'run-not-finished': 409,
   'item-not-found': 400,
-  // The judgment binding can't list judged runs, so no test sets from judgments.
+  // The correction binding can't list corrected runs, so no test sets from corrections.
   'test-sets-not-supported': 501,
   'run-failures-not-supported': 501,
   'memory-operation-unsupported': 501,

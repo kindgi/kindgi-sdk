@@ -1056,12 +1056,12 @@ def test_named_models_keep_their_names() -> None:
 
 
 def test_a_model_is_its_schemas_and_its_old_names_stay_gone() -> None:
-    # A judged run's inline `flow` and an approval's inline `tool` once took `Flow` and
+    # A corrected run's inline `flow` and an approval's inline `tool` once took `Flow` and
     # `Tool` (the flow graph and the tool were `Flow1`, `Tool1`); a union's members were
     # numbered in the order codegen met them (`Scope2` the tenant, `Scope4` the project).
     assert {"nodes", "edges"} <= set(models.Flow.model_fields)
     assert {"input", "output"} <= set(models.Tool.model_fields)
-    assert set(models.JudgedRunContextFlow.model_fields) == {"calls", "steps", "truncated"}
+    assert set(models.CorrectedRunContextFlow.model_fields) == {"calls", "steps", "truncated"}
     assert set(models.RunWaitingApprovalTool.model_fields) == {"id", "version", "call_id"}
     assert models.ScopeOrg(kind="org", tenant_id="t", org_id="o").org_id == "o"
     for name in (

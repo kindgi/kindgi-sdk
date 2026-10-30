@@ -113,13 +113,13 @@ const show: LeafCommand = {
     }),
 };
 
-const fromJudgments: LeafCommand = {
+const fromCorrections: LeafCommand = {
   kind: 'leaf',
-  name: 'from-judgments',
+  name: 'from-corrections',
   description:
     "Build test cases: publish a `judged` suite version whose cases are copies of an agent's or flow's corrected runs, with each item's corrections summed up.",
   usage:
-    'kindgi eval-suites from-judgments <suite-id> --suite-version=<semver> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id>) [--since=<iso>] [--until=<iso>] [--class=<judge-class-id> ...] [--min-judgments=<n>] [--segment=<key:value> ...] [--description=<text>]',
+    'kindgi eval-suites from-corrections <suite-id> --suite-version=<semver> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id>) [--since=<iso>] [--until=<iso>] [--class=<judge-class-id> ...] [--min-corrections=<n>] [--segment=<key:value> ...] [--description=<text>]',
   optionSpec: {
     'suite-version': { type: 'string', description: 'The version to publish. Required.' },
     project: { type: 'string', description: 'The project whose corrected runs to use. Required.' },
@@ -145,7 +145,7 @@ const fromJudgments: LeafCommand = {
       description:
         'Count only corrections under this judge class id. Repeat the flag for several classes.',
     },
-    'min-judgments': {
+    'min-corrections': {
       type: 'string',
       description: 'Leave out runs with fewer counted corrections (default 1).',
     },
@@ -158,7 +158,7 @@ const fromJudgments: LeafCommand = {
     description: { type: 'string', description: 'A description for the suite version.' },
   },
   run: (ctx) =>
-    runSdk(ctx, 'eval-suites from-judgments', async () => {
+    runSdk(ctx, 'eval-suites from-corrections', async () => {
       const suiteId = requiredPositional(ctx, 0, 'suite-id');
       const version = requiredSuiteVersion(ctx);
       const projectId = stringFlag(ctx, 'project');
@@ -171,15 +171,15 @@ const fromJudgments: LeafCommand = {
       if (stringFlag(ctx, 'agent-version') !== undefined && agent === undefined) {
         throw new UsageError('--agent-version needs --agent');
       }
-      const minJudgments = integerFlag(ctx, 'min-judgments');
-      if (minJudgments !== undefined && minJudgments < 1) {
-        throw new UsageError('--min-judgments must be 1 or more');
+      const minCorrections = integerFlag(ctx, 'min-corrections');
+      if (minCorrections !== undefined && minCorrections < 1) {
+        throw new UsageError('--min-corrections must be 1 or more');
       }
       const classes = listFlag(ctx, 'class');
       const segments = segmentsFlag(ctx);
       const since = timeFlag(ctx, 'since');
       const until = timeFlag(ctx, 'until');
-      return await ctx.client().evalSuites.buildFromJudgments(suiteId, {
+      return await ctx.client().evalSuites.buildFromCorrections(suiteId, {
         version,
         projectId,
         ...givenFlags(ctx, {
@@ -191,7 +191,7 @@ const fromJudgments: LeafCommand = {
         ...(since !== undefined && { since }),
         ...(until !== undefined && { until }),
         ...(classes.length > 0 && { judgeClassIds: classes }),
-        ...(minJudgments !== undefined && { minJudgments }),
+        ...(minCorrections !== undefined && { minCorrections }),
         ...(segments.length > 0 && { segments: [...segments] }),
       });
     }),
@@ -224,6 +224,6 @@ export const evalSuitesCommand: Command = {
   kind: 'group',
   name: 'eval-suites',
   description:
-    'Eval suites and test cases built from corrections (list / show / from-judgments / cases).',
-  subcommands: [list, show, fromJudgments, cases],
+    'Eval suites and test cases built from corrections (list / show / from-corrections / cases).',
+  subcommands: [list, show, fromCorrections, cases],
 };

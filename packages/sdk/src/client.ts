@@ -229,6 +229,6 @@ export type {
   ComparisonCandidate,
   ComparisonCaseResult,
   ComparisonMetric,
-  JudgedComparisonResult,
-  JudgedComparisonSummary,
+  CorrectedComparisonResult,
+  CorrectedComparisonSummary,
 } from '@kindgi/client';

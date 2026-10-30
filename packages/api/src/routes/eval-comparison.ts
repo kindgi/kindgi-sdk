@@ -5,13 +5,13 @@ import type { AgentId } from '@kindgi/agents';
 import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { ProjectId, Semver } from '@kindgi/types';
 
+import { DEFAULT_COMPARISON } from '../corrected-dispatcher.js';
 import type {
   EvalBaseline,
   EvalComparison,
   EvalOverrides,
   EvalSample,
 } from '../eval-run-binding.js';
-import { DEFAULT_COMPARISON } from '../judged-dispatcher.js';
 import { parseSegmentsBody } from './segments.js';
 
 const MAX_REPETITIONS = 10;
@@ -194,7 +194,7 @@ export function parseComparison(
     return {
       kind: 'err',
       message:
-        "`classWeights` must be 'as-recorded' (every judgment at its class's weight) or 'restricted-only' (only judgments recorded under a restricted class)",
+        "`classWeights` must be 'as-recorded' (every correction at its class's weight) or 'restricted-only' (only corrections recorded under a restricted class)",
     };
   }
   const parsedBaseline =

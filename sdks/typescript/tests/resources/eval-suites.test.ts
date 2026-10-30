@@ -79,7 +79,7 @@ describe('evalSuites.publish — projectId (POST /v1/eval-suites requires it)', 
   });
 });
 
-describe('evalSuites.buildFromJudgments and listCases', () => {
+describe('evalSuites.buildFromCorrections and listCases', () => {
   it('POSTs the build body with the Idempotency-Key and returns the result', async () => {
     const result = {
       suiteId: 'acme.matches',
@@ -96,17 +96,17 @@ describe('evalSuites.buildFromJudgments and listCases', () => {
       agentId: 'acme.matcher',
       agentVersion: '2.0.0',
       judgeClassIds: ['jc-1'],
-      minJudgments: 2,
+      minCorrections: 2,
     };
 
-    const out = await client.evalSuites.buildFromJudgments('acme.matches', body, {
+    const out = await client.evalSuites.buildFromCorrections('acme.matches', body, {
       idempotencyKey: 'idem-b',
     });
 
     expect(out).toEqual(result);
     const req = stub.calls[0]!;
     expect(`${req.method} ${new URL(req.url).pathname}`).toBe(
-      'POST /v1/eval-suites/acme.matches/versions/from-judgments',
+      'POST /v1/eval-suites/acme.matches/versions/from-corrections',
     );
     expect(req.headers['idempotency-key']).toBe('idem-b');
     expect(JSON.parse(req.body ?? '{}')).toEqual(body);

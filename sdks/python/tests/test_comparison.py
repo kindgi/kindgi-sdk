@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026 Kindgi Inc.
 
-"""`comparison_of` reads a comparison eval run's result as the OpenAPI `JudgedComparisonResult`."""
+"""`comparison_of` reads a comparison eval run's result as the OpenAPI `CorrectedComparisonResult`."""
 
 from __future__ import annotations
 
@@ -80,7 +80,7 @@ RESULT: dict[str, Any] = {
                 "yesWeight": 1,
                 "totalWeight": 2,
                 "items": 2,
-                "judgedItems": 2,
+                "correctedItems": 2,
                 "topK": {"yesWeight": 1, "totalWeight": 2},
             },
             "candidate": [
@@ -88,7 +88,7 @@ RESULT: dict[str, Any] = {
                     "yesWeight": 1.5,
                     "totalWeight": 2,
                     "items": 2,
-                    "judgedItems": 2,
+                    "correctedItems": 2,
                     "topK": {"yesWeight": 1.5, "totalWeight": 2},
                 }
             ],
@@ -119,7 +119,7 @@ RESULT: dict[str, Any] = {
                 "yesWeight": 0,
                 "totalWeight": 1,
                 "items": 1,
-                "judgedItems": 1,
+                "correctedItems": 1,
                 "topK": {"yesWeight": 0, "totalWeight": 1},
             },
             "candidate": [],

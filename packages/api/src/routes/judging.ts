@@ -9,6 +9,11 @@ import type { ProjectBinding } from '@kindgi/platform';
 import type { Cursor, TenantId, Timestamp } from '@kindgi/types';
 
 import { callerRef } from '../caller.js';
+import {
+  type CorrectionRegistryBinding,
+  type JudgeClassAsserter,
+  whyNotAssertable,
+} from '../correction-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type {
   JudgingError,
@@ -20,11 +25,6 @@ import type {
   JudgingRuleSpec,
   JudgingRunStatus,
 } from '../judging-queue-binding.js';
-import {
-  type JudgeClassAsserter,
-  type JudgmentRegistryBinding,
-  whyNotAssertable,
-} from '../judgment-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
@@ -45,19 +45,19 @@ import { clampLimit } from './pagination.js';
  *
  * Reading needs `read` on the project; changing a rule, and dismissing or
  * reopening an item, need `write` there, the check that recording a
- * judgment on the run makes. The queue lists only the project's own runs,
+ * correction on the run makes. The queue lists only the project's own runs,
  * and an item carries none of a run's content.
  */
 export function judgingRouter(
   binding: JudgingQueueBinding,
   deps: {
     readonly authorizer?: Authorizer;
-    readonly judgments?: JudgmentRegistryBinding;
+    readonly corrections?: CorrectionRegistryBinding;
     readonly reviewers?: ReviewerBinding;
     readonly projects?: ProjectBinding;
   } = {},
 ): Hono<AppEnv> {
-  const { authorizer, judgments, reviewers, projects } = deps;
+  const { authorizer, corrections, reviewers, projects } = deps;
   const r = new Hono<AppEnv>();
 
   const projectGate: MiddlewareHandler<AppEnv> = async (c, next) => {
@@ -308,15 +308,15 @@ export function judgingRouter(
     });
   }
 
-  /** Whether the caller may change the queue: `write` on the project, as judging the run needs. */
+  /** Whether the caller may change the queue: `write` on the project, as correcting the run needs. */
   async function mayWrite(c: Context<AppEnv>): Promise<boolean> {
     if (authorizer === undefined) return true;
     return authorizer.can(c, 'write', ref('project', c.req.param('projectId') as string));
   }
 
-  /** The live judge classes the caller may assert (`forMe`), by the check recording a judgment makes. */
+  /** The live judge classes the caller may assert (`forMe`), by the check recording a correction makes. */
   async function classesTheCallerMayAssert(c: Context<AppEnv>): Promise<string[]> {
-    if (judgments === undefined) return [];
+    if (corrections === undefined) return [];
     const actor = c.get('principal')?.actor;
     if (actor === undefined) return [];
     const reviewerRole = await callerReviewerRole(c, reviewers);
@@ -328,7 +328,7 @@ export function judgingRouter(
     const out: string[] = [];
     let cursor: Cursor | undefined;
     do {
-      const page = await judgments.listClasses({
+      const page = await corrections.listClasses({
         tenantId: c.get('tenantId') as TenantId,
         limit: 100,
         ...(cursor !== undefined && { cursor }),
@@ -348,8 +348,11 @@ export function judgingRouter(
 
   /** `undefined` when the class is unset or live; else the answer to send. */
   async function classKnown(c: Context<AppEnv>, judgeClassId: string | undefined) {
-    if (judgeClassId === undefined || judgments === undefined) return undefined;
-    const cls = await judgments.getClass({ tenantId: c.get('tenantId') as TenantId, judgeClassId });
+    if (judgeClassId === undefined || corrections === undefined) return undefined;
+    const cls = await corrections.getClass({
+      tenantId: c.get('tenantId') as TenantId,
+      judgeClassId,
+    });
     if (cls !== null) return undefined;
     return judgingFail(c, {
       code: 'judge-class-not-found',
@@ -363,9 +366,9 @@ export function judgingRouter(
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATES: readonly JudgingQueueState[] = ['open', 'judged', 'dismissed', 'erased'];
 /**
- * The run endings a rule may match today: a judgment needs a completed run
- * (`routes/judgments.ts`, `run-not-finished`), and an item that can't be
- * judged could only ever be dismissed. `JudgingRunStatus` keeps `failed`
+ * The run endings a rule may match today: a correction needs a completed run
+ * (`routes/corrections.ts`, `run-not-finished`), and an item that can't be
+ * corrected could only ever be dismissed. `JudgingRunStatus` keeps `failed`
  * and `cancelled`, so allowing them later changes no response type.
  */
 const JUDGEABLE: readonly JudgingRunStatus[] = ['completed'];
@@ -430,7 +433,7 @@ function parseSpec(raw: unknown, mode: 'create' | 'patch' | 'preview'): JudgingR
         return `\`when.${name}\` must be a list of 1 to ${MAX_LIST} non-empty strings`;
       }
       if (name === 'status' && v.some((x) => !JUDGEABLE.includes(x as JudgingRunStatus))) {
-        return 'Only a completed run can be judged, so `when.status` takes `completed` only';
+        return 'Only a completed run can be corrected, so `when.status` takes `completed` only';
       }
       parsed[name] = [...new Set(v as string[])];
     }
@@ -504,7 +507,7 @@ function rulePage(page: {
   };
 }
 
-/** An item, with what the caller may do with it (`write`: the project check judging needs). */
+/** An item, with what the caller may do with it (`write`: the project check correcting needs). */
 function serializeItem(item: JudgingQueueItem, write: boolean): Record<string, unknown> {
   return {
     runId: item.runId,
@@ -516,7 +519,7 @@ function serializeItem(item: JudgingQueueItem, write: boolean): Record<string, u
     completedAt: item.completedAt,
     rules: item.rules.map((x) => ({ ruleId: x.ruleId, version: x.version })),
     wantedClassIds: item.wantedClassIds,
-    anyJudgment: item.anyJudgment,
+    anyCorrection: item.anyCorrection,
     progress: item.progress,
     addedAt: item.addedAt,
     state: item.state,

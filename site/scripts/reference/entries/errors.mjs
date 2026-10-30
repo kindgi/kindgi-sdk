@@ -1886,9 +1886,9 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'judgment-not-found': {
+  'correction-not-found': {
     description:
-      "No correction exists with that id, or it's in a project your key can't read. Unregistering also needs it to be live.",
+      "No correction exists with that id, or it's in a project your key can't read. Removing one also needs it to be live.",
     details: [],
     seeAlso: ['guides/evals/judge-a-runs-output'],
   },

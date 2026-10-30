@@ -4,21 +4,21 @@
 import type { Cursor, ProjectId } from '@kindgi/types';
 
 import {
+  type CorrectedRunCopy,
+  type CorrectedRunWithCorrections,
+  type Correction,
+  type CorrectionRegistryBinding,
+  type CorrectionWithCopies,
   type JudgeClass,
-  type JudgedRunCopy,
-  type JudgedRunWithJudgments,
-  type Judgment,
-  type JudgmentRegistryBinding,
-  type JudgmentWithCopies,
   isReplayCopy,
   segmentsStartWith,
 } from '../../src/index.js';
 
-/** In-memory `JudgmentRegistryBinding` honouring supersede and one run copy per run. */
-export function inMemoryJudgments(): JudgmentRegistryBinding {
+/** In-memory `CorrectionRegistryBinding` honouring supersede and one run copy per run. */
+export function inMemoryCorrections(): CorrectionRegistryBinding {
   const classes: JudgeClass[] = [];
-  const judgments: Judgment[] = [];
-  const copies = new Map<string, JudgedRunCopy>();
+  const corrections: Correction[] = [];
+  const copies = new Map<string, CorrectedRunCopy>();
   const copyProjects = new Map<string, ProjectId>();
   const itemValues = new Map<string, unknown>();
   let seq = 0;
@@ -103,7 +103,7 @@ export function inMemoryJudgments(): JudgmentRegistryBinding {
     },
 
     async record(input) {
-      const id = `j-${judgments.length + 1}`;
+      const id = `j-${corrections.length + 1}`;
       if (!copies.has(input.runId)) {
         copies.set(input.runId, {
           runId: input.runId,
@@ -116,8 +116,8 @@ export function inMemoryJudgments(): JudgmentRegistryBinding {
         });
         copyProjects.set(input.runId, input.projectId);
       }
-      for (let i = 0; i < judgments.length; i++) {
-        const j = judgments[i] as Judgment;
+      for (let i = 0; i < corrections.length; i++) {
+        const j = corrections[i] as Correction;
         if (
           j.unregisteredAt === undefined &&
           j.runId === input.runId &&
@@ -126,10 +126,10 @@ export function inMemoryJudgments(): JudgmentRegistryBinding {
           j.assertedBy.id === input.assertedBy.id &&
           j.participantId === input.participantId
         ) {
-          judgments[i] = { ...j, unregisteredAt: now(), supersededBy: id };
+          corrections[i] = { ...j, unregisteredAt: now(), supersededBy: id };
         }
       }
-      const judgment: Judgment = {
+      const correction: Correction = {
         id,
         tenantId: input.tenantId,
         projectId: input.projectId,
@@ -145,12 +145,12 @@ export function inMemoryJudgments(): JudgmentRegistryBinding {
         ...(input.participantId !== undefined && { participantId: input.participantId }),
         createdAt: now(),
       };
-      judgments.push(judgment);
+      corrections.push(correction);
       if (input.itemValue !== undefined) itemValues.set(id, input.itemValue);
-      return judgment;
+      return correction;
     },
     async list(input) {
-      const rows = judgments
+      const rows = corrections
         .filter((j) => j.unregisteredAt === undefined)
         .filter((j) => input.runId === undefined || j.runId === input.runId)
         .filter(
@@ -176,8 +176,8 @@ export function inMemoryJudgments(): JudgmentRegistryBinding {
         .reverse();
       return page(rows, input.limit);
     },
-    async listJudgedRuns(input) {
-      const rows: JudgedRunWithJudgments[] = [...copies.values()]
+    async listCorrectedRuns(input) {
+      const rows: CorrectedRunWithCorrections[] = [...copies.values()]
         .reverse()
         .filter((run) => {
           const projectId = copyProjects.get(run.runId) as ProjectId;
@@ -190,7 +190,7 @@ export function inMemoryJudgments(): JudgmentRegistryBinding {
               (run.subject.kind === 'flow' && run.subject.id === input.flowId)) &&
             (input.since === undefined || run.capturedAt >= input.since) &&
             (input.until === undefined || run.capturedAt < input.until) &&
-            // A run judged before segments were captured is in no segment.
+            // A run corrected before segments were captured is in no segment.
             (input.segments === undefined ||
               (run.segments !== undefined && segmentsStartWith(run.segments, input.segments))) &&
             // A comparison's replay is never a test set's case.
@@ -201,7 +201,7 @@ export function inMemoryJudgments(): JudgmentRegistryBinding {
           projectId: copyProjects.get(run.runId) as ProjectId,
           run,
           // Newest first.
-          judgments: judgments
+          corrections: corrections
             .filter((j) => j.runId === run.runId && j.unregisteredAt === undefined)
             .reverse(),
         }));
@@ -215,10 +215,10 @@ export function inMemoryJudgments(): JudgmentRegistryBinding {
         ...(next < rows.length && { nextCursor: String(next) as Cursor }),
       };
     },
-    async get(input): Promise<JudgmentWithCopies | null> {
-      const j = judgments.find((x) => x.id === input.judgmentId);
+    async get(input): Promise<CorrectionWithCopies | null> {
+      const j = corrections.find((x) => x.id === input.correctionId);
       if (j === undefined) return null;
-      const run = copies.get(j.runId) as JudgedRunCopy;
+      const run = copies.get(j.runId) as CorrectedRunCopy;
       return {
         ...j,
         run,
@@ -226,12 +226,12 @@ export function inMemoryJudgments(): JudgmentRegistryBinding {
       };
     },
     async unregister(input) {
-      const i = judgments.findIndex(
-        (x) => x.id === input.judgmentId && x.unregisteredAt === undefined,
+      const i = corrections.findIndex(
+        (x) => x.id === input.correctionId && x.unregisteredAt === undefined,
       );
-      const current = judgments[i];
+      const current = corrections[i];
       if (current === undefined) return { unregistered: false };
-      judgments[i] = { ...current, unregisteredAt: now() };
+      corrections[i] = { ...current, unregisteredAt: now() };
       return { unregistered: true };
     },
   };

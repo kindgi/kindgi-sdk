@@ -13,13 +13,13 @@
  */
 
 import type {
-  BuildJudgedSuiteBody,
-  BuildJudgedSuiteResult,
+  BuildCorrectedSuiteBody,
+  BuildCorrectedSuiteResult,
+  CorrectedEvalCase,
+  CorrectedEvalCaseCollectionPage,
   EvalKind,
   EvalSuite,
   EvalSuiteCollectionPage,
-  JudgedEvalCase,
-  JudgedEvalCaseCollectionPage,
   PublishEvalSuiteBody,
   PublishEvalSuiteResult,
   ReinstateEvalSuiteVersionResult,
@@ -43,12 +43,12 @@ export type UnregisterSuiteVersionResult = UnregisterEvalSuiteResult;
 // (suite-scoped, though the route path is versioned).
 export type ReinstateSuiteVersionResult = ReinstateEvalSuiteVersionResult;
 
-/** Body of `POST /v1/eval-suites/{suiteId}/versions/from-judgments`. */
-export type BuildFromJudgmentsInput = BuildJudgedSuiteBody;
-export type BuildFromJudgmentsResult = BuildJudgedSuiteResult;
-/** One case of a `judged` suite: a copy of a judged run with its items' judgments summed up. */
-export type SuiteCase = JudgedEvalCase;
-export type SuiteCasePage = JudgedEvalCaseCollectionPage;
+/** Body of `POST /v1/eval-suites/{suiteId}/versions/from-corrections`. */
+export type BuildFromCorrectionsInput = BuildCorrectedSuiteBody;
+export type BuildFromCorrectionsResult = BuildCorrectedSuiteResult;
+/** One case of a `judged` suite: a copy of a corrected run with its items' corrections summed up. */
+export type SuiteCase = CorrectedEvalCase;
+export type SuiteCasePage = CorrectedEvalCaseCollectionPage;
 
 export interface ListSuiteCasesQuery {
   readonly limit?: number;
@@ -100,17 +100,17 @@ export interface EvalSuitesClient {
   /** @wire GET /v1/eval-suites/:suiteId — latest active version (`GetLatestOptions`) */
   get(suiteId: string, options?: GetLatestOptions): Promise<Suite>;
   /**
-   * Publish a `judged` suite version whose cases are copies of judged runs
-   * of an agent or flow, with each item's judgments summed up. Needs
+   * Publish a `judged` suite version whose cases are copies of corrected runs
+   * of an agent or flow, with each item's corrections summed up. Needs
    * `admin` on `input.projectId`.
    *
-   * @wire POST /v1/eval-suites/:suiteId/versions/from-judgments
+   * @wire POST /v1/eval-suites/:suiteId/versions/from-corrections
    */
-  buildFromJudgments(
+  buildFromCorrections(
     suiteId: string,
-    input: BuildFromJudgmentsInput,
+    input: BuildFromCorrectionsInput,
     options?: { readonly idempotencyKey?: string },
-  ): Promise<BuildFromJudgmentsResult>;
+  ): Promise<BuildFromCorrectionsResult>;
   /**
    * The cases of a `judged` suite version, in stored order.
    *
@@ -173,10 +173,10 @@ export function makeEvalSuitesClient(transport: Transport): EvalSuitesClient {
         query: { ...(options?.projectId !== undefined && { projectId: options.projectId }) },
       });
     },
-    async buildFromJudgments(suiteId, input, options) {
-      return transport.request<BuildFromJudgmentsResult>({
+    async buildFromCorrections(suiteId, input, options) {
+      return transport.request<BuildFromCorrectionsResult>({
         method: 'POST',
-        path: `/v1/eval-suites/${seg(suiteId)}/versions/from-judgments`,
+        path: `/v1/eval-suites/${seg(suiteId)}/versions/from-corrections`,
         body: input,
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });

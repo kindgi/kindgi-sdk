@@ -131,7 +131,7 @@ export interface Promotion {
   readonly toVersion: Semver | null;
   readonly requestedBy: PromotionActor;
   readonly reason?: string;
-  /** The comparison the change was judged on, when there was one. */
+  /** The comparison behind the change, when there was one. */
   readonly evalRunId?: string;
   readonly createdAt: Timestamp;
   /** A `promote` row's state; absent on a promotion made before gates (`promoted`). */

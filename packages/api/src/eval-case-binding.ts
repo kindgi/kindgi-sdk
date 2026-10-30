@@ -3,16 +3,16 @@
 
 import type { Cursor, TenantId } from '@kindgi/types';
 
-import type { Correction } from './corrections.js';
-import type { JudgedItem, JudgedRunContext, JudgedSubject } from './judgment-binding.js';
+import type { CorrectedItem, CorrectedRunContext, CorrectedSubject } from './correction-binding.js';
+import type { ExpectedDecisions } from './expected-decisions.js';
 
 /**
  * Caller-plugged storage for the cases of an eval-suite version, kept
  * apart from the version's `spec` because a set can hold hundreds of
- * cases. A `judged` suite version's cases are built from judgments: each
- * is a copy of one judged run (its input, what it read, the output that
- * was judged) with the judgments of its items summed up. Copies, so a
- * test set stays the same when judgments are removed or runs purged.
+ * cases. A `judged` suite version's cases are built from corrections: each
+ * is a copy of one corrected run (its input, what it read, the output that
+ * was corrected) with the corrections of its items summed up. Copies, so a
+ * test set stays the same when corrections are removed or runs purged.
  *
  * Cases are written once, when the version is published, and removed
  * with it.
@@ -24,73 +24,73 @@ export interface EvalCaseStoreBinding {
   listCases(input: EvalCaseListInput): Promise<EvalCasePage>;
 }
 
-/** The judgments of one item of a case's output, summed up. */
-export interface JudgedItemSummary extends JudgedItem {
+/** The corrections of one item of a case's output, summed up. */
+export interface CorrectedItemSummary extends CorrectedItem {
   readonly yes: number;
   readonly no: number;
-  /** The weight behind "yes" (an unclassified judgment counts 1). */
+  /** The weight behind "yes" (an unclassified correction counts 1). */
   readonly yesWeight: number;
-  /** The weight behind all judgments of the item. */
+  /** The weight behind all corrections of the item. */
   readonly totalWeight: number;
   /**
-   * The same two, counting only judgments recorded while their class was
-   * restricted (`Judgment.restricted`), for a comparison weighted
+   * The same two, counting only corrections recorded while their class was
+   * restricted (`Correction.restricted`), for a comparison weighted
    * `restricted-only`. Absent from a test set built before restrictions:
    * no restricted evidence.
    */
   readonly restricted?: {
     readonly yesWeight: number;
     readonly totalWeight: number;
-    /** The judgments behind these two. Absent from a test set built before judgment ids. */
-    readonly judgmentIds?: readonly string[];
+    /** The corrections behind these two. Absent from a test set built before correction ids. */
+    readonly correctionIds?: readonly string[];
   };
   /**
-   * The judgments summed into the item, by id: what a comparison on this case
-   * counts. Absent from a test set built before judgment ids.
+   * The corrections summed into the item, by id: what a comparison on this case
+   * counts. Absent from a test set built before correction ids.
    */
-  readonly judgmentIds?: readonly string[];
+  readonly correctionIds?: readonly string[];
   /** The reasons given, newest first. */
-  readonly reasons: readonly JudgedReason[];
+  readonly reasons: readonly CorrectedReason[];
 }
 
-/** One judgment's reason, and whose judgment it was. */
-export interface JudgedReason {
+/** One correction's reason, and whose correction it was. */
+export interface CorrectedReason {
   readonly verdict: 'yes' | 'no';
   readonly reason: string;
-  /** The judgment's class, when it had one. */
+  /** The correction's class, when it had one. */
   readonly judgeClassId?: string;
-  /** Set when the judgment was recorded while its class was restricted (`Judgment.restricted`). */
+  /** Set when the correction was recorded while its class was restricted (`Correction.restricted`). */
   readonly restricted?: true;
 }
 
-/** A correction carried onto a case from one of its judgments. */
-export interface JudgedCaseCorrection extends Correction {
-  /** The judgment the correction was recorded on. */
-  readonly judgmentId: string;
-  /** The judgment's class, when it had one. */
+/** What the agent should have done, carried onto a case from one of its corrections. */
+export interface TestCaseExpectedDecisions extends ExpectedDecisions {
+  /** The correction it was recorded on. */
+  readonly correctionId: string;
+  /** The correction's class, when it had one. */
   readonly judgeClassId?: string;
-  /** Set when the judgment was recorded while its class was restricted (`Judgment.restricted`). */
+  /** Set when the correction was recorded while its class was restricted (`Correction.restricted`). */
   readonly restricted?: true;
 }
 
-/** One case of a `judged` suite: a copy of a judged run and what people said about it. */
-export interface JudgedEvalCase {
-  /** The judged run's id. */
+/** One case of a `judged` suite: a copy of a corrected run and what people said about it. */
+export interface CorrectedEvalCase {
+  /** The corrected run's id. */
   readonly caseId: string;
   /** What ran: the agent or flow at a version (the baseline when comparing to the recording). */
-  readonly subject: JudgedSubject;
+  readonly subject: CorrectedSubject;
   readonly input: unknown;
   /** What the turn read besides its input; absent when it wasn't captured. */
-  readonly context?: JudgedRunContext;
-  /** The output that was judged. */
+  readonly context?: CorrectedRunContext;
+  /** The output that was corrected. */
   readonly output: unknown;
-  readonly items: readonly JudgedItemSummary[];
+  readonly items: readonly CorrectedItemSummary[];
   /**
-   * Experts' corrections carried onto this case, each graded on the
+   * Experts' expected decisions carried onto this case, each graded on the
    * replay. Absent when none; `restricted-only` keeps only the entries
-   * whose judgment was restricted.
+   * whose correction was restricted.
    */
-  readonly corrections?: readonly JudgedCaseCorrection[];
+  readonly corrections?: readonly TestCaseExpectedDecisions[];
   /**
    * An erasure cleared this case (a person's words were erased): its
    * `input`, `output` and `context` are gone, its items empty and its
@@ -103,7 +103,7 @@ export interface EvalCasePutInput {
   readonly tenantId: TenantId;
   readonly suiteId: string;
   readonly version: string;
-  readonly cases: readonly JudgedEvalCase[];
+  readonly cases: readonly CorrectedEvalCase[];
 }
 
 export interface EvalCaseListInput {
@@ -115,7 +115,7 @@ export interface EvalCaseListInput {
 }
 
 export interface EvalCasePage {
-  readonly data: readonly JudgedEvalCase[];
+  readonly data: readonly CorrectedEvalCase[];
   readonly hasMore: boolean;
   readonly nextCursor?: Cursor;
 }

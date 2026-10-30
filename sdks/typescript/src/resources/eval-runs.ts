@@ -10,10 +10,10 @@
  */
 
 import type {
+  CorrectedComparisonResult,
   EvalRun,
   EvalRunCollectionPage,
   EvalRunStatus,
-  JudgedComparisonResult,
   StartEvalRunBody,
   StartEvalRunResult,
 } from '../generated/api.js';
@@ -33,20 +33,20 @@ export type {
   ComparisonCandidate,
   ComparisonCaseResult,
   ComparisonMetric,
-  JudgedComparisonResult,
-  JudgedComparisonSummary,
+  CorrectedComparisonResult,
+  CorrectedComparisonSummary,
 } from '../generated/api.js';
 
 /**
- * A comparison's result, typed from the OpenAPI `JudgedComparisonResult`:
+ * A comparison's result, typed from the OpenAPI `CorrectedComparisonResult`:
  * its summary and each case. `run` is a `judged` eval run (a test set
  * compared with a version); `undefined` for another kind of eval run, a
  * dry run, or one that hasn't finished.
  */
-export function comparisonOf(run: EvalRunRecord): JudgedComparisonResult | undefined {
-  const result = run.result as Partial<JudgedComparisonResult> | undefined;
+export function comparisonOf(run: EvalRunRecord): CorrectedComparisonResult | undefined {
+  const result = run.result as Partial<CorrectedComparisonResult> | undefined;
   return run.kind === 'judged' && result?.summary !== undefined && Array.isArray(result.perCase)
-    ? (result as JudgedComparisonResult)
+    ? (result as CorrectedComparisonResult)
     : undefined;
 }
 
@@ -90,7 +90,7 @@ export interface EvalRunsClient {
   cancel(runId: string): Promise<EvalRunRecord>;
   /**
    * Rescore a completed comparison: a new eval run that replays nothing and
-   * scores the run's replays again, with the judgments recorded on them
+   * scores the run's replays again, with the corrections recorded on them
    * since. `projectId` only for a runtime that doesn't record the run's.
    * @wire POST /v1/eval-runs/:runId/rescore
    */

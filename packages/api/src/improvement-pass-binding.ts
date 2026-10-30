@@ -83,7 +83,7 @@ export interface StartImprovementPassInput {
   readonly tiers: readonly ImprovementTier[];
   readonly objective: ProposalObjective;
   /**
-   * Which judgments its comparisons count: everyone (`as-recorded`) or trusted
+   * Which corrections its comparisons count: everyone (`as-recorded`) or trusted
    * only (`restricted-only`).
    */
   readonly classWeights: EvalClassWeights;
@@ -131,17 +131,17 @@ export interface ImprovementPassEstimateBasis {
 }
 
 /**
- * When an `improve` schedule's fire starts a pass: enough "no" judgments on
+ * When an `improve` schedule's fire starts a pass: enough "no" corrections on
  * the agent's runs in the scope since its last pass, across enough runs, from
- * enough judges. Everyone's "no" counts until a restricted judge class is
+ * enough correctors. Everyone's "no" counts until a restricted judge class is
  * named (in the tenant, the project, or on the agent), then only trusted ones
- * do; with no judge-class binding wired, trusted only. One judge can't start a
- * pass alone.
+ * do; with no judge-class binding wired, trusted only. One corrector can't start
+ * a pass alone.
  */
 export interface ImproveThreshold {
-  readonly judgments: number;
+  readonly corrections: number;
   readonly runs: number;
-  readonly judges: number;
+  readonly correctors: number;
 }
 
 /** An `improve` schedule's input (`config.input`): when a fire starts a pass, and the pass's options. */
@@ -149,7 +149,7 @@ export interface ImproveScheduleInput {
   readonly tiers: readonly ImprovementTier[];
   readonly objective: ProposalObjective;
   /**
-   * Which judgments each pass's comparisons count. Omitted: each fire
+   * Which corrections each pass's comparisons count. Omitted: each fire
    * resolves the project default — everyone (`as-recorded`) until the
    * project names a restricted judge class, then `restricted-only`.
    */
@@ -164,7 +164,7 @@ export interface ImproveScheduleInput {
 }
 
 export const IMPROVE_SCHEDULE_DEFAULTS = {
-  threshold: { judgments: 5, runs: 3, judges: 2 },
+  threshold: { corrections: 5, runs: 3, correctors: 2 },
   monthlyCapUsd: 20,
   /** The shortest interval between an `improve` schedule's occurrences: a pass costs money. */
   minIntervalSeconds: 3600,
@@ -248,7 +248,7 @@ export interface ImprovementPassComparison {
   /** For a candidate: its block, and the values it changed. */
   readonly blockId?: string;
   readonly changed?: Readonly<Record<string, unknown>>;
-  /** Its score on the pass's objective, once it finished (`null`: no judged evidence). */
+  /** Its score on the pass's objective, once it finished (`null`: no evidence from corrections). */
   readonly score?: number | null;
   /** Why it didn't run or finish, when it didn't. */
   readonly failed?: string;

@@ -58,13 +58,13 @@ Then list that version's "no" corrections — and newer versions' as you go
 (`agents live-versions` lists everywhere a version is live):
 
 ```sh
-pnpm exec kindgi judgments list --agent=acme-store.refunds --agent-version=1.0.3 --verdict=no
+pnpm exec kindgi corrections list --agent=acme-store.refunds --agent-version=1.0.3 --verdict=no
 ```
 
 Read each one for the reason and the run it's on:
 
 ```sh
-pnpm exec kindgi judgments show <judgment-id>
+pnpm exec kindgi corrections show <correction-id>
 pnpm exec kindgi runs get <run-id>
 pnpm exec kindgi runs journal <run-id>
 ```
@@ -97,7 +97,7 @@ names — never a customer's words or details.
 | "Store credit before cash", "too stiff", "say when the money arrives" | the agent's **instructions** | [Improve](../improve-an-agent/), run on the test cases |
 
 A correction that must hold every time is a code rule; one that's a matter of
-judgment or wording is for the instructions, which you leave to Improve.
+correction or wording is for the instructions, which you leave to Improve.
 
 ## Change the layer, with a test per correction
 

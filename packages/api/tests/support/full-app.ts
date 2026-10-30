@@ -29,6 +29,7 @@ import type {
   BlockRegistryBinding,
   CapabilityRegistryBinding,
   ConnectionBinding,
+  CorrectionRegistryBinding,
   CostBinding,
   CreateAppInput,
   DeploymentBinding,
@@ -44,7 +45,6 @@ import type {
   IdentityProviderBinding,
   ImageRegistryBinding,
   JudgingQueueBinding,
-  JudgmentRegistryBinding,
   MCPEndpointRegistryBinding,
   MemoryBinding,
   MemoryErasureBinding,
@@ -365,7 +365,7 @@ const noopEvalCaseStore: EvalCaseStoreBinding = {
   listCases: async () => ({ data: [], hasMore: false }),
 };
 
-const noopJudgmentRegistry: JudgmentRegistryBinding = {
+const noopCorrectionRegistry: CorrectionRegistryBinding = {
   createClass: async () => ({ kind: 'name-taken' }),
   listClasses: async () => ({ data: [], hasMore: false }),
   getClass: async () => null,
@@ -697,7 +697,7 @@ export function fullAppInput(): CreateAppInput {
     evalSuiteRegistry: noopEvalSuiteRegistry,
     blockRegistry: noopBlockRegistry,
     evalRunBinding: noopEvalRunBinding,
-    judgmentRegistry: noopJudgmentRegistry,
+    correctionRegistry: noopCorrectionRegistry,
     judgingQueue: noopJudgingQueue,
     evalCaseStore: noopEvalCaseStore,
     sessionStore: noopSessionStore,

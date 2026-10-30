@@ -168,7 +168,7 @@ describe('kindgi schedules', () => {
       '--improve=acme.scorer',
       '--project=p-1',
       '--segment=company:acme',
-      '--input={"threshold":{"judgments":10},"monthlyCapUsd":50}',
+      '--input={"threshold":{"corrections":10},"monthlyCapUsd":50}',
     ]);
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
@@ -181,7 +181,7 @@ describe('kindgi schedules', () => {
           },
           config: {
             cronExpression: '0 * * * *',
-            input: { threshold: { judgments: 10 }, monthlyCapUsd: 50 },
+            input: { threshold: { corrections: 10 }, monthlyCapUsd: 50 },
           },
           projectId: 'p-1',
         },

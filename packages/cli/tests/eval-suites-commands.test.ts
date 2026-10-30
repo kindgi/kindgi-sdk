@@ -77,12 +77,12 @@ describe('kindgi eval-suites', () => {
     ]);
   });
 
-  test('from-judgments sends the filters, repeated classes included', async () => {
+  test('from-corrections sends the filters, repeated classes included', async () => {
     const { calls, rec } = recorder();
     const out = await run(
       [
         'eval-suites',
-        'from-judgments',
+        'from-corrections',
         'acme.matches',
         '--suite-version=1.0.0',
         '--project=p-1',
@@ -92,12 +92,12 @@ describe('kindgi eval-suites', () => {
         '--until=2026-10-05T02:00:00+02:00',
         '--class=jc-1',
         '--class=jc-2',
-        '--min-judgments=2',
+        '--min-corrections=2',
         '--segment=company:acme',
         '--segment=role:cfo',
         '--description=First set',
       ],
-      { evalSuites: { buildFromJudgments: rec('build', { caseCount: 3 }) } },
+      { evalSuites: { buildFromCorrections: rec('build', { caseCount: 3 }) } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
@@ -113,7 +113,7 @@ describe('kindgi eval-suites', () => {
           until: '2026-10-05T00:00:00.000Z',
           description: 'First set',
           judgeClassIds: ['jc-1', 'jc-2'],
-          minJudgments: 2,
+          minCorrections: 2,
           segments: [
             { key: 'company', value: 'acme' },
             { key: 'role', value: 'cfo' },
@@ -124,19 +124,26 @@ describe('kindgi eval-suites', () => {
     expect(JSON.parse(out.stdout)).toEqual({ caseCount: 3 });
   });
 
-  test('from-judgments with a flow and nothing else', async () => {
+  test('from-corrections with a flow and nothing else', async () => {
     const { calls, rec } = recorder();
     const out = await run(
-      ['eval-suites', 'from-judgments', 's', '--suite-version=1.0.0', '--project=p-1', '--flow=f'],
-      { evalSuites: { buildFromJudgments: rec('build') } },
+      [
+        'eval-suites',
+        'from-corrections',
+        's',
+        '--suite-version=1.0.0',
+        '--project=p-1',
+        '--flow=f',
+      ],
+      { evalSuites: { buildFromCorrections: rec('build') } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['build', 's', { version: '1.0.0', projectId: 'p-1', flowId: 'f' }]]);
   });
 
-  test('from-judgments checks its flags', async () => {
+  test('from-corrections checks its flags', async () => {
     const client = { evalSuites: {} };
-    const base = ['eval-suites', 'from-judgments', 's'];
+    const base = ['eval-suites', 'from-corrections', 's'];
     expect((await run([...base, '--project=p', '--agent=a'], client)).stderr).toContain(
       '--suite-version',
     );
@@ -149,8 +156,8 @@ describe('kindgi eval-suites', () => {
     expect((await run([...ok, '--flow=f', '--agent-version=2'], client)).stderr).toContain(
       '--agent-version needs --agent',
     );
-    expect((await run([...ok, '--flow=f', '--min-judgments=0'], client)).stderr).toContain(
-      '--min-judgments must be 1 or more',
+    expect((await run([...ok, '--flow=f', '--min-corrections=0'], client)).stderr).toContain(
+      '--min-corrections must be 1 or more',
     );
   });
 

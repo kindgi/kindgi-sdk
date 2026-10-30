@@ -4,9 +4,9 @@
 import type { ReviewerRole } from '@kindgi/authz';
 import type { LiveScope } from '@kindgi/types';
 
+import type { ComparisonMetric, CorrectedComparisonSummary } from './corrected-dispatcher.js';
 import type { EvalSample } from './eval-run-binding.js';
 import type { GateMetricName, GateMetricSpec, GatePolicySpec } from './gate-policy-binding.js';
-import type { ComparisonMetric, JudgedComparisonSummary } from './judged-dispatcher.js';
 
 /**
  * The promotion gate (evals step 4b): a policy's checks against a
@@ -44,11 +44,11 @@ export interface GateInput {
     readonly scope: LiveScope;
   };
   /** The comparison named by `evalRunId`; `null` when none was. */
-  readonly summary: JudgedComparisonSummary | null;
+  readonly summary: CorrectedComparisonSummary | null;
   /** The version serving the promotion's scope now: what "no regression" is measured against. */
   readonly servingVersion: string;
   /**
-   * The org of the project the comparison's judgments came from (for an
+   * The org of the project the comparison's corrections came from (for an
    * org promotion). Absent: that project has no org, or none was looked up.
    */
   readonly summaryProjectOrgId?: string;
@@ -126,8 +126,8 @@ export function evaluateGate(input: GateInput): GateResult {
       passed: counted === 'restricted-only',
       message:
         counted === 'restricted-only'
-          ? "The test run counted only experts' judgments."
-          : "The policy counts only experts' judgments; the test run counted everyone's. Re-run it with `classWeights: 'restricted-only'`.",
+          ? "The test run counted only experts' corrections."
+          : "The policy counts only experts' corrections; the test run counted everyone's. Re-run it with `classWeights: 'restricted-only'`.",
       value: counted,
       threshold: 'restricted-only',
     });
@@ -145,7 +145,7 @@ function result(checks: readonly GateCheck[], approval: GateApproval | undefined
   };
 }
 
-function statusCheck(spec: GatePolicySpec, summary: JudgedComparisonSummary): GateCheck {
+function statusCheck(spec: GatePolicySpec, summary: CorrectedComparisonSummary): GateCheck {
   const maxErrors = spec.replay?.maxErrors ?? 0;
   const base = { name: 'comparison.status', value: summary.status } as const;
   if (summary.status === 'completed') {
@@ -172,7 +172,7 @@ function statusCheck(spec: GatePolicySpec, summary: JudgedComparisonSummary): Ga
 
 function freshnessCheck(
   maxAgeHours: number,
-  summary: JudgedComparisonSummary,
+  summary: CorrectedComparisonSummary,
   now: Date,
 ): GateCheck {
   const ageHours = (now.getTime() - new Date(summary.completedAt).getTime()) / 3_600_000;
@@ -188,7 +188,7 @@ function freshnessCheck(
 
 function suiteCheck(
   suite: { readonly id: string; readonly version?: string },
-  summary: JudgedComparisonSummary,
+  summary: CorrectedComparisonSummary,
 ): GateCheck {
   const ran = `${summary.suite.id} ${summary.suite.version}`;
   const wanted = suite.version === undefined ? suite.id : `${suite.id} ${suite.version}`;
@@ -278,7 +278,7 @@ function sameContentsCheck(input: GateInput): GateCheck {
   };
 }
 
-function baselineCheck(summary: JudgedComparisonSummary, input: GateInput): GateCheck {
+function baselineCheck(summary: CorrectedComparisonSummary, input: GateInput): GateCheck {
   const name = 'baselineIsLive';
   const serving = `${input.promotion.agentId} ${input.servingVersion}`;
   const versions =
@@ -308,24 +308,24 @@ function baselineCheck(summary: JudgedComparisonSummary, input: GateInput): Gate
   };
 }
 
-function scopeCheck(summary: JudgedComparisonSummary, input: GateInput): GateCheck {
+function scopeCheck(summary: CorrectedComparisonSummary, input: GateInput): GateCheck {
   const name = 'scopeCovered';
   const from = summary.scope.projectId;
   const scope = input.promotion.scope;
-  const judgedIn = from === undefined ? 'every project' : `project ${from}`;
+  const correctedIn = from === undefined ? 'every project' : `project ${from}`;
   switch (scope.kind) {
     case 'tenant':
-      return { name, passed: true, message: `The judgments came from ${judgedIn}.` };
+      return { name, passed: true, message: `The corrections came from ${correctedIn}.` };
     case 'org': {
       const passed = from === undefined || input.summaryProjectOrgId === scope.orgId;
       return {
         name,
         passed,
         message: !passed
-          ? `The judgments came from ${judgedIn}, outside org ${scope.orgId}.`
+          ? `The corrections came from ${correctedIn}, outside org ${scope.orgId}.`
           : from === undefined
-            ? `The judgments came from every project, which covers org ${scope.orgId}.`
-            : `The judgments came from ${judgedIn}, within org ${scope.orgId}.`,
+            ? `The corrections came from every project, which covers org ${scope.orgId}.`
+            : `The corrections came from ${correctedIn}, within org ${scope.orgId}.`,
       };
     }
     case 'project':
@@ -335,8 +335,8 @@ function scopeCheck(summary: JudgedComparisonSummary, input: GateInput): GateChe
         name,
         passed,
         message: passed
-          ? `The judgments came from project ${scope.projectId}, the one it goes live in.`
-          : `The judgments came from ${judgedIn}; it goes live in project ${scope.projectId}, so it needs that project's judgments.`,
+          ? `The corrections came from project ${scope.projectId}, the one it goes live in.`
+          : `The corrections came from ${correctedIn}; it goes live in project ${scope.projectId}, so it needs that project's corrections.`,
       };
     }
   }
@@ -361,7 +361,7 @@ const REPLAY_KNOBS = [
 
 function replayChecks(
   replay: NonNullable<GatePolicySpec['replay']>,
-  summary: JudgedComparisonSummary,
+  summary: CorrectedComparisonSummary,
 ): GateCheck[] {
   return REPLAY_KNOBS.map(([knob, field, one, many]) => {
     const max = replay[knob] ?? 0;
@@ -381,7 +381,7 @@ function metricLabel(name: GateMetricName, metric: ComparisonMetric): string {
     case 'weightedYesShare':
       return 'The weighted share marked right';
     case 'judgedCoverage':
-      return 'The share of answers judged';
+      return 'The share of answers corrected';
     case 'weightedPrecisionAtK':
       return `Precision at ${metric.k ?? 'k'}`;
   }
@@ -390,7 +390,7 @@ function metricLabel(name: GateMetricName, metric: ComparisonMetric): string {
 function metricChecks(
   spec: GateMetricSpec,
   policy: GatePolicySpec,
-  summary: JudgedComparisonSummary,
+  summary: CorrectedComparisonSummary,
 ): GateCheck[] {
   const metric = summary.metrics[spec.name];
   const label = metricLabel(spec.name, metric);
@@ -416,7 +416,7 @@ function metricChecks(
       passed: value !== null && value + EPSILON >= spec.minCandidate,
       message:
         value === null
-          ? `${label} has no judged answers for this version; the policy needs at least ${fmt(spec.minCandidate)}.`
+          ? `${label} has no corrected answers for this version; the policy needs at least ${fmt(spec.minCandidate)}.`
           : `${label} is ${fmt(value)}; the policy needs at least ${fmt(spec.minCandidate)}.`,
       ...(value !== null && { value: round(value) }),
       threshold: spec.minCandidate,
@@ -430,7 +430,7 @@ function metricChecks(
       passed: candidate !== null && floor !== null && candidate + EPSILON >= floor,
       message:
         candidate === null || baseline === null
-          ? `${label} can't be compared: ${candidate === null ? 'this version' : 'the live version'} has no judged answers.`
+          ? `${label} can't be compared: ${candidate === null ? 'this version' : 'the live version'} has no corrected answers.`
           : `${label} is ${fmt(candidate)} against the live version's ${fmt(baseline)}; the policy allows a drop of at most ${fmt(spec.maxDrop)}.`,
       ...(candidate !== null && baseline !== null && { value: round(candidate - baseline) }),
       threshold: -spec.maxDrop,
@@ -451,7 +451,7 @@ function evidenceChecks(
   const sides: { prefix: string; whose: string; n: number; weight: number }[] = [
     { prefix: '', whose: 'this version', n: metric.n, weight: metric.weight },
   ];
-  // "No regression" means nothing on a baseline with two judgments.
+  // "No regression" means nothing on a baseline with two corrections.
   if (spec.maxDrop !== undefined) {
     sides.push({
       prefix: 'baseline',
@@ -468,7 +468,7 @@ function evidenceChecks(
       checks.push({
         name: key('MinCases'),
         passed: side.n >= evidence.minCases,
-        message: `${label} rests on ${count(side.n, 'judged case')} for ${side.whose}; the policy needs at least ${evidence.minCases}.`,
+        message: `${label} rests on ${count(side.n, 'corrected case')} for ${side.whose}; the policy needs at least ${evidence.minCases}.`,
         value: side.n,
         threshold: evidence.minCases,
       });
@@ -477,7 +477,7 @@ function evidenceChecks(
       checks.push({
         name: key('MinWeight'),
         passed: side.weight + EPSILON >= evidence.minWeight,
-        message: `${label} rests on judgments weighing ${fmt(side.weight)} for ${side.whose}; the policy needs at least ${fmt(evidence.minWeight)}.`,
+        message: `${label} rests on corrections weighing ${fmt(side.weight)} for ${side.whose}; the policy needs at least ${fmt(evidence.minWeight)}.`,
         value: round(side.weight),
         threshold: evidence.minWeight,
       });

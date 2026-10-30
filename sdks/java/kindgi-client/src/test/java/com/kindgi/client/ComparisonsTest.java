@@ -7,7 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.kindgi.client.models.EvalRun;
-import com.kindgi.client.models.JudgedComparisonResult;
+import com.kindgi.client.models.CorrectedComparisonResult;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 
 /**
  * {@link Comparisons#comparisonOf} reads a comparison eval run's result as the OpenAPI {@code
- * JudgedComparisonResult}. The run and result below are the same fixture the TypeScript and Python
+ * CorrectedComparisonResult}. The run and result below are the same fixture the TypeScript and Python
  * clients' tests use, so the three read it alike.
  */
 class ComparisonsTest {
@@ -77,11 +77,11 @@ class ComparisonsTest {
               "caseId": "run-1",
               "runIds": ["replay-1"],
               "baseline": {
-                "yesWeight": 1, "totalWeight": 2, "items": 2, "judgedItems": 2,
+                "yesWeight": 1, "totalWeight": 2, "items": 2, "correctedItems": 2,
                 "topK": { "yesWeight": 1, "totalWeight": 2 }
               },
               "candidate": [{
-                "yesWeight": 1.5, "totalWeight": 2, "items": 2, "judgedItems": 2,
+                "yesWeight": 1.5, "totalWeight": 2, "items": 2, "correctedItems": 2,
                 "topK": { "yesWeight": 1.5, "totalWeight": 2 }
               }],
               "changes": {
@@ -102,7 +102,7 @@ class ComparisonsTest {
               "caseId": "run-2",
               "runIds": ["replay-2"],
               "baseline": {
-                "yesWeight": 0, "totalWeight": 1, "items": 1, "judgedItems": 1,
+                "yesWeight": 0, "totalWeight": 1, "items": 1, "correctedItems": 1,
                 "topK": { "yesWeight": 0, "totalWeight": 1 }
               },
               "candidate": [],
@@ -130,10 +130,10 @@ class ComparisonsTest {
   void readsAComparisonsResultTyped() {
     EvalRun judged = KindgiJson.read(JUDGED, EvalRun.class);
 
-    Optional<JudgedComparisonResult> result = Comparisons.comparisonOf(judged);
+    Optional<CorrectedComparisonResult> result = Comparisons.comparisonOf(judged);
 
     assertThat(result).isPresent();
-    JudgedComparisonResult comparison = result.orElseThrow();
+    CorrectedComparisonResult comparison = result.orElseThrow();
     assertThat(comparison.summary().metrics().weightedYesShare().delta()).isEqualTo(0.25);
     assertThat(comparison.summary().stopped()).isEqualTo(1L);
     assertThat(comparison.perCase()).hasSize(2);

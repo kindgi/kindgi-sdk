@@ -8,6 +8,7 @@ import type { AgentId } from '@kindgi/agents';
 import { type Action, ref } from '@kindgi/authz';
 import type { Cursor, FlowId, ProjectId, RunId, Semver, TenantId, Timestamp } from '@kindgi/types';
 
+import { VERSIONS_NEED_A_FLOW } from '../corrected-dispatcher.js';
 import { statusFor, toWireError } from '../errors.js';
 import { rescoreRefusal, rescoreStart } from '../eval-rescore.js';
 import {
@@ -22,7 +23,6 @@ import {
   type FlowRef,
 } from '../eval-run-binding.js';
 import { type ItemRights, filterOwned, ownProject, runIn } from '../item-rights.js';
-import { VERSIONS_NEED_A_FLOW } from '../judged-dispatcher.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
   type ReferenceScopeBinding,
@@ -503,7 +503,7 @@ function readbackRouter(
   // ---------- POST /:runId/rescore ----------
   // A new comparison eval run of the same test set version, candidate and
   // settings that replays nothing: it scores the run's replays again, with
-  // what people judged on them since. The run rescored stays as it was.
+  // what people corrected on them since. The run rescored stays as it was.
   r.post('/:runId/rescore', async (c) => {
     const refused = await onRunSuite(c, 'admin', 'execute');
     if (refused !== undefined) return refused;

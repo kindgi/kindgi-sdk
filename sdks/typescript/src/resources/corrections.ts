@@ -7,52 +7,52 @@ import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { ScopeRef } from '../scope-wire.js';
 import { scopeToQuery } from '../scope-wire.js';
 import type { Transport } from '../transport.js';
-import type { CreateJudgmentInput, Judgment, JudgmentWithCopies, Verdict } from '../types.js';
+import type { Correction, CorrectionWithCopies, CreateCorrectionInput, Verdict } from '../types.js';
 
 /**
- * Judgments resource: yes or no, with an optional reason, about one item
+ * Corrections resource: yes or no, with an optional reason, about one item
  * of a finished run's output.
  *
- * Who judged comes from the token you call with, never from the input.
- * Judging again as the same caller for the same run, item key and
- * `participantId` supersedes the earlier judgment, which stays as history.
+ * Who corrected comes from the token you call with, never from the input.
+ * Correcting again as the same caller for the same run, item key and
+ * `participantId` supersedes the earlier correction, which stays as history.
  */
-export interface JudgmentsClient {
+export interface CorrectionsClient {
   /**
-   * Judge an item of a finished run.
+   * Correct an item of a finished run.
    *
-   * @wire `POST /v1/judgments` — see `@kindgi/api/openapi.json#/paths/~1v1~1judgments/post`.
+   * @wire `POST /v1/corrections` — see `@kindgi/api/openapi.json#/paths/~1v1~1corrections/post`.
    */
   create(
-    input: CreateJudgmentInput,
+    input: CreateCorrectionInput,
     options?: { readonly idempotencyKey?: string },
-  ): Promise<Judgment>;
+  ): Promise<Correction>;
 
   /**
-   * Live judgments, newest first.
+   * Live corrections, newest first.
    *
-   * @wire `GET /v1/judgments` — see `@kindgi/api/openapi.json#/paths/~1v1~1judgments/get`.
+   * @wire `GET /v1/corrections` — see `@kindgi/api/openapi.json#/paths/~1v1~1corrections/get`.
    */
-  list(filter?: JudgmentFilter): Promise<ListPage<Judgment>>;
+  list(filter?: CorrectionFilter): Promise<ListPage<Correction>>;
 
   /**
-   * One judgment with the stored copies of what was judged.
+   * One correction with the stored copies of what was corrected.
    *
-   * @wire `GET /v1/judgments/{judgmentId}` — see
-   *   `@kindgi/api/openapi.json#/paths/~1v1~1judgments~1{judgmentId}/get`.
+   * @wire `GET /v1/corrections/{correctionId}` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1corrections~1{correctionId}/get`.
    */
-  get(judgmentId: string): Promise<JudgmentWithCopies>;
+  get(correctionId: string): Promise<CorrectionWithCopies>;
 
   /**
-   * Remove a judgment. Unknown ids fail with `404 judgment-not-found`.
+   * Remove a correction. Unknown ids fail with `404 correction-not-found`.
    *
-   * @wire `POST /v1/judgments/{judgmentId}/unregister` — see
-   *   `@kindgi/api/openapi.json#/paths/~1v1~1judgments~1{judgmentId}~1unregister/post`.
+   * @wire `POST /v1/corrections/{correctionId}/remove` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1corrections~1{correctionId}~1remove/post`.
    */
-  unregister(judgmentId: string, options?: { readonly idempotencyKey?: string }): Promise<void>;
+  remove(correctionId: string, options?: { readonly idempotencyKey?: string }): Promise<void>;
 }
 
-export interface JudgmentFilter {
+export interface CorrectionFilter {
   readonly limit?: number;
   readonly cursor?: Cursor;
   readonly runId?: string;
@@ -67,21 +67,21 @@ export interface JudgmentFilter {
   readonly scope?: ScopeRef;
 }
 
-export function makeJudgmentsClient(transport: Transport): JudgmentsClient {
+export function makeCorrectionsClient(transport: Transport): CorrectionsClient {
   return {
     async create(input, options) {
-      return transport.request<Judgment>({
+      return transport.request<Correction>({
         method: 'POST',
-        path: '/v1/judgments',
+        path: '/v1/corrections',
         body: input,
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },
 
     async list(filter) {
-      const page = await transport.request<WirePage<Judgment>>({
+      const page = await transport.request<WirePage<Correction>>({
         method: 'GET',
-        path: '/v1/judgments',
+        path: '/v1/corrections',
         query: {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
@@ -98,17 +98,17 @@ export function makeJudgmentsClient(transport: Transport): JudgmentsClient {
       return listPage(page);
     },
 
-    async get(judgmentId) {
-      return transport.request<JudgmentWithCopies>({
+    async get(correctionId) {
+      return transport.request<CorrectionWithCopies>({
         method: 'GET',
-        path: `/v1/judgments/${encodeURIComponent(judgmentId)}`,
+        path: `/v1/corrections/${encodeURIComponent(correctionId)}`,
       });
     },
 
-    async unregister(judgmentId, options) {
-      await transport.request<{ readonly judgmentId: string; readonly unregistered: true }>({
+    async remove(correctionId, options) {
+      await transport.request<{ readonly correctionId: string; readonly unregistered: true }>({
         method: 'POST',
-        path: `/v1/judgments/${encodeURIComponent(judgmentId)}/unregister`,
+        path: `/v1/corrections/${encodeURIComponent(correctionId)}/remove`,
         body: {},
         discardResponse: true,
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),

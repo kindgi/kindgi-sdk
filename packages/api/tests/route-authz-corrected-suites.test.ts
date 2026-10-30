@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Building a test set from judgments, with authorization on. Under a suite
+ * Building a test set from corrections, with authorization on. Under a suite
  * id never registered there's no suite to check yet: the build needs
  * `admin` on the project it names, the project the new suite belongs to.
  * Under an existing suite (a tombstoned one included), the suite is checked
@@ -25,10 +25,10 @@ import type {
   TokenResolver,
 } from '../src/index.js';
 import { inMemoryCaseStore } from './support/in-memory-cases.js';
-import { inMemoryJudgments } from './support/in-memory-judgments.js';
+import { inMemoryCorrections } from './support/in-memory-corrections.js';
 
 const tenantId = randomUUID() as TenantId;
-const TOKEN = 'route-authz-judged-suites';
+const TOKEN = 'route-authz-corrected-suites';
 const resolveToken: TokenResolver = async (token) =>
   token === TOKEN ? { tenantId, userId: 'user-1' as UserId } : null;
 const P = randomUUID() as ProjectId;
@@ -36,7 +36,7 @@ const Q = randomUUID();
 const EXISTING = 'acme.existing';
 const GONE = 'acme.gone';
 const NEW = 'acme.new';
-const build = (suiteId: string) => `/v1/eval-suites/${suiteId}/versions/from-judgments`;
+const build = (suiteId: string) => `/v1/eval-suites/${suiteId}/versions/from-corrections`;
 const body = { version: '2.0.0', projectId: P, agentId: 'acme.matcher' };
 
 /** A registry with a suite in project Q and a tombstoned one, both with head rows. */
@@ -67,8 +67,8 @@ async function harness(grants: readonly string[], { authzOn = true } = {}) {
       evidence: { action, relation: '', resource: `${r.type}:${r.id}`, actorSubject: '' },
     };
   };
-  const judgments = inMemoryJudgments();
-  await judgments.record({
+  const corrections = inMemoryCorrections();
+  await corrections.record({
     tenantId,
     projectId: P,
     runId: 'run-1',
@@ -86,7 +86,7 @@ async function harness(grants: readonly string[], { authzOn = true } = {}) {
     ...createStubAppBindings(),
     resolveToken,
     runHandler: {} as RunHandlerBinding,
-    judgmentRegistry: judgments,
+    correctionRegistry: corrections,
     evalSuiteRegistry: registry,
     evalCaseStore: inMemoryCaseStore(),
     ...(authzOn && {

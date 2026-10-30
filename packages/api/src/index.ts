@@ -673,25 +673,25 @@ export {
   isReplayCopy,
   judgeClassApplies,
   whyNotAssertable,
-} from './judgment-binding.js';
+} from './correction-binding.js';
 export type {
   EvalCaseListInput,
   EvalCasePage,
   EvalCasePutInput,
   EvalCaseStoreBinding,
-  JudgedCaseCorrection,
-  JudgedEvalCase,
-  JudgedItemSummary,
-  JudgedReason,
+  TestCaseExpectedDecisions,
+  CorrectedEvalCase,
+  CorrectedItemSummary,
+  CorrectedReason,
 } from './eval-case-binding.js';
-export { MAX_JUDGED_CASES, buildJudgedSuite } from './routes/judged-suites.js';
+export { MAX_CORRECTED_CASES, buildCorrectedSuite } from './routes/corrected-suites.js';
 export type {
-  BuildJudgedSuiteInput,
-  BuildJudgedSuiteOutcome,
-  JudgedSuiteQuery,
-} from './routes/judged-suites.js';
+  BuildCorrectedSuiteInput,
+  BuildCorrectedSuiteOutcome,
+  CorrectedSuiteQuery,
+} from './routes/corrected-suites.js';
 export { segmentsStartWith } from './routes/segments.js';
-export { MAX_JUDGED_HISTORY } from './routes/judgment-context.js';
+export { MAX_CORRECTED_HISTORY } from './routes/correction-context.js';
 export type {
   JudgeClass,
   JudgeClassAssertableBy,
@@ -704,27 +704,27 @@ export type {
   JudgeClassScope,
   JudgeClassScopeKind,
   JudgeClassUpdateInput,
-  JudgedItem,
-  JudgedFlowContext,
-  JudgedFlowStep,
-  JudgedRunContext,
-  JudgedToolCall,
-  JudgedRunCopy,
-  JudgedRunListInput,
-  JudgedRunPage,
-  JudgedRunWithJudgments,
-  JudgedSubject,
-  Judgment,
-  JudgmentAssertedBy,
-  JudgmentGetInput,
-  JudgmentListInput,
-  JudgmentPage,
-  JudgmentRecordInput,
-  JudgmentRegistryBinding,
-  JudgmentWithCopies,
+  CorrectedItem,
+  CorrectedFlowContext,
+  CorrectedFlowStep,
+  CorrectedRunContext,
+  CorrectedToolCall,
+  CorrectedRunCopy,
+  CorrectedRunListInput,
+  CorrectedRunPage,
+  CorrectedRunWithCorrections,
+  CorrectedSubject,
+  Correction,
+  CorrectionAssertedBy,
+  CorrectionGetInput,
+  CorrectionListInput,
+  CorrectionPage,
+  CorrectionRecordInput,
+  CorrectionRegistryBinding,
+  CorrectionWithCopies,
   Verdict,
-} from './judgment-binding.js';
-export { resolvePointer } from './routes/judgments.js';
+} from './correction-binding.js';
+export { resolvePointer } from './routes/corrections.js';
 export type {
   BlockGetInput,
   BlockGetVersionInput,
@@ -851,39 +851,39 @@ export type {
 export {
   DEFAULT_COMPARISON,
   RESCORE_UNSUPPORTED,
-  createJudgedDispatcher,
-} from './judged-dispatcher.js';
+  createCorrectedDispatcher,
+} from './corrected-dispatcher.js';
 export type {
   ComparisonBaselineSummary,
   ComparisonMetric,
-  JudgedCaseResult,
-  JudgedComparisonSummary,
-  JudgedDispatcherOptions,
+  CorrectedCaseResult,
+  CorrectedComparisonSummary,
+  CorrectedDispatcherOptions,
   ReplayRunReader,
-} from './judged-dispatcher.js';
+} from './corrected-dispatcher.js';
 export {
   itemChanges,
-  matchJudged,
+  matchCorrected,
   outputItems,
   scoreItems,
   valueAt,
   withFresh,
-} from './judged-items.js';
+} from './corrected-items.js';
 export type {
   ItemChanges,
-  ItemJudgments,
+  ItemCorrections,
   MatchedItem,
   OutputItem,
   OutputScore,
-} from './judged-items.js';
-export { describeCallDifference, gradeCorrection } from './corrections.js';
+} from './corrected-items.js';
+export { describeCallDifference, gradeExpectedDecisions } from './expected-decisions.js';
 export type {
   CallDifference,
   CandidateCall,
-  Correction,
-  CorrectionResult,
   ExpectedCall,
-} from './corrections.js';
+  ExpectedDecisions,
+  ExpectedDecisionsResult,
+} from './expected-decisions.js';
 export {
   COST_AGGREGATE_DEFAULT_LIMIT,
   COST_AGGREGATE_MAX_LIMIT,

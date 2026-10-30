@@ -59,7 +59,7 @@ type Ctx = Context<AppEnv>;
  *                          version (inert until promoted), then compare it
  *                          on a test set (202)
  *   POST /:id/rescore      the latest evaluation scored again, with what
- *                          people judged on its replays since (202)
+ *                          people corrected on its replays since (202)
  *   POST /:id/request      a gated promotion of the candidate for the scope
  *                          (201 promoted, 202 in review, 422 gate-failed)
  *   POST /:id/rollback     the scope goes back to what served it before
@@ -239,7 +239,7 @@ export function proposalsRouter(
       blockId: parsed.blockId,
       content: parsed.content,
       hypothesis: parsed.hypothesis,
-      ...(parsed.judgmentIds !== undefined && { evidence: { judgmentIds: parsed.judgmentIds } }),
+      ...(parsed.fixes !== undefined && { evidence: { fixes: parsed.fixes } }),
       drafter: { kind: 'person', by: `${actor.kind}:${actor.id}` },
     });
     if (outcome.kind === 'err') return failWith(c, outcome.error);
@@ -271,7 +271,7 @@ export function proposalsRouter(
   });
 
   // ---------- POST /:proposalId/rescore ----------
-  // The latest evaluation scored again, with what people judged on its
+  // The latest evaluation scored again, with what people corrected on its
   // replays since; the new eval run becomes the proposal's evaluation.
   r.post('/:proposalId/rescore', async (c) => {
     const ready = await prepare(c, 'publish');
@@ -432,7 +432,7 @@ interface CreateBody {
   readonly blockId: string;
   readonly content: ProposedChange['change']['content'];
   readonly hypothesis: string;
-  readonly judgmentIds?: readonly string[];
+  readonly fixes?: readonly string[];
 }
 
 function obj(value: unknown): Record<string, unknown> | undefined {
@@ -458,16 +458,16 @@ function parseContent(tier: ProposalTier, raw: unknown): string | undefined {
     : '`change.content` for a prompt block is { template } (the parameters carry over)';
 }
 
-function parseEvidence(raw: unknown): { judgmentIds?: string[] } | string {
+function parseEvidence(raw: unknown): { fixes?: string[] } | string {
   if (raw === undefined) return {};
   const evidence = obj(raw);
-  const ids = evidence?.judgmentIds;
+  const ids = evidence?.fixes;
   const valid =
     evidence !== undefined &&
-    Object.keys(evidence).every((k) => k === 'judgmentIds') &&
+    Object.keys(evidence).every((k) => k === 'fixes') &&
     (ids === undefined || (Array.isArray(ids) && ids.every((id) => nonEmpty(id))));
-  if (!valid) return '`evidence` is { judgmentIds?: string[] }';
-  return ids === undefined ? {} : { judgmentIds: ids as string[] };
+  if (!valid) return '`evidence` is { fixes?: string[] }';
+  return ids === undefined ? {} : { fixes: ids as string[] };
 }
 
 function parseCreateBody(b: Record<string, unknown>): CreateBody | string {

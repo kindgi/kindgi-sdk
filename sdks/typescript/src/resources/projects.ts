@@ -190,9 +190,9 @@ export interface ProjectsClient {
     options?: { readonly idempotencyKey?: string },
   ): Promise<ProjectProductionShape>;
   readonly memberships: ProjectMembershipsClient;
-  /** Which of the project's runs to queue for a person's judgment. */
+  /** Which of the project's runs to queue for a person's correction. */
   readonly judgingRules: JudgingRulesClient;
-  /** The runs queued for a person's judgment. */
+  /** The runs queued for a person's correction. */
   readonly judgingQueue: JudgingQueueClient;
   readonly teamGrants: ProjectTeamGrantsClient;
   /** The sites that sign their own people in to the project (tenant admins). */

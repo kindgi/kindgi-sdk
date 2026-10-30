@@ -259,8 +259,8 @@ const ENTRIES: readonly Entry[] = [
     },
   },
   {
-    name: 'judgments',
-    path: '/v1/judgments',
+    name: 'corrections',
+    path: '/v1/corrections',
     bindings: () => {
       const l = lister(
         'list',
@@ -268,7 +268,7 @@ const ENTRIES: readonly Entry[] = [
         { data: [], hasMore: false },
         arg0,
       );
-      return { bindings: { judgmentRegistry: l.binding }, received: l.received };
+      return { bindings: { correctionRegistry: l.binding }, received: l.received };
     },
   },
   {
@@ -285,7 +285,7 @@ const ENTRIES: readonly Entry[] = [
         { data: [], hasMore: false },
         arg0,
       );
-      return { bindings: { judgmentRegistry: l.binding }, received: l.received };
+      return { bindings: { correctionRegistry: l.binding }, received: l.received };
     },
   },
   {

@@ -152,7 +152,7 @@ describe('an improve schedule', () => {
         tiers: ['settings'],
         objective: 'weightedYesShare',
         budget: { maxCostUsd: 5, maxCandidates: 30 },
-        threshold: { judgments: 5, runs: 3, judges: 2 },
+        threshold: { corrections: 5, runs: 3, correctors: 2 },
         monthlyCapUsd: 20,
       },
     });
@@ -188,7 +188,7 @@ describe('an improve schedule', () => {
           input: {
             tiers: ['prompt'],
             model: { providerId: 'acme-llm', model: 'm-1' },
-            threshold: { judgments: 10, runs: 4, judges: 3 },
+            threshold: { corrections: 10, runs: 4, correctors: 3 },
             monthlyCapUsd: 50,
           },
         },
@@ -199,7 +199,7 @@ describe('an improve schedule', () => {
       tiers: ['prompt'],
       model: { providerId: 'acme-llm', model: 'm-1' },
       candidates: 3,
-      threshold: { judgments: 10, runs: 4, judges: 3 },
+      threshold: { corrections: 10, runs: 4, correctors: 3 },
       monthlyCapUsd: 50,
     });
   });
@@ -220,7 +220,7 @@ describe('an improve schedule', () => {
     [
       {
         ...hourly,
-        config: { cronExpression: '0 * * * *', input: { threshold: { judgments: 2, runs: 3 } } },
+        config: { cronExpression: '0 * * * *', input: { threshold: { corrections: 2, runs: 3 } } },
       },
       '`threshold`',
     ],
@@ -323,7 +323,7 @@ describe('an improve schedule', () => {
     expect(moved.status).toBe(200);
     expect(await moved.json()).toMatchObject({
       improve: { agentId: 'acme.scorer' },
-      input: { threshold: { judgments: 5, runs: 3, judges: 2 } },
+      input: { threshold: { corrections: 5, runs: 3, correctors: 2 } },
     });
   });
 });

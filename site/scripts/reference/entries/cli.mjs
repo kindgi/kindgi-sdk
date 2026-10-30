@@ -797,7 +797,7 @@ export const CLI_DEFAULTS = {
   'reviewers register': {
     spec: 'required',
   },
-  'judgments add': {
+  'corrections add': {
     class: 'none (the correction is unclassified)',
     correction: 'none (an ordinary correction, without what the agent should have done)',
     item: 'required',
@@ -809,7 +809,7 @@ export const CLI_DEFAULTS = {
     run: 'required',
     yes: 'off (exactly one of `--yes` or `--no` is required)',
   },
-  'judgments list': {
+  'corrections list': {
     agent: 'none',
     'agent-version': 'none',
     class: 'none',
@@ -958,13 +958,13 @@ export const CLI_DEFAULTS = {
   'eval-suites show': {
     'suite-version': 'the latest version',
   },
-  'eval-suites from-judgments': {
+  'eval-suites from-corrections': {
     agent: 'required: one of `--agent`, `--flow`',
     'agent-version': 'none',
     class: 'none',
     description: 'none',
     flow: 'required: one of `--agent`, `--flow`',
-    'min-judgments': '`1`',
+    'min-corrections': '`1`',
     project: 'required',
     segment: 'none',
     since: 'none',

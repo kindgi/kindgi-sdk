@@ -10,12 +10,12 @@ import type { Cursor, LiveScope, OrgId, ProjectId, RunId, Semver, TenantId } fro
 import type { ProjectBinding } from '@kindgi/platform';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
+import type { CorrectedComparisonSummary } from '../corrected-dispatcher.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { EvalRun, EvalRunBinding } from '../eval-run-binding.js';
 import type { GatePolicy } from '../gate-policy-binding.js';
 import { type GateApproval, type GateCheck, type GateResult, evaluateGate } from '../gate.js';
 import type { ItemRights } from '../item-rights.js';
-import type { JudgedComparisonSummary } from '../judged-dispatcher.js';
 import type {
   AgentReleaseBindings,
   LivePin,
@@ -675,10 +675,10 @@ export function coordinatesOf(scope: LiveScope): Omit<LiveResolveInput, 'tenantI
 }
 
 /** A finished comparison's summary, or `null` for any other eval run. */
-function summaryOf(run: EvalRun): JudgedComparisonSummary | null {
+function summaryOf(run: EvalRun): CorrectedComparisonSummary | null {
   const summary = run.result?.summary;
   return run.kind === 'judged' && summary !== null && typeof summary === 'object'
-    ? (summary as JudgedComparisonSummary)
+    ? (summary as CorrectedComparisonSummary)
     : null;
 }
 
@@ -768,7 +768,7 @@ async function runGate(
     }
   }
 
-  let summary: JudgedComparisonSummary | null = null;
+  let summary: CorrectedComparisonSummary | null = null;
   if (req.evalRunId !== undefined) {
     const run =
       deps.evalRuns === undefined
@@ -784,9 +784,9 @@ async function runGate(
     }
   }
   let summaryProjectOrgId: string | undefined;
-  const judgedIn = summary?.scope.projectId;
-  if (req.scope.kind === 'org' && judgedIn !== undefined && deps.projects !== undefined) {
-    const project = await deps.projects.get(tenantId, judgedIn as ProjectId);
+  const correctedIn = summary?.scope.projectId;
+  if (req.scope.kind === 'org' && correctedIn !== undefined && deps.projects !== undefined) {
+    const project = await deps.projects.get(tenantId, correctedIn as ProjectId);
     summaryProjectOrgId = project?.orgId as unknown as string | undefined;
   }
   const result = evaluateGate({

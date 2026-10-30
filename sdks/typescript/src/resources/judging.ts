@@ -3,7 +3,7 @@
 
 /**
  * A project's judging rules and the queue they fill: which runs need a
- * person's judgment. `client.projects.judgingRules` and
+ * person's correction. `client.projects.judgingRules` and
  * `client.projects.judgingQueue`.
  *
  * @wire /v1/projects/:projectId/judging-rules, /v1/projects/:projectId/judging-queue
@@ -53,7 +53,7 @@ export interface JudgingQueueFilter {
   readonly agentId?: string;
   readonly ruleId?: string;
   readonly judgeClassId?: string;
-  /** What the caller is asked to judge. */
+  /** What the caller is asked to correct. */
   readonly forMe?: boolean;
   readonly addedAfter?: string;
   readonly closedAfter?: string;

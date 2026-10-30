@@ -97,7 +97,7 @@ const app = createApp({
   complianceGenerator: unreachable,
   memory: unreachable,
   memoryErasures: unreachable,
-  judgmentRegistry: unreachable,
+  correctionRegistry: unreachable,
   evalSuiteRegistry: unreachable,
   evalCaseStore: unreachable,
   deploymentRegistry: unreachable,
@@ -139,11 +139,11 @@ const INPUTS: ReadonlyArray<
     (v) => ['POST', '/v1/deployments', { publishedAt: v }],
   ],
   [
-    'judged suites `since`',
+    'test sets from corrections `since`',
     'since',
     (v) => [
       'POST',
-      '/v1/eval-suites/s-1/versions/from-judgments',
+      '/v1/eval-suites/s-1/versions/from-corrections',
       { version: '1.0.0', projectId: randomUUID(), agentId: 'acme.desk-agent', since: v },
     ],
   ],
