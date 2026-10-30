@@ -10,7 +10,7 @@
 - `--why=<text>` says why, and `--group=<corrector-group-id>` records it under a corrector group.
 - `--item=<key> [--pointer] [--rank] (--yes | --no)` marks one item of a ranked list, as before.
 - `--correction`, `--reason` and `--item=answer` (or `output`) are gone. `--item=answer` and an empty `--pointer` are a usage error that names `--answer`.
-- Each call still adds to your correction of the run. A part it gives replaces what you said before about that part. A part said wrong again keeps what should have happened unless the call gives it anew, and a part said right drops it.
+- Each call still adds to your correction of the run. A part it gives replaces what you said before about that part. A part said wrong again keeps what should have happened unless the call gives it anew, and a part said right drops it. An empty `--why=` clears the why. Replacing a correction that's being fixed or with the owner says on stderr which one it replaced, and where it was.
 
 `kindgi corrections list` takes `--from=experts|end-users|all` and `--since=<time>` (an ISO 8601 time with a zone, or a date).
 
