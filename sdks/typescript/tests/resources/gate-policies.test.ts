@@ -98,7 +98,7 @@ describe('gated promotions', () => {
   const input = {
     version: '1.2.0',
     scope: { kind: 'project', projectId: PROJECT },
-    evalRunId: 'eval-1',
+    testRunId: 'eval-1',
   } as const;
 
   it('agents.promotions.check posts the same body to …/promotions/check', async () => {

@@ -4605,7 +4605,7 @@ class Model(BaseModel):
     model: str
 
 
-class SuggestedChangeDrafter(BaseModel):
+class SuggestedChangeMadeBy(BaseModel):
     """
     Who wrote the suggested change: a person, or one of the runtime's drafters.
     """
@@ -4627,9 +4627,9 @@ class SuggestedChangeDrafter(BaseModel):
     """
     For a drafter that used a model: which.
     """
-    pass_id: Annotated[str | None, Field(alias="passId")] = None
+    improve_run_id: Annotated[str | None, Field(alias="improveRunId")] = None
     """
-    For a drafter: the improvement pass that drafted it (`GET /v1/improvement-passes/{passId}`).
+    For a drafter: the Improve run that drafted it (`GET /v1/improve-runs/{improveRunId}`).
     """
 
 
@@ -4644,7 +4644,7 @@ class SuggestedChangeEvidence(BaseModel):
     )
     fixes: list[str] | None = None
     """
-    The corrections it fixes, by id. An improvement pass's suggested change names the corrections it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items corrected as wrong, then the rest.
+    The corrections it fixes, by id. An Improve run's suggested change names the corrections it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt Improve run, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items corrected as wrong, then the rest.
     """
     correction_count: Annotated[int | None, Field(alias="correctionCount", ge=0)] = None
     """
@@ -4765,7 +4765,7 @@ class ImprovementBudget(BaseModel):
     )
     max_cost_usd: Annotated[float, Field(alias="maxCostUsd", gt=0.0, le=100.0)]
     """
-    The most the pass's comparisons may cost, in US dollars.
+    The most the Improve run's comparisons may cost, in US dollars.
     """
     max_candidates: Annotated[int, Field(alias="maxCandidates", ge=1, le=200)]
     """
@@ -4784,16 +4784,16 @@ class HoldOut(BaseModel):
     spread: float | None = None
 
 
-class ImprovementPassOutcome(BaseModel):
+class ImproveRunOutcome(BaseModel):
     """
-    What a finished pass found. `proposed`: its best candidate beat the current values on the test set's hold-out part, so it wrote a suggested change (`suggestedChangeId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.
+    What a finished Improve run found. `suggested`: its best candidate beat the current values on the test set's hold-out part, so it wrote a suggested change (`suggestedChangeId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    kind: Annotated[Literal["proposed", "nothing-found", "failed"] | str, _open.OPEN]
+    kind: Annotated[Literal["suggested", "nothing-found", "failed"] | str, _open.OPEN]
     suggested_change_id: Annotated[UUID | None, Field(alias="suggestedChangeId")] = None
     reason: str | None = None
     hold_out: Annotated[HoldOut | None, Field(alias="holdOut")] = None
@@ -4802,7 +4802,7 @@ class ImprovementPassOutcome(BaseModel):
 
 class Model1(BaseModel):
     """
-    For a prompt pass: the provider and model that drafts the templates.
+    For a prompt Improve run: the provider and model that drafts the templates.
     """
 
     model_config = ConfigDict(
@@ -4827,7 +4827,7 @@ class Comparison1(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    eval_run_id: Annotated[UUID | None, Field(alias="evalRunId")] = None
+    test_run_id: Annotated[UUID | None, Field(alias="testRunId")] = None
     role: Annotated[Literal["reference", "candidate", "proof"] | str, _open.OPEN]
     part: Annotated[Literal["search", "hold-out"] | str, _open.OPEN]
     block_id: Annotated[str | None, Field(alias="blockId")] = None
@@ -4838,7 +4838,7 @@ class Comparison1(BaseModel):
     """
     For a drafted template that was never compared: why the check refused it (what it reads or names that the agent doesn't have, or its size).
     """
-    hypothesis: str | None = None
+    why: str | None = None
     """
     For a drafted template: what the drafter meant it to change.
     """
@@ -4846,7 +4846,7 @@ class Comparison1(BaseModel):
 
 class Trigger(BaseModel):
     """
-    The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for a pass a person started.
+    The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for an Improve run a person started.
     """
 
     model_config = ConfigDict(
@@ -4859,7 +4859,7 @@ class Trigger(BaseModel):
 
 class Model2(BaseModel):
     """
-    For a prompt pass: the tenant's provider and model that drafts the templates.
+    For a prompt Improve run: the tenant's provider and model that drafts the templates.
     """
 
     model_config = ConfigDict(
@@ -4894,7 +4894,7 @@ class Basis(BaseModel):
     )
     replays: Annotated[int, Field(ge=0)]
     """
-    How many replay runs the pass's comparisons would make.
+    How many replay runs the Improve run's comparisons would make.
     """
     mean_run_cost_usd: Annotated[str | None, Field(alias="meanRunCostUsd")] = None
     """
@@ -4902,9 +4902,9 @@ class Basis(BaseModel):
     """
 
 
-class ImprovementPassEstimate(BaseModel):
+class ImproveRunCheck(BaseModel):
     """
-    What a pass this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.
+    What an Improve run this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.
     """
 
     model_config = ConfigDict(
@@ -6862,11 +6862,11 @@ class ReinstateBlockResult(BaseModel):
     was_tombstoned: Annotated[bool, Field(alias="wasTombstoned")]
 
 
-class EvalRunStatus(RootModel[Literal["pending", "running", "completed", "failed", "cancelled"]]):
+class TestRunStatus(RootModel[Literal["pending", "running", "completed", "failed", "cancelled"]]):
     root: Literal["pending", "running", "completed", "failed", "cancelled"]
 
 
-class EvalRunAgentRef(BaseModel):
+class TestRunAgentRef(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -6875,7 +6875,7 @@ class EvalRunAgentRef(BaseModel):
     version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
 
 
-class EvalRunFlowRef(BaseModel):
+class TestRunFlowRef(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -6931,7 +6931,7 @@ class Prompts(BaseModel):
 
 class EvalOverrides(BaseModel):
     """
-    For an agent candidate: block content its replays run instead of the version's pinned content (an improvement pass's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a promotion.
+    For an agent candidate: block content its replays run instead of the version's pinned content (an Improve run's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a promotion.
     """
 
     model_config = ConfigDict(
@@ -6958,7 +6958,7 @@ class EvalSample(BaseModel):
 
 class EvalComparison(BaseModel):
     """
-    A comparison eval run's settings (a `corrections` test set).
+    A comparison test run's settings (a `corrections` test set).
     """
 
     model_config = ConfigDict(
@@ -6987,7 +6987,7 @@ class EvalComparison(BaseModel):
     sample: EvalSample | None = None
     rescore_of: Annotated[str | None, Field(alias="rescoreOf")] = None
     """
-    Rescore that comparison eval run instead of replaying: its replays' outputs are scored again, with the corrections recorded on them since (a changed answer corrected on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/eval-runs/{runId}/rescore`.
+    Rescore that comparison test run instead of replaying: its replays' outputs are scored again, with the corrections recorded on them since (a changed answer corrected on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/test-runs/{testRunId}/rescore`.
     """
 
 
@@ -7081,7 +7081,7 @@ class Corrections(BaseModel):
     """
     results: list[Result] | None = None
     """
-    Each correction graded: whether it passed (every repetition did). What an improvement pass compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.
+    Each correction graded: whether it passed (every repetition did). What an Improve run compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.
     """
 
 
@@ -7229,16 +7229,16 @@ class Stopped(BaseModel):
     reason: str | None = None
 
 
-class EvalRun(BaseModel):
+class TestRun(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    run_id: Annotated[UUID, Field(alias="runId")]
+    test_run_id: Annotated[UUID, Field(alias="testRunId")]
     tenant_id: Annotated[UUID, Field(alias="tenantId")]
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The project the eval run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6.
+    The project the test run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6.
     """
     test_set_id: Annotated[str, Field(alias="testSetId")]
     test_set_version: Annotated[str, Field(alias="testSetVersion", pattern="^\\d+\\.\\d+\\.\\d+$")]
@@ -7255,8 +7255,8 @@ class EvalRun(BaseModel):
         | str,
         _open.OPEN,
     ]
-    agent_ref: Annotated[EvalRunAgentRef | None, Field(alias="agentRef")] = None
-    flow_ref: Annotated[EvalRunFlowRef | None, Field(alias="flowRef")] = None
+    agent_ref: Annotated[TestRunAgentRef | None, Field(alias="agentRef")] = None
+    flow_ref: Annotated[TestRunFlowRef | None, Field(alias="flowRef")] = None
     status: Annotated[
         Literal["pending", "running", "completed", "failed", "cancelled"] | str, _open.OPEN
     ]
@@ -7276,17 +7276,17 @@ class EvalRun(BaseModel):
     comparison: EvalComparison | None = None
 
 
-class EvalRunCollectionPage(BaseModel):
+class TestRunCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[EvalRun]
+    data: list[TestRun]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class StartEvalRunBody(BaseModel):
+class StartTestRunBody(BaseModel):
     """
     Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `corrections` test set (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).
     """
@@ -7299,8 +7299,8 @@ class StartEvalRunBody(BaseModel):
     """
     Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
     """
-    agent_ref: Annotated[EvalRunAgentRef | None, Field(alias="agentRef")] = None
-    flow_ref: Annotated[EvalRunFlowRef | None, Field(alias="flowRef")] = None
+    agent_ref: Annotated[TestRunAgentRef | None, Field(alias="agentRef")] = None
+    flow_ref: Annotated[TestRunFlowRef | None, Field(alias="flowRef")] = None
     dry_run: Annotated[bool | None, Field(alias="dryRun")] = None
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
     baseline: (
@@ -7323,9 +7323,9 @@ class StartEvalRunBody(BaseModel):
     sample: EvalSample | None = None
 
 
-class RescoreEvalRunBody(BaseModel):
+class RescoreTestRunBody(BaseModel):
     """
-    Body of `POST /v1/eval-runs/{runId}/rescore`: optional.
+    Body of `POST /v1/test-runs/{testRunId}/rescore`: optional.
     """
 
     model_config = ConfigDict(
@@ -7338,12 +7338,12 @@ class RescoreEvalRunBody(BaseModel):
     """
 
 
-class StartEvalRunResult(BaseModel):
+class StartTestRunResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    run_id: Annotated[UUID, Field(alias="runId")]
+    test_run_id: Annotated[UUID, Field(alias="testRunId")]
     dry_run_preview: Annotated[dict[str, Any] | None, Field(alias="dryRunPreview")] = None
 
 
@@ -9093,7 +9093,7 @@ class EvidenceKind(RootModel[str]):
                 "secret-rotation",
                 "incident-event",
                 "guardrail-violation",
-                "eval-run",
+                "test-run",
                 "approval-completed",
                 "data-retention-action",
                 "authn-event",
@@ -9269,7 +9269,7 @@ class ComplianceEvidence(BaseModel):
                 "secret-rotation",
                 "incident-event",
                 "guardrail-violation",
-                "eval-run",
+                "test-run",
                 "approval-completed",
                 "data-retention-action",
                 "authn-event",
@@ -9373,7 +9373,7 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "secret-rotation",
                 "incident-event",
                 "guardrail-violation",
-                "eval-run",
+                "test-run",
                 "approval-completed",
                 "data-retention-action",
                 "authn-event",
@@ -9454,7 +9454,7 @@ class Filter(BaseModel):
                 "secret-rotation",
                 "incident-event",
                 "guardrail-violation",
-                "eval-run",
+                "test-run",
                 "approval-completed",
                 "data-retention-action",
                 "authn-event",
@@ -10361,7 +10361,7 @@ class ScheduleFire(BaseModel):
         _open.OPEN,
     ]
     """
-    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or pass started; its run or pass hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.
+    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or Improve run started; its run or Improve run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.
     """
     run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
@@ -10371,9 +10371,9 @@ class ScheduleFire(BaseModel):
     """
     The trigger's version its run started with: the newest when it started. Absent until the run starts.
     """
-    pass_id: Annotated[UUID | None, Field(alias="passId")] = None
+    improve_run_id: Annotated[UUID | None, Field(alias="improveRunId")] = None
     """
-    The improvement pass it started (an improve schedule).
+    The Improve run it started (an improve schedule).
     """
     detail: str | None = None
     """
@@ -10984,7 +10984,7 @@ class CreateWebhookEndpointBody(BaseModel):
     events: Annotated[
         list[
             Annotated[
-                Literal["run.finished", "improvement-pass.finished", "approval.requested"] | str,
+                Literal["run.finished", "improve-run.finished", "approval.requested"] | str,
                 _open.OPEN,
             ]
         ],
@@ -11008,7 +11008,7 @@ class PatchWebhookEndpointBody(BaseModel):
     events: Annotated[
         list[
             Annotated[
-                Literal["run.finished", "improvement-pass.finished", "approval.requested"] | str,
+                Literal["run.finished", "improve-run.finished", "approval.requested"] | str,
                 _open.OPEN,
             ]
         ]
@@ -11584,7 +11584,7 @@ class Model4(BaseModel):
 
 class Budget3(BaseModel):
     """
-    Each pass's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
+    Each Improve run's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
     """
 
     model_config = ConfigDict(
@@ -11627,7 +11627,7 @@ class ImproveScheduleInput(BaseModel):
     candidates: Annotated[int | None, Field(ge=1, le=5)] = None
     budget: Budget3 | None = None
     """
-    Each pass's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
+    Each Improve run's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
     """
     threshold: Threshold | None = None
     """
@@ -11635,7 +11635,7 @@ class ImproveScheduleInput(BaseModel):
     """
     monthly_cap_usd: Annotated[float | None, Field(alias="monthlyCapUsd", gt=0.0, le=1000.0)] = None
     """
-    The most its passes may cost in a calendar month (UTC). Default 20.
+    The most its Improve runs may cost in a calendar month (UTC). Default 20.
     """
 
 
@@ -13559,7 +13559,7 @@ class Promotion(BaseModel):
     """
     requested_by: Annotated[RequestedBy, Field(alias="requestedBy")]
     reason: str | None = None
-    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    test_run_id: Annotated[str | None, Field(alias="testRunId")] = None
     """
     The comparison behind the change.
     """
@@ -13747,7 +13747,7 @@ class Comparison(BaseModel):
 
 class GatePolicySpec(BaseModel):
     """
-    What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`evalRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.
+    What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.
     """
 
     model_config = ConfigDict(
@@ -13867,7 +13867,7 @@ class PromoteBody(BaseModel):
     Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
     reason: Annotated[str | None, Field(max_length=2000)] = None
-    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    test_run_id: Annotated[str | None, Field(alias="testRunId")] = None
     """
     The comparison behind this promotion.
     """
@@ -14668,7 +14668,7 @@ class CorrectedEvalCase(BaseModel):
     """
     erased: Literal[True] | None = None
     """
-    An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and eval runs leave it out (counted as `erased`).
+    An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and test runs leave it out (counted as `erased`).
     """
 
 
@@ -14935,14 +14935,14 @@ class RegisterToolBody(BaseModel):
 
 class SuggestedChangeEvaluation(BaseModel):
     """
-    The comparison the suggested change was evaluated with, and what it found on the objective metric (the full summary is the eval run's).
+    The comparison the suggested change was evaluated with, and what it found on the objective metric (the full summary is the test run's).
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    eval_run_id: Annotated[UUID, Field(alias="evalRunId")]
+    test_run_id: Annotated[UUID, Field(alias="testRunId")]
     test_set_id: Annotated[str, Field(alias="testSetId")]
     """
     The test set (a corrections test set).
@@ -14957,7 +14957,7 @@ class SuggestedChangeEvaluation(BaseModel):
         Field(alias="runStatus"),
     ] = None
     """
-    The eval run's status. Absent when the run can't be read.
+    The test run's status. Absent when the run can't be read.
     """
     baseline: float | None = None
     """
@@ -15016,12 +15016,12 @@ class SuggestedChange(BaseModel):
     What a suggested change changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
     """
     change: SuggestedChangeBlockEdit
-    hypothesis: str
+    why: str
     """
     What the change should improve, and why.
     """
     evidence: SuggestedChangeEvidence | None = None
-    drafter: SuggestedChangeDrafter
+    made_by: Annotated[SuggestedChangeMadeBy, Field(alias="madeBy")]
     status: Annotated[
         Literal[
             "draft",
@@ -15042,7 +15042,7 @@ class SuggestedChange(BaseModel):
         _open.OPEN,
     ]
     """
-    Where a suggested change stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `pinned`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the suggested change. `withdrawn`: withdrawn.
+    Where a suggested change stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `pinned`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: only on an older suggested change rolled back by its own `rollback`, which is removed; a rollback today goes through the agent's live routes and leaves it `pinned`. `withdrawn`: withdrawn.
     """
     candidate: SuggestedChangeCandidate | None = None
     evaluation: SuggestedChangeEvaluation | None = None
@@ -15063,9 +15063,9 @@ class SuggestedChangeCollectionPage(BaseModel):
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class ImprovementPass(BaseModel):
+class ImproveRun(BaseModel):
     """
-    An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes a suggested change.
+    An Improve run: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes a suggested change.
     """
 
     model_config = ConfigDict(
@@ -15104,11 +15104,11 @@ class ImprovementPass(BaseModel):
     """
     model: Model1 | None = None
     """
-    For a prompt pass: the provider and model that drafts the templates.
+    For a prompt Improve run: the provider and model that drafts the templates.
     """
     candidates: Annotated[int | None, Field(ge=1, le=5)] = None
     """
-    For a prompt pass: how many templates it drafts.
+    For a prompt Improve run: how many templates it drafts.
     """
     budget: ImprovementBudget
     requested_by: Annotated[str, Field(alias="requestedBy")]
@@ -15118,37 +15118,37 @@ class ImprovementPass(BaseModel):
     """
     What its comparisons have cost so far (US dollars).
     """
-    outcome: ImprovementPassOutcome | None = None
+    outcome: ImproveRunOutcome | None = None
     cancel_reason: Annotated[str | None, Field(alias="cancelReason")] = None
     """
-    Why a `cancelled` pass stopped when nobody cancelled it: a comparison's eval run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no suggested change. Absent when it was cancelled.
+    Why a `cancelled` Improve run stopped when nobody cancelled it: a comparison's test run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no suggested change. Absent when it was cancelled.
     """
     comparisons: list[Comparison1] | None = None
     """
-    Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the suggested change, on the hold-out part). Absent from older servers.
+    Its comparisons so far, each a test run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the suggested change, on the hold-out part). Absent from older servers.
     """
     trigger: Trigger | None = None
     """
-    The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for a pass a person started.
+    The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for an Improve run a person started.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
     finished_at: Annotated[AwareDatetime | None, Field(alias="finishedAt")] = None
 
 
-class ImprovementPassCollectionPage(BaseModel):
+class ImproveRunCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[ImprovementPass]
+    data: list[ImproveRun]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class ImproveBody(BaseModel):
+class StartImproveRunBody(BaseModel):
     """
-    Start an improvement pass.
+    Start an Improve run.
     """
 
     model_config = ConfigDict(
@@ -15162,7 +15162,7 @@ class ImproveBody(BaseModel):
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The project the pass works in: `testSetId` must be a test set it reaches, the version must reach it, and the pass's eval runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.
+    The project the Improve run works in: `testSetId` must be a test set it reaches, the version must reach it, and the Improve run's test runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.
     """
     scope: Annotated[
         LiveScopeTenant
@@ -15177,7 +15177,7 @@ class ImproveBody(BaseModel):
     """
     test_set_id: Annotated[str, Field(alias="testSetId")]
     """
-    The test set (a corrections test set). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.
+    The test set (a corrections test set). The Improve run splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.
     """
     tiers: Annotated[
         list[Literal["settings", "prompt"]] | None, Field(max_length=1, min_length=1)
@@ -15187,17 +15187,17 @@ class ImproveBody(BaseModel):
     """
     model: Model2 | None = None
     """
-    For a prompt pass: the tenant's provider and model that drafts the templates.
+    For a prompt Improve run: the tenant's provider and model that drafts the templates.
     """
     candidates: Annotated[int | None, Field(ge=1, le=5)] = 3
     """
-    For a prompt pass: how many templates it drafts.
+    For a prompt Improve run: how many templates it drafts.
     """
     group_weights: Annotated[
         Literal["as-recorded", "experts-only"] | None, Field(alias="groupWeights")
     ] = None
     """
-    Which corrections the pass learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the pass reads its corrections from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has an expert group, then only corrections recorded under one (`experts-only`).
+    Which corrections the Improve run learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the Improve run reads its corrections from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has an expert group, then only corrections recorded under one (`experts-only`).
     """
     objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
     budget: Budget2 | None = None
@@ -15236,7 +15236,7 @@ class CreateSuggestedChangeBody(BaseModel):
     What a suggested change changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
     """
     change: Change
-    hypothesis: Annotated[str, Field(max_length=2000, min_length=1)]
+    why: Annotated[str, Field(max_length=2000, min_length=1)]
     evidence: Evidence1 | None = None
 
 
@@ -15527,7 +15527,7 @@ class CorrectedComparisonSummary(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    eval_run_id: Annotated[str, Field(alias="evalRunId")]
+    test_run_id: Annotated[str, Field(alias="testRunId")]
     status: Literal["completed", "partial", "failed"]
     completed_at: Annotated[AwareDatetime, Field(alias="completedAt")]
     test_set: Annotated[CorrectedComparisonSummaryTestSet, Field(alias="testSet")]
@@ -15562,7 +15562,7 @@ class CorrectedComparisonSummary(BaseModel):
     """
     rescore_of: Annotated[str | None, Field(alias="rescoreOf")] = None
     """
-    A rescore: the comparison eval run whose replays it scored again.
+    A rescore: the comparison test run whose replays it scored again.
     """
     not_rescored: Annotated[int | None, Field(alias="notRescored", ge=1)] = None
     """
@@ -15675,7 +15675,7 @@ class ComparisonCaseResult(BaseModel):
 
 class CorrectedComparisonResult(BaseModel):
     """
-    A comparison's `result` (a `corrections` eval run's): the summary and each case. `EvalRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).
+    A comparison's `result` (a `corrections` test run's): the summary and each case. `TestRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).
     """
 
     model_config = ConfigDict(
@@ -16797,8 +16797,7 @@ class WebhookEndpoint(BaseModel):
     url: AnyUrl
     events: list[
         Annotated[
-            Literal["run.finished", "improvement-pass.finished", "approval.requested"] | str,
-            _open.OPEN,
+            Literal["run.finished", "improve-run.finished", "approval.requested"] | str, _open.OPEN
         ]
     ]
     filter: WebhookEndpointFilter
@@ -16975,15 +16974,15 @@ class Data1(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    pass_: Annotated[ImprovementPass, Field(alias="pass")]
+    improve_run: Annotated[ImproveRun, Field(alias="improveRun")]
     """
-    The pass, as `GET /v1/improvement-passes/{passId}` shows it.
+    The Improve run, as `GET /v1/improve-runs/{improveRunId}` shows it.
     """
 
 
-class ImprovementPassFinishedEvent(BaseModel):
+class ImproveRunFinishedEvent(BaseModel):
     """
-    An improvement pass ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the suggested change it wrote, if it wrote one.
+    An Improve run ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the suggested change it wrote, if it wrote one.
     """
 
     model_config = ConfigDict(
@@ -16994,14 +16993,14 @@ class ImprovementPassFinishedEvent(BaseModel):
     """
     Event id, also sent as the `webhook-id` header; the same on every retry.
     """
-    type: Literal["improvement-pass.finished"]
+    type: Literal["improve-run.finished"]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     data: Data1
 
 
 class ImproveScheduleTarget(BaseModel):
     """
-    What an improve schedule works on: the agent, and the live scope its passes suggest changes for and count corrections in.
+    What an improve schedule works on: the agent, and the live scope its Improve runs suggest changes for and count corrections in.
     """
 
     model_config = ConfigDict(
@@ -17193,7 +17192,7 @@ class Run(BaseModel):
     """
     acts_for: Annotated[str | None, Field(alias="actsFor")] = None
     """
-    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
+    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
     """
     tools_allowed_unattended: Annotated[list[str] | None, Field(alias="toolsAllowedUnattended")] = (
         None
@@ -17203,11 +17202,11 @@ class Run(BaseModel):
     """
     replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
     """
-    Set on a replay run (an eval run re-running a past run): the run it replays.
+    Set on a replay run (a test run re-running a past run): the run it replays.
     """
-    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    test_run_id: Annotated[str | None, Field(alias="testRunId")] = None
     """
-    Set on a replay run: the eval run that started it.
+    Set on a replay run: the test run that started it.
     """
     versions: FlowVersionOverrides | None = None
     segments: list[ScopeSegment] | None = None
@@ -17308,7 +17307,7 @@ class Datum(BaseModel):
     """
     acts_for: Annotated[str | None, Field(alias="actsFor")] = None
     """
-    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
+    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
     """
     tools_allowed_unattended: Annotated[list[str] | None, Field(alias="toolsAllowedUnattended")] = (
         None
@@ -17318,11 +17317,11 @@ class Datum(BaseModel):
     """
     replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
     """
-    Set on a replay run (an eval run re-running a past run): the run it replays.
+    Set on a replay run (a test run re-running a past run): the run it replays.
     """
-    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    test_run_id: Annotated[str | None, Field(alias="testRunId")] = None
     """
-    Set on a replay run: the eval run that started it.
+    Set on a replay run: the test run that started it.
     """
     versions: FlowVersionOverrides | None = None
     segments: list[ScopeSegment] | None = None
@@ -17927,7 +17926,7 @@ class ScheduleCollectionPage(BaseModel):
 
 class RegisterScheduleBody(BaseModel):
     """
-    Name what it runs: `flowId` with `flowVersion`, `agentId` (with an optional `agentVersion`), or `improve` (improvement passes). Registering needs `write` on the project and `execute` on what it runs (`publish` on the agent for `improve`); its runs act as the caller.
+    Name what it runs: `flowId` with `flowVersion`, `agentId` (with an optional `agentVersion`), or `improve` (Improve runs). Registering needs `write` on the project and `execute` on what it runs (`publish` on the agent for `improve`); its runs act as the caller.
     """
 
     model_config = ConfigDict(
@@ -17946,7 +17945,7 @@ class RegisterScheduleBody(BaseModel):
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     improve: ImproveScheduleTarget | None = None
     """
-    Start an improvement pass instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the pass options; registering needs `publish` on the agent.
+    Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `publish` on the agent.
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
@@ -18008,7 +18007,7 @@ class PatchScheduleBody(BaseModel):
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     improve: ImproveScheduleTarget | None = None
     """
-    Start an improvement pass instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the pass options; registering needs `publish` on the agent.
+    Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `publish` on the agent.
     """
     config: PatchScheduleBodyConfig | None = None
     catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
@@ -18218,7 +18217,7 @@ class WebhookDelivery(BaseModel):
     endpoint_id: Annotated[str, Field(alias="endpointId")]
     event: Annotated[
         RunFinishedEvent
-        | ImprovementPassFinishedEvent
+        | ImproveRunFinishedEvent
         | ApprovalRequestedEvent
         | WebhookTestEvent
         | WebhookEventUnrecognized,

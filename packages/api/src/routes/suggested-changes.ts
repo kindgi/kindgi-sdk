@@ -8,7 +8,6 @@ import { type Action, ref } from '@kindgi/authz';
 import type { Cursor, LiveScope, SuggestedChangeId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
-import type { EvalComparison } from '../eval-run-binding.js';
 import { type ItemRights, liveScopeCheck, widthRefusal, writeWhereMade } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
@@ -30,6 +29,7 @@ import type {
   SuggestedChangeObjective,
   SuggestedChangeTier,
 } from '../supervisor-binding.js';
+import type { EvalComparison } from '../test-run-binding.js';
 import type { AppEnv } from '../types.js';
 import { actorOf, promotionResponse, scopeFromQuery } from './agent-releases.js';
 import { parseComparison } from './eval-comparison.js';
@@ -244,9 +244,9 @@ export function suggestedChangesRouter(
       tier: parsed.tier,
       blockId: parsed.blockId,
       content: parsed.content,
-      hypothesis: parsed.hypothesis,
+      why: parsed.why,
       ...(parsed.fixes !== undefined && { evidence: { fixes: parsed.fixes } }),
-      drafter: { kind: 'person', by: `${actor.kind}:${actor.id}` },
+      madeBy: { kind: 'person', by: `${actor.kind}:${actor.id}` },
     });
     if (outcome.kind === 'err') return failWith(c, outcome.error);
     if (outcome.value.deduped) {
@@ -278,7 +278,7 @@ export function suggestedChangesRouter(
 
   // ---------- POST /:suggestedChangeId/rescore ----------
   // The latest evaluation scored again, with what people corrected on its
-  // replays since; the new eval run becomes the suggested change's evaluation.
+  // replays since; the new test run becomes the suggested change's evaluation.
   r.post('/:suggestedChangeId/rescore', async (c) => {
     const ready = await prepare(c, 'publish');
     if (ready instanceof Response) return ready;
@@ -361,7 +361,7 @@ function evaluationWire(
   // The reference run it's held to stays the runtime's: what it found is
   // `costUsd` and `decisions`.
   const recorded = {
-    evalRunId: stored.evalRunId,
+    testRunId: stored.testRunId,
     testSetId: stored.testSetId,
     objective: stored.objective,
     startedAt: stored.startedAt,
@@ -394,9 +394,9 @@ export function serialize(
     scope: liveScopeToWire(p.scope),
     tier: p.tier,
     change: p.change,
-    hypothesis: p.hypothesis,
+    why: p.why,
     ...(p.evidence !== undefined && { evidence: p.evidence }),
-    drafter: p.drafter,
+    madeBy: p.madeBy,
     status: f.status,
     ...(p.candidate !== undefined && { candidate: p.candidate }),
     ...(p.evaluation !== undefined && { evaluation: evaluationWire(p.evaluation, f.evaluation) }),
@@ -424,7 +424,7 @@ interface CreateBody {
   readonly tier: SuggestedChangeTier;
   readonly blockId: string;
   readonly content: ProposedChange['change']['content'];
-  readonly hypothesis: string;
+  readonly why: string;
   readonly fixes?: readonly string[];
 }
 
@@ -478,8 +478,8 @@ function parseCreateBody(b: Record<string, unknown>): CreateBody | string {
   if (!nonEmpty(change.blockId)) return '`change.blockId` is required';
   const contentProblem = parseContent(tier, change.content);
   if (contentProblem !== undefined) return contentProblem;
-  if (!nonEmpty(b.hypothesis)) {
-    return '`hypothesis` is required: what the change should improve, and why';
+  if (!nonEmpty(b.why)) {
+    return '`why` is required: what the change should improve, and why';
   }
   const evidence = parseEvidence(b.evidence);
   if (typeof evidence === 'string') return evidence;
@@ -490,7 +490,7 @@ function parseCreateBody(b: Record<string, unknown>): CreateBody | string {
     tier,
     blockId: change.blockId,
     content: change.content as ProposedChange['change']['content'],
-    hypothesis: b.hypothesis,
+    why: b.why,
     ...evidence,
   };
 }

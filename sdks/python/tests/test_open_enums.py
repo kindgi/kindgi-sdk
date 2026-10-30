@@ -473,7 +473,7 @@ def test_the_unions_of_text_and_models_are_the_ones_known() -> None:
 
 
 @pytest.mark.parametrize(
-    "model", [models.EvalComparison, models.StartEvalRunBody], ids=lambda m: m.__name__
+    "model", [models.EvalComparison, models.StartTestRunBody], ids=lambda m: m.__name__
 )
 def test_a_baseline_reads_each_member_it_knows_as_before_and_other_text_as_text(
     model: type[BaseModel],
@@ -576,13 +576,13 @@ def test_an_enum_value_this_client_doesnt_know_isnt_sent() -> None:
 
 def test_a_baseline_this_client_doesnt_know_isnt_sent() -> None:
     # `EvalBaseline` is in a request and a response: read open, sent closed.
-    api, seen = client({"runId": PROMOTION["id"]})
+    api, seen = client({"testRunId": PROMOTION["id"]})
     body = {"projectId": PROMOTION["id"], "agentRef": {"agentId": "acme.triage"}}
     with pytest.raises(pydantic.ValidationError) as refused:
-        api.eval_runs.start(PROMOTION["id"], {**body, "baseline": UNKNOWN})
+        api.test_runs.start(PROMOTION["id"], {**body, "baseline": UNKNOWN})
     assert refused.value.errors()[0]["msg"] == "Input should be 'recorded'"
     assert seen == []
-    api.eval_runs.start(PROMOTION["id"], {**body, "baseline": "recorded"})
+    api.test_runs.start(PROMOTION["id"], {**body, "baseline": "recorded"})
     assert json.loads(seen[0].content)["baseline"] == "recorded"
 
 

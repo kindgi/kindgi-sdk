@@ -134,7 +134,7 @@ describe('kindgi agents — live versions', () => {
     ]);
   });
 
-  test('promote to a segment scope, with a reason and the eval run', async () => {
+  test('promote to a segment scope, with a reason and the test run', async () => {
     const { calls, rec } = recorder();
     const out = await run(
       [
@@ -145,7 +145,7 @@ describe('kindgi agents — live versions', () => {
         `--project=${PROJECT}`,
         '--segment=company:acme',
         '--reason=passed the gate',
-        '--eval-run=er-1',
+        '--test-run=er-1',
         '--idempotency-key=k-1',
       ],
       { agents: { promotions: { create: rec('create', promotion()) } } },
@@ -159,7 +159,7 @@ describe('kindgi agents — live versions', () => {
           version: '1.1.0',
           scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
           reason: 'passed the gate',
-          evalRunId: 'er-1',
+          testRunId: 'er-1',
         },
         { idempotencyKey: 'k-1' },
       ],

@@ -58,9 +58,13 @@ export type {
 } from './resources/runs.js';
 export type { SupervisorClient } from './resources/supervisor.js';
 export type {
-  ImprovementPassesClient,
-  ImprovementPassesListInput,
-} from './resources/improvement-passes.js';
+  CheckImproveRunInput,
+  ImproveRun,
+  ImproveRunCheck,
+  ImproveRunsClient,
+  ImproveRunsListInput,
+  StartImproveRunInput,
+} from './resources/improve-runs.js';
 export type {
   CreateSuggestedChangeInput,
   EvaluateSuggestedChangeInput,
@@ -69,11 +73,6 @@ export type {
   SuggestedChangesListInput,
   WithdrawInput,
 } from './resources/suggested-changes.js';
-export type {
-  ImproveInput,
-  ImprovementPass,
-  ProposalsClient,
-} from './resources/proposals.js';
 export type {
   ObservationFilter,
   ObservationsClient,
@@ -296,7 +295,7 @@ export type {
   TokensClient,
 } from './resources/tokens.js';
 export { followRun, subscribeToRun } from './run-follow.js';
-export { comparisonOf } from './resources/eval-runs.js';
+export { comparisonOf } from './resources/test-runs.js';
 export type {
   AgentProject,
   AgentProjectList,
@@ -382,7 +381,7 @@ export type {
   ApprovalRequestedEvent,
   CreateWebhookEndpointInput,
   FinishedRun,
-  ImprovementPassFinishedEvent,
+  ImproveRunFinishedEvent,
   ListWebhookDeliveriesFilter,
   ListWebhookEndpointsFilter,
   RequestedApproval,
@@ -553,20 +552,20 @@ export type {
   UnregisterBlockResult,
 } from './resources/blocks.js';
 export type {
-  EvalRunEvent,
-  EvalRunPage,
+  TestRunEvent,
+  TestRunPage,
   ComparisonCandidate,
   ComparisonCaseResult,
   ComparisonMetric,
-  EvalRunRecord,
-  EvalRunsClient,
+  TestRunRecord,
+  TestRunsClient,
   CorrectedComparisonResult,
   CorrectedComparisonSummary,
-  ListEvalRunsFilter,
-  StartEvalRunInput,
-  StartEvalRunOptions,
-  StartEvalRunOutcome,
-} from './resources/eval-runs.js';
+  ListTestRunsFilter,
+  StartTestRunInput,
+  StartTestRunOptions,
+  StartTestRunOutcome,
+} from './resources/test-runs.js';
 export type {
   ListProvidersFilter,
   Provider,

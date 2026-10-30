@@ -21,8 +21,8 @@ const WIRE_SUGGESTED_CHANGE = {
     fromVersion: '1.0.0',
     content: { values: { recency: 0.5, fit: 0.5 } },
   },
-  hypothesis: 'Recent filings matter more for acme',
-  drafter: { kind: 'person', by: 'user:u1' },
+  why: 'Recent filings matter more for acme',
+  madeBy: { kind: 'person', by: 'user:u1' },
   status: 'draft',
   createdAt: '2026-10-07T00:00:00.000Z',
   updatedAt: '2026-10-07T00:00:00.000Z',
@@ -41,7 +41,7 @@ describe('client.suggestedChanges', () => {
       scope: WIRE_SUGGESTED_CHANGE.scope as never,
       tier: 'settings-block',
       change: { blockId: 'acme.scoring-weights', content: { values: { recency: 0.5, fit: 0.5 } } },
-      hypothesis: 'Recent filings matter more for acme',
+      why: 'Recent filings matter more for acme',
       idempotencyKey: 'idem-1',
     });
     expect(suggestedChange.status).toBe('draft');

@@ -2,9 +2,9 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * The comparison eval run of a `corrections` test set (a test set): each case is a
+ * The comparison test run of a `corrections` test set (a test set): each case is a
  * past run people corrected; the candidate agent version re-runs it as a
- * replay (`EvalRunSubjectInvokeInput.replay`, so it does nothing the past
+ * replay (`TestRunSubjectInvokeInput.replay`, so it does nothing the past
  * run didn't), `repetitions` times, and its output's items are scored
  * against the corrections, beside the baseline's.
  *
@@ -37,26 +37,26 @@ import type {
   EvalCaseStoreBinding,
   TestCaseExpectedDecisions,
 } from './eval-case-binding.js';
-import type {
-  AgentRef,
-  EvalComparison,
-  EvalGroupWeights,
-  EvalRunBinding,
-  EvalSample,
-  FlowRef,
-} from './eval-run-binding.js';
-import type {
-  DispatchContext,
-  DispatchResult,
-  EvalRunDispatcher,
-  EvalRunSubjectInvokeOutcome,
-} from './eval-run-dispatcher.js';
 import { sampleCases } from './eval-sample.js';
 import {
   type CallDifference,
   type CandidateCall,
   gradeExpectedDecisions,
 } from './expected-decisions.js';
+import type {
+  AgentRef,
+  EvalComparison,
+  EvalGroupWeights,
+  EvalSample,
+  FlowRef,
+  TestRunBinding,
+} from './test-run-binding.js';
+import type {
+  DispatchContext,
+  DispatchResult,
+  TestRunDispatcher,
+  TestRunSubjectInvokeOutcome,
+} from './test-run-dispatcher.js';
 
 export const DEFAULT_COMPARISON: EvalComparison = {
   baseline: 'recorded',
@@ -136,9 +136,9 @@ export type ComparisonCandidate =
       readonly versions?: FlowVersionOverrides;
     };
 
-/** What a comparison eval run concluded: what a promotion gate reads. */
+/** What a comparison test run concluded: what a promotion gate reads. */
 export interface CorrectedComparisonSummary {
-  readonly evalRunId: string;
+  readonly testRunId: string;
   readonly status: 'completed' | 'partial' | 'failed';
   readonly completedAt: string;
   readonly testSet: { readonly id: string; readonly version: string };
@@ -172,7 +172,7 @@ export interface CorrectedComparisonSummary {
    * the run and the metrics. Absent: none.
    */
   readonly erased?: number;
-  /** A rescore: the comparison eval run whose replays it scored again. */
+  /** A rescore: the comparison test run whose replays it scored again. */
   readonly rescoreOf?: string;
   /** A rescore: cases whose replays couldn't be read again, kept at their earlier scores. */
   readonly notRescored?: number;
@@ -208,7 +208,7 @@ export interface CorrectedComparisonSummary {
     readonly passed: number;
     /**
      * Each correction graded: whether it passed (every repetition did).
-     * What an improvement pass compares, run to run, to keep only a
+     * What an Improve run compares, run to run, to keep only a
      * model-settings change that breaks none the current version passes. Absent from a summary recorded before it.
      */
     readonly results?: readonly { readonly correctionId: string; readonly pass: boolean }[];
@@ -279,7 +279,7 @@ export interface CorrectedCaseResult {
   readonly approvalSkipped: boolean;
   readonly error?: string;
   /** Set when the replay stopped at a refused tool call: what it would have done. */
-  readonly stopped?: NonNullable<EvalRunSubjectInvokeOutcome['stopped']>;
+  readonly stopped?: NonNullable<TestRunSubjectInvokeOutcome['stopped']>;
   /**
    * Set in a rescore when this case's replays can't be read again (a
    * retention purge, say): its scores are the run rescored's.
@@ -301,7 +301,7 @@ export interface CorrectedDispatcherOptions {
    * outputs, and the corrections recorded on them since. Without all three a
    * rescore is refused; a comparison that replays needs none.
    */
-  readonly evalRuns?: Pick<EvalRunBinding, 'get'>;
+  readonly testRuns?: Pick<TestRunBinding, 'get'>;
   readonly runs?: ReplayRunReader;
   readonly corrections?: Pick<CorrectionRegistryBinding, 'list' | 'getGroup'>;
 }
@@ -348,13 +348,13 @@ function validateComparison(
   return { kind: 'ok' };
 }
 
-export function createCorrectedDispatcher(options: CorrectedDispatcherOptions): EvalRunDispatcher {
+export function createCorrectedDispatcher(options: CorrectedDispatcherOptions): TestRunDispatcher {
   return {
     kind: 'corrections',
     validate(testSet, target, comparison) {
       const checked = validateComparison(testSet, target, comparison);
       if (checked.kind === 'err' || comparison?.rescoreOf === undefined) return checked;
-      return options.evalRuns !== undefined &&
+      return options.testRuns !== undefined &&
         options.runs !== undefined &&
         options.corrections !== undefined
         ? checked
@@ -444,8 +444,8 @@ async function allCases(
   }
 }
 
-/** Why a case couldn't start, and the eval run stops (`EvalRunSubjectInvokeOutcome.halt`). */
-type Halt = NonNullable<EvalRunSubjectInvokeOutcome['halt']>;
+/** Why a case couldn't start, and the test run stops (`TestRunSubjectInvokeOutcome.halt`). */
+type Halt = NonNullable<TestRunSubjectInvokeOutcome['halt']>;
 
 /** A tool call's arguments as an object; anything else compares as no fields. */
 function asArgs(value: unknown): Record<string, unknown> {
@@ -488,7 +488,7 @@ class CaseTally {
     this.correctionsCase = correctedCase.corrections ?? [];
   }
 
-  add(outcome: EvalRunSubjectInvokeOutcome): 'ran' | 'stopped' | 'error' {
+  add(outcome: TestRunSubjectInvokeOutcome): 'ran' | 'stopped' | 'error' {
     this.gradeCorrections(outcome);
     this.costs.push(outcome.costUsd);
     if (outcome.runId !== undefined) this.runIds.push(outcome.runId as unknown as string);
@@ -506,7 +506,7 @@ class CaseTally {
     return 'ran';
   }
 
-  private ran(outcome: EvalRunSubjectInvokeOutcome): void {
+  private ran(outcome: TestRunSubjectInvokeOutcome): void {
     const { correctedCase, comparison } = this;
     const matched = matchCorrected(
       outputItems(outcome.output, this.agentTurn),
@@ -534,7 +534,7 @@ class CaseTally {
    * a `calls` correction fails it. The first repetition that fails a
    * correction keeps its differences, with its repetition number.
    */
-  private gradeCorrections(outcome: EvalRunSubjectInvokeOutcome): void {
+  private gradeCorrections(outcome: TestRunSubjectInvokeOutcome): void {
     if (this.correctionsCase.length === 0) return;
     this.correctionRepetitions += 1;
     const repetition = this.correctionRepetitions;
@@ -627,7 +627,7 @@ async function runCase(
     const outcome = await invokeCase(ctx, correctedCase);
     // Its past run was erased meanwhile: nothing left to replay.
     if (outcome.erased === true) return 'erased';
-    // Its project or tenant takes no new runs: the eval run stops here.
+    // Its project or tenant takes no new runs: the test run stops here.
     if (outcome.halt !== undefined) return { halt: outcome.halt };
     if (tally.add(outcome) === 'ran') countModel(models, outcome);
   }
@@ -647,23 +647,23 @@ async function rescore(
   all: readonly CorrectedEvalCase[],
   erased: number,
 ): Promise<DispatchResult> {
-  const { evalRuns, runs } = options;
+  const { testRuns, runs } = options;
   const of = comparison.rescoreOf as string;
   const prior =
-    evalRuns === undefined
+    testRuns === undefined
       ? null
-      : await evalRuns.get({ tenantId: ctx.tenantId, runId: of as unknown as RunId });
+      : await testRuns.get({ tenantId: ctx.tenantId, testRunId: of as unknown as RunId });
   const before = prior === null ? undefined : priorCases(prior);
   if (runs === undefined || prior === null || before === undefined) {
     return {
       result: {},
-      error: `Eval run "${of}" can't be rescored: it isn't a finished comparison here.`,
+      error: `Test run "${of}" can't be rescored: it isn't a finished comparison here.`,
     };
   }
   if (prior.testSetId !== ctx.testSet.id || prior.testSetVersion !== ctx.testSet.version) {
     return {
       result: {},
-      error: `Eval run "${of}" ran ${prior.testSetId}@${prior.testSetVersion}: a rescore runs that test set version.`,
+      error: `Test run "${of}" ran ${prior.testSetId}@${prior.testSetVersion}: a rescore runs that test set version.`,
     };
   }
   const fresh = freshReader(options.corrections, ctx.tenantId, comparison);
@@ -779,18 +779,18 @@ function priorModels(run: {
   return [...(summary?.sampling?.models ?? [])];
 }
 
-function refusedCount(outcome: EvalRunSubjectInvokeOutcome): number {
+function refusedCount(outcome: TestRunSubjectInvokeOutcome): number {
   return (outcome.replay?.tools ?? []).filter((t) => t.source === 'refused').length;
 }
 
-function replayOf(outcome: EvalRunSubjectInvokeOutcome): { replay?: ReplayTurnReport } {
+function replayOf(outcome: TestRunSubjectInvokeOutcome): { replay?: ReplayTurnReport } {
   return outcome.replay !== undefined ? { replay: outcome.replay } : {};
 }
 
 async function invokeCase(
   ctx: DispatchContext,
   correctedCase: CorrectedEvalCase,
-): Promise<EvalRunSubjectInvokeOutcome> {
+): Promise<TestRunSubjectInvokeOutcome> {
   try {
     return await ctx.subject.invoke({
       tenantId: ctx.tenantId,
@@ -802,7 +802,7 @@ async function invokeCase(
       ...(ctx.projectId !== undefined && { projectId: ctx.projectId }),
       replay: {
         of: correctedCase.caseId as unknown as RunId,
-        evalRunId: ctx.runId as unknown as string,
+        testRunId: ctx.testRunId as unknown as string,
       },
       ...(correctedCase.subject.kind === 'agent' && {
         history: correctedCase.context?.history ?? [],
@@ -817,7 +817,7 @@ async function invokeCase(
 
 function countModel(
   models: Map<string, { providerId: string; model: string; runs: number }>,
-  outcome: EvalRunSubjectInvokeOutcome,
+  outcome: TestRunSubjectInvokeOutcome,
 ): void {
   if (outcome.provider === undefined) return;
   const key = `${outcome.provider.id}\u0000${outcome.provider.model}`;
@@ -942,7 +942,7 @@ function summarize(
   const corrections = correctionsOf(results);
   const costUsd = costOf(results, comparison.repetitions);
   return {
-    evalRunId: ctx.runId as unknown as string,
+    testRunId: ctx.testRunId as unknown as string,
     status:
       results.length > 0 && errors === 0
         ? 'completed'

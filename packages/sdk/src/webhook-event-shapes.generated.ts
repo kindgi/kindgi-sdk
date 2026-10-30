@@ -225,7 +225,7 @@ export const WEBHOOK_EVENT_SHAPES = {
       },
     },
   },
-  'improvement-pass.finished': {
+  'improve-run.finished': {
     kind: 'object',
     required: {
       id: {
@@ -233,7 +233,7 @@ export const WEBHOOK_EVENT_SHAPES = {
       },
       type: {
         kind: 'string',
-        enum: ['improvement-pass.finished'],
+        enum: ['improve-run.finished'],
       },
       createdAt: {
         kind: 'string',
@@ -242,7 +242,7 @@ export const WEBHOOK_EVENT_SHAPES = {
       data: {
         kind: 'object',
         required: {
-          pass: {
+          improveRun: {
             kind: 'object',
             required: {
               id: {
@@ -406,7 +406,7 @@ export const WEBHOOK_EVENT_SHAPES = {
                 required: {
                   kind: {
                     kind: 'string',
-                    enum: ['proposed', 'nothing-found', 'failed'],
+                    enum: ['suggested', 'nothing-found', 'failed'],
                   },
                 },
                 optional: {
@@ -462,7 +462,7 @@ export const WEBHOOK_EVENT_SHAPES = {
                     },
                   },
                   optional: {
-                    evalRunId: {
+                    testRunId: {
                       kind: 'string',
                       format: 'uuid',
                     },
@@ -493,7 +493,7 @@ export const WEBHOOK_EVENT_SHAPES = {
                         },
                       },
                     },
-                    hypothesis: {
+                    why: {
                       kind: 'string',
                     },
                   },

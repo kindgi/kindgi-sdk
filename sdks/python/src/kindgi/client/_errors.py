@@ -155,7 +155,7 @@ _CONFLICT = {
     "policy-already-registered", "policy-scope-taken", "policy-scope-changed",
     "nothing-to-roll-back", "not-pinned", "agent-version-live", "test-set-already-registered",
     "mcp-endpoint-already-registered", "identity-provider-already-registered",
-    "version-already-exists", "eval-run-already-terminal", "approval-already-decided",
+    "version-already-exists", "test-run-already-terminal", "approval-already-decided",
     "corrector-group-name-taken", "promotion-superseded", "gate-policy-already-registered",
     "gate-policy-scope-taken", "gate-policy-scope-changed", "gate-policy-scope-unpinned",
     "gate-policy-needs-pin", "gate-policy-descendant-unpinned", "fact-changed", "legal-hold",

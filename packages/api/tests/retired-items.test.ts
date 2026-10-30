@@ -8,7 +8,7 @@
  * `unregisteredAt`, and an agent's or test set's versions list answers
  * for it (not 404), with its unregistered versions under
  * `?includeTombstoned=true`. Both are asked for: the defaults are as
- * before. And an eval run says which project it's in.
+ * before. And a test run says which project it's in.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -24,8 +24,8 @@ import { validateAgainst } from './support/openapi-schema.js';
 import { createApp } from '../src/index.js';
 import type {
   AgentRegistryBinding,
-  EvalRun,
-  EvalRunBinding,
+  TestRun,
+  TestRunBinding,
   RunHandlerBinding,
   TestSetRegistryBinding,
   TokenResolver,
@@ -186,9 +186,9 @@ describe("a retired agent's or test set's versions", () => {
   );
 });
 
-describe('an eval run says which project it is in', () => {
-  const run = (withProject: boolean): EvalRun => ({
-    runId: randomUUID() as RunId,
+describe('a test run says which project it is in', () => {
+  const run = (withProject: boolean): TestRun => ({
+    testRunId: randomUUID() as RunId,
     tenantId,
     ...(withProject && { projectId }),
     testSetId: 'acme.cases',
@@ -198,15 +198,15 @@ describe('an eval run says which project it is in', () => {
     dryRun: false,
     startedAt: at as Timestamp,
   });
-  const app = (r: EvalRun) =>
+  const app = (r: TestRun) =>
     createApp({
       ...createStubAppBindings(),
       resolveToken,
       runHandler: {} as RunHandlerBinding,
-      evalRunBinding: {
+      testRunBinding: {
         get: async () => r,
         list: async () => ({ data: [r] }),
-      } as unknown as EvalRunBinding,
+      } as unknown as TestRunBinding,
     });
 
   test.each([
@@ -214,14 +214,14 @@ describe('an eval run says which project it is in', () => {
     ["without one (a runtime that doesn't say)", false],
   ])('%s', async (_, withProject) => {
     const r = run(withProject);
-    for (const path of [`/v1/eval-runs/${r.runId}`, '/v1/eval-runs']) {
+    for (const path of [`/v1/test-runs/${r.testRunId}`, '/v1/test-runs']) {
       const res = await app(r).request(path, { headers: { authorization: `Bearer ${TOKEN}` } });
       expect(res.status, path).toBe(200);
       const body = (await res.json()) as Record<string, any>;
-      const read = path === '/v1/eval-runs' ? body.data[0] : body;
+      const read = path === '/v1/test-runs' ? body.data[0] : body;
       expect(read.projectId, path).toBe(withProject ? projectId : undefined);
       expect(
-        validateAgainst(path === '/v1/eval-runs' ? 'EvalRunCollectionPage' : 'EvalRun', body),
+        validateAgainst(path === '/v1/test-runs' ? 'TestRunCollectionPage' : 'TestRun', body),
         path,
       ).toEqual([]);
     }

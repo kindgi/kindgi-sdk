@@ -40,13 +40,29 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 - `kindgi`: **Proposals are now suggested changes.** This is a breaking rename,
   and no old name is kept. `client.suggested_changes` holds suggested changes,
   sync and async, and its `request` is `pin`; `rollback` is removed, since going
-  back is putting the agent's earlier version back in use. `client.proposals`
-  keeps only `improve` and `improve_estimate`; its `draft`, `dry_run`,
-  `submit_review` and `apply`, which only raised an error since 0.1.5, are
-  removed. The models follow (`Proposal*` and `FixProposal*` models are
+  back is putting the agent's earlier version back in use. The
+  `client.proposals` methods `draft`, `dry_run`, `submit_review` and `apply`,
+  which only raised an error since 0.1.5, are removed. The models follow (`Proposal*` and `FixProposal*` models are
   `SuggestedChange*`, and the block edit a suggested change carries is
   `SuggestedChangeBlockEdit`), `proposal_id` is `suggested_change_id`, and a
   suggested change's status `promoted` is `pinned`.
+- `kindgi`: **Eval runs are now test runs.** This is a breaking rename, and no
+  old name is kept. `client.eval_runs` is `client.test_runs`, sync and async.
+  The models follow (`EvalRun*` models are `TestRun*`). A test run's own id is
+  `test_run_id` where it was `run_id`, `eval_run_id` is `test_run_id`, and the
+  stream's `eval-run.*` events are `test-run.*`.
+- `kindgi`: **Improvement passes are now Improve runs.** This is a breaking
+  rename, and no old name is kept. `client.improvement_passes` and
+  `client.proposals` are `client.improve_runs`, sync and async, with `start`,
+  `check`, `list`, `get` and `cancel` (`start` and `check` were
+  `client.proposals.improve` and `improve_estimate`). The models follow
+  (`ImprovementPass*` models are `ImproveRun*`, `ImproveBody` is
+  `StartImproveRunBody`, `ImprovementPassEstimate` is `ImproveRunCheck`, and
+  `SuggestedChangeDrafter` is `SuggestedChangeMadeBy`). `pass_id` is
+  `improve_run_id`, a suggested change's `drafter` is `made_by` and its
+  `hypothesis` is `why`, and an Improve run's outcome `proposed` is
+  `suggested`. The webhook event `improvement-pass.finished` is
+  `improve-run.finished`, and its `data.pass_` is `data.improve_run`.
 
 ## 0.3.0
 

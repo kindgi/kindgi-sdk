@@ -529,7 +529,7 @@ export interface Agent {
    * The value is a `ModelInfo.name` string (e.g. `'claude-sonnet-5-5'`).
    * Enables model-level A/B'ing under one connection: register
    * Anthropic once with `models: [sonnet, opus, haiku]`, then pin
-   * per-agent. To let an improvement pass try other models, name the
+   * per-agent. To let an Improve run try other models, name the
    * model in the model-settings block (`model`) instead: never both.
    */
   readonly preferredModel?: string;

@@ -23,14 +23,14 @@ import type { EvalKind } from './test-set-binding.js';
  * *execution*.
  * Same pattern as every other admin binding: the API package does NOT
  * own persistence. Deployments wire this binding to a runtime that
- * dispatches per `TestSet.kind` (see `eval-run-dispatcher.ts` for
+ * dispatches per `TestSet.kind` (see `test-run-dispatcher.ts` for
  * the reference accuracy dispatcher).
  *
  * The wire shape mirrors the run surface. A durable implementation can
- * make every `EvalRun` a specialized run (started with `runGraph`),
+ * make every `TestRun` a specialized run (started with `runGraph`),
  * inheriting durability, replay, and cancel semantics while adding
  * eval-specific fields (`testSetId`, `testSetVersion`, `kind`, `result`);
- * the in-process reference in `eval-run-dispatcher.ts` keeps runs in
+ * the in-process reference in `test-run-dispatcher.ts` keeps runs in
  * memory.
  *
  * `result` is kind-specific opaque JSON on the wire. For the
@@ -38,31 +38,31 @@ import type { EvalKind } from './test-set-binding.js';
  * `{ passCount, totalCount, meanScore, perCase[] }`; other kinds define
  * their own shapes.
  */
-export interface EvalRunBinding {
+export interface TestRunBinding {
   /**
-   * Start a new eval run against a specific test set id (the dispatcher
+   * Start a new test run against a specific test set id (the dispatcher
    * resolves the test set version internally — bindings MAY reject with
    * `test-set-not-found` when the testSetId is unknown for the tenant).
    */
-  start(input: EvalRunStartInput): Promise<EvalRunStartOutcome>;
+  start(input: TestRunStartInput): Promise<TestRunStartOutcome>;
   /**
-   * Fetch a single eval run by id, or `null` if unknown. The route
-   * surfaces `null` as `404 eval-run-not-found`.
+   * Fetch a single test run by id, or `null` if unknown. The route
+   * surfaces `null` as `404 test-run-not-found`.
    */
-  get(input: EvalRunGetInput): Promise<EvalRun | null>;
+  get(input: TestRunGetInput): Promise<TestRun | null>;
   /**
-   * Cursor-paginated list of eval runs. Optional filters — see
-   * `EvalRunFilter`. Sort order is fixed: `startedAt` descending, id
+   * Cursor-paginated list of test runs. Optional filters — see
+   * `TestRunFilter`. Sort order is fixed: `startedAt` descending, id
    * descending as tie-breaker (same shape as `/v1/runs`).
    */
-  list(input: EvalRunListInput): Promise<EvalRunPage>;
+  list(input: TestRunListInput): Promise<TestRunPage>;
   /**
-   * Cancel an eval run. Returns `{ cancelled: true }` on success;
+   * Cancel a test run. Returns `{ cancelled: true }` on success;
    * `{ cancelled: false, reason: 'not-found' | 'already-terminal' }`
    * otherwise — the route flips each `reason` to the appropriate
    * 4xx status.
    */
-  cancel(input: EvalRunCancelInput): Promise<EvalRunCancelOutcome>;
+  cancel(input: TestRunCancelInput): Promise<TestRunCancelOutcome>;
 }
 
 /**
@@ -85,14 +85,14 @@ export interface FlowRef {
  * before starting it; the reference in-process dispatcher goes
  * straight to `running`.
  */
-export const EVAL_RUN_STATUSES = [
+export const TEST_RUN_STATUSES = [
   'pending',
   'running',
   'completed',
   'failed',
   'cancelled',
 ] as const;
-export type EvalRunStatus = (typeof EVAL_RUN_STATUSES)[number];
+export type TestRunStatus = (typeof TEST_RUN_STATUSES)[number];
 
 /**
  * Wire shape for a single evaluation run. `result` is kind-specific
@@ -100,15 +100,15 @@ export type EvalRunStatus = (typeof EVAL_RUN_STATUSES)[number];
  * perCase[] }`; other kinds define their own shapes). `error`
  * carries the failure message when `status === 'failed'`.
  */
-export interface EvalRun {
-  readonly runId: RunId;
+export interface TestRun {
+  readonly testRunId: RunId;
   readonly tenantId: TenantId;
   readonly testSetId: string;
   readonly testSetVersion: string;
   readonly kind: EvalKind;
   readonly agentRef?: AgentRef;
   readonly flowRef?: FlowRef;
-  readonly status: EvalRunStatus;
+  readonly status: TestRunStatus;
   readonly dryRun: boolean;
   readonly startedAt: Timestamp;
   readonly completedAt?: Timestamp;
@@ -122,15 +122,15 @@ export interface EvalRun {
    */
   readonly cancelReason?: string;
   readonly correlationId?: string;
-  /** A comparison eval run's baseline, reads and repetitions. */
+  /** A comparison test run's baseline, reads and repetitions. */
   readonly comparison?: EvalComparison;
   /** The project the run belongs to. Absent from a runtime that doesn't say. */
   readonly projectId?: ProjectId;
 }
 
-export interface EvalRunFilter {
+export interface TestRunFilter {
   readonly testSetId?: string;
-  readonly status?: EvalRunStatus;
+  readonly status?: TestRunStatus;
   readonly agentId?: AgentId;
   readonly flowId?: FlowId;
   readonly from?: Timestamp;
@@ -138,7 +138,7 @@ export interface EvalRunFilter {
 }
 
 /**
- * What a comparison eval run compares the candidate against:
+ * What a comparison test run compares the candidate against:
  *   - `'recorded'`: the output each case recorded (what was corrected);
  *   - `{ agentId, version }`: that version, replayed under the same rules;
  *   - `{ live }`: the version live in a scope: a project, and a segment
@@ -166,7 +166,7 @@ export type EvalReads = 'recorded' | 'live';
  */
 export type EvalGroupWeights = 'as-recorded' | 'experts-only';
 
-/** How a comparison eval run runs its cases (absent: the run isn't a comparison). */
+/** How a comparison test run runs its cases (absent: the run isn't a comparison). */
 export interface EvalComparison {
   readonly baseline: EvalBaseline;
   readonly reads: EvalReads;
@@ -185,14 +185,14 @@ export interface EvalComparison {
   /**
    * For an agent candidate: block content its replays run instead of the
    * version's pinned content (settings values, a prompt template: an
-   * improvement pass's search). A comparison with overrides can't gate a
+   * Improve run's search). A comparison with overrides can't gate a
    * promotion: it didn't run a published version.
    */
   readonly overrides?: EvalOverrides;
   /** Only part of the test set's cases (absent: all of them). */
   readonly sample?: EvalSample;
   /**
-   * Rescore that comparison eval run instead of replaying: its replays'
+   * Rescore that comparison test run instead of replaying: its replays'
    * outputs are scored again, with the corrections recorded on them since
    * (a changed answer corrected on the replay itself). Nothing runs; the run
    * rescored stays as it was. Same test set version, candidate and sample.
@@ -212,7 +212,7 @@ export interface EvalOverrides {
  * cases that carry a correction, then of the others the cases with a
  * "no" and the rest, each split on their own), in the order of a hash of
  * each case id and `seed`. The same seed splits
- * the same test set the same way, so an improvement pass searches on one
+ * the same test set the same way, so an Improve run searches on one
  * part and proves its candidate on the other. A promotion gate refuses a
  * comparison on the search part.
  */
@@ -223,11 +223,11 @@ export interface EvalSample {
   readonly holdOutShare: number;
 }
 
-export interface EvalRunStartInput {
+export interface TestRunStartInput {
   readonly tenantId: TenantId;
   /**
    * Content-scope anchor. REQUIRED — every
-   * eval-run row is anchored to a project. The caller resolves this at
+   * test-run row is anchored to a project. The caller resolves this at
    * ITS layer; storage adapters treat a missing / bogus id as a
    * `project-not-found` outcome. No silent fallback to a tenant Default here.
    */
@@ -246,18 +246,18 @@ export interface EvalRunStartInput {
   readonly flowRef?: FlowRef;
   readonly dryRun?: boolean;
   readonly correlationId?: string;
-  /** Set for a comparison eval run (a `corrections` test set): its baseline, reads and repetitions. */
+  /** Set for a comparison test run (a `corrections` test set): its baseline, reads and repetitions. */
   readonly comparison?: EvalComparison;
 }
 
 /**
- * `start` outcomes. `ok` returns the newly-minted `runId`; other
+ * `start` outcomes. `ok` returns the newly-minted `testRunId`; other
  * shapes carry the domain error the route flips to a 4xx.
  */
-export type EvalRunStartOutcome =
+export type TestRunStartOutcome =
   | {
       readonly kind: 'ok';
-      readonly runId: RunId;
+      readonly testRunId: RunId;
       readonly dryRunPreview?: Readonly<Record<string, unknown>>;
     }
   | { readonly kind: 'test-set-not-found'; readonly testSetId: string }
@@ -275,16 +275,16 @@ export type EvalRunStartOutcome =
       readonly projectId: ProjectId;
     };
 
-export interface EvalRunGetInput {
+export interface TestRunGetInput {
   readonly tenantId: TenantId;
-  readonly runId: RunId;
+  readonly testRunId: RunId;
 }
 
-export interface EvalRunListInput {
+export interface TestRunListInput {
   readonly tenantId: TenantId;
   readonly limit: number;
   readonly cursor?: Cursor;
-  readonly filter?: EvalRunFilter;
+  readonly filter?: TestRunFilter;
   /**
    * Narrow the list to a specific scope. Absent = no scope narrow
    * (return every row in the tenant the caller can see — admin/audit
@@ -311,17 +311,17 @@ export interface EvalRunListInput {
   readonly inherit?: boolean;
 }
 
-export interface EvalRunPage {
-  readonly data: readonly EvalRun[];
+export interface TestRunPage {
+  readonly data: readonly TestRun[];
   readonly nextCursor?: Cursor;
 }
 
-export interface EvalRunCancelInput {
+export interface TestRunCancelInput {
   readonly tenantId: TenantId;
-  readonly runId: RunId;
+  readonly testRunId: RunId;
 }
 
-export type EvalRunCancelOutcome =
+export type TestRunCancelOutcome =
   | { readonly kind: 'ok' }
   | { readonly kind: 'not-found' }
-  | { readonly kind: 'already-terminal'; readonly status: EvalRunStatus };
+  | { readonly kind: 'already-terminal'; readonly status: TestRunStatus };

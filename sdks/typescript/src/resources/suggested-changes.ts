@@ -30,7 +30,7 @@ import { scopeQuery } from './agents.js';
  *   scope: { kind: 'segment', projectId, path: [{ key: 'company', value: 'acme' }] },
  *   tier: 'settings-block',
  *   change: { blockId: 'acme.scoring-weights', content: { values: { recency: 0.4, fit: 0.6 } } },
- *   hypothesis: 'Recent filings matter more for this company',
+ *   why: 'Recent filings matter more for this company',
  * });
  * await client.suggestedChanges.evaluate(p.id, { testSetId: 'acme.scoring-judged' });
  * // …once `status` is `evaluated`:
@@ -117,7 +117,7 @@ export interface CreateSuggestedChangeInput {
   /** A block `fromVersion` pins, and its new content. */
   readonly change: { readonly blockId: string; readonly content: SuggestedChangeContent };
   /** What the change should improve, and why. */
-  readonly hypothesis: string;
+  readonly why: string;
   readonly evidence?: { readonly fixes?: readonly string[] };
   readonly idempotencyKey?: string;
 }

@@ -22,7 +22,7 @@ sources:
   - packages/cli/src/commands/runs.ts
   - packages/cli/src/commands/blocks.ts
   - packages/cli/src/commands/agents.ts
-  - packages/cli/src/commands/eval-runs.ts
+  - packages/cli/src/commands/test-runs.ts
   - packages/cli/src/commands/test.ts
 ---
 
@@ -91,7 +91,7 @@ One correction taken through all four steps:
 | "Never refund shipping", "final sale: no refund", "over 50 on a first order, ask a person" | a rule in **code** — the tool checks it every time; a cap sends the case to a tool that always asks | edit the tool and add a test (your language's `kindgi-authoring-tools`), then `kindgi deploy` |
 | "Our return window is 14 days, not 30" | a **setting** the owner can change | publish the settings block, derive a version that pins it (Step 4) |
 | "Always have a person approve a refund" | an **approval rule** — a tenant policy that makes a tool always ask; it keys on the tool, not its arguments | a person sets it (the owner or the approver); point them to it, don't change it in code |
-| "Store credit before cash", "too stiff", "say when the money arrives" | the agent's **instructions** | leave it to Improve, run on the test cases (`kindgi proposals improve`, the improve guide in `publish-and-promote.md`) |
+| "Store credit before cash", "too stiff", "say when the money arrives" | the agent's **instructions** | leave it to Improve, run on the test cases (`kindgi improve runs start`, the improve guide in `publish-and-promote.md`) |
 
 If a correction fits none of these, treat it as a code rule when it must
 hold every time, and as instructions when it's a matter of correction.

@@ -249,7 +249,7 @@ describe('an improve schedule', () => {
         scheduleId: string;
       }
     ).scheduleId;
-    const passId = randomUUID();
+    const improveRunId = randomUUID();
     registry.recordFire({
       triggerId: id as TriggerId,
       kind: 'schedule',
@@ -265,7 +265,7 @@ describe('an improve schedule', () => {
       scheduledFor: '2026-10-07T11:00:00.000Z',
       firedAt: '2026-10-07T11:00:01.000Z',
       outcome: 'started',
-      passId,
+      improveRunId,
     });
     const fires = (await (
       await built.request(`/v1/schedules/${id}/fires`, send('GET'))
@@ -273,7 +273,7 @@ describe('an improve schedule', () => {
       data: Record<string, unknown>[];
     };
     expect(fires.data.map((f) => f.outcome).sort()).toEqual(['skipped', 'started']);
-    expect(fires.data.find((f) => f.outcome === 'started')).toMatchObject({ passId });
+    expect(fires.data.find((f) => f.outcome === 'started')).toMatchObject({ improveRunId });
     expect(fires.data.find((f) => f.outcome === 'skipped')?.detail).toContain('4 of 5');
   });
 

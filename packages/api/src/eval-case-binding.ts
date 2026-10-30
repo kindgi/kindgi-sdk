@@ -7,7 +7,7 @@ import type { CorrectedItem, CorrectedRunContext, CorrectedSubject } from './cor
 import type { ExpectedDecisions } from './expected-decisions.js';
 
 /**
- * Caller-plugged storage for the cases of an test-set version, kept
+ * Caller-plugged storage for the cases of a test-set version, kept
  * apart from the version's `spec` because a set can hold hundreds of
  * cases. A `corrections` test set version's cases are built from corrections: each
  * is a copy of one corrected run (its input, what it read, the output that
@@ -94,7 +94,7 @@ export interface CorrectedEvalCase {
   /**
    * An erasure cleared this case (a person's words were erased): its
    * `input`, `output` and `context` are gone, its items empty and its
-   * corrections dropped. Eval runs leave it out and count it (`erased`).
+   * corrections dropped. Test runs leave it out and count it (`erased`).
    */
   readonly erased?: true;
 }

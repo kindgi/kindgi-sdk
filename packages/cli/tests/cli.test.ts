@@ -96,20 +96,10 @@ describe('root-level flags and help', () => {
   });
 
   test('a near-miss top-level command points to the real one', async () => {
-    const improve = await runCli(baseInputs({ argv: ['improve', '--agent=acme.x', '--tenant'] }));
-    expect(improve.exitCode).toBe(2);
-    expect(improve.stdout).toBe('');
-    // Only the command word is quoted (like unknown-subcommand), so a trailing
-    // flag can't blur into the message's own full stop.
-    expect(improve.stderr).toMatch(
-      /^Unknown command "improve"\. Did you mean "kindgi proposals improve"\?\n\n/,
-    );
-    expect(improve.stderr).toContain('Usage: kindgi <command>');
-
     const evalCmd = await runCli(baseInputs({ argv: ['eval'] }));
     expect(evalCmd.exitCode).toBe(2);
     expect(evalCmd.stderr).toContain(
-      'Unknown command "eval". Did you mean "kindgi eval-runs" or "kindgi test-sets"?',
+      'Unknown command "eval". Did you mean "kindgi test-runs" or "kindgi test-sets"?',
     );
 
     // A word that is no near-miss keeps the plain message, with no hint.
@@ -120,8 +110,8 @@ describe('root-level flags and help', () => {
 
   test('the commands a near-miss points to are real', async () => {
     for (const argv of [
-      ['proposals', 'improve', '--help'],
-      ['eval-runs', '--help'],
+      ['improve', 'runs', 'start', '--help'],
+      ['test-runs', '--help'],
       ['test-sets', '--help'],
     ]) {
       const out = await runCli(baseInputs({ argv }));

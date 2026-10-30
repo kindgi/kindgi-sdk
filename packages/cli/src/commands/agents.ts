@@ -395,11 +395,11 @@ const promote: LeafCommand = {
   kind: 'leaf',
   name: 'promote',
   description:
-    "Make a version live for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version. With a release gate policy for the scope, the run on the test cases named by --eval-run is checked first: the answer's `status` is `promoted`, or `pending-approval` (a reviewer approves it); a refusal lists every check. `--check` asks what would happen, changing nothing. Exits 3 when the answer is no: the gate refuses the version, or it waits for an approval (`--wait` waits for the decision).",
-  usage: `kindgi agents promote <agent-id> <version> ${SCOPE_USAGE} [--eval-run=<eval-run-id>] [--reason=<text>] [--check] [--wait[=<duration>]]`,
+    "Make a version live for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version. With a release gate policy for the scope, the run on the test cases named by --test-run is checked first: the answer's `status` is `promoted`, or `pending-approval` (a reviewer approves it); a refusal lists every check. `--check` asks what would happen, changing nothing. Exits 3 when the answer is no: the gate refuses the version, or it waits for an approval (`--wait` waits for the decision).",
+  usage: `kindgi agents promote <agent-id> <version> ${SCOPE_USAGE} [--test-run=<test-run-id>] [--reason=<text>] [--check] [--wait[=<duration>]]`,
   optionSpec: {
     ...SCOPE_FLAGS,
-    'eval-run': {
+    'test-run': {
       type: 'string',
       description: 'The run on the test cases the release gate policy checks, kept on the record.',
     },
@@ -426,13 +426,13 @@ async function promoteAgent(
 ): Promise<Rendered & { readonly exitCode?: number }> {
   const agentId = requiredPositional(ctx, 0, 'agent-id');
   const version = requiredPositional(ctx, 1, 'version');
-  const evalRunId = stringFlag(ctx, 'eval-run');
+  const testRunId = stringFlag(ctx, 'test-run');
   const waitMs = waitFlag(ctx);
   const input = {
     version,
     scope: scopeFrom(ctx, true),
     ...reasonFlag(ctx),
-    ...(evalRunId !== undefined && { evalRunId }),
+    ...(testRunId !== undefined && { testRunId }),
   };
   const format = ctx.globals.format;
   const promotions = ctx.client().agents.promotions;

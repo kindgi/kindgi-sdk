@@ -1316,7 +1316,7 @@ describe('correctorGroupApplies', () => {
 describe('isReplayCopy', () => {
   test('a stamped copy, or an agent turn whose output carries its replay report; nothing else', () => {
     expect(isReplayCopy({ output: {}, context: { replayOf: 'run-1' } })).toBe(true);
-    expect(isReplayCopy({ output: { replay: { of: 'run-1', evalRunId: 'e', tools: [] } } })).toBe(
+    expect(isReplayCopy({ output: { replay: { of: 'run-1', testRunId: 'e', tools: [] } } })).toBe(
       true,
     );
     expect(isReplayCopy({ output: { matches: [] } })).toBe(false);

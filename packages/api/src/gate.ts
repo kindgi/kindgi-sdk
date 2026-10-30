@@ -5,7 +5,7 @@ import type { ReviewerRole } from '@kindgi/authz';
 import type { LiveScope } from '@kindgi/types';
 
 import type { ComparisonMetric, CorrectedComparisonSummary } from './corrected-dispatcher.js';
-import type { EvalSample } from './eval-run-binding.js';
+import type { EvalSample } from './test-run-binding.js';
 import type { GateMetricName, GateMetricSpec, GatePolicySpec } from './gate-policy-binding.js';
 
 /**
@@ -43,7 +43,7 @@ export interface GateInput {
     readonly pinsDigest: string | null;
     readonly scope: LiveScope;
   };
-  /** The comparison named by `evalRunId`; `null` when none was. */
+  /** The comparison named by `testRunId`; `null` when none was. */
   readonly summary: CorrectedComparisonSummary | null;
   /** The version serving the promotion's scope now: what "no regression" is measured against. */
   readonly servingVersion: string;
@@ -97,7 +97,7 @@ export function evaluateGate(input: GateInput): GateResult {
         name: 'comparison.required',
         passed: false,
         message:
-          'This policy needs a test run: name one with `evalRunId` (a finished eval run that tried this version on the test cases).',
+          'This policy needs a test run: name one with `testRunId` (a finished test run that tried this version on the test cases).',
       });
     }
     return result(checks, approval);
@@ -107,7 +107,7 @@ export function evaluateGate(input: GateInput): GateResult {
     checks.push({
       name: 'comparison.required',
       passed: true,
-      message: `Test run ${summary.evalRunId} is named.`,
+      message: `Test run ${summary.testRunId} is named.`,
     });
   }
   checks.push(statusCheck(spec, summary));

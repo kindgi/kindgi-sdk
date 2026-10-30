@@ -335,7 +335,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'mcp-endpoint-already-registered':
     case 'identity-provider-already-registered':
     case 'version-already-exists':
-    case 'eval-run-already-terminal':
+    case 'test-run-already-terminal':
     case 'approval-already-decided':
     case 'corrector-group-name-taken':
     case 'promotion-superseded':

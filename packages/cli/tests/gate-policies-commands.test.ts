@@ -170,7 +170,7 @@ describe('kindgi agents: the gate', () => {
         'acme.drafter',
         '1.2.0',
         `--project=${PROJECT}`,
-        '--eval-run=er-1',
+        '--test-run=er-1',
         '--check',
       ],
       { agents: { promotions: { check: rec('check', answer), create: rec('create') } } },
@@ -181,7 +181,7 @@ describe('kindgi agents: the gate', () => {
       [
         'check',
         'acme.drafter',
-        { version: '1.2.0', scope: { kind: 'project', projectId: PROJECT }, evalRunId: 'er-1' },
+        { version: '1.2.0', scope: { kind: 'project', projectId: PROJECT }, testRunId: 'er-1' },
       ],
     ]);
     expect(JSON.parse(out.stdout)).toEqual(answer);

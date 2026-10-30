@@ -95,7 +95,7 @@ export async function invokeAgent(
       },
       ...(input.segments !== undefined && { segments: input.segments }),
       ...(input.parent !== undefined && { parent: input.parent }),
-      // A replay's run says so, and which eval run and past run it is for.
+      // A replay's run says so, and which test run and past run it is for.
       ...(input.replay !== undefined && { replay: input.replay }),
       ...(input.idempotencyKey !== undefined && { idempotencyKey: input.idempotencyKey }),
       ...(input.trigger !== undefined && { trigger: input.trigger }),

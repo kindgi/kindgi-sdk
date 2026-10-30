@@ -393,7 +393,7 @@ def test_a_post_without_an_idempotency_key_is_not_retried(monkeypatch: pytest.Mo
     monkeypatch.setattr("kindgi.client._base.time.sleep", lambda s: None)
     api, seen = client(lambda r: httpx.Response(503))
     with pytest.raises(ServerError):
-        api.eval_runs.cancel("run-1")
+        api.test_runs.cancel("run-1")
     assert len(seen) == 1 and "idempotency-key" not in seen[0].headers
 
 

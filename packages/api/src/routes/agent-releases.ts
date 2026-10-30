@@ -12,7 +12,7 @@ import type { ProjectBinding } from '@kindgi/platform';
 import type { AgentRegistryBinding } from '../agent-binding.js';
 import type { CorrectedComparisonSummary } from '../corrected-dispatcher.js';
 import { statusFor, toWireError } from '../errors.js';
-import type { EvalRun, EvalRunBinding } from '../eval-run-binding.js';
+import type { TestRun, TestRunBinding } from '../test-run-binding.js';
 import type { GatePolicy } from '../gate-policy-binding.js';
 import { type GateApproval, type GateCheck, type GateResult, evaluateGate } from '../gate.js';
 import type { ItemRights } from '../item-rights.js';
@@ -65,7 +65,7 @@ export function isPromotionCheck(method: string, path: string): boolean {
 
 /** What the gate reads besides the releases: comparisons, and a project's org. */
 export interface AgentReleaseGateDeps {
-  readonly evalRuns?: EvalRunBinding;
+  readonly testRuns?: TestRunBinding;
   readonly projects?: ProjectBinding;
   /** A project or segment scope must reach the agent (`reference-scope.ts`); absent → as named. */
   readonly referenceScope?: ReferenceScopeBinding;
@@ -205,7 +205,7 @@ export function mountAgentReleaseRoutes(
       scope: parsed.value.scope,
       requestedBy: actorOf(c),
       ...(parsed.value.reason !== undefined && { reason: parsed.value.reason }),
-      ...(parsed.value.evalRunId !== undefined && { evalRunId: parsed.value.evalRunId }),
+      ...(parsed.value.testRunId !== undefined && { testRunId: parsed.value.testRunId }),
     });
     return promotionResponse(c, outcome);
   });
@@ -606,14 +606,14 @@ function failed(
   return c.json(toWireError({ ...error, ...extra }, requestId));
 }
 
-/** Optional short strings (`reason`, `evalRunId`): absent, or a non-empty string. */
+/** Optional short strings (`reason`, `testRunId`): absent, or a non-empty string. */
 function optionalText(
   body: Readonly<Record<string, unknown>>,
-  fields: readonly ('reason' | 'evalRunId')[],
+  fields: readonly ('reason' | 'testRunId')[],
 ):
-  | { kind: 'ok'; value: { reason?: string; evalRunId?: string } }
+  | { kind: 'ok'; value: { reason?: string; testRunId?: string } }
   | { kind: 'err'; message: string } {
-  const value: { reason?: string; evalRunId?: string } = {};
+  const value: { reason?: string; testRunId?: string } = {};
   for (const field of fields) {
     const v = body[field];
     if (v === undefined) continue;
@@ -625,11 +625,11 @@ function optionalText(
   return { kind: 'ok', value };
 }
 
-/** The promotion body: `{version, scope, evalRunId?, reason?}`. */
+/** The promotion body: `{version, scope, testRunId?, reason?}`. */
 async function readPromotionBody(c: Ctx): Promise<
   | {
       kind: 'ok';
-      value: { version: Semver; scope: LiveScope; evalRunId?: string; reason?: string };
+      value: { version: Semver; scope: LiveScope; testRunId?: string; reason?: string };
     }
   | { kind: 'err'; message: string }
 > {
@@ -640,7 +640,7 @@ async function readPromotionBody(c: Ctx): Promise<
   if (typeof body.version !== 'string' || body.version.length === 0) {
     return { kind: 'err', message: '`version` is required: the agent version to make live' };
   }
-  const text = optionalText(body, ['reason', 'evalRunId']);
+  const text = optionalText(body, ['reason', 'testRunId']);
   if (text.kind === 'err') return text;
   return {
     kind: 'ok',
@@ -674,8 +674,8 @@ export function coordinatesOf(scope: LiveScope): Omit<LiveResolveInput, 'tenantI
   }
 }
 
-/** A finished comparison's summary, or `null` for any other eval run. */
-function summaryOf(run: EvalRun): CorrectedComparisonSummary | null {
+/** A finished comparison's summary, or `null` for any other test run. */
+function summaryOf(run: TestRun): CorrectedComparisonSummary | null {
   const summary = run.result?.summary;
   return run.kind === 'corrections' && summary !== null && typeof summary === 'object'
     ? (summary as CorrectedComparisonSummary)
@@ -718,7 +718,7 @@ async function runGate(
     readonly agentId: string;
     readonly version: Semver;
     readonly scope: LiveScope;
-    readonly evalRunId?: string;
+    readonly testRunId?: string;
   },
   policy: GatePolicy | null,
 ): Promise<
@@ -769,17 +769,17 @@ async function runGate(
   }
 
   let summary: CorrectedComparisonSummary | null = null;
-  if (req.evalRunId !== undefined) {
+  if (req.testRunId !== undefined) {
     const run =
-      deps.evalRuns === undefined
+      deps.testRuns === undefined
         ? null
-        : await deps.evalRuns.get({ tenantId, runId: req.evalRunId as RunId });
-    if (run === null) return err('eval-run-not-found', `No eval run ${req.evalRunId}`);
+        : await deps.testRuns.get({ tenantId, testRunId: req.testRunId as RunId });
+    if (run === null) return err('test-run-not-found', `No test run ${req.testRunId}`);
     summary = summaryOf(run);
     if (summary === null) {
       return err(
         'bad-input',
-        `Eval run ${req.evalRunId} isn't a finished comparison: it has no comparison summary`,
+        `Test run ${req.testRunId} isn't a finished comparison: it has no comparison summary`,
       );
     }
   }
@@ -854,7 +854,7 @@ export function serializePromotion(p: Promotion): Record<string, unknown> {
     toVersion: p.toVersion as unknown as string | null,
     requestedBy: p.requestedBy,
     ...(p.reason !== undefined && { reason: p.reason }),
-    ...(p.evalRunId !== undefined && { evalRunId: p.evalRunId }),
+    ...(p.testRunId !== undefined && { testRunId: p.testRunId }),
     createdAt: p.createdAt as unknown as string,
     ...(p.status !== undefined && { status: p.status }),
     ...(p.policy !== undefined && { policy: p.policy }),

@@ -36,7 +36,7 @@ export async function approvalResourceRef(
  * (a project or segment scope names one; a tenant or org scope names none),
  * and no provenance run. The suggested change service feeds the result to
  * {@link approvalResourceRef} so its count resolves the resource the opened
- * approval will carry — not the eval run's project.
+ * approval will carry — not the test run's project.
  */
 export function projectOfScope(scope: LiveScope): ProjectId | undefined {
   return scope.kind === 'project' || scope.kind === 'segment' ? scope.projectId : undefined;

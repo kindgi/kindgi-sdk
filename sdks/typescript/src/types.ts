@@ -464,17 +464,17 @@ export interface SuggestedChange {
     readonly content: SuggestedChangeContent;
   };
   /** What the change should improve, and why. */
-  readonly hypothesis: string;
+  readonly why: string;
   /**
    * What it rests on: `fixes` names the corrections it fixes, and
    * `correctionCount` is how many there are when `fixes` names only the first
-   * of them (an improvement pass names at most 100).
+   * of them (an Improve run names at most 100).
    */
   readonly evidence?: {
     readonly fixes?: readonly string[];
     readonly correctionCount?: number;
   };
-  readonly drafter:
+  readonly madeBy:
     | { readonly kind: 'person'; readonly by: string }
     | {
         readonly kind: 'settings-optimizer' | 'prompt-drafter';
@@ -490,7 +490,7 @@ export interface SuggestedChange {
   };
   /** Its comparison, and what it found on the objective metric. */
   readonly evaluation?: {
-    readonly evalRunId: string;
+    readonly testRunId: string;
     readonly testSetId: string;
     readonly objective: SuggestedChangeObjective;
     readonly startedAt: import('@kindgi/types').Timestamp;

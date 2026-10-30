@@ -35,7 +35,7 @@ const resolveToken: TokenResolver = async (token) =>
 
 const runHandler = {} as RunHandlerBinding;
 
-/** An test-set registry that only knows how to publish; a test set stays in its first project. */
+/** A test-set registry that only knows how to publish; a test set stays in its first project. */
 function testSetRegistry(): TestSetRegistryBinding & { readonly published: TestSet[] } {
   const published: TestSet[] = [];
   const owners = new Map<string, string>();
@@ -559,7 +559,7 @@ describe('POST /v1/test-sets/:id/versions/from-corrections', () => {
     // Stored before the stamp: only the agent turn's own replay report says so.
     await correctReplay('run-replay-old', {
       matches: [{ id: 'c1' }],
-      replay: { of: 'run-1', evalRunId: 'eval-1', tools: [] },
+      replay: { of: 'run-1', testRunId: 'eval-1', tools: [] },
     });
     await correctReplay('run-replay-new', { matches: [{ id: 'c1' }] }, { replayOf: 'run-1' });
     const built = await h.call('POST', BUILD, base);

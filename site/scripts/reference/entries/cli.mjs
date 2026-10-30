@@ -284,9 +284,9 @@ export const CLI_DEFAULTS = {
   'runs list': {
     agent: 'none',
     cursor: 'none',
-    'eval-run': 'none',
+    'test-run': 'none',
     limit: '`25` (at most `100`)',
-    replays: '`exclude`; with `--eval-run`, `include`',
+    replays: '`exclude`; with `--test-run`, `include`',
     trigger: 'none',
   },
   'runs journal': {
@@ -334,7 +334,7 @@ export const CLI_DEFAULTS = {
     segment: 'none',
   },
   'agents promote': {
-    'eval-run': 'none',
+    'test-run': 'none',
     'idempotency-key': 'none',
     tenant: 'required: one of `--tenant`, `--org`, `--project`',
     org: 'required: one of `--tenant`, `--org`, `--project`',
@@ -467,7 +467,7 @@ export const CLI_DEFAULTS = {
     block: 'required',
     correction: 'none',
     'from-version': 'required',
-    hypothesis: 'required',
+    why: 'required',
     'idempotency-key': 'none',
     org: 'none',
     project: 'none',
@@ -492,7 +492,7 @@ export const CLI_DEFAULTS = {
     'idempotency-key': 'none',
     reason: 'required',
   },
-  'proposals improve': {
+  'improve runs start': {
     agent: 'required',
     'group-weights':
       "none (counts everyone until the test cases' project, its tenant, or the agent improved there has an expert group, then only those)",
@@ -504,19 +504,19 @@ export const CLI_DEFAULTS = {
     model: 'none (needed with `--tier=prompt`, with `--provider`)',
     objective: '`weightedYesShare`',
     org: 'none',
-    'pass-project': "the scope's project, else the agent version's",
+    'run-project': "the scope's project, else the agent version's",
     project: 'none',
     provider: 'none (needed with `--tier=prompt`, with `--model`)',
     segment: 'none',
     'test-set': 'required',
     tier: '`settings`',
   },
-  'proposals passes list': {
+  'improve runs list': {
     agent: 'none',
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
-  'proposals passes cancel': {
+  'improve runs cancel': {
     'idempotency-key': 'none',
   },
   'provenance list': {
@@ -919,7 +919,7 @@ export const CLI_DEFAULTS = {
   'expert-queue reopen': {
     project: "the tenant's Default project",
   },
-  'eval-runs start': {
+  'test-runs start': {
     project: 'required',
     agent: 'required: one of `--agent`, `--flow`',
     'agent-version': 'the latest version',
@@ -934,14 +934,14 @@ export const CLI_DEFAULTS = {
     k: '`10`',
     'group-weights': '`as-recorded`',
   },
-  'eval-runs list': {
+  'test-runs list': {
     agent: 'none',
     cursor: 'none',
     limit: '`25` (at most `100`)',
     status: 'none',
     'test-set': 'none',
   },
-  'eval-runs rescore': {
+  'test-runs rescore': {
     project: 'none',
   },
   'test-sets list': {
@@ -2077,30 +2077,30 @@ export const CLI_EXAMPLES = {
       line: 'kindgi expert-queue reopen <run-id>',
     },
   ],
-  'eval-runs list': [
+  'test-runs list': [
     {
-      purpose: 'List the newest eval runs of one test set.',
-      line: 'kindgi eval-runs list --test-set=acme.article-picks',
+      purpose: 'List the newest test runs of one test set.',
+      line: 'kindgi test-runs list --test-set=acme.article-picks',
     },
     {
       purpose: 'List failed runs of an agent, ten at a time.',
-      line: 'kindgi eval-runs list --agent=acme-ops.article-picker --status=failed --limit=10',
+      line: 'kindgi test-runs list --agent=acme-ops.article-picker --status=failed --limit=10',
     },
   ],
-  'eval-runs cancel': [
+  'test-runs cancel': [
     {
-      purpose: 'Cancel a pending or running eval run.',
-      line: 'kindgi eval-runs cancel <run-id>',
+      purpose: 'Cancel a pending or running test run.',
+      line: 'kindgi test-runs cancel <run-id>',
     },
   ],
-  'eval-runs rescore': [
+  'test-runs rescore': [
     {
       purpose: 'Rescore a completed run on the test cases and wait for the new run.',
-      line: 'kindgi eval-runs rescore <run-id> --wait',
+      line: 'kindgi test-runs rescore <run-id> --wait',
     },
     {
       purpose: 'Rescore against a runtime that does not record the project on the run.',
-      line: 'kindgi eval-runs rescore <run-id> --project=<project-id>',
+      line: 'kindgi test-runs rescore <run-id> --project=<project-id>',
     },
   ],
   'test-sets list': [

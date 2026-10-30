@@ -72,14 +72,12 @@ export function unknownSubcommandText(
 }
 
 /**
- * Top-level words that name a real command spelled another way: `improve`
- * is `proposals improve`; `eval` is the `eval-runs` and `test-sets`
- * commands. Unlike a mistyped subcommand, these are nowhere near their real
+ * Top-level words that name a real command spelled another way: `eval` is the
+ * `test-runs` and `test-sets` commands. Unlike a mistyped subcommand, these are nowhere near their real
  * names, so they are listed, not guessed by edit distance.
  */
 const NEAR_MISS_COMMAND: Readonly<Record<string, readonly string[]>> = {
-  improve: ['proposals improve'],
-  eval: ['eval-runs', 'test-sets'],
+  eval: ['test-runs', 'test-sets'],
 };
 
 /** `"kindgi a"`, or `"kindgi a" or "kindgi b"`, or `"kindgi a", "kindgi b" or "kindgi c"`. */
@@ -93,7 +91,7 @@ function orQuoted(paths: readonly string[]): string {
 /**
  * What `kindgi <word> …` prints when `word` names no command: the mistake,
  * a pointer to the real command when the word is a known near-miss
- * (`improve` → `kindgi proposals improve`), and the root help.
+ * (`eval` → `kindgi test-runs`), and the root help.
  */
 export function unknownCommandText(tokens: readonly string[]): string {
   const first = tokens[0];

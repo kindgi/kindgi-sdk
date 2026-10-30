@@ -15,7 +15,7 @@ import com.kindgi.client.models.MintSystemKeyBody;
 import com.kindgi.client.models.MintTokenBody;
 import com.kindgi.client.models.Promotion;
 import com.kindgi.client.models.ServiceAccountGrantBody;
-import com.kindgi.client.models.StartEvalRunBody;
+import com.kindgi.client.models.StartTestRunBody;
 import com.kindgi.client.models.UnpinBody;
 import com.kindgi.client.models.UpdateIdentityProviderBody;
 import com.kindgi.client.models.ValidationException;
@@ -159,18 +159,18 @@ class KnownValuesOnSendTest {
     assertThat(comparison.baseline()).isEqualTo(EvalBaseline.of(UNKNOWN));
     assertThatCode(() -> comparison.toBuilder().build()).doesNotThrowAnyException();
 
-    StartEvalRunBody start =
-        KindgiJson.read("{\"projectId\":\"f531e37d-f29f-463c-81d2-ffad65e4d4e9\",\"agentRef\":{\"agentId\":\"acme.triage\"}}", StartEvalRunBody.class);
+    StartTestRunBody start =
+        KindgiJson.read("{\"projectId\":\"f531e37d-f29f-463c-81d2-ffad65e4d4e9\",\"agentRef\":{\"agentId\":\"acme.triage\"}}", StartTestRunBody.class);
     assertThatCode(() -> start.toBuilder().baseline(comparison.baseline()).build()).doesNotThrowAnyException();
-    StartEvalRunBody back = start.toBuilder().baseline(comparison.baseline()).build();
-    assertThatThrownBy(() -> client.evalRuns().start("acme.suite", back))
+    StartTestRunBody back = start.toBuilder().baseline(comparison.baseline()).build();
+    assertThatThrownBy(() -> client.testRuns().start("acme.suite", back))
         .isInstanceOf(ValidationException.class)
-        .hasMessage("StartEvalRunBody is invalid: baseline: must be one of recorded");
+        .hasMessage("StartTestRunBody is invalid: baseline: must be one of recorded");
     assertThat(sent).isEmpty();
 
     // A value it knows is sent as before.
     answer = "{\"runId\":\"f531e37d-f29f-463c-81d2-ffad65e4d4e9\"}";
-    client.evalRuns().start("acme.suite", start.toBuilder().baseline(EvalBaseline.RECORDED).build());
+    client.testRuns().start("acme.suite", start.toBuilder().baseline(EvalBaseline.RECORDED).build());
     assertThat(sent).hasSize(1);
     assertThat(sent.get(0)).contains("\"baseline\":\"recorded\"");
   }

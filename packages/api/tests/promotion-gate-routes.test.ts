@@ -21,8 +21,8 @@ import type {
   AgentRegistryBinding,
   AgentReleaseBindings,
   CorrectedComparisonSummary,
-  EvalRun,
-  EvalRunBinding,
+  TestRun,
+  TestRunBinding,
   GatePolicy,
   GatePolicySpec,
   LivePin,
@@ -70,7 +70,7 @@ function summary(overrides: Partial<CorrectedComparisonSummary> = {}): Corrected
     direction: 'higher' as const,
   };
   return {
-    evalRunId: 'eval-1',
+    testRunId: 'eval-1',
     status: 'completed',
     completedAt: NOW.toISOString(),
     testSet: { id: 'acme.set', version: '1.0.0' },
@@ -110,14 +110,14 @@ function setup(opts: { request?: boolean; gatePolicies?: boolean } = {}) {
   const state: {
     resolved: LiveResolution | null;
     policy: GatePolicy | null;
-    evalRun: EvalRun | null;
+    testRun: TestRun | null;
     requestError: PromotionError | null;
     projectOrg: string | undefined;
     pins: LivePin[];
   } = {
     resolved: null,
     policy: null,
-    evalRun: null,
+    testRun: null,
     requestError: null,
     projectOrg: undefined,
     pins: [],
@@ -221,10 +221,10 @@ function setup(opts: { request?: boolean; gatePolicies?: boolean } = {}) {
     unregister: unused,
     reinstateVersion: unused,
   };
-  const evalRuns: EvalRunBinding = {
+  const testRuns: TestRunBinding = {
     get: async (input) => {
-      record('evalRuns.get', input);
-      return state.evalRun;
+      record('testRuns.get', input);
+      return state.testRun;
     },
     start: unused,
     list: unused,
@@ -236,7 +236,7 @@ function setup(opts: { request?: boolean; gatePolicies?: boolean } = {}) {
     runHandler,
     agentRegistry: registry,
     agentReleases: releases,
-    evalRunBinding: evalRuns,
+    testRunBinding: testRuns,
     projectBinding: {
       get: async (_t: TenantId, projectId: ProjectId) => {
         record('projects.get', projectId);
@@ -250,17 +250,17 @@ function setup(opts: { request?: boolean; gatePolicies?: boolean } = {}) {
   return { app, calls, state };
 }
 
-const evalRun = (s: CorrectedComparisonSummary | undefined, kind = 'corrections'): EvalRun =>
+const testRun = (s: CorrectedComparisonSummary | undefined, kind = 'corrections'): TestRun =>
   ({
     id: 'eval-1',
-    runId: 'eval-1',
+    testRunId: 'eval-1',
     kind,
     status: 'completed',
     ...(s !== undefined && { result: { summary: s, perCase: [] } }),
   }) as never;
 
 const promote = (body: Record<string, unknown> = {}) =>
-  post({ version: '1.2.0', scope: PROJECT_SCOPE, evalRunId: 'eval-1', ...body });
+  post({ version: '1.2.0', scope: PROJECT_SCOPE, testRunId: 'eval-1', ...body });
 
 const methods = (calls: { method: string }[]) => calls.map((c) => c.method);
 
@@ -269,7 +269,7 @@ describe('POST /v1/agents/:agentId/promotions, through the gate', () => {
     const { app, calls } = setup();
     const res = await app.request(
       `/v1/agents/${AGENT}/promotions`,
-      promote({ evalRunId: undefined }),
+      promote({ testRunId: undefined }),
     );
     expect(res.status).toBe(201);
     expect(await res.json()).toMatchObject({ status: 'promoted', policy: null, checks: [] });
@@ -286,7 +286,7 @@ describe('POST /v1/agents/:agentId/promotions, through the gate', () => {
     const { app, calls } = setup({ request: false });
     const res = await app.request(
       `/v1/agents/${AGENT}/promotions`,
-      promote({ evalRunId: undefined }),
+      promote({ testRunId: undefined }),
     );
     expect(res.status).toBe(201);
     expect(methods(calls)).toEqual(['policy.resolve', 'promote']);
@@ -306,7 +306,7 @@ describe('POST /v1/agents/:agentId/promotions, through the gate', () => {
   test('the gate passes: 201 promoted, with the policy and its checks', async () => {
     const { app, calls, state } = setup();
     state.policy = policy(PASSING);
-    state.evalRun = evalRun(summary());
+    state.testRun = testRun(summary());
     const res = await app.request(`/v1/agents/${AGENT}/promotions`, promote());
     expect(res.status).toBe(201);
     const body = (await res.json()) as Record<string, unknown>;
@@ -317,13 +317,13 @@ describe('POST /v1/agents/:agentId/promotions, through the gate', () => {
     expect((body.checks as { passed: boolean }[]).every((c) => c.passed)).toBe(true);
     const request = calls.find((c) => c.method === 'request')?.input as PromotionRequestInput;
     expect(request.gate).toMatchObject({ passed: true, servingVersion: '1.1.0' });
-    expect(request.evalRunId).toBe('eval-1');
+    expect(request.testRunId).toBe('eval-1');
   });
 
   test('the gate passes and the policy wants an approval: 202, with the approval id', async () => {
     const { app, calls, state } = setup();
     state.policy = policy({ ...PASSING, approvals: { role: 'admin' } });
-    state.evalRun = evalRun(summary());
+    state.testRun = testRun(summary());
     const res = await app.request(`/v1/agents/${AGENT}/promotions`, promote());
     expect(res.status).toBe(202);
     expect(await res.json()).toMatchObject({ status: 'pending-approval', approvalId: 'appr-1' });
@@ -334,7 +334,7 @@ describe('POST /v1/agents/:agentId/promotions, through the gate', () => {
   test('the gate fails: 422 gate-failed, the refusal recorded, every check in the details', async () => {
     const { app, calls, state } = setup();
     state.policy = policy(FAILING);
-    state.evalRun = evalRun(summary());
+    state.testRun = testRun(summary());
     const res = await app.request(`/v1/agents/${AGENT}/promotions`, promote());
     expect(res.status).toBe(422);
     const { error } = (await res.json()) as {
@@ -358,7 +358,7 @@ describe('POST /v1/agents/:agentId/promotions, through the gate', () => {
     const { app, calls, state } = setup();
     state.policy = policy(PASSING);
     state.resolved = { version: '1.1.0' as Semver, scope: PROJECT_SCOPE as LiveScope };
-    state.evalRun = evalRun(summary());
+    state.testRun = testRun(summary());
     const scope = {
       kind: 'segment',
       projectId: PROJECT,
@@ -377,14 +377,14 @@ describe('POST /v1/agents/:agentId/promotions, through the gate', () => {
     const { app, calls, state } = setup();
     const org = { kind: 'org', orgId: ORG };
     state.policy = policy(PASSING, org as LiveScope);
-    state.evalRun = evalRun(summary());
+    state.testRun = testRun(summary());
     state.projectOrg = ORG;
     const res = await app.request(`/v1/agents/${AGENT}/promotions`, promote({ scope: org }));
     expect(res.status).toBe(201);
     expect(calls.find((c) => c.method === 'projects.get')?.input).toBe(PROJECT);
   });
 
-  test('an unknown eval run → 404; one that is not a comparison → 400; nothing recorded', async () => {
+  test('an unknown test run → 404; one that is not a comparison → 400; nothing recorded', async () => {
     const missing = setup();
     missing.state.policy = policy(PASSING);
     const res404 = await missing.app.request(`/v1/agents/${AGENT}/promotions`, promote());
@@ -393,7 +393,7 @@ describe('POST /v1/agents/:agentId/promotions, through the gate', () => {
 
     const accuracy = setup();
     accuracy.state.policy = policy(PASSING);
-    accuracy.state.evalRun = evalRun(undefined, 'accuracy');
+    accuracy.state.testRun = testRun(undefined, 'accuracy');
     const res400 = await accuracy.app.request(`/v1/agents/${AGENT}/promotions`, promote());
     expect(res400.status).toBe(400);
     expect(methods(accuracy.calls)).not.toContain('request');
@@ -410,7 +410,7 @@ describe('POST /v1/agents/:agentId/promotions, through the gate', () => {
   test('the scope moved on while the gate ran → 409 promotion-superseded', async () => {
     const { app, state } = setup();
     state.policy = policy(PASSING);
-    state.evalRun = evalRun(summary());
+    state.testRun = testRun(summary());
     state.requestError = { code: 'promotion-superseded', message: 'moved' };
     const res = await app.request(`/v1/agents/${AGENT}/promotions`, promote());
     expect(res.status).toBe(409);
@@ -419,7 +419,7 @@ describe('POST /v1/agents/:agentId/promotions, through the gate', () => {
   test("the gate wants an approval past the tenant's limit on approvals waiting → 429, naming it", async () => {
     const { app, state } = setup();
     state.policy = policy({ ...PASSING, approvals: {} });
-    state.evalRun = evalRun(summary());
+    state.testRun = testRun(summary());
     state.requestError = {
       code: 'approvals-pending-limit',
       message: "This tenant's limit on approvals waiting for a decision (5) is reached.",
@@ -440,7 +440,7 @@ describe('POST /v1/agents/:agentId/promotions/check', () => {
   ] as const)('%s, recording nothing', async (outcome, spec) => {
     const { app, calls, state } = setup();
     state.policy = policy(spec);
-    state.evalRun = evalRun(summary());
+    state.testRun = testRun(summary());
     const res = await app.request(`/v1/agents/${AGENT}/promotions/check`, promote());
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
@@ -530,7 +530,7 @@ describe('a pin in place (T288): the scope has no pin of its own and serves the 
       pinInPlace: true,
     });
     expect(requested.gate.approval).toBeUndefined();
-    expect(methods(calls)).not.toContain('evalRuns.get');
+    expect(methods(calls)).not.toContain('testRuns.get');
   });
 
   test('serving it from a pin above counts too', async () => {

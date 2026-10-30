@@ -86,7 +86,7 @@ export interface InvokeAgentInput {
    */
   readonly parent?: ParentRunRef;
   /**
-   * Marks the turn as a replay: an eval run re-running a past run (`of`)
+   * Marks the turn as a replay: a test run re-running a past run (`of`)
    * on this agent version. Recorded on the turn's run and in its snapshot.
    * Its tool calls are decided by `InvokeAgentBindings.replay` (every call
    * is refused when that isn't wired), and only a read-only tool can run.

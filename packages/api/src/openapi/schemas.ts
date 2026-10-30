@@ -394,7 +394,7 @@ export const PromotionSchema: JsonSchema = {
       },
     },
     reason: { type: 'string' },
-    evalRunId: { type: 'string', description: 'The comparison behind the change.' },
+    testRunId: { type: 'string', description: 'The comparison behind the change.' },
     createdAt: { type: 'string', format: 'date-time' },
     status: {
       type: 'string',
@@ -644,7 +644,7 @@ export const GatePolicySpecSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`evalRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.',
+    'What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.',
   properties: {
     comparison: {
       type: 'object',
@@ -791,7 +791,7 @@ export const PromoteBodySchema: JsonSchema = {
     },
     scope: { $ref: '#/components/schemas/LiveScope' },
     reason: { type: 'string', maxLength: 2000 },
-    evalRunId: { type: 'string', description: 'The comparison behind this promotion.' },
+    testRunId: { type: 'string', description: 'The comparison behind this promotion.' },
   },
 };
 
@@ -1114,7 +1114,7 @@ export const RunSchema: JsonSchema = {
     actsFor: {
       type: 'string',
       description:
-        "Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.",
+        "Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.",
     },
     toolsAllowedUnattended: {
       type: 'array',
@@ -1125,11 +1125,11 @@ export const RunSchema: JsonSchema = {
     replayOf: {
       type: 'string',
       format: 'uuid',
-      description: 'Set on a replay run (an eval run re-running a past run): the run it replays.',
+      description: 'Set on a replay run (a test run re-running a past run): the run it replays.',
     },
-    evalRunId: {
+    testRunId: {
       type: 'string',
-      description: 'Set on a replay run: the eval run that started it.',
+      description: 'Set on a replay run: the test run that started it.',
     },
     versions: { $ref: '#/components/schemas/FlowVersionOverrides' },
     segments: {
@@ -5814,7 +5814,7 @@ export const CorrectedEvalCaseSchema: JsonSchema = {
       type: 'boolean',
       const: true,
       description:
-        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and eval runs leave it out (counted as `erased`).",
+        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and test runs leave it out (counted as `erased`).",
     },
   },
 };
@@ -6582,7 +6582,7 @@ export const SuggestedChangeStatusSchema: JsonSchema = {
     'withdrawn',
   ],
   description:
-    "Where a suggested change stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `pinned`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the suggested change. `withdrawn`: withdrawn.",
+    "Where a suggested change stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `pinned`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: only on an older suggested change rolled back by its own `rollback`, which is removed; a rollback today goes through the agent's live routes and leaves it `pinned`. `withdrawn`: withdrawn.",
 };
 
 export const SuggestedChangeBlockEditSchema: JsonSchema = {
@@ -6608,7 +6608,7 @@ export const SuggestedChangeBlockEditSchema: JsonSchema = {
   },
 };
 
-export const SuggestedChangeDrafterSchema: JsonSchema = {
+export const SuggestedChangeMadeBySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['kind'],
@@ -6624,10 +6624,10 @@ export const SuggestedChangeDrafterSchema: JsonSchema = {
       description: 'For a drafter that used a model: which.',
       properties: { providerId: { type: 'string' }, model: { type: 'string' } },
     },
-    passId: {
+    improveRunId: {
       type: 'string',
       description:
-        'For a drafter: the improvement pass that drafted it (`GET /v1/improvement-passes/{passId}`).',
+        'For a drafter: the Improve run that drafted it (`GET /v1/improve-runs/{improveRunId}`).',
     },
   },
 };
@@ -6641,7 +6641,7 @@ export const SuggestedChangeEvidenceSchema: JsonSchema = {
       type: 'array',
       items: { type: 'string' },
       description:
-        "The corrections it fixes, by id. An improvement pass's suggested change names the corrections it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items corrected as wrong, then the rest.",
+        "The corrections it fixes, by id. An Improve run's suggested change names the corrections it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt Improve run, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items corrected as wrong, then the rest.",
     },
     correctionCount: {
       type: 'integer',
@@ -6675,18 +6675,18 @@ export const SuggestedChangeCandidateSchema: JsonSchema = {
 export const SuggestedChangeEvaluationSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['evalRunId', 'testSetId', 'objective', 'startedAt'],
+  required: ['testRunId', 'testSetId', 'objective', 'startedAt'],
   description:
-    "The comparison the suggested change was evaluated with, and what it found on the objective metric (the full summary is the eval run's).",
+    "The comparison the suggested change was evaluated with, and what it found on the objective metric (the full summary is the test run's).",
   properties: {
-    evalRunId: { type: 'string', format: 'uuid' },
+    testRunId: { type: 'string', format: 'uuid' },
     testSetId: { type: 'string', description: 'The test set (a corrections test set).' },
     objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
     startedAt: { type: 'string', format: 'date-time' },
     runStatus: {
       type: 'string',
       enum: ['pending', 'running', 'completed', 'failed', 'cancelled'],
-      description: "The eval run's status. Absent when the run can't be read.",
+      description: "The test run's status. Absent when the run can't be read.",
     },
     baseline: {
       type: ['number', 'null'],
@@ -6781,8 +6781,8 @@ export const SuggestedChangeSchema: JsonSchema = {
     'scope',
     'tier',
     'change',
-    'hypothesis',
-    'drafter',
+    'why',
+    'madeBy',
     'status',
     'createdAt',
     'updatedAt',
@@ -6794,9 +6794,9 @@ export const SuggestedChangeSchema: JsonSchema = {
     scope: { $ref: '#/components/schemas/LiveScope' },
     tier: { $ref: '#/components/schemas/SuggestedChangeTier' },
     change: { $ref: '#/components/schemas/SuggestedChangeBlockEdit' },
-    hypothesis: { type: 'string', description: 'What the change should improve, and why.' },
+    why: { type: 'string', description: 'What the change should improve, and why.' },
     evidence: { $ref: '#/components/schemas/SuggestedChangeEvidence' },
-    drafter: { $ref: '#/components/schemas/SuggestedChangeDrafter' },
+    madeBy: { $ref: '#/components/schemas/SuggestedChangeMadeBy' },
     status: { $ref: '#/components/schemas/SuggestedChangeStatus' },
     candidate: { $ref: '#/components/schemas/SuggestedChangeCandidate' },
     evaluation: { $ref: '#/components/schemas/SuggestedChangeEvaluation' },
@@ -6847,7 +6847,7 @@ export const ImprovementBudgetSchema: JsonSchema = {
       type: 'number',
       exclusiveMinimum: 0,
       maximum: 100,
-      description: "The most the pass's comparisons may cost, in US dollars.",
+      description: "The most the Improve run's comparisons may cost, in US dollars.",
     },
     maxCandidates: {
       type: 'integer',
@@ -6858,14 +6858,14 @@ export const ImprovementBudgetSchema: JsonSchema = {
   },
 };
 
-export const ImprovementPassOutcomeSchema: JsonSchema = {
+export const ImproveRunOutcomeSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['kind'],
   description:
-    "What a finished pass found. `proposed`: its best candidate beat the current values on the test set's hold-out part, so it wrote a suggested change (`suggestedChangeId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.",
+    "What a finished Improve run found. `suggested`: its best candidate beat the current values on the test set's hold-out part, so it wrote a suggested change (`suggestedChangeId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.",
   properties: {
-    kind: { type: 'string', enum: ['proposed', 'nothing-found', 'failed'] },
+    kind: { type: 'string', enum: ['suggested', 'nothing-found', 'failed'] },
     suggestedChangeId: { type: 'string', format: 'uuid' },
     reason: { type: 'string' },
     holdOut: {
@@ -6883,11 +6883,11 @@ export const ImprovementPassOutcomeSchema: JsonSchema = {
   },
 };
 
-export const ImprovementPassSchema: JsonSchema = {
+export const ImproveRunSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes a suggested change.",
+    "An Improve run: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes a suggested change.",
   required: [
     'id',
     'agentId',
@@ -6922,36 +6922,36 @@ export const ImprovementPassSchema: JsonSchema = {
       type: 'object',
       additionalProperties: false,
       required: ['providerId', 'model'],
-      description: 'For a prompt pass: the provider and model that drafts the templates.',
+      description: 'For a prompt Improve run: the provider and model that drafts the templates.',
       properties: { providerId: { type: 'string' }, model: { type: 'string' } },
     },
     candidates: {
       type: 'integer',
       minimum: 1,
       maximum: 5,
-      description: 'For a prompt pass: how many templates it drafts.',
+      description: 'For a prompt Improve run: how many templates it drafts.',
     },
     budget: { $ref: '#/components/schemas/ImprovementBudget' },
     requestedBy: { type: 'string' },
     status: { type: 'string', enum: ['running', 'completed', 'failed', 'cancelled'] },
     candidatesEvaluated: { type: 'integer', minimum: 0 },
     costUsd: { type: 'string', description: 'What its comparisons have cost so far (US dollars).' },
-    outcome: { $ref: '#/components/schemas/ImprovementPassOutcome' },
+    outcome: { $ref: '#/components/schemas/ImproveRunOutcome' },
     cancelReason: {
       type: 'string',
       description:
-        "Why a `cancelled` pass stopped when nobody cancelled it: a comparison's eval run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no suggested change. Absent when it was cancelled.",
+        "Why a `cancelled` Improve run stopped when nobody cancelled it: a comparison's test run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no suggested change. Absent when it was cancelled.",
     },
     comparisons: {
       type: 'array',
       description:
-        'Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the suggested change, on the hold-out part). Absent from older servers.',
+        'Its comparisons so far, each a test run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the suggested change, on the hold-out part). Absent from older servers.',
       items: {
         type: 'object',
         additionalProperties: false,
         required: ['role', 'part'],
         properties: {
-          evalRunId: { type: 'string', format: 'uuid' },
+          testRunId: { type: 'string', format: 'uuid' },
           role: { type: 'string', enum: ['reference', 'candidate', 'proof'] },
           part: { type: 'string', enum: ['search', 'hold-out'] },
           blockId: { type: 'string' },
@@ -6969,7 +6969,7 @@ export const ImprovementPassSchema: JsonSchema = {
               properties: { path: { type: 'string' }, message: { type: 'string' } },
             },
           },
-          hypothesis: {
+          why: {
             type: 'string',
             description: 'For a drafted template: what the drafter meant it to change.',
           },
@@ -6981,7 +6981,7 @@ export const ImprovementPassSchema: JsonSchema = {
       additionalProperties: false,
       required: ['triggerId', 'fireId'],
       description:
-        'The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for a pass a person started.',
+        'The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for an Improve run a person started.',
       properties: { triggerId: { type: 'string' }, fireId: { type: 'string' } },
     },
     createdAt: { type: 'string', format: 'date-time' },
@@ -6990,22 +6990,22 @@ export const ImprovementPassSchema: JsonSchema = {
   },
 };
 
-export const ImprovementPassCollectionPageSchema: JsonSchema = {
+export const ImproveRunCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/ImprovementPass' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/ImproveRun' } },
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
   },
 };
 
-export const ImproveBodySchema: JsonSchema = {
+export const StartImproveRunBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['agentId', 'scope', 'testSetId'],
-  description: 'Start an improvement pass.',
+  description: 'Start an Improve run.',
   properties: {
     agentId: { type: 'string' },
     fromVersion: {
@@ -7016,13 +7016,13 @@ export const ImproveBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The project the pass works in: `testSetId` must be a test set it reaches, the version must reach it, and the pass's eval runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.",
+        "The project the Improve run works in: `testSetId` must be a test set it reaches, the version must reach it, and the Improve run's test runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.",
     },
     scope: { $ref: '#/components/schemas/LiveScope' },
     testSetId: {
       type: 'string',
       description:
-        'The test set (a corrections test set). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.',
+        'The test set (a corrections test set). The Improve run splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.',
     },
     tiers: {
       type: 'array',
@@ -7037,7 +7037,8 @@ export const ImproveBodySchema: JsonSchema = {
       type: 'object',
       additionalProperties: false,
       required: ['providerId', 'model'],
-      description: "For a prompt pass: the tenant's provider and model that drafts the templates.",
+      description:
+        "For a prompt Improve run: the tenant's provider and model that drafts the templates.",
       properties: { providerId: { type: 'string' }, model: { type: 'string' } },
     },
     candidates: {
@@ -7045,13 +7046,13 @@ export const ImproveBodySchema: JsonSchema = {
       minimum: 1,
       maximum: 5,
       default: 3,
-      description: 'For a prompt pass: how many templates it drafts.',
+      description: 'For a prompt Improve run: how many templates it drafts.',
     },
     groupWeights: {
       type: 'string',
       enum: ['as-recorded', 'experts-only'],
       description:
-        "Which corrections the pass learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the pass reads its corrections from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has an expert group, then only corrections recorded under one (`experts-only`).",
+        "Which corrections the Improve run learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the Improve run reads its corrections from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has an expert group, then only corrections recorded under one (`experts-only`).",
     },
     objective: {
       type: 'string',
@@ -7070,11 +7071,11 @@ export const ImproveBodySchema: JsonSchema = {
   },
 };
 
-export const ImprovementPassEstimateSchema: JsonSchema = {
+export const ImproveRunCheckSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "What a pass this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.",
+    "What an Improve run this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.",
   required: ['maxCostUsd', 'basis'],
   properties: {
     estimatedCostUsd: {
@@ -7095,7 +7096,7 @@ export const ImprovementPassEstimateSchema: JsonSchema = {
         replays: {
           type: 'integer',
           minimum: 0,
-          description: "How many replay runs the pass's comparisons would make.",
+          description: "How many replay runs the Improve run's comparisons would make.",
         },
         meanRunCostUsd: {
           type: 'string',
@@ -7112,7 +7113,7 @@ export const CreateSuggestedChangeBodySchema: JsonSchema = {
     'A hand-written suggested change: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one suggested change (answered with `X-Suggested-Change-Deduped: true`).',
   type: 'object',
   additionalProperties: false,
-  required: ['agentId', 'fromVersion', 'scope', 'tier', 'change', 'hypothesis'],
+  required: ['agentId', 'fromVersion', 'scope', 'tier', 'change', 'why'],
   properties: {
     agentId: { type: 'string' },
     fromVersion: { type: 'string', description: 'The agent version the change applies to.' },
@@ -7136,7 +7137,7 @@ export const CreateSuggestedChangeBodySchema: JsonSchema = {
         },
       },
     },
-    hypothesis: { type: 'string', minLength: 1, maxLength: 2000 },
+    why: { type: 'string', minLength: 1, maxLength: 2000 },
     evidence: {
       type: 'object',
       additionalProperties: false,
@@ -9308,19 +9309,19 @@ export const ReinstateBlockResultSchema: JsonSchema = {
   },
 };
 
-// ---------------- eval runs (admin plane) ----------------
+// ---------------- test runs (admin plane) ----------------
 
 /**
- * Terminal + pre-terminal statuses for an eval run. Same vocabulary as
+ * Terminal + pre-terminal statuses for a test run. Same vocabulary as
  * runs, plus a `pending` state for dispatchers that queue before
  * executing.
  */
-export const EvalRunStatusSchema: JsonSchema = {
+export const TestRunStatusSchema: JsonSchema = {
   type: 'string',
   enum: ['pending', 'running', 'completed', 'failed', 'cancelled'],
 };
 
-export const EvalRunAgentRefSchema: JsonSchema = {
+export const TestRunAgentRefSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['agentId'],
@@ -9330,7 +9331,7 @@ export const EvalRunAgentRefSchema: JsonSchema = {
   },
 };
 
-export const EvalRunFlowRefSchema: JsonSchema = {
+export const TestRunFlowRefSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['flowId'],
@@ -9379,7 +9380,7 @@ export const EvalOverridesSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "For an agent candidate: block content its replays run instead of the version's pinned content (an improvement pass's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a promotion.",
+    "For an agent candidate: block content its replays run instead of the version's pinned content (an Improve run's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a promotion.",
   properties: {
     settings: {
       type: 'object',
@@ -9416,7 +9417,7 @@ export const EvalComparisonSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['baseline', 'reads', 'repetitions', 'k'],
-  description: "A comparison eval run's settings (a `corrections` test set).",
+  description: "A comparison test run's settings (a `corrections` test set).",
   properties: {
     baseline: { $ref: '#/components/schemas/EvalBaseline' },
     reads: {
@@ -9439,12 +9440,12 @@ export const EvalComparisonSchema: JsonSchema = {
     rescoreOf: {
       type: 'string',
       description:
-        "Rescore that comparison eval run instead of replaying: its replays' outputs are scored again, with the corrections recorded on them since (a changed answer corrected on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/eval-runs/{runId}/rescore`.",
+        "Rescore that comparison test run instead of replaying: its replays' outputs are scored again, with the corrections recorded on them since (a changed answer corrected on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/test-runs/{testRunId}/rescore`.",
     },
   },
 };
 
-// ---------------- comparison results (a `corrections` eval run's `result`) ----------------
+// ---------------- comparison results (a `corrections` test run's `result`) ----------------
 
 const nullableNumber = { type: ['number', 'null'] } as const;
 
@@ -9539,7 +9540,7 @@ export const CorrectedComparisonSummarySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: [
-    'evalRunId',
+    'testRunId',
     'status',
     'completedAt',
     'testSet',
@@ -9557,7 +9558,7 @@ export const CorrectedComparisonSummarySchema: JsonSchema = {
     'metrics',
   ],
   properties: {
-    evalRunId: { type: 'string' },
+    testRunId: { type: 'string' },
     status: { type: 'string', enum: ['completed', 'partial', 'failed'] },
     completedAt: { type: 'string', format: 'date-time' },
     testSet: {
@@ -9634,7 +9635,7 @@ export const CorrectedComparisonSummarySchema: JsonSchema = {
     },
     rescoreOf: {
       type: 'string',
-      description: 'A rescore: the comparison eval run whose replays it scored again.',
+      description: 'A rescore: the comparison test run whose replays it scored again.',
     },
     notRescored: {
       type: 'integer',
@@ -9708,7 +9709,7 @@ export const CorrectedComparisonSummarySchema: JsonSchema = {
         results: {
           type: 'array',
           description:
-            'Each correction graded: whether it passed (every repetition did). What an improvement pass compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.',
+            'Each correction graded: whether it passed (every repetition did). What an Improve run compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.',
           items: {
             type: 'object',
             additionalProperties: false,
@@ -9948,10 +9949,10 @@ export const ComparisonCaseResultSchema: JsonSchema = {
   },
 };
 
-export const RescoreEvalRunBodySchema: JsonSchema = {
+export const RescoreTestRunBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  description: 'Body of `POST /v1/eval-runs/{runId}/rescore`: optional.',
+  description: 'Body of `POST /v1/test-runs/{testRunId}/rescore`: optional.',
   properties: {
     projectId: {
       type: 'string',
@@ -9963,7 +9964,7 @@ export const RescoreEvalRunBodySchema: JsonSchema = {
 
 export const CorrectedComparisonResultSchema: JsonSchema = {
   description:
-    "A comparison's `result` (a `corrections` eval run's): the summary and each case. `EvalRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).",
+    "A comparison's `result` (a `corrections` test run's): the summary and each case. `TestRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).",
   type: 'object',
   additionalProperties: false,
   required: ['summary', 'perCase'],
@@ -9973,11 +9974,11 @@ export const CorrectedComparisonResultSchema: JsonSchema = {
   },
 };
 
-export const EvalRunSchema: JsonSchema = {
+export const TestRunSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: [
-    'runId',
+    'testRunId',
     'tenantId',
     'testSetId',
     'testSetVersion',
@@ -9987,20 +9988,20 @@ export const EvalRunSchema: JsonSchema = {
     'startedAt',
   ],
   properties: {
-    runId: { type: 'string', format: 'uuid' },
+    testRunId: { type: 'string', format: 'uuid' },
     tenantId: { type: 'string', format: 'uuid' },
     projectId: {
       type: 'string',
       format: 'uuid',
       description:
-        'The project the eval run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6.',
+        'The project the test run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6.',
     },
     testSetId: { type: 'string' },
     testSetVersion: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
     kind: { $ref: '#/components/schemas/EvalKind' },
-    agentRef: { $ref: '#/components/schemas/EvalRunAgentRef' },
-    flowRef: { $ref: '#/components/schemas/EvalRunFlowRef' },
-    status: EvalRunStatusSchema,
+    agentRef: { $ref: '#/components/schemas/TestRunAgentRef' },
+    flowRef: { $ref: '#/components/schemas/TestRunFlowRef' },
+    status: TestRunStatusSchema,
     dryRun: { type: 'boolean' },
     startedAt: { type: 'string', format: 'date-time' },
     completedAt: { type: 'string', format: 'date-time' },
@@ -10021,25 +10022,25 @@ export const EvalRunSchema: JsonSchema = {
   },
 };
 
-export const EvalRunCollectionPageSchema: JsonSchema = {
+export const TestRunCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/EvalRun' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/TestRun' } },
     nextCursor: { type: 'string' },
     hasMore: { type: 'boolean' },
   },
 };
 
-export const StartEvalRunBodySchema: JsonSchema = {
+export const StartTestRunBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['projectId'],
   properties: {
     projectId: ContentProjectIdProperty,
-    agentRef: { $ref: '#/components/schemas/EvalRunAgentRef' },
-    flowRef: { $ref: '#/components/schemas/EvalRunFlowRef' },
+    agentRef: { $ref: '#/components/schemas/TestRunAgentRef' },
+    flowRef: { $ref: '#/components/schemas/TestRunFlowRef' },
     dryRun: { type: 'boolean' },
     correlationId: { type: 'string' },
     baseline: { $ref: '#/components/schemas/EvalBaseline' },
@@ -10060,12 +10061,12 @@ export const StartEvalRunBodySchema: JsonSchema = {
     "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `corrections` test set (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).",
 };
 
-export const StartEvalRunResultSchema: JsonSchema = {
+export const StartTestRunResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['runId'],
+  required: ['testRunId'],
   properties: {
-    runId: { type: 'string', format: 'uuid' },
+    testRunId: { type: 'string', format: 'uuid' },
     dryRunPreview: { type: 'object', additionalProperties: true },
   },
 };
@@ -14003,7 +14004,7 @@ export const ImproveScheduleTargetSchema: JsonSchema = {
   additionalProperties: false,
   required: ['agentId', 'scope'],
   description:
-    'What an improve schedule works on: the agent, and the live scope its passes suggest changes for and count corrections in.',
+    'What an improve schedule works on: the agent, and the live scope its Improve runs suggest changes for and count corrections in.',
   properties: {
     agentId: { type: 'string', minLength: 1 },
     scope: { $ref: '#/components/schemas/LiveScope' },
@@ -14030,7 +14031,7 @@ export const ImproveScheduleInputSchema: JsonSchema = {
       type: 'object',
       additionalProperties: false,
       description:
-        "Each pass's budget (default $5 and 30 candidates), never more than what's left of the month's cap.",
+        "Each Improve run's budget (default $5 and 30 candidates), never more than what's left of the month's cap.",
       properties: {
         maxCostUsd: { type: 'number', exclusiveMinimum: 0, maximum: 100 },
         maxCandidates: { type: 'integer', minimum: 1, maximum: 200 },
@@ -14050,7 +14051,7 @@ export const ImproveScheduleInputSchema: JsonSchema = {
       type: 'number',
       exclusiveMinimum: 0,
       maximum: 1000,
-      description: 'The most its passes may cost in a calendar month (UTC). Default 20.',
+      description: 'The most its Improve runs may cost in a calendar month (UTC). Default 20.',
     },
   },
 };
@@ -14090,7 +14091,7 @@ export const ScheduleFireSchema: JsonSchema = {
         'failed',
       ],
       description:
-        "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or pass started; its run or pass hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.",
+        "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or Improve run started; its run or Improve run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
     version: {
@@ -14099,10 +14100,10 @@ export const ScheduleFireSchema: JsonSchema = {
       description:
         "The trigger's version its run started with: the newest when it started. Absent until the run starts.",
     },
-    passId: {
+    improveRunId: {
       type: 'string',
       format: 'uuid',
-      description: 'The improvement pass it started (an improve schedule).',
+      description: 'The Improve run it started (an improve schedule).',
     },
     detail: { type: 'string', description: 'Why it was refused, skipped or failed.' },
     countsTowardPause: COUNTS_TOWARD_PAUSE,
@@ -14141,7 +14142,7 @@ export const RegisterScheduleBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'Name what it runs: `flowId` with `flowVersion`, `agentId` (with an optional `agentVersion`), or `improve` (improvement passes). Registering needs `write` on the project and `execute` on what it runs (`publish` on the agent for `improve`); its runs act as the caller.',
+    'Name what it runs: `flowId` with `flowVersion`, `agentId` (with an optional `agentVersion`), or `improve` (Improve runs). Registering needs `write` on the project and `execute` on what it runs (`publish` on the agent for `improve`); its runs act as the caller.',
   required: ['config'],
   properties: {
     flowId: { type: 'string', minLength: 1, description: 'Run a flow (with `flowVersion`).' },
@@ -14155,7 +14156,7 @@ export const RegisterScheduleBodySchema: JsonSchema = {
     improve: {
       $ref: '#/components/schemas/ImproveScheduleTarget',
       description:
-        'Start an improvement pass instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the pass options; registering needs `publish` on the agent.',
+        'Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `publish` on the agent.',
     },
     projectId: {
       type: 'string',
@@ -14218,7 +14219,7 @@ export const PatchScheduleBodySchema: JsonSchema = {
     improve: {
       $ref: '#/components/schemas/ImproveScheduleTarget',
       description:
-        'Start an improvement pass instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the pass options; registering needs `publish` on the agent.',
+        'Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `publish` on the agent.',
     },
     config: {
       type: 'object',
@@ -15216,7 +15217,7 @@ export const MailTriggerVersionPageSchema: JsonSchema =
 
 export const WebhookEventTypeSchema: JsonSchema = {
   type: 'string',
-  enum: ['run.finished', 'improvement-pass.finished', 'approval.requested'],
+  enum: ['run.finished', 'improve-run.finished', 'approval.requested'],
   description: 'An event type an endpoint can subscribe to.',
 };
 
@@ -16030,27 +16031,27 @@ export const RunFinishedEventSchema: JsonSchema = {
   },
 };
 
-export const ImprovementPassFinishedEventSchema: JsonSchema = {
+export const ImproveRunFinishedEventSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'type', 'createdAt', 'data'],
   description:
-    'An improvement pass ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the suggested change it wrote, if it wrote one.',
+    'An Improve run ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the suggested change it wrote, if it wrote one.',
   properties: {
     id: {
       type: 'string',
       description: 'Event id, also sent as the `webhook-id` header; the same on every retry.',
     },
-    type: { type: 'string', const: 'improvement-pass.finished' },
+    type: { type: 'string', const: 'improve-run.finished' },
     createdAt: { type: 'string', format: 'date-time' },
     data: {
       type: 'object',
       additionalProperties: false,
-      required: ['pass'],
+      required: ['improveRun'],
       properties: {
-        pass: {
-          $ref: '#/components/schemas/ImprovementPass',
-          description: 'The pass, as `GET /v1/improvement-passes/{passId}` shows it.',
+        improveRun: {
+          $ref: '#/components/schemas/ImproveRun',
+          description: 'The Improve run, as `GET /v1/improve-runs/{improveRunId}` shows it.',
         },
       },
     },
@@ -16126,7 +16127,7 @@ export const WebhookEventSchema: JsonSchema = {
   description: 'The JSON body of every webhook request.',
   oneOf: [
     { $ref: '#/components/schemas/RunFinishedEvent' },
-    { $ref: '#/components/schemas/ImprovementPassFinishedEvent' },
+    { $ref: '#/components/schemas/ImproveRunFinishedEvent' },
     { $ref: '#/components/schemas/ApprovalRequestedEvent' },
     { $ref: '#/components/schemas/WebhookTestEvent' },
   ],
@@ -16134,7 +16135,7 @@ export const WebhookEventSchema: JsonSchema = {
     propertyName: 'type',
     mapping: {
       'run.finished': '#/components/schemas/RunFinishedEvent',
-      'improvement-pass.finished': '#/components/schemas/ImprovementPassFinishedEvent',
+      'improve-run.finished': '#/components/schemas/ImproveRunFinishedEvent',
       'approval.requested': '#/components/schemas/ApprovalRequestedEvent',
       'webhook.test': '#/components/schemas/WebhookTestEvent',
     },
@@ -16587,7 +16588,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SuggestedChangeTier', SuggestedChangeTierSchema],
   ['SuggestedChangeStatus', SuggestedChangeStatusSchema],
   ['SuggestedChangeBlockEdit', SuggestedChangeBlockEditSchema],
-  ['SuggestedChangeDrafter', SuggestedChangeDrafterSchema],
+  ['SuggestedChangeMadeBy', SuggestedChangeMadeBySchema],
   ['SuggestedChangeEvidence', SuggestedChangeEvidenceSchema],
   ['SuggestedChangeCandidate', SuggestedChangeCandidateSchema],
   ['SuggestedChangeEvaluation', SuggestedChangeEvaluationSchema],
@@ -16597,11 +16598,11 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SuggestedChange', SuggestedChangeSchema],
   ['SuggestedChangeCollectionPage', SuggestedChangeCollectionPageSchema],
   ['ImprovementBudget', ImprovementBudgetSchema],
-  ['ImprovementPassOutcome', ImprovementPassOutcomeSchema],
-  ['ImprovementPass', ImprovementPassSchema],
-  ['ImprovementPassCollectionPage', ImprovementPassCollectionPageSchema],
-  ['ImproveBody', ImproveBodySchema],
-  ['ImprovementPassEstimate', ImprovementPassEstimateSchema],
+  ['ImproveRunOutcome', ImproveRunOutcomeSchema],
+  ['ImproveRun', ImproveRunSchema],
+  ['ImproveRunCollectionPage', ImproveRunCollectionPageSchema],
+  ['StartImproveRunBody', StartImproveRunBodySchema],
+  ['ImproveRunCheck', ImproveRunCheckSchema],
   ['CreateSuggestedChangeBody', CreateSuggestedChangeBodySchema],
   ['EvaluateSuggestedChangeBody', EvaluateSuggestedChangeBodySchema],
   ['SuggestedChangeReasonBody', SuggestedChangeReasonBodySchema],
@@ -16705,9 +16706,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PublishBlockResult', PublishBlockResultSchema],
   ['UnregisterBlockResult', UnregisterBlockResultSchema],
   ['ReinstateBlockResult', ReinstateBlockResultSchema],
-  ['EvalRunStatus', EvalRunStatusSchema],
-  ['EvalRunAgentRef', EvalRunAgentRefSchema],
-  ['EvalRunFlowRef', EvalRunFlowRefSchema],
+  ['TestRunStatus', TestRunStatusSchema],
+  ['TestRunAgentRef', TestRunAgentRefSchema],
+  ['TestRunFlowRef', TestRunFlowRefSchema],
   ['EvalBaseline', EvalBaselineSchema],
   ['EvalOverrides', EvalOverridesSchema],
   ['EvalSample', EvalSampleSchema],
@@ -16719,11 +16720,11 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CallDifference', CallDifferenceSchema],
   ['ComparisonCaseResult', ComparisonCaseResultSchema],
   ['CorrectedComparisonResult', CorrectedComparisonResultSchema],
-  ['EvalRun', EvalRunSchema],
-  ['EvalRunCollectionPage', EvalRunCollectionPageSchema],
-  ['StartEvalRunBody', StartEvalRunBodySchema],
-  ['RescoreEvalRunBody', RescoreEvalRunBodySchema],
-  ['StartEvalRunResult', StartEvalRunResultSchema],
+  ['TestRun', TestRunSchema],
+  ['TestRunCollectionPage', TestRunCollectionPageSchema],
+  ['StartTestRunBody', StartTestRunBodySchema],
+  ['RescoreTestRunBody', RescoreTestRunBodySchema],
+  ['StartTestRunResult', StartTestRunResultSchema],
   ['IdentityProviderKind', IdentityProviderKindSchema],
   ['ClaimMappingScopesSpec', ClaimMappingScopesSpecSchema],
   ['ClaimMappingSpec', ClaimMappingSpecSchema],
@@ -17021,7 +17022,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RunTreeUsage', RunTreeUsageSchema],
   ['FinishedRun', FinishedRunSchema],
   ['RunFinishedEvent', RunFinishedEventSchema],
-  ['ImprovementPassFinishedEvent', ImprovementPassFinishedEventSchema],
+  ['ImproveRunFinishedEvent', ImproveRunFinishedEventSchema],
   ['RequestedApproval', RequestedApprovalSchema],
   ['ApprovalRequestedEventData', ApprovalRequestedEventDataSchema],
   ['ApprovalRequestedEvent', ApprovalRequestedEventSchema],

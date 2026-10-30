@@ -132,7 +132,7 @@ export interface Promotion {
   readonly requestedBy: PromotionActor;
   readonly reason?: string;
   /** The comparison behind the change, when there was one. */
-  readonly evalRunId?: string;
+  readonly testRunId?: string;
   readonly createdAt: Timestamp;
   /** A `promote` row's state; absent on a promotion made before gates (`promoted`). */
   readonly status?: PromotionStatus;
@@ -198,7 +198,7 @@ export interface PromoteInput {
   readonly scope: LiveScope;
   readonly requestedBy: PromotionActor;
   readonly reason?: string;
-  readonly evalRunId?: string;
+  readonly testRunId?: string;
 }
 
 /**

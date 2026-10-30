@@ -13,7 +13,6 @@ import type {
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
 import { SCOPE_FLAGS, SCOPE_USAGE, scopeCell, scopeFrom } from './agents.js';
-import { GROUP_WEIGHTS, READS, followEvalRun, oneOfFlag } from './eval-runs.js';
 import {
   type TableSpec,
   integerFlag,
@@ -23,6 +22,7 @@ import {
   runSdk,
   stringFlag,
 } from './helpers.js';
+import { GROUP_WEIGHTS, READS, followTestRun, oneOfFlag } from './test-runs.js';
 import type { Command, LeafCommand } from './types.js';
 
 /**
@@ -176,7 +176,7 @@ const draft: LeafCommand = {
   name: 'draft',
   description:
     "Draft a suggested change by hand: new content for one block the agent version pins (settings values, or the agent's instructions), for one scope. The same change from the same version for the same scope returns the suggested change drafted before. Needs `publish` on the agent.",
-  usage: `kindgi suggested-changes draft --agent=<agent-id> --from-version=<semver> ${SCOPE_USAGE} --block=<block-id> (--values=<json>|@<file> | --template=<text>|@<file>) --hypothesis=<text> [--correction=<correction-id>]…`,
+  usage: `kindgi suggested-changes draft --agent=<agent-id> --from-version=<semver> ${SCOPE_USAGE} --block=<block-id> (--values=<json>|@<file> | --template=<text>|@<file>) --why=<text> [--correction=<correction-id>]…`,
   optionSpec: {
     agent: { type: 'string', description: 'The agent.' },
     'from-version': {
@@ -193,7 +193,7 @@ const draft: LeafCommand = {
       type: 'string',
       description: "The agent's instructions (a prompt block), new text: inline or `@<file>`.",
     },
-    hypothesis: { type: 'string', description: 'What the change should improve, and why.' },
+    why: { type: 'string', description: 'What the change should improve, and why.' },
     correction: {
       type: 'string',
       multiple: true,
@@ -207,7 +207,7 @@ const draft: LeafCommand = {
       const fromVersion = required(ctx, 'from-version');
       const scope = scopeFrom(ctx, true);
       const blockId = required(ctx, 'block');
-      const hypothesis = required(ctx, 'hypothesis');
+      const why = required(ctx, 'why');
       const { tier, content } = await contentFrom(ctx);
       const fixes = listFlag(ctx, 'correction');
       return await ctx.client().suggestedChanges.create({
@@ -216,7 +216,7 @@ const draft: LeafCommand = {
         scope,
         tier,
         change: { blockId, content },
-        hypothesis,
+        why,
         ...(fixes.length > 0 && { evidence: { fixes } }),
         ...idempotency(ctx),
       });
@@ -273,7 +273,7 @@ const evaluate: LeafCommand = {
       const id = requiredPositional(ctx, 0, 'suggested-change-id');
       const suggestedChanges = ctx.client().suggestedChanges;
       const follow = () =>
-        followEvalRun(id, {
+        followTestRun(id, {
           get: (suggestedChangeId) => suggestedChanges.get(suggestedChangeId),
           inProgress: EVALUATING,
           showCommand: 'kindgi suggested-changes get',

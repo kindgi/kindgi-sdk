@@ -6,7 +6,7 @@ package com.kindgi.client;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.kindgi.client.models.EvalRun;
+import com.kindgi.client.models.TestRun;
 import com.kindgi.client.models.CorrectedComparisonResult;
 import java.util.Map;
 import java.util.Optional;
@@ -14,12 +14,12 @@ import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 
 /**
- * {@link Comparisons#comparisonOf} reads a comparison eval run's result as the OpenAPI {@code
+ * {@link Comparisons#comparisonOf} reads a comparison test run's result as the OpenAPI {@code
  * CorrectedComparisonResult}. The run and result below are the same fixture the TypeScript and Python
  * clients' tests use, so the three read it alike.
  */
 class ComparisonsTest {
-  /** A comparison eval run, as the runtime returns it, with its result. */
+  /** A comparison test run, as the runtime returns it, with its result. */
   private static final String JUDGED =
       """
       {
@@ -34,7 +34,7 @@ class ComparisonsTest {
         "startedAt": "2026-10-06T08:00:00Z",
         "result": {
           "summary": {
-            "evalRunId": "er-1",
+            "testRunId": "er-1",
             "status": "completed",
             "completedAt": "2026-10-06T08:00:00.000Z",
             "testSet": { "id": "acme.set", "version": "1.0.0" },
@@ -118,17 +118,17 @@ class ComparisonsTest {
       }
       """;
 
-  /** The run with its map edited, round-tripped back to an {@link EvalRun}. */
-  private static EvalRun runWith(Consumer<Map<String, Object>> edit) {
+  /** The run with its map edited, round-tripped back to an {@link TestRun}. */
+  private static TestRun runWith(Consumer<Map<String, Object>> edit) {
     @SuppressWarnings("unchecked")
     Map<String, Object> map = KindgiJson.read(JUDGED, Map.class);
     edit.accept(map);
-    return KindgiJson.read(KindgiJson.write(map), EvalRun.class);
+    return KindgiJson.read(KindgiJson.write(map), TestRun.class);
   }
 
   @Test
   void readsAComparisonsResultTyped() {
-    EvalRun judged = KindgiJson.read(JUDGED, EvalRun.class);
+    TestRun judged = KindgiJson.read(JUDGED, TestRun.class);
 
     Optional<CorrectedComparisonResult> result = Comparisons.comparisonOf(judged);
 
@@ -148,11 +148,11 @@ class ComparisonsTest {
     // summary, and a result with no perCase list.
 
     // Another kind of run, but with the judged result kept — only the kind guard makes it empty.
-    EvalRun otherKind = runWith(run -> run.put("kind", "accuracy"));
+    TestRun otherKind = runWith(run -> run.put("kind", "accuracy"));
     assertThat(Comparisons.comparisonOf(otherKind)).isEmpty();
 
     // A judged run that hasn't finished — no result yet — only the result-present guard.
-    EvalRun unfinished =
+    TestRun unfinished =
         runWith(
             run -> {
               run.put("status", "running");
@@ -162,7 +162,7 @@ class ComparisonsTest {
 
     // A judged run whose result has the perCase list but no summary — only the summary guard.
     // Without that guard this would throw (summary is required), not return empty.
-    EvalRun noSummary =
+    TestRun noSummary =
         runWith(
             run -> {
               @SuppressWarnings("unchecked")
@@ -172,7 +172,7 @@ class ComparisonsTest {
     assertThat(Comparisons.comparisonOf(noSummary)).isEmpty();
 
     // A judged run whose result has a summary but no perCase list — only the perCase guard.
-    EvalRun noPerCase =
+    TestRun noPerCase =
         runWith(
             run -> {
               @SuppressWarnings("unchecked")
@@ -184,7 +184,7 @@ class ComparisonsTest {
 
   @Test
   void aResultThatDoesNotFitIsAnError() {
-    EvalRun broken =
+    TestRun broken =
         runWith(
             run -> {
               @SuppressWarnings("unchecked")

@@ -32,7 +32,6 @@ import {
   makeEnvironmentOrdersClient,
 } from './resources/environment-orders.js';
 import { type EnvironmentsClient, makeEnvironmentsClient } from './resources/environments.js';
-import { type EvalRunsClient, makeEvalRunsClient } from './resources/eval-runs.js';
 import { type EventsClient, makeEventsClient } from './resources/events.js';
 import {
   type ExportSigningKeysClient,
@@ -42,10 +41,7 @@ import { type FlowsClient, makeFlowsClient } from './resources/flows.js';
 import { type GatePoliciesClient, makeGatePoliciesClient } from './resources/gate-policies.js';
 import { type GuardrailsClient, makeGuardrailsClient } from './resources/guardrails.js';
 import { type IdentityClient, makeIdentityClient } from './resources/identity.js';
-import {
-  type ImprovementPassesClient,
-  makeImprovementPassesClient,
-} from './resources/improvement-passes.js';
+import { type ImproveRunsClient, makeImproveRunsClient } from './resources/improve-runs.js';
 import { type LicenseClient, makeLicenseClient } from './resources/license.js';
 import { type MailTriggersClient, makeMailTriggersClient } from './resources/mail-triggers.js';
 import { type McpClient, makeMcpClient } from './resources/mcp.js';
@@ -55,7 +51,6 @@ import { type OrgsClient, makeOrgsClient } from './resources/orgs.js';
 import { type PacksClient, makePacksClient } from './resources/packs.js';
 import { type PoliciesClient, makePoliciesClient } from './resources/policies.js';
 import { type ProjectsClient, makeProjectsClient } from './resources/projects.js';
-import { type ProposalsClient, makeProposalsClient } from './resources/proposals.js';
 import { type ProvenanceClient, makeProvenanceClient } from './resources/provenance.js';
 import { type ProvidersClient, makeProvidersClient } from './resources/providers.js';
 import { type RetentionClient, makeRetentionClient } from './resources/retention.js';
@@ -81,6 +76,7 @@ import { type SystemKeysClient, makeSystemKeysClient } from './resources/system-
 import { type SystemTenantsClient, makeSystemTenantsClient } from './resources/system-tenants.js';
 import { type TeamsClient, makeTeamsClient } from './resources/teams.js';
 import { type TenantClient, makeTenantClient } from './resources/tenant.js';
+import { type TestRunsClient, makeTestRunsClient } from './resources/test-runs.js';
 import { type TestSetsClient, makeTestSetsClient } from './resources/test-sets.js';
 import { type TokensClient, makeTokensClient } from './resources/tokens.js';
 import { type ToolsClient, makeToolsClient } from './resources/tools.js';
@@ -123,10 +119,8 @@ export interface KindgiClient {
   readonly supervisor: SupervisorClient;
   /** Suggested changes: new content for a data block, evaluated, then pinned for a scope. */
   readonly suggestedChanges: SuggestedChangesClient;
-  /** Improve runs, started with `proposals.improve` (for now). */
-  readonly proposals: ProposalsClient;
-  /** Improvement passes, started with `proposals.improve`. */
-  readonly improvementPasses: ImprovementPassesClient;
+  /** Improve runs: start, check, list, get and cancel. */
+  readonly improveRuns: ImproveRunsClient;
   readonly observations: ObservationsClient;
   readonly approvals: ApprovalsClient;
   // Platform & configuration
@@ -154,7 +148,7 @@ export interface KindgiClient {
   readonly testSets: TestSetsClient;
   /** Data blocks: versioned prompts and settings an agent version pins. */
   readonly blocks: BlocksClient;
-  readonly evalRuns: EvalRunsClient;
+  readonly testRuns: TestRunsClient;
   readonly corrections: CorrectionsClient;
   readonly correctorGroups: CorrectorGroupsClient;
   // Identity
@@ -228,8 +222,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     provenance: makeProvenanceClient(transport),
     supervisor: makeSupervisorClient(transport),
     suggestedChanges: makeSuggestedChangesClient(transport),
-    proposals: makeProposalsClient(transport),
-    improvementPasses: makeImprovementPassesClient(transport),
+    improveRuns: makeImproveRunsClient(transport),
     observations: makeObservationsClient(transport),
     approvals: makeApprovalsClient(transport),
     tenant: makeTenantClient(transport),
@@ -251,7 +244,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     audit: makeAuditClient(transport),
     testSets: makeTestSetsClient(transport),
     blocks: makeBlocksClient(transport),
-    evalRuns: makeEvalRunsClient(transport),
+    testRuns: makeTestRunsClient(transport),
     corrections: makeCorrectionsClient(transport),
     correctorGroups: makeCorrectorGroupsClient(transport),
     users: makeUsersClient(transport),

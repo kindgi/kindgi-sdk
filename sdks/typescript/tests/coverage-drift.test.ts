@@ -70,7 +70,7 @@ function resourcePathSet(): ReadonlySet<string> {
       paths.add(normalize(m[1]!));
     }
     // Streaming callers build URLs directly, e.g.
-    //   const url = `${transport.apiUrl}/v1/eval-runs/${seg(id)}/events`;
+    //   const url = `${transport.apiUrl}/v1/test-runs/${seg(id)}/events`;
     // Match any backtick template that references `transport.apiUrl` and
     // extract the path suffix.
     for (const m of src.matchAll(/`\$\{transport\.apiUrl\}(\/v1\/[^`]+)`/g)) {

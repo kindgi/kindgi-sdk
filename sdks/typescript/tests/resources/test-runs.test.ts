@@ -3,13 +3,13 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { type EvalRunRecord, comparisonOf, createClient } from '../../src/index.js';
+import { type TestRunRecord, comparisonOf, createClient } from '../../src/index.js';
 import { recordingFetch } from '../support/recording-fetch.js';
 
 const AUTH = { kind: 'apiToken' as const, token: 't' };
 const API = 'https://api.example.com';
 
-const SAMPLE_EVAL_RUN = {
+const SAMPLE_TEST_RUN = {
   runId: '00000000-0000-4000-8000-00000000e001',
   tenantId: '00000000-0000-4000-8000-000000000002',
   testSetId: 'testSet.x',
@@ -21,34 +21,34 @@ const SAMPLE_EVAL_RUN = {
   startedAt: '2026-09-24T00:00:00Z',
 };
 
-describe('eval-runs — wire round-trips', () => {
+describe('test-runs — wire round-trips', () => {
   it('start + list + get + cancel hit the right endpoints', async () => {
     const stub = recordingFetch([
-      { status: 201, body: JSON.stringify({ runId: SAMPLE_EVAL_RUN.runId }) },
-      { status: 200, body: JSON.stringify({ data: [SAMPLE_EVAL_RUN], hasMore: false }) },
-      { status: 200, body: JSON.stringify(SAMPLE_EVAL_RUN) },
-      { status: 200, body: JSON.stringify(SAMPLE_EVAL_RUN) },
+      { status: 201, body: JSON.stringify({ runId: SAMPLE_TEST_RUN.runId }) },
+      { status: 200, body: JSON.stringify({ data: [SAMPLE_TEST_RUN], hasMore: false }) },
+      { status: 200, body: JSON.stringify(SAMPLE_TEST_RUN) },
+      { status: 200, body: JSON.stringify(SAMPLE_TEST_RUN) },
     ]);
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
-    await client.evalRuns.start(
+    await client.testRuns.start(
       'testSet.x',
-      { agentRef: SAMPLE_EVAL_RUN.agentRef },
+      { agentRef: SAMPLE_TEST_RUN.agentRef },
       { projectId: 'proj-1', idempotencyKey: 'idem-run' },
     );
-    await client.evalRuns.list({ testSetId: 'testSet.x', status: 'running' });
-    await client.evalRuns.get(SAMPLE_EVAL_RUN.runId);
-    await client.evalRuns.cancel(SAMPLE_EVAL_RUN.runId);
+    await client.testRuns.list({ testSetId: 'testSet.x', status: 'running' });
+    await client.testRuns.get(SAMPLE_TEST_RUN.runId);
+    await client.testRuns.cancel(SAMPLE_TEST_RUN.runId);
     expect(stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual([
       'POST /v1/test-sets/testSet.x/runs',
-      'GET /v1/eval-runs',
-      `GET /v1/eval-runs/${SAMPLE_EVAL_RUN.runId}`,
-      `POST /v1/eval-runs/${SAMPLE_EVAL_RUN.runId}/cancel`,
+      'GET /v1/test-runs',
+      `GET /v1/test-runs/${SAMPLE_TEST_RUN.runId}`,
+      `POST /v1/test-runs/${SAMPLE_TEST_RUN.runId}/cancel`,
     ]);
     expect(stub.calls[0]?.headers['idempotency-key']).toBe('idem-run');
   });
 });
 
-describe('evalRuns.start — projectId (POST /v1/test-sets/:testSetId/runs requires it)', () => {
+describe('testRuns.start — projectId (POST /v1/test-sets/:testSetId/runs requires it)', () => {
   it('sends options.projectId in the body next to the run fields', async () => {
     const stub = recordingFetch([
       { status: 201, body: JSON.stringify({ runId: '00000000-0000-4000-8000-00000000e001' }) },
@@ -56,7 +56,7 @@ describe('evalRuns.start — projectId (POST /v1/test-sets/:testSetId/runs requi
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
     const input = { agentRef: { agentId: 'acme.drafter', version: '1.0.0' }, dryRun: true };
 
-    await client.evalRuns.start('testSet.x', input, {
+    await client.testRuns.start('testSet.x', input, {
       projectId: 'proj-1',
       idempotencyKey: 'idem-run',
     });
@@ -71,7 +71,7 @@ describe('evalRuns.start — projectId (POST /v1/test-sets/:testSetId/runs requi
 /** A comparison's result as the runtime returns it (fits the OpenAPI `CorrectedComparisonResult`). */
 const COMPARISON_RESULT = {
   summary: {
-    evalRunId: 'er-1',
+    testRunId: 'er-1',
     status: 'completed',
     completedAt: '2026-10-06T08:00:00.000Z',
     testSet: {
@@ -247,11 +247,11 @@ const COMPARISON_RESULT = {
 
 describe('comparisonOf', () => {
   const judged = {
-    ...SAMPLE_EVAL_RUN,
+    ...SAMPLE_TEST_RUN,
     kind: 'corrections',
     status: 'completed',
     result: COMPARISON_RESULT,
-  } as unknown as EvalRunRecord;
+  } as unknown as TestRunRecord;
 
   it("reads a comparison's result, typed", () => {
     const result = comparisonOf(judged);
@@ -261,11 +261,11 @@ describe('comparisonOf', () => {
   });
 
   it('is undefined for another kind of run, a dry run, or one not finished', () => {
-    expect(comparisonOf({ ...SAMPLE_EVAL_RUN } as unknown as EvalRunRecord)).toBeUndefined();
+    expect(comparisonOf({ ...SAMPLE_TEST_RUN } as unknown as TestRunRecord)).toBeUndefined();
     expect(
-      comparisonOf({ ...judged, result: { dryRun: true, cases: 2 } } as unknown as EvalRunRecord),
+      comparisonOf({ ...judged, result: { dryRun: true, cases: 2 } } as unknown as TestRunRecord),
     ).toBeUndefined();
     const { result: _, ...running } = judged;
-    expect(comparisonOf({ ...running, status: 'running' } as EvalRunRecord)).toBeUndefined();
+    expect(comparisonOf({ ...running, status: 'running' } as TestRunRecord)).toBeUndefined();
   });
 });

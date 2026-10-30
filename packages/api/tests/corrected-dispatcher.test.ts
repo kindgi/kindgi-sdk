@@ -13,8 +13,8 @@ import type {
   CorrectedEvalCase,
   DispatchContext,
   EvalComparison,
-  EvalRunSubjectInvokeInput,
-  EvalRunSubjectInvokeOutcome,
+  TestRunSubjectInvokeInput,
+  TestRunSubjectInvokeOutcome,
   TestSet,
 } from '../src/index.js';
 import {
@@ -80,25 +80,25 @@ const trace = (...sources: ReplayToolTrace['source'][]): ReplayToolTrace[] =>
     source,
   }));
 
-const answers: Record<string, EvalRunSubjectInvokeOutcome> = {
+const answers: Record<string, TestRunSubjectInvokeOutcome> = {
   'case-a': {
     output: turn('Found 2.', [{ id: 'm2' }, { id: 'm1' }, { id: 'm9' }]),
     runId: 'run-a' as RunId,
     provider: { id: 'p', model: 'm' },
-    replay: { of: 'case-a' as RunId, evalRunId: 'eval-1', tools: trace('recorded', 'refused') },
+    replay: { of: 'case-a' as RunId, testRunId: 'eval-1', tools: trace('recorded', 'refused') },
   },
   'case-b': {
     output: turn('B changed.'),
     runId: 'run-b' as RunId,
     provider: { id: 'p', model: 'm' },
-    replay: { of: 'case-b' as RunId, evalRunId: 'eval-1', tools: trace('live') },
+    replay: { of: 'case-b' as RunId, testRunId: 'eval-1', tools: trace('live') },
   },
 };
 
 async function compare(options: {
   readonly comparison?: EvalComparison;
   readonly agents?: CorrectedDispatcherOptions['agents'];
-  readonly answer?: (input: EvalRunSubjectInvokeInput, call: number) => EvalRunSubjectInvokeOutcome;
+  readonly answer?: (input: TestRunSubjectInvokeInput, call: number) => TestRunSubjectInvokeOutcome;
   readonly dryRun?: boolean;
   readonly cases?: readonly CorrectedEvalCase[];
 }) {
@@ -109,7 +109,7 @@ async function compare(options: {
     version: '1.0.0',
     cases: options.cases ?? [caseA, caseB],
   });
-  const invoked: EvalRunSubjectInvokeInput[] = [];
+  const invoked: TestRunSubjectInvokeInput[] = [];
   const progress: unknown[] = [];
   const testSet: TestSet = {
     id: 'acme.set',
@@ -120,7 +120,7 @@ async function compare(options: {
   };
   const ctx: DispatchContext = {
     tenantId,
-    runId: 'eval-1' as RunId,
+    testRunId: 'eval-1' as RunId,
     testSet,
     target: { agentId: 'acme.agent' as never, version: '2.0.0' as never },
     dryRun: options.dryRun === true,
@@ -133,7 +133,7 @@ async function compare(options: {
         const caseId = input.replay?.of as unknown as string;
         return (
           options.answer?.(input, invoked.length) ??
-          (answers[caseId] as EvalRunSubjectInvokeOutcome)
+          (answers[caseId] as TestRunSubjectInvokeOutcome)
         );
       },
     },
@@ -157,14 +157,14 @@ const wireErrors = (result: { summary: unknown; perCase: unknown }) =>
     JSON.parse(JSON.stringify({ summary: result.summary, perCase: result.perCase })),
   );
 
-describe('a comparison eval run', () => {
+describe('a comparison test run', () => {
   test('its result is the OpenAPI CorrectedComparisonResult: what the clients read it as', async () => {
     const { summary, perCase } = await compare({
       comparison: { ...DEFAULT_COMPARISON, repetitions: 2 },
       answer: (input, call) =>
         call === 1
           ? { error: 'no model' }
-          : (answers[input.replay?.of as unknown as string] as EvalRunSubjectInvokeOutcome),
+          : (answers[input.replay?.of as unknown as string] as TestRunSubjectInvokeOutcome),
     });
     expect(wireErrors({ summary, perCase })).toEqual([]);
     // The schema is closed: a field it doesn't name fails it.
@@ -176,11 +176,11 @@ describe('a comparison eval run', () => {
     expect(invoked.map((i) => [i.input, i.replay, i.history, i.projectId])).toEqual([
       [
         'find acme',
-        { of: 'case-a', evalRunId: 'eval-1' },
+        { of: 'case-a', testRunId: 'eval-1' },
         [{ role: 'user', content: 'earlier' }],
         'p-run',
       ],
-      ['find b', { of: 'case-b', evalRunId: 'eval-1' }, [], 'p-run'],
+      ['find b', { of: 'case-b', testRunId: 'eval-1' }, [], 'p-run'],
     ]);
     expect(invoked[0]?.target).toEqual({ agentId: 'acme.agent', version: '2.0.0' });
   });
@@ -188,7 +188,7 @@ describe('a comparison eval run', () => {
   test('the summary: baseline beside candidate, with the evidence behind each', async () => {
     const { summary } = await compare({});
     expect(summary).toMatchObject({
-      evalRunId: 'eval-1',
+      testRunId: 'eval-1',
       status: 'completed',
       testSet: { id: 'acme.set', version: '1.0.0' },
       candidate: { agentId: 'acme.agent', version: '2.0.0' },
@@ -270,8 +270,8 @@ describe('a comparison eval run', () => {
   });
 
   test('a recomputed call (other settings, a tool that reads from nowhere) is not a divergence', async () => {
-    const recomputed = (input: EvalRunSubjectInvokeInput): EvalRunSubjectInvokeOutcome => {
-      const outcome = answers[input.replay?.of as unknown as string] as EvalRunSubjectInvokeOutcome;
+    const recomputed = (input: TestRunSubjectInvokeInput): TestRunSubjectInvokeOutcome => {
+      const outcome = answers[input.replay?.of as unknown as string] as TestRunSubjectInvokeOutcome;
       if (input.replay?.of !== ('case-b' as RunId) || outcome.replay === undefined) return outcome;
       const tools = outcome.replay.tools.map((t) => ({ ...t, recomputed: true as const }));
       return { ...outcome, replay: { ...outcome.replay, tools } };
@@ -294,7 +294,7 @@ describe('a comparison eval run', () => {
         // The second pass over case A drops m1.
         call === 2 && input.replay?.of === ('case-a' as RunId)
           ? { ...answers['case-a'], output: turn('Found 2.', [{ id: 'm2' }]) }
-          : (answers[input.replay?.of as unknown as string] as EvalRunSubjectInvokeOutcome),
+          : (answers[input.replay?.of as unknown as string] as TestRunSubjectInvokeOutcome),
     });
     expect(invoked).toHaveLength(4);
     expect(perCase[0]?.runIds).toEqual(['run-a', 'run-a']);
@@ -309,7 +309,7 @@ describe('a comparison eval run', () => {
       answer: (input) =>
         input.replay?.of === ('case-b' as RunId)
           ? { error: 'agent-not-found', runId: 'run-x' as RunId }
-          : (answers['case-a'] as EvalRunSubjectInvokeOutcome),
+          : (answers['case-a'] as TestRunSubjectInvokeOutcome),
     });
     expect(someFail.summary).toMatchObject({ status: 'partial', errors: 1, cases: 2 });
     expect(someFail.perCase[1]).toMatchObject({ error: 'agent-not-found', runIds: ['run-x'] });
@@ -394,7 +394,7 @@ describe('an erased case (T273 M-5)', () => {
       answer: (input) =>
         (input.replay?.of as unknown as string) === 'case-b'
           ? { erased: true, durationMs: 3 }
-          : (answers['case-a'] as EvalRunSubjectInvokeOutcome),
+          : (answers['case-a'] as TestRunSubjectInvokeOutcome),
     });
     expect(invoked.map((i) => i.replay?.of)).toEqual(['case-a', 'case-b']);
     expect(perCase.map((c) => c.caseId)).toEqual(['case-a']);
@@ -404,11 +404,11 @@ describe('an erased case (T273 M-5)', () => {
 });
 
 describe('a case its project or tenant takes no new runs for (halt)', () => {
-  const halt: EvalRunSubjectInvokeOutcome = {
+  const halt: TestRunSubjectInvokeOutcome = {
     halt: { reason: 'project-suspended', message: 'The project is suspended' },
   };
-  const answered = (input: EvalRunSubjectInvokeInput) =>
-    answers[input.replay?.of as unknown as string] as EvalRunSubjectInvokeOutcome;
+  const answered = (input: TestRunSubjectInvokeInput) =>
+    answers[input.replay?.of as unknown as string] as TestRunSubjectInvokeOutcome;
 
   test('stops the run there, cancelled with the reason; the cases before it are its result', async () => {
     const result = await compare({
@@ -564,7 +564,7 @@ describe('a comparison of a flow version', () => {
     ],
   });
 
-  async function compareFlow(answer: (caseId: string) => EvalRunSubjectInvokeOutcome) {
+  async function compareFlow(answer: (caseId: string) => TestRunSubjectInvokeOutcome) {
     const cases = inMemoryCaseStore();
     await cases.putCases({
       tenantId,
@@ -575,10 +575,10 @@ describe('a comparison of a flow version', () => {
         flowCase('run-f2', [{ id: 'm1' }, { id: 'm2' }]),
       ],
     });
-    const invoked: EvalRunSubjectInvokeInput[] = [];
+    const invoked: TestRunSubjectInvokeInput[] = [];
     const out = await createCorrectedDispatcher({ cases }).dispatch({
       tenantId,
-      runId: 'eval-f' as RunId,
+      testRunId: 'eval-f' as RunId,
       testSet: {
         id: 'acme.flows',
         tenantId,
@@ -638,7 +638,7 @@ describe('a comparison of a flow version', () => {
         ? {
             runId: 'run-stop' as RunId,
             stopped: { toolId: 'acme.send', arguments: { to: 'desk' }, reason: refusedSend.reason },
-            replay: { of: 'run-f2' as RunId, evalRunId: 'eval-f', tools: [refusedSend] },
+            replay: { of: 'run-f2' as RunId, testRunId: 'eval-f', tools: [refusedSend] },
           }
         : { output: flowOutput([{ id: 'm1' }]), runId: 'run-ok' as RunId },
     );
@@ -651,7 +651,7 @@ describe('a comparison of a flow version', () => {
         ? {
             runId: 'run-stop' as RunId,
             stopped: { toolId: 'acme.send', arguments: { to: 'desk' }, reason: refusedSend.reason },
-            replay: { of: 'run-f2' as RunId, evalRunId: 'eval-f', tools: [refusedSend] },
+            replay: { of: 'run-f2' as RunId, testRunId: 'eval-f', tools: [refusedSend] },
           }
         : { output: flowOutput([{ id: 'm1' }]), runId: 'run-ok' as RunId },
     );
@@ -683,7 +683,7 @@ describe('a comparison of a flow version', () => {
   test('stopping is not an error: all stopped is still completed, all errored is failed', async () => {
     const stoppedAll = await compareFlow(() => ({
       stopped: { toolId: 'acme.send', arguments: {} },
-      replay: { of: 'x' as RunId, evalRunId: 'eval-f', tools: [refusedSend] },
+      replay: { of: 'x' as RunId, testRunId: 'eval-f', tools: [refusedSend] },
     }));
     expect(stoppedAll.summary).toMatchObject({ status: 'completed', stopped: 2, errors: 0 });
     expect(stoppedAll.summary.metrics.weightedYesShare).toMatchObject({ candidate: null, n: 0 });
@@ -723,7 +723,7 @@ describe('a rescore: the replays scored again, with what people corrected on the
     const invoked: unknown[] = [];
     const ctx: DispatchContext = {
       tenantId,
-      runId: 'eval-2' as RunId,
+      testRunId: 'eval-2' as RunId,
       testSet: {
         id: 'acme.set',
         tenantId,
@@ -747,9 +747,9 @@ describe('a rescore: the replays scored again, with what people corrected on the
     const dispatcher = createCorrectedDispatcher({
       cases,
       corrections,
-      evalRuns: {
+      testRuns: {
         get: async () => ({
-          runId: 'eval-1' as RunId,
+          testRunId: 'eval-1' as RunId,
           tenantId,
           testSetId: 'acme.set',
           testSetVersion: '1.0.0',
@@ -886,11 +886,11 @@ describe('corrections graded on the replay', () => {
     source,
   });
 
-  const outcomeWith = (caseId: string, tools: ReplayToolTrace[]): EvalRunSubjectInvokeOutcome => ({
+  const outcomeWith = (caseId: string, tools: ReplayToolTrace[]): TestRunSubjectInvokeOutcome => ({
     output: turn('ok'),
     runId: `${caseId}-run` as RunId,
     provider: { id: 'p', model: 'm' },
-    replay: { of: caseId as RunId, evalRunId: 'eval-1', tools },
+    replay: { of: caseId as RunId, testRunId: 'eval-1', tools },
   });
 
   test('a matching correction passes, a differing one fails and names the difference', async () => {
@@ -1064,13 +1064,13 @@ describe('what the replays cost', () => {
   /** Each case's cost per repetition, as its replays report it (`undefined`: none). */
   const costing = (costs: Record<string, readonly (number | undefined)[]>) => {
     const seen = new Map<string, number>();
-    return (input: EvalRunSubjectInvokeInput): EvalRunSubjectInvokeOutcome => {
+    return (input: TestRunSubjectInvokeInput): TestRunSubjectInvokeOutcome => {
       const caseId = input.replay?.of as unknown as string;
       const rep = seen.get(caseId) ?? 0;
       seen.set(caseId, rep + 1);
       const costUsd = costs[caseId]?.[rep];
       return {
-        ...(answers[caseId] as EvalRunSubjectInvokeOutcome),
+        ...(answers[caseId] as TestRunSubjectInvokeOutcome),
         ...(costUsd !== undefined && { costUsd }),
       };
     };

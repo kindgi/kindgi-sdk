@@ -39,7 +39,6 @@ import type { EnvBinding } from './env-binding.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import type { WireErrorBody } from './errors.js';
 import type { EvalCaseStoreBinding } from './eval-case-binding.js';
-import type { EvalRunBinding } from './eval-run-binding.js';
 import type { EventBusBinding } from './event-bus-binding.js';
 import type { ExpertQueueBinding } from './expert-queue-binding.js';
 import type { FlowRegistryBinding } from './flow-binding.js';
@@ -49,7 +48,7 @@ import type { HitlBinding } from './hitl-binding.js';
 import type { IdentityDirectoryBinding } from './identity-directory-binding.js';
 import type { IdentityProviderBinding } from './identity-provider-binding.js';
 import type { ImageRegistryBinding } from './image-registry-binding.js';
-import type { ImprovementPassBinding } from './improvement-pass-binding.js';
+import type { ImproveRunBinding } from './improve-run-binding.js';
 import type { ItemProjectsBinding } from './item-projects-binding.js';
 import { itemRightsOf, itemServingOf } from './item-rights.js';
 import type { AgentReleaseBindings } from './live-version-binding.js';
@@ -146,7 +145,6 @@ import { deploymentsRouter } from './routes/deployments.js';
 import { envRouter } from './routes/env.js';
 import { environmentOrdersRouter } from './routes/environment-orders.js';
 import { environmentsRouter } from './routes/environments.js';
-import { evalRunsRouters } from './routes/eval-runs.js';
 import { eventTriggersRouter } from './routes/event-triggers.js';
 import { expertQueueRouter } from './routes/expert-queue.js';
 import { exportSigningKeysRouter } from './routes/export-signing-keys.js';
@@ -155,7 +153,7 @@ import { gatePoliciesRouter } from './routes/gate-policies.js';
 import { guardrailsRouter } from './routes/guardrails.js';
 import { hooksRouter } from './routes/hooks.js';
 import { identityRouter } from './routes/identity.js';
-import { improvementPassesRouter, mountImproveRoute } from './routes/improvement-passes.js';
+import { improveRunsRouter } from './routes/improve-runs.js';
 import { type LicenseStatusBinding, licenseRouter } from './routes/license.js';
 import { mailTriggersRouter } from './routes/mail-triggers.js';
 import { mcpRouter } from './routes/mcp.js';
@@ -213,6 +211,7 @@ import { systemUsageRouter } from './routes/system-usage.js';
 import { projectTeamGrantsRouter, teamProjectGrantsRouter } from './routes/team-grants.js';
 import { teamsRouter } from './routes/teams.js';
 import { type EgressAddresses, tenantRouter } from './routes/tenant.js';
+import { testRunsRouters } from './routes/test-runs.js';
 import { testSetsRouter } from './routes/test-sets.js';
 import { tokenSignInRouter } from './routes/token-sign-in.js';
 import { tokensRouter } from './routes/tokens.js';
@@ -233,6 +232,7 @@ import type { SiteBinding } from './site-binding.js';
 import type { SupervisorBinding } from './supervisor-binding.js';
 import { ONE_TENANT_SYSTEM_SCOPES } from './system.js';
 import type { TenantHostAccess } from './tenant-host-access.js';
+import type { TestRunBinding } from './test-run-binding.js';
 import type { TestSetRegistryBinding } from './test-set-binding.js';
 import type { TokenAdmin } from './token-admin.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
@@ -594,12 +594,12 @@ export interface CreateAppInput {
    */
   readonly supervisor?: SupervisorBinding;
   /**
-   * Optional. Improvement passes (`POST /v1/proposals/improve`,
-   * `/v1/improvement-passes`): the runtime's search for better settings
+   * Optional. Improve runs (`POST /v1/improve-runs`,
+   * `/v1/improve-runs`): the runtime's search for better settings
    * values, written as a suggested change. Without it, both answer
-   * `501 improve-unsupported`. Mounted with `/v1/proposals`.
+   * `501 improve-unsupported`.
    */
-  readonly improvementPasses?: ImprovementPassBinding;
+  readonly improveRuns?: ImproveRunBinding;
   /**
    * Optional. The key the deployment signs its exports with: an
    * approval's audit bundle (`POST /v1/approvals/:approvalId/audit-bundle`),
@@ -694,7 +694,7 @@ export interface CreateAppInput {
   /**
    * Whether a project is suspended (`PUT
    * /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`): a
-   * deploy into it, an eval run started in it and an improvement pass for
+   * deploy into it, a test run started in it and an Improve run for
    * one of its agents are refused `409 project-suspended`, and a webhook
    * delivery to one of its triggers is skipped. Absent: no check.
    */
@@ -931,10 +931,10 @@ export interface CreateAppInput {
    * Optional. When present, mounts the evaluation-test set catalog surface
    * (`/v1/test-sets` list/get/publish, `/v1/test-sets/:testSetId/versions/*`).
    * Full versioned CRUD — mirrors `policies` 1:1. Registry-only:
-   * eval-run execution + per-kind grader dispatch (eval-judge adapter
+   * test-run execution + per-kind grader dispatch (eval-judge adapter
    * for `accuracy` / `pairwise` / `regression`, HITL bridge for
    * `human-review`, sandbox handler for `custom`) is out of scope
-   * here (see `evalRunBinding`). `evalKind` is enumerated + extensible
+   * here (see `testRunBinding`). `evalKind` is enumerated + extensible
    * — new kinds require a spec + validator update in tandem.
    */
   readonly testSetRegistry?: TestSetRegistryBinding;
@@ -947,16 +947,16 @@ export interface CreateAppInput {
   /**
    * Optional. When present alongside `testSetRegistry`, mounts the
    * evaluation-run data-plane surface: `POST /v1/test-sets/:testSetId/runs`
-   * (start), `GET /v1/eval-runs` (list, cursor-paginated),
-   * `GET /v1/eval-runs/:runId` (get), `POST /v1/eval-runs/:runId/cancel`,
-   * `GET /v1/eval-runs/:runId/events` (SSE). Caller-plugged binding —
-   * the API package doesn't own eval-run persistence. The reference
-   * `createInProcessEvalRunBinding` (`packages/api/src/eval-run-dispatcher.ts`)
+   * (start), `GET /v1/test-runs` (list, cursor-paginated),
+   * `GET /v1/test-runs/:testRunId` (get), `POST /v1/test-runs/:testRunId/cancel`,
+   * `GET /v1/test-runs/:testRunId/events` (SSE). Caller-plugged binding —
+   * the API package doesn't own test-run persistence. The reference
+   * `createInProcessTestRunBinding` (`packages/api/src/test-run-dispatcher.ts`)
    * implements the pattern end-to-end for the `accuracy` kind; a test set
    * of a kind with no registered dispatcher answers
    * `422 dispatcher-not-registered`.
    */
-  readonly evalRunBinding?: EvalRunBinding;
+  readonly testRunBinding?: TestRunBinding;
   /**
    * Optional. Mounts corrections, whether a run's decisions, answer and
    * items were right and where each stands (`/v1/corrections`), and the
@@ -1755,7 +1755,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.blockRegistry,
         input.agentReleases,
         {
-          ...(input.evalRunBinding !== undefined && { evalRuns: input.evalRunBinding }),
+          ...(input.testRunBinding !== undefined && { testRuns: input.testRunBinding }),
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         },
         {
@@ -1909,11 +1909,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     input.supervisor !== undefined &&
     input.agentRegistry !== undefined &&
     input.blockRegistry !== undefined &&
-    input.evalRunBinding !== undefined &&
+    input.testRunBinding !== undefined &&
     input.agentReleases !== undefined
   ) {
     const improveDeps = {
-      ...(input.improvementPasses !== undefined && { passes: input.improvementPasses }),
+      ...(input.improveRuns !== undefined && { improveRuns: input.improveRuns }),
       agents: input.agentRegistry,
       blocks: input.blockRegistry,
       releases: input.agentReleases,
@@ -1922,10 +1922,6 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.correctionRegistry !== undefined && { correctorGroups: input.correctionRegistry }),
       ...(input.testSetRegistry !== undefined && { testSets: input.testSetRegistry }),
     };
-    // The Improve routes stay on `/v1/proposals` until the Improve-runs step.
-    const improveRoutes = new Hono<AppEnv>();
-    mountImproveRoute(improveRoutes, improveDeps, authorizer, itemRights);
-    v1.route('/proposals', improveRoutes);
     v1.route(
       '/suggested-changes',
       suggestedChangesRouter(
@@ -1933,7 +1929,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         {
           agents: input.agentRegistry,
           blocks: input.blockRegistry,
-          evalRuns: input.evalRunBinding,
+          testRuns: input.testRunBinding,
           releases: input.agentReleases,
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
@@ -1948,10 +1944,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         itemRights,
       ),
     );
-    v1.route(
-      '/improvement-passes',
-      improvementPassesRouter(input.improvementPasses, authorizer, itemRights),
-    );
+    v1.route('/improve-runs', improveRunsRouter(improveDeps, authorizer, itemRights));
   }
   v1.route('/export-signing-keys', exportSigningKeysRouter(exportSigning));
   if (input.license !== undefined) {
@@ -2521,7 +2514,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.agentReleases !== undefined && {
             agentReleases: input.agentReleases,
             releaseGateDeps: {
-              ...(input.evalRunBinding !== undefined && { evalRuns: input.evalRunBinding }),
+              ...(input.testRunBinding !== undefined && { testRuns: input.testRunBinding }),
               ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
               ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
             },
@@ -2564,15 +2557,15 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ),
     );
   }
-  if (input.evalRunBinding !== undefined) {
+  if (input.testRunBinding !== undefined) {
     // Mount the start route under `/v1/test-sets/:testSetId/runs` and
-    // the readback surface under `/v1/eval-runs/*`. Both share one
+    // the readback surface under `/v1/test-runs/*`. Both share one
     // binding — the start-route registration happens even without an
     // `testSetRegistry` binding: the dispatcher itself surfaces
     // `test-set-not-found` when the caller-plugged binding can't resolve
     // the test set id, so the API layer stays consumer-neutral.
-    const evalRuns = evalRunsRouters(
-      input.evalRunBinding,
+    const testRuns = testRunsRouters(
+      input.testRunBinding,
       input.flowRegistry !== undefined
         ? {
             flows: input.flowRegistry,
@@ -2588,8 +2581,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       input.projectSuspended,
       itemRights,
     );
-    v1.route('/test-sets', evalRuns.start);
-    v1.route('/eval-runs', evalRuns.readback);
+    v1.route('/test-sets', testRuns.start);
+    v1.route('/test-runs', testRuns.readback);
   }
   // ---------- auth routes ----------
   // The session store + identity-provider catalog: the auth router mounts
