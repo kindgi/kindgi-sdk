@@ -133,7 +133,9 @@ uv run kindgi test-sets from-corrections acme.article-picks --test-set-version=1
 </Tabs>
 
 - `acme.article-picks` is the test cases' id, and `--test-set-version` their
-  version.
+  version. Ids starting `agent.` are reserved for agents' own test sets:
+  publishing one, or building a version of it from corrections, is refused
+  with `400 bad-input`.
 - `--project=<project-id>` is the project the runs are in, where
   `<project-id>` is its id.
 - `--agent` is the agent whose corrected runs it takes.
