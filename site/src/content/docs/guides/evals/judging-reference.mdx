@@ -47,7 +47,7 @@ console's Quality section shows. To correct a run, follow
 Only a finished run can be corrected, and the pointer must find something:
 
 ```text
-Run "fc26b436-611b-4962-9913-2f2669ade7e1" has no output to judge yet (status suspended).
+Run "fc26b436-611b-4962-9913-2f2669ade7e1" has no output to correct yet (status suspended).
 Nothing at "/no/such" in run "bc6d1b53-3562-48c9-9f29-719779e3d110"'s output.
 ```
 
@@ -59,8 +59,8 @@ correction needs at least one of calls or notCalled.
 each correction call needs an args object ({} asks only that the tool was called).
 "acme-store.refund" can't be in both correction.calls and correction.notCalled.
 a correction is recorded under the item "kindgi:correction", not "answer".
-the item "kindgi:correction" is reserved for corrections; judge an item of the output instead.
-The judged version has no tool "acme-store.refunds".
+the item "kindgi:correction" is reserved for expected decisions; correct an item of the output instead.
+The corrected version has no tool "acme-store.refunds".
 ```
 
 ## Judge classes
@@ -80,7 +80,7 @@ The judged version has no tool "acme-store.refunds".
   reads the class gets how many it names, as `principalCount`, not their
   ids.
 - **A correction made under a restriction carries `"restricted": true`,**
-  in `kindgi judgments list` too. It's decided when the correction is made:
+  in `kindgi corrections list` too. It's decided when the correction is made:
   corrections recorded before the restriction don't count as restricted.
 - **Lifting a restriction,** with
   `kindgi judge-classes set <judge-class-id> --unrestricted`, keeps the
@@ -193,10 +193,10 @@ agent version:
   the corrections by class.
 - **The share marked right is per correction:** one person's verdict on one
   item of a run's output.
-- **`runsWithJudgments`** counts the runs those corrections come from: the
+- **`runsWithCorrections`** counts the runs those corrections come from: the
   queued runs with at least one live correction, whatever their item's state
   now. That's still open, closed as `judged`, or dismissed after someone
-  corrected it. `judgments` counts verdicts, so several people correcting one
+  corrected it. `corrections` counts verdicts, so several people correcting one
   run make several corrections but one run here. To see how much a share
   rests on, count runs, not corrections.
 - **`skippedByCap`** counts the runs the rule matched and sampled but didn't
@@ -209,8 +209,8 @@ agent version:
 Here a rule that wants an expert's correction queued four runs. An expert,
 with weight 3, and a peer corrected the first. A peer marked the second
 `no`, and it's still open. A peer corrected the third, which was then
-dismissed. The fourth was never corrected. So `judgments` is 4,
-`runsWithJudgments` 3, and `yesShare` 0.83: 5 of 6 weighted verdicts.
+dismissed. The fourth was never corrected. So `corrections` is 4,
+`runsWithCorrections` 3, and `yesShare` 0.83: 5 of 6 weighted verdicts.
 
 ```json
 {
@@ -225,18 +225,18 @@ dismissed. The fourth was never corrected. So `judgments` is 4,
       "dismissed": 1,
       "erased": 0,
       "skippedByCap": 0,
-      "judgments": 4,
-      "runsWithJudgments": 3,
+      "corrections": 4,
+      "runsWithCorrections": 3,
       "yesShare": 0.8333333333333334,
       "byClass": [
         {
           "judgeClassId": "2da17046-eb37-4157-b175-3381a926545a",
-          "judgments": 3,
+          "corrections": 3,
           "yes": 2
         },
         {
           "judgeClassId": "787b6f6f-30cf-4bac-bf27-ac5ef32cb6d3",
-          "judgments": 1,
+          "corrections": 1,
           "yes": 1
         }
       ]

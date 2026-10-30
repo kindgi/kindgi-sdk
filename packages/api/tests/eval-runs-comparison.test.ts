@@ -13,19 +13,23 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import type {
   AgentRegistryBinding,
+  CorrectedComparisonSummary,
   EvalRun,
   EvalRunBinding,
   EvalSuite,
   EvalSuiteRegistryBinding,
   FlowRegistryBinding,
-  JudgedComparisonSummary,
   RunHandlerBinding,
   TokenResolver,
   ToolRegistryBinding,
 } from '../src/index.js';
-import { createApp, createInProcessEvalRunBinding, createJudgedDispatcher } from '../src/index.js';
+import {
+  createApp,
+  createCorrectedDispatcher,
+  createInProcessEvalRunBinding,
+} from '../src/index.js';
 import { inMemoryCaseStore } from './support/in-memory-cases.js';
-import { inMemoryJudgments } from './support/in-memory-judgments.js';
+import { inMemoryCorrections } from './support/in-memory-corrections.js';
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'eval-comparison-token';
@@ -45,7 +49,7 @@ const suite: EvalSuite = {
   tenantId,
   version: '1.0.0',
   kind: 'judged',
-  spec: { source: 'judgments', caseCount: 1 },
+  spec: { source: 'corrections', caseCount: 1 },
 };
 
 async function setup() {
@@ -85,7 +89,7 @@ async function setup() {
         runId: 'replay-1' as RunId,
       }),
     },
-    dispatchers: { judged: createJudgedDispatcher({ cases }) },
+    dispatchers: { judged: createCorrectedDispatcher({ cases }) },
   });
   const app = createApp({
     ...createStubAppBindings(),
@@ -129,7 +133,7 @@ describe('a comparison eval run over the API', () => {
     const { runId } = (await res.json()) as { runId: string };
     const run = await settled(binding, runId);
     expect(run.status).toBe('completed');
-    const summary = (run.result as { summary: JudgedComparisonSummary }).summary;
+    const summary = (run.result as { summary: CorrectedComparisonSummary }).summary;
     expect(summary).toMatchObject({
       status: 'completed',
       cases: 1,
@@ -155,7 +159,7 @@ describe('a comparison eval run over the API', () => {
     const { runId } = (await (await start({})).json()) as { runId: string };
     const run = await settled(binding, runId);
     expect(run.comparison).toBeUndefined();
-    expect((run.result as { summary: JudgedComparisonSummary }).summary).toMatchObject({
+    expect((run.result as { summary: CorrectedComparisonSummary }).summary).toMatchObject({
       reads: 'recorded',
       repetitions: 1,
       classWeights: 'as-recorded',
@@ -280,7 +284,7 @@ describe('a flow candidate with some of its agents or tools at other versions', 
           return { output: { reply: 'Hi.' }, runId: 'replay-f' as RunId };
         },
       },
-      dispatchers: { judged: createJudgedDispatcher({ cases }) },
+      dispatchers: { judged: createCorrectedDispatcher({ cases }) },
     });
     const app = createApp({
       ...createStubAppBindings(),
@@ -328,7 +332,7 @@ describe('a flow candidate with some of its agents or tools at other versions', 
     const run = await settled(binding, runId);
     expect(run.comparison?.versions).toEqual(versions);
     expect(invoked[0]?.versions).toEqual(versions);
-    const summary = (run.result as { summary: JudgedComparisonSummary }).summary;
+    const summary = (run.result as { summary: CorrectedComparisonSummary }).summary;
     expect(summary.candidate).toEqual({
       kind: 'flow',
       flowId: 'acme.flow',
@@ -342,7 +346,7 @@ describe('a flow candidate with some of its agents or tools at other versions', 
     const { runId } = (await (await start({})).json()) as { runId: string };
     const run = await settled(binding, runId);
     expect(invoked[0]?.versions).toBeUndefined();
-    expect((run.result as { summary: JudgedComparisonSummary }).summary.candidate).toEqual({
+    expect((run.result as { summary: CorrectedComparisonSummary }).summary.candidate).toEqual({
       kind: 'flow',
       flowId: 'acme.flow',
       version: '1.0.0',
@@ -418,7 +422,7 @@ describe('a flow candidate with some of its agents or tools at other versions', 
   });
 });
 
-describe('rescoring a comparison over the API: judge the new answers, then rescore', () => {
+describe('rescoring a comparison over the API: correct the new answers, then rescore', () => {
   const changed = { appended: [{ role: 'agent', content: 'Hello there.' }] };
 
   /** A comparison whose replay changed the answer; `rescorable` wires what a rescore reads. */
@@ -453,7 +457,7 @@ describe('rescoring a comparison over the API: judge the new answers, then resco
       getVersion: async ({ suiteId, version }: { suiteId: string; version: string }) =>
         suiteId === suite.id && version === suite.version ? suite : null,
     } as unknown as EvalSuiteRegistryBinding;
-    const judgments = inMemoryJudgments();
+    const corrections = inMemoryCorrections();
     let invoked = 0;
     const ref: { binding?: EvalRunBinding } = {};
     const binding = createInProcessEvalRunBinding({
@@ -465,10 +469,10 @@ describe('rescoring a comparison over the API: judge the new answers, then resco
         },
       },
       dispatchers: {
-        judged: createJudgedDispatcher({
+        judged: createCorrectedDispatcher({
           cases,
           ...(rescorable && {
-            judgments,
+            corrections,
             runs: {
               getRun: async (_t, runId) =>
                 (runId as unknown as string) === 'replay-1' ? { output: changed } : null,
@@ -497,15 +501,15 @@ describe('rescoring a comparison over the API: judge the new answers, then resco
       agentRef: { agentId: 'acme.agent', version: '2.0.0' },
     });
     const first = await settled(binding, ((await started.json()) as { runId: string }).runId);
-    return { post, binding, judgments, first, invoked: () => invoked };
+    return { post, binding, corrections, first, invoked: () => invoked };
   }
 
-  test('the changed answer, judged on its replay, scores in the rescore; nothing replays again', async () => {
+  test('the changed answer, corrected on its replay, scores in the rescore; nothing replays again', async () => {
     const h = await rescoreSetup();
-    const before = (h.first.result as { summary: JudgedComparisonSummary }).summary;
+    const before = (h.first.result as { summary: CorrectedComparisonSummary }).summary;
     expect(before.metrics.weightedYesShare).toMatchObject({ baseline: 0, candidate: null });
-    // A lead reads the new answer on the replay and judges it there.
-    await h.judgments.record({
+    // A lead reads the new answer on the replay and corrects it there.
+    await h.corrections.record({
       tenantId,
       projectId: randomUUID() as never,
       runId: 'replay-1',
@@ -523,7 +527,7 @@ describe('rescoring a comparison over the API: judge the new answers, then resco
     const second = await settled(h.binding, ((await res.json()) as { runId: string }).runId);
     expect(second.status).toBe('completed');
     expect(second.comparison?.rescoreOf).toBe(h.first.runId);
-    const after = (second.result as { summary: JudgedComparisonSummary }).summary;
+    const after = (second.result as { summary: CorrectedComparisonSummary }).summary;
     expect(after.rescoreOf).toBe(h.first.runId);
     expect(after.metrics.weightedYesShare).toMatchObject({
       baseline: 0,
@@ -547,7 +551,7 @@ describe('rescoring a comparison over the API: judge the new answers, then resco
     expect((await h.post(`/v1/eval-runs/${id}/rescore`)).status).toBe(201);
   });
 
-  test("a runtime that can't read replays and their judgments again refuses it (400 dispatcher-input-invalid)", async () => {
+  test("a runtime that can't read replays and their corrections again refuses it (400 dispatcher-input-invalid)", async () => {
     const h = await rescoreSetup(false);
     const res = await h.post(`/v1/eval-runs/${h.first.runId}/rescore`);
     expect(res.status).toBe(400);

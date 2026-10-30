@@ -542,10 +542,10 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     item: { route: '/v1/provenance/{runId}', params: { runId: 'runId' } },
   },
   {
-    name: 'judgments',
-    route: '/v1/judgments',
+    name: 'corrections',
+    route: '/v1/corrections',
     paging: cursor,
-    item: { route: '/v1/judgments/{judgmentId}', params: { judgmentId: 'id' } },
+    item: { route: '/v1/corrections/{correctionId}', params: { correctionId: 'id' } },
   },
   {
     name: 'judging-queue',
@@ -633,7 +633,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/tools/{toolId}/pinned': 'computed from tool-pinned-versions and tool-versions',
   '/v1/guardrails/{guardrailId}/outcomes': 'computed from runs',
   '/v1/projects/{projectId}/judging-rules/preview': 'computed from judging-rules and runs',
-  '/v1/projects/{projectId}/judging-rules/{ruleId}/results': 'computed from judgments',
+  '/v1/projects/{projectId}/judging-rules/{ruleId}/results': 'computed from corrections',
   '/v1/projects/{projectId}/access':
     'computed from project-memberships, team-project-grants, orgs and users',
   '/v1/projects/default': 'one of projects',

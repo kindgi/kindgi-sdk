@@ -3,15 +3,15 @@
 
 /**
  * The comparison eval run of a `judged` suite (a test set): each case is a
- * past run people judged; the candidate agent version re-runs it as a
+ * past run people corrected; the candidate agent version re-runs it as a
  * replay (`EvalRunSubjectInvokeInput.replay`, so it does nothing the past
  * run didn't), `repetitions` times, and its output's items are scored
- * against the judgments, beside the baseline's.
+ * against the corrections, beside the baseline's.
  *
  * Per case: the replay runs, the items kept, dropped and new (new ones
- * for experts to judge), the tool calls and what happened to each, and
+ * for experts to correct), the tool calls and what happened to each, and
  * whether the replay diverged (a read ran live under `reads: 'recorded'`,
- * other than a recomputed one). The summary (`JudgedComparisonSummary`) is what a
+ * other than a recomputed one). The summary (`CorrectedComparisonSummary`) is what a
  * promotion gate reads.
  */
 
@@ -20,11 +20,22 @@ import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { Cursor, RunId, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from './agent-binding.js';
-import { type CallDifference, type CandidateCall, gradeCorrection } from './corrections.js';
+import {
+  type ItemChanges,
+  type ItemCorrections,
+  type OutputScore,
+  itemChanges,
+  matchCorrected,
+  outputItems,
+  scoreItems,
+  withFresh,
+} from './corrected-items.js';
+import { classWeightReader, summarizeByItem } from './corrected-summary.js';
+import type { Correction, CorrectionRegistryBinding } from './correction-binding.js';
 import type {
+  CorrectedEvalCase,
   EvalCaseStoreBinding,
-  JudgedCaseCorrection,
-  JudgedEvalCase,
+  TestCaseExpectedDecisions,
 } from './eval-case-binding.js';
 import type {
   AgentRef,
@@ -42,17 +53,10 @@ import type {
 } from './eval-run-dispatcher.js';
 import { sampleCases } from './eval-sample.js';
 import {
-  type ItemChanges,
-  type ItemJudgments,
-  type OutputScore,
-  itemChanges,
-  matchJudged,
-  outputItems,
-  scoreItems,
-  withFresh,
-} from './judged-items.js';
-import { classWeightReader, summarizeByItem } from './judged-summary.js';
-import type { Judgment, JudgmentRegistryBinding } from './judgment-binding.js';
+  type CallDifference,
+  type CandidateCall,
+  gradeExpectedDecisions,
+} from './expected-decisions.js';
 
 export const DEFAULT_COMPARISON: EvalComparison = {
   baseline: 'recorded',
@@ -61,12 +65,12 @@ export const DEFAULT_COMPARISON: EvalComparison = {
   k: 10,
 };
 
-/** One metric, baseline beside candidate. `null` where a side had no judged evidence. */
+/** One metric, baseline beside candidate. `null` where a side had no evidence from corrections. */
 export interface ComparisonMetric {
   readonly baseline: number | null;
   readonly candidate: number | null;
   readonly delta: number | null;
-  /** The candidate's evidence: cases with judged items, and the judgment weight behind it. */
+  /** The candidate's evidence: cases with corrected items, and the correction weight behind it. */
   readonly n: number;
   readonly weight: number;
   readonly baselineN: number;
@@ -77,8 +81,8 @@ export interface ComparisonMetric {
   /** With more than one repetition: the candidate's max − min across them. */
   readonly spread?: number;
   /**
-   * Of `weight`, the part judged on the candidate's replays themselves (a
-   * rescore, after people judged a changed answer there). Absent when none.
+   * Of `weight`, the part corrected on the candidate's replays themselves (a
+   * rescore, after people corrected a changed answer there). Absent when none.
    */
   readonly freshWeight?: number;
 }
@@ -133,14 +137,14 @@ export type ComparisonCandidate =
     };
 
 /** What a comparison eval run concluded: what a promotion gate reads. */
-export interface JudgedComparisonSummary {
+export interface CorrectedComparisonSummary {
   readonly evalRunId: string;
   readonly status: 'completed' | 'partial' | 'failed';
   readonly completedAt: string;
   readonly suite: { readonly id: string; readonly version: string };
   readonly candidate: ComparisonCandidate;
   readonly baseline: ComparisonBaselineSummary;
-  /** Where the test set's judgments came from. */
+  /** Where the test set's corrections came from. */
   readonly scope: { readonly projectId?: string };
   readonly cases: number;
   /**
@@ -174,7 +178,7 @@ export interface JudgedComparisonSummary {
   readonly notRescored?: number;
   readonly reads: EvalComparison['reads'];
   /**
-   * Which judgments counted: `restricted-only` weighs a judgment not
+   * Which corrections counted: `restricted-only` weighs a correction not
    * recorded under a restricted class 0 (a gate can require it). Absent
    * from a summary recorded before T200: `as-recorded`.
    */
@@ -203,12 +207,11 @@ export interface JudgedComparisonSummary {
     readonly checked: number;
     readonly passed: number;
     /**
-     * Each correction graded, by its judgment: whether it passed (every
-     * repetition did). What an improvement pass compares, run to run, to
-     * keep only a model-settings change that breaks none the current
-     * version passes. Absent from a summary recorded before it.
+     * Each correction graded: whether it passed (every repetition did).
+     * What an improvement pass compares, run to run, to keep only a
+     * model-settings change that breaks none the current version passes. Absent from a summary recorded before it.
      */
-    readonly judgments?: readonly { readonly judgmentId: string; readonly pass: boolean }[];
+    readonly results?: readonly { readonly correctionId: string; readonly pass: boolean }[];
   };
   /**
    * What the candidate's replays cost in model calls, as the runtime
@@ -225,14 +228,14 @@ export interface JudgedComparisonSummary {
 }
 
 /** One case's result. */
-export interface JudgedCaseResult {
+export interface CorrectedCaseResult {
   readonly caseId: string;
   /** The candidate's replay runs, one per repetition (absent for one that couldn't start). */
   readonly runIds: readonly string[];
   readonly baseline: OutputScore;
   /** One per repetition that ran. */
   readonly candidate: readonly OutputScore[];
-  /** The first repetition's items against the judged ones. */
+  /** The first repetition's items against the corrected ones. */
   readonly changes?: ItemChanges;
   /** The first repetition's tool calls. */
   readonly tools?: ReplayTurnReport['tools'];
@@ -243,19 +246,19 @@ export interface JudgedCaseResult {
    * quote values, are in `correctionDifferences`.
    */
   readonly corrections?: readonly {
-    readonly judgmentId: string;
+    readonly correctionId: string;
     readonly pass: boolean;
     readonly repetitionsPassed: number;
     readonly repetitions: number;
   }[];
   /**
-   * How each correction's calls differed, by judgment: the differences from
+   * How each correction's calls differed, by correction: the differences from
    * the first repetition that failed it, and that repetition's number (the
    * shown `tools` are the first repetition's, which may differ). Quotes
    * argument values, so an erasure clears it.
    */
   readonly correctionDifferences?: readonly {
-    readonly judgmentId: string;
+    readonly correctionId: string;
     /** Which repetition (1-based) these differences are from. */
     readonly repetition: number;
     readonly differences: readonly CallDifference[];
@@ -289,22 +292,22 @@ export interface ReplayRunReader {
   getRun(tenantId: TenantId, runId: RunId): Promise<{ readonly output?: unknown } | null>;
 }
 
-export interface JudgedDispatcherOptions {
+export interface CorrectedDispatcherOptions {
   readonly cases: EvalCaseStoreBinding;
   /** Where the candidate's `pinsDigest` is read, for the summary. */
   readonly agents?: Pick<AgentRegistryBinding, 'getVersion'>;
   /**
    * For a rescore (`comparison.rescoreOf`): the run rescored, its replays'
-   * outputs, and the judgments recorded on them since. Without all three a
+   * outputs, and the corrections recorded on them since. Without all three a
    * rescore is refused; a comparison that replays needs none.
    */
   readonly evalRuns?: Pick<EvalRunBinding, 'get'>;
   readonly runs?: ReplayRunReader;
-  readonly judgments?: Pick<JudgmentRegistryBinding, 'list' | 'getClass'>;
+  readonly corrections?: Pick<CorrectionRegistryBinding, 'list' | 'getClass'>;
 }
 
 export const RESCORE_UNSUPPORTED =
-  "This runtime can't rescore a comparison: it doesn't read replays and their judgments again.";
+  "This runtime can't rescore a comparison: it doesn't read replays and their corrections again.";
 
 /** Cases read per page. */
 const CASE_PAGE = 100;
@@ -345,7 +348,7 @@ function validateComparison(
   return { kind: 'ok' };
 }
 
-export function createJudgedDispatcher(options: JudgedDispatcherOptions): EvalRunDispatcher {
+export function createCorrectedDispatcher(options: CorrectedDispatcherOptions): EvalRunDispatcher {
   return {
     kind: 'judged',
     validate(suite, target, comparison) {
@@ -353,7 +356,7 @@ export function createJudgedDispatcher(options: JudgedDispatcherOptions): EvalRu
       if (checked.kind === 'err' || comparison?.rescoreOf === undefined) return checked;
       return options.evalRuns !== undefined &&
         options.runs !== undefined &&
-        options.judgments !== undefined
+        options.corrections !== undefined
         ? checked
         : { kind: 'err', message: RESCORE_UNSUPPORTED };
     },
@@ -383,22 +386,22 @@ export function createJudgedDispatcher(options: JudgedDispatcherOptions): EvalRu
 
 /** A comparison that replays: each case's candidate runs again, and its output is scored. */
 async function replayAll(
-  options: JudgedDispatcherOptions,
+  options: CorrectedDispatcherOptions,
   ctx: DispatchContext,
   comparison: EvalComparison,
-  all: readonly JudgedEvalCase[],
+  all: readonly CorrectedEvalCase[],
   erased: number,
 ): Promise<DispatchResult> {
-  const results: JudgedCaseResult[] = [];
+  const results: CorrectedCaseResult[] = [];
   const models = new Map<string, { providerId: string; model: string; runs: number }>();
   // Erased after they were listed: the replay was refused (`run-erased`).
   const erasedLate = new Set<string>();
   let halt: Halt | undefined;
-  for (const judgedCase of all) {
+  for (const correctedCase of all) {
     if (ctx.abortSignal.aborted) break;
-    const result = await runCase(ctx, comparison, judgedCase, models);
+    const result = await runCase(ctx, comparison, correctedCase, models);
     if (result === 'erased') {
-      erasedLate.add(judgedCase.caseId);
+      erasedLate.add(correctedCase.caseId);
       continue;
     }
     if ('halt' in result) {
@@ -425,8 +428,8 @@ async function replayAll(
 async function allCases(
   store: EvalCaseStoreBinding,
   ctx: DispatchContext,
-): Promise<readonly JudgedEvalCase[]> {
-  const out: JudgedEvalCase[] = [];
+): Promise<readonly CorrectedEvalCase[]> {
+  const out: CorrectedEvalCase[] = [];
   let cursor: Parameters<EvalCaseStoreBinding['listCases']>[0]['cursor'];
   for (;;) {
     const page = await store.listCases({
@@ -458,15 +461,15 @@ class CaseTally {
   readonly candidate: OutputScore[] = [];
   first: { changes: ItemChanges; replay?: ReplayTurnReport } | undefined;
   error: string | undefined;
-  stopped: JudgedCaseResult['stopped'];
+  stopped: CorrectedCaseResult['stopped'];
   diverged = false;
   refusedWrites = 0;
   approvalSkipped = false;
-  private readonly correctionsCase: readonly JudgedCaseCorrection[];
-  /** judgmentId -> how many repetitions this correction passed. */
+  private readonly correctionsCase: readonly TestCaseExpectedDecisions[];
+  /** correctionId -> how many repetitions this correction passed. */
   private readonly correctionPasses = new Map<string, number>();
   /**
-   * judgmentId -> the first repetition that failed this correction: its number
+   * correctionId -> the first repetition that failed this correction: its number
    * (1-based) and its differences. Kept so a correction that passes the first
    * repetition and fails a later one still shows why.
    */
@@ -479,11 +482,11 @@ class CaseTally {
   private readonly costs: (number | undefined)[] = [];
 
   constructor(
-    private readonly judgedCase: JudgedEvalCase,
+    private readonly correctedCase: CorrectedEvalCase,
     private readonly comparison: EvalComparison,
     private readonly agentTurn: boolean,
   ) {
-    this.correctionsCase = judgedCase.corrections ?? [];
+    this.correctionsCase = correctedCase.corrections ?? [];
   }
 
   add(outcome: EvalRunSubjectInvokeOutcome): 'ran' | 'stopped' | 'error' {
@@ -505,11 +508,11 @@ class CaseTally {
   }
 
   private ran(outcome: EvalRunSubjectInvokeOutcome): void {
-    const { judgedCase, comparison } = this;
-    const matched = matchJudged(
+    const { correctedCase, comparison } = this;
+    const matched = matchCorrected(
       outputItems(outcome.output, this.agentTurn),
-      judgedCase.items,
-      judgedCase.output,
+      correctedCase.items,
+      correctedCase.output,
     );
     this.candidate.push(scoreItems(matched, comparison.k));
     const tools = outcome.replay?.tools ?? [];
@@ -522,7 +525,7 @@ class CaseTally {
       this.diverged = true;
     }
     if (outcome.replay?.approval === 'skipped') this.approvalSkipped = true;
-    this.first ??= { changes: itemChanges(matched, judgedCase.items), ...replayOf(outcome) };
+    this.first ??= { changes: itemChanges(matched, correctedCase.items), ...replayOf(outcome) };
   }
 
   /**
@@ -544,34 +547,37 @@ class CaseTally {
       ...(t.source === 'refused' && { refused: true }),
     }));
     for (const c of this.correctionsCase) {
-      const graded = gradeCorrection(c, calls);
+      const graded = gradeExpectedDecisions(c, calls);
       if (graded.pass) {
-        this.correctionPasses.set(c.judgmentId, (this.correctionPasses.get(c.judgmentId) ?? 0) + 1);
-      } else if (!this.firstFailure.has(c.judgmentId)) {
-        this.firstFailure.set(c.judgmentId, { repetition, differences: graded.differences });
+        this.correctionPasses.set(
+          c.correctionId,
+          (this.correctionPasses.get(c.correctionId) ?? 0) + 1,
+        );
+      } else if (!this.firstFailure.has(c.correctionId)) {
+        this.firstFailure.set(c.correctionId, { repetition, differences: graded.differences });
       }
     }
   }
 
-  result(baseline: OutputScore): JudgedCaseResult {
+  result(baseline: OutputScore): CorrectedCaseResult {
     const none = this.candidate.length === 0;
     const n = this.comparison.repetitions;
     const corrections = this.correctionsCase.map((c) => {
-      const passed = this.correctionPasses.get(c.judgmentId) ?? 0;
+      const passed = this.correctionPasses.get(c.correctionId) ?? 0;
       return {
-        judgmentId: c.judgmentId,
+        correctionId: c.correctionId,
         pass: passed === n,
         repetitionsPassed: passed,
         repetitions: n,
       };
     });
     const correctionDifferences = this.correctionsCase.flatMap((c) => {
-      const failure = this.firstFailure.get(c.judgmentId);
+      const failure = this.firstFailure.get(c.correctionId);
       return failure === undefined
         ? []
         : [
             {
-              judgmentId: c.judgmentId,
+              correctionId: c.correctionId,
               repetition: failure.repetition,
               differences: failure.differences,
             },
@@ -581,7 +587,7 @@ class CaseTally {
     const costUsd =
       costs.length === n && costs.every((c): c is number => c !== undefined) ? costs : undefined;
     return {
-      caseId: this.judgedCase.caseId,
+      caseId: this.correctedCase.caseId,
       runIds: this.runIds,
       baseline,
       candidate: this.candidate,
@@ -592,7 +598,7 @@ class CaseTally {
       ...(costUsd !== undefined && { costUsd }),
       diverged: this.diverged,
       refusedWrites: this.refusedWrites,
-      noContext: this.judgedCase.context === undefined,
+      noContext: this.correctedCase.context === undefined,
       approvalSkipped: this.approvalSkipped,
       // A case none of whose repetitions ran stopped (at a refused tool call) or errored.
       ...(none && this.stopped !== undefined && { stopped: this.stopped }),
@@ -604,18 +610,22 @@ class CaseTally {
 async function runCase(
   ctx: DispatchContext,
   comparison: EvalComparison,
-  judgedCase: JudgedEvalCase,
+  correctedCase: CorrectedEvalCase,
   models: Map<string, { providerId: string; model: string; runs: number }>,
-): Promise<JudgedCaseResult | 'erased' | { readonly halt: Halt }> {
+): Promise<CorrectedCaseResult | 'erased' | { readonly halt: Halt }> {
   // An agent turn's items are its answer and typed result; a flow run's, its whole output.
-  const agentTurn = judgedCase.subject.kind === 'agent';
+  const agentTurn = correctedCase.subject.kind === 'agent';
   const baseline = scoreItems(
-    matchJudged(outputItems(judgedCase.output, agentTurn), judgedCase.items, judgedCase.output),
+    matchCorrected(
+      outputItems(correctedCase.output, agentTurn),
+      correctedCase.items,
+      correctedCase.output,
+    ),
     comparison.k,
   );
-  const tally = new CaseTally(judgedCase, comparison, agentTurn);
+  const tally = new CaseTally(correctedCase, comparison, agentTurn);
   for (let rep = 0; rep < comparison.repetitions; rep++) {
-    const outcome = await invokeCase(ctx, judgedCase);
+    const outcome = await invokeCase(ctx, correctedCase);
     // Its past run was erased meanwhile: nothing left to replay.
     if (outcome.erased === true) return 'erased';
     // Its project or tenant takes no new runs: the eval run stops here.
@@ -627,15 +637,15 @@ async function runCase(
 
 /**
  * A rescore: the run rescored's replays, scored again with what people have
- * judged on them since (a changed answer is judged on the replay itself).
+ * corrected on them since (a changed answer is corrected on the replay itself).
  * Nothing runs. A case the run rescored didn't have (sampled out, erased
  * since) is left out; one whose replays are gone keeps its scores.
  */
 async function rescore(
-  options: JudgedDispatcherOptions,
+  options: CorrectedDispatcherOptions,
   ctx: DispatchContext,
   comparison: EvalComparison,
-  all: readonly JudgedEvalCase[],
+  all: readonly CorrectedEvalCase[],
   erased: number,
 ): Promise<DispatchResult> {
   const { evalRuns, runs } = options;
@@ -657,13 +667,13 @@ async function rescore(
       error: `Eval run "${of}" ran ${prior.suiteId}@${prior.suiteVersion}: a rescore runs that test set version.`,
     };
   }
-  const fresh = freshReader(options.judgments, ctx.tenantId, comparison);
-  const results: JudgedCaseResult[] = [];
-  for (const judgedCase of all) {
+  const fresh = freshReader(options.corrections, ctx.tenantId, comparison);
+  const results: CorrectedCaseResult[] = [];
+  for (const correctedCase of all) {
     if (ctx.abortSignal.aborted) break;
-    const earlier = before.get(judgedCase.caseId);
+    const earlier = before.get(correctedCase.caseId);
     if (earlier === undefined) continue;
-    const result = await rescoreCase(ctx, comparison, judgedCase, earlier, runs, fresh);
+    const result = await rescoreCase(ctx, comparison, correctedCase, earlier, runs, fresh);
     results.push(result);
     ctx.onProgress(result as unknown as Readonly<Record<string, unknown>>);
   }
@@ -685,14 +695,18 @@ async function rescore(
 async function rescoreCase(
   ctx: DispatchContext,
   comparison: EvalComparison,
-  judgedCase: JudgedEvalCase,
-  earlier: JudgedCaseResult,
+  correctedCase: CorrectedEvalCase,
+  earlier: CorrectedCaseResult,
   runs: ReplayRunReader,
-  fresh: (runId: string) => Promise<readonly ItemJudgments[]>,
-): Promise<JudgedCaseResult> {
-  const agentTurn = judgedCase.subject.kind === 'agent';
+  fresh: (runId: string) => Promise<readonly ItemCorrections[]>,
+): Promise<CorrectedCaseResult> {
+  const agentTurn = correctedCase.subject.kind === 'agent';
   const baseline = scoreItems(
-    matchJudged(outputItems(judgedCase.output, agentTurn), judgedCase.items, judgedCase.output),
+    matchCorrected(
+      outputItems(correctedCase.output, agentTurn),
+      correctedCase.items,
+      correctedCase.output,
+    ),
     comparison.k,
   );
   // A case none of whose replays ran has nothing to rescore; one some of
@@ -709,28 +723,28 @@ async function rescoreCase(
       return { ...earlier, baseline, rescored: false };
     }
     const matched = withFresh(
-      matchJudged(outputItems(run.output, agentTurn), judgedCase.items, judgedCase.output),
+      matchCorrected(outputItems(run.output, agentTurn), correctedCase.items, correctedCase.output),
       await fresh(runId),
     );
     candidate.push(scoreItems(matched, comparison.k));
-    changes ??= itemChanges(matched, judgedCase.items);
+    changes ??= itemChanges(matched, correctedCase.items);
   }
   return { ...earlier, baseline, candidate, ...(changes !== undefined && { changes }) };
 }
 
-/** The judgments recorded on a replay run, summed per item key, as the comparison weighs them. */
+/** The corrections recorded on a replay run, summed per item key, as the comparison weighs them. */
 function freshReader(
-  judgments: JudgedDispatcherOptions['judgments'],
+  corrections: CorrectedDispatcherOptions['corrections'],
   tenantId: TenantId,
   comparison: EvalComparison,
-): (runId: string) => Promise<readonly ItemJudgments[]> {
-  if (judgments === undefined) return async () => [];
-  const weightOf = classWeightReader(judgments, tenantId);
+): (runId: string) => Promise<readonly ItemCorrections[]> {
+  if (corrections === undefined) return async () => [];
+  const weightOf = classWeightReader(corrections, tenantId);
   return async (runId) => {
-    const all: Judgment[] = [];
+    const all: Correction[] = [];
     let cursor: Cursor | undefined;
     for (;;) {
-      const page = await judgments.list({
+      const page = await corrections.list({
         tenantId,
         runId,
         limit: CASE_PAGE,
@@ -750,19 +764,19 @@ function priorCases(run: {
   readonly kind: string;
   readonly status: string;
   readonly result?: Readonly<Record<string, unknown>>;
-}): Map<string, JudgedCaseResult> | undefined {
+}): Map<string, CorrectedCaseResult> | undefined {
   const perCase = run.result?.perCase;
   if (run.kind !== 'judged' || run.status !== 'completed' || !Array.isArray(perCase)) {
     return undefined;
   }
-  return new Map((perCase as JudgedCaseResult[]).map((r) => [r.caseId, r]));
+  return new Map((perCase as CorrectedCaseResult[]).map((r) => [r.caseId, r]));
 }
 
 /** The models that answered the run rescored's replays: the rescore's are theirs. */
 function priorModels(run: {
   readonly result?: Readonly<Record<string, unknown>>;
 }): { providerId: string; model: string; runs: number }[] {
-  const summary = run.result?.summary as JudgedComparisonSummary | undefined;
+  const summary = run.result?.summary as CorrectedComparisonSummary | undefined;
   return [...(summary?.sampling?.models ?? [])];
 }
 
@@ -776,22 +790,24 @@ function replayOf(outcome: EvalRunSubjectInvokeOutcome): { replay?: ReplayTurnRe
 
 async function invokeCase(
   ctx: DispatchContext,
-  judgedCase: JudgedEvalCase,
+  correctedCase: CorrectedEvalCase,
 ): Promise<EvalRunSubjectInvokeOutcome> {
   try {
     return await ctx.subject.invoke({
       tenantId: ctx.tenantId,
       target: ctx.target,
       // An agent turn's input is its user message.
-      input: judgedCase.input,
+      input: correctedCase.input,
       dryRun: false,
       abortSignal: ctx.abortSignal,
       ...(ctx.projectId !== undefined && { projectId: ctx.projectId }),
       replay: {
-        of: judgedCase.caseId as unknown as RunId,
+        of: correctedCase.caseId as unknown as RunId,
         evalRunId: ctx.runId as unknown as string,
       },
-      ...(judgedCase.subject.kind === 'agent' && { history: judgedCase.context?.history ?? [] }),
+      ...(correctedCase.subject.kind === 'agent' && {
+        history: correctedCase.context?.history ?? [],
+      }),
       ...(!('agentId' in ctx.target) &&
         ctx.comparison?.versions !== undefined && { versions: ctx.comparison.versions }),
     });
@@ -819,8 +835,8 @@ type Side = (s: OutputScore) => { readonly yes: number; readonly total: number }
 
 const yesShare: Side = (s) => ({ yes: s.yesWeight, total: s.totalWeight });
 const precisionAtK: Side = (s) => ({ yes: s.topK.yesWeight, total: s.topK.totalWeight });
-/** Coverage's ratio is judged items over items; its evidence weight is the judged weight. */
-const coverage: Side = (s) => ({ yes: s.judgedItems, total: s.items });
+/** Coverage's ratio is corrected items over items; its evidence weight is the corrected weight. */
+const coverage: Side = (s) => ({ yes: s.correctedItems, total: s.items });
 
 /** A metric over cases: Σ numerator / Σ denominator, with its evidence. */
 function pooled(
@@ -844,7 +860,7 @@ function pooled(
 }
 
 function metric(
-  results: readonly JudgedCaseResult[],
+  results: readonly CorrectedCaseResult[],
   repetitions: number,
   side: Side,
   weightOf: (s: OutputScore) => number,
@@ -872,8 +888,8 @@ function metric(
     if (r.candidate.some((s) => side(s).total > 0)) cases.add(i);
   });
   const weight = perRep.reduce((a, p) => a + p.weight, 0) / Math.max(1, perRep.length);
-  // Of that weight, what was judged on the replays themselves (a rescore):
-  // for a metric whose weight is all the judged weight.
+  // Of that weight, what was corrected on the replays themselves (a rescore):
+  // for a metric whose weight is all the corrected weight.
   const freshWeight =
     extra.fresh === true
       ? Array.from({ length: repetitions }, (_, rep) =>
@@ -899,11 +915,11 @@ function metric(
 function summarize(
   ctx: DispatchContext,
   comparison: EvalComparison,
-  cases: readonly JudgedEvalCase[],
-  results: readonly JudgedCaseResult[],
+  cases: readonly CorrectedEvalCase[],
+  results: readonly CorrectedCaseResult[],
   models: readonly { providerId: string; model: string; runs: number }[],
   pinsDigest: string | undefined,
-): JudgedComparisonSummary {
+): CorrectedComparisonSummary {
   const errors = results.filter((r) => r.error !== undefined).length;
   const stopped = results.filter((r) => r.stopped !== undefined).length;
   const versions = new Map<string, { id: string; flow: boolean; version: string; cases: number }>();
@@ -923,7 +939,7 @@ function summarize(
     typeof specProject === 'string'
       ? specProject
       : (ctx.projectId as unknown as string | undefined);
-  const judgedWeight = (s: OutputScore) => s.totalWeight;
+  const correctedWeight = (s: OutputScore) => s.totalWeight;
   const corrections = correctionsOf(results);
   const costUsd = costOf(results, comparison.repetitions);
   return {
@@ -958,10 +974,10 @@ function summarize(
     sampling: { models },
     repetitions: comparison.repetitions,
     metrics: {
-      weightedYesShare: metric(results, comparison.repetitions, yesShare, judgedWeight, {
+      weightedYesShare: metric(results, comparison.repetitions, yesShare, correctedWeight, {
         fresh: true,
       }),
-      judgedCoverage: metric(results, comparison.repetitions, coverage, judgedWeight, {
+      judgedCoverage: metric(results, comparison.repetitions, coverage, correctedWeight, {
         fresh: true,
       }),
       weightedPrecisionAtK: metric(
@@ -977,16 +993,16 @@ function summarize(
   };
 }
 
-/** The corrections graded across the cases, and whether each one passed, by judgment; none graded, undefined. */
+/** The corrections graded across the cases, and whether each one passed, by correction; none graded, undefined. */
 function correctionsOf(
-  results: readonly JudgedCaseResult[],
-): JudgedComparisonSummary['corrections'] {
-  const judgments = results.flatMap((r) =>
-    (r.corrections ?? []).map(({ judgmentId, pass }) => ({ judgmentId, pass })),
+  results: readonly CorrectedCaseResult[],
+): CorrectedComparisonSummary['corrections'] {
+  const graded = results.flatMap((r) =>
+    (r.corrections ?? []).map(({ correctionId, pass }) => ({ correctionId, pass })),
   );
-  if (judgments.length === 0) return undefined;
-  const passed = judgments.filter((j) => j.pass).length;
-  return { checked: judgments.length, passed, judgments };
+  if (graded.length === 0) return undefined;
+  const passed = graded.filter((j) => j.pass).length;
+  return { checked: graded.length, passed, results: graded };
 }
 
 /**
@@ -995,9 +1011,9 @@ function correctionsOf(
  * than one repetition the totals' spread. Undefined when no case's did.
  */
 function costOf(
-  results: readonly JudgedCaseResult[],
+  results: readonly CorrectedCaseResult[],
   repetitions: number,
-): JudgedComparisonSummary['costUsd'] {
+): CorrectedComparisonSummary['costUsd'] {
   const costed = results.flatMap((r) => (r.costUsd?.length === repetitions ? [r.costUsd] : []));
   if (costed.length === 0) return undefined;
   const totals = Array.from({ length: repetitions }, (_, rep) =>
@@ -1012,12 +1028,12 @@ function costOf(
 
 /**
  * A case as a `restricted-only` comparison counts it: each item at its
- * restricted judgments' weights; an item with none is left out, so it
- * counts as unjudged. Corrections filter the same way — only the ones
- * recorded under a restricted class are kept, so a correction from a judge
+ * restricted corrections' weights; an item with none is left out, so it
+ * counts as uncorrected. Corrections filter the same way — only the ones
+ * recorded under a restricted class are kept, so a correction from someone
  * outside the restriction isn't graded.
  */
-function restrictedOnly(c: JudgedEvalCase): JudgedEvalCase {
+function restrictedOnly(c: CorrectedEvalCase): CorrectedEvalCase {
   const { corrections, ...rest } = c;
   const kept = corrections?.filter((x) => x.restricted === true);
   return {
@@ -1027,8 +1043,8 @@ function restrictedOnly(c: JudgedEvalCase): JudgedEvalCase {
   };
 }
 
-/** Only what judges a class was restricted to said: an item without it counts as unjudged. */
-function restrictedItems<T extends JudgedEvalCase['items'][number]>(items: readonly T[]): T[] {
+/** Only what the people a class was restricted to said: an item without it counts as uncorrected. */
+function restrictedItems<T extends CorrectedEvalCase['items'][number]>(items: readonly T[]): T[] {
   return items.flatMap((item) =>
     item.restricted !== undefined && item.restricted.totalWeight > 0
       ? [
@@ -1044,7 +1060,7 @@ function restrictedItems<T extends JudgedEvalCase['items'][number]>(items: reado
 
 /** The agent candidate's `pinsDigest`, from the registry. */
 async function candidatePins(
-  agents: JudgedDispatcherOptions['agents'],
+  agents: CorrectedDispatcherOptions['agents'],
   ctx: DispatchContext,
 ): Promise<string | undefined> {
   if (agents === undefined || !('agentId' in ctx.target) || ctx.target.version === undefined) {

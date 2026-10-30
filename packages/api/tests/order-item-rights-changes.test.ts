@@ -248,9 +248,9 @@ function harness(opts: { served?: boolean } = {}) {
     ...createStubAppBindings(),
     ...registries,
     agentReleases: releasesFake(changed),
-    // Mounts the test-set build; without `listJudgedRuns` it answers 501
+    // Mounts the test-set build; without `listCorrectedRuns` it answers 501
     // once its checks pass.
-    judgmentRegistry: {},
+    correctionRegistry: {},
     evalCaseStore: {},
     resolveToken,
     authz: authz.authz,
@@ -499,8 +499,8 @@ describe('deriving a version of an agent an order carries', () => {
   });
 });
 
-describe('building a test set from judgments under a suite an order carries', () => {
-  const path = (suiteId: string) => `/v1/eval-suites/${suiteId}/versions/from-judgments`;
+describe('building a test set from corrections under a suite an order carries', () => {
+  const path = (suiteId: string) => `/v1/eval-suites/${suiteId}/versions/from-corrections`;
   const body = (projectId: ProjectId) => ({
     version: '2.0.0',
     projectId,
@@ -509,7 +509,7 @@ describe('building a test set from judgments under a suite an order carries', ()
   /** Past every check: the build itself, which this deployment can't do. */
   const BUILT = 501;
 
-  test('admin in the project whose judged runs it takes, and nowhere else', async () => {
+  test('admin in the project whose corrected runs it takes, and nowhere else', async () => {
     const { call } = harness();
     const prod = await call('prod-admin', 'POST', path(SERVED), body(PROD));
     expect(prod.status, prod.text).toBe(BUILT);

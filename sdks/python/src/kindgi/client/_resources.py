@@ -512,11 +512,13 @@ OPERATIONS: dict[str, Operation] = {
     "providers.unregister": Operation(
         "providers.unregister", "POST", "/v1/providers/{providerId}/unregister", "json", True
     ),
-    "judgments.list": Operation("judgments.list", "GET", "/v1/judgments", "json", False),
-    "judgments.create": Operation("judgments.create", "POST", "/v1/judgments", "json", True),
-    "judgments.get": Operation("judgments.get", "GET", "/v1/judgments/{judgmentId}", "json", False),
-    "judgments.unregister": Operation(
-        "judgments.unregister", "POST", "/v1/judgments/{judgmentId}/unregister", "json", True
+    "corrections.list": Operation("corrections.list", "GET", "/v1/corrections", "json", False),
+    "corrections.create": Operation("corrections.create", "POST", "/v1/corrections", "json", True),
+    "corrections.get": Operation(
+        "corrections.get", "GET", "/v1/corrections/{correctionId}", "json", False
+    ),
+    "corrections.remove": Operation(
+        "corrections.remove", "POST", "/v1/corrections/{correctionId}/remove", "json", True
     ),
     "judgeClasses.list": Operation("judgeClasses.list", "GET", "/v1/judge-classes", "json", False),
     "judgeClasses.create": Operation(
@@ -633,10 +635,10 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         False,
     ),
-    "evalSuites.buildFromJudgments": Operation(
-        "evalSuites.buildFromJudgments",
+    "evalSuites.buildFromCorrections": Operation(
+        "evalSuites.buildFromCorrections",
         "POST",
-        "/v1/eval-suites/{suiteId}/versions/from-judgments",
+        "/v1/eval-suites/{suiteId}/versions/from-corrections",
         "json",
         True,
     ),
@@ -4783,7 +4785,7 @@ class ProposalsResource:
     ) -> _models.FixProposal:
         """Rescore a proposal's latest evaluation. `POST /v1/proposals/{proposalId}/rescore`
 
-        After people judge a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those judgments, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
+        After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those corrections, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
         """
         return self._client._request(
             _OPERATIONS["proposals.rescore"],
@@ -5430,8 +5432,8 @@ class ProvidersResource:
         )
 
 
-class JudgmentsResource:
-    """`client.judgments` — the `judgments` operations."""
+class CorrectionsResource:
+    """`client.corrections` — the `corrections` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
@@ -5452,13 +5454,13 @@ class JudgmentsResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgmentCollectionPage:
-        """List judgments. `GET /v1/judgments`
+    ) -> _models.CorrectionCollectionPage:
+        """List corrections. `GET /v1/corrections`
 
-        Live judgments (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.
+        Live corrections (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.
         """
         return self._client._request(
-            _OPERATIONS["judgments.list"],
+            _OPERATIONS["corrections.list"],
             path={},
             query={
                 "limit": limit,
@@ -5474,67 +5476,67 @@ class JudgmentsResource:
                 "scopeId": scope_id,
             },
             headers={},
-            response=_models.JudgmentCollectionPage,
+            response=_models.CorrectionCollectionPage,
             timeout=timeout,
         )
 
     def create(
         self,
-        body: _models.CreateJudgmentBody | Mapping[str, Any] | None = None,
+        body: _models.CreateCorrectionBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Judgment:
-        """Judge an item of a run's output. `POST /v1/judgments`
+    ) -> _models.Correction:
+        """Correct an item of a run's output. `POST /v1/corrections`
 
-        Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified judgments count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first judgment of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. Judging again as the same caller for the same run, item key and `participantId` supersedes the earlier judgment. Needs `judge` on the run.
+        Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified corrections count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first correction of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. A second correction by the same caller for the same run, item key and `participantId` supersedes the earlier one. Needs `write` on the run's project.
         """
         return self._client._request(
-            _OPERATIONS["judgments.create"],
+            _OPERATIONS["corrections.create"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.CreateJudgmentBody, body, fields),
-            response=_models.Judgment,
+            body=_body(_models.CreateCorrectionBody, body, fields),
+            response=_models.Correction,
             timeout=timeout,
         )
 
     def get(
-        self, judgment_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgmentWithCopies:
-        """Fetch a judgment with its copies. `GET /v1/judgments/{judgmentId}`
+        self, correction_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.CorrectionWithCopies:
+        """Fetch a correction with its copies. `GET /v1/corrections/{correctionId}`
 
-        Returns the judgment (live or not) with the stored copy of the run's input and output and, when the judgment pointed at an item, its value.
+        Returns the correction (live or not) with the stored copy of the run's input and output and, when the correction pointed at an item, its value.
         """
         return self._client._request(
-            _OPERATIONS["judgments.get"],
-            path={"judgmentId": judgment_id},
+            _OPERATIONS["corrections.get"],
+            path={"correctionId": correction_id},
             query={},
             headers={},
-            response=_models.JudgmentWithCopies,
+            response=_models.CorrectionWithCopies,
             timeout=timeout,
         )
 
-    def unregister(
+    def remove(
         self,
-        judgment_id: str | UUID,
+        correction_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterJudgmentResult:
-        """Remove a judgment. `POST /v1/judgments/{judgmentId}/unregister`
+    ) -> _models.RemoveCorrectionResult:
+        """Remove a correction. `POST /v1/corrections/{correctionId}/remove`
 
-        Soft delete: the judgment stops listing; retention policy decides when it is purged.
+        Soft delete: the correction stops listing; retention policy decides when it is purged.
         """
         return self._client._request(
-            _OPERATIONS["judgments.unregister"],
-            path={"judgmentId": judgment_id},
+            _OPERATIONS["corrections.remove"],
+            path={"correctionId": correction_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterJudgmentResult,
+            response=_models.RemoveCorrectionResult,
             timeout=timeout,
         )
 
@@ -5603,7 +5605,7 @@ class JudgeClassesResource:
     ) -> _models.JudgeClass:
         """Fetch a judge class. `GET /v1/judge-classes/{judgeClassId}`
 
-        Also returns a retired class (`unregisteredAt` set): judgments keep naming theirs.
+        Also returns a retired class (`unregisteredAt` set): corrections keep naming theirs.
         """
         return self._client._request(
             _OPERATIONS["judgeClasses.get"],
@@ -5645,7 +5647,7 @@ class JudgeClassesResource:
     ) -> _models.UnregisterJudgeClassResult:
         """Retire a judge class. `POST /v1/judge-classes/{judgeClassId}/unregister`
 
-        No new judgments may name it; existing judgments keep it.
+        No new corrections may name it; existing corrections keep it.
         """
         return self._client._request(
             _OPERATIONS["judgeClasses.unregister"],
@@ -6270,7 +6272,7 @@ class RetentionResource:
             "run",
             "artifact",
             "policy",
-            "judgment",
+            "correction",
             "judge_class",
             "provider",
             "memory",
@@ -6340,7 +6342,7 @@ class RetentionResource:
             "run",
             "artifact",
             "policy",
-            "judgment",
+            "correction",
             "judge_class",
             "provider",
             "memory",
@@ -6522,27 +6524,27 @@ class EvalSuitesResource:
             timeout=timeout,
         )
 
-    def build_from_judgments(
+    def build_from_corrections(
         self,
         suite_id: str | UUID,
-        body: _models.BuildJudgedSuiteBody | Mapping[str, Any] | None = None,
+        body: _models.BuildCorrectedSuiteBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.BuildJudgedSuiteResult:
-        """Build a test set from judgments. `POST /v1/eval-suites/{suiteId}/versions/from-judgments`
+    ) -> _models.BuildCorrectedSuiteResult:
+        """Build a test set from corrections. `POST /v1/eval-suites/{suiteId}/versions/from-corrections`
 
-        Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
+        Publishes a `judged` eval suite version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `judgeClassIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.buildFromJudgments"],
+            _OPERATIONS["evalSuites.buildFromCorrections"],
             path={"suiteId": suite_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.BuildJudgedSuiteBody, body, fields),
-            response=_models.BuildJudgedSuiteResult,
+            body=_body(_models.BuildCorrectedSuiteBody, body, fields),
+            response=_models.BuildCorrectedSuiteResult,
             timeout=timeout,
         )
 
@@ -6555,17 +6557,17 @@ class EvalSuitesResource:
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgedEvalCaseCollectionPage:
+    ) -> _models.CorrectedEvalCaseCollectionPage:
         """List the cases of a judged eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}/cases`
 
-        Cursor-paginated, in the order the cases were stored (newest judged run first).
+        Cursor-paginated, in the order the cases were stored (newest corrected run first).
         """
         return self._client._request(
             _OPERATIONS["evalSuites.listCases"],
             path={"suiteId": suite_id, "version": version},
             query={"limit": limit, "cursor": cursor},
             headers={},
-            response=_models.JudgedEvalCaseCollectionPage,
+            response=_models.CorrectedEvalCaseCollectionPage,
             timeout=timeout,
         )
 
@@ -6893,7 +6895,7 @@ class EvalRunsResource:
     ) -> _models.StartEvalRunResult:
         """Rescore a comparison eval run. `POST /v1/eval-runs/{runId}/rescore`
 
-        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the judgments recorded on them since (a changed answer judged on the replay itself; `changes.new` lists the items to judge). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.
+        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.
         """
         return self._client._request(
             _OPERATIONS["evalRuns.rescore"],
@@ -8356,7 +8358,7 @@ class ProjectsJudgingRulesResource:
     ) -> _models.JudgingRulePage:
         """List a project's judging rules. `GET /v1/projects/{projectId}/judging-rules`
 
-        The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's judgment when they end. Needs `read` on the project.
+        The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's correction when they end. Needs `read` on the project.
         """
         return self._client._request(
             _OPERATIONS["projects.judgingRules.list"],
@@ -8379,7 +8381,7 @@ class ProjectsJudgingRulesResource:
     ) -> _models.JudgingRule:
         """Create a judging rule. `POST /v1/projects/{projectId}/judging-rules`
 
-        Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's judgment; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.
+        Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's correction; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.
         """
         return self._client._request(
             _OPERATIONS["projects.judgingRules.create"],
@@ -8518,7 +8520,7 @@ class ProjectsJudgingRulesResource:
     ) -> _models.JudgingRuleResults:
         """A judging rule's results. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/results`
 
-        By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live judgments on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.
+        By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live corrections on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.
         """
         return self._client._request(
             _OPERATIONS["projects.judgingRules.results"],
@@ -8541,7 +8543,7 @@ class ProjectsJudgingRulesResource:
     ) -> _models.JudgingRecentQueued:
         """Queue a rule's recent matches. `POST /v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent`
 
-        Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already judged or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.
+        Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already corrected or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.
         """
         return self._client._request(
             _OPERATIONS["projects.judgingRules.queueRecent"],
@@ -8578,7 +8580,7 @@ class ProjectsJudgingQueueResource:
     ) -> _models.JudgingQueuePage:
         """The project's judging queue. `GET /v1/projects/{projectId}/judging-queue`
 
-        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose judgment they want and the judgments so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the judgment it wants. `forMe=true`: the items any judgment closes, or that want a class the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
+        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a class the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
         """
         return self._client._request(
             _OPERATIONS["projects.judgingQueue.list"],
@@ -8611,7 +8613,7 @@ class ProjectsJudgingQueueResource:
     ) -> _models.JudgingQueueItem:
         """Dismiss a queued run. `POST /v1/projects/{projectId}/judging-queue/{runId}/dismiss`
 
-        Not worth judging: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as judging the run does.
+        Not worth correcting: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as correcting the run does.
         """
         return self._client._request(
             _OPERATIONS["projects.judgingQueue.dismiss"],
@@ -8628,7 +8630,7 @@ class ProjectsJudgingQueueResource:
     ) -> _models.JudgingQueueItem:
         """Reopen a dismissed run. `POST /v1/projects/{projectId}/judging-queue/{runId}/reopen`
 
-        Back in the open queue. Only a dismissed item reopens: a judged one was closed by its judgments. Needs `write` on the project.
+        Back in the open queue. Only a dismissed item reopens: a judged one was closed by its corrections. Needs `write` on the project.
         """
         return self._client._request(
             _OPERATIONS["projects.judgingQueue.reopen"],
@@ -14557,7 +14559,7 @@ class AsyncProposalsResource:
     ) -> _models.FixProposal:
         """Rescore a proposal's latest evaluation. `POST /v1/proposals/{proposalId}/rescore`
 
-        After people judge a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those judgments, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
+        After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those corrections, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
         """
         return await self._client._request(
             _OPERATIONS["proposals.rescore"],
@@ -15204,8 +15206,8 @@ class AsyncProvidersResource:
         )
 
 
-class AsyncJudgmentsResource:
-    """`client.judgments` — the `judgments` operations."""
+class AsyncCorrectionsResource:
+    """`client.corrections` — the `corrections` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
@@ -15226,13 +15228,13 @@ class AsyncJudgmentsResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgmentCollectionPage:
-        """List judgments. `GET /v1/judgments`
+    ) -> _models.CorrectionCollectionPage:
+        """List corrections. `GET /v1/corrections`
 
-        Live judgments (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.
+        Live corrections (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.
         """
         return await self._client._request(
-            _OPERATIONS["judgments.list"],
+            _OPERATIONS["corrections.list"],
             path={},
             query={
                 "limit": limit,
@@ -15248,67 +15250,67 @@ class AsyncJudgmentsResource:
                 "scopeId": scope_id,
             },
             headers={},
-            response=_models.JudgmentCollectionPage,
+            response=_models.CorrectionCollectionPage,
             timeout=timeout,
         )
 
     async def create(
         self,
-        body: _models.CreateJudgmentBody | Mapping[str, Any] | None = None,
+        body: _models.CreateCorrectionBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Judgment:
-        """Judge an item of a run's output. `POST /v1/judgments`
+    ) -> _models.Correction:
+        """Correct an item of a run's output. `POST /v1/corrections`
 
-        Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified judgments count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first judgment of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. Judging again as the same caller for the same run, item key and `participantId` supersedes the earlier judgment. Needs `judge` on the run.
+        Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified corrections count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first correction of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. A second correction by the same caller for the same run, item key and `participantId` supersedes the earlier one. Needs `write` on the run's project.
         """
         return await self._client._request(
-            _OPERATIONS["judgments.create"],
+            _OPERATIONS["corrections.create"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.CreateJudgmentBody, body, fields),
-            response=_models.Judgment,
+            body=_body(_models.CreateCorrectionBody, body, fields),
+            response=_models.Correction,
             timeout=timeout,
         )
 
     async def get(
-        self, judgment_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgmentWithCopies:
-        """Fetch a judgment with its copies. `GET /v1/judgments/{judgmentId}`
+        self, correction_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.CorrectionWithCopies:
+        """Fetch a correction with its copies. `GET /v1/corrections/{correctionId}`
 
-        Returns the judgment (live or not) with the stored copy of the run's input and output and, when the judgment pointed at an item, its value.
+        Returns the correction (live or not) with the stored copy of the run's input and output and, when the correction pointed at an item, its value.
         """
         return await self._client._request(
-            _OPERATIONS["judgments.get"],
-            path={"judgmentId": judgment_id},
+            _OPERATIONS["corrections.get"],
+            path={"correctionId": correction_id},
             query={},
             headers={},
-            response=_models.JudgmentWithCopies,
+            response=_models.CorrectionWithCopies,
             timeout=timeout,
         )
 
-    async def unregister(
+    async def remove(
         self,
-        judgment_id: str | UUID,
+        correction_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterJudgmentResult:
-        """Remove a judgment. `POST /v1/judgments/{judgmentId}/unregister`
+    ) -> _models.RemoveCorrectionResult:
+        """Remove a correction. `POST /v1/corrections/{correctionId}/remove`
 
-        Soft delete: the judgment stops listing; retention policy decides when it is purged.
+        Soft delete: the correction stops listing; retention policy decides when it is purged.
         """
         return await self._client._request(
-            _OPERATIONS["judgments.unregister"],
-            path={"judgmentId": judgment_id},
+            _OPERATIONS["corrections.remove"],
+            path={"correctionId": correction_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterJudgmentResult,
+            response=_models.RemoveCorrectionResult,
             timeout=timeout,
         )
 
@@ -15377,7 +15379,7 @@ class AsyncJudgeClassesResource:
     ) -> _models.JudgeClass:
         """Fetch a judge class. `GET /v1/judge-classes/{judgeClassId}`
 
-        Also returns a retired class (`unregisteredAt` set): judgments keep naming theirs.
+        Also returns a retired class (`unregisteredAt` set): corrections keep naming theirs.
         """
         return await self._client._request(
             _OPERATIONS["judgeClasses.get"],
@@ -15419,7 +15421,7 @@ class AsyncJudgeClassesResource:
     ) -> _models.UnregisterJudgeClassResult:
         """Retire a judge class. `POST /v1/judge-classes/{judgeClassId}/unregister`
 
-        No new judgments may name it; existing judgments keep it.
+        No new corrections may name it; existing corrections keep it.
         """
         return await self._client._request(
             _OPERATIONS["judgeClasses.unregister"],
@@ -16048,7 +16050,7 @@ class AsyncRetentionResource:
             "run",
             "artifact",
             "policy",
-            "judgment",
+            "correction",
             "judge_class",
             "provider",
             "memory",
@@ -16118,7 +16120,7 @@ class AsyncRetentionResource:
             "run",
             "artifact",
             "policy",
-            "judgment",
+            "correction",
             "judge_class",
             "provider",
             "memory",
@@ -16300,27 +16302,27 @@ class AsyncEvalSuitesResource:
             timeout=timeout,
         )
 
-    async def build_from_judgments(
+    async def build_from_corrections(
         self,
         suite_id: str | UUID,
-        body: _models.BuildJudgedSuiteBody | Mapping[str, Any] | None = None,
+        body: _models.BuildCorrectedSuiteBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.BuildJudgedSuiteResult:
-        """Build a test set from judgments. `POST /v1/eval-suites/{suiteId}/versions/from-judgments`
+    ) -> _models.BuildCorrectedSuiteResult:
+        """Build a test set from corrections. `POST /v1/eval-suites/{suiteId}/versions/from-corrections`
 
-        Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
+        Publishes a `judged` eval suite version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `judgeClassIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.buildFromJudgments"],
+            _OPERATIONS["evalSuites.buildFromCorrections"],
             path={"suiteId": suite_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.BuildJudgedSuiteBody, body, fields),
-            response=_models.BuildJudgedSuiteResult,
+            body=_body(_models.BuildCorrectedSuiteBody, body, fields),
+            response=_models.BuildCorrectedSuiteResult,
             timeout=timeout,
         )
 
@@ -16333,17 +16335,17 @@ class AsyncEvalSuitesResource:
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgedEvalCaseCollectionPage:
+    ) -> _models.CorrectedEvalCaseCollectionPage:
         """List the cases of a judged eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}/cases`
 
-        Cursor-paginated, in the order the cases were stored (newest judged run first).
+        Cursor-paginated, in the order the cases were stored (newest corrected run first).
         """
         return await self._client._request(
             _OPERATIONS["evalSuites.listCases"],
             path={"suiteId": suite_id, "version": version},
             query={"limit": limit, "cursor": cursor},
             headers={},
-            response=_models.JudgedEvalCaseCollectionPage,
+            response=_models.CorrectedEvalCaseCollectionPage,
             timeout=timeout,
         )
 
@@ -16673,7 +16675,7 @@ class AsyncEvalRunsResource:
     ) -> _models.StartEvalRunResult:
         """Rescore a comparison eval run. `POST /v1/eval-runs/{runId}/rescore`
 
-        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the judgments recorded on them since (a changed answer judged on the replay itself; `changes.new` lists the items to judge). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.
+        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.
         """
         return await self._client._request(
             _OPERATIONS["evalRuns.rescore"],
@@ -18140,7 +18142,7 @@ class AsyncProjectsJudgingRulesResource:
     ) -> _models.JudgingRulePage:
         """List a project's judging rules. `GET /v1/projects/{projectId}/judging-rules`
 
-        The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's judgment when they end. Needs `read` on the project.
+        The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's correction when they end. Needs `read` on the project.
         """
         return await self._client._request(
             _OPERATIONS["projects.judgingRules.list"],
@@ -18163,7 +18165,7 @@ class AsyncProjectsJudgingRulesResource:
     ) -> _models.JudgingRule:
         """Create a judging rule. `POST /v1/projects/{projectId}/judging-rules`
 
-        Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's judgment; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.
+        Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's correction; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.
         """
         return await self._client._request(
             _OPERATIONS["projects.judgingRules.create"],
@@ -18302,7 +18304,7 @@ class AsyncProjectsJudgingRulesResource:
     ) -> _models.JudgingRuleResults:
         """A judging rule's results. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/results`
 
-        By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live judgments on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.
+        By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live corrections on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.
         """
         return await self._client._request(
             _OPERATIONS["projects.judgingRules.results"],
@@ -18325,7 +18327,7 @@ class AsyncProjectsJudgingRulesResource:
     ) -> _models.JudgingRecentQueued:
         """Queue a rule's recent matches. `POST /v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent`
 
-        Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already judged or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.
+        Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already corrected or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.
         """
         return await self._client._request(
             _OPERATIONS["projects.judgingRules.queueRecent"],
@@ -18362,7 +18364,7 @@ class AsyncProjectsJudgingQueueResource:
     ) -> _models.JudgingQueuePage:
         """The project's judging queue. `GET /v1/projects/{projectId}/judging-queue`
 
-        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose judgment they want and the judgments so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the judgment it wants. `forMe=true`: the items any judgment closes, or that want a class the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
+        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a class the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
         """
         return await self._client._request(
             _OPERATIONS["projects.judgingQueue.list"],
@@ -18395,7 +18397,7 @@ class AsyncProjectsJudgingQueueResource:
     ) -> _models.JudgingQueueItem:
         """Dismiss a queued run. `POST /v1/projects/{projectId}/judging-queue/{runId}/dismiss`
 
-        Not worth judging: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as judging the run does.
+        Not worth correcting: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as correcting the run does.
         """
         return await self._client._request(
             _OPERATIONS["projects.judgingQueue.dismiss"],
@@ -18412,7 +18414,7 @@ class AsyncProjectsJudgingQueueResource:
     ) -> _models.JudgingQueueItem:
         """Reopen a dismissed run. `POST /v1/projects/{projectId}/judging-queue/{runId}/reopen`
 
-        Back in the open queue. Only a dismissed item reopens: a judged one was closed by its judgments. Needs `write` on the project.
+        Back in the open queue. Only a dismissed item reopens: a judged one was closed by its corrections. Needs `write` on the project.
         """
         return await self._client._request(
             _OPERATIONS["projects.judgingQueue.reopen"],
@@ -20911,7 +20913,7 @@ class Resources:
     observations: ObservationsResource
     capabilities: CapabilitiesResource
     providers: ProvidersResource
-    judgments: JudgmentsResource
+    corrections: CorrectionsResource
     judge_classes: JudgeClassesResource
     mcp: McpResource
     cost: CostResource
@@ -20972,7 +20974,7 @@ class Resources:
         self.observations = ObservationsResource(client)
         self.capabilities = CapabilitiesResource(client)
         self.providers = ProvidersResource(client)
-        self.judgments = JudgmentsResource(client)
+        self.corrections = CorrectionsResource(client)
         self.judge_classes = JudgeClassesResource(client)
         self.mcp = McpResource(client)
         self.cost = CostResource(client)
@@ -21035,7 +21037,7 @@ class AsyncResources:
     observations: AsyncObservationsResource
     capabilities: AsyncCapabilitiesResource
     providers: AsyncProvidersResource
-    judgments: AsyncJudgmentsResource
+    corrections: AsyncCorrectionsResource
     judge_classes: AsyncJudgeClassesResource
     mcp: AsyncMcpResource
     cost: AsyncCostResource
@@ -21096,7 +21098,7 @@ class AsyncResources:
         self.observations = AsyncObservationsResource(client)
         self.capabilities = AsyncCapabilitiesResource(client)
         self.providers = AsyncProvidersResource(client)
-        self.judgments = AsyncJudgmentsResource(client)
+        self.corrections = AsyncCorrectionsResource(client)
         self.judge_classes = AsyncJudgeClassesResource(client)
         self.mcp = AsyncMcpResource(client)
         self.cost = AsyncCostResource(client)

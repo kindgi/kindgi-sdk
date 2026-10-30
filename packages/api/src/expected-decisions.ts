@@ -2,14 +2,14 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Grading a correction: an expert's "these are the tool calls the agent
+ * Grading expected decisions: an expert's "these are the tool calls the agent
  * should have made, and these tools it should not have called" checked
  * against the calls a candidate version actually made on the replay. Pure,
- * with no dependencies, so the console and the CLI grade and preview a
- * correction the same way the gate does.
+ * with no dependencies, so the console and the CLI grade and preview
+ * expected decisions the same way the gate does.
  *
  * How two sets of calls compare (all of it deterministic, no model):
- *   - Scope: only tools the correction names are compared; a candidate's
+ *   - Scope: only tools the expected decisions name are compared; a candidate's
  *     calls to any other tool are ignored, so an extra lookup by a new
  *     version doesn't fail it.
  *   - Named calls, as a multiset: for each named tool the candidate's calls
@@ -19,9 +19,9 @@
  *     bipartite matching, not greedy: greedy depends on the order the calls
  *     are given and so isn't deterministic.
  *   - A field is a top-level argument property; its value is compared whole,
- *     with the same canonical-JSON equality a judged item uses (`canonical`
- *     from `./judged-items.js`). Fields the correction leaves out are not
- *     compared. Order of the calls is not compared.
+ *     with the same canonical-JSON equality a corrected item uses (`canonical`
+ *     from `./corrected-items.js`). Fields the expected decisions leave out
+ *     are not compared. Order of the calls is not compared.
  *   - Must not call: a `notCalled` tool has zero calls.
  *
  * A {@link CallDifference} can quote argument values (a person's
@@ -31,7 +31,7 @@
  * spot.
  */
 
-import { canonical } from './judged-items.js';
+import { canonical } from './corrected-items.js';
 
 /** One call an expert says the agent should have made. */
 export interface ExpectedCall {
@@ -44,8 +44,8 @@ export interface ExpectedCall {
   readonly args: Readonly<Record<string, unknown>>;
 }
 
-/** What an expert corrected about a run's decisions. */
-export interface Correction {
+/** What the agent should have done: an expert's correction of a run's decisions. */
+export interface ExpectedDecisions {
   /** The calls that should have been made. */
   readonly calls: readonly ExpectedCall[];
   /** The tools that should not have been called at all. */
@@ -72,8 +72,8 @@ export interface CandidateCall {
 }
 
 /**
- * One way a candidate's calls differ from a correction. It can quote
- * argument values, so it is part of what erases with the run.
+ * One way a candidate's calls differ from the expected decisions. It can
+ * quote argument values, so it is part of what erases with the run.
  */
 export type CallDifference =
   | {
@@ -109,21 +109,21 @@ export type CallDifference =
       readonly refused?: true;
     };
 
-export interface CorrectionResult {
+export interface ExpectedDecisionsResult {
   readonly pass: boolean;
   /** Every way the calls differed; empty when it passed. */
   readonly differences: readonly CallDifference[];
 }
 
-/** Grade a candidate's calls against one correction. */
-export function gradeCorrection(
-  correction: Correction,
+/** Grade a candidate's calls against one set of expected decisions. */
+export function gradeExpectedDecisions(
+  decisions: ExpectedDecisions,
   calls: readonly CandidateCall[],
-): CorrectionResult {
+): ExpectedDecisionsResult {
   const differences: CallDifference[] = [];
 
   // Must-not-call: a named tool has zero calls.
-  for (const tool of distinct(correction.notCalled)) {
+  for (const tool of distinct(decisions.notCalled)) {
     const made = calls.filter((c) => c.tool === tool);
     if (made.length > 0) {
       const refused = made.filter((c) => c.refused === true).length;
@@ -137,8 +137,8 @@ export function gradeCorrection(
   }
 
   // Expected calls, per named tool, as a multiset.
-  for (const tool of distinct(correction.calls.map((c) => c.tool))) {
-    const expected = correction.calls.filter((c) => c.tool === tool);
+  for (const tool of distinct(decisions.calls.map((c) => c.tool))) {
+    const expected = decisions.calls.filter((c) => c.tool === tool);
     const actual = ordered(calls.filter((c) => c.tool === tool));
     if (expected.length !== actual.length) {
       const refused = actual.filter((c) => c.refused === true).length;

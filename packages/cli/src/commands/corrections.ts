@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Correction, JudgedItem } from '@kindgi/client';
+import type { CorrectedItem, ExpectedDecisions } from '@kindgi/client';
 import { CORRECTION_ITEM } from '@kindgi/types';
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
@@ -24,13 +24,13 @@ function givenFlags<F extends string>(
 }
 
 /** The optional `--correction` flag, parsed from JSON or `@<file>`. */
-async function correctionFlag(ctx: CommandContext): Promise<Correction | undefined> {
+async function expectedDecisionsFlag(ctx: CommandContext): Promise<ExpectedDecisions | undefined> {
   const text = stringFlag(ctx, 'correction');
-  return text === undefined ? undefined : ((await readJsonInput(text)) as Correction);
+  return text === undefined ? undefined : ((await readJsonInput(text)) as ExpectedDecisions);
 }
 
-/** The judged item for an ordinary judgment, from `--item`/`--pointer`/`--rank`. */
-function ordinaryItem(ctx: CommandContext): JudgedItem {
+/** The corrected item for an ordinary correction, from `--item`/`--pointer`/`--rank`. */
+function ordinaryItem(ctx: CommandContext): CorrectedItem {
   const key = stringFlag(ctx, 'item');
   if (key === undefined) throw new UsageError('--item=<key> is required');
   const rank = integerFlag(ctx, 'rank');
@@ -49,7 +49,7 @@ function ordinaryItem(ctx: CommandContext): JudgedItem {
  * once per run per expert. `--item`, `--pointer` or `--rank`, if given, may only
  * name that whole-output item; `--rank` never applies, so it is refused.
  */
-function correctionItem(ctx: CommandContext): JudgedItem {
+function correctionItem(ctx: CommandContext): CorrectedItem {
   const key = stringFlag(ctx, 'item');
   if (key !== undefined && key !== CORRECTION_ITEM.key) {
     throw new UsageError(
@@ -72,7 +72,7 @@ const add: LeafCommand = {
   description:
     "Correct one item of a finished run's output: mark the answer right (`--yes`) or wrong (`--no`), with an optional reason. Correcting the same item again as the same caller replaces the earlier correction.",
   usage:
-    'kindgi judgments add --run=<run-id> --item=<key> [--pointer=<json-pointer>] [--rank=<n>] (--yes | --no) [--reason=<text>] [--correction=<json-or-@file>] [--class=<judge-class-id>] [--participant=<id>]',
+    'kindgi corrections add --run=<run-id> --item=<key> [--pointer=<json-pointer>] [--rank=<n>] (--yes | --no) [--reason=<text>] [--correction=<json-or-@file>] [--class=<judge-class-id>] [--participant=<id>]',
   optionSpec: {
     run: { type: 'string', description: 'The run whose output is corrected. Required.' },
     item: {
@@ -111,15 +111,15 @@ const add: LeafCommand = {
     },
   },
   run: (ctx) =>
-    runSdk(ctx, 'judgments add', async () => {
+    runSdk(ctx, 'corrections add', async () => {
       const runId = stringFlag(ctx, 'run');
       if (runId === undefined) throw new UsageError('--run=<run-id> is required');
       const yes = ctx.options.yes === true;
       const no = ctx.options.no === true;
       if (yes === no) throw new UsageError('Give exactly one of --yes or --no');
-      const correction = await correctionFlag(ctx);
+      const correction = await expectedDecisionsFlag(ctx);
       const item = correction === undefined ? ordinaryItem(ctx) : correctionItem(ctx);
-      return await ctx.client().judgments.create({
+      return await ctx.client().corrections.create({
         runId,
         item,
         verdict: yes ? 'yes' : 'no',
@@ -138,7 +138,7 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List corrections, newest first (replaced and removed ones are left out).',
   usage:
-    'kindgi judgments list [--run=<run-id>] [--agent=<id> [--agent-version=<v>]] [--flow=<id>] [--verdict=yes|no] [--class=<judge-class-id>] [--participant=<id>] [--project=<id>] [--limit=<n>] [--cursor=<c>]',
+    'kindgi corrections list [--run=<run-id>] [--agent=<id> [--agent-version=<v>]] [--flow=<id>] [--verdict=yes|no] [--class=<judge-class-id>] [--participant=<id>] [--project=<id>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     run: { type: 'string', description: 'Only corrections of this run.' },
     agent: { type: 'string', description: 'Only corrections of runs of this agent.' },
@@ -164,7 +164,7 @@ const list: LeafCommand = {
     },
   },
   run: (ctx) =>
-    runSdk(ctx, 'judgments list', async () => {
+    runSdk(ctx, 'corrections list', async () => {
       if (
         stringFlag(ctx, 'agent-version') !== undefined &&
         stringFlag(ctx, 'agent') === undefined
@@ -178,7 +178,7 @@ const list: LeafCommand = {
       const projectId = stringFlag(ctx, 'project');
       const limit = integerFlag(ctx, 'limit');
       const cursor = stringFlag(ctx, 'cursor');
-      return await ctx.client().judgments.list({
+      return await ctx.client().corrections.list({
         ...givenFlags(ctx, {
           run: 'runId',
           agent: 'agentId',
@@ -200,11 +200,11 @@ const show: LeafCommand = {
   name: 'show',
   description:
     "Show a correction with the stored copies of the run's input and output, and the corrected item's value.",
-  usage: 'kindgi judgments show <judgment-id>',
+  usage: 'kindgi corrections show <correction-id>',
   run: (ctx) =>
-    runSdk(ctx, 'judgments show', async () => {
-      const id = requiredPositional(ctx, 0, 'judgment-id');
-      return await ctx.client().judgments.get(id);
+    runSdk(ctx, 'corrections show', async () => {
+      const id = requiredPositional(ctx, 0, 'correction-id');
+      return await ctx.client().corrections.get(id);
     }),
 };
 
@@ -212,18 +212,18 @@ const remove: LeafCommand = {
   kind: 'leaf',
   name: 'remove',
   description: 'Remove a correction.',
-  usage: 'kindgi judgments remove <judgment-id>',
+  usage: 'kindgi corrections remove <correction-id>',
   run: (ctx) =>
-    runSdk(ctx, 'judgments remove', async () => {
-      const id = requiredPositional(ctx, 0, 'judgment-id');
-      await ctx.client().judgments.unregister(id);
-      return { judgmentId: id, removed: true };
+    runSdk(ctx, 'corrections remove', async () => {
+      const id = requiredPositional(ctx, 0, 'correction-id');
+      await ctx.client().corrections.remove(id);
+      return { correctionId: id, removed: true };
     }),
 };
 
-export const judgmentsCommand: Command = {
+export const correctionsCommand: Command = {
   kind: 'group',
-  name: 'judgments',
+  name: 'corrections',
   description:
     "Correct items of a run's output, marking them right or wrong (add / list / show / remove).",
   subcommands: [add, list, show, remove],

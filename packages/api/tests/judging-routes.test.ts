@@ -3,7 +3,7 @@
 
 /**
  * A project's judging rules and queue, over an in-memory binding: who may
- * read and who may change them (`read` / `write` on the project, as judging
+ * read and who may change them (`read` / `write` on the project, as correcting
  * a run needs), the rule body's checks, versions on change, what the caller
  * may do with each item (`can`), `limit=0` totals, `forMe` asking for the
  * classes the caller may assert, dismiss and reopen, and the preview.
@@ -21,6 +21,7 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
+  CorrectionRegistryBinding,
   JudgeClass,
   JudgingQueueBinding,
   JudgingQueueItem,
@@ -28,7 +29,6 @@ import type {
   JudgingRule,
   JudgingRulePatch,
   JudgingRuleSpec,
-  JudgmentRegistryBinding,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
@@ -48,10 +48,10 @@ const RESULT_GROUP = {
   dismissed: 1,
   erased: 0,
   skippedByCap: 0,
-  judgments: 4,
-  runsWithJudgments: 2,
+  corrections: 4,
+  runsWithCorrections: 2,
   yesShare: 0.75,
-  byClass: [{ judgeClassId: null, judgments: 4, yes: 3 }],
+  byClass: [{ judgeClassId: null, corrections: 4, yes: 3 }],
 };
 
 const resolveToken: TokenResolver = async (token) =>
@@ -102,11 +102,11 @@ const CLASSES: JudgeClass[] = [
   },
 ];
 
-const judgments = {
+const corrections = {
   listClasses: async () => ({ data: CLASSES, hasMore: false }),
   getClass: async ({ judgeClassId }: { judgeClassId: string }) =>
     CLASSES.find((c) => c.id === judgeClassId) ?? null,
-} as unknown as JudgmentRegistryBinding;
+} as unknown as CorrectionRegistryBinding;
 
 /** An in-memory binding, enough for the routes: versions, a queue, and what each call was asked. */
 function memoryBinding() {
@@ -241,7 +241,7 @@ function memoryBinding() {
       completedAt: at(),
       rules: [{ ruleId: 'r-1', version: 2 }],
       wantedClassIds: ['cls-expert'],
-      anyJudgment: false,
+      anyCorrection: false,
       progress: { total: 0, byClass: [] },
       addedAt: at(),
       state: 'open',
@@ -257,7 +257,7 @@ function harness(opts: { readonly projects?: boolean } = {}) {
     resolveToken,
     runHandler,
     judgingQueue: memory.binding,
-    judgmentRegistry: judgments,
+    correctionRegistry: corrections,
     ...(projects !== undefined && {
       projectBinding: projects.projects,
       projectMembershipBinding: projects.memberships,
@@ -333,7 +333,7 @@ describe('judging rules', () => {
         (status) =>
           [
             { ...RULE, when: { status: ['completed', status] } },
-            'Only a completed run can be judged, so `when.status` takes `completed` only',
+            'Only a completed run can be corrected, so `when.status` takes `completed` only',
           ] as const,
       ),
       [
@@ -359,14 +359,14 @@ describe('judging rules', () => {
     expect(r.body.error.code).toBe('judge-class-not-found');
   });
 
-  test("a rule's results: each group's counts, the runs its judgments come from included", async () => {
+  test("a rule's results: each group's counts, the runs its corrections come from included", async () => {
     const h = harness();
     const created = await h.call(EDITOR, 'POST', '/judging-rules', RULE);
     const res = await h.call(VIEWER, 'GET', `/judging-rules/${created.body.ruleId}/results`);
     expect(res.status).toBe(200);
     expect(res.body.groups).toEqual([RESULT_GROUP]);
-    // Four judgments from two runs: the share's runs, not its judgments.
-    expect(res.body.groups[0]).toMatchObject({ judgments: 4, runsWithJudgments: 2 });
+    // Four corrections from two runs: the share's runs, not its corrections.
+    expect(res.body.groups[0]).toMatchObject({ corrections: 4, runsWithCorrections: 2 });
   });
 
   test('an unknown rule: 404', async () => {

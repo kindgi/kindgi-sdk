@@ -44,12 +44,12 @@ function recorder() {
   return { calls, rec };
 }
 
-describe('kindgi judgments', () => {
+describe('kindgi corrections', () => {
   test('add sends the item, verdict, class and participant', async () => {
     const { calls, rec } = recorder();
     const out = await run(
       [
-        'judgments',
+        'corrections',
         'add',
         '--run=r-1',
         '--item=c2',
@@ -60,7 +60,7 @@ describe('kindgi judgments', () => {
         '--class=jc-1',
         '--participant=end-user-1',
       ],
-      { judgments: { create: rec('create', { id: 'j-1' }) } },
+      { corrections: { create: rec('create', { id: 'j-1' }) } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
@@ -83,13 +83,13 @@ describe('kindgi judgments', () => {
     const { calls, rec } = recorder();
     const out = await run(
       [
-        'judgments',
+        'corrections',
         'add',
         '--run=r-1',
         '--no',
         '--correction={"calls":[{"tool":"acme.refund","args":{"amount":25}}],"notCalled":["acme.escalate"]}',
       ],
-      { judgments: { create: rec('create', { id: 'j-2' }) } },
+      { corrections: { create: rec('create', { id: 'j-2' }) } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
@@ -109,22 +109,22 @@ describe('kindgi judgments', () => {
   });
 
   test('add refuses --item, --pointer or --rank that fight the correction item', async () => {
-    const client = { judgments: { create: recorder().rec('create') } };
+    const client = { corrections: { create: recorder().rec('create') } };
     const corr = '--correction={"calls":[],"notCalled":["acme.escalate"]}';
     const wrongItem = await run(
-      ['judgments', 'add', '--run=r-1', '--item=c1', '--no', corr],
+      ['corrections', 'add', '--run=r-1', '--item=c1', '--no', corr],
       client,
     );
     expect(wrongItem.exitCode).toBe(2);
     expect(wrongItem.stderr).toContain(CORRECTION_ITEM.key);
     const wrongPointer = await run(
-      ['judgments', 'add', '--run=r-1', '--pointer=/matches/0', '--no', corr],
+      ['corrections', 'add', '--run=r-1', '--pointer=/matches/0', '--no', corr],
       client,
     );
     expect(wrongPointer.exitCode).toBe(2);
     expect(wrongPointer.stderr).toContain('whole output');
     const wrongRank = await run(
-      ['judgments', 'add', '--run=r-1', '--rank=1', '--no', corr],
+      ['corrections', 'add', '--run=r-1', '--rank=1', '--no', corr],
       client,
     );
     expect(wrongRank.exitCode).toBe(2);
@@ -132,8 +132,8 @@ describe('kindgi judgments', () => {
   });
 
   test('add rejects a malformed --correction', async () => {
-    const out = await run(['judgments', 'add', '--run=r-1', '--no', '--correction={bad'], {
-      judgments: { create: recorder().rec('create') },
+    const out = await run(['corrections', 'add', '--run=r-1', '--no', '--correction={bad'], {
+      corrections: { create: recorder().rec('create') },
     });
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Malformed JSON input');
@@ -141,23 +141,23 @@ describe('kindgi judgments', () => {
 
   test('add without a class is unclassified', async () => {
     const { calls, rec } = recorder();
-    const out = await run(['judgments', 'add', '--run=r-1', '--item=c1', '--no'], {
-      judgments: { create: rec('create') },
+    const out = await run(['corrections', 'add', '--run=r-1', '--item=c1', '--no'], {
+      corrections: { create: rec('create') },
     });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['create', { runId: 'r-1', item: { key: 'c1' }, verdict: 'no' }]]);
   });
 
   test('add needs exactly one of --yes and --no, a run and an item', async () => {
-    const client = { judgments: {} };
-    const both = await run(['judgments', 'add', '--run=r', '--item=c', '--yes', '--no'], client);
+    const client = { corrections: {} };
+    const both = await run(['corrections', 'add', '--run=r', '--item=c', '--yes', '--no'], client);
     expect(both.exitCode).toBe(2);
     expect(both.stderr).toContain('exactly one of --yes or --no');
-    const neither = await run(['judgments', 'add', '--run=r', '--item=c'], client);
+    const neither = await run(['corrections', 'add', '--run=r', '--item=c'], client);
     expect(neither.exitCode).toBe(2);
-    const noRun = await run(['judgments', 'add', '--item=c', '--yes'], client);
+    const noRun = await run(['corrections', 'add', '--item=c', '--yes'], client);
     expect(noRun.stderr).toContain('--run');
-    const noItem = await run(['judgments', 'add', '--run=r', '--yes'], client);
+    const noItem = await run(['corrections', 'add', '--run=r', '--yes'], client);
     expect(noItem.stderr).toContain('--item');
   });
 
@@ -165,7 +165,7 @@ describe('kindgi judgments', () => {
     const { calls, rec } = recorder();
     const out = await run(
       [
-        'judgments',
+        'corrections',
         'list',
         '--run=r-1',
         '--agent=acme.matcher',
@@ -178,7 +178,7 @@ describe('kindgi judgments', () => {
         '--limit=5',
         '--cursor=c1',
       ],
-      { judgments: { list: rec('list', { data: [], hasMore: false }) } },
+      { corrections: { list: rec('list', { data: [], hasMore: false }) } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
@@ -201,11 +201,11 @@ describe('kindgi judgments', () => {
   });
 
   test('list refuses --version without --agent, and an unknown verdict', async () => {
-    const client = { judgments: {} };
-    expect((await run(['judgments', 'list', '--agent-version=1.0.0'], client)).stderr).toContain(
+    const client = { corrections: {} };
+    expect((await run(['corrections', 'list', '--agent-version=1.0.0'], client)).stderr).toContain(
       '--agent-version needs --agent',
     );
-    expect((await run(['judgments', 'list', '--verdict=maybe'], client)).stderr).toContain(
+    expect((await run(['corrections', 'list', '--verdict=maybe'], client)).stderr).toContain(
       '--verdict must be one of yes, no',
     );
   });
@@ -213,16 +213,16 @@ describe('kindgi judgments', () => {
   test('show and remove', async () => {
     const { calls, rec } = recorder();
     const client = {
-      judgments: { get: rec('get', { id: 'j-1' }), unregister: rec('unregister', undefined) },
+      corrections: { get: rec('get', { id: 'j-1' }), remove: rec('remove', undefined) },
     };
-    expect((await run(['judgments', 'show', 'j-1'], client)).exitCode).toBe(0);
-    const removed = await run(['judgments', 'remove', 'j-1'], client);
+    expect((await run(['corrections', 'show', 'j-1'], client)).exitCode).toBe(0);
+    const removed = await run(['corrections', 'remove', 'j-1'], client);
     expect(removed.exitCode, removed.stderr).toBe(0);
     expect(calls).toEqual([
       ['get', 'j-1'],
-      ['unregister', 'j-1'],
+      ['remove', 'j-1'],
     ]);
-    expect(JSON.parse(removed.stdout)).toEqual({ judgmentId: 'j-1', removed: true });
+    expect(JSON.parse(removed.stdout)).toEqual({ correctionId: 'j-1', removed: true });
   });
 });
 

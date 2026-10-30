@@ -6,23 +6,23 @@ import { type Context, Hono } from 'hono';
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import type { Cursor, ProjectId, ScopeSegment, TenantId, UserId } from '@kindgi/types';
 
+import { classWeightReader, summarizeCorrections } from '../corrected-summary.js';
+import {
+  type CorrectedRunListInput,
+  type CorrectedRunWithCorrections,
+  type Correction,
+  type CorrectionRegistryBinding,
+  isReplayCopy,
+} from '../correction-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type {
+  CorrectedEvalCase,
+  CorrectedItemSummary,
   EvalCaseStoreBinding,
-  JudgedCaseCorrection,
-  JudgedEvalCase,
-  JudgedItemSummary,
+  TestCaseExpectedDecisions,
 } from '../eval-case-binding.js';
 import type { EvalSuiteRegistryBinding } from '../eval-suite-binding.js';
 import type { ItemRights } from '../item-rights.js';
-import { classWeightReader, summarizeJudgments } from '../judged-summary.js';
-import {
-  type JudgedRunListInput,
-  type JudgedRunWithJudgments,
-  type Judgment,
-  type JudgmentRegistryBinding,
-  isReplayCopy,
-} from '../judgment-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
@@ -30,24 +30,24 @@ import { projectMismatch } from './project-mismatch.js';
 import { parseSegmentsBody } from './segments.js';
 import { parseTimeInput } from './time-input.js';
 
-/** The most cases a test set built from judgments holds. */
-export const MAX_JUDGED_CASES = 1000;
+/** The most cases a test set built from corrections holds. */
+export const MAX_CORRECTED_CASES = 1000;
 const PAGE = 100;
 const SEMVER_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 
 /**
- * Test sets built from judgments: `judged` eval suites.
+ * Test sets built from corrections: `judged` eval suites.
  *
- * - `POST /v1/eval-suites/:suiteId/versions/from-judgments` builds and
- *   publishes a version whose cases are copies of judged runs (input,
- *   what the turn read, the judged output) with each item's judgments
- *   summed up, weighted by judge class (an unclassified judgment counts
+ * - `POST /v1/eval-suites/:suiteId/versions/from-corrections` builds and
+ *   publishes a version whose cases are copies of corrected runs (input,
+ *   what the turn read, the corrected output) with each item's corrections
+ *   summed up, weighted by judge class (an unclassified correction counts
  *   1). Needs `admin` on the project, as publishing a suite does.
  * - `GET /v1/eval-suites/:suiteId/versions/:version/cases` lists them.
  */
-export function judgedSuitesRouter(
+export function correctedSuitesRouter(
   suites: EvalSuiteRegistryBinding,
-  judgments: JudgmentRegistryBinding,
+  corrections: CorrectionRegistryBinding,
   cases: EvalCaseStoreBinding,
   authorizer?: Authorizer,
   /** Rights on a suite more than one project serves (`item-rights.ts`); absent → the suite's own. */
@@ -55,7 +55,7 @@ export function judgedSuitesRouter(
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
-  r.post('/:suiteId/versions/from-judgments', async (c) => {
+  r.post('/:suiteId/versions/from-corrections', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const suiteId = c.req.param('suiteId');
     const parsed = parseBuildBody(await c.req.json().catch(() => null));
@@ -67,19 +67,19 @@ export function judgedSuitesRouter(
     ) {
       return fail(c, 'permission-denied', 'Building a test set needs admin on the project.');
     }
-    if (judgments.listJudgedRuns === undefined) {
+    if (corrections.listCorrectedRuns === undefined) {
       return fail(
         c,
         'test-sets-not-supported',
-        'This deployment cannot build test sets from judgments.',
+        'This deployment cannot build test sets from corrections.',
       );
     }
 
     const principal = c.get('principal') as Principal | undefined;
     const creatorUserId =
       principal?.actor.kind === 'user' ? (principal.actor.id as UserId) : undefined;
-    const outcome = await buildJudgedSuite(
-      { suites, judgments, cases },
+    const outcome = await buildCorrectedSuite(
+      { suites, corrections, cases },
       { tenantId, suiteId, ...body, ...(creatorUserId !== undefined && { creatorUserId }) },
     );
     if (outcome.kind === 'already-registered') {
@@ -136,32 +136,32 @@ export function judgedSuitesRouter(
   return r;
 }
 
-/** Which judged runs a test set is built from, and which of their judgments count. */
-export interface JudgedSuiteQuery {
+/** Which corrected runs a test set is built from, and which of their corrections count. */
+export interface CorrectedSuiteQuery {
   readonly agentId?: string;
   readonly agentVersion?: string;
   readonly flowId?: string;
   readonly since?: string;
   readonly until?: string;
   readonly judgeClassIds?: readonly string[];
-  readonly minJudgments?: number;
+  readonly minCorrections?: number;
   /** Only runs started in this segment path or below it. */
   readonly segments?: readonly ScopeSegment[];
 }
 
-export interface BuildJudgedSuiteInput {
+export interface BuildCorrectedSuiteInput {
   readonly tenantId: TenantId;
   readonly suiteId: string;
   readonly version: string;
-  /** The project whose judged runs it takes, and the suite's project. */
+  /** The project whose corrected runs it takes, and the suite's project. */
   readonly projectId: ProjectId;
   readonly description?: string;
-  readonly query: JudgedSuiteQuery;
+  readonly query: CorrectedSuiteQuery;
   /** The user who built it, made the suite's creator. */
   readonly creatorUserId?: UserId;
 }
 
-export type BuildJudgedSuiteOutcome =
+export type BuildCorrectedSuiteOutcome =
   | { readonly kind: 'ok'; readonly caseCount: number; readonly truncated: boolean }
   | { readonly kind: 'already-registered' }
   | { readonly kind: 'project-not-found' }
@@ -170,21 +170,21 @@ export type BuildJudgedSuiteOutcome =
 
 /**
  * Build a test set and publish it as a `judged` suite version, as
- * `POST /v1/eval-suites/{suiteId}/versions/from-judgments` does: the
- * judged runs the query picks (newest first, at most `MAX_JUDGED_CASES`),
- * each a case with its items' judgments summed up. The binding must list
- * judged runs (`listJudgedRuns`).
+ * `POST /v1/eval-suites/{suiteId}/versions/from-corrections` does: the
+ * corrected runs the query picks (newest first, at most `MAX_CORRECTED_CASES`),
+ * each a case with its items' corrections summed up. The binding must list
+ * corrected runs (`listCorrectedRuns`).
  */
-export async function buildJudgedSuite(
+export async function buildCorrectedSuite(
   deps: {
     readonly suites: EvalSuiteRegistryBinding;
-    readonly judgments: JudgmentRegistryBinding;
+    readonly corrections: CorrectionRegistryBinding;
     readonly cases: EvalCaseStoreBinding;
   },
-  input: BuildJudgedSuiteInput,
-): Promise<BuildJudgedSuiteOutcome> {
+  input: BuildCorrectedSuiteInput,
+): Promise<BuildCorrectedSuiteOutcome> {
   const { tenantId, suiteId, version, projectId } = input;
-  const built = await buildCases(deps.judgments, tenantId, input);
+  const built = await buildCases(deps.corrections, tenantId, input);
   const outcome = await deps.suites.publish({
     tenantId,
     projectId,
@@ -195,8 +195,8 @@ export async function buildJudgedSuite(
       kind: 'judged',
       ...(input.description !== undefined && { description: input.description }),
       spec: {
-        source: 'judgments',
-        // Where the judgments came from: a comparison's summary names it.
+        source: 'corrections',
+        // Where the corrections came from: a comparison's summary names it.
         projectId,
         query: input.query,
         caseCount: built.cases.length,
@@ -228,35 +228,37 @@ interface BuildBody {
   readonly version: string;
   readonly projectId: ProjectId;
   readonly description?: string;
-  /** The judged-run filter, as recorded in the suite's spec. */
-  readonly query: JudgedSuiteQuery;
+  /** The corrected-run filter, as recorded in the suite's spec. */
+  readonly query: CorrectedSuiteQuery;
 }
 
-function judgedRunFilter(
+function correctedRunFilter(
   tenantId: TenantId,
   body: Pick<BuildBody, 'projectId' | 'query'>,
-): Omit<JudgedRunListInput, 'limit' | 'cursor'> {
-  const { judgeClassIds: _ids, minJudgments: _min, ...runFilter } = body.query;
+): Omit<CorrectedRunListInput, 'limit' | 'cursor'> {
+  const { judgeClassIds: _ids, minCorrections: _min, ...runFilter } = body.query;
   return { tenantId, projectId: body.projectId, ...runFilter };
 }
 
-/** Pages judged runs (newest first, up to MAX_JUDGED_CASES) and turns each into a case. */
+/** Pages corrected runs (newest first, up to MAX_CORRECTED_CASES) and turns each into a case. */
 async function buildCases(
-  judgments: JudgmentRegistryBinding,
+  corrections: CorrectionRegistryBinding,
   tenantId: TenantId,
   body: Pick<BuildBody, 'projectId' | 'query'>,
-): Promise<{ readonly cases: JudgedEvalCase[]; readonly truncated: boolean }> {
-  const list = judgments.listJudgedRuns as NonNullable<JudgmentRegistryBinding['listJudgedRuns']>;
-  const weightOf = classWeightReader(judgments, tenantId);
-  const filter = judgedRunFilter(tenantId, body);
-  const cases: JudgedEvalCase[] = [];
+): Promise<{ readonly cases: CorrectedEvalCase[]; readonly truncated: boolean }> {
+  const list = corrections.listCorrectedRuns as NonNullable<
+    CorrectionRegistryBinding['listCorrectedRuns']
+  >;
+  const weightOf = classWeightReader(corrections, tenantId);
+  const filter = correctedRunFilter(tenantId, body);
+  const cases: CorrectedEvalCase[] = [];
   let cursor: Cursor | undefined;
   for (;;) {
     const page = await list({ ...filter, limit: PAGE, ...(cursor !== undefined && { cursor }) });
-    for (const judged of page.data) {
-      const built = await toCase(judged, body.query, weightOf);
+    for (const corrected of page.data) {
+      const built = await toCase(corrected, body.query, weightOf);
       if (built !== undefined) cases.push(built);
-      if (cases.length >= MAX_JUDGED_CASES) return { cases, truncated: true };
+      if (cases.length >= MAX_CORRECTED_CASES) return { cases, truncated: true };
     }
     if (!page.hasMore || page.nextCursor === undefined) return { cases, truncated: false };
     cursor = page.nextCursor;
@@ -264,40 +266,40 @@ async function buildCases(
 }
 
 async function toCase(
-  judged: JudgedRunWithJudgments,
+  corrected: CorrectedRunWithCorrections,
   q: BuildBody['query'],
   weightOf: (judgeClassId: string | undefined) => Promise<number>,
-): Promise<JudgedEvalCase | undefined> {
+): Promise<CorrectedEvalCase | undefined> {
   // A comparison's replay is never a case, whatever the binding lists.
-  if (isReplayCopy(judged.run)) return undefined;
+  if (isReplayCopy(corrected.run)) return undefined;
   const kept =
     q.judgeClassIds === undefined
-      ? judged.judgments
-      : judged.judgments.filter(
+      ? corrected.corrections
+      : corrected.corrections.filter(
           (j) => j.judgeClassId !== undefined && q.judgeClassIds?.includes(j.judgeClassId),
         );
-  if (kept.length === 0 || kept.length < (q.minJudgments ?? 1)) return undefined;
-  const byKey = new Map<string, Judgment[]>();
+  if (kept.length === 0 || kept.length < (q.minCorrections ?? 1)) return undefined;
+  const byKey = new Map<string, Correction[]>();
   for (const j of kept) byKey.set(j.item.key, [...(byKey.get(j.item.key) ?? []), j]);
-  const items: JudgedItemSummary[] = [];
-  for (const [key, list] of byKey) items.push(await summarizeJudgments(key, list, weightOf));
+  const items: CorrectedItemSummary[] = [];
+  for (const [key, list] of byKey) items.push(await summarizeCorrections(key, list, weightOf));
   items.sort((a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER));
-  // Each kept judgment that carries a correction rides onto the case, keyed by
-  // its judgment and carrying its judge class and restriction, so a
-  // restricted-only comparison filters corrections the way it filters items.
-  const corrections: JudgedCaseCorrection[] = kept.flatMap((j) =>
+  // Each kept correction's expected decisions ride onto the case, keyed by
+  // its correction and carrying its judge class and restriction, so a
+  // restricted-only comparison filters them the way it filters items.
+  const corrections: TestCaseExpectedDecisions[] = kept.flatMap((j) =>
     j.correction === undefined
       ? []
       : [
           {
             ...j.correction,
-            judgmentId: j.id,
+            correctionId: j.id,
             ...(j.judgeClassId !== undefined && { judgeClassId: j.judgeClassId }),
             ...(j.restricted === true && { restricted: true as const }),
           },
         ],
   );
-  const run = judged.run;
+  const run = corrected.run;
   return {
     caseId: run.runId,
     subject: run.subject,
@@ -335,10 +337,10 @@ function parseStringFilters(b: Record<string, unknown>): Record<string, string> 
   return query;
 }
 
-/** Which judgments count: by class, and how many a run needs. */
-function parseJudgmentFilters(
+/** Which corrections count: by class, and how many a run needs. */
+function parseCorrectionFilters(
   b: Record<string, unknown>,
-): Pick<BuildBody['query'], 'judgeClassIds' | 'minJudgments'> | string {
+): Pick<BuildBody['query'], 'judgeClassIds' | 'minCorrections'> | string {
   const ids = b.judgeClassIds;
   if (
     ids !== undefined &&
@@ -346,21 +348,21 @@ function parseJudgmentFilters(
   ) {
     return 'judgeClassIds must be a list of judge class ids.';
   }
-  const min = b.minJudgments;
+  const min = b.minCorrections;
   if (min !== undefined && !(Number.isInteger(min) && (min as number) >= 1)) {
-    return 'minJudgments must be a whole number ≥ 1.';
+    return 'minCorrections must be a whole number ≥ 1.';
   }
   return {
     ...(ids !== undefined && { judgeClassIds: ids as string[] }),
-    ...(min !== undefined && { minJudgments: min as number }),
+    ...(min !== undefined && { minCorrections: min as number }),
   };
 }
 
-/** The optional judged-run filters; a message when one is malformed. */
+/** The optional corrected-run filters; a message when one is malformed. */
 function parseQuery(b: Record<string, unknown>): BuildBody['query'] | string {
   const strings = parseStringFilters(b);
   if (typeof strings === 'string') return strings;
-  const counted = parseJudgmentFilters(b);
+  const counted = parseCorrectionFilters(b);
   if (typeof counted === 'string') return counted;
   const segments = parseSegmentsBody(b.segments);
   if (segments.kind === 'err') return segments.message;
@@ -382,7 +384,7 @@ function parseBuildBody(raw: unknown): Parsed<BuildBody> {
     return err('projectId is required.');
   }
   if (b.agentId === undefined && b.flowId === undefined) {
-    return err('Name the agent (agentId) or the flow (flowId) whose judged runs to use.');
+    return err('Name the agent (agentId) or the flow (flowId) whose corrected runs to use.');
   }
   if (b.description !== undefined && typeof b.description !== 'string') {
     return err('description must be a string.');

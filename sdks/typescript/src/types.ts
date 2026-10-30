@@ -468,13 +468,13 @@ export interface FixProposal {
   /** What the change should improve, and why. */
   readonly hypothesis: string;
   /**
-   * What it rests on. `judgmentCount` is how many judgments, when
-   * `judgmentIds` names only the first of them (an improvement pass names at
-   * most 100).
+   * What it rests on: `fixes` names the corrections it fixes, and
+   * `correctionCount` is how many there are when `fixes` names only the first
+   * of them (an improvement pass names at most 100).
    */
   readonly evidence?: {
-    readonly judgmentIds?: readonly string[];
-    readonly judgmentCount?: number;
+    readonly fixes?: readonly string[];
+    readonly correctionCount?: number;
   };
   readonly drafter:
     | { readonly kind: 'person'; readonly by: string }
@@ -1992,7 +1992,7 @@ export type RetentionDomain =
   | 'run'
   | 'artifact'
   | 'policy'
-  | 'judgment'
+  | 'correction'
   | 'judge_class'
   | 'provider'
   | 'memory'
@@ -3063,11 +3063,11 @@ export interface ClientOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Judgments: yes or no, with an optional reason, about one item of a run's
+// Corrections: yes or no, with an optional reason, about one item of a run's
 // output, optionally recorded under a weighted judge class.
 // ---------------------------------------------------------------------------
 
-/** The verdict of a judgment. */
+/** The verdict of a correction. */
 export type Verdict = 'yes' | 'no';
 
 /**
@@ -3109,10 +3109,10 @@ export interface JudgeClass {
   readonly scope: JudgeClassScope;
   /** The deployment's own word for the class: "expert", "user", "arbitrator". */
   readonly name: string;
-  /** How much a judgment of this class counts, relative to the others (≥ 0). */
+  /** How much a correction of this class counts, relative to the others (≥ 0). */
   readonly weight: number;
   readonly description?: string;
-  /** Who may assert it; absent: anyone who may judge the run. */
+  /** Who may assert it; absent: anyone who may correct the run. */
   readonly assertableBy?: JudgeClassAssertableByView;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt: import('@kindgi/types').Timestamp;
@@ -3137,15 +3137,15 @@ export interface UpdateJudgeClassInput {
   readonly assertableBy?: JudgeClassAssertableBy | null;
 }
 
-/** What a judged run ran: an agent at a version, or a flow at a version. */
-export interface JudgedSubject {
+/** What a corrected run ran: an agent at a version, or a flow at a version. */
+export interface CorrectedSubject {
   readonly kind: 'agent' | 'flow';
   readonly id: string;
   readonly version: string;
 }
 
-/** The judged item of a run's output. */
-export interface JudgedItem {
+/** The corrected item of a run's output. */
+export interface CorrectedItem {
   /** Your stable id for the item, e.g. a matched case's id. */
   readonly key: string;
   /** Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`. */
@@ -3154,8 +3154,8 @@ export interface JudgedItem {
   readonly rank?: number;
 }
 
-/** Who asserted a judgment: the authenticated caller, never a typed name. */
-export interface JudgmentAssertedBy {
+/** Who asserted a correction: the authenticated caller, never a typed name. */
+export interface CorrectionAssertedBy {
   readonly kind: 'user' | 'service';
   readonly id: string;
 }
@@ -3172,54 +3172,54 @@ export interface ExpectedCall {
 }
 
 /**
- * An expert's correction of a run's decisions: the calls the agent should
- * have made and the tools it should not have called at all. Graded
- * deterministically on a replay. A tool cannot be in both `calls` and
- * `notCalled`, and one of them must be non-empty.
+ * What the agent should have done: the calls it should have made and the
+ * tools it should not have called at all. Graded deterministically on a
+ * replay. A tool cannot be in both `calls` and `notCalled`, and one of them
+ * must be non-empty.
  *
- * Matches `@kindgi/api/openapi.json#Correction`.
+ * Matches `@kindgi/api/openapi.json#ExpectedDecisions`.
  */
-export interface Correction {
+export interface ExpectedDecisions {
   /** The calls the agent should have made. */
   readonly calls: readonly ExpectedCall[];
   /** Tools that should not have been called at all. */
   readonly notCalled: readonly string[];
 }
 
-/** Matches `@kindgi/api/openapi.json#Judgment`. */
-export interface Judgment {
+/** Matches `@kindgi/api/openapi.json#Correction`. */
+export interface Correction {
   readonly id: string;
   readonly tenantId: string;
   readonly projectId: string;
   readonly runId: string;
-  readonly subject: JudgedSubject;
-  readonly item: JudgedItem;
+  readonly subject: CorrectedSubject;
+  readonly item: CorrectedItem;
   readonly verdict: Verdict;
   readonly reason?: string;
   /** What the agent should have done, graded on a replay. Cleared by an erasure. */
-  readonly correction?: Correction;
-  /** Absent when the judgment is unclassified (it counts with weight 1). */
+  readonly correction?: ExpectedDecisions;
+  /** Absent when the correction is unclassified (it counts with weight 1). */
   readonly judgeClassId?: string;
   /**
-   * `true` when the class was restricted (`assertableBy`) when the judgment
-   * was recorded, so the judge was checked against it.
+   * `true` when the class was restricted (`assertableBy`) when the correction
+   * was recorded, so whoever made it was checked against it.
    */
   readonly restricted?: true;
-  readonly assertedBy: JudgmentAssertedBy;
-  /** An app's opaque id for its end user who judged, when it judged on their behalf. */
+  readonly assertedBy: CorrectionAssertedBy;
+  /** An app's opaque id for its end user who made the correction, when the app made it on their behalf. */
   readonly participantId?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
-  /** Set when the judgment was removed or superseded. */
+  /** Set when the correction was removed or superseded. */
   readonly unregisteredAt?: import('@kindgi/types').Timestamp;
-  /** The judgment that replaced this one. */
+  /** The correction that replaced this one. */
   readonly supersededBy?: string;
 }
 
 /**
- * What a judged agent turn read besides its input, captured when it was
- * first judged: the conversation before it and what its retrievals returned.
+ * What a corrected agent turn read besides its input, captured when it was
+ * first corrected: the conversation before it and what its retrievals returned.
  */
-export interface JudgedRunContext {
+export interface CorrectedRunContext {
   /** The conversation's messages before the turn, oldest first (at most the last 200). */
   readonly history?: readonly unknown[];
   /** Whether older messages were left out of `history`. */
@@ -3228,35 +3228,35 @@ export interface JudgedRunContext {
   readonly retrieved?: unknown;
 }
 
-/** The stored copy of a judged run's input and output. */
-export interface JudgedRunCopy {
+/** The stored copy of a corrected run's input and output. */
+export interface CorrectedRunCopy {
   readonly runId: string;
-  readonly subject: JudgedSubject;
+  readonly subject: CorrectedSubject;
   readonly input: unknown;
-  /** Absent for runs judged before context was captured, and for flow runs. */
-  readonly context?: JudgedRunContext;
+  /** Absent for runs corrected before context was captured, and for flow runs. */
+  readonly context?: CorrectedRunContext;
   readonly output: unknown;
   readonly capturedAt: import('@kindgi/types').Timestamp;
 }
 
-/** Matches `@kindgi/api/openapi.json#JudgmentWithCopies`. */
-export interface JudgmentWithCopies extends Judgment {
-  /** The run's input and output as they were when it was first judged. */
-  readonly run: JudgedRunCopy;
-  /** The judged item's value, when the judgment pointed at it. */
+/** Matches `@kindgi/api/openapi.json#CorrectionWithCopies`. */
+export interface CorrectionWithCopies extends Correction {
+  /** The run's input and output as they were when it was first corrected. */
+  readonly run: CorrectedRunCopy;
+  /** The corrected item's value, when the correction pointed at it. */
   readonly itemValue?: unknown;
 }
 
-/** Input for `POST /v1/judgments` per `#CreateJudgmentBody`. */
-export interface CreateJudgmentInput {
+/** Input for `POST /v1/corrections` per `#CreateCorrectionBody`. */
+export interface CreateCorrectionInput {
   readonly runId: string;
-  readonly item: JudgedItem;
+  readonly item: CorrectedItem;
   readonly verdict: Verdict;
   readonly reason?: string;
   /** What the agent should have done: the calls it should have made and the tools it should not have. */
-  readonly correction?: Correction;
+  readonly correction?: ExpectedDecisions;
   /** Optional. When given it must exist and apply to the run. */
   readonly judgeClassId?: string;
-  /** Your opaque id for the end user who judged, when judging on their behalf. */
+  /** Your opaque id for the end user who made the correction, when you make it on their behalf. */
   readonly participantId?: string;
 }

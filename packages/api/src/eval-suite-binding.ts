@@ -110,7 +110,7 @@ export const EVAL_KINDS = [
   'human-review',
   'benchmark',
   'custom',
-  /** Built from judgments of past runs: cases are copies of judged runs (`EvalCaseStoreBinding`). */
+  /** Built from corrections of past runs: cases are copies of corrected runs (`EvalCaseStoreBinding`). */
   'judged',
 ] as const;
 export type EvalKind = (typeof EVAL_KINDS)[number];

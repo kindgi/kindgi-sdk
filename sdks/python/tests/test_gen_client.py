@@ -29,14 +29,14 @@ gen: Any = importlib.util.module_from_spec(_spec)
 sys.modules["gen_client"] = gen
 _spec.loader.exec_module(gen)
 
-# `Judged` comes first, so codegen would give its inline `flow` the name `Flow`.
+# `Corrected` comes first, so codegen would give its inline `flow` the name `Flow`.
 SCHEMAS: dict[str, Any] = {
-    "Judged": {
+    "Corrected": {
         "type": "object",
         "properties": {
             "flow": {
                 "type": "object",
-                "description": "The calls the judged run made.",
+                "description": "The calls the corrected run made.",
                 "properties": {"calls": {"type": "integer"}},
             }
         },
@@ -173,8 +173,8 @@ def test_an_inline_object_named_like_a_component_is_named_after_its_owner(tmp_pa
     models = generate(tmp_path, SCHEMAS)
     found = fields(models)
     assert found["Flow"] == {"id", "nodes"}
-    assert found["JudgedFlow"] == {"calls"}
-    assert docstring(models, "JudgedFlow") == "The calls the judged run made."
+    assert found["CorrectedFlow"] == {"calls"}
+    assert docstring(models, "CorrectedFlow") == "The calls the corrected run made."
     assert "Flow1" not in found
 
 
@@ -252,7 +252,7 @@ def test_each_model_is_written_down_where_it_sits(tmp_path: Path) -> None:
     generate(tmp_path, {**SCHEMAS, "Holder": holder("sku")})
     written = json.loads((tmp_path / "out" / "model_names.json").read_text("utf-8"))
     assert written["Flow"] == ["Flow"]
-    assert written["JudgedFlow"] == ["JudgedFlow"]
+    assert written["CorrectedFlow"] == ["CorrectedFlow"]
     assert written["Item"] == ["Holder.items"]
 
 
@@ -315,10 +315,10 @@ def test_an_inline_object_a_dropped_name_would_name_is_named_after_its_owner(
 
 
 def test_a_component_name_that_changes_meaning_fails_generation(tmp_path: Path) -> None:
-    # As `Flow` was pinned if it had been then: the judged run's inline `flow`.
+    # As `Flow` was pinned if it had been then: the corrected run's inline `flow`.
     names = tmp_path / "pinned.json"
-    names.write_text(json.dumps({"Flow": ["Judged.flow"]}), "utf-8")
-    with pytest.raises(SystemExit, match=r"Flow: was at Judged\.flow, now at Flow"):
+    names.write_text(json.dumps({"Flow": ["Corrected.flow"]}), "utf-8")
+    with pytest.raises(SystemExit, match=r"Flow: was at Corrected\.flow, now at Flow"):
         generate(tmp_path, SCHEMAS, names)
 
 
@@ -374,9 +374,9 @@ NAMED: dict[str, tuple[tuple[str, ...], list[str]]] = {
         ("CompleteApprovalResult", "properties", "resume"),
         ["CompleteApprovalResultResumeOk", "CompleteApprovalResultResumeFailed"],
     ),
-    "JudgedComparisonSummary.baseline": (
-        ("JudgedComparisonSummary", "properties", "baseline"),
-        ["JudgedComparisonSummaryBaselineRecorded", "JudgedComparisonSummaryBaselineVersion"],
+    "CorrectedComparisonSummary.baseline": (
+        ("CorrectedComparisonSummary", "properties", "baseline"),
+        ["CorrectedComparisonSummaryBaselineRecorded", "CorrectedComparisonSummaryBaselineVersion"],
     ),
     "MCPEndpoint.config": (
         ("MCPEndpoint", "properties", "config"),
@@ -534,10 +534,10 @@ def test_a_fallback_named_like_a_pinned_model_fails_generation(tmp_path: Path) -
     generate(tmp_path, SECRET)
     names = tmp_path / "pinned.json"
     pinned = json.loads((tmp_path / "out" / "model_names.json").read_text("utf-8"))
-    names.write_text(json.dumps({**pinned, "ScopeUnrecognized": ["Judged.flow"]}), "utf-8")
+    names.write_text(json.dumps({**pinned, "ScopeUnrecognized": ["Corrected.flow"]}), "utf-8")
     with pytest.raises(
         SystemExit,
-        match=r"Scope's fallback ScopeUnrecognized collides with a model at Judged\.flow",
+        match=r"Scope's fallback ScopeUnrecognized collides with a model at Corrected\.flow",
     ):
         generate(tmp_path, SECRET, names, response="Secret")
 

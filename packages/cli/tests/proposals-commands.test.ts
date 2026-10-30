@@ -96,7 +96,7 @@ describe('kindgi proposals draft', () => {
           tier: 'settings-block',
           change: { blockId: 'acme.weights', content: { values: { recency: 0.4, fit: 0.6 } } },
           hypothesis: 'Recent filings matter more',
-          evidence: { judgmentIds: ['j-1', 'j-2'] },
+          evidence: { fixes: ['j-1', 'j-2'] },
           idempotencyKey: 'k-1',
         },
       ],

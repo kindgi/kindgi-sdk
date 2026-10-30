@@ -9,10 +9,10 @@ import type { TenantId } from '@kindgi/types';
 
 import type { FlowRegistryBinding } from '../src/flow-binding.js';
 import {
-  MAX_JUDGED_FLOW_CALLS,
+  MAX_CORRECTED_FLOW_CALLS,
   captureFlowContext,
   turnToolCalls,
-} from '../src/routes/judgment-flow-context.js';
+} from '../src/routes/correction-flow-context.js';
 
 const tenantId = 't-1' as TenantId;
 
@@ -122,7 +122,7 @@ const capture = (b = bindings()) =>
     ...b,
   });
 
-describe('what a judged flow run keeps', () => {
+describe('what a corrected flow run keeps', () => {
   test("each tool node's call with its input and result, per loop iteration", async () => {
     const ctx = await capture();
     const calls = ctx?.flow?.calls.filter((c) => c.runId === 'run-flow');
@@ -233,12 +233,12 @@ describe('what a judged flow run keeps', () => {
   });
 
   test('at most 500 calls, and it says it left some out', async () => {
-    const many = Array.from({ length: MAX_JUDGED_FLOW_CALLS + 10 }, (_, i) => [
+    const many = Array.from({ length: MAX_CORRECTED_FLOW_CALLS + 10 }, (_, i) => [
       entry('step.started', 'score', { input: { i }, loopContext: { i } }),
       entry('step.completed', 'score', { output: {}, loopContext: { i } }),
     ]).flat();
     const ctx = await capture(bindings({ journal: { 'run-flow': many } }));
-    expect(ctx?.flow?.calls).toHaveLength(MAX_JUDGED_FLOW_CALLS);
+    expect(ctx?.flow?.calls).toHaveLength(MAX_CORRECTED_FLOW_CALLS);
     expect(ctx?.flow?.truncated).toBe(true);
   });
 

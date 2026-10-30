@@ -20,11 +20,11 @@ import { createApp } from '../src/index.js';
 import type {
   AgentRegistryBinding,
   AgentReleaseBindings,
+  CorrectedComparisonSummary,
   EvalRun,
   EvalRunBinding,
   GatePolicy,
   GatePolicySpec,
-  JudgedComparisonSummary,
   LivePin,
   LiveResolution,
   Promotion,
@@ -58,7 +58,7 @@ const post = (body: unknown): RequestInit => ({
 
 const PROJECT_SCOPE = { kind: 'project', projectId: PROJECT };
 
-function summary(overrides: Partial<JudgedComparisonSummary> = {}): JudgedComparisonSummary {
+function summary(overrides: Partial<CorrectedComparisonSummary> = {}): CorrectedComparisonSummary {
   const m = {
     baseline: 0.7,
     candidate: 0.8,
@@ -250,7 +250,7 @@ function setup(opts: { request?: boolean; gatePolicies?: boolean } = {}) {
   return { app, calls, state };
 }
 
-const evalRun = (s: JudgedComparisonSummary | undefined, kind = 'judged'): EvalRun =>
+const evalRun = (s: CorrectedComparisonSummary | undefined, kind = 'judged'): EvalRun =>
   ({
     id: 'eval-1',
     runId: 'eval-1',
@@ -373,7 +373,7 @@ describe('POST /v1/agents/:agentId/promotions, through the gate', () => {
     });
   });
 
-  test("an org promotion looks up the org of the judgments' project", async () => {
+  test("an org promotion looks up the org of the corrections' project", async () => {
     const { app, calls, state } = setup();
     const org = { kind: 'org', orgId: ORG };
     state.policy = policy(PASSING, org as LiveScope);

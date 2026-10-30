@@ -9,6 +9,7 @@ import type { Cursor, ProjectId, Semver, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
+import type { CorrectionRegistryBinding, JudgeClassScope } from '../correction-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { EvalClassWeights } from '../eval-run-binding.js';
 import type { EvalSuiteRegistryBinding } from '../eval-suite-binding.js';
@@ -23,7 +24,6 @@ import {
   type ImprovementTier,
 } from '../improvement-pass-binding.js';
 import { type ItemRights, writeWhereMade } from '../item-rights.js';
-import type { JudgeClassScope, JudgmentRegistryBinding } from '../judgment-binding.js';
 import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
@@ -56,13 +56,13 @@ export interface ImproveDeps {
   /**
    * The tenant's judge classes. The `classWeights` default counts everyone
    * (`as-recorded`) until a restricted judge class (one with `assertableBy`) is named
-   * in the tenant, the project the pass reads its judgments from, or on the
+   * in the tenant, the project the pass reads its corrections from, or on the
    * agent improved, then it's `restricted-only`. Absent: the default stays
    * `restricted-only`. Only `listClasses` is used.
    */
-  readonly judgeClasses?: Pick<JudgmentRegistryBinding, 'listClasses'>;
+  readonly judgeClasses?: Pick<CorrectionRegistryBinding, 'listClasses'>;
   /**
-   * Eval suites, to resolve the project a pass reads its judgments from: a
+   * Eval suites, to resolve the project a pass reads its corrections from: a
    * judged suite's own `spec.projectId`, else the suite's recorded project.
    * That's the project the `classWeights` default keys off, not where the
    * agent is made — the two differ when the suite is an earlier environment's.
@@ -75,9 +75,9 @@ export interface ImproveDeps {
 /**
  * The pass default for `classWeights` when the caller doesn't set one.
  * Until a restricted judge class (one with `assertableBy`) is named — in the
- * tenant, the project the pass reads its judgments from (`projectId`), or on
- * the agent being improved — Improve counts *everyone's* judgments
- * (`as-recorded`); once one is, the default is trusted judgments only
+ * tenant, the project the pass reads its corrections from (`projectId`), or on
+ * the agent being improved — Improve counts *everyone's* corrections
+ * (`as-recorded`); once one is, the default is trusted corrections only
  * (`restricted-only`). An explicit `classWeights` always wins. With no
  * judge-class binding wired, the default stays `restricted-only` (the prior
  * behavior).
@@ -107,7 +107,7 @@ async function resolveClassWeights(
  * — a pass started from a schedule — decides it exactly the same way.
  */
 export async function projectHasExpertClass(
-  registry: Pick<JudgmentRegistryBinding, 'listClasses'>,
+  registry: Pick<CorrectionRegistryBinding, 'listClasses'>,
   tenantId: TenantId,
   projectId: ProjectId | undefined,
   agentId?: string,
@@ -136,7 +136,7 @@ export async function projectHasExpertClass(
 }
 
 /**
- * The project a pass reads its judgments from, which the `classWeights`
+ * The project a pass reads its corrections from, which the `classWeights`
  * default keys off: a judged suite's own `spec.projectId`, else the suite's
  * recorded project. Undefined when no suite binding is wired or the suite
  * records no project — the caller then falls back to the agent version's
@@ -236,7 +236,7 @@ export function mountImproveRoute(
       });
     }
     // The `classWeights` default keys off the project the pass READS its
-    // judgments from — its suite's project — not where the agent is made;
+    // corrections from — its suite's project — not where the agent is made;
     // the two differ when the suite is an earlier environment's. Only the
     // default needs it, so skip the suite read when `classWeights` is
     // explicit, or when no judge-class registry is wired (the default is
@@ -742,7 +742,7 @@ function parsePassOptions(b: Record<string, unknown>): PassOptions | string {
     classWeights !== 'restricted-only' &&
     classWeights !== 'as-recorded'
   ) {
-    return "`classWeights` is 'restricted-only' (trusted judgments) or 'as-recorded' (everyone); omit it for the project's default";
+    return "`classWeights` is 'restricted-only' (trusted corrections) or 'as-recorded' (everyone); omit it for the project's default";
   }
   const prompt = parsePromptOptions(b, tier);
   if (typeof prompt === 'string') return prompt;
@@ -812,22 +812,22 @@ function parseThreshold(raw: unknown): ImproveThreshold | string {
       ? (raw as Record<string, unknown>)
       : undefined;
   const t = {
-    judgments: o?.judgments ?? d.judgments,
+    corrections: o?.corrections ?? d.corrections,
     runs: o?.runs ?? d.runs,
-    judges: o?.judges ?? d.judges,
+    correctors: o?.correctors ?? d.correctors,
   };
   const whole = (v: unknown): v is number =>
     typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= MAX_THRESHOLD;
   if (
     o === undefined ||
-    Object.keys(o).some((k) => !['judgments', 'runs', 'judges'].includes(k)) ||
-    !whole(t.judgments) ||
+    Object.keys(o).some((k) => !['corrections', 'runs', 'correctors'].includes(k)) ||
+    !whole(t.corrections) ||
     !whole(t.runs) ||
-    !whole(t.judges) ||
-    t.runs > t.judgments ||
-    t.judges > t.judgments
+    !whole(t.correctors) ||
+    t.runs > t.corrections ||
+    t.correctors > t.corrections
   ) {
-    return `\`threshold\` is { judgments?, runs?, judges? }: how many answers marked wrong since the last Improve run (default ${d.judgments}), across how many runs (${d.runs}) and from how many judges (${d.judges}); runs and judges at most judgments`;
+    return `\`threshold\` is { corrections?, runs?, correctors? }: how many answers marked wrong since the last Improve run (default ${d.corrections}), across how many runs (${d.runs}) and from how many correctors (${d.correctors}); runs and correctors at most corrections`;
   }
   return t as ImproveThreshold;
 }

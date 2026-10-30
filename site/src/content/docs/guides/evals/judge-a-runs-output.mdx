@@ -39,28 +39,28 @@ From the CLI, correct the run's answer:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+pnpm exec kindgi corrections add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+uv run kindgi corrections add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+./kindgiw corrections add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
+./kindgiw corrections add --run=<run-id> --item=answer --pointer=/response/content --yes --reason="Echoes the message back"
 ```
 
 </TabItem>
@@ -98,102 +98,102 @@ reference, the script looks like this, with the run's id as its argument:
 <TabItem label="TypeScript">
 
 ```ts
-// judge.ts
+// correct.ts
 import { createClient } from '@kindgi/sdk/client';
 
 const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
-const judgment = await kindgi.judgments.create({
+const correction = await kindgi.corrections.create({
   runId: process.argv[2],
   item: { key: 'answer', pointer: '/response/content' },
   verdict: 'yes',
   reason: 'Echoes the message back',
-  participantId: 'customer-user-17', // your id for the user who judged, if you judge for your users
+  participantId: 'customer-user-17', // your id for the user who corrected it, if you correct for your users
 });
-console.log(judgment.id, judgment.verdict, judgment.assertedBy);
+console.log(correction.id, correction.verdict, correction.assertedBy);
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```python
-# judge.py
+# correct.py
 import sys
 
 from kindgi.client import Kindgi
 
 kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
-judgment = kindgi.judgments.create(
+correction = kindgi.corrections.create(
     run_id=sys.argv[1],
     item={"key": "answer", "pointer": "/response/content"},
     verdict="yes",
     reason="Echoes the message back",
-    participant_id="customer-user-18",  # your id for the user who judged, if you judge for your users
+    participant_id="customer-user-18",  # your id for the user who corrected it, if you correct for your users
 )
-print(judgment.id, judgment.verdict, judgment.asserted_by)
+print(correction.id, correction.verdict, correction.asserted_by)
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```java
-// src/main/java/com/acme/app/Judge.java
+// src/main/java/com/acme/app/RecordCorrection.java
 package com.acme.app;
 
 import com.kindgi.client.Kindgi;
-import com.kindgi.client.models.CreateJudgmentBody;
-import com.kindgi.client.models.JudgedItem;
-import com.kindgi.client.models.Judgment;
+import com.kindgi.client.models.CreateCorrectionBody;
+import com.kindgi.client.models.CorrectedItem;
+import com.kindgi.client.models.Correction;
 
-public final class Judge {
+public final class RecordCorrection {
   public static void main(String[] args) {
     Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
-    Judgment judgment = kindgi.judgments().create(CreateJudgmentBody.builder()
+    Correction correction = kindgi.corrections().create(CreateCorrectionBody.builder()
         .runId(args[0])
-        .item(JudgedItem.builder().key("answer").pointer("/response/content").build())
-        .verdict(CreateJudgmentBody.Verdict.YES)
+        .item(CorrectedItem.builder().key("answer").pointer("/response/content").build())
+        .verdict(CreateCorrectionBody.Verdict.YES)
         .reason("Echoes the message back")
-        .participantId("customer-user-19") // your id for the user who judged, if you judge for your users
+        .participantId("customer-user-19") // your id for the user who corrected it, if you correct for your users
         .build());
-    System.out.println(judgment.id() + " " + judgment.verdict() + " " + judgment.assertedBy());
+    System.out.println(correction.id() + " " + correction.verdict() + " " + correction.assertedBy());
   }
 }
 ```
 
 ```text
-42a5cdac-a5b4-4bf1-a777-d46ead4ec743 yes JudgmentAssertedBy[kind=user, id=ebdba929-5422-4cb2-b6bb-2c046109feb8]
+42a5cdac-a5b4-4bf1-a777-d46ead4ec743 yes CorrectionAssertedBy[kind=user, id=ebdba929-5422-4cb2-b6bb-2c046109feb8]
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```scala
-// src/main/scala/acme/app/Judge.scala
+// src/main/scala/acme/app/RecordCorrection.scala
 package acme.app
 
 import com.kindgi.client.Kindgi
-import com.kindgi.client.models.{CreateJudgmentBody, JudgedItem}
+import com.kindgi.client.models.{CreateCorrectionBody, CorrectedItem}
 
-object Judge {
+object RecordCorrection {
   def main(args: Array[String]): Unit = {
     val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 
-    val judgment = kindgi.judgments().create(CreateJudgmentBody.builder()
+    val correction = kindgi.corrections().create(CreateCorrectionBody.builder()
       .runId(args(0))
-      .item(JudgedItem.builder().key("answer").pointer("/response/content").build())
-      .verdict(CreateJudgmentBody.Verdict.YES)
+      .item(CorrectedItem.builder().key("answer").pointer("/response/content").build())
+      .verdict(CreateCorrectionBody.Verdict.YES)
       .reason("Echoes the message back")
-      .participantId("customer-user-20") // your id for the user who judged, if you judge for your users
+      .participantId("customer-user-20") // your id for the user who corrected it, if you correct for your users
       .build())
-    println(s"${judgment.id} ${judgment.verdict} ${judgment.assertedBy}")
+    println(s"${correction.id} ${correction.verdict} ${correction.assertedBy}")
   }
 }
 ```
 
 ```text
-339dbf38-f4b0-4a9a-a1f6-0dc4585dae93 yes JudgmentAssertedBy[kind=user, id=ebdba929-5422-4cb2-b6bb-2c046109feb8]
+339dbf38-f4b0-4a9a-a1f6-0dc4585dae93 yes CorrectionAssertedBy[kind=user, id=ebdba929-5422-4cb2-b6bb-2c046109feb8]
 ```
 
 </TabItem>
@@ -245,28 +245,28 @@ Then record it with your mark:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi judgments add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
+pnpm exec kindgi corrections add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi judgments add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
+uv run kindgi corrections add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw judgments add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
+./kindgiw corrections add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw judgments add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
+./kindgiw corrections add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
 ```
 
 </TabItem>
@@ -280,18 +280,18 @@ uv run kindgi judgments add --run=<run-id> --no --reason="Final sale: store cred
 It prints the correction, with what it should have done as its `correction`:
 
 ```text
-CAPTURE: the printed judgment, with "item": { "key": "kindgi:correction", "pointer": "" } and its "correction"
+CAPTURE: the printed correction, with "item": { "key": "kindgi:correction", "pointer": "" } and its "correction"
 ```
 
 - **One per run per person.** Saving it again for the same run, as the same
   caller and participant, replaces your last one.
 - **Only the agent's own tools.** A tool the agent version that ran doesn't
-  have is refused: `The judged version has no tool "<tool>".`
+  have is refused: `The corrected version has no tool "<tool>".`
 
 From your app, ask your coding agent: "I want to record what my expert says
-the run should have done." The clients' `judgments.create` takes it as
+the run should have done." The clients' `corrections.create` takes it as
 `correction`, under the item `{ key: 'kindgi:correction', pointer: '' }`.
-Its types are `Correction` and `ExpectedCall`, and in Python the field is
+Its types are `ExpectedDecisions` and `ExpectedCall`, and in Python the field is
 `not_called`.
 
 In the console, a completed agent run's **Correct this run**, or its
@@ -313,42 +313,42 @@ A run's corrections say how its output was corrected, and by whom:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
-pnpm exec kindgi judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
-pnpm exec kindgi judgments remove <judgment-id>
+pnpm exec kindgi corrections list --run=<run-id>      # newest first; replaced and removed ones are left out
+pnpm exec kindgi corrections show <correction-id>       # with copies of the run's input and output, and the item's value
+pnpm exec kindgi corrections remove <correction-id>
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
-uv run kindgi judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
-uv run kindgi judgments remove <judgment-id>
+uv run kindgi corrections list --run=<run-id>      # newest first; replaced and removed ones are left out
+uv run kindgi corrections show <correction-id>       # with copies of the run's input and output, and the item's value
+uv run kindgi corrections remove <correction-id>
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
-./kindgiw judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
-./kindgiw judgments remove <judgment-id>
+./kindgiw corrections list --run=<run-id>      # newest first; replaced and removed ones are left out
+./kindgiw corrections show <correction-id>       # with copies of the run's input and output, and the item's value
+./kindgiw corrections remove <correction-id>
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw judgments list --run=<run-id>      # newest first; replaced and removed ones are left out
-./kindgiw judgments show <judgment-id>       # with copies of the run's input and output, and the item's value
-./kindgiw judgments remove <judgment-id>
+./kindgiw corrections list --run=<run-id>      # newest first; replaced and removed ones are left out
+./kindgiw corrections show <correction-id>       # with copies of the run's input and output, and the item's value
+./kindgiw corrections remove <correction-id>
 ```
 
 </TabItem>
 </Tabs>
 
-- `<run-id>` is the run's id, and `<judgment-id>` a correction's `id`, from
+- `<run-id>` is the run's id, and `<correction-id>` a correction's `id`, from
   the list.
 - `list` also filters by agent and version, flow, verdict, judge class,
   participant and project.
@@ -358,8 +358,8 @@ uv run kindgi judgments remove <judgment-id>
 `remove` prints its id with `"removed": true`.
 
 A correction keeps copies of the run's input and output, so it outlives the
-run's own retention. The clients have the same: `judgments.list`,
-`judgments.get` and `judgments.unregister`.
+run's own retention. The clients have the same: `corrections.list`,
+`corrections.get` and `corrections.remove`.
 
 ## Weight corrections by judge class
 
@@ -374,7 +374,7 @@ Add a class, then correct as it:
 
 ```sh
 pnpm exec kindgi judge-classes add --name=expert --weight=3 --project=<project-id>
-pnpm exec kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+pnpm exec kindgi corrections add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
 ```
 
 </TabItem>
@@ -382,7 +382,7 @@ pnpm exec kindgi judgments add --run=<run-id> --item=answer --pointer=/response/
 
 ```sh
 uv run kindgi judge-classes add --name=expert --weight=3 --project=<project-id>
-uv run kindgi judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+uv run kindgi corrections add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
 ```
 
 </TabItem>
@@ -390,7 +390,7 @@ uv run kindgi judgments add --run=<run-id> --item=answer --pointer=/response/con
 
 ```sh
 ./kindgiw judge-classes add --name=expert --weight=3 --project=<project-id>
-./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+./kindgiw corrections add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
 ```
 
 </TabItem>
@@ -398,7 +398,7 @@ uv run kindgi judgments add --run=<run-id> --item=answer --pointer=/response/con
 
 ```sh
 ./kindgiw judge-classes add --name=expert --weight=3 --project=<project-id>
-./kindgiw judgments add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
+./kindgiw corrections add --run=<run-id> --item=answer --pointer=/response/content --yes --class=<judge-class-id>
 ```
 
 </TabItem>
@@ -464,8 +464,8 @@ A caller must meet each restriction you set. One who doesn't is refused with
 `403`, and nothing is recorded:
 
 ```text
-Error [auth]: You can't judge as "expert": it needs a senior reviewer or above; you're a standard reviewer.
-Error [auth]: You can't judge as "tokens": only service tokens may assert it.
+Error [auth]: You can't correct as "expert": it needs a senior reviewer or above; you're a standard reviewer.
+Error [auth]: You can't correct as "tokens": only service tokens may assert it.
 ```
 
 A correction made under a restriction carries `"restricted": true`. It's
@@ -734,7 +734,7 @@ and how many are on this page. One item, as that rule queued it:
     }
   ],
   "wantedClassIds": [],
-  "anyJudgment": true,
+  "anyCorrection": true,
   "progress": {
     "total": 0,
     "byClass": []

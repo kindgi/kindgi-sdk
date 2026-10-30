@@ -121,7 +121,7 @@ const WHEN_FLAGS = {
   input: {
     type: 'string',
     description:
-      'The input each run gets, as JSON or `@<file>`. An agent needs `{"userMessage": "…"}`; a flow takes its own input (default `{}`); --improve takes its Improve options (`{"tiers": ["settings"], "threshold": {"judgments": 5, "runs": 3, "judges": 2}, "monthlyCapUsd": 20}`, the defaults).',
+      'The input each run gets, as JSON or `@<file>`. An agent needs `{"userMessage": "…"}`; a flow takes its own input (default `{}`); --improve takes its Improve options (`{"tiers": ["settings"], "threshold": {"corrections": 5, "runs": 3, "correctors": 2}, "monthlyCapUsd": 20}`, the defaults).',
   },
   'catch-up': {
     type: 'string',

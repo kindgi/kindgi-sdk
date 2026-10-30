@@ -30,6 +30,7 @@ import type { AgentRegistryBinding } from './agent-binding.js';
 import type { BlockRegistryBinding } from './block-binding.js';
 import type { CapabilityRegistryBinding } from './capability-binding.js';
 import type { ConnectionBinding } from './connection-binding.js';
+import type { CorrectionRegistryBinding } from './correction-binding.js';
 import type { CostBinding } from './cost-binding.js';
 import type { CursorSealer } from './cursor-seal.js';
 import type { DeploymentBinding } from './deployment-binding.js';
@@ -52,7 +53,6 @@ import type { ImprovementPassBinding } from './improvement-pass-binding.js';
 import type { ItemProjectsBinding } from './item-projects-binding.js';
 import { itemRightsOf, itemServingOf } from './item-rights.js';
 import type { JudgingQueueBinding } from './judging-queue-binding.js';
-import type { JudgmentRegistryBinding } from './judgment-binding.js';
 import type { AgentReleaseBindings } from './live-version-binding.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
 import type { MemoryBinding } from './memory-binding.js';
@@ -140,6 +140,8 @@ import {
   connectionsRouter,
 } from './routes/connections.js';
 import { conversationsRouter } from './routes/conversations.js';
+import { correctedSuitesRouter } from './routes/corrected-suites.js';
+import { correctionsRouter, judgeClassesRouter } from './routes/corrections.js';
 import { costRouter } from './routes/cost.js';
 import { deploymentsRouter } from './routes/deployments.js';
 import { envRouter } from './routes/env.js';
@@ -155,9 +157,7 @@ import { guardrailsRouter } from './routes/guardrails.js';
 import { hooksRouter } from './routes/hooks.js';
 import { identityRouter } from './routes/identity.js';
 import { improvementPassesRouter, mountImproveRoute } from './routes/improvement-passes.js';
-import { judgedSuitesRouter } from './routes/judged-suites.js';
 import { judgingRouter } from './routes/judging.js';
-import { judgeClassesRouter, judgmentsRouter } from './routes/judgments.js';
 import { type LicenseStatusBinding, licenseRouter } from './routes/license.js';
 import { mailTriggersRouter } from './routes/mail-triggers.js';
 import { mcpRouter } from './routes/mcp.js';
@@ -958,22 +958,22 @@ export interface CreateAppInput {
    */
   readonly evalRunBinding?: EvalRunBinding;
   /**
-   * Optional. Mounts judgments, yes or no with an optional reason about
-   * one item of a run's output (`/v1/judgments`), and the judge classes
+   * Optional. Mounts corrections, yes or no with an optional reason about
+   * one item of a run's output (`/v1/corrections`), and the judge classes
    * they're recorded under, each with a weight (`/v1/judge-classes`).
    * Caller-plugged: the API package doesn't own their storage.
    */
-  readonly judgmentRegistry?: JudgmentRegistryBinding;
+  readonly correctionRegistry?: CorrectionRegistryBinding;
   /**
    * Optional. A project's judging rules and the queue they fill, under
    * `/v1/projects/:projectId/judging-rules` and `…/judging-queue`: which
-   * runs need a person's judgment. Without it, those routes aren't
+   * runs need a person's correction. Without it, those routes aren't
    * mounted.
    */
   readonly judgingQueue?: JudgingQueueBinding;
   /**
-   * Optional. With `evalSuiteRegistry` and `judgmentRegistry`, mounts test
-   * sets built from judgments: `POST /v1/eval-suites/:suiteId/versions/from-judgments`
+   * Optional. With `evalSuiteRegistry` and `correctionRegistry`, mounts test
+   * sets built from corrections: `POST /v1/eval-suites/:suiteId/versions/from-corrections`
    * and `GET /v1/eval-suites/:suiteId/versions/:version/cases`.
    */
   readonly evalCaseStore?: EvalCaseStoreBinding;
@@ -1918,7 +1918,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       releases: input.agentReleases,
       ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
       ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
-      ...(input.judgmentRegistry !== undefined && { judgeClasses: input.judgmentRegistry }),
+      ...(input.correctionRegistry !== undefined && { judgeClasses: input.correctionRegistry }),
       ...(input.evalSuiteRegistry !== undefined && { suites: input.evalSuiteRegistry }),
     };
     v1.route(
@@ -2286,11 +2286,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ),
     );
   }
-  if (input.judgmentRegistry !== undefined) {
+  if (input.correctionRegistry !== undefined) {
     v1.route(
-      '/judgments',
-      judgmentsRouter(
-        input.judgmentRegistry,
+      '/corrections',
+      correctionsRouter(
+        input.correctionRegistry,
         runBinding,
         authorizer,
         input.conversationBinding,
@@ -2299,14 +2299,14 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.agentRegistry,
       ),
     );
-    v1.route('/judge-classes', judgeClassesRouter(input.judgmentRegistry, authorizer));
+    v1.route('/judge-classes', judgeClassesRouter(input.correctionRegistry, authorizer));
   }
   if (input.judgingQueue !== undefined) {
     v1.route(
       '/projects',
       judgingRouter(input.judgingQueue, {
         ...(authorizer !== undefined && { authorizer }),
-        ...(input.judgmentRegistry !== undefined && { judgments: input.judgmentRegistry }),
+        ...(input.correctionRegistry !== undefined && { corrections: input.correctionRegistry }),
         ...(input.reviewerBinding !== undefined && { reviewers: input.reviewerBinding }),
         ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
       }),
@@ -2314,14 +2314,14 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   }
   if (
     input.evalSuiteRegistry !== undefined &&
-    input.judgmentRegistry !== undefined &&
+    input.correctionRegistry !== undefined &&
     input.evalCaseStore !== undefined
   ) {
     v1.route(
       '/eval-suites',
-      judgedSuitesRouter(
+      correctedSuitesRouter(
         input.evalSuiteRegistry,
-        input.judgmentRegistry,
+        input.correctionRegistry,
         input.evalCaseStore,
         authorizer,
         itemRights,

@@ -11,10 +11,10 @@ import type { JournalEntry, RunBinding } from '@kindgi/runtime';
 import { TOOL_ENV_RECORD_KEY, toolCallRecordKey } from '@kindgi/tools';
 import type { ConversationId, RunId, TenantId } from '@kindgi/types';
 
-import type { JudgedRunContext } from '../judgment-binding.js';
+import type { CorrectedRunContext } from '../correction-binding.js';
 
-/** The most messages of conversation history a judged turn keeps. */
-export const MAX_JUDGED_HISTORY = 200;
+/** The most messages of conversation history a corrected turn keeps. */
+export const MAX_CORRECTED_HISTORY = 200;
 /** How many messages are read to find a turn's history. */
 const HISTORY_READ_LIMIT = 1000;
 
@@ -39,7 +39,7 @@ async function readHistory(
   tenantId: TenantId,
   conversationId: string,
   before: number,
-): Promise<Pick<JudgedRunContext, 'history' | 'historyTruncated'>> {
+): Promise<Pick<CorrectedRunContext, 'history' | 'historyTruncated'>> {
   const read = await conversations.readMessages({
     tenantId,
     conversationId: conversationId as ConversationId,
@@ -47,7 +47,7 @@ async function readHistory(
   });
   if (read.kind === 'err') return {};
   const earlier = read.value.filter((m) => m.sequence < before);
-  const kept = earlier.slice(-MAX_JUDGED_HISTORY);
+  const kept = earlier.slice(-MAX_CORRECTED_HISTORY);
   return {
     history: kept,
     ...(kept.length < earlier.length && { historyTruncated: true }),
@@ -55,7 +55,7 @@ async function readHistory(
 }
 
 type JournalParts = Pick<
-  JudgedRunContext,
+  CorrectedRunContext,
   'retrieved' | 'recalled' | 'sessionApproval' | 'toolEnv'
 >;
 
@@ -151,7 +151,7 @@ async function readJournalParts(
 /** The decision that resolved the turn's session approval gate, if it waited on one. */
 function sessionApprovalOf(
   entries: readonly JournalEntry[],
-): JudgedRunContext['sessionApproval'] | undefined {
+): CorrectedRunContext['sessionApproval'] | undefined {
   const gate = entries.find(
     (e) => e.kind === 'value.recorded' && obj(e.payload)?.key === SESSION_GATE_RECORD,
   );
@@ -170,11 +170,11 @@ function sessionApprovalOf(
 }
 
 /**
- * What a judged agent turn read besides its input, so it can be replayed
+ * What a corrected agent turn read besides its input, so it can be replayed
  * faithfully later: the conversation before the turn, what its
  * retrievals returned, the decision at its session approval gate, and the
  * env values its tools were sent. Best effort and read-only: a part that can't be
- * read is left out (the judgment never fails over it). `undefined` for
+ * read is left out (the correction never fails over it). `undefined` for
  * a flow run, or when nothing could be read.
  */
 export async function captureTurnContext(input: {
@@ -184,7 +184,7 @@ export async function captureTurnContext(input: {
   readonly conversationId: string | undefined;
   readonly runBinding: RunBinding;
   readonly conversations: ConversationBinding | undefined;
-}): Promise<JudgedRunContext | undefined> {
+}): Promise<CorrectedRunContext | undefined> {
   const before = firstAppendedSequence(input.output);
   const [history, journal] = await Promise.all([
     input.conversations !== undefined && input.conversationId !== undefined && before !== undefined
@@ -194,6 +194,6 @@ export async function captureTurnContext(input: {
       : Promise.resolve({}),
     readJournalParts(input.runBinding, input.tenantId, input.runId, input.output).catch(() => ({})),
   ]);
-  const context: JudgedRunContext = { ...history, ...journal };
+  const context: CorrectedRunContext = { ...history, ...journal };
   return Object.keys(context).length > 0 ? context : undefined;
 }

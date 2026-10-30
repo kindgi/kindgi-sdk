@@ -204,7 +204,7 @@ import com.kindgi.client.Kindgi;
 import com.kindgi.client.models.ComparisonMetric;
 import com.kindgi.client.models.EvalRun;
 import com.kindgi.client.models.EvalRunAgentRef;
-import com.kindgi.client.models.JudgedComparisonSummary;
+import com.kindgi.client.models.CorrectedComparisonSummary;
 import com.kindgi.client.models.StartEvalRunBody;
 import com.kindgi.client.models.StartEvalRunResult;
 import java.util.UUID;
@@ -234,7 +234,7 @@ public final class Compare {
     Comparisons.comparisonOf(run)
         .ifPresent(
             comparison -> {
-              JudgedComparisonSummary.Metrics metrics = comparison.summary().metrics();
+              CorrectedComparisonSummary.Metrics metrics = comparison.summary().metrics();
               print("judgedCoverage", metrics.judgedCoverage());
               print("weightedYesShare", metrics.weightedYesShare());
               print("weightedPrecisionAtK", metrics.weightedPrecisionAtK());
@@ -258,7 +258,7 @@ weightedPrecisionAtK: 0.3333333333333333 → 1.0
 </TabItem>
 <TabItem label="Scala">
 
-Scala apps use the Java helper: call `Comparisons.comparisonOf` from `com.kindgi.client` as the Java tab shows. It takes the `EvalRun` and returns a `java.util.Optional` of the `JudgedComparisonResult`: its `summary()`, and each case in `perCase()`.
+Scala apps use the Java helper: call `Comparisons.comparisonOf` from `com.kindgi.client` as the Java tab shows. It takes the `EvalRun` and returns a `java.util.Optional` of the `CorrectedComparisonResult`: its `summary()`, and each case in `perCase()`.
 
 </TabItem>
 </Tabs>
@@ -354,7 +354,7 @@ When the test cases' runs have corrections that say
 did on that case:
 
 ```text
-CAPTURE: one perCase entry with "corrections": [{ "judgmentId": …, "pass": false, "repetitionsPassed": 0, "repetitions": 1 }] and "correctionDifferences": [{ "judgmentId": …, "repetition": 1, "differences": [ … ] }]
+CAPTURE: one perCase entry with "corrections": [{ "correctionId": …, "pass": false, "repetitionsPassed": 0, "repetitions": 1 }] and "correctionDifferences": [{ "correctionId": …, "repetition": 1, "differences": [ … ] }]
 ```
 
 - **`corrections`:** for each one, whether it passed, and in how many of
@@ -430,7 +430,7 @@ tool with the same arguments.
   result of a tool whose
   [results are from outside](../../tools/read-only-tools/#results-from-outside),
   the replay's model reads the past run's result the same way. On an earlier
-  runtime it reads as it came. In a flow run first judged on an earlier
+  runtime it reads as it came. In a flow run first corrected on an earlier
   runtime, an agent step's answer to a paused call reads as it came.
 
 **The replay runs** are ordinary runs, marked with `replayOf`, the past run,
@@ -449,7 +449,7 @@ Start it again.
 ## Try a flow version on the test cases
 
 Test cases built from a flow's corrected runs, with
-`kindgi eval-suites from-judgments … --flow=<flow-id>`, try a flow
+`kindgi eval-suites from-corrections … --flow=<flow-id>`, try a flow
 version. Each case runs the past run's input through that version, as a
 replay. The flow's whole output is rated: the output itself, the `output`
 item, and each element of a list in it.

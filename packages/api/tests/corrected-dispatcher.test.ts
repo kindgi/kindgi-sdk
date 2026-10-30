@@ -7,19 +7,23 @@ import type { ReplayToolTrace } from '@kindgi/agents';
 import type { ProjectId, RunId, TenantId } from '@kindgi/types';
 
 import type {
+  CorrectedCaseResult,
+  CorrectedComparisonSummary,
+  CorrectedDispatcherOptions,
+  CorrectedEvalCase,
   DispatchContext,
   EvalComparison,
   EvalRunSubjectInvokeInput,
   EvalRunSubjectInvokeOutcome,
   EvalSuite,
-  JudgedCaseResult,
-  JudgedComparisonSummary,
-  JudgedDispatcherOptions,
-  JudgedEvalCase,
 } from '../src/index.js';
-import { DEFAULT_COMPARISON, RESCORE_UNSUPPORTED, createJudgedDispatcher } from '../src/index.js';
+import {
+  DEFAULT_COMPARISON,
+  RESCORE_UNSUPPORTED,
+  createCorrectedDispatcher,
+} from '../src/index.js';
 import { inMemoryCaseStore } from './support/in-memory-cases.js';
-import { inMemoryJudgments } from './support/in-memory-judgments.js';
+import { inMemoryCorrections } from './support/in-memory-corrections.js';
 import { validateAgainst } from './support/openapi-schema.js';
 
 const tenantId = 't-1' as TenantId;
@@ -44,7 +48,7 @@ const item = (key: string, yesWeight: number, totalWeight: number, extra: object
   ...extra,
 });
 
-const caseA: JudgedEvalCase = {
+const caseA: CorrectedEvalCase = {
   caseId: 'case-a',
   subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
   input: 'find acme',
@@ -57,7 +61,7 @@ const caseA: JudgedEvalCase = {
   ],
 };
 
-const caseB: JudgedEvalCase = {
+const caseB: CorrectedEvalCase = {
   caseId: 'case-b',
   subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
   input: 'find b',
@@ -92,10 +96,10 @@ const answers: Record<string, EvalRunSubjectInvokeOutcome> = {
 
 async function compare(options: {
   readonly comparison?: EvalComparison;
-  readonly agents?: JudgedDispatcherOptions['agents'];
+  readonly agents?: CorrectedDispatcherOptions['agents'];
   readonly answer?: (input: EvalRunSubjectInvokeInput, call: number) => EvalRunSubjectInvokeOutcome;
   readonly dryRun?: boolean;
-  readonly cases?: readonly JudgedEvalCase[];
+  readonly cases?: readonly CorrectedEvalCase[];
 }) {
   const cases = inMemoryCaseStore();
   await cases.putCases({
@@ -111,7 +115,7 @@ async function compare(options: {
     tenantId,
     version: '1.0.0',
     kind: 'judged',
-    spec: { source: 'judgments', projectId: 'p-judged', caseCount: 2 },
+    spec: { source: 'corrections', projectId: 'p-judged', caseCount: 2 },
   };
   const ctx: DispatchContext = {
     tenantId,
@@ -134,23 +138,26 @@ async function compare(options: {
     },
     onProgress: (entry) => progress.push(entry),
   };
-  const out = await createJudgedDispatcher({
+  const out = await createCorrectedDispatcher({
     cases,
     ...(options.agents !== undefined && { agents: options.agents }),
   }).dispatch(ctx);
-  const result = out.result as { summary: JudgedComparisonSummary; perCase: JudgedCaseResult[] };
+  const result = out.result as {
+    summary: CorrectedComparisonSummary;
+    perCase: CorrectedCaseResult[];
+  };
   return { ...result, invoked, progress, error: out.error, cancelReason: out.cancelReason };
 }
 
 /** A result as it reaches the wire, against the schema the clients read it as. */
 const wireErrors = (result: { summary: unknown; perCase: unknown }) =>
   validateAgainst(
-    'JudgedComparisonResult',
+    'CorrectedComparisonResult',
     JSON.parse(JSON.stringify({ summary: result.summary, perCase: result.perCase })),
   );
 
 describe('a comparison eval run', () => {
-  test('its result is the OpenAPI JudgedComparisonResult: what the clients read it as', async () => {
+  test('its result is the OpenAPI CorrectedComparisonResult: what the clients read it as', async () => {
     const { summary, perCase } = await compare({
       comparison: { ...DEFAULT_COMPARISON, repetitions: 2 },
       answer: (input, call) =>
@@ -200,7 +207,7 @@ describe('a comparison eval run', () => {
     });
     const { weightedYesShare, judgedCoverage, weightedPrecisionAtK } = summary.metrics;
     // Baseline: A 3 of 4, B 0 of 1. Candidate: A the same answer and items (3 of 4); B's answer
-    // changed, so it has no judged items.
+    // changed, so it has no corrected items.
     expect(weightedYesShare).toMatchObject({
       baseline: 0.6,
       candidate: 0.75,
@@ -211,7 +218,7 @@ describe('a comparison eval run', () => {
       direction: 'higher',
     });
     expect(weightedYesShare.delta).toBeCloseTo(0.15);
-    // Baseline: every item judged. Candidate: 3 of A's 4 (m9 is new), none of B's 1.
+    // Baseline: every item corrected. Candidate: 3 of A's 4 (m9 is new), none of B's 1.
     expect(judgedCoverage).toMatchObject({ baseline: 1, candidate: 0.6, n: 2, baselineN: 2 });
     // The ranked items: m1 (2/2) and m2 (0/1), in either order.
     expect(weightedPrecisionAtK).toMatchObject({ k: 10, n: 1, weight: 3, baselineN: 1 });
@@ -357,7 +364,7 @@ describe('a comparison eval run', () => {
 });
 
 describe('an erased case (T273 M-5)', () => {
-  const erasedB: JudgedEvalCase = {
+  const erasedB: CorrectedEvalCase = {
     caseId: 'case-b',
     subject: caseB.subject,
     input: null,
@@ -447,11 +454,11 @@ describe('a case its project or tenant takes no new runs for (halt)', () => {
 });
 
 describe('classWeights (T200)', () => {
-  /** Case A judged by a restricted class on its answer and m2 only; case B by none. */
+  /** Case A corrected by a restricted class on its answer and m2 only; case B by none. */
   const restricted = (yesWeight: number, totalWeight: number) => ({
     restricted: { yesWeight, totalWeight },
   });
-  const caseARestricted: JudgedEvalCase = {
+  const caseARestricted: CorrectedEvalCase = {
     ...caseA,
     items: [
       item('answer', 1, 1, { pointer: '/appended/3/content', ...restricted(1, 1) }),
@@ -466,7 +473,7 @@ describe('classWeights (T200)', () => {
     expect(summary.metrics.weightedYesShare).toMatchObject({ baseline: 0.6, baselineWeight: 5 });
   });
 
-  test('restricted-only counts only what restricted classes judged', async () => {
+  test('restricted-only counts only what restricted classes corrected', async () => {
     const result = await compare({
       comparison: { ...DEFAULT_COMPARISON, classWeights: 'restricted-only' },
       cases: [caseARestricted, caseB],
@@ -474,19 +481,19 @@ describe('classWeights (T200)', () => {
     expect(wireErrors(result)).toEqual([]);
     const { summary } = result;
     expect(summary.classWeights).toBe('restricted-only');
-    // Baseline: A's answer (1 of 1) and m2 (0 of 1); m1 and all of B unjudged.
+    // Baseline: A's answer (1 of 1) and m2 (0 of 1); m1 and all of B uncorrected.
     expect(summary.metrics.weightedYesShare).toMatchObject({
       baseline: 0.5,
       baselineN: 1,
       baselineWeight: 2,
     });
-    // Coverage: A has 2 of its 3 items judged, B none of its 1.
+    // Coverage: A has 2 of its 3 items corrected, B none of its 1.
     expect(summary.metrics.judgedCoverage.baseline).toBeCloseTo(0.5);
   });
 });
 
 describe('what a comparison takes', () => {
-  const dispatcher = createJudgedDispatcher({ cases: inMemoryCaseStore() });
+  const dispatcher = createCorrectedDispatcher({ cases: inMemoryCaseStore() });
   const suite = { spec: { caseCount: 3 } } as unknown as EvalSuite;
   const agent = { agentId: 'acme.agent' as never, version: '2.0.0' as never };
 
@@ -527,7 +534,7 @@ describe('what a comparison takes', () => {
 
 describe('a comparison of a flow version', () => {
   const flowOutput = (matches: unknown[]) => ({ matches });
-  const flowCase = (caseId: string, matches: unknown[]): JudgedEvalCase => ({
+  const flowCase = (caseId: string, matches: unknown[]): CorrectedEvalCase => ({
     caseId,
     subject: { kind: 'flow', id: 'acme.intake', version: '1.0.0' },
     input: { ticket: caseId },
@@ -568,7 +575,7 @@ describe('a comparison of a flow version', () => {
       ],
     });
     const invoked: EvalRunSubjectInvokeInput[] = [];
-    const out = await createJudgedDispatcher({ cases }).dispatch({
+    const out = await createCorrectedDispatcher({ cases }).dispatch({
       tenantId,
       runId: 'eval-f' as RunId,
       suite: {
@@ -589,7 +596,10 @@ describe('a comparison of a flow version', () => {
       },
       onProgress: () => {},
     });
-    const result = out.result as { summary: JudgedComparisonSummary; perCase: JudgedCaseResult[] };
+    const result = out.result as {
+      summary: CorrectedComparisonSummary;
+      perCase: CorrectedCaseResult[];
+    };
     return { ...result, invoked };
   }
 
@@ -621,7 +631,7 @@ describe('a comparison of a flow version', () => {
     expect(summary.metrics.weightedPrecisionAtK.candidate).toBeCloseTo(0.5);
   });
 
-  test("a flow comparison's result, with a stopped case, is the OpenAPI JudgedComparisonResult", async () => {
+  test("a flow comparison's result, with a stopped case, is the OpenAPI CorrectedComparisonResult", async () => {
     const result = await compareFlow((caseId) =>
       caseId === 'run-f2'
         ? {
@@ -681,14 +691,14 @@ describe('a comparison of a flow version', () => {
   });
 });
 
-describe('a rescore: the replays scored again, with what people judged on them since', () => {
+describe('a rescore: the replays scored again, with what people corrected on them since', () => {
   /**
    * A first comparison (eval-1), then a rescore of it (eval-2), with
-   * `judge` recording judgments on the first comparison's replays in
+   * `correct` recording corrections on the first comparison's replays in
    * between. `gone` lists replay runs that can't be read again.
    */
   async function rescoreAfter(
-    judge: (j: ReturnType<typeof inMemoryJudgments>) => Promise<void>,
+    correct: (j: ReturnType<typeof inMemoryCorrections>) => Promise<void>,
     options: { classWeights?: 'restricted-only'; gone?: readonly string[] } = {},
   ) {
     const comparison: EvalComparison = {
@@ -696,8 +706,8 @@ describe('a rescore: the replays scored again, with what people judged on them s
       ...(options.classWeights !== undefined && { classWeights: options.classWeights }),
     };
     const first = await compare({ comparison });
-    const judgments = inMemoryJudgments();
-    await judge(judgments);
+    const corrections = inMemoryCorrections();
+    await correct(corrections);
     const cases = inMemoryCaseStore();
     await cases.putCases({
       tenantId,
@@ -718,7 +728,7 @@ describe('a rescore: the replays scored again, with what people judged on them s
         tenantId,
         version: '1.0.0',
         kind: 'judged',
-        spec: { source: 'judgments', projectId: 'p-judged', caseCount: 2 },
+        spec: { source: 'corrections', projectId: 'p-judged', caseCount: 2 },
       },
       target: { agentId: 'acme.agent' as never, version: '2.0.0' as never },
       dryRun: false,
@@ -733,9 +743,9 @@ describe('a rescore: the replays scored again, with what people judged on them s
       },
       onProgress: () => undefined,
     };
-    const dispatcher = createJudgedDispatcher({
+    const dispatcher = createCorrectedDispatcher({
       cases,
-      judgments,
+      corrections,
       evalRuns: {
         get: async () => ({
           runId: 'eval-1' as RunId,
@@ -757,13 +767,16 @@ describe('a rescore: the replays scored again, with what people judged on them s
       },
     });
     const out = await dispatcher.dispatch(ctx);
-    const result = out.result as { summary: JudgedComparisonSummary; perCase: JudgedCaseResult[] };
+    const result = out.result as {
+      summary: CorrectedComparisonSummary;
+      perCase: CorrectedCaseResult[];
+    };
     return { first, ...result, invoked, error: out.error };
   }
 
-  const judgeAnswer =
+  const correctAnswer =
     (verdict: 'yes' | 'no', extra: object = {}) =>
-    async (j: ReturnType<typeof inMemoryJudgments>) => {
+    async (j: ReturnType<typeof inMemoryCorrections>) => {
       await j.record({
         tenantId,
         projectId: 'p-run' as ProjectId,
@@ -780,22 +793,26 @@ describe('a rescore: the replays scored again, with what people judged on them s
       });
     };
 
-  test("a changed answer, judged on its replay, counts: no replay runs, and the evidence says it's fresh", async () => {
-    const r = await rescoreAfter(judgeAnswer('yes'));
+  test("a changed answer, corrected on its replay, counts: no replay runs, and the evidence says it's fresh", async () => {
+    const r = await rescoreAfter(correctAnswer('yes'));
     expect(r.invoked).toEqual([]);
     expect(r.error).toBeUndefined();
     // Before: case-b's changed answer was a new item, with no evidence.
     const before = r.first.perCase.find((c) => c.caseId === 'case-b');
-    expect(before?.candidate[0]?.judgedItems).toBe(0);
+    expect(before?.candidate[0]?.correctedItems).toBe(0);
     const after = r.perCase.find((c) => c.caseId === 'case-b');
     expect(after?.candidate[0]).toMatchObject({
-      judgedItems: 1,
+      correctedItems: 1,
       yesWeight: 1,
       totalWeight: 1,
       fresh: { yesWeight: 1, totalWeight: 1, items: 1 },
     });
     expect(after?.changes?.new).toEqual([
-      { key: 'answer', pointer: '/appended/3/content', judged: { yesWeight: 1, totalWeight: 1 } },
+      {
+        key: 'answer',
+        pointer: '/appended/3/content',
+        corrected: { yesWeight: 1, totalWeight: 1 },
+      },
     ]);
     expect(r.summary).toMatchObject({ rescoreOf: 'eval-1', cases: 2 });
     expect(r.summary.metrics.weightedYesShare.freshWeight).toBe(1);
@@ -806,20 +823,20 @@ describe('a rescore: the replays scored again, with what people judged on them s
     expect(wireErrors(r)).toEqual([]);
   });
 
-  test('with nothing judged since, a rescore scores as the run it rescores', async () => {
+  test('with nothing corrected since, a rescore scores as the run it rescores', async () => {
     const r = await rescoreAfter(async () => undefined);
     expect(r.summary.metrics).toEqual(r.first.summary.metrics);
     expect(r.perCase.map((c) => c.candidate)).toEqual(r.first.perCase.map((c) => c.candidate));
   });
 
-  test('restricted-only: a fresh judgment counts only if its class was restricted', async () => {
-    const unrestricted = await rescoreAfter(judgeAnswer('yes'), {
+  test('restricted-only: a fresh correction counts only if its class was restricted', async () => {
+    const unrestricted = await rescoreAfter(correctAnswer('yes'), {
       classWeights: 'restricted-only',
     });
     expect(
       unrestricted.perCase.find((c) => c.caseId === 'case-b')?.candidate[0]?.fresh,
     ).toBeUndefined();
-    const restricted = await rescoreAfter(judgeAnswer('yes', { restricted: true }), {
+    const restricted = await rescoreAfter(correctAnswer('yes', { restricted: true }), {
       classWeights: 'restricted-only',
     });
     expect(restricted.perCase.find((c) => c.caseId === 'case-b')?.candidate[0]?.fresh).toEqual({
@@ -830,7 +847,7 @@ describe('a rescore: the replays scored again, with what people judged on them s
   });
 
   test("a case whose replay can't be read again keeps its scores, and is counted", async () => {
-    const r = await rescoreAfter(judgeAnswer('yes'), { gone: ['run-b'] });
+    const r = await rescoreAfter(correctAnswer('yes'), { gone: ['run-b'] });
     const b = r.perCase.find((c) => c.caseId === 'case-b');
     expect(b?.rescored).toBe(false);
     expect(b?.candidate).toEqual(r.first.perCase.find((c) => c.caseId === 'case-b')?.candidate);
@@ -838,8 +855,8 @@ describe('a rescore: the replays scored again, with what people judged on them s
     expect(wireErrors(r)).toEqual([]);
   });
 
-  test("a runtime that can't read replays and their judgments again refuses a rescore", () => {
-    const plain = createJudgedDispatcher({ cases: inMemoryCaseStore() });
+  test("a runtime that can't read replays and their corrections again refuses a rescore", () => {
+    const plain = createCorrectedDispatcher({ cases: inMemoryCaseStore() });
     const suite = { spec: { caseCount: 1 } } as unknown as EvalSuite;
     const target = { agentId: 'acme.agent', version: '2.0.0' } as never;
     expect(plain.validate?.(suite, target, { ...DEFAULT_COMPARISON, rescoreOf: 'eval-1' })).toEqual(
@@ -874,16 +891,16 @@ describe('corrections graded on the replay', () => {
   });
 
   test('a matching correction passes, a differing one fails and names the difference', async () => {
-    const corrected: JudgedEvalCase = {
+    const corrected: CorrectedEvalCase = {
       ...caseA,
       caseId: 'case-c',
       corrections: [
         {
-          judgmentId: 'j-amount',
+          correctionId: 'j-amount',
           calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
           notCalled: [],
         },
-        { judgmentId: 'j-no-email', calls: [], notCalled: ['acme.email'] },
+        { correctionId: 'j-no-email', calls: [], notCalled: ['acme.email'] },
       ],
     };
     const { summary, perCase, ...out } = await compare({
@@ -892,12 +909,12 @@ describe('corrections graded on the replay', () => {
       answer: () => outcomeWith('case-c', [toolCall('acme.refund', { amount: 80 })]),
     });
     expect(perCase[0]?.corrections).toEqual([
-      { judgmentId: 'j-amount', pass: false, repetitionsPassed: 0, repetitions: 1 },
-      { judgmentId: 'j-no-email', pass: true, repetitionsPassed: 1, repetitions: 1 },
+      { correctionId: 'j-amount', pass: false, repetitionsPassed: 0, repetitions: 1 },
+      { correctionId: 'j-no-email', pass: true, repetitionsPassed: 1, repetitions: 1 },
     ]);
     expect(perCase[0]?.correctionDifferences).toEqual([
       {
-        judgmentId: 'j-amount',
+        correctionId: 'j-amount',
         repetition: 1,
         differences: [
           { tool: 'acme.refund', kind: 'field-value', field: 'amount', expected: 25, actual: 80 },
@@ -907,9 +924,9 @@ describe('corrections graded on the replay', () => {
     expect(summary.corrections).toEqual({
       checked: 2,
       passed: 1,
-      judgments: [
-        { judgmentId: 'j-amount', pass: false },
-        { judgmentId: 'j-no-email', pass: true },
+      results: [
+        { correctionId: 'j-amount', pass: false },
+        { correctionId: 'j-no-email', pass: true },
       ],
     });
     // The new fields are exactly what the clients read: the wire schema accepts them.
@@ -918,12 +935,12 @@ describe('corrections graded on the replay', () => {
   });
 
   test('a refused call then a real retry is counted twice, and the difference names the refused one', async () => {
-    const corrected: JudgedEvalCase = {
+    const corrected: CorrectedEvalCase = {
       ...caseA,
       caseId: 'case-c',
       corrections: [
         {
-          judgmentId: 'j-amount',
+          correctionId: 'j-amount',
           calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
           notCalled: [],
         },
@@ -939,11 +956,11 @@ describe('corrections graded on the replay', () => {
         ]),
     });
     expect(perCase[0]?.corrections).toEqual([
-      { judgmentId: 'j-amount', pass: false, repetitionsPassed: 0, repetitions: 1 },
+      { correctionId: 'j-amount', pass: false, repetitionsPassed: 0, repetitions: 1 },
     ]);
     expect(perCase[0]?.correctionDifferences).toEqual([
       {
-        judgmentId: 'j-amount',
+        correctionId: 'j-amount',
         repetition: 1,
         differences: [{ tool: 'acme.refund', kind: 'count', expected: 1, actual: 2, refused: 1 }],
       },
@@ -951,17 +968,17 @@ describe('corrections graded on the replay', () => {
     expect(summary.corrections).toEqual({
       checked: 1,
       passed: 0,
-      judgments: [{ judgmentId: 'j-amount', pass: false }],
+      results: [{ correctionId: 'j-amount', pass: false }],
     });
   });
 
   test('a correction passes only when every repetition passes (k of n)', async () => {
-    const corrected: JudgedEvalCase = {
+    const corrected: CorrectedEvalCase = {
       ...caseA,
       caseId: 'case-c',
       corrections: [
         {
-          judgmentId: 'j-amount',
+          correctionId: 'j-amount',
           calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
           notCalled: [],
         },
@@ -975,40 +992,40 @@ describe('corrections graded on the replay', () => {
         outcomeWith('case-c', [toolCall('acme.refund', { amount: call === 1 ? 25 : 80 })]),
     });
     expect(perCase[0]?.corrections).toEqual([
-      { judgmentId: 'j-amount', pass: false, repetitionsPassed: 1, repetitions: 2 },
+      { correctionId: 'j-amount', pass: false, repetitionsPassed: 1, repetitions: 2 },
     ]);
     // The first repetition passed, so the differences come from the second,
     // and say so — a later failure is no longer shown with none.
     expect(perCase[0]?.correctionDifferences).toEqual([
       {
-        judgmentId: 'j-amount',
+        correctionId: 'j-amount',
         repetition: 2,
         differences: [
           { tool: 'acme.refund', kind: 'field-value', field: 'amount', expected: 25, actual: 80 },
         ],
       },
     ]);
-    // Failed on one repetition: failed, by its judgment too.
+    // Failed on one repetition: failed, by its correction too.
     expect(summary.corrections).toEqual({
       checked: 1,
       passed: 0,
-      judgments: [{ judgmentId: 'j-amount', pass: false }],
+      results: [{ correctionId: 'j-amount', pass: false }],
     });
   });
 
   test('restricted-only grades only the corrections recorded under a restricted class', async () => {
-    const corrected: JudgedEvalCase = {
+    const corrected: CorrectedEvalCase = {
       ...caseA,
       caseId: 'case-c',
       corrections: [
         {
-          judgmentId: 'j-restricted',
+          correctionId: 'j-restricted',
           restricted: true,
           calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
           notCalled: [],
         },
         {
-          judgmentId: 'j-open',
+          correctionId: 'j-open',
           calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
           notCalled: [],
         },
@@ -1020,12 +1037,12 @@ describe('corrections graded on the replay', () => {
       answer: () => outcomeWith('case-c', [toolCall('acme.refund', { amount: 25 })]),
     });
     expect(perCase[0]?.corrections).toEqual([
-      { judgmentId: 'j-restricted', pass: true, repetitionsPassed: 1, repetitions: 1 },
+      { correctionId: 'j-restricted', pass: true, repetitionsPassed: 1, repetitions: 1 },
     ]);
     expect(summary.corrections).toEqual({
       checked: 1,
       passed: 1,
-      judgments: [{ judgmentId: 'j-restricted', pass: true }],
+      results: [{ correctionId: 'j-restricted', pass: true }],
     });
   });
 
