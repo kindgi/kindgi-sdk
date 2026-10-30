@@ -19,7 +19,7 @@ import type { TenantId, UserId } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
-import type { TestRunBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';
+import type { RunHandlerBinding, TestRunBinding, TokenResolver } from '../src/index.js';
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'route-authz-test-runs';

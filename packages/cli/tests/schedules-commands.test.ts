@@ -210,7 +210,7 @@ describe('kindgi schedules', () => {
     }
   });
 
-  test('an improve schedule in the table, and a fire that started a pass', async () => {
+  test('an improve schedule in the table, and a fire that started an Improve run', async () => {
     const improving = {
       ...SCHEDULE,
       agentId: undefined,
@@ -254,7 +254,7 @@ describe('kindgi schedules', () => {
         }) as never,
     });
     expect(fires.exitCode, fires.stderr).toBe(0);
-    expect(fires.stdout).toContain(`pass ${improveRunId}`);
+    expect(fires.stdout).toContain(`Improve run ${improveRunId}`);
     expect(fires.stdout).toMatch(
       /skipped\s+Not enough new experts' corrections so far: 4 of 5 answers experts marked wrong/,
     );

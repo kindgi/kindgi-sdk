@@ -5,8 +5,8 @@ import type { ReviewerRole } from '@kindgi/authz';
 import type { LiveScope } from '@kindgi/types';
 
 import type { ComparisonMetric, CorrectedComparisonSummary } from './corrected-dispatcher.js';
-import type { EvalSample } from './test-run-binding.js';
 import type { GateMetricName, GateMetricSpec, GatePolicySpec } from './gate-policy-binding.js';
+import type { EvalSample } from './test-run-binding.js';
 
 /**
  * The promotion gate (evals step 4b): a policy's checks against a
