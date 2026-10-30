@@ -481,15 +481,26 @@ export interface SuggestedChange {
   };
   /** Its agent version. It serves nothing until it's pinned or added as Latest. */
   readonly version?: string;
-  /** Its changes; `before` and `after` on `get`. */
-  readonly changes: readonly {
-    readonly kind: 'block';
-    readonly blockId: string;
-    readonly from: string;
-    readonly to?: string;
-    readonly before?: SuggestedChangeContent;
-    readonly after?: SuggestedChangeContent;
-  }[];
+  /**
+   * Its changes: a block's, with `before` and `after` on `get`; or, for a
+   * deploy's, its new version's code, whole.
+   */
+  readonly changes: readonly (
+    | {
+        readonly kind: 'block';
+        readonly blockId: string;
+        readonly from: string;
+        readonly to?: string;
+        readonly before?: SuggestedChangeContent;
+        readonly after?: SuggestedChangeContent;
+      }
+    | {
+        readonly kind: 'code';
+        readonly deploymentId: string;
+        /** The deploy's image, when it named one by digest. */
+        readonly imageDigest?: string;
+      }
+  )[];
   /** What the change should fix, and why. */
   readonly why: string;
   /** The corrections it fixes, by id. */
@@ -509,11 +520,17 @@ export interface SuggestedChange {
     readonly startedAt?: import('@kindgi/types').Timestamp;
   };
   readonly status: SuggestedChangeStatus;
-  /** Why a `ready` one's pin didn't go through. */
-  readonly note?: {
-    readonly kind: 'gate-refused' | 'rejected' | 'expired' | 'superseded';
-    readonly promotionId: string;
-  };
+  /**
+   * Why a `ready` one's pin didn't go through. Or, on a deploy's,
+   * `not-running`: the version its project runs (`version`) wasn't running
+   * to be checked against, so its check has no `now`.
+   */
+  readonly note?:
+    | {
+        readonly kind: 'gate-refused' | 'rejected' | 'expired' | 'superseded';
+        readonly promotionId: string;
+      }
+    | { readonly kind: 'not-running'; readonly version: string };
   readonly pinned?: {
     readonly version: string;
     readonly by: SuggestedChangeActor;

@@ -6840,12 +6840,14 @@ export const SuggestedChangeBlockContentSchema: JsonSchema = {
 export const SuggestedChangeChangeSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['kind', 'blockId', 'from'],
+  required: ['kind'],
   description:
-    "One change the suggested change makes: a new version of a block its project's version pins. `from` is the block version what it's built on pins, and `to` the one it published (absent until it made one). `GET /v1/suggested-changes/{suggestedChangeId}` adds `from`'s content (`before`) and the new content (`after`).",
+    "One change the suggested change makes. `block`: a new version of a block its project's version pins (`blockId`). `from` is the block version what it's built on pins, and `to` the one it published (absent until it made one). `GET /v1/suggested-changes/{suggestedChangeId}` adds `from`'s content (`before`) and the new content (`after`). `code`: a deploy's new agent version, whole (`deploymentId`, and `imageDigest` when the deploy named its image by digest), with no content before and after.",
   properties: {
-    kind: { type: 'string', enum: ['block'] },
+    kind: { type: 'string', enum: ['block', 'code'] },
     blockId: { type: 'string' },
+    deploymentId: { type: 'string' },
+    imageDigest: { type: 'string' },
     from: { type: 'string' },
     to: { type: 'string' },
     before: { $ref: '#/components/schemas/SuggestedChangeBlockContent' },
@@ -6898,12 +6900,16 @@ export const SuggestedChangeCheckSchema: JsonSchema = {
 export const SuggestedChangeNoteSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['kind', 'promotionId'],
+  required: ['kind'],
   description:
-    "Why a `ready` suggested change's pin didn't go through: `gate-refused`, `rejected` (a second person), `expired` (the approval), or `superseded` (its project's version or policy changed before the approval). `promotionId` is that pin's promotion.",
+    "Why a `ready` suggested change's pin didn't go through: `gate-refused`, `rejected` (a second person), `expired` (the approval), or `superseded` (its project's version or policy changed before the approval). `promotionId` is that pin's promotion. Or, on a deploy's suggested change, `not-running`: the version its project runs (`version`) isn't running to be checked against, and has no finished run on the same cases, so its check has no `now`.",
   properties: {
-    kind: { type: 'string', enum: ['gate-refused', 'rejected', 'expired', 'superseded'] },
+    kind: {
+      type: 'string',
+      enum: ['gate-refused', 'rejected', 'expired', 'superseded', 'not-running'],
+    },
     promotionId: { type: 'string' },
+    version: { type: 'string' },
   },
 };
 

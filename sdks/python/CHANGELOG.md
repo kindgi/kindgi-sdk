@@ -118,6 +118,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
     `evaluation`, `promotion` and `rolled_back` are gone.
   - Its statuses are `checking`, `check-failed`, `ready`,
     `waiting-for-second-person`, `pinned`, `added-as-latest` and `withdrawn`.
+  - A deploy makes one in each project that runs a pinned other version of
+    the agent (`made_by.kind` is `deploy`). Its one change is the code:
+    `kind` is `code`, with `deployment_id` and `image_digest`. When the
+    version its project runs has no finished run on the same cases, its
+    `note` is `not-running`, with that `version`, and its check has no `now`.
   - New models: `SuggestedChangeChange`, `SuggestedChangeCheck`,
     `SuggestedChangeCheckSide`, `SuggestedChangeNote` and
     `SuggestedChangeBlockContent`.

@@ -117,6 +117,7 @@ import {
 import { type SecretBinding, secretNameGrammarRefusal } from '../secrets-binding.js';
 import { type ServedEnvRule, readReferencesOnce, refuseUnservedValue } from '../served-env.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
+import type { DeployCardsInput, DeployCardsOutcome } from '../suggested-change-service.js';
 import type { ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { type AgentReleaseGateDeps, actorOf } from './agent-releases.js';
@@ -355,6 +356,38 @@ export interface DeploymentsRouterBindings {
    * with no authorizer: today's `promote` check.
    */
   readonly itemRights?: ItemRights;
+  /**
+   * The suggested-change cards a deploy makes in its project, and a
+   * promotion in the project it reached (`fromDeploy`): one for each agent
+   * version it registered or carried whose project runs a pinned other
+   * version. Absent: none.
+   */
+  readonly deployCards?: (input: DeployCardsInput) => Promise<DeployCardsOutcome>;
+}
+
+/**
+ * The cards a deploy or a promotion makes (`deployCards`). Never fails the
+ * deploy: a card that can't be made is logged.
+ */
+export async function makeDeployCards(
+  c: Context<AppEnv>,
+  bindings: DeploymentsRouterBindings,
+  input: DeployCardsInput,
+): Promise<void> {
+  if (bindings.deployCards === undefined || input.agents.length === 0) return;
+  const log = c.get('log');
+  try {
+    const { failed } = await bindings.deployCards(input);
+    for (const f of failed) {
+      log.warn(
+        `deployment ${input.deploymentId} made no suggested change for ${f.agentId}: ${f.message}`,
+      );
+    }
+  } catch (e) {
+    log.warn(
+      `the suggested changes of deployment ${input.deploymentId} weren't made: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
 }
 
 const SECRETS_PATH = /\/deployments\/[^/]+\/secrets\/?$/;
@@ -1403,6 +1436,20 @@ export function deploymentsRouter(
           source: { kind: 'deploy', id: outcome.deployment.deploymentId },
         },
         log: c.get('log').child({ subsystem: 'audit' }),
+      });
+    }
+    if (targetProjectId !== undefined) {
+      // The agent versions this deploy wrote: each has its rollback.
+      const written = new Set(rolled.filter((a) => a.primitive === 'agent').map((a) => a.id));
+      await makeDeployCards(c, bindings, {
+        tenantId,
+        projectId: targetProjectId,
+        deploymentId: outcome.deployment.deploymentId,
+        imageDigest,
+        by: actorOf(c),
+        agents: deployedAgents
+          .filter((a) => written.has(`${a.id}@${a.version}`))
+          .map((a) => ({ agentId: a.id as AgentId, version: a.version as Semver })),
       });
     }
     c.status(201);

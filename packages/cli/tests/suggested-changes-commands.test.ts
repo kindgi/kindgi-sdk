@@ -273,7 +273,7 @@ describe('kindgi suggested-changes pin / add-as-latest / withdraw', () => {
 });
 
 describe('kindgi suggested-changes list / get', () => {
-  test('filters, and a table with the project, block, status and check', async () => {
+  test('filters, and a table with the project, change, status and check', async () => {
     const { calls, rec } = recorder();
     const page = {
       data: [
@@ -299,6 +299,12 @@ describe('kindgi suggested-changes list / get', () => {
           },
         },
         { ...SUGGESTED_CHANGE, id: 'prop-3' },
+        {
+          ...SUGGESTED_CHANGE,
+          id: 'prop-4',
+          madeBy: { kind: 'deploy', deploymentId: 'dep-7' },
+          changes: [{ kind: 'code', deploymentId: 'dep-7' }],
+        },
       ],
       hasMore: false,
     };
@@ -321,6 +327,7 @@ describe('kindgi suggested-changes list / get', () => {
     expect(out.stdout).toContain('acme.scorer@1.4.0');
     expect(out.stdout).toContain(PROJECT);
     expect(out.stdout).toContain('acme.weights@1.0.0');
+    expect(out.stdout).toContain('code (deploy dep-7)');
     expect(out.stdout).toContain('25/27 (now 23/27)');
     expect(out.stdout).toContain('9/12');
     expect(out.stdout).toContain('running');

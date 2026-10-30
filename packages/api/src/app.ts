@@ -142,7 +142,7 @@ import { conversationsRouter } from './routes/conversations.js';
 import { correctedTestSetsRouter } from './routes/corrected-test-sets.js';
 import { correctionsRouter, correctorGroupsRouter } from './routes/corrections.js';
 import { costRouter } from './routes/cost.js';
-import { deploymentsRouter } from './routes/deployments.js';
+import { type DeploymentsRouterBindings, deploymentsRouter } from './routes/deployments.js';
 import { envRouter } from './routes/env.js';
 import { environmentOrdersRouter } from './routes/environment-orders.js';
 import { environmentsRouter } from './routes/environments.js';
@@ -230,6 +230,7 @@ import type { ServiceAccountBinding } from './service-account-binding.js';
 import type { SessionStoreBinding } from './session-store-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from './signing-key-binding.js';
 import type { SiteBinding } from './site-binding.js';
+import { createSuggestedChangeService } from './suggested-change-service.js';
 import type { SupervisorBinding } from './supervisor-binding.js';
 import { ONE_TENANT_SYSTEM_SCOPES } from './system.js';
 import type { TenantHostAccess } from './tenant-host-access.js';
@@ -1921,6 +1922,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       }),
     );
   }
+  let deployCards: DeploymentsRouterBindings['deployCards'];
   if (
     input.supervisor !== undefined &&
     input.agentRegistry !== undefined &&
@@ -1938,33 +1940,39 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.correctionRegistry !== undefined && { correctorGroups: input.correctionRegistry }),
       ...(input.testSetRegistry !== undefined && { testSets: input.testSetRegistry }),
     };
+    const cardDeps = {
+      agents: input.agentRegistry,
+      blocks: input.blockRegistry,
+      testRuns: input.testRunBinding,
+      releases: input.agentReleases,
+      ...(input.testSetFreeze !== undefined && { testSets: input.testSetFreeze }),
+      ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+      ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
+      ...(input.projectSuspended !== undefined && {
+        projectSuspended: input.projectSuspended,
+      }),
+      ...(input.environmentOrders !== undefined && { orders: input.environmentOrders }),
+      // A drafter's promotion needs a separate approver when the tenant has
+      // a second person who could approve it — one who can read the
+      // approval's resource, so the count matches who the decide route lets in.
+      ...(input.reviewerRegistry !== undefined && { reviewers: input.reviewerRegistry }),
+      ...(input.authz !== undefined && { authz: input.authz.authzCheckBinding }),
+    };
     v1.route(
       '/suggested-changes',
       suggestedChangesRouter(
         input.supervisor,
         {
-          agents: input.agentRegistry,
-          blocks: input.blockRegistry,
-          testRuns: input.testRunBinding,
-          releases: input.agentReleases,
-          ...(input.testSetFreeze !== undefined && { testSets: input.testSetFreeze }),
-          ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
-          ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
-          ...(input.projectSuspended !== undefined && {
-            projectSuspended: input.projectSuspended,
-          }),
-          ...(input.environmentOrders !== undefined && { orders: input.environmentOrders }),
-          // A drafter's promotion needs a separate approver when the tenant has
-          // a second person who could approve it — one who can read the
-          // approval's resource, so the count matches who the decide route lets in.
-          ...(input.reviewerRegistry !== undefined && { reviewers: input.reviewerRegistry }),
-          ...(input.authz !== undefined && { authz: input.authz.authzCheckBinding }),
+          ...cardDeps,
           ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         },
         authorizer,
         itemRights,
       ),
     );
+    // The cards a deploy makes, for the deployments router below.
+    const cards = createSuggestedChangeService({ ...cardDeps, store: input.supervisor });
+    deployCards = (cardsInput) => cards.fromDeploy(cardsInput);
     v1.route('/improve-runs', improveRunsRouter(improveDeps, authorizer, itemRights));
   }
   v1.route('/export-signing-keys', exportSigningKeysRouter(exportSigning));
@@ -2553,6 +2561,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             },
           }),
           ...(itemRights !== undefined && { itemRights }),
+          ...(deployCards !== undefined && { deployCards }),
           // The deployments router's agents publish loop resolves the
           // Default project through this binding. Optional at wiring so
           // app compositions without a project binding still boot; the loop

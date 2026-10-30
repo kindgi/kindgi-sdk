@@ -100,6 +100,24 @@ export type ProposedChange =
       };
     };
 
+/**
+ * A deploy card's change: the agent version a deploy registered, whole
+ * (its code, and every block it pins). Never rebuilt, and has no content
+ * to show before and after.
+ */
+export interface CodeChange {
+  /** The deployment that registered the version. */
+  readonly deploymentId: string;
+  /** The deploy's image, when it named one by digest. */
+  readonly imageDigest?: string;
+}
+
+/** A stored suggested change's tier: a block tier, or `code` for a deploy card. */
+export type StoredSuggestedChangeTier = SuggestedChangeTier | 'code';
+
+/** A stored suggested change's change: a block's, or a deploy's (`tier: 'code'`). */
+export type StoredChange = ProposedChange['change'] | CodeChange;
+
 /** Who wrote a suggested change: a person, or one of the runtime's drafters. */
 export type SuggestedChangeDrafter =
   | { readonly kind: 'person'; readonly by: string }
@@ -140,8 +158,8 @@ export interface SuggestedChangeEvidence {
 export interface SuggestedChangeCandidate {
   /** The derived agent version (`derivedFrom.suggestedChangeId` names this suggested change). */
   readonly agentVersion: string;
-  /** The block version published from the suggested change's content. */
-  readonly blockVersion: string;
+  /** The block version published from the suggested change's content. Absent on a deploy card. */
+  readonly blockVersion?: string;
   readonly pinsDigest: string;
 }
 
@@ -184,8 +202,8 @@ export interface StoredSuggestedChange {
   readonly fromVersion: string;
   /** The live scope it's for. */
   readonly scope: LiveScope;
-  readonly tier: SuggestedChangeTier;
-  readonly change: ProposedChange['change'];
+  readonly tier: StoredSuggestedChangeTier;
+  readonly change: StoredChange;
   readonly why: string;
   readonly evidence?: SuggestedChangeEvidence;
   readonly drafter: SuggestedChangeDrafter;
@@ -252,8 +270,8 @@ export interface CreateSuggestedChangeInput {
   readonly agentId: AgentId;
   readonly fromVersion: string;
   readonly scope: LiveScope;
-  readonly tier: SuggestedChangeTier;
-  readonly change: ProposedChange['change'];
+  readonly tier: StoredSuggestedChangeTier;
+  readonly change: StoredChange;
   readonly why: string;
   readonly evidence?: SuggestedChangeEvidence;
   readonly drafter: SuggestedChangeDrafter;

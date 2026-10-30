@@ -60,8 +60,13 @@ const TABLE: TableSpec<ListPage<SuggestedChange>, SuggestedChange> = {
     { header: 'AGENT', get: (p) => `${p.agentId}@${p.builtOn.version}` },
     { header: 'PROJECT', get: (p) => p.projectId ?? '-' },
     {
-      header: 'BLOCK',
-      get: (p) => p.changes.map((c) => `${c.blockId}@${c.from}`).join(', '),
+      header: 'CHANGE',
+      get: (p) =>
+        p.changes
+          .map((c) =>
+            c.kind === 'block' ? `${c.blockId}@${c.from}` : `code (deploy ${c.deploymentId})`,
+          )
+          .join(', '),
     },
     { header: 'STATUS', get: (p) => p.status },
     { header: 'CHECK', get: checkCell },
@@ -272,12 +277,10 @@ const addAsLatest: LeafCommand = {
   },
   run: (ctx) =>
     runSdk(ctx, 'suggested-changes add-as-latest', async () =>
-      ctx
-        .client()
-        .suggestedChanges.addAsLatest(requiredPositional(ctx, 0, 'suggested-change-id'), {
-          ...reasonFlag(ctx),
-          ...idempotency(ctx),
-        }),
+      ctx.client().suggestedChanges.addAsLatest(requiredPositional(ctx, 0, 'suggested-change-id'), {
+        ...reasonFlag(ctx),
+        ...idempotency(ctx),
+      }),
     ),
 };
 

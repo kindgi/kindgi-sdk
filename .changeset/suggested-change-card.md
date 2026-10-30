@@ -18,14 +18,20 @@
   - `POST /v1/suggested-changes/{suggestedChangeId}/check` checks it again, so new corrections count.
   - `check` replaces `evaluate` and `rescore`, which are removed with their bodies.
 - **Statuses.** The server derives these: `checking`, `check-failed`, `ready`, `waiting-for-second-person`, `pinned`, `added-as-latest` and `withdrawn`. A pin the gate refused, a second person rejected, or whose approval expired leaves it `ready`, with a `note` that says why.
+- **A deploy's suggested changes.** A deploy that registers a new agent version makes one for it in each project that runs a pinned other version of the agent (`madeBy: deploy`). A project on Latest gets none. With environment orders, it's made when the deployment is promoted into the next project, unless the promotion makes the version live there.
+  - Its one change is the code: `{ kind: 'code', deploymentId, imageDigest }`.
+  - Its version is the deploy's, and it's never rebuilt: once its project moves, pinning it is `409 suggested-change-out-of-date` with `rebuilding: false`.
+  - Its check runs its version on the project's test set. `now` is the newest finished run of the version the project runs on the same frozen cases. With none, the check has no `now`, and its `note` is `{ kind: 'not-running', version }`.
+  - With no cases in the project's test set yet, it's made unchecked (`check-failed`).
+  - A deploy or a promotion never fails because one couldn't be made: it's logged.
 - **The answer.** A suggested change carries:
   - `projectId` and `title`;
   - `madeBy`: who or what made it, which is an Improve run, a person, a service account, a deploy or an offer;
   - `builtOn` and `version`;
-  - `changes`: the block, with `from` and `to`. `GET` of one also adds the content `before` and `after`;
+  - `changes`: the block, with `from` and `to` (`kind: 'block'`). `GET` of one also adds the content `before` and `after`. A deploy's is the code (`kind: 'code'`);
   - `why` and `fixes`;
   - `check`;
-  - `status` and `note`;
+  - `status` and `note` (a pin that didn't go through, or a deploy's `not-running`);
   - `pinned`, `approvalId`, `addedAsLatest` and `withdrawn`.
 
   `fromVersion`, `scope`, `tier`, `change`, `evidence`, `candidate`, `evaluation`, `promotion` and `rolledBack` are gone.
@@ -45,17 +51,17 @@
   - `suggested-change-project-pinned` (409);
   - `suggested-change-out-of-date` (409).
 - **Audit events.** Making one, pinning it, adding it as Latest and withdrawing it are recorded, in its project, with the caller as the actor: `suggested-change-created`, `suggested-change-pinned` (with its promotion, and whether it's pinned or waits for a second person), `suggested-change-added-as-latest` and `suggested-change-withdrawn`. Each names the suggested change, its agent, block, versions and who made it, never its content, its `why` or a reason. The same change sent again records nothing. `EVIDENCE_KINDS` lists the four kinds. The `kind` examples in `compliance-evidence.schema.json` list them too, with the block version and provider kinds.
-- **Binding.** `TestSetFreezeBinding` freezes a project's test set for a check. `agentTestSetId(agentId, projectId)` is the id it freezes under: `agent:<agentId>:<projectId>`. A stored suggested change keeps who drafted its content as `drafter` (`SuggestedChangeDrafter`). It gains `madeBy` (`SuggestedChangeMaker`), `builtOnVersion`, `rebuiltAt` and `addedAsLatest`, and a store records the new `rebuilt` and `added-as-latest` steps. A `rebuilt` step moves it onto a new version: it sets `builtOnVersion`, `rebuiltAt` and its block change there, clears its candidate, evaluation and promotion, and keeps its fingerprint.
+- **Binding.** `TestSetFreezeBinding` freezes a project's test set for a check. With it and suggested changes, `createApp` makes a deploy's suggested changes, through the service's new `fromDeploy` (`DeployCardsInput`, `DeployCardsOutcome`). A stored suggested change's `tier` can be `code` (`StoredSuggestedChangeTier`), with a `CodeChange` (`StoredChange`), and a candidate's `blockVersion` is optional, since a deploy's has none. `agentTestSetId(agentId, projectId)` is the id it freezes under: `agent.<agentId>.<projectId>`. A stored suggested change keeps who drafted its content as `drafter` (`SuggestedChangeDrafter`). It gains `madeBy` (`SuggestedChangeMaker`), `builtOnVersion`, `rebuiltAt` and `addedAsLatest`, and a store records the new `rebuilt` and `added-as-latest` steps. A `rebuilt` step moves it onto a new version: it sets `builtOnVersion`, `rebuiltAt` and its block change there, clears its candidate, evaluation and promotion, and keeps its fingerprint.
 - **TypeScript client.**
   - `client.suggestedChanges.create` takes the new body.
   - `check` replaces `evaluate` and `rescore`.
   - `addAsLatest` is new.
   - `list` takes `projectId`, `status` and `madeBy`.
-  - `SuggestedChange` follows the answer. `SuggestedChangeTier` and `EvaluateSuggestedChangeInput` are removed.
+  - `SuggestedChange` follows the answer: a change is a block's or a deploy's code, and a `note` can be `not-running`. `SuggestedChangeTier` and `EvaluateSuggestedChangeInput` are removed.
 - **CLI.**
   - `kindgi suggested-changes create` replaces `draft`. It needs `--project`, takes `--fixes` (a correction id, more than once) in place of `--correction`, and drops `--from-version`, `--tenant`, `--org` and `--segment`.
   - `check` replaces `evaluate`: it checks it again, and takes only `--wait`.
   - `pin` replaces `request`.
   - `add-as-latest` is new, with `--reason`.
   - `list` takes `--project`, and drops the scope flags and `--tier`.
-  - The table shows each one's check, for example `25/27 (now 23/27)`.
+  - The table shows each one's check, for example `25/27 (now 23/27)`. Its BLOCK column is CHANGE: a block and its version, or `code (deploy <deployment-id>)`.
