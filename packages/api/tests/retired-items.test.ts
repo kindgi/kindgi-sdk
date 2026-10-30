@@ -214,7 +214,7 @@ describe('a test run says which project it is in', () => {
     ["without one (a runtime that doesn't say)", false],
   ])('%s', async (_, withProject) => {
     const r = run(withProject);
-    for (const path of [`/v1/test-runs/${r.runId}`, '/v1/test-runs']) {
+    for (const path of [`/v1/test-runs/${r.testRunId}`, '/v1/test-runs']) {
       const res = await app(r).request(path, { headers: { authorization: `Bearer ${TOKEN}` } });
       expect(res.status, path).toBe(200);
       const body = (await res.json()) as Record<string, any>;
