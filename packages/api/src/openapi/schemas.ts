@@ -6069,7 +6069,11 @@ export const CorrectedEvalCaseSchema: JsonSchema = {
   description:
     "One case of a `corrections` test set: a copy of a corrected run with its items' corrections summed up.",
   properties: {
-    caseId: { type: 'string', description: "The corrected run's id." },
+    caseId: {
+      type: 'string',
+      description:
+        "The case's id. A frozen case of an agent's test set has its correction's id, or a `case-` id when it was added by hand. A `corrections` test set built before 0.4.0 used the corrected run's id.",
+    },
     subject: { $ref: '#/components/schemas/CorrectedSubject' },
     input: {},
     context: { $ref: '#/components/schemas/CorrectedRunContext' },

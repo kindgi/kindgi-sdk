@@ -14883,7 +14883,7 @@ class CorrectedEvalCase(BaseModel):
     )
     case_id: Annotated[str, Field(alias="caseId")]
     """
-    The corrected run's id.
+    The case's id. A frozen case of an agent's test set has its correction's id, or a `case-` id when it was added by hand. A `corrections` test set built before 0.4.0 used the corrected run's id.
     """
     subject: CorrectedSubject
     input: Any
