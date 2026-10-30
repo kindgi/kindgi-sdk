@@ -95,7 +95,7 @@ describe('evalSuites.buildFromCorrections and listCases', () => {
       projectId: 'proj-1',
       agentId: 'acme.matcher',
       agentVersion: '2.0.0',
-      judgeClassIds: ['jc-1'],
+      correctorGroupIds: ['jc-1'],
       minCorrections: 2,
     };
 

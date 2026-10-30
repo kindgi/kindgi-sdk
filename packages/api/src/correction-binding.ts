@@ -11,8 +11,8 @@ import type { ExpectedCall } from './expected-decisions.js';
  * decisions and its answer were right, and what was right instead. Each
  * correction has a status (open, being fixed, with the owner, fixed, won't
  * fix, removed) and is sorted to whoever fixes it. A correction may name a
- * **judge class** ("expert", "user", …: the deployment's own names) that
- * carries a weight, so later metrics can weigh corrections. Classes are
+ * **corrector group** ("expert", "user", …: the deployment's own names) that
+ * carries a weight, so later metrics can weigh corrections. Groups are
  * optional: an unclassified correction counts with weight 1, so correcting
  * needs no setup.
  *
@@ -32,23 +32,23 @@ import type { ExpectedCall } from './expected-decisions.js';
  * composed into it, open and unsorted.
  *
  * Every method is tenant-scoped. Deletes are soft (`unregister`); purging
- * follows the retention policies for the `correction` and `judge_class`
+ * follows the retention policies for the `correction` and `corrector_group`
  * domains.
  */
 export interface CorrectionRegistryBinding {
-  /** Create a judge class. `name-taken` when a live class of that scope has the name. */
-  createClass(input: JudgeClassCreateInput): Promise<JudgeClassCreateOutcome>;
-  /** Live classes, newest first, cursor-paginated; `scope` narrows to one scope. */
-  listClasses(input: JudgeClassListInput): Promise<JudgeClassPage>;
+  /** Create a corrector group. `name-taken` when a live group of that scope has the name. */
+  createGroup(input: CorrectorGroupCreateInput): Promise<CorrectorGroupCreateOutcome>;
+  /** Live groups, newest first, cursor-paginated; `scope` narrows to one scope. */
+  listGroups(input: CorrectorGroupListInput): Promise<CorrectorGroupPage>;
   /**
-   * One class, or `null` when unknown. `includeUnregistered` also returns
-   * a retired class (corrections keep naming theirs).
+   * One group, or `null` when unknown. `includeUnregistered` also returns
+   * a retired group (corrections keep naming theirs).
    */
-  getClass(input: JudgeClassGetInput): Promise<JudgeClass | null>;
-  /** Change a live class's weight or description; `null` when unknown or retired. */
-  updateClass(input: JudgeClassUpdateInput): Promise<JudgeClass | null>;
-  /** Retire a class: no new corrections may name it. `false` when unknown or already retired. */
-  unregisterClass(input: JudgeClassGetInput): Promise<{ readonly unregistered: boolean }>;
+  getGroup(input: CorrectorGroupGetInput): Promise<CorrectorGroup | null>;
+  /** Change a live group's weight or description; `null` when unknown or retired. */
+  updateGroup(input: CorrectorGroupUpdateInput): Promise<CorrectorGroup | null>;
+  /** Retire a group: no new corrections may name it. `false` when unknown or already retired. */
+  unregisterGroup(input: CorrectorGroupGetInput): Promise<{ readonly unregistered: boolean }>;
 
   /**
    * Record a correction. The first correction of a run also stores the run's
@@ -85,28 +85,28 @@ export interface CorrectionRegistryBinding {
   listCorrectedRuns?(input: CorrectedRunListInput): Promise<CorrectedRunPage>;
 }
 
-// ---------- judge classes ----------
+// ---------- corrector groups ----------
 
 /**
- * Where a class applies: the whole tenant, one project, or one agent in a
- * project. A correction may name a class whose scope covers its run.
+ * Where a group applies: the whole tenant, one project, or one agent in a
+ * project. A correction may name a group whose scope covers its run.
  */
-export type JudgeClassScope =
+export type CorrectorGroupScope =
   | { readonly kind: 'tenant' }
   | { readonly kind: 'project'; readonly projectId: ProjectId }
   | { readonly kind: 'agent'; readonly projectId: ProjectId; readonly agentId: string };
 
-export const JUDGE_CLASS_SCOPE_KINDS = ['tenant', 'project', 'agent'] as const;
-export type JudgeClassScopeKind = (typeof JUDGE_CLASS_SCOPE_KINDS)[number];
+export const CORRECTOR_GROUP_SCOPE_KINDS = ['tenant', 'project', 'agent'] as const;
+export type CorrectorGroupScopeKind = (typeof CORRECTOR_GROUP_SCOPE_KINDS)[number];
 
 /**
- * Who may assert a judge class (T200): every part that's set must hold.
- * Absent: anyone who may correct the run may assert the class, as before.
- * A class with one is *restricted*; a correction recorded while it is
- * carries `restricted`, and a comparison weighted `restricted-only`
+ * Who may assert a corrector group (T200): every part that's set must hold.
+ * Absent: anyone who may correct the run may assert the group, as before.
+ * A group with one is *restricted*; a correction recorded while it is
+ * carries `expert`, and a comparison weighted `experts-only`
  * counts only those.
  */
-export interface JudgeClassAssertableBy {
+export interface CorrectorGroupAssertableBy {
   /** The caller's reviewer role is at least this (its token's, or the roster's). */
   readonly minReviewerRole?: ReviewerRole;
   /** Users, service tokens, or both. */
@@ -115,18 +115,18 @@ export interface JudgeClassAssertableBy {
   readonly principalIds?: readonly string[];
 }
 
-/** Who asserts a correction, as `JudgeClassAssertableBy` checks it. */
-export interface JudgeClassAsserter {
+/** Who asserts a correction, as `CorrectorGroupAssertableBy` checks it. */
+export interface CorrectorGroupAsserter {
   readonly kind: 'user' | 'service';
   readonly id: string;
   /** The caller's reviewer role; absent for a caller who isn't a reviewer. */
   readonly reviewerRole?: ReviewerRole;
 }
 
-/** Why `asserter` may not assert a class with `assertableBy`, or `undefined` when they may. */
+/** Why `asserter` may not assert a group with `assertableBy`, or `undefined` when they may. */
 export function whyNotAssertable(
-  assertableBy: JudgeClassAssertableBy,
-  asserter: JudgeClassAsserter,
+  assertableBy: CorrectorGroupAssertableBy,
+  asserter: CorrectorGroupAsserter,
 ): string | undefined {
   if (
     assertableBy.principalKinds !== undefined &&
@@ -147,67 +147,67 @@ export function whyNotAssertable(
   return undefined;
 }
 
-export interface JudgeClass {
+export interface CorrectorGroup {
   readonly id: string;
   readonly tenantId: TenantId;
-  readonly scope: JudgeClassScope;
-  /** The deployment's own word for the class: "expert", "user", "arbitrator"… */
+  readonly scope: CorrectorGroupScope;
+  /** The deployment's own word for the group: "expert", "user", "arbitrator"… */
   readonly name: string;
-  /** How much a correction of this class counts (≥ 0); an unclassified correction counts 1. */
+  /** How much a correction of this group counts (≥ 0); an unclassified correction counts 1. */
   readonly weight: number;
   readonly description?: string;
   /** Who may assert it; absent: anyone who may correct the run (T200). */
-  readonly assertableBy?: JudgeClassAssertableBy;
+  readonly assertableBy?: CorrectorGroupAssertableBy;
   readonly createdAt: string;
   readonly updatedAt: string;
-  /** Set when the class was retired. */
+  /** Set when the group was retired. */
   readonly unregisteredAt?: string;
 }
 
-export interface JudgeClassCreateInput {
+export interface CorrectorGroupCreateInput {
   readonly tenantId: TenantId;
-  readonly scope: JudgeClassScope;
+  readonly scope: CorrectorGroupScope;
   readonly name: string;
   readonly weight: number;
   readonly description?: string;
-  readonly assertableBy?: JudgeClassAssertableBy;
+  readonly assertableBy?: CorrectorGroupAssertableBy;
 }
 
-export type JudgeClassCreateOutcome =
-  | { readonly kind: 'created'; readonly judgeClass: JudgeClass }
+export type CorrectorGroupCreateOutcome =
+  | { readonly kind: 'created'; readonly correctorGroup: CorrectorGroup }
   | { readonly kind: 'name-taken' };
 
-export interface JudgeClassListInput {
+export interface CorrectorGroupListInput {
   readonly tenantId: TenantId;
-  readonly scope?: JudgeClassScope;
+  readonly scope?: CorrectorGroupScope;
   readonly cursor?: Cursor;
   readonly limit: number;
 }
 
-export interface JudgeClassPage {
-  readonly data: readonly JudgeClass[];
+export interface CorrectorGroupPage {
+  readonly data: readonly CorrectorGroup[];
   readonly hasMore: boolean;
   readonly nextCursor?: Cursor;
 }
 
-export interface JudgeClassGetInput {
+export interface CorrectorGroupGetInput {
   readonly tenantId: TenantId;
-  readonly judgeClassId: string;
+  readonly correctorGroupId: string;
   readonly includeUnregistered?: boolean;
 }
 
-export interface JudgeClassUpdateInput {
+export interface CorrectorGroupUpdateInput {
   readonly tenantId: TenantId;
-  readonly judgeClassId: string;
+  readonly correctorGroupId: string;
   readonly weight?: number;
   readonly description?: string;
   /** Who may assert it; `null` lifts the restriction. Absent: unchanged. */
-  readonly assertableBy?: JudgeClassAssertableBy | null;
+  readonly assertableBy?: CorrectorGroupAssertableBy | null;
 }
 
-/** Whether a class's scope covers a run in `projectId` whose subject is `subject`. */
-export function judgeClassApplies(
-  scope: JudgeClassScope,
+/** Whether a group's scope covers a run in `projectId` whose subject is `subject`. */
+export function correctorGroupApplies(
+  scope: CorrectorGroupScope,
   run: { readonly projectId: ProjectId; readonly subject: CorrectedSubject },
 ): boolean {
   switch (scope.kind) {
@@ -352,14 +352,14 @@ export interface Correction {
   /** Present while it's `fixed`. */
   readonly fixedIn?: CorrectionFixedIn;
   readonly statusNote?: CorrectionStatusNote;
-  /** The judge's class; absent for an unclassified correction (weight 1). */
-  readonly judgeClassId?: string;
+  /** The corrector's group; absent for an unclassified correction (weight 1). */
+  readonly correctorGroupId?: string;
   /**
-   * Set when the class was restricted (`assertableBy`) when the correction
+   * Set when the group was restricted (`assertableBy`) when the correction
    * was recorded, so whoever recorded it was checked against it. A restriction added
    * or lifted later doesn't change it (T200).
    */
-  readonly restricted?: true;
+  readonly expert?: true;
   readonly madeBy: CorrectionMadeBy;
   /** The app's opaque id for its end user who corrected it, when an app corrected it on their behalf. */
   readonly participantId?: string;
@@ -518,9 +518,9 @@ export interface CorrectionRecordInput {
   readonly shouldSay?: string;
   readonly why?: string;
   readonly items?: readonly CorrectedAnswerItem[];
-  readonly judgeClassId?: string;
-  /** The class was restricted, and whoever recorded it met it (see `Correction.restricted`). */
-  readonly restricted?: true;
+  readonly correctorGroupId?: string;
+  /** The group was restricted, and whoever recorded it met it (see `Correction.expert`). */
+  readonly expert?: true;
   readonly madeBy: CorrectionMadeBy;
   readonly participantId?: string;
   /** Where it's sorted at save, by the route's rule: the status, and `sortedTo` when sorted. */
@@ -542,7 +542,7 @@ export interface CorrectionListInput {
   readonly statuses?: readonly CorrectionStatus[];
   /** Any of these, with `none` for unsorted. */
   readonly sortedTo?: readonly (CorrectionSortedTo | 'none')[];
-  /** Only experts' corrections (a restricted class's), or only end users' (`participantId`, no restricted class). Absent: all. */
+  /** Only experts' corrections (under a restricted group), or only end users' (`participantId`, no restricted group). Absent: all. */
   readonly from?: 'experts' | 'end-users';
   /** Made at or after this time (ISO 8601). */
   readonly since?: string;
@@ -550,7 +550,7 @@ export interface CorrectionListInput {
   readonly until?: string;
   /** Only this author's (kind and id). */
   readonly madeBy?: CorrectionMadeBy;
-  readonly judgeClassId?: string;
+  readonly correctorGroupId?: string;
   readonly participantId?: string;
   readonly cursor?: Cursor;
   readonly limit: number;

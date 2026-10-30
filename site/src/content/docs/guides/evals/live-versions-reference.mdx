@@ -195,16 +195,16 @@ version live:
 | `metrics` | each named figure at least `minCandidate`, and lower than the live version's by at most `maxDrop`. The figures are `weightedYesShare`, `judgedCoverage`, or `weightedPrecisionAtK` with its `k` |
 | `replay` | at most this many diverged cases, errors, refused tool calls and stopped cases: `maxDiverged`, `maxErrors`, `maxRefusedWrites`, `maxStopped`. `maxRefusedWrites` counts refused reads too, despite its name. Those left out are 0. A version with other settings runs read-only tools live, which [counts as diverged](../compare-an-agent-version/#what-a-replay-does), so `maxDiverged: 0` refuses it |
 | `approvals` | then a reviewer with this role approves it, `senior` if left out. It's someone other than whoever asked, unless `separateApprover: false` lets the one who asked approve it |
-| `onlyRestrictedClasses: true` | a run on the test cases that [counted only experts' corrections](../compare-an-agent-version/#count-only-experts-corrections) |
+| `onlyExpertGroups: true` | a run on the test cases that [counted only experts' corrections](../compare-an-agent-version/#count-only-experts-corrections) |
 
 - **A request must name its run on the test cases** when the policy has
-  `comparison`, `evidence`, `metrics`, `replay` or `onlyRestrictedClasses`.
+  `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`.
   The run must be of the version you make live, with the same pins, and its
   recorded runs must be from the version live for the scope now.
-- **With `onlyRestrictedClasses`,** a run on the test cases that counted
+- **With `onlyExpertGroups`,** a run on the test cases that counted
   everyone's corrections is refused with
-  `` The policy counts only experts' corrections; the test run counted everyone's. Re-run it with `classWeights: 'restricted-only'`. ``.
-  So only restricted judge classes can release a version.
+  `` The policy counts only experts' corrections; the test run counted everyone's. Re-run it with `groupWeights: 'experts-only'`. ``.
+  So only expert groups can release a version.
 - **To change a release gate policy,** publish a new version of it.
   `kindgi gate-policies unregister acme.order-desk-release <version>` goes
   back to the one before.
@@ -289,7 +289,7 @@ Pin that scope in place, and make the version live again.
   decides."
 - **Make a version live** has **Run on the test cases (optional)**, a
   finished run of the version on the test cases. One that counted only
-  restricted classes says "restricted classes only". It runs the release gate
+  expert groups says "expert groups only". It runs the release gate
   policy's check before anything is recorded: "The release gate policy passes
   (release gate policy acme.order-desk-release 1.0.0) Then a senior reviewer
   approves it, someone other than you, and it goes live.", with each check.

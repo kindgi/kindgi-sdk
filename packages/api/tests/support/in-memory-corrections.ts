@@ -9,7 +9,7 @@ import {
   type Correction,
   type CorrectionRegistryBinding,
   type CorrectionWithCopies,
-  type JudgeClass,
+  type CorrectorGroup,
   isReplayCopy,
   segmentsStartWith,
 } from '../../src/index.js';
@@ -19,13 +19,13 @@ import {
  * run, and a change that applies only from the status and sorting it expects.
  */
 export function inMemoryCorrections(): CorrectionRegistryBinding {
-  const classes: JudgeClass[] = [];
+  const groups: CorrectorGroup[] = [];
   const corrections: Correction[] = [];
   const copies = new Map<string, CorrectedRunCopy>();
   const copyProjects = new Map<string, ProjectId>();
   let seq = 0;
   const now = () => new Date(Date.UTC(2026, 9, 1, 0, 0, seq++)).toISOString();
-  const sameScope = (a: JudgeClass['scope'], b: JudgeClass['scope']) =>
+  const sameScope = (a: CorrectorGroup['scope'], b: CorrectorGroup['scope']) =>
     JSON.stringify(a) === JSON.stringify(b);
   const page = <T>(rows: readonly T[], limit: number) => ({
     data: rows.slice(0, limit),
@@ -33,8 +33,8 @@ export function inMemoryCorrections(): CorrectionRegistryBinding {
   });
 
   return {
-    async createClass(input) {
-      const taken = classes.some(
+    async createGroup(input) {
+      const taken = groups.some(
         (k) =>
           k.unregisteredAt === undefined &&
           k.name === input.name &&
@@ -42,8 +42,8 @@ export function inMemoryCorrections(): CorrectionRegistryBinding {
       );
       if (taken) return { kind: 'name-taken' };
       const at = now();
-      const judgeClass: JudgeClass = {
-        id: `jc-${classes.length + 1}`,
+      const correctorGroup: CorrectorGroup = {
+        id: `jc-${groups.length + 1}`,
         tenantId: input.tenantId,
         scope: input.scope,
         name: input.name,
@@ -53,11 +53,11 @@ export function inMemoryCorrections(): CorrectionRegistryBinding {
         createdAt: at,
         updatedAt: at,
       };
-      classes.push(judgeClass);
-      return { kind: 'created', judgeClass };
+      groups.push(correctorGroup);
+      return { kind: 'created', correctorGroup };
     },
-    async listClasses(input) {
-      const rows = classes
+    async listGroups(input) {
+      const rows = groups
         .filter((k) => k.unregisteredAt === undefined)
         .filter((k) => input.scope === undefined || sameScope(k.scope, input.scope))
         .reverse();
@@ -70,37 +70,37 @@ export function inMemoryCorrections(): CorrectionRegistryBinding {
         ...(next < rows.length && { nextCursor: String(next) as Cursor }),
       };
     },
-    async getClass(input) {
-      const k = classes.find((c) => c.id === input.judgeClassId) ?? null;
+    async getGroup(input) {
+      const k = groups.find((c) => c.id === input.correctorGroupId) ?? null;
       if (k === null) return null;
       return k.unregisteredAt !== undefined && input.includeUnregistered !== true ? null : k;
     },
-    async updateClass(input) {
-      const i = classes.findIndex(
-        (c) => c.id === input.judgeClassId && c.unregisteredAt === undefined,
+    async updateGroup(input) {
+      const i = groups.findIndex(
+        (c) => c.id === input.correctorGroupId && c.unregisteredAt === undefined,
       );
-      const current = classes[i];
+      const current = groups[i];
       if (current === undefined) return null;
       const { assertableBy: _was, ...rest } = current;
       const assertableBy =
         input.assertableBy === undefined ? current.assertableBy : (input.assertableBy ?? undefined);
-      const next: JudgeClass = {
+      const next: CorrectorGroup = {
         ...rest,
         ...(input.weight !== undefined && { weight: input.weight }),
         ...(input.description !== undefined && { description: input.description }),
         ...(assertableBy !== undefined && { assertableBy }),
         updatedAt: now(),
       };
-      classes[i] = next;
+      groups[i] = next;
       return next;
     },
-    async unregisterClass(input) {
-      const i = classes.findIndex(
-        (c) => c.id === input.judgeClassId && c.unregisteredAt === undefined,
+    async unregisterGroup(input) {
+      const i = groups.findIndex(
+        (c) => c.id === input.correctorGroupId && c.unregisteredAt === undefined,
       );
-      const current = classes[i];
+      const current = groups[i];
       if (current === undefined) return { unregistered: false };
-      classes[i] = { ...current, unregisteredAt: now() };
+      groups[i] = { ...current, unregisteredAt: now() };
       return { unregistered: true };
     },
 
@@ -155,8 +155,8 @@ export function inMemoryCorrections(): CorrectionRegistryBinding {
           (j) =>
             input.from === undefined ||
             (input.from === 'experts'
-              ? j.restricted === true
-              : j.participantId !== undefined && j.restricted !== true),
+              ? j.expert === true
+              : j.participantId !== undefined && j.expert !== true),
         )
         .filter(
           (j) =>
@@ -177,7 +177,10 @@ export function inMemoryCorrections(): CorrectionRegistryBinding {
             input.flowId === undefined ||
             (j.subject.kind === 'flow' && j.subject.id === input.flowId),
         )
-        .filter((j) => input.judgeClassId === undefined || j.judgeClassId === input.judgeClassId)
+        .filter(
+          (j) =>
+            input.correctorGroupId === undefined || j.correctorGroupId === input.correctorGroupId,
+        )
         .filter((j) => input.participantId === undefined || j.participantId === input.participantId)
         .filter(
           (j) =>

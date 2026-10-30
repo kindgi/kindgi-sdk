@@ -40,7 +40,7 @@ describe('corrections.create', () => {
         answer: 'wrong',
         why: 'Wrong company.',
         items: [{ key: 'c1', pointer: '/matches/0', rank: 0, verdict: 'wrong' }],
-        judgeClassId: 'jc-1',
+        correctorGroupId: 'jc-1',
         participantId: 'end-user-1',
       },
       { idempotencyKey: 'idem-j' },
@@ -59,7 +59,7 @@ describe('corrections.create', () => {
       answer: 'wrong',
       why: 'Wrong company.',
       items: [{ key: 'c1', pointer: '/matches/0', rank: 0, verdict: 'wrong' }],
-      judgeClassId: 'jc-1',
+      correctorGroupId: 'jc-1',
       participantId: 'end-user-1',
     });
   });
@@ -94,7 +94,7 @@ describe('corrections.list', () => {
       from: 'experts',
       since: '2026-10-01T00:00:00.000Z',
       until: '2026-10-02T00:00:00.000Z',
-      judgeClassId: 'jc-1',
+      correctorGroupId: 'jc-1',
       participantId: 'end-user-1',
       scope: { kind: 'project', projectId: 'proj-1' },
     });
@@ -114,7 +114,7 @@ describe('corrections.list', () => {
       from: 'experts',
       since: '2026-10-01T00:00:00.000Z',
       until: '2026-10-02T00:00:00.000Z',
-      judgeClassId: 'jc-1',
+      correctorGroupId: 'jc-1',
       participantId: 'end-user-1',
       scopeKind: 'project',
       scopeId: 'proj-1',

@@ -3,7 +3,7 @@
 
 import type { Cursor, LiveScope, ProjectId, TenantId, Timestamp } from '@kindgi/types';
 
-import type { EvalClassWeights } from './eval-run-binding.js';
+import type { EvalGroupWeights } from './eval-run-binding.js';
 import type { PromotionActor } from './live-version-binding.js';
 import type { ProposalObjective } from './supervisor-binding.js';
 
@@ -84,9 +84,9 @@ export interface StartImprovementPassInput {
   readonly objective: ProposalObjective;
   /**
    * Which corrections its comparisons count: everyone (`as-recorded`) or trusted
-   * only (`restricted-only`).
+   * only (`experts-only`).
    */
-  readonly classWeights: EvalClassWeights;
+  readonly groupWeights: EvalGroupWeights;
   /** For a prompt pass: what drafts the templates. */
   readonly model?: ImprovementModel;
   /** For a prompt pass: how many templates it drafts. */
@@ -133,9 +133,9 @@ export interface ImprovementPassEstimateBasis {
 /**
  * When an `improve` schedule's fire starts a pass: enough "no" corrections on
  * the agent's runs in the scope since its last pass, across enough runs, from
- * enough correctors. Everyone's "no" counts until a restricted judge class is
+ * enough correctors. Everyone's "no" counts until an expert group is
  * named (in the tenant, the project, or on the agent), then only trusted ones
- * do; with no judge-class binding wired, trusted only. One corrector can't start
+ * do; with no corrector-group binding wired, trusted only. One corrector can't start
  * a pass alone.
  */
 export interface ImproveThreshold {
@@ -151,9 +151,9 @@ export interface ImproveScheduleInput {
   /**
    * Which corrections each pass's comparisons count. Omitted: each fire
    * resolves the project default — everyone (`as-recorded`) until the
-   * project names a restricted judge class, then `restricted-only`.
+   * project names an expert group, then `experts-only`.
    */
-  readonly classWeights?: EvalClassWeights;
+  readonly groupWeights?: EvalGroupWeights;
   readonly model?: ImprovementModel;
   readonly candidates?: number;
   /** Each pass's budget; never more than what's left of the month's cap. */
@@ -206,7 +206,7 @@ export interface ImprovementPass {
   readonly suiteId: string;
   readonly tiers: readonly ImprovementTier[];
   readonly objective: ProposalObjective;
-  readonly classWeights: EvalClassWeights;
+  readonly groupWeights: EvalGroupWeights;
   readonly model?: ImprovementModel;
   readonly candidates?: number;
   readonly budget: ImprovementBudget;

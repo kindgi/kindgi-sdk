@@ -1993,7 +1993,7 @@ export type RetentionDomain =
   | 'artifact'
   | 'policy'
   | 'correction'
-  | 'judge_class'
+  | 'corrector_group'
   | 'provider'
   | 'memory'
   | 'conversation'
@@ -3064,7 +3064,7 @@ export interface ClientOptions {
 
 // ---------------------------------------------------------------------------
 // Corrections: whether a run's decisions and answer were right, and what was
-// right instead, optionally recorded under a weighted judge class.
+// right instead, optionally recorded under a weighted corrector group.
 // ---------------------------------------------------------------------------
 
 /** Whether a run's decisions, its answer, or an item of it, were right. */
@@ -3118,19 +3118,19 @@ export interface CorrectionStatusNote {
 }
 
 /**
- * Where a judge class applies: the whole tenant, one project, or one
- * agent in a project. Matches `@kindgi/api/openapi.json#JudgeClassScope`.
+ * Where a corrector group applies: the whole tenant, one project, or one
+ * agent in a project. Matches `@kindgi/api/openapi.json#CorrectorGroupScope`.
  */
-export type JudgeClassScope =
+export type CorrectorGroupScope =
   | { readonly kind: 'tenant' }
   | { readonly kind: 'project'; readonly projectId: string }
   | { readonly kind: 'agent'; readonly projectId: string; readonly agentId: string };
 
 /**
- * Who may assert a judge class. Each field narrows it; a caller must meet
- * all that are set. Matches `@kindgi/api/openapi.json#JudgeClassAssertableBy`.
+ * Who may assert a corrector group. Each field narrows it; a caller must meet
+ * all that are set. Matches `@kindgi/api/openapi.json#CorrectorGroupAssertableBy`.
  */
-export interface JudgeClassAssertableBy {
+export interface CorrectorGroupAssertableBy {
   /** The lowest reviewer role that may assert it: `standard`, `senior` or `admin`. */
   readonly minReviewerRole?: 'standard' | 'senior' | 'admin';
   /** People (`user`), service tokens (`service`), or both. */
@@ -3140,48 +3140,48 @@ export interface JudgeClassAssertableBy {
 }
 
 /**
- * Who may assert a judge class, as the caller sees it. `principalIds` comes
- * only to an admin on the class's scope; `principalCount` to every reader.
- * Matches `@kindgi/api/openapi.json#JudgeClassAssertableByView`.
+ * Who may assert a corrector group, as the caller sees it. `principalIds` comes
+ * only to an admin on the group's scope; `principalCount` to every reader.
+ * Matches `@kindgi/api/openapi.json#CorrectorGroupAssertableByView`.
  */
-export interface JudgeClassAssertableByView extends JudgeClassAssertableBy {
-  /** How many principals the class is restricted to; absent when it names none. */
+export interface CorrectorGroupAssertableByView extends CorrectorGroupAssertableBy {
+  /** How many principals the group is restricted to; absent when it names none. */
   readonly principalCount?: number;
 }
 
-/** Matches `@kindgi/api/openapi.json#JudgeClass`. */
-export interface JudgeClass {
+/** Matches `@kindgi/api/openapi.json#CorrectorGroup`. */
+export interface CorrectorGroup {
   readonly id: string;
   readonly tenantId: string;
-  readonly scope: JudgeClassScope;
-  /** The deployment's own word for the class: "expert", "user", "arbitrator". */
+  readonly scope: CorrectorGroupScope;
+  /** The deployment's own word for the group: "expert", "user", "arbitrator". */
   readonly name: string;
-  /** How much a correction of this class counts, relative to the others (≥ 0). */
+  /** How much a correction of this group counts, relative to the others (≥ 0). */
   readonly weight: number;
   readonly description?: string;
   /** Who may assert it; absent: anyone who may correct the run. */
-  readonly assertableBy?: JudgeClassAssertableByView;
+  readonly assertableBy?: CorrectorGroupAssertableByView;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt: import('@kindgi/types').Timestamp;
-  /** Set when the class was retired. */
+  /** Set when the group was retired. */
   readonly unregisteredAt?: import('@kindgi/types').Timestamp;
 }
 
-/** Input for `POST /v1/judge-classes` per `#CreateJudgeClassBody`. */
-export interface CreateJudgeClassInput {
-  readonly scope: JudgeClassScope;
+/** Input for `POST /v1/corrector-groups` per `#CreateCorrectorGroupBody`. */
+export interface CreateCorrectorGroupInput {
+  readonly scope: CorrectorGroupScope;
   readonly name: string;
   readonly weight: number;
   readonly description?: string;
-  readonly assertableBy?: JudgeClassAssertableBy;
+  readonly assertableBy?: CorrectorGroupAssertableBy;
 }
 
-/** Input for `PATCH /v1/judge-classes/{judgeClassId}` per `#UpdateJudgeClassBody`. */
-export interface UpdateJudgeClassInput {
+/** Input for `PATCH /v1/corrector-groups/{correctorGroupId}` per `#UpdateCorrectorGroupBody`. */
+export interface UpdateCorrectorGroupInput {
   readonly weight?: number;
   readonly description?: string;
   /** A new restriction; `null` lifts it. */
-  readonly assertableBy?: JudgeClassAssertableBy | null;
+  readonly assertableBy?: CorrectorGroupAssertableBy | null;
 }
 
 /** What a corrected run ran: an agent at a version, or a flow at a version. */
@@ -3269,12 +3269,12 @@ export interface Correction {
   readonly fixedIn?: CorrectionFixedIn;
   readonly statusNote?: CorrectionStatusNote;
   /** Absent when the correction is unclassified (it counts with weight 1). */
-  readonly judgeClassId?: string;
+  readonly correctorGroupId?: string;
   /**
-   * `true` when the class was restricted (`assertableBy`) when the correction
+   * `true` when the group was restricted (`assertableBy`) when the correction
    * was recorded, so whoever made it was checked against it.
    */
-  readonly restricted?: true;
+  readonly expert?: true;
   readonly madeBy: CorrectionMadeBy;
   /** An app's opaque id for its end user who made the correction, when the app made it on their behalf. */
   readonly participantId?: string;
@@ -3338,7 +3338,7 @@ export interface CreateCorrectionInput {
   readonly why?: string;
   readonly items?: readonly CorrectedAnswerItem[];
   /** Optional. When given it must exist and apply to the run. */
-  readonly judgeClassId?: string;
+  readonly correctorGroupId?: string;
   /** Your opaque id for the end user who made the correction, when you make it on their behalf. */
   readonly participantId?: string;
 }

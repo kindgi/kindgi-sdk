@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { JudgeClassAssertableBy, JudgeClassScope } from '@kindgi/client';
+import type { CorrectorGroupAssertableBy, CorrectorGroupScope } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
@@ -18,7 +18,7 @@ const SCOPE_FLAGS = {
 } as const;
 
 /** The scope the flags name; `undefined` when none is given and `required` is false. */
-function scopeFromFlags(ctx: CommandContext, required: boolean): JudgeClassScope | undefined {
+function scopeFromFlags(ctx: CommandContext, required: boolean): CorrectorGroupScope | undefined {
   const tenant = ctx.options.tenant === true;
   const projectId = stringFlag(ctx, 'project');
   const agentId = stringFlag(ctx, 'agent');
@@ -44,26 +44,26 @@ type PrincipalKind = (typeof PRINCIPAL_KINDS)[number];
 const ASSERTABLE_FLAGS = {
   'min-reviewer-role': {
     type: 'string',
-    description: `Only reviewers of this role or above may assert the class: ${REVIEWER_ROLES.join(', ')}.`,
+    description: `Only reviewers of this role or above may assert the group: ${REVIEWER_ROLES.join(', ')}.`,
   },
   'principal-kind': {
     type: 'string',
     multiple: true,
     description:
-      'Only people (`user`) or service tokens (`service`) may assert the class. Repeat the flag for both.',
+      'Only people (`user`) or service tokens (`service`) may assert the group. Repeat the flag for both.',
   },
   'principal-id': {
     type: 'string',
     multiple: true,
-    description: 'Only this user or token id may assert the class. Repeat the flag for several.',
+    description: 'Only this user or token id may assert the group. Repeat the flag for several.',
   },
 } as const;
 
 const ASSERTABLE_USAGE =
   '[--min-reviewer-role=standard|senior|admin] [--principal-kind=user|service ...] [--principal-id=<id> ...]';
 
-/** Who may assert a class, from the flags; `undefined` when none is given. */
-function assertableByFromFlags(ctx: CommandContext): JudgeClassAssertableBy | undefined {
+/** Who may assert a group, from the flags; `undefined` when none is given. */
+function assertableByFromFlags(ctx: CommandContext): CorrectorGroupAssertableBy | undefined {
   const role = stringFlag(ctx, 'min-reviewer-role');
   if (role !== undefined && !(REVIEWER_ROLES as readonly string[]).includes(role)) {
     throw new UsageError(
@@ -99,23 +99,23 @@ function weightFlag(ctx: CommandContext): number | undefined {
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: 'List judge classes, newest first.',
+  description: 'List corrector groups, newest first.',
   usage:
-    'kindgi judge-classes list [--tenant | --project=<id> | --agent=<id> --project=<id>] [--limit=<n>] [--cursor=<c>]',
+    'kindgi corrector-groups list [--tenant | --project=<id> | --agent=<id> --project=<id>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     ...SCOPE_FLAGS,
-    limit: { type: 'string', description: 'The most classes to return (default 25, at most 100).' },
+    limit: { type: 'string', description: 'The most groups to return (default 25, at most 100).' },
     cursor: {
       type: 'string',
       description: "Resume after this cursor, from the previous page's `nextCursor`.",
     },
   },
   run: (ctx) =>
-    runSdk(ctx, 'judge-classes list', async () => {
+    runSdk(ctx, 'corrector-groups list', async () => {
       const scope = scopeFromFlags(ctx, false);
       const limit = integerFlag(ctx, 'limit');
       const cursor = stringFlag(ctx, 'cursor');
-      return await ctx.client().judgeClasses.list({
+      return await ctx.client().correctorGroups.list({
         ...(scope !== undefined && { scope }),
         ...(limit !== undefined && { limit }),
         ...(cursor !== undefined && { cursor: cursor as never }),
@@ -127,28 +127,28 @@ const add: LeafCommand = {
   kind: 'leaf',
   name: 'add',
   description:
-    'Add a judge class: a named kind of judge with a weight, for the tenant, a project, or an agent. The restriction flags limit who may assert it; without them, anyone who may correct the run may.',
-  usage: `kindgi judge-classes add --name=<name> --weight=<w> (--tenant | --project=<id> | --agent=<id> --project=<id>) [--description=<text>] ${ASSERTABLE_USAGE}`,
+    'Add a corrector group: a named kind of person who corrects with a weight, for the tenant, a project, or an agent. The restriction flags limit who may assert it; without them, anyone who may correct the run may.',
+  usage: `kindgi corrector-groups add --name=<name> --weight=<w> (--tenant | --project=<id> | --agent=<id> --project=<id>) [--description=<text>] ${ASSERTABLE_USAGE}`,
   optionSpec: {
-    name: { type: 'string', description: 'The class name, e.g. `expert`. Required.' },
+    name: { type: 'string', description: 'The group name, e.g. `expert`. Required.' },
     weight: {
       type: 'string',
-      description: 'How much a correction of this class counts, a number of 0 or more. Required.',
+      description: 'How much a correction of this group counts, a number of 0 or more. Required.',
     },
     ...SCOPE_FLAGS,
-    description: { type: 'string', description: 'What the class is for.' },
+    description: { type: 'string', description: 'What the group is for.' },
     ...ASSERTABLE_FLAGS,
   },
   run: (ctx) =>
-    runSdk(ctx, 'judge-classes add', async () => {
+    runSdk(ctx, 'corrector-groups add', async () => {
       const name = stringFlag(ctx, 'name');
       if (name === undefined) throw new UsageError('--name=<name> is required');
       const weight = weightFlag(ctx);
       if (weight === undefined) throw new UsageError('--weight=<w> is required');
-      const scope = scopeFromFlags(ctx, true) as JudgeClassScope;
+      const scope = scopeFromFlags(ctx, true) as CorrectorGroupScope;
       const description = stringFlag(ctx, 'description');
       const assertableBy = assertableByFromFlags(ctx);
-      return await ctx.client().judgeClasses.create({
+      return await ctx.client().correctorGroups.create({
         scope,
         name,
         weight,
@@ -162,20 +162,20 @@ const set: LeafCommand = {
   kind: 'leaf',
   name: 'set',
   description:
-    "Change a judge class's weight, description, or who may assert it. The restriction flags replace the class's whole restriction; `--unrestricted` lifts it.",
-  usage: `kindgi judge-classes set <judge-class-id> [--weight=<w>] [--description=<text>] [${ASSERTABLE_USAGE} | --unrestricted]`,
+    "Change a corrector group's weight, description, or who may assert it. The restriction flags replace the group's whole restriction; `--unrestricted` lifts it.",
+  usage: `kindgi corrector-groups set <corrector-group-id> [--weight=<w>] [--description=<text>] [${ASSERTABLE_USAGE} | --unrestricted]`,
   optionSpec: {
     weight: { type: 'string', description: 'The new weight, a number of 0 or more.' },
     description: { type: 'string', description: 'The new description.' },
     ...ASSERTABLE_FLAGS,
     unrestricted: {
       type: 'boolean',
-      description: 'Lift the restriction: anyone who may correct the run may assert the class.',
+      description: 'Lift the restriction: anyone who may correct the run may assert the group.',
     },
   },
   run: (ctx) =>
-    runSdk(ctx, 'judge-classes set', async () => {
-      const id = requiredPositional(ctx, 0, 'judge-class-id');
+    runSdk(ctx, 'corrector-groups set', async () => {
+      const id = requiredPositional(ctx, 0, 'corrector-group-id');
       const weight = weightFlag(ctx);
       const description = stringFlag(ctx, 'description');
       const restricted = assertableByFromFlags(ctx);
@@ -187,7 +187,7 @@ const set: LeafCommand = {
       if (weight === undefined && description === undefined && assertableBy === undefined) {
         throw new UsageError('Give --weight, --description, a restriction flag, or --unrestricted');
       }
-      return await ctx.client().judgeClasses.update(id, {
+      return await ctx.client().correctorGroups.update(id, {
         ...(weight !== undefined && { weight }),
         ...(description !== undefined && { description }),
         ...(assertableBy !== undefined && { assertableBy }),
@@ -198,19 +198,20 @@ const set: LeafCommand = {
 const remove: LeafCommand = {
   kind: 'leaf',
   name: 'remove',
-  description: 'Retire a judge class: no new corrections may name it; existing ones keep it.',
-  usage: 'kindgi judge-classes remove <judge-class-id>',
+  description: 'Retire a corrector group: no new corrections may name it; existing ones keep it.',
+  usage: 'kindgi corrector-groups remove <corrector-group-id>',
   run: (ctx) =>
-    runSdk(ctx, 'judge-classes remove', async () => {
-      const id = requiredPositional(ctx, 0, 'judge-class-id');
-      await ctx.client().judgeClasses.unregister(id);
-      return { judgeClassId: id, removed: true };
+    runSdk(ctx, 'corrector-groups remove', async () => {
+      const id = requiredPositional(ctx, 0, 'corrector-group-id');
+      await ctx.client().correctorGroups.unregister(id);
+      return { correctorGroupId: id, removed: true };
     }),
 };
 
-export const judgeClassesCommand: Command = {
+export const correctorGroupsCommand: Command = {
   kind: 'group',
-  name: 'judge-classes',
-  description: 'Manage judge classes, the weighted kinds of judge (list / add / set / remove).',
+  name: 'corrector-groups',
+  description:
+    'Manage corrector groups, the weighted kinds of person who corrects (list / add / set / remove).',
   subcommands: [list, add, set, remove],
 };

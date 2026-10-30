@@ -38,13 +38,13 @@ import type {
   EvalCaseStoreBinding,
   EvalRunBinding,
   EvalSuiteRegistryBinding,
+  ExpertQueueBinding,
   FlowRegistryBinding,
   GuardrailRegistryBinding,
   HitlBinding,
   IdentityDirectoryBinding,
   IdentityProviderBinding,
   ImageRegistryBinding,
-  JudgingQueueBinding,
   MCPEndpointRegistryBinding,
   MemoryBinding,
   MemoryErasureBinding,
@@ -366,11 +366,11 @@ const noopEvalCaseStore: EvalCaseStoreBinding = {
 };
 
 const noopCorrectionRegistry: CorrectionRegistryBinding = {
-  createClass: async () => ({ kind: 'name-taken' }),
-  listClasses: async () => ({ data: [], hasMore: false }),
-  getClass: async () => null,
-  updateClass: async () => null,
-  unregisterClass: async () => ({ unregistered: false }),
+  createGroup: async () => ({ kind: 'name-taken' }),
+  listGroups: async () => ({ data: [], hasMore: false }),
+  getGroup: async () => null,
+  updateGroup: async () => null,
+  unregisterGroup: async () => ({ unregistered: false }),
   record: async () => {
     throw new Error('noop');
   },
@@ -382,18 +382,18 @@ const noopCorrectionRegistry: CorrectionRegistryBinding = {
   correctionsByIds: async () => [],
 };
 
-const noopJudgingQueue: JudgingQueueBinding = {
+const noopExpertQueue: ExpertQueueBinding = {
   createRule: async () => ({
     kind: 'err',
-    error: { code: 'judging-rule-not-found', message: 'noop' },
+    error: { code: 'queue-rule-not-found', message: 'noop' },
   }),
   updateRule: async () => ({
     kind: 'err',
-    error: { code: 'judging-rule-not-found', message: 'noop' },
+    error: { code: 'queue-rule-not-found', message: 'noop' },
   }),
   queueRecent: async () => ({
     kind: 'err',
-    error: { code: 'judging-rule-not-found', message: 'noop' },
+    error: { code: 'queue-rule-not-found', message: 'noop' },
   }),
   unregisterRule: async () => ({ unregistered: false }),
   getRule: async () => null,
@@ -402,12 +402,15 @@ const noopJudgingQueue: JudgingQueueBinding = {
   listQueue: async () => ({ data: [], hasMore: false, total: 0 }),
   dismiss: async () => ({
     kind: 'err',
-    error: { code: 'judging-item-not-found', message: 'noop' },
+    error: { code: 'expert-queue-item-not-found', message: 'noop' },
   }),
-  reopen: async () => ({ kind: 'err', error: { code: 'judging-item-not-found', message: 'noop' } }),
+  reopen: async () => ({
+    kind: 'err',
+    error: { code: 'expert-queue-item-not-found', message: 'noop' },
+  }),
   results: async () => ({
     kind: 'err',
-    error: { code: 'judging-rule-not-found', message: 'noop' },
+    error: { code: 'queue-rule-not-found', message: 'noop' },
   }),
   preview: async () => ({ considered: 0, matched: 0, failed: 0 }),
 };
@@ -701,7 +704,7 @@ export function fullAppInput(): CreateAppInput {
     blockRegistry: noopBlockRegistry,
     evalRunBinding: noopEvalRunBinding,
     correctionRegistry: noopCorrectionRegistry,
-    judgingQueue: noopJudgingQueue,
+    expertQueue: noopExpertQueue,
     evalCaseStore: noopEvalCaseStore,
     sessionStore: noopSessionStore,
     session: { cookie: { allowedOrigins: ['https://console.example.com'] }, tokenSignIn: true },

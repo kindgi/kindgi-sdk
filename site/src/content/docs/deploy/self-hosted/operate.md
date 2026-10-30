@@ -188,7 +188,7 @@ What to check before you upgrade, and what's different after:
   - Adding a team member who isn't a person of the tenant, was removed, or
     is named by a malformed id is refused with `404 identity-user-not-found`,
     as adding a project member is. Before, an unknown id was added.
-  - A judging rule's results count the runs their corrections come from
+  - A queue rule's results count the runs their corrections come from
     (`runsWithCorrections`).
 - **Models:**
   - Claude Haiku 4.5 asks for up to 16,000 output tokens by default in the
@@ -360,10 +360,10 @@ The database migrates when 0.1.6 starts.
   tool, an MCP endpoint or a webhook endpoint could name a model provider's
   key as its secret, and so hand the key to a pack's code or to another
   server. 0.1.6 refuses that (run `check provider-keys` first, below).
-- **Who may correct as a class was shown to every reader.** Anyone who
-  could read a judge class, a project viewer included, got the ids of the
+- **Who may correct as a group was shown to every reader.** Anyone who
+  could read a corrector group, a project viewer included, got the ids of the
   people and service accounts allowed to correct as it. 0.1.6 sends those ids only to
-  an admin of the class's scope; everyone else gets their number
+  an admin of the group's scope; everyone else gets their number
   (`assertableBy.principalCount`).
 - **A malformed MCP credential could appear in the runtime's log.** An MCP
   endpoint's credential, or a value in its `config.headers`, with a line
@@ -570,7 +570,7 @@ What to check before you upgrade, and what's different after:
   (in memory by default) to share the sign-in lookup limit across instances;
   a store that fails doesn't block sign-in.
 - **New in 0.1.6:**
-  - **Corrections:** a project's judging rules queue the runs that need a
+  - **Corrections:** a project's queue rules queue the runs that need a
     person's verdict, results per agent version, and runs on the test cases
     and suggested changes rescored after people correct the new answers
     ([Correct a run's output](../../../guides/evals/judge-a-runs-output/),
@@ -597,7 +597,7 @@ What to check before you upgrade, and what's different after:
     [guardrails](../../../guides/guardrails/write-a-guardrail/#in-the-console) and
     [members](../../authorization/#in-the-console-members), each with a page of
     its own, plus
-    [Quality](../../../guides/evals/judging-reference/#in-the-console) for
+    [Quality](../../../guides/evals/expert-queue-reference/#in-the-console) for
     correcting runs, and [costs](../../../guides/observability/cost-per-run/#cost-in-the-console)
     for the project and each run. The tenant gets
     [Teams](../../authorization/#in-the-console-teams),
@@ -937,7 +937,7 @@ and what's different after:
 - **The clients read every `409` as a conflict** (TypeScript
   `code: 'conflict'`, Python `ConflictError`). Twenty codes used to come back
   as a server error, among them `run-lease-lost`, `agent-version-mismatch` and
-  `secret-write-conflict`. Code that matched one of them by its class should
+  `secret-write-conflict`. Code that matched one of them by its group should
   match its code alone: `err.serverCode` (Python `e.server_code`).
 - **TypeScript's `runs.follow` and `runs.followProgress`** follow a run to its
   end, as in Python, which gains `runs.follow` too. `runs.stream` and

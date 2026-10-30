@@ -97,7 +97,7 @@ export function parseGatePolicySpec(
   const issues: SpecIssue[] = [];
   unknownKeys(
     raw,
-    ['comparison', 'evidence', 'metrics', 'replay', 'approvals', 'onlyRestrictedClasses'],
+    ['comparison', 'evidence', 'metrics', 'replay', 'approvals', 'onlyExpertGroups'],
     '/spec',
     issues,
   );
@@ -222,8 +222,8 @@ export function parseGatePolicySpec(
     };
   }
 
-  const onlyRestricted = bool(raw, 'onlyRestrictedClasses', '/spec', issues);
-  if (onlyRestricted !== undefined) spec.onlyRestrictedClasses = onlyRestricted;
+  const onlyRestricted = bool(raw, 'onlyExpertGroups', '/spec', issues);
+  if (onlyRestricted !== undefined) spec.onlyExpertGroups = onlyRestricted;
 
   return issues.length > 0 ? { kind: 'err', issues } : { kind: 'ok', spec };
 }

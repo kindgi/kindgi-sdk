@@ -29,11 +29,11 @@ import type {
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 import {
-  type JudgingQueueClient,
-  type JudgingRulesClient,
-  makeJudgingQueueClient,
-  makeJudgingRulesClient,
-} from './judging.js';
+  type ExpertQueueClient,
+  type QueueRulesClient,
+  makeExpertQueueClient,
+  makeQueueRulesClient,
+} from './expert-queue.js';
 import { type SitesClient, makeSitesClient } from './sites.js';
 
 export type ProjectShape = ProjectWire;
@@ -191,9 +191,9 @@ export interface ProjectsClient {
   ): Promise<ProjectProductionShape>;
   readonly memberships: ProjectMembershipsClient;
   /** Which of the project's runs to queue for a person's correction. */
-  readonly judgingRules: JudgingRulesClient;
+  readonly queueRules: QueueRulesClient;
   /** The runs queued for a person's correction. */
-  readonly judgingQueue: JudgingQueueClient;
+  readonly expertQueue: ExpertQueueClient;
   readonly teamGrants: ProjectTeamGrantsClient;
   /** The sites that sign their own people in to the project (tenant admins). */
   readonly sites: SitesClient;
@@ -287,8 +287,8 @@ export function makeProjectsClient(transport: Transport): ProjectsClient {
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },
-    judgingRules: makeJudgingRulesClient(transport),
-    judgingQueue: makeJudgingQueueClient(transport),
+    queueRules: makeQueueRulesClient(transport),
+    expertQueue: makeExpertQueueClient(transport),
     sites: makeSitesClient(transport),
     memberships: {
       async list(projectId, filter) {

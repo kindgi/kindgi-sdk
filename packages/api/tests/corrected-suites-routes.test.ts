@@ -89,20 +89,20 @@ const says = (by: string, fields: Says, expert = false) => ({
 });
 
 async function seed(corrections: CorrectionRegistryBinding): Promise<string> {
-  const created = await corrections.createClass({
+  const created = await corrections.createGroup({
     tenantId,
     scope: { kind: 'tenant' },
     name: 'expert',
     weight: 3,
   });
-  if (created.kind !== 'created') throw new Error('class not created');
-  const expertId = created.judgeClass.id;
+  if (created.kind !== 'created') throw new Error('group not created');
+  const expertId = created.correctorGroup.id;
   const record = (
     runId: string,
     run: { version?: string; input: unknown; output: unknown; context?: object },
     by: string,
     fields: Says,
-    extra: { judgeClassId?: string } = {},
+    extra: { correctorGroupId?: string } = {},
   ) =>
     corrections.record({
       tenantId,
@@ -133,7 +133,7 @@ async function seed(corrections: CorrectionRegistryBinding): Promise<string> {
     one,
     'u1',
     { answer: 'right', why: 'right', items: [{ key: 'c1', rank: 0, verdict: 'right' }] },
-    { judgeClassId: expertId },
+    { correctorGroupId: expertId },
   );
   await record('run-1', one, 'u2', {
     answer: 'wrong',
@@ -150,7 +150,7 @@ async function seed(corrections: CorrectionRegistryBinding): Promise<string> {
     { version: '3.0.0', input: { query: 'gamma' }, output: { matches: [] } },
     'u3',
     { items: [{ key: 'y', verdict: 'wrong' }] },
-    { judgeClassId: expertId },
+    { correctorGroupId: expertId },
   );
   return expertId;
 }
@@ -245,7 +245,7 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
         no: 1,
         yesWeight: 3,
         totalWeight: 4,
-        restricted: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
+        expert: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
         // Every correction summed into the item, newest first: u2's no, then the expert's yes.
         correctionIds: ['j-3', 'j-2'],
         reasons: [],
@@ -257,7 +257,7 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
         no: 1,
         yesWeight: 0,
         totalWeight: 1,
-        restricted: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
+        expert: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
         // A correction without a reason is named too.
         correctionIds: ['j-1'],
         reasons: [],
@@ -270,12 +270,12 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
         no: 1,
         yesWeight: 3,
         totalWeight: 4,
-        restricted: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
+        expert: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
         correctionIds: ['j-3', 'j-2'],
-        // Newest first; a classified correction's reason names its class.
+        // Newest first; a grouped correction's reason names its group.
         reasons: [
           { verdict: 'no', reason: 'wrong city' },
-          { verdict: 'yes', reason: 'right', judgeClassId: h.expertId },
+          { verdict: 'yes', reason: 'right', correctorGroupId: h.expertId },
         ],
       },
     ]);
@@ -287,7 +287,7 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
         no: 0,
         yesWeight: 1,
         totalWeight: 1,
-        restricted: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
+        expert: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
         correctionIds: ['j-4'],
         reasons: [],
       },
@@ -295,7 +295,7 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
     expect(cases.body.data[1].context).toBeUndefined();
   });
 
-  test("a kept correction's expected decisions ride onto its case, with its judge class and restriction", async () => {
+  test("a kept correction's expected decisions ride onto its case, with its corrector group and restriction", async () => {
     const corrected = await h.corrections.record({
       tenantId,
       projectId: project,
@@ -310,8 +310,8 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
         },
         true,
       ),
-      judgeClassId: h.expertId,
-      restricted: true,
+      correctorGroupId: h.expertId,
+      expert: true,
     });
     expect((await h.call('POST', BUILD, base)).status).toBe(201);
 
@@ -320,8 +320,8 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
     expect(built.corrections).toEqual([
       {
         correctionId: corrected.id,
-        judgeClassId: h.expertId,
-        restricted: true,
+        correctorGroupId: h.expertId,
+        expert: true,
         calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
         notCalled: ['acme.email'],
       },
@@ -342,7 +342,7 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
           decisions: 'wrong',
           shouldCall: [{ tool: 'acme.refund', args: { amount } }],
         }),
-        judgeClassId: h.expertId,
+        correctorGroupId: h.expertId,
       });
     await recordAt(25);
     await recordAt(40);
@@ -372,7 +372,7 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
         shouldCall: [{ tool: 'acme.refund', args: { amount: 25 } }],
         items: [{ key: 'decision', pointer: '/decision', verdict: 'right' }],
       }),
-      judgeClassId: h.expertId,
+      correctorGroupId: h.expertId,
     });
     expect((await h.call('POST', BUILD, base)).status).toBe(201);
 
@@ -451,8 +451,8 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
     expect(cases.body.data.map((c: { caseId: string }) => c.caseId)).toEqual(['run-1']);
   });
 
-  test("judgeClassIds counts only those classes' corrections", async () => {
-    const res = await h.call('POST', BUILD, { ...base, judgeClassIds: [h.expertId] });
+  test("correctorGroupIds counts only those groups' corrections", async () => {
+    const res = await h.call('POST', BUILD, { ...base, correctorGroupIds: [h.expertId] });
     expect(res.body.caseCount).toBe(2);
     const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
     const byId = new Map(cases.body.data.map((c: { caseId: string }) => [c.caseId, c]));
@@ -462,8 +462,8 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
       no: 0,
       yesWeight: 3,
       totalWeight: 3,
-      restricted: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
-      // Only the kept class's correction is named: u2's unclassified no isn't counted.
+      expert: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
+      // Only the kept group's correction is named: u2's unclassified no isn't counted.
       correctionIds: ['j-2'],
     };
     expect((byId.get('run-1') as { items: unknown[] }).items).toEqual([
@@ -472,20 +472,20 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
         key: 'answer',
         pointer: '/appended/0/content',
         ...kept,
-        reasons: [{ verdict: 'yes', reason: 'right', judgeClassId: h.expertId }],
+        reasons: [{ verdict: 'yes', reason: 'right', correctorGroupId: h.expertId }],
       },
     ]);
     expect(byId.has('run-2')).toBe(false);
   });
 
-  test('a correction recorded under a restricted class is counted apart too; restricting the class later changes nothing', async () => {
-    // The expert's corrections on run-1 were recorded before the class was restricted.
-    await h.corrections.updateClass({
+  test('a correction recorded under an expert group is counted apart too; restricting the group later changes nothing', async () => {
+    // The expert's corrections on run-1 were recorded before the group was restricted.
+    await h.corrections.updateGroup({
       tenantId,
-      judgeClassId: h.expertId,
+      correctorGroupId: h.expertId,
       assertableBy: { minReviewerRole: 'senior' },
     });
-    // One recorded under the restriction: the route marks it `restricted` once whoever recorded it meets it.
+    // One recorded under the restriction: the route marks it `expert` once whoever recorded it meets it.
     await h.corrections.record({
       tenantId,
       projectId: project,
@@ -500,8 +500,8 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
         },
         true,
       ),
-      judgeClassId: h.expertId,
-      restricted: true,
+      correctorGroupId: h.expertId,
+      expert: true,
     });
     await h.call('POST', BUILD, base);
     const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
@@ -511,34 +511,34 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
       key: 'c1',
       yesWeight: 3,
       totalWeight: 4,
-      restricted: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
+      expert: { yesWeight: 0, totalWeight: 0, correctionIds: [] },
       correctionIds: ['j-3', 'j-2'],
     });
     // c2: the senior expert's yes (3) is restricted; the unclassified no (1) isn't.
-    // Both are named on the item, only the restricted one under `restricted`.
+    // Both are named on the item, only the restricted one under `expert`.
     expect(run1.items[1]).toMatchObject({
       key: 'c2',
       yesWeight: 3,
       totalWeight: 4,
-      restricted: { yesWeight: 3, totalWeight: 3, correctionIds: ['j-6'] },
+      expert: { yesWeight: 3, totalWeight: 3, correctionIds: ['j-6'] },
       correctionIds: ['j-6', 'j-1'],
     });
     // On the answer, its reason says it was restricted; the expert's earlier one doesn't.
     expect(run1.items[2]).toMatchObject({
       key: 'answer',
-      restricted: { yesWeight: 3, totalWeight: 3, correctionIds: ['j-6'] },
+      expert: { yesWeight: 3, totalWeight: 3, correctionIds: ['j-6'] },
       correctionIds: ['j-6', 'j-3', 'j-2'],
     });
     expect(run1.items[2].reasons).toContainEqual({
       verdict: 'yes',
       reason: 'the right firm',
-      judgeClassId: h.expertId,
-      restricted: true,
+      correctorGroupId: h.expertId,
+      expert: true,
     });
     expect(run1.items[2].reasons).toContainEqual({
       verdict: 'yes',
       reason: 'right',
-      judgeClassId: h.expertId,
+      correctorGroupId: h.expertId,
     });
   });
 

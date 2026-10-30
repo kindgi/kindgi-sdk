@@ -77,7 +77,7 @@ describe('kindgi eval-suites', () => {
     ]);
   });
 
-  test('from-corrections sends the filters, repeated classes included', async () => {
+  test('from-corrections sends the filters, repeated groups included', async () => {
     const { calls, rec } = recorder();
     const out = await run(
       [
@@ -90,8 +90,8 @@ describe('kindgi eval-suites', () => {
         '--agent-version=2.0.0',
         '--since=2026-10-01',
         '--until=2026-10-05T02:00:00+02:00',
-        '--class=jc-1',
-        '--class=jc-2',
+        '--group=jc-1',
+        '--group=jc-2',
         '--min-corrections=2',
         '--segment=company:acme',
         '--segment=role:cfo',
@@ -112,7 +112,7 @@ describe('kindgi eval-suites', () => {
           since: '2026-10-01T00:00:00.000Z',
           until: '2026-10-05T00:00:00.000Z',
           description: 'First set',
-          judgeClassIds: ['jc-1', 'jc-2'],
+          correctorGroupIds: ['jc-1', 'jc-2'],
           minCorrections: 2,
           segments: [
             { key: 'company', value: 'acme' },

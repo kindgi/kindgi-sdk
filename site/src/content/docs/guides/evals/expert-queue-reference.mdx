@@ -1,12 +1,12 @@
 ---
 title: Corrections reference
-description: Corrections and what they say, their status and sorting, judge classes and restrictions, judging rules, the answers waiting for a correction, rule results, and the console's Quality section.
+description: Corrections and what they say, their status and sorting, corrector groups and restrictions, queue rules, the answers waiting for a correction, rule results, and the console's Quality section.
 sidebar:
   order: 1.5
 ---
 
 This page lists everything about correcting runs: what a correction holds,
-where it goes until it's fixed, how judge classes weigh it, what judging rules match, what the answers
+where it goes until it's fixed, how corrector groups weigh it, what queue rules match, what the answers
 waiting for a correction hold, how a rule's results count, and what the
 console's Quality section shows. To correct a run, follow
 [Correct a run's output](../judge-a-runs-output/).
@@ -37,8 +37,8 @@ And around them:
   records corrections for its own users adds `participantId`, its own opaque
   id for the user.
 - **Each person has one correction per run.** Correcting the run again, as
-  the same caller and participant, under any class or none, replaces the
-  earlier correction. The earlier one stays in the history, and its class
+  the same caller and participant, under any group or none, replaces the
+  earlier correction. The earlier one stays in the history, and its group
   only says how much the correction counts.
 - **A correction keeps copies** of the run's input and output, so it outlives
   the run's own retention.
@@ -107,7 +107,7 @@ Each correction moves on until it's fixed. Its `status` says where it is, and
 When a correction is saved, it's sorted by these rules, in order:
 
 1. **A user's correction** (one with `participantId`, not made as an expert
-   under a restricted class) is `open` and unsorted, until a person sorts it.
+   under a restricted group) is `open` and unsorted, until a person sorts it.
 2. **Wrong decisions** go to the owner: `with-owner`, sorted to `owner`. A
    change to what the agent does may loosen a limit, and only the owner
    decides that. This holds when the answer is wrong too.
@@ -152,7 +152,7 @@ becomes `removed`, and it can't come back.
 ### List and count
 
 `GET /v1/corrections`, or `corrections.list` in the clients, lists newest
-first. Besides the run, agent, agent version, flow, class and participant, it
+first. Besides the run, agent, agent version, flow, group and participant, it
 filters by:
 
 - **`status`**, repeated or comma-separated. `not-fixed` means `open`,
@@ -160,7 +160,7 @@ filters by:
   `status` asks for `removed`.
 - **`sortedTo`**: `improve`, `developer`, `owner`, or `none` for the
   unsorted ones, repeated or comma-separated too.
-- **`from`**: `experts` (made under a restricted class), `end-users` (with
+- **`from`**: `experts` (made under a restricted group), `end-users` (with
   `participantId`, and not made as experts), or `all`.
 - **`madeBy=me`**: your own corrections.
 - **`since`** and **`until`**: made at or after `since`, and before
@@ -172,12 +172,12 @@ optional `agentId`, counts a project's corrections by status: `open`,
 it's `corrections.counts({ projectId, agentId })`. Counting takes read
 access to the project, and a list holds only the projects you can read.
 
-## Judge classes
+## Corrector groups
 
-- **A class weighs its corrections:** `--weight=3` counts each three times.
-  Without a class, a correction counts once.
-- **A class applies** to the tenant, a project, or an agent in a project.
-- **A restriction says who may correct as the class:**
+- **A group weighs its corrections:** `--weight=3` counts each three times.
+  Without a group, a correction counts once.
+- **A group applies** to the tenant, a project, or an agent in a project.
+- **A restriction says who may correct as the group:**
   - `--min-reviewer-role`: `standard`, `senior` or `admin`, a reviewer of
     that role or above;
   - `--principal-kind`: `user` for people, or `service` for service tokens;
@@ -185,24 +185,24 @@ access to the project, and a list holds only the projects you can read.
 
   The last two repeat. A caller must meet each one you set. In the API and
   the clients, it's `assertableBy`.
-- **Whom a class names is for the admins of its scope.** Anyone else who
-  reads the class gets how many it names, as `principalCount`, not their
+- **Whom a group names is for the admins of its scope.** Anyone else who
+  reads the group gets how many it names, as `principalCount`, not their
   ids.
-- **A correction made under a restriction carries `"restricted": true`,**
+- **A correction made under a restriction carries `"expert": true`,**
   in `kindgi corrections list` too. It's decided when the correction is made:
-  corrections recorded before the restriction don't count as restricted.
+  corrections recorded before the restriction don't count as expert.
 - **Lifting a restriction,** with
-  `kindgi judge-classes set <judge-class-id> --unrestricted`, keeps the
-  earlier corrections restricted. New ones aren't.
-- **`kindgi judge-classes set` with restriction flags replaces the whole
+  `kindgi corrector-groups set <corrector-group-id> --unrestricted`, keeps the
+  earlier corrections marked expert. New ones aren't.
+- **`kindgi corrector-groups set` with restriction flags replaces the whole
   restriction.**
 
-Test cases count restricted corrections apart, and a run on the test cases
+Test cases count expert-group corrections apart, and a run on the test cases
 can count only them, as
 [Try a version on the test cases](../compare-an-agent-version/#count-only-experts-corrections)
 shows.
 
-## Judging rules
+## Queue rules
 
 What a rule matches, in `when`, each field narrowing it:
 
@@ -224,18 +224,18 @@ How much of it to queue:
   raising it later keeps the runs it took before, and adds more.
 - **`maxOpen`**: the rule adds nothing while this many of its runs wait, and
   starts again as they're corrected.
-- **`judgeClassId`**: whose correction the rule wants, a
-  [judge class](#judge-classes). Without it, any correction does.
+- **`correctorGroupId`**: whose correction the rule wants, a
+  [corrector group](#corrector-groups). Without it, any correction does.
 
 A rule applies to runs that end after it's made. To try one before you make
-it, `judgingRules.preview` takes the same fields. It answers how many of the
+it, `queueRules.preview` takes the same fields. It answers how many of the
 project's last 100 runs it would have queued, with its `sample` but not its
 `maxOpen`. `last` sets how many runs, up to 500. Give an existing rule's
 `ruleId` to sample as it does. Without one, the count is an estimate. A run
 that doesn't record how its version was chosen never matches `live`.
 
 To catch a rule up on runs that ended before it was made,
-`judgingRules.queueRecent` queues its matches among the project's recent
+`queueRules.queueRecent` queues its matches among the project's recent
 runs: the `last` of them (up to 1,000, newest first), those completed at or
 after `since`, or, with both, the `last` of those completed at or after
 `since`. It samples as the rule samples, so it picks the runs the rule
@@ -255,30 +255,30 @@ A rule only lists runs: it never runs a model or spends anything.
 
 ### Change a rule
 
-- **`judgingRules.update`** writes a new version of the rule. Runs queued
+- **`queueRules.update`** writes a new version of the rule. Runs queued
   from then on count toward the new version. `null` removes `maxOpen` or
-  `judgeClassId`.
-- **`judgingRules.versions`** lists every version, newest first, with who
+  `correctorGroupId`.
+- **`queueRules.versions`** lists every version, newest first, with who
   wrote each and when.
-- **`judgingRules.unregister`** stops a rule. It queues nothing more. Its
+- **`queueRules.unregister`** stops a rule. It queues nothing more. Its
   versions and the runs it queued stay.
 
 ## Answers waiting for a correction
 
-`judgingQueue.list` gives the queue of answers waiting for a correction,
+`expertQueue.list` gives the queue of answers waiting for a correction,
 oldest first.
 
 - **Each item** is a run: its agent or flow and version, how it ended, the
-  rules that queued it, each at the version that did, the judge classes they
-  want, and the corrections on it so far, by class. It carries none of the
+  rules that queued it, each at the version that did, the corrector groups they
+  want, and the corrections on it so far, by group. It carries none of the
   run's content: open the run to correct it.
-- **`forMe: true`** keeps the items you can close: those that want a class
+- **`forMe: true`** keeps the items you can close: those that want a group
   you may correct as, or any correction.
-- **An item closes** as `judged` once each rule that queued it has the
-  correction it wants: one of its class, or any correction for a rule
-  without a class.
-- **`judgingQueue.dismiss`,** with an optional reason, takes a run not worth
-  correcting out of the queue. `judgingQueue.reopen` puts it back. Each item's
+- **An item closes** as `corrected` once each rule that queued it has the
+  correction it wants: one of its group, or any correction for a rule
+  without a group.
+- **`expertQueue.dismiss`,** with an optional reason, takes a run not worth
+  correcting out of the queue. `expertQueue.reopen` puts it back. Each item's
   `can` says whether you may.
 - **Counts:** `limit: 0` answers only the `total`. With `state`,
   `addedAfter` and `closedAfter`, it counts, for example, how many are
@@ -293,18 +293,18 @@ write access, as correcting a run does.
 
 ## A rule's results
 
-`judgingRules.results` gives a group for each version of the rule and each
+`queueRules.results` gives a group for each version of the rule and each
 agent version:
 
-- **The runs it queued:** `added`, and of them `open`, `judged`,
+- **The runs it queued:** `added`, and of them `open`, `corrected`,
   `dismissed` and `erased`.
 - **The corrections on them,** with their weighted share marked right, and
-  the corrections by class.
+  the corrections by group.
 - **The share marked right is per correction:** one person's verdict on one
   item of a run's output.
 - **`runsWithCorrections`** counts the runs those corrections come from: the
   queued runs with at least one live correction, whatever their item's state
-  now. That's still open, closed as `judged`, or dismissed after someone
+  now. That's still open, closed as `corrected`, or dismissed after someone
   corrected it. `corrections` counts verdicts, so several people correcting one
   run make several corrections but one run here. To see how much a share
   rests on, count runs, not corrections.
@@ -330,21 +330,21 @@ dismissed. The fourth was never corrected. So `corrections` is 4,
       "agentVersion": "1.0.0",
       "added": 4,
       "open": 2,
-      "judged": 1,
+      "corrected": 1,
       "dismissed": 1,
       "erased": 0,
       "skippedByCap": 0,
       "corrections": 4,
       "runsWithCorrections": 3,
       "yesShare": 0.8333333333333334,
-      "byClass": [
+      "byGroup": [
         {
-          "judgeClassId": "2da17046-eb37-4157-b175-3381a926545a",
+          "correctorGroupId": "2da17046-eb37-4157-b175-3381a926545a",
           "corrections": 3,
           "yes": 2
         },
         {
-          "judgeClassId": "787b6f6f-30cf-4bac-bf27-ac5ef32cb6d3",
+          "correctorGroupId": "787b6f6f-30cf-4bac-bf27-ac5ef32cb6d3",
           "corrections": 1,
           "yes": 1
         }
@@ -357,10 +357,10 @@ dismissed. The fourth was never corrected. So `corrections` is 4,
 ## In the console
 
 A project's **Quality** section is the answers waiting for a correction and
-the judging rules in the console. Its header says what it holds: "Answers
-waiting for a correction, where each corrected one stands, and the judging
+the queue rules in the console. Its header says what it holds: "Answers
+waiting for a correction, where each corrected one stands, and the queue
 rules that pick them." The section has five tabs: **To correct**, **Rules**, **Trends**,
-**Judge classes** and **Suggested changes**. Their tables sort by a
+**Corrector groups** and **Suggested changes**. Their tables sort by a
 column's header, and **Columns** chooses which columns each shows. The tab,
 the filters and each table's view go in the page's address, such as
 `?tab=rules`, so a link opens the same view.
@@ -407,13 +407,13 @@ a new version of the rule. **History** lists what each version changed, who
 changed it and when. **Remove** stops a rule, and the runs it queued stay
 in the queue.
 
-![The New judging rule dialog, over the Rules tab.](../../../../assets/quality/quality-rule-editor.png)
+![The New queue rule dialog, over the Rules tab.](../../../../assets/quality/quality-rule-editor.png)
 
 ![Echo half: its versions, over the Rules tab: "Version 2 · a person (11111111…) · 24 Oct 2026, 9:03 PM EDT" changed "Cap: No new items while 5 are open → No cap" and "Wants: any correction → an expert correction"; Version 1, by the same person a minute earlier, "Created".](../../../../assets/quality/quality-rule-history.png)
 
 ### Trends
 
-![The Trends tab: per rule, by its latest version, the share of people's corrections of each agent version that marked its answer right, weighted by judge class. The Trend check rule's chart shows 1.1.0 at about 95% marked right and 1.0.0 at about 25%, from 12 corrections each, and "1.1.0 is marked right more often than 1.0.0."](../../../../assets/quality/quality-trends.png)
+![The Trends tab: per rule, by its latest version, the share of people's corrections of each agent version that marked its answer right, weighted by corrector group. The Trend check rule's chart shows 1.1.0 at about 95% marked right and 1.0.0 at about 25%, from 12 corrections each, and "1.1.0 is marked right more often than 1.0.0."](../../../../assets/quality/quality-trends.png)
 
 **Trends** shows, per rule and by its latest version, the share marked
 right among people's corrections of each agent version, over all time or the
@@ -426,7 +426,7 @@ last 90 or 30 days. These are [a rule's results](#a-rules-results):
   64–100%".
 - **A comparison only when the ranges are apart:** "1.1.0 is marked right
   more often than 1.0.0."
-- **The weights, in words:** "Weighted by judge class: An expert's
+- **The weights, in words:** "Weighted by corrector group: An expert's
   correction counts 3× an unclassified one; a bot's correction counts the
   same as an unclassified one."
 - **What the numbers leave out:** an earlier version of the rule is "shown
@@ -438,27 +438,27 @@ last 90 or 30 days. These are [a rule's results](#a-rules-results):
 
 ![A rule's trend after the rule changed, now at rule version 2: "Too few corrections to chart yet: a version shows from 10 corrections.", 1.2.0 with too few corrections to say (0 so far), the one matched run the cap kept out, and rule version 1 shown apart, never added in.](../../../../assets/quality/quality-trends-changed.png)
 
-### Judge classes
+### Corrector groups
 
-![The Judge classes tab: New class, the Columns menu, and two classes, both Restricted. The expert class "Counts 3× an unclassified one", applies to this project, may be given only by people and is wanted by the Echo half and Support sample rules; the bot class counts the same, only services, and no rule wants it. Below: "A share weights each correction by its class."](../../../../assets/quality/quality-classes.png)
+![The Corrector groups tab: New class, the Columns menu, and two classes, both Restricted. The expert class "Counts 3× an unclassified one", applies to this project, may be given only by people and is wanted by the Echo half and Support sample rules; the bot class counts the same, only services, and no rule wants it. Below: "A share weights each correction by its class."](../../../../assets/quality/quality-classes.png)
 
-Each [judge class](#judge-classes) that applies to the project's runs, in
+Each [corrector group](#corrector-groups) that applies to the project's runs, in
 words:
 
 - how much it counts, such as "Counts 3× an unclassified one";
 - where it applies, such as "This project";
 - who may give it, such as "Only people" or "Only services". Who may give a
-  restricted class is counted here, never listed;
+  expert group is counted here, never listed;
 - the rules that want it.
 
 Below the list, the tab says what makes an expert: "Corrections in a
-restricted class are the experts' corrections: "Count only experts" counts
+expert group are the experts' corrections: "Count only experts" counts
 only those."
 
-Project admins add, change and remove a project's classes, and tenant admins
-a tenant's. Removing a class names the rules that want it.
+Project admins add, change and remove a project's groups, and tenant admins
+a tenant's. Removing a group names the rules that want it.
 
-![The Remove expert? dialog, over the Judge classes tab: "No new correction can name it. Corrections that named it keep it, and still count with its weight in trends." and "2 rules want its correction (Echo half, Support sample): change them first, or their items wait for a class nobody can give."](../../../../assets/quality/quality-class-remove.png)
+![The Remove expert? dialog, over the Corrector groups tab: "No new correction can name it. Corrections that named it keep it, and still count with its weight in trends." and "2 rules want its correction (Echo half, Support sample): change them first, or their items wait for a class nobody can give."](../../../../assets/quality/quality-class-remove.png)
 
 ### Suggested changes
 

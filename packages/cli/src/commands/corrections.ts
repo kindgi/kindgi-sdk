@@ -13,7 +13,7 @@ import { UsageError } from '../errors.js';
 import { integerFlag, readJsonInput, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
-/** The string flags given, under their request field names (`{ class: 'judgeClassId' }`). */
+/** The string flags given, under their request field names (`{ group: 'correctorGroupId' }`). */
 function givenFlags<F extends string>(
   ctx: CommandContext,
   fields: Readonly<Record<string, F>>,
@@ -91,7 +91,7 @@ function foldPiece(
     ...(live?.shouldSay !== undefined && { shouldSay: live.shouldSay }),
     ...(live?.why !== undefined && { why: live.why }),
     ...(live?.items !== undefined && { items: live.items }),
-    ...(live?.judgeClassId !== undefined && { judgeClassId: live.judgeClassId }),
+    ...(live?.correctorGroupId !== undefined && { correctorGroupId: live.correctorGroupId }),
   };
   if (piece.kind === 'answer') return { ...base, answer: piece.verdict };
   if (piece.kind === 'decisions') {
@@ -116,7 +116,7 @@ const add: LeafCommand = {
   description:
     'Correct a finished run: say whether its decisions (`--correction`), its answer (`--item=answer`, or `output` for a flow) or an item of a ranked list was right (`--yes`) or wrong (`--no`). Each call adds to your correction of the run, replacing what you said before about the same piece.',
   usage:
-    'kindgi corrections add --run=<run-id> (--item=<key> [--pointer=<json-pointer>] [--rank=<n>] | --correction=<json-or-@file>) (--yes | --no) [--reason=<text>] [--class=<judge-class-id>] [--participant=<id>]',
+    'kindgi corrections add --run=<run-id> (--item=<key> [--pointer=<json-pointer>] [--rank=<n>] | --correction=<json-or-@file>) (--yes | --no) [--reason=<text>] [--group=<corrector-group-id>] [--participant=<id>]',
   optionSpec: {
     run: { type: 'string', description: 'The run that is corrected. Required.' },
     item: {
@@ -147,10 +147,10 @@ const add: LeafCommand = {
       description:
         'What the agent should have done, as JSON or `@<file>`: `{ "calls": [{ "tool": "<tool-id>", "args": { … } }], "notCalled": ["<tool-id>"] }`, with `--no`. `args` are the partial top-level fields to compare (those left out are not compared); `notCalled` lists tools that should not have been called at all. Graded on a replay.',
     },
-    class: {
+    group: {
       type: 'string',
       description:
-        'The judge class id to record the correction under. Without one, it keeps the class it has, or is unclassified.',
+        'The corrector group id to record the correction under. Without one, it keeps the group it has, or is unclassified.',
     },
     participant: {
       type: 'string',
@@ -177,11 +177,11 @@ const add: LeafCommand = {
       });
       const live = mine.items.find((j) => j.participantId === participantId);
       const reason = stringFlag(ctx, 'reason');
-      const judgeClassId = stringFlag(ctx, 'class');
+      const correctorGroupId = stringFlag(ctx, 'group');
       return await client.corrections.create({
         ...foldPiece(live, piece, runId),
         ...(reason !== undefined && { why: reason }),
-        ...(judgeClassId !== undefined && { judgeClassId }),
+        ...(correctorGroupId !== undefined && { correctorGroupId }),
         ...(participantId !== undefined && { participantId }),
       });
     }),
@@ -192,7 +192,7 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List corrections, newest first (replaced and removed ones are left out).',
   usage:
-    'kindgi corrections list [--run=<run-id>] [--agent=<id> [--agent-version=<v>]] [--flow=<id>] [--class=<judge-class-id>] [--participant=<id>] [--project=<id>] [--limit=<n>] [--cursor=<c>]',
+    'kindgi corrections list [--run=<run-id>] [--agent=<id> [--agent-version=<v>]] [--flow=<id>] [--group=<corrector-group-id>] [--participant=<id>] [--project=<id>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     run: { type: 'string', description: 'Only corrections of this run.' },
     agent: { type: 'string', description: 'Only corrections of runs of this agent.' },
@@ -201,7 +201,7 @@ const list: LeafCommand = {
       description: 'Only corrections of runs of this agent version. Needs `--agent`.',
     },
     flow: { type: 'string', description: 'Only corrections of runs of this flow.' },
-    class: { type: 'string', description: 'Only corrections under this judge class id.' },
+    group: { type: 'string', description: 'Only corrections under this corrector group id.' },
     participant: {
       type: 'string',
       description: "Only corrections made for this end user's opaque id.",
@@ -233,7 +233,7 @@ const list: LeafCommand = {
           agent: 'agentId',
           'agent-version': 'agentVersion',
           flow: 'flowId',
-          class: 'judgeClassId',
+          group: 'correctorGroupId',
           participant: 'participantId',
         }),
         ...(projectId !== undefined && { scope: { kind: 'project' as const, projectId } }),

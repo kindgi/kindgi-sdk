@@ -116,11 +116,11 @@
     },
     {
       "name": "corrections",
-      "description": "Corrections: yes or no, with an optional reason, about one item of a finished run's output, optionally recorded under a judge class (list, get, create, unregister). Each correction keeps copies of what was judged (the run's input and output, and the item) so they outlive the run's own retention. Who judged comes from the authenticated caller, never the body; an app judging for one of its users passes that user's opaque id as `participantId`. One live correction per run, item key, caller and participant: judging again supersedes the earlier one, which stays as history. Caller-plugged via `CorrectionRegistryBinding`."
+      "description": "Corrections: yes or no, with an optional reason, about one item of a finished run's output, optionally recorded under a corrector group (list, get, create, unregister). Each correction keeps copies of what was judged (the run's input and output, and the item) so they outlive the run's own retention. Who judged comes from the authenticated caller, never the body; an app correcting for one of its users passes that user's opaque id as `participantId`. One live correction per run, item key, caller and participant: correcting again supersedes the earlier one, which stays as history. Caller-plugged via `CorrectionRegistryBinding`."
     },
     {
-      "name": "judge-classes",
-      "description": "Judge classes (list, get, create, update, unregister): the deployment's named kinds of judge (\"expert\", \"user\", ...), each with a weight, scoped to the tenant, a project, or an agent in a project. A correction may name a class; an unclassified correction counts with weight 1. Caller-plugged via `CorrectionRegistryBinding`."
+      "name": "corrector-groups",
+      "description": "Corrector groups (list, get, create, update, unregister): the deployment's named kinds of person who corrects (\"expert\", \"user\", ...), each with a weight, scoped to the tenant, a project, or an agent in a project. A correction may name a class; an unclassified correction counts with weight 1. Caller-plugged via `CorrectionRegistryBinding`."
     },
     {
       "name": "mcp",
@@ -187,8 +187,8 @@
       "description": "Multi-tenant hierarchy — Project CRUD (list, create, get, patch, delete) + `/projects/default` shortcut + `ProjectMembership` sub-resource (list, add, updateRole, remove). Primary content scope: every content resource belongs to exactly one project. The Default project (`isDefault: true`) is auto-created per tenant at inception — exactly one per tenant, enforced at the storage layer."
     },
     {
-      "name": "judging",
-      "description": "A project's judging rules (which runs to queue for a person's correction when they end) and the queue they fill. Rules only list runs; nothing here starts a model."
+      "name": "expert-queue",
+      "description": "A project's queue rules (which runs to queue for a person's correction when they end) and the queue they fill. Rules only list runs; nothing here starts a model."
     },
     {
       "name": "tenant",
@@ -385,13 +385,13 @@
           "eval-run-not-rescorable": 409,
           "correction-not-found": 404,
           "correction-status-change-not-allowed": 409,
-          "judge-class-not-found": 404,
-          "judging-rule-not-found": 404,
-          "judging-item-not-found": 404,
-          "judging-item-not-open": 409,
-          "judge-class-name-taken": 409,
-          "judge-class-not-applicable": 400,
-          "judge-class-not-allowed": 403,
+          "corrector-group-not-found": 404,
+          "queue-rule-not-found": 404,
+          "expert-queue-item-not-found": 404,
+          "expert-queue-item-not-open": 409,
+          "corrector-group-name-taken": 409,
+          "corrector-group-not-applicable": 400,
+          "corrector-group-not-allowed": 403,
           "agent-version-not-found": 404,
           "promotion-not-found": 404,
           "nothing-to-roll-back": 409,
@@ -1658,7 +1658,7 @@
         "properties": {
           "name": {
             "type": "string",
-            "description": "Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.suite`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `classWeights.restrictedOnly`, and `approval.recheck`, which an approval adds to a promotion it supersedes, to say what changed since the check."
+            "description": "Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.suite`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a promotion it supersedes, to say what changed since the check."
           },
           "passed": {
             "type": "boolean"
@@ -1728,7 +1728,7 @@
       "GatePolicySpec": {
         "type": "object",
         "additionalProperties": false,
-        "description": "What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`evalRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyRestrictedClasses`. Unknown keys are refused.",
+        "description": "What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`evalRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.",
         "properties": {
           "comparison": {
             "type": "object",
@@ -1851,9 +1851,9 @@
               }
             }
           },
-          "onlyRestrictedClasses": {
+          "onlyExpertGroups": {
             "type": "boolean",
-            "description": "Only restricted judge classes count: the comparison must be weighted `restricted-only`, so a class anyone may assert can't move the gate."
+            "description": "Only expert groups count: the comparison must be weighted `experts-only`, so a group anyone may assert can't move the gate."
           }
         }
       },
@@ -5956,8 +5956,8 @@
           }
         }
       },
-      "JudgeClassScope": {
-        "description": "Where a judge class applies: the whole tenant, one project, or one agent in a project.",
+      "CorrectorGroupScope": {
+        "description": "Where a corrector group applies: the whole tenant, one project, or one agent in a project.",
         "oneOf": [
           {
             "type": "object",
@@ -6015,7 +6015,7 @@
           }
         ]
       },
-      "JudgeClass": {
+      "CorrectorGroup": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -6035,22 +6035,22 @@
             "type": "string"
           },
           "scope": {
-            "$ref": "#/components/schemas/JudgeClassScope"
+            "$ref": "#/components/schemas/CorrectorGroupScope"
           },
           "name": {
             "type": "string",
-            "description": "The deployment's own word for the class: \"expert\", \"user\", \"arbitrator\"."
+            "description": "The deployment's own word for the group: \"expert\", \"user\", \"arbitrator\"."
           },
           "weight": {
             "type": "number",
             "minimum": 0,
-            "description": "How much a correction of this class counts, relative to the others."
+            "description": "How much a correction of this group counts, relative to the others."
           },
           "description": {
             "type": "string"
           },
           "assertableBy": {
-            "$ref": "#/components/schemas/JudgeClassAssertableByView"
+            "$ref": "#/components/schemas/CorrectorGroupAssertableByView"
           },
           "createdAt": {
             "type": "string",
@@ -6063,11 +6063,11 @@
           "unregisteredAt": {
             "type": "string",
             "format": "date-time",
-            "description": "Set when the class was retired."
+            "description": "Set when the group was retired."
           }
         }
       },
-      "JudgeClassCollectionPage": {
+      "CorrectorGroupCollectionPage": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -6078,7 +6078,7 @@
           "data": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/JudgeClass"
+              "$ref": "#/components/schemas/CorrectorGroup"
             }
           },
           "nextCursor": {
@@ -6090,7 +6090,7 @@
           }
         }
       },
-      "CreateJudgeClassBody": {
+      "CreateCorrectorGroupBody": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -6100,7 +6100,7 @@
         ],
         "properties": {
           "scope": {
-            "$ref": "#/components/schemas/JudgeClassScope"
+            "$ref": "#/components/schemas/CorrectorGroupScope"
           },
           "name": {
             "type": "string",
@@ -6115,11 +6115,11 @@
             "type": "string"
           },
           "assertableBy": {
-            "$ref": "#/components/schemas/JudgeClassAssertableBy"
+            "$ref": "#/components/schemas/CorrectorGroupAssertableBy"
           }
         }
       },
-      "UpdateJudgeClassBody": {
+      "UpdateCorrectorGroupBody": {
         "type": "object",
         "additionalProperties": false,
         "minProperties": 1,
@@ -6134,25 +6134,25 @@
           "assertableBy": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/JudgeClassAssertableBy"
+                "$ref": "#/components/schemas/CorrectorGroupAssertableBy"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Who may assert the class; `null` lifts the restriction."
+            "description": "Who may assert the group; `null` lifts the restriction."
           }
         }
       },
-      "UnregisterJudgeClassResult": {
+      "UnregisterCorrectorGroupResult": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "judgeClassId",
+          "correctorGroupId",
           "unregistered"
         ],
         "properties": {
-          "judgeClassId": {
+          "correctorGroupId": {
             "type": "string"
           },
           "unregistered": {
@@ -6356,16 +6356,16 @@
               "$ref": "#/components/schemas/CorrectedAnswerItem"
             }
           },
-          "judgeClassId": {
+          "correctorGroupId": {
             "type": "string",
-            "description": "The judge class the correction is recorded under. Absent when unclassified (counts with weight 1)."
+            "description": "The corrector group the correction is recorded under. Absent when unclassified (counts with weight 1)."
           },
-          "restricted": {
+          "expert": {
             "type": "boolean",
             "enum": [
               true
             ],
-            "description": "Present (true) when the judge class was restricted (`assertableBy`) when the correction was recorded, so whoever recorded it was checked against it. A restriction added or lifted later doesn't change it."
+            "description": "Present (true) when the corrector group was restricted (`assertableBy`) when the correction was recorded, so whoever recorded it was checked against it. A restriction added or lifted later doesn't change it."
           },
           "madeBy": {
             "$ref": "#/components/schemas/CorrectionMadeBy"
@@ -6981,7 +6981,7 @@
               "$ref": "#/components/schemas/CorrectedAnswerItem"
             }
           },
-          "judgeClassId": {
+          "correctorGroupId": {
             "type": "string",
             "minLength": 1,
             "description": "Optional. When given it must exist and apply to the run."
@@ -7051,14 +7051,14 @@
             "type": "number",
             "description": "The weight behind all corrections of the item."
           },
-          "restricted": {
+          "expert": {
             "type": "object",
             "additionalProperties": false,
             "required": [
               "yesWeight",
               "totalWeight"
             ],
-            "description": "The same weights, counting only corrections recorded while their class was restricted (`Correction.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.",
+            "description": "The same weights, counting only corrections recorded while their group was restricted (`Correction.expert`), for a comparison weighted `experts-only`. Absent from a test set built before restrictions.",
             "properties": {
               "yesWeight": {
                 "type": "number"
@@ -7103,27 +7103,27 @@
                 "reason": {
                   "type": "string"
                 },
-                "judgeClassId": {
+                "correctorGroupId": {
                   "type": "string",
-                  "description": "The correction's class, when it had one."
+                  "description": "The correction's group, when it had one."
                 },
-                "restricted": {
+                "expert": {
                   "type": "boolean",
                   "enum": [
                     true
                   ],
-                  "description": "Set when the correction was recorded while its class was restricted (`Correction.restricted`)."
+                  "description": "Set when the correction was recorded while its group was restricted (`Correction.expert`)."
                 }
               }
             }
           }
         }
       },
-      "JudgeClassAssertableBy": {
+      "CorrectorGroupAssertableBy": {
         "type": "object",
         "additionalProperties": false,
         "minProperties": 1,
-        "description": "Who may assert the class: every part that is set must hold. A class with one is restricted: a correction recorded while it is carries `restricted`, and a comparison weighted `restricted-only` counts only those.",
+        "description": "Who may assert the group: every part that is set must hold. A group with one is expert: a correction recorded while it is carries `expert`, and a comparison weighted `experts-only` counts only those.",
         "properties": {
           "minReviewerRole": {
             "type": "string",
@@ -7158,11 +7158,11 @@
           }
         }
       },
-      "JudgeClassAssertableByView": {
+      "CorrectorGroupAssertableByView": {
         "type": "object",
         "additionalProperties": false,
         "minProperties": 1,
-        "description": "Who may assert the class, as the caller sees it: every part that is set must hold. `principalIds` is sent only to an admin on the class's scope; `principalCount` to everyone who reads it.",
+        "description": "Who may assert the group, as the caller sees it: every part that is set must hold. `principalIds` is sent only to an admin on the group's scope; `principalCount` to everyone who reads it.",
         "properties": {
           "minReviewerRole": {
             "type": "string",
@@ -7193,12 +7193,12 @@
               "type": "string",
               "minLength": 1
             },
-            "description": "Only these principals: user ids, or service token ids. Sent only to an admin on the class's scope."
+            "description": "Only these principals: user ids, or service token ids. Sent only to an admin on the group's scope."
           },
           "principalCount": {
             "type": "integer",
             "minimum": 1,
-            "description": "How many principals the class is restricted to (`principalIds`), for every reader. Absent when it names none."
+            "description": "How many principals the group is restricted to (`principalIds`), for every reader. Absent when it names none."
           }
         }
       },
@@ -7234,7 +7234,7 @@
           },
           "corrections": {
             "type": "array",
-            "description": "Experts' expected decisions carried onto this case from its corrections, each graded on the replay. Empty or absent when none. `restricted-only` keeps only the entries whose correction was restricted.",
+            "description": "Experts' expected decisions carried onto this case from its corrections, each graded on the replay. Empty or absent when none. `experts-only` keeps only the entries whose correction was restricted.",
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -7248,16 +7248,16 @@
                   "type": "string",
                   "description": "The correction they were recorded on."
                 },
-                "judgeClassId": {
+                "correctorGroupId": {
                   "type": "string",
-                  "description": "The correction's class, when it had one."
+                  "description": "The correction's group, when it had one."
                 },
-                "restricted": {
+                "expert": {
                   "type": "boolean",
                   "enum": [
                     true
                   ],
-                  "description": "Set when the correction was recorded while its class was restricted (`Correction.restricted`)."
+                  "description": "Set when the correction was recorded while its group was restricted (`Correction.expert`)."
                 },
                 "calls": {
                   "type": "array",
@@ -7350,13 +7350,13 @@
             "format": "date-time",
             "description": "Runs first corrected before this time."
           },
-          "judgeClassIds": {
+          "correctorGroupIds": {
             "type": "array",
             "items": {
               "type": "string",
               "minLength": 1
             },
-            "description": "Count only corrections recorded under these judge classes."
+            "description": "Count only corrections recorded under these corrector groups."
           },
           "minCorrections": {
             "type": "integer",
@@ -11799,13 +11799,13 @@
               "weightedPrecisionAtK"
             ]
           },
-          "classWeights": {
+          "groupWeights": {
             "type": "string",
             "enum": [
               "as-recorded",
-              "restricted-only"
+              "experts-only"
             ],
-            "description": "Which corrections its comparisons count. Absent from older servers: `restricted-only`."
+            "description": "Which corrections its comparisons count. Absent from older servers: `experts-only`."
           },
           "model": {
             "type": "object",
@@ -12055,13 +12055,13 @@
             "default": 3,
             "description": "For a prompt pass: how many templates it drafts."
           },
-          "classWeights": {
+          "groupWeights": {
             "type": "string",
             "enum": [
               "as-recorded",
-              "restricted-only"
+              "experts-only"
             ],
-            "description": "Which corrections the pass learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the pass reads its corrections from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has a restricted judge class, then only corrections recorded under one (`restricted-only`)."
+            "description": "Which corrections the pass learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the pass reads its corrections from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has an expert group, then only corrections recorded under one (`experts-only`)."
           },
           "objective": {
             "type": "string",
@@ -12239,11 +12239,11 @@
             "minimum": 1,
             "maximum": 100
           },
-          "classWeights": {
+          "groupWeights": {
             "type": "string",
             "enum": [
               "as-recorded",
-              "restricted-only"
+              "experts-only"
             ]
           },
           "sample": {
@@ -15110,7 +15110,7 @@
           "artifact",
           "policy",
           "correction",
-          "judge_class",
+          "corrector_group",
           "provider",
           "memory",
           "conversation",
@@ -15922,13 +15922,13 @@
           "versions": {
             "$ref": "#/components/schemas/FlowVersionOverrides"
           },
-          "classWeights": {
+          "groupWeights": {
             "type": "string",
             "enum": [
               "as-recorded",
-              "restricted-only"
+              "experts-only"
             ],
-            "description": "Which corrections count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Correction.restricted`), the others weighing 0 (`restricted-only`)."
+            "description": "Which corrections count: each at its group's weight (`as-recorded`, the default), or only those recorded while their group was restricted (`Correction.expert`), the others weighing 0 (`experts-only`)."
           },
           "overrides": {
             "$ref": "#/components/schemas/EvalOverrides"
@@ -16284,13 +16284,13 @@
               "live"
             ]
           },
-          "classWeights": {
+          "groupWeights": {
             "type": "string",
             "enum": [
               "as-recorded",
-              "restricted-only"
+              "experts-only"
             ],
-            "description": "Which corrections counted. Absent from a comparison recorded before restricted classes: `as-recorded`."
+            "description": "Which corrections counted. Absent from a comparison recorded before expert groups: `as-recorded`."
           },
           "sample": {
             "$ref": "#/components/schemas/EvalSample",
@@ -17139,13 +17139,13 @@
           "versions": {
             "$ref": "#/components/schemas/FlowVersionOverrides"
           },
-          "classWeights": {
+          "groupWeights": {
             "type": "string",
             "enum": [
               "as-recorded",
-              "restricted-only"
+              "experts-only"
             ],
-            "description": "Which corrections count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Correction.restricted`), the others weighing 0 (`restricted-only`)."
+            "description": "Which corrections count: each at its group's weight (`as-recorded`, the default), or only those recorded while their group was restricted (`Correction.expert`), the others weighing 0 (`experts-only`)."
           },
           "overrides": {
             "$ref": "#/components/schemas/EvalOverrides"
@@ -18682,7 +18682,7 @@
           }
         }
       },
-      "JudgingRunStatus": {
+      "ExpertQueueRunStatus": {
         "type": "string",
         "enum": [
           "completed",
@@ -18691,17 +18691,17 @@
         ],
         "description": "How a run ended."
       },
-      "JudgingQueueState": {
+      "ExpertQueueState": {
         "type": "string",
         "enum": [
           "open",
-          "judged",
+          "corrected",
           "dismissed",
           "erased"
         ],
-        "description": "Where a queued run stands. `judged`: every rule that queued it has the correction it wants. `erased`: the run's content is gone (erased, or the run purged); the item shows nothing of it."
+        "description": "Where a queued run stands. `corrected`: every rule that queued it has the correction it wants. `erased`: the run's content is gone (erased, or the run purged); the item shows nothing of it."
       },
-      "JudgingRuleWhen": {
+      "QueueRuleWhen": {
         "type": "object",
         "additionalProperties": false,
         "description": "Which of a project's runs a rule matches as they end. Every field narrows; absent fields don't. `agentIds` or `flowIds`, not both. Top-level runs only (an agent's own runs, not its turns as a flow's step); replays never match.",
@@ -18735,7 +18735,7 @@
             "type": "array",
             "minItems": 1,
             "items": {
-              "$ref": "#/components/schemas/JudgingRunStatus"
+              "$ref": "#/components/schemas/ExpertQueueRunStatus"
             },
             "description": "How the run ended. Only `completed` today: a correction needs a completed run, so `failed` and `cancelled` are refused (400). Absent: `completed`."
           },
@@ -18745,14 +18745,14 @@
           }
         }
       },
-      "JudgingRuleSpec": {
+      "QueueRuleSpec": {
         "type": "object",
         "additionalProperties": false,
         "required": [
           "name",
           "when"
         ],
-        "description": "A judging rule as written. It only lists runs: nothing here starts a model.",
+        "description": "A queue rule as written. It only lists runs: nothing here starts a model.",
         "properties": {
           "name": {
             "type": "string",
@@ -18760,7 +18760,7 @@
             "maxLength": 200
           },
           "when": {
-            "$ref": "#/components/schemas/JudgingRuleWhen"
+            "$ref": "#/components/schemas/QueueRuleWhen"
           },
           "sample": {
             "type": "number",
@@ -18774,9 +18774,9 @@
             "maximum": 10000,
             "description": "Queue nothing while this rule has this many open items. Absent: no cap."
           },
-          "judgeClassId": {
+          "correctorGroupId": {
             "type": "string",
-            "description": "Whose correction it wants: one of this class closes it. Absent: any correction does."
+            "description": "Whose correction it wants: one of this group closes it. Absent: any correction does."
           },
           "enabled": {
             "type": "boolean",
@@ -18784,7 +18784,7 @@
           }
         }
       },
-      "JudgingRulePatch": {
+      "QueueRulePatch": {
         "type": "object",
         "additionalProperties": false,
         "description": "The fields to change; `when` is replaced whole.",
@@ -18795,7 +18795,7 @@
             "maxLength": 200
           },
           "when": {
-            "$ref": "#/components/schemas/JudgingRuleWhen"
+            "$ref": "#/components/schemas/QueueRuleWhen"
           },
           "sample": {
             "type": "number",
@@ -18812,12 +18812,12 @@
             "maximum": 10000,
             "description": "Queue nothing while this rule has this many open items. `null` removes the cap."
           },
-          "judgeClassId": {
+          "correctorGroupId": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Whose correction it wants: one of this class closes it. `null`: any correction does."
+            "description": "Whose correction it wants: one of this group closes it. `null`: any correction does."
           },
           "enabled": {
             "type": "boolean",
@@ -18825,7 +18825,7 @@
           }
         }
       },
-      "JudgingRule": {
+      "QueueRule": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -18838,7 +18838,7 @@
           "enabled",
           "createdAt"
         ],
-        "description": "One version of a judging rule; the latest live one applies.",
+        "description": "One version of a queue rule; the latest live one applies.",
         "properties": {
           "ruleId": {
             "type": "string"
@@ -18856,7 +18856,7 @@
             "maxLength": 200
           },
           "when": {
-            "$ref": "#/components/schemas/JudgingRuleWhen"
+            "$ref": "#/components/schemas/QueueRuleWhen"
           },
           "sample": {
             "type": "number",
@@ -18869,9 +18869,9 @@
             "maximum": 10000,
             "description": "Queue nothing while this rule has this many open items. Absent: no cap."
           },
-          "judgeClassId": {
+          "correctorGroupId": {
             "type": "string",
-            "description": "Whose correction it wants: one of this class closes it. Absent: any correction does."
+            "description": "Whose correction it wants: one of this group closes it. Absent: any correction does."
           },
           "enabled": {
             "type": "boolean"
@@ -18890,7 +18890,7 @@
           }
         }
       },
-      "JudgingRulePage": {
+      "QueueRulePage": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -18901,7 +18901,7 @@
           "data": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/JudgingRule"
+              "$ref": "#/components/schemas/QueueRule"
             }
           },
           "hasMore": {
@@ -18912,7 +18912,7 @@
           }
         }
       },
-      "JudgingRuleUnregisterResult": {
+      "QueueRuleUnregisterResult": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -18928,15 +18928,15 @@
           }
         }
       },
-      "JudgingClassCount": {
+      "ExpertQueueGroupCount": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "judgeClassId",
+          "correctorGroupId",
           "count"
         ],
         "properties": {
-          "judgeClassId": {
+          "correctorGroupId": {
             "type": [
               "string",
               "null"
@@ -18949,28 +18949,28 @@
           }
         }
       },
-      "JudgingProgress": {
+      "ExpertQueueProgress": {
         "type": "object",
         "additionalProperties": false,
         "required": [
           "total",
-          "byClass"
+          "byGroup"
         ],
-        "description": "The live corrections on the run so far, by class.",
+        "description": "The live corrections on the run so far, by group.",
         "properties": {
           "total": {
             "type": "integer",
             "minimum": 0
           },
-          "byClass": {
+          "byGroup": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/JudgingClassCount"
+              "$ref": "#/components/schemas/ExpertQueueGroupCount"
             }
           }
         }
       },
-      "JudgingItemCan": {
+      "ExpertQueueItemCan": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -18987,7 +18987,7 @@
           }
         }
       },
-      "JudgingItemRule": {
+      "ExpertQueueItemRule": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -19004,7 +19004,7 @@
           }
         }
       },
-      "JudgingQueueItem": {
+      "ExpertQueueItem": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -19014,7 +19014,7 @@
           "runStatus",
           "completedAt",
           "rules",
-          "wantedClassIds",
+          "wantedGroupIds",
           "anyCorrection",
           "progress",
           "addedAt",
@@ -19039,7 +19039,7 @@
             "type": "string"
           },
           "runStatus": {
-            "$ref": "#/components/schemas/JudgingRunStatus"
+            "$ref": "#/components/schemas/ExpertQueueRunStatus"
           },
           "completedAt": {
             "type": "string",
@@ -19048,30 +19048,30 @@
           "rules": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/JudgingItemRule"
+              "$ref": "#/components/schemas/ExpertQueueItemRule"
             },
             "description": "The rules that queued it, each at the version that did."
           },
-          "wantedClassIds": {
+          "wantedGroupIds": {
             "type": "array",
             "items": {
               "type": "string"
             },
-            "description": "The judge classes its rules want."
+            "description": "The corrector groups its rules want."
           },
           "anyCorrection": {
             "type": "boolean",
             "description": "One of its rules wants any correction."
           },
           "progress": {
-            "$ref": "#/components/schemas/JudgingProgress"
+            "$ref": "#/components/schemas/ExpertQueueProgress"
           },
           "addedAt": {
             "type": "string",
             "format": "date-time"
           },
           "state": {
-            "$ref": "#/components/schemas/JudgingQueueState"
+            "$ref": "#/components/schemas/ExpertQueueState"
           },
           "closedAt": {
             "type": "string",
@@ -19086,11 +19086,11 @@
             "description": "Why it was dismissed, when they said."
           },
           "can": {
-            "$ref": "#/components/schemas/JudgingItemCan"
+            "$ref": "#/components/schemas/ExpertQueueItemCan"
           }
         }
       },
-      "JudgingQueuePage": {
+      "ExpertQueuePage": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -19102,7 +19102,7 @@
           "data": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/JudgingQueueItem"
+              "$ref": "#/components/schemas/ExpertQueueItem"
             }
           },
           "hasMore": {
@@ -19118,7 +19118,7 @@
           }
         }
       },
-      "JudgingDismissBody": {
+      "ExpertQueueDismissBody": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -19128,16 +19128,16 @@
           }
         }
       },
-      "JudgingClassResult": {
+      "QueueRuleGroupResult": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "judgeClassId",
+          "correctorGroupId",
           "corrections",
           "yes"
         ],
         "properties": {
-          "judgeClassId": {
+          "correctorGroupId": {
             "type": [
               "string",
               "null"
@@ -19154,7 +19154,7 @@
           }
         }
       },
-      "JudgingResultGroup": {
+      "QueueRuleResultGroup": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -19162,15 +19162,15 @@
           "agentVersion",
           "added",
           "open",
-          "judged",
+          "corrected",
           "dismissed",
           "erased",
           "skippedByCap",
           "corrections",
           "yesShare",
-          "byClass"
+          "byGroup"
         ],
-        "description": "One rule version's runs of one agent version. `added` = `open` + `judged` + `dismissed` + `erased`.",
+        "description": "One rule version's runs of one agent version. `added` = `open` + `corrected` + `dismissed` + `erased`.",
         "properties": {
           "ruleVersion": {
             "type": "integer",
@@ -19191,7 +19191,7 @@
             "type": "integer",
             "minimum": 0
           },
-          "judged": {
+          "corrected": {
             "type": "integer",
             "minimum": 0
           },
@@ -19216,25 +19216,25 @@
           "runsWithCorrections": {
             "type": "integer",
             "minimum": 0,
-            "description": "The queued runs with at least one live correction: the runs `corrections` and `yesShare` come from, whatever their item's state now (still `open`, closed as `judged`, or dismissed after someone corrected it). Several people correcting one run make several corrections but one run here. Absent from a runtime that doesn't count them."
+            "description": "The queued runs with at least one live correction: the runs `corrections` and `yesShare` come from, whatever their item's state now (still `open`, closed as `corrected`, or dismissed after someone corrected it). Several people correcting one run make several corrections but one run here. Absent from a runtime that doesn't count them."
           },
           "yesShare": {
             "type": [
               "number",
               "null"
             ],
-            "description": "The `yes` share of those corrections, each weighted by its class (unclassified: 1). `null` with none."
+            "description": "The `yes` share of those corrections, each weighted by its group (no group: 1). `null` with none."
           },
-          "byClass": {
+          "byGroup": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/JudgingClassResult"
+              "$ref": "#/components/schemas/QueueRuleGroupResult"
             },
-            "description": "The same corrections by class, unweighted."
+            "description": "The same corrections by group, unweighted."
           }
         }
       },
-      "JudgingRuleResults": {
+      "QueueRuleResults": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -19252,13 +19252,13 @@
           "groups": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/JudgingResultGroup"
+              "$ref": "#/components/schemas/QueueRuleResultGroup"
             },
             "description": "By the rule's version and the agent's, newest rule version first: two versions of a rule are two sampling designs, never pooled."
           }
         }
       },
-      "JudgingRulePreview": {
+      "QueueRulePreview": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -19278,7 +19278,7 @@
           }
         }
       },
-      "JudgingQueueRecentInput": {
+      "ExpertQueueRecentInput": {
         "type": "object",
         "additionalProperties": false,
         "minProperties": 1,
@@ -19297,7 +19297,7 @@
           }
         }
       },
-      "JudgingRecentQueued": {
+      "ExpertQueueRecentQueued": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -27156,7 +27156,7 @@
       "ImproveScheduleInput": {
         "type": "object",
         "additionalProperties": false,
-        "description": "An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `classWeights` counts them: by default everyone's corrections until a restricted (experts') judge class is named, then experts' only. When there are enough, across enough runs and correctors, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.",
+        "description": "An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `groupWeights` counts them: by default everyone's corrections until a restricted (experts') corrector group is named, then experts' only. When there are enough, across enough runs and correctors, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.",
         "properties": {
           "tiers": {
             "type": "array",
@@ -27175,10 +27175,10 @@
               "weightedPrecisionAtK"
             ]
           },
-          "classWeights": {
+          "groupWeights": {
             "type": "string",
             "enum": [
-              "restricted-only",
+              "experts-only",
               "as-recorded"
             ]
           },
@@ -46589,7 +46589,7 @@
             }
           },
           "400": {
-            "description": "Malformed body, or `item-not-found` (an item's pointer resolves to nothing in the output), or `judge-class-not-applicable`.",
+            "description": "Malformed body, or `item-not-found` (an item's pointer resolves to nothing in the output), or `corrector-group-not-applicable`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46609,7 +46609,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: not allowed to correct this run. `judge-class-not-allowed`: the judge class is restricted (`assertableBy`) and the caller may not assert it.",
+            "description": "`permission-denied`: not allowed to correct this run. `corrector-group-not-allowed`: the corrector group is restricted (`assertableBy`) and the caller may not assert it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46679,7 +46679,7 @@
             }
           }
         },
-        "description": "Records whether a finished run's decisions and answer were right, and what was right instead, optionally under a judge class that applies to the run's project or agent (unclassified corrections count with weight 1). Each item's `pointer` (a JSON Pointer) must resolve in the run's output. It's sorted at save: an end user's correction stays open and unsorted; `decisions: \"wrong\"` goes to the agent's owner (`with-owner`); a wrong answer goes to Improve (`open`); nothing wrong is `fixed` as `recorded-right`. The first correction of a run also stores a copy of the run's input and output. `madeBy` is the authenticated caller, never the body. A second correction by the same caller for the same run and `participantId` supersedes the earlier one. Needs `write` on the run's project.",
+        "description": "Records whether a finished run's decisions and answer were right, and what was right instead, optionally under a corrector group that applies to the run's project or agent (unclassified corrections count with weight 1). Each item's `pointer` (a JSON Pointer) must resolve in the run's output. It's sorted at save: an end user's correction stays open and unsorted; `decisions: \"wrong\"` goes to the agent's owner (`with-owner`); a wrong answer goes to Improve (`open`); nothing wrong is `fixed` as `recorded-right`. The first correction of a run also stores a copy of the run's input and output. `madeBy` is the authenticated caller, never the body. A second correction by the same caller for the same run and `participantId` supersedes the earlier one. Needs `write` on the run's project.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -46756,7 +46756,7 @@
             }
           }
         },
-        "description": "Corrections (not superseded, and not removed unless `status` asks for `removed`), newest first, cursor-paginated. Filter by run, agent (and version), flow, status, sorting, who made them, when, judge class or participant; `?scopeKind + ?scopeId` narrow to a project. Each one comes back only when the caller may read its project.",
+        "description": "Corrections (not superseded, and not removed unless `status` asks for `removed`), newest first, cursor-paginated. Filter by run, agent (and version), flow, status, sorting, who made them, when, corrector group or participant; `?scopeKind + ?scopeId` narrow to a project. Each one comes back only when the caller may read its project.",
         "parameters": [
           {
             "name": "limit",
@@ -46870,7 +46870,7 @@
               ]
             },
             "required": false,
-            "description": "`experts`: corrections under a restricted judge class. `end-users`: an app's end users' (`participantId`), not experts'. `all` (the default): every one."
+            "description": "`experts`: corrections under a restricted corrector group. `end-users`: an app's end users' (`participantId`), not experts'. `all` (the default): every one."
           },
           {
             "name": "madeBy",
@@ -46905,14 +46905,14 @@
             "description": "Only corrections made before this time."
           },
           {
-            "name": "judgeClassId",
+            "name": "correctorGroupId",
             "in": "query",
             "schema": {
               "type": "string",
               "minLength": 1
             },
             "required": false,
-            "description": "Only corrections recorded under this judge class."
+            "description": "Only corrections recorded under this corrector group."
           },
           {
             "name": "participantId",
@@ -47364,20 +47364,20 @@
         ]
       }
     },
-    "/v1/judge-classes": {
+    "/v1/corrector-groups": {
       "post": {
-        "operationId": "judgeClasses.create",
-        "summary": "Create a judge class",
+        "operationId": "correctorGroups.create",
+        "summary": "Create a corrector group",
         "tags": [
-          "judge-classes"
+          "corrector-groups"
         ],
         "responses": {
           "201": {
-            "description": "Judge class created.",
+            "description": "Corrector group created.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JudgeClass"
+                  "$ref": "#/components/schemas/CorrectorGroup"
                 }
               }
             }
@@ -47413,7 +47413,7 @@
             }
           },
           "409": {
-            "description": "`judge-class-name-taken`, or an idempotency conflict.",
+            "description": "`corrector-group-name-taken`, or an idempotency conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47453,7 +47453,7 @@
             }
           }
         },
-        "description": "A named kind of judge with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live classes of a scope. Needs `admin` on the tenant (tenant scope) or the project.",
+        "description": "A named kind of person who corrects with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live groups of a scope. Needs `admin` on the tenant (tenant scope) or the project.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -47471,7 +47471,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateJudgeClassBody"
+                "$ref": "#/components/schemas/CreateCorrectorGroupBody"
               }
             }
           }
@@ -47483,18 +47483,18 @@
         ]
       },
       "get": {
-        "operationId": "judgeClasses.list",
-        "summary": "List judge classes",
+        "operationId": "correctorGroups.list",
+        "summary": "List corrector groups",
         "tags": [
-          "judge-classes"
+          "corrector-groups"
         ],
         "responses": {
           "200": {
-            "description": "Page of judge classes.",
+            "description": "Page of corrector groups.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JudgeClassCollectionPage"
+                  "$ref": "#/components/schemas/CorrectorGroupCollectionPage"
                 }
               }
             }
@@ -47530,7 +47530,7 @@
             }
           }
         },
-        "description": "Live classes, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.",
+        "description": "Live groups, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.",
         "parameters": [
           {
             "name": "limit",
@@ -47565,7 +47565,7 @@
               ]
             },
             "required": false,
-            "description": "Only classes of this scope kind. `project` and `agent` need `projectId`; `agent` also needs `agentId`."
+            "description": "Only groups of this scope kind. `project` and `agent` need `projectId`; `agent` also needs `agentId`."
           },
           {
             "name": "projectId",
@@ -47595,20 +47595,20 @@
         ]
       }
     },
-    "/v1/judge-classes/{judgeClassId}": {
+    "/v1/corrector-groups/{correctorGroupId}": {
       "get": {
-        "operationId": "judgeClasses.get",
-        "summary": "Fetch a judge class",
+        "operationId": "correctorGroups.get",
+        "summary": "Fetch a corrector group",
         "tags": [
-          "judge-classes"
+          "corrector-groups"
         ],
         "responses": {
           "200": {
-            "description": "Judge class.",
+            "description": "Corrector group.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JudgeClass"
+                  "$ref": "#/components/schemas/CorrectorGroup"
                 }
               }
             }
@@ -47624,7 +47624,7 @@
             }
           },
           "404": {
-            "description": "No judge class with that id under this tenant.",
+            "description": "No corrector group with that id under this tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47644,17 +47644,17 @@
             }
           }
         },
-        "description": "Also returns a retired class (`unregisteredAt` set): corrections keep naming theirs.",
+        "description": "Also returns a retired group (`unregisteredAt` set): corrections keep naming theirs.",
         "parameters": [
           {
-            "name": "judgeClassId",
+            "name": "correctorGroupId",
             "in": "path",
             "schema": {
               "type": "string",
               "minLength": 1
             },
             "required": true,
-            "description": "Judge class id."
+            "description": "Corrector group id."
           }
         ],
         "security": [
@@ -47664,18 +47664,18 @@
         ]
       },
       "patch": {
-        "operationId": "judgeClasses.update",
-        "summary": "Change a judge class's weight or description",
+        "operationId": "correctorGroups.update",
+        "summary": "Change a corrector group's weight or description",
         "tags": [
-          "judge-classes"
+          "corrector-groups"
         ],
         "responses": {
           "200": {
-            "description": "Updated judge class.",
+            "description": "Updated corrector group.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JudgeClass"
+                  "$ref": "#/components/schemas/CorrectorGroup"
                 }
               }
             }
@@ -47711,7 +47711,7 @@
             }
           },
           "404": {
-            "description": "No live judge class with that id under this tenant.",
+            "description": "No live corrector group with that id under this tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47763,14 +47763,14 @@
         },
         "parameters": [
           {
-            "name": "judgeClassId",
+            "name": "correctorGroupId",
             "in": "path",
             "schema": {
               "type": "string",
               "minLength": 1
             },
             "required": true,
-            "description": "Judge class id."
+            "description": "Corrector group id."
           },
           {
             "name": "Idempotency-Key",
@@ -47788,7 +47788,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/UpdateJudgeClassBody"
+                "$ref": "#/components/schemas/UpdateCorrectorGroupBody"
               }
             }
           }
@@ -47800,12 +47800,12 @@
         ]
       }
     },
-    "/v1/judge-classes/{judgeClassId}/unregister": {
+    "/v1/corrector-groups/{correctorGroupId}/unregister": {
       "post": {
-        "operationId": "judgeClasses.unregister",
-        "summary": "Retire a judge class",
+        "operationId": "correctorGroups.unregister",
+        "summary": "Retire a corrector group",
         "tags": [
-          "judge-classes"
+          "corrector-groups"
         ],
         "responses": {
           "200": {
@@ -47813,7 +47813,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UnregisterJudgeClassResult"
+                  "$ref": "#/components/schemas/UnregisterCorrectorGroupResult"
                 }
               }
             }
@@ -47849,7 +47849,7 @@
             }
           },
           "404": {
-            "description": "No live judge class with that id under this tenant.",
+            "description": "No live corrector group with that id under this tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -47892,14 +47892,14 @@
         "description": "No new corrections may name it; existing corrections keep it.",
         "parameters": [
           {
-            "name": "judgeClassId",
+            "name": "correctorGroupId",
             "in": "path",
             "schema": {
               "type": "string",
               "minLength": 1
             },
             "required": true,
-            "description": "Judge class id."
+            "description": "Corrector group id."
           },
           {
             "name": "Idempotency-Key",
@@ -51400,7 +51400,7 @@
             }
           }
         },
-        "description": "Publishes a `judged` eval suite version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `judgeClassIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.",
+        "description": "Publishes a `judged` eval suite version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.",
         "parameters": [
           {
             "name": "suiteId",
@@ -59897,12 +59897,12 @@
         ]
       }
     },
-    "/v1/projects/{projectId}/judging-rules": {
+    "/v1/projects/{projectId}/queue-rules": {
       "get": {
-        "operationId": "projects.judgingRules.list",
-        "summary": "List a project's judging rules",
+        "operationId": "projects.queueRules.list",
+        "summary": "List a project's queue rules",
         "tags": [
-          "judging"
+          "expert-queue"
         ],
         "responses": {
           "200": {
@@ -59910,7 +59910,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JudgingRulePage"
+                  "$ref": "#/components/schemas/QueueRulePage"
                 }
               }
             }
@@ -59986,10 +59986,10 @@
         ]
       },
       "post": {
-        "operationId": "projects.judgingRules.create",
-        "summary": "Create a judging rule",
+        "operationId": "projects.queueRules.create",
+        "summary": "Create a queue rule",
         "tags": [
-          "judging"
+          "expert-queue"
         ],
         "responses": {
           "201": {
@@ -59997,7 +59997,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JudgingRule"
+                  "$ref": "#/components/schemas/QueueRule"
                 }
               }
             }
@@ -60023,7 +60023,7 @@
             }
           },
           "404": {
-            "description": "No project with that id (`project-not-found`), or no live judge class `judgeClassId` (`judge-class-not-found`).",
+            "description": "No project with that id (`project-not-found`), or no live corrector group `correctorGroupId` (`corrector-group-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -60100,7 +60100,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/JudgingRuleSpec"
+                "$ref": "#/components/schemas/QueueRuleSpec"
               }
             }
           }
@@ -60112,12 +60112,12 @@
         ]
       }
     },
-    "/v1/projects/{projectId}/judging-rules/preview": {
+    "/v1/projects/{projectId}/queue-rules/preview": {
       "get": {
-        "operationId": "projects.judgingRules.preview",
+        "operationId": "projects.queueRules.preview",
         "summary": "What a rule would have queued",
         "tags": [
-          "judging"
+          "expert-queue"
         ],
         "responses": {
           "200": {
@@ -60125,7 +60125,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JudgingRulePreview"
+                  "$ref": "#/components/schemas/QueueRulePreview"
                 }
               }
             }
@@ -60264,12 +60264,12 @@
         ]
       }
     },
-    "/v1/projects/{projectId}/judging-rules/{ruleId}": {
+    "/v1/projects/{projectId}/queue-rules/{ruleId}": {
       "get": {
-        "operationId": "projects.judgingRules.get",
-        "summary": "Fetch a judging rule",
+        "operationId": "projects.queueRules.get",
+        "summary": "Fetch a queue rule",
         "tags": [
-          "judging"
+          "expert-queue"
         ],
         "responses": {
           "200": {
@@ -60277,7 +60277,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JudgingRule"
+                  "$ref": "#/components/schemas/QueueRule"
                 }
               }
             }
@@ -60293,7 +60293,7 @@
             }
           },
           "404": {
-            "description": "No such rule in the project (`judging-rule-not-found`).",
+            "description": "No such rule in the project (`queue-rule-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -60340,10 +60340,10 @@
         ]
       },
       "patch": {
-        "operationId": "projects.judgingRules.update",
-        "summary": "Change a judging rule",
+        "operationId": "projects.queueRules.update",
+        "summary": "Change a queue rule",
         "tags": [
-          "judging"
+          "expert-queue"
         ],
         "responses": {
           "200": {
@@ -60351,7 +60351,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JudgingRule"
+                  "$ref": "#/components/schemas/QueueRule"
                 }
               }
             }
@@ -60377,7 +60377,7 @@
             }
           },
           "404": {
-            "description": "No such rule (`judging-rule-not-found`), or no live judge class `judgeClassId` (`judge-class-not-found`).",
+            "description": "No such rule (`queue-rule-not-found`), or no live corrector group `correctorGroupId` (`corrector-group-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -60442,7 +60442,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/JudgingRulePatch"
+                "$ref": "#/components/schemas/QueueRulePatch"
               }
             }
           }
@@ -60454,12 +60454,12 @@
         ]
       }
     },
-    "/v1/projects/{projectId}/judging-rules/{ruleId}/unregister": {
+    "/v1/projects/{projectId}/queue-rules/{ruleId}/unregister": {
       "post": {
-        "operationId": "projects.judgingRules.unregister",
-        "summary": "Stop a judging rule",
+        "operationId": "projects.queueRules.unregister",
+        "summary": "Stop a queue rule",
         "tags": [
-          "judging"
+          "expert-queue"
         ],
         "responses": {
           "200": {
@@ -60467,7 +60467,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JudgingRuleUnregisterResult"
+                  "$ref": "#/components/schemas/QueueRuleUnregisterResult"
                 }
               }
             }
@@ -60493,7 +60493,7 @@
             }
           },
           "404": {
-            "description": "No such rule (`judging-rule-not-found`).",
+            "description": "No such rule (`queue-rule-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -60550,12 +60550,12 @@
         ]
       }
     },
-    "/v1/projects/{projectId}/judging-rules/{ruleId}/versions": {
+    "/v1/projects/{projectId}/queue-rules/{ruleId}/versions": {
       "get": {
-        "operationId": "projects.judgingRules.versions",
-        "summary": "A judging rule's versions",
+        "operationId": "projects.queueRules.versions",
+        "summary": "A queue rule's versions",
         "tags": [
-          "judging"
+          "expert-queue"
         ],
         "responses": {
           "200": {
@@ -60563,7 +60563,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JudgingRulePage"
+                  "$ref": "#/components/schemas/QueueRulePage"
                 }
               }
             }
@@ -60579,7 +60579,7 @@
             }
           },
           "404": {
-            "description": "No such rule (`judging-rule-not-found`).",
+            "description": "No such rule (`queue-rule-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -60647,12 +60647,12 @@
         ]
       }
     },
-    "/v1/projects/{projectId}/judging-rules/{ruleId}/results": {
+    "/v1/projects/{projectId}/queue-rules/{ruleId}/results": {
       "get": {
-        "operationId": "projects.judgingRules.results",
-        "summary": "A judging rule's results",
+        "operationId": "projects.queueRules.results",
+        "summary": "A queue rule's results",
         "tags": [
-          "judging"
+          "expert-queue"
         ],
         "responses": {
           "200": {
@@ -60660,7 +60660,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JudgingRuleResults"
+                  "$ref": "#/components/schemas/QueueRuleResults"
                 }
               }
             }
@@ -60676,7 +60676,7 @@
             }
           },
           "404": {
-            "description": "No such rule (`judging-rule-not-found`).",
+            "description": "No such rule (`queue-rule-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -60696,7 +60696,7 @@
             }
           }
         },
-        "description": "By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live corrections on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.",
+        "description": "By the rule's version and the agent's: the runs it queued (open, corrected, dismissed, erased), the ones its `maxOpen` skipped, and the live corrections on them, with their group-weighted `yes` share and a count by group. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.",
         "parameters": [
           {
             "name": "projectId",
@@ -60733,12 +60733,12 @@
         ]
       }
     },
-    "/v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent": {
+    "/v1/projects/{projectId}/queue-rules/{ruleId}/queue-recent": {
       "post": {
-        "operationId": "projects.judgingRules.queueRecent",
+        "operationId": "projects.queueRules.queueRecent",
         "summary": "Queue a rule's recent matches",
         "tags": [
-          "judging"
+          "expert-queue"
         ],
         "responses": {
           "200": {
@@ -60746,7 +60746,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JudgingRecentQueued"
+                  "$ref": "#/components/schemas/ExpertQueueRecentQueued"
                 }
               }
             }
@@ -60772,7 +60772,7 @@
             }
           },
           "404": {
-            "description": "No such rule (`judging-rule-not-found`).",
+            "description": "No such rule (`queue-rule-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -60837,7 +60837,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/JudgingQueueRecentInput"
+                "$ref": "#/components/schemas/ExpertQueueRecentInput"
               }
             }
           }
@@ -60849,12 +60849,12 @@
         ]
       }
     },
-    "/v1/projects/{projectId}/judging-queue": {
+    "/v1/projects/{projectId}/expert-queue": {
       "get": {
-        "operationId": "projects.judgingQueue.list",
-        "summary": "The project's judging queue",
+        "operationId": "projects.expertQueue.list",
+        "summary": "The project's expert queue",
         "tags": [
-          "judging"
+          "expert-queue"
         ],
         "responses": {
           "200": {
@@ -60862,7 +60862,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JudgingQueuePage"
+                  "$ref": "#/components/schemas/ExpertQueuePage"
                 }
               }
             }
@@ -60908,7 +60908,7 @@
             }
           }
         },
-        "description": "Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a class the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.",
+        "description": "Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a group the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.",
         "parameters": [
           {
             "name": "projectId",
@@ -60923,10 +60923,10 @@
             "name": "state",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/JudgingQueueState"
+              "$ref": "#/components/schemas/ExpertQueueState"
             },
             "required": false,
-            "description": "open, judged, dismissed or erased."
+            "description": "open, corrected, dismissed or erased."
           },
           {
             "name": "agentId",
@@ -60947,13 +60947,13 @@
             "description": "Only items this rule queued."
           },
           {
-            "name": "judgeClassId",
+            "name": "correctorGroupId",
             "in": "query",
             "schema": {
               "type": "string"
             },
             "required": false,
-            "description": "Only items that want this class."
+            "description": "Only items that want this group."
           },
           {
             "name": "forMe",
@@ -61013,12 +61013,12 @@
         ]
       }
     },
-    "/v1/projects/{projectId}/judging-queue/{runId}/dismiss": {
+    "/v1/projects/{projectId}/expert-queue/{runId}/dismiss": {
       "post": {
-        "operationId": "projects.judgingQueue.dismiss",
+        "operationId": "projects.expertQueue.dismiss",
         "summary": "Dismiss a queued run",
         "tags": [
-          "judging"
+          "expert-queue"
         ],
         "responses": {
           "200": {
@@ -61026,7 +61026,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JudgingQueueItem"
+                  "$ref": "#/components/schemas/ExpertQueueItem"
                 }
               }
             }
@@ -61052,7 +61052,7 @@
             }
           },
           "404": {
-            "description": "The run isn't in the project's queue (`judging-item-not-found`).",
+            "description": "The run isn't in the project's queue (`expert-queue-item-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -61062,7 +61062,7 @@
             }
           },
           "409": {
-            "description": "The item isn't open (`judging-item-not-open`).",
+            "description": "The item isn't open (`expert-queue-item-not-open`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -61117,7 +61117,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/JudgingDismissBody"
+                "$ref": "#/components/schemas/ExpertQueueDismissBody"
               }
             }
           }
@@ -61129,12 +61129,12 @@
         ]
       }
     },
-    "/v1/projects/{projectId}/judging-queue/{runId}/reopen": {
+    "/v1/projects/{projectId}/expert-queue/{runId}/reopen": {
       "post": {
-        "operationId": "projects.judgingQueue.reopen",
+        "operationId": "projects.expertQueue.reopen",
         "summary": "Reopen a dismissed run",
         "tags": [
-          "judging"
+          "expert-queue"
         ],
         "responses": {
           "200": {
@@ -61142,7 +61142,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/JudgingQueueItem"
+                  "$ref": "#/components/schemas/ExpertQueueItem"
                 }
               }
             }
@@ -61168,7 +61168,7 @@
             }
           },
           "404": {
-            "description": "The run isn't in the project's queue (`judging-item-not-found`).",
+            "description": "The run isn't in the project's queue (`expert-queue-item-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -61178,7 +61178,7 @@
             }
           },
           "409": {
-            "description": "The item wasn't dismissed (`judging-item-not-open`).",
+            "description": "The item wasn't dismissed (`expert-queue-item-not-open`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -61198,7 +61198,7 @@
             }
           }
         },
-        "description": "Back in the open queue. Only a dismissed item reopens: a judged one was closed by its corrections. Needs `write` on the project.",
+        "description": "Back in the open queue. Only a dismissed item reopens: a corrected one was closed by its corrections. Needs `write` on the project.",
         "parameters": [
           {
             "name": "projectId",

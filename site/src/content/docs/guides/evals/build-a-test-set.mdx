@@ -94,7 +94,7 @@ The clients' `corrections.create` takes the whole list at once:
 In the console, a finished run's **Correct this run** opens its Corrections
 tab. It lists the answer, and each element of a list in the output, each with
 **Yes** and **No**. [Correct a run's output](../judge-a-runs-output/) has the
-rest: reasons, your users' corrections, and judge classes.
+rest: reasons, your users' corrections, and corrector groups.
 
 ## Build the test cases
 
@@ -236,8 +236,8 @@ counts.
   correction. These narrow it:
   - `--agent-version`: one version's runs;
   - `--since` and `--until`: when the run was first corrected;
-  - `--class`: count only corrections of these
-    [judge classes](../judge-a-runs-output/#weight-corrections-by-judge-class);
+  - `--group`: count only corrections of these
+    [corrector groups](../judge-a-runs-output/#weight-corrections-by-corrector-group);
   - `--min-corrections`: leave out runs with fewer corrections.
 - **Up to 1000 cases.** `truncated: true` says there were more: narrow the
   runs, or build several sets of test cases.
@@ -353,7 +353,7 @@ One of them:
       "no": 0,
       "yesWeight": 1,
       "totalWeight": 1,
-      "restricted": { "yesWeight": 0, "totalWeight": 0, "correctionIds": [] },
+      "expert": { "yesWeight": 0, "totalWeight": 0, "correctionIds": [] },
       "correctionIds": ["8f2c4e1a-6b0d-4c3e-9a57-2d1f0b7e4c93"],
       "reasons": []
     },
@@ -366,20 +366,20 @@ One of them:
 
 - **`caseId`** is the id of the corrected run.
 - **`items`** has each corrected item: its yes and no counts, the same weighted
-  by judge class, and the reasons people gave, from each correction's `why`
+  by corrector group, and the reasons people gave, from each correction's `why`
   about the answer. The weighted counts are
-  `yesWeight` of `totalWeight`, and a correction with no class weighs 1.
-  `restricted` has the weights of the
-  [restricted](../judge-a-runs-output/#restrict-who-may-correct-as-a-class)
+  `yesWeight` of `totalWeight`, and a correction with no group weighs 1.
+  `expert` has the weights of the
+  [expert group](../judge-a-runs-output/#restrict-who-may-correct-as-a-group)
   corrections alone, such as `{ "yesWeight": 3, "totalWeight": 3 }`.
   `correctionIds` (runtime 0.2.0 or later) names every correction counted in
-  the item, and `restricted.correctionIds` the restricted ones. Test cases
+  the item, and `expert.correctionIds` the expert-group ones. Test cases
   built before these ids have neither.
 - **`corrections`** (runtime 0.2.0 or later) has the run's corrections
   that say [what it should have done](../judge-a-runs-output/#say-what-it-should-have-done),
   with `decisions: "wrong"`: each one's `shouldCall` and `mustNotCall`, as
-  `calls` and `notCalled`, its `correctionId`, its `judgeClassId` when it
-  had a class, and `restricted: true` when that class was restricted. A case without them
+  `calls` and `notCalled`, its `correctionId`, its `correctorGroupId` when it
+  had a group, and `expert: true` when that group was restricted. A case without them
   has no `corrections`.
 - **`output`** is the run's output, as it was when people corrected it.
 - **`context`**, for an agent turn, is what the turn had before it answered:
@@ -402,4 +402,4 @@ original run.
 
 - [Try a version on the test cases](../compare-an-agent-version/)
 - [Correct a run's output](../judge-a-runs-output/)
-- [Corrections reference](../judging-reference/)
+- [Corrections reference](../expert-queue-reference/)

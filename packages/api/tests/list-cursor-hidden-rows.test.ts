@@ -272,11 +272,11 @@ const ENTRIES: readonly Entry[] = [
     },
   },
   {
-    name: 'judge classes',
-    path: '/v1/judge-classes',
+    name: 'corrector groups',
+    path: '/v1/corrector-groups',
     bindings: () => {
       const l = lister(
-        'listClasses',
+        'listGroups',
         {
           data: two(() => ({ scope: { kind: 'project', projectId: 'hid-project' } })),
           hasMore: true,

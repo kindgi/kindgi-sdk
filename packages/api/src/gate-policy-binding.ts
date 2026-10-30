@@ -31,7 +31,7 @@ export interface GateMetricSpec {
  * spec checks nothing (the promotion is still recorded with the policy).
  * A promotion must name a comparison (`evalRunId`) exactly when the spec
  * checks anything one shows: `comparison`, `evidence`, `metrics`,
- * `replay` or `onlyRestrictedClasses`.
+ * `replay` or `onlyExpertGroups`.
  */
 export interface GatePolicySpec {
   readonly comparison?: {
@@ -58,11 +58,11 @@ export interface GatePolicySpec {
     readonly separateApprover?: boolean;
   };
   /**
-   * Only corrections recorded under a restricted judge class count (T200):
-   * the comparison must be weighted `restricted-only`, so a class anyone
+   * Only corrections recorded under an expert group count (T200):
+   * the comparison must be weighted `experts-only`, so a group anyone
    * may assert can't move the gate.
    */
-  readonly onlyRestrictedClasses?: boolean;
+  readonly onlyExpertGroups?: boolean;
 }
 
 export interface GatePolicy {

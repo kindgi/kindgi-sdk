@@ -264,16 +264,16 @@ wrote none. The cost is 0 on `dev-echo`, which costs nothing:
 ### Whose corrections it learns from
 
 By default, once your test cases' project, its tenant, or the agent you're
-improving there has a [restricted judge class](../judge-a-runs-output/#restrict-who-may-correct-as-a-class),
+improving there has a [expert group](../judge-a-runs-output/#restrict-who-may-correct-as-a-group),
 an Improve run counts only the corrections recorded under one
-(`classWeights: "restricted-only"`), so who may steer Improve is a choice
+(`groupWeights: "experts-only"`), so who may steer Improve is a choice
 you make. That's the test cases' project, which can differ from the one the
-agent is made in. Until then it counts every correction, each by its class's
-weight (`classWeights: "as-recorded"`), since counting only restricted
-classes would count nothing. A class restricted for a different agent,
-or in a different project, doesn't count. Set it with the `--class-weights`
-flag, or `classWeights` in the API or the clients, to choose either,
-whatever classes exist.
+agent is made in. Until then it counts every correction, each by its group's
+weight (`groupWeights: "as-recorded"`), since counting only expert
+groups would count nothing. A group restricted for a different agent,
+or in a different project, doesn't count. Set it with the `--group-weights`
+flag, or `groupWeights` in the API or the clients, to choose either,
+whatever groups exist.
 
 The suggested change an Improve run writes names the corrections on the cases
 it learned from, never on the rest: the ones its runs on the test
@@ -428,7 +428,7 @@ shows.
 An agent's own page shows the loop for that agent after its **Recent runs**,
 each section with its newest five: **Corrected runs**, the runs people
 corrected, with **To correct** for its answers waiting in the
-[Quality section](../judging-reference/#to-correct); **Test cases**, gathered
+[Quality section](../expert-queue-reference/#to-correct); **Test cases**, gathered
 from them, with **All test cases**; **Improve runs**; and **Suggested
 changes**, with **All suggested changes and Improve runs**, which opens the
 page above.

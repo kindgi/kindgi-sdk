@@ -3,8 +3,8 @@
 
 /**
  * Corrections summed into what a corrected item counts: per item key, the yes
- * and total weight (by judge class; an unclassified correction counts 1),
- * the same sums for corrections recorded while their class was restricted,
+ * and total weight (by corrector group; an unclassified correction counts 1),
+ * the same sums for corrections recorded while their group was restricted,
  * the corrections' ids, and the reasons. A test set's cases are built this way, and so is a
  * comparison's evidence from correcting a replay's own answers.
  *
@@ -76,21 +76,21 @@ export function itemVerdicts(j: Correction, answerAt?: string): ItemVerdict[] {
   return out;
 }
 
-export type ClassWeightOf = (judgeClassId: string | undefined) => Promise<number>;
+export type GroupWeightOf = (correctorGroupId: string | undefined) => Promise<number>;
 
-/** Each class's weight, read once (an unclassified correction counts 1; a missing class too). */
-export function classWeightReader(
-  corrections: Pick<CorrectionRegistryBinding, 'getClass'>,
+/** Each group's weight, read once (an unclassified correction counts 1; a missing group too). */
+export function groupWeightReader(
+  corrections: Pick<CorrectionRegistryBinding, 'getGroup'>,
   tenantId: TenantId,
-): ClassWeightOf {
+): GroupWeightOf {
   const weights = new Map<string, number>();
-  return async (judgeClassId) => {
-    if (judgeClassId === undefined) return 1;
-    const known = weights.get(judgeClassId);
+  return async (correctorGroupId) => {
+    if (correctorGroupId === undefined) return 1;
+    const known = weights.get(correctorGroupId);
     if (known !== undefined) return known;
-    const k = await corrections.getClass({ tenantId, judgeClassId, includeUnregistered: true });
+    const k = await corrections.getGroup({ tenantId, correctorGroupId, includeUnregistered: true });
     const w = k?.weight ?? 1;
-    weights.set(judgeClassId, w);
+    weights.set(correctorGroupId, w);
     return w;
   };
 }
@@ -99,26 +99,26 @@ export function classWeightReader(
 export async function summarizeCorrections(
   key: string,
   verdicts: readonly ItemVerdict[],
-  weightOf: ClassWeightOf,
+  weightOf: GroupWeightOf,
 ): Promise<CorrectedItemSummary> {
   let yes = 0;
   let no = 0;
   let yesWeight = 0;
   let totalWeight = 0;
-  // What the people a class was restricted to asserted, as it was when each correction was recorded.
-  const restricted = { yesWeight: 0, totalWeight: 0, correctionIds: [] as string[] };
+  // What the people a group was restricted to asserted, as it was when each correction was recorded.
+  const expert = { yesWeight: 0, totalWeight: 0, correctionIds: [] as string[] };
   for (const v of verdicts) {
     const j = v.correction;
-    const w = await weightOf(j.judgeClassId);
+    const w = await weightOf(j.correctorGroupId);
     totalWeight += w;
-    if (j.restricted === true) {
-      restricted.totalWeight += w;
-      restricted.correctionIds.push(j.id);
+    if (j.expert === true) {
+      expert.totalWeight += w;
+      expert.correctionIds.push(j.id);
     }
     if (v.verdict === 'yes') {
       yes += 1;
       yesWeight += w;
-      if (j.restricted === true) restricted.yesWeight += w;
+      if (j.expert === true) expert.yesWeight += w;
     } else {
       no += 1;
     }
@@ -132,7 +132,7 @@ export async function summarizeCorrections(
     no,
     yesWeight,
     totalWeight,
-    restricted,
+    expert,
     correctionIds: verdicts.map((v) => v.correction.id),
     reasons: verdicts.flatMap((v) =>
       v.reason !== undefined
@@ -140,10 +140,10 @@ export async function summarizeCorrections(
             {
               verdict: v.verdict,
               reason: v.reason,
-              ...(v.correction.judgeClassId !== undefined && {
-                judgeClassId: v.correction.judgeClassId,
+              ...(v.correction.correctorGroupId !== undefined && {
+                correctorGroupId: v.correction.correctorGroupId,
               }),
-              ...(v.correction.restricted === true && { restricted: true as const }),
+              ...(v.correction.expert === true && { expert: true as const }),
             },
           ]
         : [],
@@ -154,7 +154,7 @@ export async function summarizeCorrections(
 /** Corrections of one run's output, summed per item key, by rank (`answerAt` as for {@link itemVerdicts}). */
 export async function summarizeByItem(
   corrections: readonly Correction[],
-  weightOf: ClassWeightOf,
+  weightOf: GroupWeightOf,
   answerAt?: string,
 ): Promise<CorrectedItemSummary[]> {
   const byKey = new Map<string, ItemVerdict[]>();

@@ -1900,35 +1900,36 @@ export const ERROR_ENTRIES = {
       { key: 'to', meaning: 'the status the change would have set' },
     ],
   },
-  'judge-class-not-found': {
-    description: 'No live judge class exists with that id.',
+  'corrector-group-not-found': {
+    description: 'No live corrector group exists with that id.',
     details: [],
   },
-  'judging-rule-not-found': {
-    description: 'The project has no judging rule with that id.',
+  'queue-rule-not-found': {
+    description: 'The project has no queue rule with that id.',
     details: [],
   },
-  'judging-item-not-found': {
+  'expert-queue-item-not-found': {
     description: "The run isn't in the project's To correct list.",
     details: [],
   },
-  'judging-item-not-open': {
+  'expert-queue-item-not-open': {
     description:
       "The queue item isn't in the state this action needs: dismiss needs it open, and reopen needs it dismissed.",
     details: [],
   },
-  'judge-class-name-taken': {
-    description: 'A judge class with that name already exists in this scope. Pick another name.',
+  'corrector-group-name-taken': {
+    description:
+      'A corrector group with that name already exists in this scope. Pick another name.',
     details: [],
   },
-  'judge-class-not-applicable': {
+  'corrector-group-not-applicable': {
     description:
-      "The judge class you named doesn't exist, or doesn't apply to this run's project or agent.",
+      "The corrector group you named doesn't exist, or doesn't apply to this run's project or agent.",
     details: [],
   },
-  'judge-class-not-allowed': {
+  'corrector-group-not-allowed': {
     description:
-      "The judge class limits who may assert it, and your key or role isn't one of them, so you can't record a correction as that class.",
+      "The corrector group limits who may assert it, and your key or role isn't one of them, so you can't record a correction as that class.",
     details: [
       {
         key: 'action',

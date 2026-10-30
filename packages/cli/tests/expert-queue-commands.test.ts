@@ -41,25 +41,25 @@ function recorder() {
   return { calls, rec };
 }
 
-describe('kindgi judging-queue', () => {
+describe('kindgi expert-queue', () => {
   test('list passes the state, the filters and the paging', async () => {
     const { calls, rec } = recorder();
     const out = await run(
       [
-        'judging-queue',
+        'expert-queue',
         'list',
         '--project=p-1',
         '--state=open',
         '--agent=acme.matcher',
         '--rule=jr-1',
-        '--class=jc-1',
+        '--group=jc-1',
         '--for-me',
         '--added-after=2026-10-01',
         '--closed-after=2026-10-02',
         '--limit=5',
         '--cursor=c1',
       ],
-      { projects: { judgingQueue: { list: rec('list', { data: [], hasMore: false, total: 0 }) } } },
+      { projects: { expertQueue: { list: rec('list', { data: [], hasMore: false, total: 0 }) } } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
@@ -70,7 +70,7 @@ describe('kindgi judging-queue', () => {
           state: 'open',
           agentId: 'acme.matcher',
           ruleId: 'jr-1',
-          judgeClassId: 'jc-1',
+          correctorGroupId: 'jc-1',
           forMe: true,
           addedAfter: '2026-10-01T00:00:00.000Z',
           closedAfter: '2026-10-02T00:00:00.000Z',
@@ -82,32 +82,28 @@ describe('kindgi judging-queue', () => {
   });
 
   test('list refuses an unknown state', async () => {
-    const out = await run(['judging-queue', 'list', '--project=p-1', '--state=waiting'], {
-      projects: { judgingQueue: {} },
+    const out = await run(['expert-queue', 'list', '--project=p-1', '--state=waiting'], {
+      projects: { expertQueue: {} },
     });
     expect(out.exitCode).toBe(2);
-    expect(out.stderr).toContain('--state must be one of open, judged, dismissed, erased');
+    expect(out.stderr).toContain('--state must be one of open, corrected, dismissed, erased');
   });
 
   test('dismiss sends the reason; reopen takes none', async () => {
     const { calls, rec } = recorder();
     const client = {
       projects: {
-        judgingQueue: {
+        expertQueue: {
           dismiss: rec('dismiss', { runId: 'r-1', state: 'dismissed' }),
           reopen: rec('reopen', { runId: 'r-1', state: 'open' }),
         },
       },
     };
     expect(
-      (
-        await run(
-          ['judging-queue', 'dismiss', 'r-1', '--project=p-1', '--reason=off topic'],
-          client,
-        )
-      ).exitCode,
+      (await run(['expert-queue', 'dismiss', 'r-1', '--project=p-1', '--reason=off topic'], client))
+        .exitCode,
     ).toBe(0);
-    expect((await run(['judging-queue', 'reopen', 'r-1', '--project=p-1'], client)).exitCode).toBe(
+    expect((await run(['expert-queue', 'reopen', 'r-1', '--project=p-1'], client)).exitCode).toBe(
       0,
     );
     expect(calls).toEqual([

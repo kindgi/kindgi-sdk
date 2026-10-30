@@ -64,7 +64,7 @@ describe('kindgi eval-runs start', () => {
       '--reads=live',
       '--repetitions=3',
       '--k=5',
-      '--class-weights=restricted-only',
+      '--group-weights=experts-only',
     ]);
     expect(out.exitCode, out.stderr).toBe(0);
     expect(JSON.parse(out.stdout)).toEqual({ runId: 'er-1' });
@@ -87,18 +87,18 @@ describe('kindgi eval-runs start', () => {
           reads: 'live',
           repetitions: 3,
           k: 5,
-          classWeights: 'restricted-only',
+          groupWeights: 'experts-only',
         },
         { projectId: 'p-1' },
       ],
     ]);
   });
 
-  test('--class-weights takes as-recorded or restricted-only', async () => {
-    const { out, calls } = await start(['--agent=acme.triage', '--class-weights=some']);
+  test('--group-weights takes as-recorded or experts-only', async () => {
+    const { out, calls } = await start(['--agent=acme.triage', '--group-weights=some']);
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain(
-      '--class-weights must be one of as-recorded, restricted-only, got "some"',
+      '--group-weights must be one of as-recorded, experts-only, got "some"',
     );
     expect(calls).toEqual([]);
   });

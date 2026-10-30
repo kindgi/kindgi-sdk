@@ -106,7 +106,7 @@ export interface CorrectionFilter {
   readonly since?: string;
   /** Made before this time (ISO 8601). */
   readonly until?: string;
-  readonly judgeClassId?: string;
+  readonly correctorGroupId?: string;
   readonly participantId?: string;
   /** Narrow to a project (or org). */
   readonly scope?: ScopeRef;
@@ -140,7 +140,9 @@ export function makeCorrectionsClient(transport: Transport): CorrectionsClient {
           ...(filter?.madeBy !== undefined && { madeBy: filter.madeBy }),
           ...(filter?.since !== undefined && { since: filter.since }),
           ...(filter?.until !== undefined && { until: filter.until }),
-          ...(filter?.judgeClassId !== undefined && { judgeClassId: filter.judgeClassId }),
+          ...(filter?.correctorGroupId !== undefined && {
+            correctorGroupId: filter.correctorGroupId,
+          }),
           ...(filter?.participantId !== undefined && { participantId: filter.participantId }),
           ...(filter?.scope !== undefined && scopeToQuery(filter.scope)),
         },

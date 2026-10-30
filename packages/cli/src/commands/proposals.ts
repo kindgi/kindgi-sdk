@@ -14,7 +14,7 @@ import type {
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
 import { SCOPE_FLAGS, SCOPE_USAGE, scopeCell, scopeFrom } from './agents.js';
-import { CLASS_WEIGHTS, READS, followEvalRun, oneOfFlag } from './eval-runs.js';
+import { GROUP_WEIGHTS, READS, followEvalRun, oneOfFlag } from './eval-runs.js';
 import {
   type TableSpec,
   integerFlag,
@@ -230,7 +230,7 @@ const evaluate: LeafCommand = {
   description:
     'Evaluate a suggested change on the test cases: a run on the test cases that tries the candidate against the version it changes. The first evaluation publishes the block version and derives the agent version; they serve no scope until made live, so the agent needs a live version for the whole tenant (`kindgi agents promote <agent-id> <version> --tenant`). The suggested change is `evaluating`, then `evaluated` (better), `not-better` or `evaluation-failed`. With `--rescore`, after people corrected the new answers of its replay runs: the latest evaluation scored again, counting those corrections, on the same replays (no other flag). Needs `publish` on the agent.',
   usage:
-    'kindgi proposals evaluate <proposal-id> --test-set=<suite-id> [--objective=weightedYesShare|weightedPrecisionAtK] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--class-weights=as-recorded|restricted-only] [--wait]\n       kindgi proposals evaluate <proposal-id> --rescore [--wait]',
+    'kindgi proposals evaluate <proposal-id> --test-set=<suite-id> [--objective=weightedYesShare|weightedPrecisionAtK] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--group-weights=as-recorded|experts-only] [--wait]\n       kindgi proposals evaluate <proposal-id> --rescore [--wait]',
   optionSpec: {
     'test-set': { type: 'string', description: 'The test cases: a judged eval suite, by id.' },
     objective: {
@@ -252,10 +252,10 @@ const evaluate: LeafCommand = {
       type: 'string',
       description: 'How many ranked items weighted precision@k looks at (1 to 100, default 10).',
     },
-    'class-weights': {
+    'group-weights': {
       type: 'string',
       description:
-        '`as-recorded` (the default) or `restricted-only`: only corrections in restricted judge classes count.',
+        '`as-recorded` (the default) or `experts-only`: only corrections in expert groups count.',
     },
     rescore: {
       type: 'boolean',
@@ -292,7 +292,7 @@ const evaluate: LeafCommand = {
       const suiteId = required(ctx, 'test-set');
       const objective = oneOfFlag(ctx, 'objective', OBJECTIVES);
       const reads = oneOfFlag(ctx, 'reads', READS);
-      const classWeights = oneOfFlag(ctx, 'class-weights', CLASS_WEIGHTS);
+      const groupWeights = oneOfFlag(ctx, 'group-weights', GROUP_WEIGHTS);
       const repetitions = integerFlag(ctx, 'repetitions');
       const k = integerFlag(ctx, 'k');
       const started = await proposals.evaluate(id, {
@@ -301,7 +301,7 @@ const evaluate: LeafCommand = {
         ...(reads !== undefined && { reads }),
         ...(repetitions !== undefined && { repetitions }),
         ...(k !== undefined && { k }),
-        ...(classWeights !== undefined && { classWeights }),
+        ...(groupWeights !== undefined && { groupWeights }),
         ...idempotency(ctx),
       });
       return ctx.options.wait === true ? await follow() : started;
@@ -315,7 +315,7 @@ const COMPARISON_FLAGS = [
   'reads',
   'repetitions',
   'k',
-  'class-weights',
+  'group-weights',
 ] as const;
 
 const request: LeafCommand = {
@@ -449,7 +449,7 @@ const improve: LeafCommand = {
   name: 'improve',
   description:
     "Ask the runtime to look for better values for the settings an agent version marks as what Improve may change — or, with `--tier=prompt`, have a model draft new instructions — for a scope, within a budget. It searches on part of the test cases and checks its best candidate on the cases it didn't learn from; if that candidate is better, it writes a suggested change, which a reviewer decides (`kindgi proposals request`). The Improve run works in one project: the test cases must be ones that project reaches, and its eval runs run there. With `--project`, it's that project; with `--tenant` or `--org`, `--pass-project`, else the agent version's. Answers at once with the Improve run; `--wait` waits for its outcome. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's.",
-  usage: `kindgi proposals improve --agent=<agent-id> ${SCOPE_USAGE} --test-set=<suite-id> [--pass-project=<project-id>] [--from-version=<semver>] [--tier=settings|prompt] [--objective=weightedYesShare|weightedPrecisionAtK] [--class-weights=as-recorded|restricted-only] [--provider=<id> --model=<model>] [--drafts=<n>] [--max-cost=<usd>] [--max-candidates=<n>] [--wait]`,
+  usage: `kindgi proposals improve --agent=<agent-id> ${SCOPE_USAGE} --test-set=<suite-id> [--pass-project=<project-id>] [--from-version=<semver>] [--tier=settings|prompt] [--objective=weightedYesShare|weightedPrecisionAtK] [--group-weights=as-recorded|experts-only] [--provider=<id> --model=<model>] [--drafts=<n>] [--max-cost=<usd>] [--max-candidates=<n>] [--wait]`,
   optionSpec: {
     agent: { type: 'string', description: 'The agent.' },
     ...SCOPE_FLAGS,
@@ -476,10 +476,10 @@ const improve: LeafCommand = {
       type: 'string',
       description: 'What better means: `weightedYesShare` (the default) or `weightedPrecisionAtK`.',
     },
-    'class-weights': {
+    'group-weights': {
       type: 'string',
       description:
-        "Which corrections the Improve run learns from: `as-recorded` (all classes) or `restricted-only` (restricted judge classes only). Omitted, it counts everyone until the test cases' project, its tenant, or the agent improved there has a restricted judge class, then only those.",
+        "Which corrections the Improve run learns from: `as-recorded` (all groups) or `experts-only` (expert groups only). Omitted, it counts everyone until the test cases' project, its tenant, or the agent improved there has an expert group, then only those.",
     },
     provider: {
       type: 'string',
@@ -519,7 +519,7 @@ const improve: LeafCommand = {
       const passProject = stringFlag(ctx, 'pass-project');
       const tier = oneOfFlag(ctx, 'tier', IMPROVE_TIERS);
       const objective = oneOfFlag(ctx, 'objective', OBJECTIVES);
-      const classWeights = oneOfFlag(ctx, 'class-weights', CLASS_WEIGHTS);
+      const groupWeights = oneOfFlag(ctx, 'group-weights', GROUP_WEIGHTS);
       const model = improveModel(ctx);
       const candidates = integerFlag(ctx, 'drafts');
       const maxCostUsd = numberFlag(ctx, 'max-cost');
@@ -534,7 +534,7 @@ const improve: LeafCommand = {
         ...(fromVersion !== undefined && { fromVersion }),
         ...(tier !== undefined && { tiers: [tier] }),
         ...(objective !== undefined && { objective }),
-        ...(classWeights !== undefined && { classWeights }),
+        ...(groupWeights !== undefined && { groupWeights }),
         ...(model !== undefined && { model }),
         ...(candidates !== undefined && { candidates }),
         ...((maxCostUsd !== undefined || maxCandidates !== undefined) && {

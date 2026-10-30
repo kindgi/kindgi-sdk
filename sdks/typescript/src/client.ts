@@ -20,6 +20,10 @@ import {
 } from './resources/connections.js';
 import { type ConversationsClient, makeConversationsClient } from './resources/conversations.js';
 import { type CorrectionsClient, makeCorrectionsClient } from './resources/corrections.js';
+import {
+  type CorrectorGroupsClient,
+  makeCorrectorGroupsClient,
+} from './resources/corrector-groups.js';
 import { type CostClient, makeCostClient } from './resources/cost.js';
 import { type DeploymentsClient, makeDeploymentsClient } from './resources/deployments.js';
 import { type EnvClient, makeEnvClient } from './resources/env.js';
@@ -43,7 +47,6 @@ import {
   type ImprovementPassesClient,
   makeImprovementPassesClient,
 } from './resources/improvement-passes.js';
-import { type JudgeClassesClient, makeJudgeClassesClient } from './resources/judge-classes.js';
 import { type LicenseClient, makeLicenseClient } from './resources/license.js';
 import { type MailTriggersClient, makeMailTriggersClient } from './resources/mail-triggers.js';
 import { type McpClient, makeMcpClient } from './resources/mcp.js';
@@ -147,7 +150,7 @@ export interface KindgiClient {
   readonly blocks: BlocksClient;
   readonly evalRuns: EvalRunsClient;
   readonly corrections: CorrectionsClient;
-  readonly judgeClasses: JudgeClassesClient;
+  readonly correctorGroups: CorrectorGroupsClient;
   // Identity
   readonly users: UsersClient;
   readonly identity: IdentityClient;
@@ -243,7 +246,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     blocks: makeBlocksClient(transport),
     evalRuns: makeEvalRunsClient(transport),
     corrections: makeCorrectionsClient(transport),
-    judgeClasses: makeJudgeClassesClient(transport),
+    correctorGroups: makeCorrectorGroupsClient(transport),
     users: makeUsersClient(transport),
     identity: makeIdentityClient(transport),
     auth: makeAuthClient(transport),

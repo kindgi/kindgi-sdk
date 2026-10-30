@@ -338,7 +338,7 @@ describe('kindgi exports create', () => {
       '/v1/environments': () =>
         json(501, { error: { code: 'environments-unsupported', message: 'No env names here' } }),
       '/v1/projects': [{ id: 'proj-1' }],
-      '/v1/projects/proj-1/judging-rules': notMounted,
+      '/v1/projects/proj-1/queue-rules': notMounted,
       '/v1/provenance': [{ runId: 'run-1' }],
       '/v1/provenance/run-1': () =>
         json(501, { error: { code: 'provenance-unsupported', message: 'No provenance here' } }),
@@ -361,19 +361,19 @@ describe('kindgi exports create', () => {
       status: 'skipped',
       reason: "it's made for each record of compliance-evidence, which wasn't exported",
     });
-    expect(m.kinds['judging-rules']).toEqual({
+    expect(m.kinds['queue-rules']).toEqual({
       status: 'skipped',
-      reason: "this server doesn't serve /v1/projects/{projectId}/judging-rules (404)",
+      reason: "this server doesn't serve /v1/projects/{projectId}/queue-rules (404)",
     });
-    expect(m.kinds['judging-rule-versions']).toEqual({
+    expect(m.kinds['queue-rule-versions']).toEqual({
       status: 'skipped',
-      reason: "it's read for each record of judging-rules, which wasn't exported",
+      reason: "it's read for each record of queue-rules, which wasn't exported",
     });
     expect(m.kinds.provenance).toEqual({
       status: 'skipped',
       reason: "this server doesn't serve /v1/provenance/{runId} (501)",
     });
-    expect(m.kinds['judging-queue']).toMatchObject({ status: 'ok' });
+    expect(m.kinds['expert-queue']).toMatchObject({ status: 'ok' });
     expect(m.kinds.artifacts).toEqual({
       status: 'skipped',
       reason: "this server doesn't serve /v1/artifacts/{blobId} (404)",

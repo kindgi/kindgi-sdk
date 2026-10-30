@@ -137,8 +137,8 @@ export interface ImproveInput {
   /** `['settings']` (the default): tunable settings values; `['prompt']`: drafted templates (needs `model`). */
   readonly tiers?: readonly ('settings' | 'prompt')[];
   readonly objective?: ProposalObjective;
-  /** Which corrections it learns from. Omit it for the default: everyone's (`as-recorded`) until the test set's project, its tenant, or the agent improved there has a restricted judge class, then only corrections recorded under one (`restricted-only`). */
-  readonly classWeights?: 'restricted-only' | 'as-recorded';
+  /** Which corrections it learns from. Omit it for the default: everyone's (`as-recorded`) until the test set's project, its tenant, or the agent improved there has an expert group, then only corrections recorded under one (`experts-only`). */
+  readonly groupWeights?: 'experts-only' | 'as-recorded';
   /** For a prompt pass: the tenant's provider and model that drafts the templates. */
   readonly model?: { readonly providerId: string; readonly model: string };
   /** For a prompt pass: how many templates it drafts (1–5, default 3). */
@@ -191,7 +191,7 @@ export interface EvaluateProposalInput {
   readonly reads?: 'recorded' | 'live';
   readonly repetitions?: number;
   readonly k?: number;
-  readonly classWeights?: 'as-recorded' | 'restricted-only';
+  readonly groupWeights?: 'as-recorded' | 'experts-only';
   /** Only part of the test set: the hold-out part proves a candidate (a gate refuses the search part). */
   readonly sample?: {
     readonly part: 'search' | 'hold-out';

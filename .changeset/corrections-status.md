@@ -12,7 +12,7 @@
   - `items` (`[{ key, pointer?, rank?, verdict }]`) is for an answer that is a ranked list. A wrong item needs nothing more.
   - `item`, `verdict`, `reason` and `correction` are gone, and sending one is a 400 that names its new field. A second correction by the same caller on the same run, for the same `participantId`, replaces the first.
 - **Sorted when it's saved.**
-  - A correction from an app's end user (`participantId`, not under a restricted class) stays `open` and unsorted.
+  - A correction from an app's end user (`participantId`, not under a restricted group) stays `open` and unsorted.
   - Wrong decisions go to the agent's owner (`with-owner`).
   - A wrong answer, or a wrong item of it, goes to Improve (`open`).
   - Nothing wrong is `fixed`, as `recorded-right`.

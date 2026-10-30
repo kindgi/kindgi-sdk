@@ -470,7 +470,7 @@ function inMemoryPasses() {
         suiteId: input.suiteId,
         tiers: input.tiers,
         objective: input.objective,
-        classWeights: input.classWeights,
+        groupWeights: input.groupWeights,
         ...(input.model !== undefined && { model: input.model }),
         ...(input.candidates !== undefined && { candidates: input.candidates }),
         budget: input.budget,
@@ -627,7 +627,7 @@ async function harness(
   const releases = releasesFake(agents);
   const proposals = inMemoryProposals();
   const grants = opts.grants;
-  // The improve route resolves the `classWeights` default against the suite's
+  // The improve route resolves the `groupWeights` default against the suite's
   // project. The stub makes every suite a judged one in `suiteProjectId`
   // (default: the agent's project), so a pass reads from there.
   const suiteProject = opts.suiteProjectId ?? projectId;
@@ -872,7 +872,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
     const res = await call('POST', `/v1/proposals/${id}/evaluate`, {
       suiteId: 'acme.scoring-judged',
       repetitions: 3,
-      classWeights: 'restricted-only',
+      groupWeights: 'experts-only',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(202);
     expect(res.body.status).toBe('evaluating');
@@ -901,7 +901,7 @@ describe('POST /v1/proposals/:id/evaluate', () => {
         suiteId: 'acme.scoring-judged',
         agentRef: { agentId: AGENT, version: '1.0.1' },
         correlationId: `proposal:${id}`,
-        comparison: expect.objectContaining({ repetitions: 3, classWeights: 'restricted-only' }),
+        comparison: expect.objectContaining({ repetitions: 3, groupWeights: 'experts-only' }),
       }),
     ]);
   });
@@ -2398,10 +2398,10 @@ describe('improvement passes', () => {
     expect(passes.started[0]).toMatchObject({
       projectId,
       fromVersion: '1.0.0',
-      // With no judge-class registry wired, the default stays restricted-only (K4).
-      classWeights: 'restricted-only',
+      // With no corrector-group registry wired, the default stays experts-only (K4).
+      groupWeights: 'experts-only',
     });
-    expect(res.body.classWeights).toBe('restricted-only');
+    expect(res.body.groupWeights).toBe('experts-only');
     const read = await h.call('GET', `/v1/improvement-passes/${res.body.id}`);
     expect(read.body.id).toBe(res.body.id);
     const listed = await h.call('GET', `/v1/improvement-passes?agentId=${AGENT}`);
@@ -2413,7 +2413,7 @@ describe('improvement passes', () => {
     expect(again.body.error.code).toBe('improvement-pass-finished');
   });
 
-  test("counts everyone's corrections until the project names a restricted judge class", async () => {
+  test("counts everyone's corrections until the project names an expert group", async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
     const h = await harness({
@@ -2422,17 +2422,17 @@ describe('improvement passes', () => {
       correctionRegistry: corrections,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    // No expert (restricted) judge class is named, so every correction counts.
+    // No expert (restricted) corrector group is named, so every correction counts.
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
-    expect(res.body.classWeights).toBe('as-recorded');
+    expect(passes.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
+    expect(res.body.groupWeights).toBe('as-recorded');
   });
 
-  test('switches to trusted corrections once the project names a restricted judge class', async () => {
+  test('switches to trusted corrections once the project names an expert group', async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
-    await corrections.createClass({
+    await corrections.createGroup({
       tenantId,
       scope: { kind: 'project', projectId },
       name: 'expert',
@@ -2447,14 +2447,14 @@ describe('improvement passes', () => {
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
-    expect(res.body.classWeights).toBe('restricted-only');
+    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
+    expect(res.body.groupWeights).toBe('experts-only');
   });
 
-  test('a tenant-wide restricted judge class names experts for every project', async () => {
+  test('a tenant-wide expert group names experts for every project', async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
-    await corrections.createClass({
+    await corrections.createGroup({
       tenantId,
       scope: { kind: 'tenant' },
       name: 'expert',
@@ -2469,13 +2469,13 @@ describe('improvement passes', () => {
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
-  test('a restricted class on the agent being improved switches to trusted', async () => {
+  test('an expert group on the agent being improved switches to trusted', async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
-    await corrections.createClass({
+    await corrections.createGroup({
       tenantId,
       scope: { kind: 'agent', projectId, agentId: AGENT },
       name: 'expert',
@@ -2490,13 +2490,13 @@ describe('improvement passes', () => {
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
-  test("a restricted class on another agent doesn't count: still counts everyone", async () => {
+  test("an expert group on another agent doesn't count: still counts everyone", async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
-    await corrections.createClass({
+    await corrections.createGroup({
       tenantId,
       scope: { kind: 'agent', projectId, agentId: 'acme.other' },
       name: 'expert',
@@ -2511,13 +2511,13 @@ describe('improvement passes', () => {
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
+    expect(passes.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
   });
 
-  test("a restricted class in another project doesn't count: still counts everyone", async () => {
+  test("an expert group in another project doesn't count: still counts everyone", async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
-    await corrections.createClass({
+    await corrections.createGroup({
       tenantId,
       scope: { kind: 'project', projectId: randomUUID() as ProjectId },
       name: 'expert',
@@ -2532,15 +2532,15 @@ describe('improvement passes', () => {
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
+    expect(passes.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
   });
 
-  test("a restricted class on this agent in another project doesn't count: still counts everyone", async () => {
+  test("an expert group on this agent in another project doesn't count: still counts everyone", async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
     // Same agent id, but scoped to another project: the agent clause must match
     // the pass's own project, so this must not flip the pass to trusted.
-    await corrections.createClass({
+    await corrections.createGroup({
       tenantId,
       scope: { kind: 'agent', projectId: randomUUID() as ProjectId, agentId: AGENT },
       name: 'expert',
@@ -2555,15 +2555,15 @@ describe('improvement passes', () => {
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
+    expect(passes.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
   });
 
-  test('finds a restricted judge class past the first page of its scope', async () => {
+  test('finds an expert group past the first page of its scope', async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
-    // The restricted judge class is the oldest, so it falls on the second page once 100
-    // newer open classes are listed ahead of it: the resolver must read on.
-    await corrections.createClass({
+    // The expert group is the oldest, so it falls on the second page once 100
+    // newer open groups are listed ahead of it: the resolver must read on.
+    await corrections.createGroup({
       tenantId,
       scope: { kind: 'project', projectId },
       name: 'expert',
@@ -2571,7 +2571,7 @@ describe('improvement passes', () => {
       assertableBy: { principalKinds: ['user'] },
     });
     for (let i = 0; i < 100; i++) {
-      await corrections.createClass({
+      await corrections.createGroup({
         tenantId,
         scope: { kind: 'project', projectId },
         name: `open-${i}`,
@@ -2586,7 +2586,7 @@ describe('improvement passes', () => {
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
   test("resolves against the suite's project, not where the agent is made", async () => {
@@ -2594,9 +2594,9 @@ describe('improvement passes', () => {
     const corrections = inMemoryCorrections();
     const suiteProjectId = randomUUID() as ProjectId;
     // The agent is made in `projectId`, but its suite reads corrections from
-    // another environment's project, where the restricted judge class lives: the pass
+    // another environment's project, where the expert group lives: the pass
     // counts trusted only, keying off the suite's project.
-    await corrections.createClass({
+    await corrections.createGroup({
       tenantId,
       scope: { kind: 'project', projectId: suiteProjectId },
       name: 'expert',
@@ -2612,17 +2612,17 @@ describe('improvement passes', () => {
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
-  test("a restricted judge class only where the agent is made, not in the suite's project, doesn't count", async () => {
+  test("an expert group only where the agent is made, not in the suite's project, doesn't count", async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
     const suiteProjectId = randomUUID() as ProjectId;
-    // The inverse: the restricted judge class is in the agent's own project, but the
+    // The inverse: the expert group is in the agent's own project, but the
     // suite reads from another, so the default must NOT flip — the pass
     // counts the suite project's corrections, not `from.projectId`'s.
-    await corrections.createClass({
+    await corrections.createGroup({
       tenantId,
       scope: { kind: 'project', projectId },
       name: 'expert',
@@ -2638,7 +2638,7 @@ describe('improvement passes', () => {
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
+    expect(passes.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
   });
 
   test('a non-judged suite keys off its row project, not its spec project', async () => {
@@ -2647,10 +2647,10 @@ describe('improvement passes', () => {
     const rowProjectId = randomUUID() as ProjectId;
     const specProjectId = randomUUID() as ProjectId;
     // A non-judged suite records its project on the row, not in `spec`. The
-    // restricted judge class is in the row project, so the default flips. Reading
+    // expert group is in the row project, so the default flips. Reading
     // `spec.projectId` regardless of kind would miss it; dropping the
     // `?? row project` fallback would read the agent's project instead.
-    await corrections.createClass({
+    await corrections.createGroup({
       tenantId,
       scope: { kind: 'project', projectId: rowProjectId },
       name: 'expert',
@@ -2673,16 +2673,16 @@ describe('improvement passes', () => {
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
   test('a missing suite falls back to the project the agent is made in', async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
     // The suite binding finds no record; the default then keys off the agent
-    // version's project, where this restricted judge class lives. Dropping the
+    // version's project, where this expert group lives. Dropping the
     // `?? from.projectId` fallback would ask only the tenant scope.
-    await corrections.createClass({
+    await corrections.createGroup({
       tenantId,
       scope: { kind: 'project', projectId },
       name: 'expert',
@@ -2698,17 +2698,17 @@ describe('improvement passes', () => {
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
-  test("a restricted judge class on the agent in the suite's project flips the default", async () => {
+  test("an expert group on the agent in the suite's project flips the default", async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
     const suiteProjectId = randomUUID() as ProjectId;
-    // The agent-scope restricted judge class is in the SUITE's project, not the agent's
+    // The agent-scope expert group is in the SUITE's project, not the agent's
     // own. Keying off the suite's project, the agent clause finds it; keying
     // off `from.projectId` would miss it.
-    await corrections.createClass({
+    await corrections.createGroup({
       tenantId,
       scope: { kind: 'agent', projectId: suiteProjectId, agentId: AGENT },
       name: 'expert',
@@ -2724,13 +2724,13 @@ describe('improvement passes', () => {
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
+    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
   });
 
-  test('an explicit classWeights skips the suite read', async () => {
+  test('an explicit groupWeights skips the suite read', async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
-    // With `classWeights` set, the default isn't resolved, so the route must
+    // With `groupWeights` set, the default isn't resolved, so the route must
     // not read the suite at all — the stub throws if it does.
     const h = await harness({
       tunable: true,
@@ -2741,28 +2741,28 @@ describe('improvement passes', () => {
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', {
       ...IMPROVE,
-      classWeights: 'as-recorded',
+      groupWeights: 'as-recorded',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
+    expect(passes.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
   });
 
-  test('with no judge-class registry wired, the suite read is skipped', async () => {
+  test('with no corrector-group registry wired, the suite read is skipped', async () => {
     const passes = inMemoryPasses();
-    // No correctionRegistry, so there are no judge classes to resolve a default
+    // No correctionRegistry, so there are no corrector groups to resolve a default
     // from: the route must not read the suite — the stub throws if it does.
     const h = await harness({ tunable: true, passes: passes.binding, suiteGetThrows: true });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
-    expect(res.body.classWeights).toBe('restricted-only');
+    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
+    expect(res.body.groupWeights).toBe('experts-only');
   });
 
-  test('an unrestricted class is not a restricted judge class: still counts everyone', async () => {
+  test('an unrestricted group is not an expert group: still counts everyone', async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
-    await corrections.createClass({
+    await corrections.createGroup({
       tenantId,
       scope: { kind: 'project', projectId },
       name: 'user',
@@ -2776,10 +2776,10 @@ describe('improvement passes', () => {
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
     const res = await h.call('POST', '/v1/proposals/improve', IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ classWeights: 'as-recorded' });
+    expect(passes.started[0]).toMatchObject({ groupWeights: 'as-recorded' });
   });
 
-  test('an explicit classWeights always wins over the project default', async () => {
+  test('an explicit groupWeights always wins over the project default', async () => {
     const passes = inMemoryPasses();
     const corrections = inMemoryCorrections();
     const h = await harness({
@@ -2788,14 +2788,14 @@ describe('improvement passes', () => {
       correctionRegistry: corrections,
     });
     h.releases.pin({ kind: 'tenant' }, '1.0.0');
-    // No restricted judge class named, but the caller asks for restricted-only outright.
+    // No expert group named, but the caller asks for experts-only outright.
     const res = await h.call('POST', '/v1/proposals/improve', {
       ...IMPROVE,
-      classWeights: 'restricted-only',
+      groupWeights: 'experts-only',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(passes.started[0]).toMatchObject({ classWeights: 'restricted-only' });
-    expect(res.body.classWeights).toBe('restricted-only');
+    expect(passes.started[0]).toMatchObject({ groupWeights: 'experts-only' });
+    expect(res.body.groupWeights).toBe('experts-only');
   });
 
   test('no pass starts for an agent whose project is suspended: 409 project-suspended; restored, it starts', async () => {
@@ -3000,7 +3000,7 @@ describe('improvement passes', () => {
       suiteId: 's',
       tiers: ['settings'],
       objective: 'weightedYesShare',
-      classWeights: 'restricted-only',
+      groupWeights: 'experts-only',
       budget: { maxCostUsd: 1, maxCandidates: 1 },
       requestedBy: { kind: 'user', id: 'u' },
     });

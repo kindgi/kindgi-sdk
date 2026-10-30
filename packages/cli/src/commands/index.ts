@@ -14,6 +14,7 @@ import { connectionsCommand } from './connections.js';
 import { consoleCommand } from './console.js';
 import { conversationsCommand } from './conversations.js';
 import { correctionsCommand } from './corrections.js';
+import { correctorGroupsCommand } from './corrector-groups.js';
 import { deployCommand } from './deploy.js';
 import { deploymentsCommand } from './deployments.js';
 import { devCommand } from './dev.js';
@@ -23,6 +24,7 @@ import { envCommand } from './env.js';
 import { environmentsCommand } from './environments.js';
 import { evalRunsCommand } from './eval-runs.js';
 import { evalSuitesCommand } from './eval-suites.js';
+import { expertQueueCommand } from './expert-queue.js';
 import { exportsCommand } from './exports.js';
 import { feedbackCommand } from './feedback.js';
 import { flowsCommand } from './flows.js';
@@ -30,9 +32,6 @@ import { gatePoliciesCommand } from './gate-policies.js';
 import { guardrailsCommand } from './guardrails.js';
 import { healthCommand } from './health.js';
 import { initCommand } from './init.js';
-import { judgeClassesCommand } from './judge-classes.js';
-import { judgingQueueCommand } from './judging-queue.js';
-import { judgingRulesCommand } from './judging-rules.js';
 import { keyCommand } from './key.js';
 import { licenseCommand } from './license.js';
 import { mailTriggersCommand } from './mail-triggers.js';
@@ -45,6 +44,7 @@ import { promoteCommand } from './promote.js';
 import { proposalsCommand } from './proposals.js';
 import { provenanceCommand } from './provenance.js';
 import { providersCommand } from './providers.js';
+import { queueRulesCommand } from './queue-rules.js';
 import { reviewersCommand } from './reviewers.js';
 import { runsCommand } from './runs.js';
 import { schedulesCommand } from './schedules.js';
@@ -107,9 +107,9 @@ export const ROOT_COMMANDS: readonly Command[] = [
   reviewersCommand,
   observationsCommand,
   correctionsCommand,
-  judgeClassesCommand,
-  judgingRulesCommand,
-  judgingQueueCommand,
+  correctorGroupsCommand,
+  queueRulesCommand,
+  expertQueueCommand,
   evalRunsCommand,
   evalSuitesCommand,
   blocksCommand,

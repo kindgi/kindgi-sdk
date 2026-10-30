@@ -119,7 +119,7 @@ const fromCorrections: LeafCommand = {
   description:
     "Build test cases: publish a `judged` suite version whose cases are copies of an agent's or flow's corrected runs, with each item's corrections summed up.",
   usage:
-    'kindgi eval-suites from-corrections <suite-id> --suite-version=<semver> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id>) [--since=<iso>] [--until=<iso>] [--class=<judge-class-id> ...] [--min-corrections=<n>] [--segment=<key:value> ...] [--description=<text>]',
+    'kindgi eval-suites from-corrections <suite-id> --suite-version=<semver> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id>) [--since=<iso>] [--until=<iso>] [--group=<corrector-group-id> ...] [--min-corrections=<n>] [--segment=<key:value> ...] [--description=<text>]',
   optionSpec: {
     'suite-version': { type: 'string', description: 'The version to publish. Required.' },
     project: { type: 'string', description: 'The project whose corrected runs to use. Required.' },
@@ -139,11 +139,11 @@ const fromCorrections: LeafCommand = {
       description:
         'Only runs first corrected before this time: an ISO 8601 time with a zone, or a date (its start, UTC).',
     },
-    class: {
+    group: {
       type: 'string',
       multiple: true,
       description:
-        'Count only corrections under this judge class id. Repeat the flag for several classes.',
+        'Count only corrections under this corrector group id. Repeat the flag for several groups.',
     },
     'min-corrections': {
       type: 'string',
@@ -175,7 +175,7 @@ const fromCorrections: LeafCommand = {
       if (minCorrections !== undefined && minCorrections < 1) {
         throw new UsageError('--min-corrections must be 1 or more');
       }
-      const classes = listFlag(ctx, 'class');
+      const groups = listFlag(ctx, 'group');
       const segments = segmentsFlag(ctx);
       const since = timeFlag(ctx, 'since');
       const until = timeFlag(ctx, 'until');
@@ -190,7 +190,7 @@ const fromCorrections: LeafCommand = {
         }),
         ...(since !== undefined && { since }),
         ...(until !== undefined && { until }),
-        ...(classes.length > 0 && { judgeClassIds: classes }),
+        ...(groups.length > 0 && { correctorGroupIds: groups }),
         ...(minCorrections !== undefined && { minCorrections }),
         ...(segments.length > 0 && { segments: [...segments] }),
       });

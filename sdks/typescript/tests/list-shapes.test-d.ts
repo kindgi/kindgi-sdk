@@ -143,8 +143,8 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
       Answer<KindgiClient['identity']['users']['listSessions']>
     >().toMatchTypeOf<WirePage>();
   });
-  test('judgeClasses.list', () => {
-    expectTypeOf<Answer<KindgiClient['judgeClasses']['list']>>().toMatchTypeOf<WirePage>();
+  test('correctorGroups.list', () => {
+    expectTypeOf<Answer<KindgiClient['correctorGroups']['list']>>().toMatchTypeOf<WirePage>();
   });
   test('corrections.list', () => {
     expectTypeOf<Answer<KindgiClient['corrections']['list']>>().toMatchTypeOf<WirePage>();

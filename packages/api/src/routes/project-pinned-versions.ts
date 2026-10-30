@@ -47,7 +47,7 @@ export function projectPinnedVersionsRouter(deps: {
   const { live, projects, authorizer, itemRights } = deps;
   const r = new Hono<AppEnv>();
 
-  // The project first, as the judging routes guard theirs: nothing else is
+  // The project first, as the expert queue routes guard theirs: nothing else is
   // read or refused for a caller who can't read it.
   r.use('/:projectId/pinned-versions', async (c, next) => {
     const projectId = c.req.param('projectId') as string;

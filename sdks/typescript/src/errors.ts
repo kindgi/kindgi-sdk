@@ -337,7 +337,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'version-already-exists':
     case 'eval-run-already-terminal':
     case 'approval-already-decided':
-    case 'judge-class-name-taken':
+    case 'corrector-group-name-taken':
     case 'promotion-superseded':
     case 'gate-policy-already-registered':
     case 'gate-policy-scope-taken':

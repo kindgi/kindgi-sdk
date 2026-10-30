@@ -188,7 +188,7 @@ describe('kindgi proposals evaluate', () => {
         '--k=5',
         '--reads=live',
         '--repetitions=3',
-        '--class-weights=restricted-only',
+        '--group-weights=experts-only',
       ],
       { proposals: { evaluate: rec('evaluate', { ...PROPOSAL, status: 'evaluating' }) } },
     );
@@ -203,7 +203,7 @@ describe('kindgi proposals evaluate', () => {
           reads: 'live',
           repetitions: 3,
           k: 5,
-          classWeights: 'restricted-only',
+          groupWeights: 'experts-only',
         },
       ],
     ]);
@@ -229,9 +229,9 @@ describe('kindgi proposals evaluate', () => {
     expect(JSON.parse(out.stdout)).toMatchObject({ status: 'evaluated' });
   }, 10_000);
 
-  test('an unknown objective or class weighting is refused before any call', async () => {
+  test('an unknown objective or group weighting is refused before any call', async () => {
     const { calls, rec } = recorder();
-    for (const flag of ['--objective=accuracy', '--class-weights=all']) {
+    for (const flag of ['--objective=accuracy', '--group-weights=all']) {
       const out = await run(['proposals', 'evaluate', 'prop-1', '--test-set=s', flag], {
         proposals: { evaluate: rec('evaluate') },
       });
@@ -525,7 +525,7 @@ describe('kindgi proposals improve', () => {
         '--segment=company:acme',
         '--test-set=acme.judged',
         '--tier=prompt',
-        '--class-weights=as-recorded',
+        '--group-weights=as-recorded',
         '--provider=openai',
         '--model=gpt-4o',
         '--drafts=4',
@@ -541,7 +541,7 @@ describe('kindgi proposals improve', () => {
           scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
           suiteId: 'acme.judged',
           tiers: ['prompt'],
-          classWeights: 'as-recorded',
+          groupWeights: 'as-recorded',
           model: { providerId: 'openai', model: 'gpt-4o' },
           candidates: 4,
         },

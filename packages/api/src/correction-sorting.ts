@@ -9,9 +9,9 @@
 
 import type {
   CorrectedAnswerItem,
-  CorrectionMadeBy,
   CorrectionFixedIn,
   CorrectionLink,
+  CorrectionMadeBy,
   CorrectionSorted,
   CorrectionSortedTo,
   CorrectionStatus,
@@ -42,7 +42,7 @@ export function sortAtSave(
     readonly answer?: Verdict;
     readonly items?: readonly CorrectedAnswerItem[];
     readonly participantId?: string;
-    /** It names a restricted class, and its author met it. */
+    /** It names a restricted group, and its author met it. */
     readonly expert: boolean;
   },
   by: CorrectionMadeBy,

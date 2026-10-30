@@ -584,7 +584,7 @@ export const GateCheckSchema: JsonSchema = {
     name: {
       type: 'string',
       description:
-        'Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.suite`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `classWeights.restrictedOnly`, and `approval.recheck`, which an approval adds to a promotion it supersedes, to say what changed since the check.',
+        'Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.suite`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a promotion it supersedes, to say what changed since the check.',
     },
     passed: { type: 'boolean' },
     message: {
@@ -644,7 +644,7 @@ export const GatePolicySpecSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`evalRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyRestrictedClasses`. Unknown keys are refused.',
+    'What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`evalRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.',
   properties: {
     comparison: {
       type: 'object',
@@ -699,10 +699,10 @@ export const GatePolicySpecSchema: JsonSchema = {
         separateApprover: { type: 'boolean', description: 'Default `true`.' },
       },
     },
-    onlyRestrictedClasses: {
+    onlyExpertGroups: {
       type: 'boolean',
       description:
-        "Only restricted judge classes count: the comparison must be weighted `restricted-only`, so a class anyone may assert can't move the gate.",
+        "Only expert groups count: the comparison must be weighted `experts-only`, so a group anyone may assert can't move the gate.",
     },
   },
 };
@@ -4861,11 +4861,11 @@ export const ObservationCollectionPageSchema: JsonSchema = {
   },
 };
 
-// ---------------- corrections + judge classes ----------------
+// ---------------- corrections + corrector groups ----------------
 
-export const JudgeClassScopeSchema: JsonSchema = {
+export const CorrectorGroupScopeSchema: JsonSchema = {
   description:
-    'Where a judge class applies: the whole tenant, one project, or one agent in a project.',
+    'Where a corrector group applies: the whole tenant, one project, or one agent in a project.',
   oneOf: [
     {
       type: 'object',
@@ -4895,12 +4895,12 @@ export const JudgeClassScopeSchema: JsonSchema = {
   ],
 };
 
-export const JudgeClassAssertableBySchema: JsonSchema = {
+export const CorrectorGroupAssertableBySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   minProperties: 1,
   description:
-    'Who may assert the class: every part that is set must hold. A class with one is restricted: a correction recorded while it is carries `restricted`, and a comparison weighted `restricted-only` counts only those.',
+    'Who may assert the group: every part that is set must hold. A group with one is expert: a correction recorded while it is carries `expert`, and a comparison weighted `experts-only` counts only those.',
   properties: {
     minReviewerRole: {
       type: 'string',
@@ -4925,14 +4925,14 @@ export const JudgeClassAssertableBySchema: JsonSchema = {
 
 /**
  * `assertableBy` as a reader sees it. `principalIds` names people and
- * tokens, so only the class's admins get it; everyone gets their count.
+ * tokens, so only the group's admins get it; everyone gets their count.
  */
-export const JudgeClassAssertableByViewSchema: JsonSchema = {
+export const CorrectorGroupAssertableByViewSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   minProperties: 1,
   description:
-    "Who may assert the class, as the caller sees it: every part that is set must hold. `principalIds` is sent only to an admin on the class's scope; `principalCount` to everyone who reads it.",
+    "Who may assert the group, as the caller sees it: every part that is set must hold. `principalIds` is sent only to an admin on the group's scope; `principalCount` to everyone who reads it.",
   properties: {
     minReviewerRole: {
       type: 'string',
@@ -4951,71 +4951,71 @@ export const JudgeClassAssertableByViewSchema: JsonSchema = {
       maxItems: 100,
       items: { type: 'string', minLength: 1 },
       description:
-        "Only these principals: user ids, or service token ids. Sent only to an admin on the class's scope.",
+        "Only these principals: user ids, or service token ids. Sent only to an admin on the group's scope.",
     },
     principalCount: {
       type: 'integer',
       minimum: 1,
       description:
-        'How many principals the class is restricted to (`principalIds`), for every reader. Absent when it names none.',
+        'How many principals the group is restricted to (`principalIds`), for every reader. Absent when it names none.',
     },
   },
 };
 
-export const JudgeClassSchema: JsonSchema = {
+export const CorrectorGroupSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'tenantId', 'scope', 'name', 'weight', 'createdAt', 'updatedAt'],
   properties: {
     id: { type: 'string' },
     tenantId: { type: 'string' },
-    scope: { $ref: '#/components/schemas/JudgeClassScope' },
+    scope: { $ref: '#/components/schemas/CorrectorGroupScope' },
     name: {
       type: 'string',
-      description: 'The deployment\'s own word for the class: "expert", "user", "arbitrator".',
+      description: 'The deployment\'s own word for the group: "expert", "user", "arbitrator".',
     },
     weight: {
       type: 'number',
       minimum: 0,
-      description: 'How much a correction of this class counts, relative to the others.',
+      description: 'How much a correction of this group counts, relative to the others.',
     },
     description: { type: 'string' },
-    assertableBy: { $ref: '#/components/schemas/JudgeClassAssertableByView' },
+    assertableBy: { $ref: '#/components/schemas/CorrectorGroupAssertableByView' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
     unregisteredAt: {
       type: 'string',
       format: 'date-time',
-      description: 'Set when the class was retired.',
+      description: 'Set when the group was retired.',
     },
   },
 };
 
-export const JudgeClassCollectionPageSchema: JsonSchema = {
+export const CorrectorGroupCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/JudgeClass' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/CorrectorGroup' } },
     nextCursor: { type: 'string', description: 'Opaque cursor. Treat as opaque on the client.' },
     hasMore: { type: 'boolean' },
   },
 };
 
-export const CreateJudgeClassBodySchema: JsonSchema = {
+export const CreateCorrectorGroupBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['scope', 'name', 'weight'],
   properties: {
-    scope: { $ref: '#/components/schemas/JudgeClassScope' },
+    scope: { $ref: '#/components/schemas/CorrectorGroupScope' },
     name: { type: 'string', minLength: 1, maxLength: 100 },
     weight: { type: 'number', minimum: 0 },
     description: { type: 'string' },
-    assertableBy: { $ref: '#/components/schemas/JudgeClassAssertableBy' },
+    assertableBy: { $ref: '#/components/schemas/CorrectorGroupAssertableBy' },
   },
 };
 
-export const UpdateJudgeClassBodySchema: JsonSchema = {
+export const UpdateCorrectorGroupBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   minProperties: 1,
@@ -5023,18 +5023,18 @@ export const UpdateJudgeClassBodySchema: JsonSchema = {
     weight: { type: 'number', minimum: 0 },
     description: { type: 'string' },
     assertableBy: {
-      oneOf: [{ $ref: '#/components/schemas/JudgeClassAssertableBy' }, { type: 'null' }],
-      description: 'Who may assert the class; `null` lifts the restriction.',
+      oneOf: [{ $ref: '#/components/schemas/CorrectorGroupAssertableBy' }, { type: 'null' }],
+      description: 'Who may assert the group; `null` lifts the restriction.',
     },
   },
 };
 
-export const UnregisterJudgeClassResultSchema: JsonSchema = {
+export const UnregisterCorrectorGroupResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['judgeClassId', 'unregistered'],
+  required: ['correctorGroupId', 'unregistered'],
   properties: {
-    judgeClassId: { type: 'string' },
+    correctorGroupId: { type: 'string' },
     unregistered: { type: 'boolean', const: true },
   },
 };
@@ -5238,7 +5238,8 @@ export const CorrectionSortedSchema: JsonSchema = {
   required: ['by', 'at'],
   properties: {
     by: {
-      description: 'The fix job, the rule at save, or the caller who re-sorted it: a user or a service, with its id.',
+      description:
+        'The fix job, the rule at save, or the caller who re-sorted it: a user or a service, with its id.',
       oneOf: [
         {
           type: 'object',
@@ -5250,7 +5251,10 @@ export const CorrectionSortedSchema: JsonSchema = {
           type: 'object',
           additionalProperties: false,
           required: ['kind', 'id'],
-          properties: { kind: { type: 'string', enum: ['user', 'service'] }, id: { type: 'string' } },
+          properties: {
+            kind: { type: 'string', enum: ['user', 'service'] },
+            id: { type: 'string' },
+          },
         },
       ],
     },
@@ -5375,16 +5379,16 @@ export const CorrectionSchema: JsonSchema = {
         'For an answer that is a ranked list: each item, and whether it was right there.',
       items: { $ref: '#/components/schemas/CorrectedAnswerItem' },
     },
-    judgeClassId: {
+    correctorGroupId: {
       type: 'string',
       description:
-        'The judge class the correction is recorded under. Absent when unclassified (counts with weight 1).',
+        'The corrector group the correction is recorded under. Absent when unclassified (counts with weight 1).',
     },
-    restricted: {
+    expert: {
       type: 'boolean',
       enum: [true],
       description:
-        "Present (true) when the judge class was restricted (`assertableBy`) when the correction was recorded, so whoever recorded it was checked against it. A restriction added or lifted later doesn't change it.",
+        "Present (true) when the corrector group was restricted (`assertableBy`) when the correction was recorded, so whoever recorded it was checked against it. A restriction added or lifted later doesn't change it.",
     },
     madeBy: { $ref: '#/components/schemas/CorrectionMadeBy' },
     participantId: {
@@ -5629,7 +5633,7 @@ export const CreateCorrectionBodySchema: JsonSchema = {
         'For an answer that is a ranked list: each item, and whether it was right. Each key once.',
       items: { $ref: '#/components/schemas/CorrectedAnswerItem' },
     },
-    judgeClassId: {
+    correctorGroupId: {
       type: 'string',
       minLength: 1,
       description: 'Optional. When given it must exist and apply to the run.',
@@ -5716,12 +5720,12 @@ export const CorrectedItemSummarySchema: JsonSchema = {
       description: 'The weight behind "yes" (an unclassified correction counts 1).',
     },
     totalWeight: { type: 'number', description: 'The weight behind all corrections of the item.' },
-    restricted: {
+    expert: {
       type: 'object',
       additionalProperties: false,
       required: ['yesWeight', 'totalWeight'],
       description:
-        'The same weights, counting only corrections recorded while their class was restricted (`Correction.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.',
+        'The same weights, counting only corrections recorded while their group was restricted (`Correction.expert`), for a comparison weighted `experts-only`. Absent from a test set built before restrictions.',
       properties: {
         yesWeight: { type: 'number' },
         totalWeight: { type: 'number' },
@@ -5749,12 +5753,15 @@ export const CorrectedItemSummarySchema: JsonSchema = {
         properties: {
           verdict: { type: 'string', enum: ['yes', 'no'] },
           reason: { type: 'string' },
-          judgeClassId: { type: 'string', description: "The correction's class, when it had one." },
-          restricted: {
+          correctorGroupId: {
+            type: 'string',
+            description: "The correction's group, when it had one.",
+          },
+          expert: {
             type: 'boolean',
             enum: [true],
             description:
-              'Set when the correction was recorded while its class was restricted (`Correction.restricted`).',
+              'Set when the correction was recorded while its group was restricted (`Correction.expert`).',
           },
         },
       },
@@ -5778,7 +5785,7 @@ export const CorrectedEvalCaseSchema: JsonSchema = {
     corrections: {
       type: 'array',
       description:
-        "Experts' expected decisions carried onto this case from its corrections, each graded on the replay. Empty or absent when none. `restricted-only` keeps only the entries whose correction was restricted.",
+        "Experts' expected decisions carried onto this case from its corrections, each graded on the replay. Empty or absent when none. `experts-only` keeps only the entries whose correction was restricted.",
       items: {
         type: 'object',
         additionalProperties: false,
@@ -5788,12 +5795,15 @@ export const CorrectedEvalCaseSchema: JsonSchema = {
             type: 'string',
             description: 'The correction they were recorded on.',
           },
-          judgeClassId: { type: 'string', description: "The correction's class, when it had one." },
-          restricted: {
+          correctorGroupId: {
+            type: 'string',
+            description: "The correction's group, when it had one.",
+          },
+          expert: {
             type: 'boolean',
             enum: [true],
             description:
-              'Set when the correction was recorded while its class was restricted (`Correction.restricted`).',
+              'Set when the correction was recorded while its group was restricted (`Correction.expert`).',
           },
           calls: correctionCallsProperty,
           notCalled: correctionNotCalledProperty,
@@ -5841,10 +5851,10 @@ export const BuildCorrectedSuiteBodySchema: JsonSchema = {
       format: 'date-time',
       description: 'Runs first corrected before this time.',
     },
-    judgeClassIds: {
+    correctorGroupIds: {
       type: 'array',
       items: { type: 'string', minLength: 1 },
-      description: 'Count only corrections recorded under these judge classes.',
+      description: 'Count only corrections recorded under these corrector groups.',
     },
     minCorrections: {
       type: 'integer',
@@ -6901,11 +6911,11 @@ export const ImprovementPassSchema: JsonSchema = {
     suiteId: { type: 'string', description: 'The test set it searches and proves on.' },
     tiers: { type: 'array', items: { type: 'string', enum: ['settings', 'prompt'] } },
     objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
-    classWeights: {
+    groupWeights: {
       type: 'string',
-      enum: ['as-recorded', 'restricted-only'],
+      enum: ['as-recorded', 'experts-only'],
       description:
-        'Which corrections its comparisons count. Absent from older servers: `restricted-only`.',
+        'Which corrections its comparisons count. Absent from older servers: `experts-only`.',
     },
     model: {
       type: 'object',
@@ -7036,11 +7046,11 @@ export const ImproveBodySchema: JsonSchema = {
       default: 3,
       description: 'For a prompt pass: how many templates it drafts.',
     },
-    classWeights: {
+    groupWeights: {
       type: 'string',
-      enum: ['as-recorded', 'restricted-only'],
+      enum: ['as-recorded', 'experts-only'],
       description:
-        "Which corrections the pass learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the pass reads its corrections from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has a restricted judge class, then only corrections recorded under one (`restricted-only`).",
+        "Which corrections the pass learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the pass reads its corrections from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has an expert group, then only corrections recorded under one (`experts-only`).",
     },
     objective: {
       type: 'string',
@@ -7151,7 +7161,7 @@ export const EvaluateProposalBodySchema: JsonSchema = {
     reads: { type: 'string', enum: ['recorded', 'live'] },
     repetitions: { type: 'integer', minimum: 1, maximum: 10 },
     k: { type: 'integer', minimum: 1, maximum: 100 },
-    classWeights: { type: 'string', enum: ['as-recorded', 'restricted-only'] },
+    groupWeights: { type: 'string', enum: ['as-recorded', 'experts-only'] },
     sample: { $ref: '#/components/schemas/EvalSample' },
   },
 };
@@ -9409,11 +9419,11 @@ export const EvalComparisonSchema: JsonSchema = {
     repetitions: { type: 'integer', minimum: 1, maximum: 10 },
     k: { type: 'integer', minimum: 1, maximum: 100 },
     versions: { $ref: '#/components/schemas/FlowVersionOverrides' },
-    classWeights: {
+    groupWeights: {
       type: 'string',
-      enum: ['as-recorded', 'restricted-only'],
+      enum: ['as-recorded', 'experts-only'],
       description:
-        "Which corrections count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Correction.restricted`), the others weighing 0 (`restricted-only`).",
+        "Which corrections count: each at its group's weight (`as-recorded`, the default), or only those recorded while their group was restricted (`Correction.expert`), the others weighing 0 (`experts-only`).",
     },
     overrides: { $ref: '#/components/schemas/EvalOverrides' },
     sample: { $ref: '#/components/schemas/EvalSample' },
@@ -9630,11 +9640,11 @@ export const CorrectedComparisonSummarySchema: JsonSchema = {
         "Flow cases that stopped at a refused tool call: no output to score, so they're left out of the metrics.",
     },
     reads: { type: 'string', enum: ['recorded', 'live'] },
-    classWeights: {
+    groupWeights: {
       type: 'string',
-      enum: ['as-recorded', 'restricted-only'],
+      enum: ['as-recorded', 'experts-only'],
       description:
-        'Which corrections counted. Absent from a comparison recorded before restricted classes: `as-recorded`.',
+        'Which corrections counted. Absent from a comparison recorded before expert groups: `as-recorded`.',
     },
     sample: {
       $ref: '#/components/schemas/EvalSample',
@@ -10028,11 +10038,11 @@ export const StartEvalRunBodySchema: JsonSchema = {
     repetitions: { type: 'integer', minimum: 1, maximum: 10 },
     k: { type: 'integer', minimum: 1, maximum: 100 },
     versions: { $ref: '#/components/schemas/FlowVersionOverrides' },
-    classWeights: {
+    groupWeights: {
       type: 'string',
-      enum: ['as-recorded', 'restricted-only'],
+      enum: ['as-recorded', 'experts-only'],
       description:
-        "Which corrections count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Correction.restricted`), the others weighing 0 (`restricted-only`).",
+        "Which corrections count: each at its group's weight (`as-recorded`, the default), or only those recorded while their group was restricted (`Correction.expert`), the others weighing 0 (`experts-only`).",
     },
     overrides: { $ref: '#/components/schemas/EvalOverrides' },
     sample: { $ref: '#/components/schemas/EvalSample' },
@@ -11172,22 +11182,22 @@ export const MyPermissionsSchema: JsonSchema = {
   },
 };
 
-// ---------- judging rules and queue ----------
+// ---------- queue rules and queue ----------
 
-export const JudgingRunStatusSchema: JsonSchema = {
+export const ExpertQueueRunStatusSchema: JsonSchema = {
   type: 'string',
   enum: ['completed', 'failed', 'cancelled'],
   description: 'How a run ended.',
 };
 
-export const JudgingQueueStateSchema: JsonSchema = {
+export const ExpertQueueStateSchema: JsonSchema = {
   type: 'string',
-  enum: ['open', 'judged', 'dismissed', 'erased'],
+  enum: ['open', 'corrected', 'dismissed', 'erased'],
   description:
-    "Where a queued run stands. `judged`: every rule that queued it has the correction it wants. `erased`: the run's content is gone (erased, or the run purged); the item shows nothing of it.",
+    "Where a queued run stands. `corrected`: every rule that queued it has the correction it wants. `erased`: the run's content is gone (erased, or the run purged); the item shows nothing of it.",
 };
 
-export const JudgingRuleWhenSchema: JsonSchema = {
+export const QueueRuleWhenSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
@@ -11206,7 +11216,7 @@ export const JudgingRuleWhenSchema: JsonSchema = {
     status: {
       type: 'array',
       minItems: 1,
-      items: { $ref: '#/components/schemas/JudgingRunStatus' },
+      items: { $ref: '#/components/schemas/ExpertQueueRunStatus' },
       description:
         'How the run ended. Only `completed` today: a correction needs a completed run, so `failed` and `cancelled` are refused (400). Absent: `completed`.',
     },
@@ -11214,9 +11224,9 @@ export const JudgingRuleWhenSchema: JsonSchema = {
   },
 };
 
-const JUDGING_RULE_FIELDS: Record<string, JsonSchema> = {
+const QUEUE_RULE_FIELDS: Record<string, JsonSchema> = {
   name: { type: 'string', minLength: 1, maxLength: 200 },
-  when: { $ref: '#/components/schemas/JudgingRuleWhen' },
+  when: { $ref: '#/components/schemas/QueueRuleWhen' },
   sample: {
     type: 'number',
     exclusiveMinimum: 0,
@@ -11230,28 +11240,28 @@ const JUDGING_RULE_FIELDS: Record<string, JsonSchema> = {
     maximum: 10000,
     description: 'Queue nothing while this rule has this many open items. Absent: no cap.',
   },
-  judgeClassId: {
+  correctorGroupId: {
     type: 'string',
     description:
-      'Whose correction it wants: one of this class closes it. Absent: any correction does.',
+      'Whose correction it wants: one of this group closes it. Absent: any correction does.',
   },
   enabled: { type: 'boolean', description: 'Default `true`.' },
 };
 
-export const JudgingRuleSpecSchema: JsonSchema = {
+export const QueueRuleSpecSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['name', 'when'],
-  description: 'A judging rule as written. It only lists runs: nothing here starts a model.',
-  properties: JUDGING_RULE_FIELDS,
+  description: 'A queue rule as written. It only lists runs: nothing here starts a model.',
+  properties: QUEUE_RULE_FIELDS,
 };
 
-export const JudgingRulePatchSchema: JsonSchema = {
+export const QueueRulePatchSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description: 'The fields to change; `when` is replaced whole.',
   properties: {
-    ...JUDGING_RULE_FIELDS,
+    ...QUEUE_RULE_FIELDS,
     maxOpen: {
       type: ['integer', 'null'],
       minimum: 1,
@@ -11259,24 +11269,24 @@ export const JudgingRulePatchSchema: JsonSchema = {
       description:
         'Queue nothing while this rule has this many open items. `null` removes the cap.',
     },
-    judgeClassId: {
+    correctorGroupId: {
       type: ['string', 'null'],
       description:
-        'Whose correction it wants: one of this class closes it. `null`: any correction does.',
+        'Whose correction it wants: one of this group closes it. `null`: any correction does.',
     },
   },
 };
 
-export const JudgingRuleSchema: JsonSchema = {
+export const QueueRuleSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['ruleId', 'projectId', 'version', 'name', 'when', 'sample', 'enabled', 'createdAt'],
-  description: 'One version of a judging rule; the latest live one applies.',
+  description: 'One version of a queue rule; the latest live one applies.',
   properties: {
     ruleId: { type: 'string' },
     projectId: { type: 'string' },
     version: { type: 'integer', minimum: 1 },
-    ...JUDGING_RULE_FIELDS,
+    ...QUEUE_RULE_FIELDS,
     sample: { type: 'number', exclusiveMinimum: 0, maximum: 1 },
     enabled: { type: 'boolean' },
     createdBy: { type: 'string', description: 'Who wrote this version.' },
@@ -11285,46 +11295,46 @@ export const JudgingRuleSchema: JsonSchema = {
   },
 };
 
-export const JudgingRulePageSchema: JsonSchema = {
+export const QueueRulePageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/JudgingRule' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/QueueRule' } },
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
   },
 };
 
-export const JudgingRuleUnregisterResultSchema: JsonSchema = {
+export const QueueRuleUnregisterResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['ruleId', 'unregistered'],
   properties: { ruleId: { type: 'string' }, unregistered: { type: 'boolean' } },
 };
 
-export const JudgingClassCountSchema: JsonSchema = {
+export const ExpertQueueGroupCountSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['judgeClassId', 'count'],
+  required: ['correctorGroupId', 'count'],
   properties: {
-    judgeClassId: { type: ['string', 'null'], description: '`null`: unclassified.' },
+    correctorGroupId: { type: ['string', 'null'], description: '`null`: unclassified.' },
     count: { type: 'integer', minimum: 0 },
   },
 };
 
-export const JudgingProgressSchema: JsonSchema = {
+export const ExpertQueueProgressSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['total', 'byClass'],
-  description: 'The live corrections on the run so far, by class.',
+  required: ['total', 'byGroup'],
+  description: 'The live corrections on the run so far, by group.',
   properties: {
     total: { type: 'integer', minimum: 0 },
-    byClass: { type: 'array', items: { $ref: '#/components/schemas/JudgingClassCount' } },
+    byGroup: { type: 'array', items: { $ref: '#/components/schemas/ExpertQueueGroupCount' } },
   },
 };
 
-export const JudgingItemCanSchema: JsonSchema = {
+export const ExpertQueueItemCanSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['dismiss', 'reopen'],
@@ -11333,14 +11343,14 @@ export const JudgingItemCanSchema: JsonSchema = {
   properties: { dismiss: { type: 'boolean' }, reopen: { type: 'boolean' } },
 };
 
-export const JudgingItemRuleSchema: JsonSchema = {
+export const ExpertQueueItemRuleSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['ruleId', 'version'],
   properties: { ruleId: { type: 'string' }, version: { type: 'integer', minimum: 1 } },
 };
 
-export const JudgingQueueItemSchema: JsonSchema = {
+export const ExpertQueueItemSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: [
@@ -11350,7 +11360,7 @@ export const JudgingQueueItemSchema: JsonSchema = {
     'runStatus',
     'completedAt',
     'rules',
-    'wantedClassIds',
+    'wantedGroupIds',
     'anyCorrection',
     'progress',
     'addedAt',
@@ -11364,35 +11374,35 @@ export const JudgingQueueItemSchema: JsonSchema = {
     agentId: { type: 'string' },
     agentVersion: { type: 'string' },
     flowId: { type: 'string' },
-    runStatus: { $ref: '#/components/schemas/JudgingRunStatus' },
+    runStatus: { $ref: '#/components/schemas/ExpertQueueRunStatus' },
     completedAt: { type: 'string', format: 'date-time' },
     rules: {
       type: 'array',
-      items: { $ref: '#/components/schemas/JudgingItemRule' },
+      items: { $ref: '#/components/schemas/ExpertQueueItemRule' },
       description: 'The rules that queued it, each at the version that did.',
     },
-    wantedClassIds: {
+    wantedGroupIds: {
       type: 'array',
       items: { type: 'string' },
-      description: 'The judge classes its rules want.',
+      description: 'The corrector groups its rules want.',
     },
     anyCorrection: { type: 'boolean', description: 'One of its rules wants any correction.' },
-    progress: { $ref: '#/components/schemas/JudgingProgress' },
+    progress: { $ref: '#/components/schemas/ExpertQueueProgress' },
     addedAt: { type: 'string', format: 'date-time' },
-    state: { $ref: '#/components/schemas/JudgingQueueState' },
+    state: { $ref: '#/components/schemas/ExpertQueueState' },
     closedAt: { type: 'string', format: 'date-time' },
     closedBy: { type: 'string', description: 'Who dismissed or reopened it last.' },
     reason: { type: 'string', description: 'Why it was dismissed, when they said.' },
-    can: { $ref: '#/components/schemas/JudgingItemCan' },
+    can: { $ref: '#/components/schemas/ExpertQueueItemCan' },
   },
 };
 
-export const JudgingQueuePageSchema: JsonSchema = {
+export const ExpertQueuePageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore', 'total'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/JudgingQueueItem' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/ExpertQueueItem' } },
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
     total: {
@@ -11403,24 +11413,24 @@ export const JudgingQueuePageSchema: JsonSchema = {
   },
 };
 
-export const JudgingDismissBodySchema: JsonSchema = {
+export const ExpertQueueDismissBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   properties: { reason: { type: 'string', maxLength: 500 } },
 };
 
-export const JudgingClassResultSchema: JsonSchema = {
+export const QueueRuleGroupResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['judgeClassId', 'corrections', 'yes'],
+  required: ['correctorGroupId', 'corrections', 'yes'],
   properties: {
-    judgeClassId: { type: ['string', 'null'], description: '`null`: unclassified.' },
+    correctorGroupId: { type: ['string', 'null'], description: '`null`: unclassified.' },
     corrections: { type: 'integer', minimum: 0 },
     yes: { type: 'integer', minimum: 0 },
   },
 };
 
-export const JudgingResultGroupSchema: JsonSchema = {
+export const QueueRuleResultGroupSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: [
@@ -11428,16 +11438,16 @@ export const JudgingResultGroupSchema: JsonSchema = {
     'agentVersion',
     'added',
     'open',
-    'judged',
+    'corrected',
     'dismissed',
     'erased',
     'skippedByCap',
     'corrections',
     'yesShare',
-    'byClass',
+    'byGroup',
   ],
   description:
-    "One rule version's runs of one agent version. `added` = `open` + `judged` + `dismissed` + `erased`.",
+    "One rule version's runs of one agent version. `added` = `open` + `corrected` + `dismissed` + `erased`.",
   properties: {
     ruleVersion: { type: 'integer', minimum: 1 },
     agentVersion: {
@@ -11446,7 +11456,7 @@ export const JudgingResultGroupSchema: JsonSchema = {
     },
     added: { type: 'integer', minimum: 0 },
     open: { type: 'integer', minimum: 0 },
-    judged: { type: 'integer', minimum: 0 },
+    corrected: { type: 'integer', minimum: 0 },
     dismissed: { type: 'integer', minimum: 0 },
     erased: { type: 'integer', minimum: 0 },
     skippedByCap: {
@@ -11465,22 +11475,22 @@ export const JudgingResultGroupSchema: JsonSchema = {
       type: 'integer',
       minimum: 0,
       description:
-        "The queued runs with at least one live correction: the runs `corrections` and `yesShare` come from, whatever their item's state now (still `open`, closed as `judged`, or dismissed after someone corrected it). Several people correcting one run make several corrections but one run here. Absent from a runtime that doesn't count them.",
+        "The queued runs with at least one live correction: the runs `corrections` and `yesShare` come from, whatever their item's state now (still `open`, closed as `corrected`, or dismissed after someone corrected it). Several people correcting one run make several corrections but one run here. Absent from a runtime that doesn't count them.",
     },
     yesShare: {
       type: ['number', 'null'],
       description:
-        'The `yes` share of those corrections, each weighted by its class (unclassified: 1). `null` with none.',
+        'The `yes` share of those corrections, each weighted by its group (no group: 1). `null` with none.',
     },
-    byClass: {
+    byGroup: {
       type: 'array',
-      items: { $ref: '#/components/schemas/JudgingClassResult' },
-      description: 'The same corrections by class, unweighted.',
+      items: { $ref: '#/components/schemas/QueueRuleGroupResult' },
+      description: 'The same corrections by group, unweighted.',
     },
   },
 };
 
-export const JudgingRuleResultsSchema: JsonSchema = {
+export const QueueRuleResultsSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['ruleId', 'groups'],
@@ -11489,14 +11499,14 @@ export const JudgingRuleResultsSchema: JsonSchema = {
     since: { type: 'string', format: 'date-time' },
     groups: {
       type: 'array',
-      items: { $ref: '#/components/schemas/JudgingResultGroup' },
+      items: { $ref: '#/components/schemas/QueueRuleResultGroup' },
       description:
         "By the rule's version and the agent's, newest rule version first: two versions of a rule are two sampling designs, never pooled.",
     },
   },
 };
 
-export const JudgingRulePreviewSchema: JsonSchema = {
+export const QueueRulePreviewSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['considered', 'matched'],
@@ -11510,7 +11520,7 @@ export const JudgingRulePreviewSchema: JsonSchema = {
   },
 };
 
-export const JudgingQueueRecentInputSchema: JsonSchema = {
+export const ExpertQueueRecentInputSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   minProperties: 1,
@@ -11530,7 +11540,7 @@ export const JudgingQueueRecentInputSchema: JsonSchema = {
   },
 };
 
-export const JudgingRecentQueuedSchema: JsonSchema = {
+export const ExpertQueueRecentQueuedSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['queued', 'alreadyQueued', 'alreadyReviewed'],
@@ -13995,11 +14005,11 @@ export const ImproveScheduleInputSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `classWeights` counts them: by default everyone's corrections until a restricted (experts') judge class is named, then experts' only. When there are enough, across enough runs and correctors, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.",
+    "An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `groupWeights` counts them: by default everyone's corrections until a restricted (experts') corrector group is named, then experts' only. When there are enough, across enough runs and correctors, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.",
   properties: {
     tiers: { type: 'array', items: { type: 'string', enum: ['settings', 'prompt'] } },
     objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
-    classWeights: { type: 'string', enum: ['restricted-only', 'as-recorded'] },
+    groupWeights: { type: 'string', enum: ['experts-only', 'as-recorded'] },
     model: {
       type: 'object',
       additionalProperties: false,
@@ -16427,12 +16437,12 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ObservationStatus', ObservationStatusSchema],
   ['Observation', ObservationSchema],
   ['ObservationCollectionPage', ObservationCollectionPageSchema],
-  ['JudgeClassScope', JudgeClassScopeSchema],
-  ['JudgeClass', JudgeClassSchema],
-  ['JudgeClassCollectionPage', JudgeClassCollectionPageSchema],
-  ['CreateJudgeClassBody', CreateJudgeClassBodySchema],
-  ['UpdateJudgeClassBody', UpdateJudgeClassBodySchema],
-  ['UnregisterJudgeClassResult', UnregisterJudgeClassResultSchema],
+  ['CorrectorGroupScope', CorrectorGroupScopeSchema],
+  ['CorrectorGroup', CorrectorGroupSchema],
+  ['CorrectorGroupCollectionPage', CorrectorGroupCollectionPageSchema],
+  ['CreateCorrectorGroupBody', CreateCorrectorGroupBodySchema],
+  ['UpdateCorrectorGroupBody', UpdateCorrectorGroupBodySchema],
+  ['UnregisterCorrectorGroupResult', UnregisterCorrectorGroupResultSchema],
   ['CorrectedSubject', CorrectedSubjectSchema],
   ['CorrectedItem', CorrectedItemSchema],
   ['ExpectedCall', ExpectedCallSchema],
@@ -16453,8 +16463,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CreateCorrectionBody', CreateCorrectionBodySchema],
   ['RemoveCorrectionResult', RemoveCorrectionResultSchema],
   ['CorrectedItemSummary', CorrectedItemSummarySchema],
-  ['JudgeClassAssertableBy', JudgeClassAssertableBySchema],
-  ['JudgeClassAssertableByView', JudgeClassAssertableByViewSchema],
+  ['CorrectorGroupAssertableBy', CorrectorGroupAssertableBySchema],
+  ['CorrectorGroupAssertableByView', CorrectorGroupAssertableByViewSchema],
   ['CorrectedEvalCase', CorrectedEvalCaseSchema],
   ['CorrectedEvalCaseCollectionPage', CorrectedEvalCaseCollectionPageSchema],
   ['BuildCorrectedSuiteBody', BuildCorrectedSuiteBodySchema],
@@ -16748,27 +16758,27 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PersonTeamRole', PersonTeamRoleSchema],
   ['PersonReviewerRole', PersonReviewerRoleSchema],
   ['PersonGrantBody', PersonGrantBodySchema],
-  ['JudgingRunStatus', JudgingRunStatusSchema],
-  ['JudgingQueueState', JudgingQueueStateSchema],
-  ['JudgingRuleWhen', JudgingRuleWhenSchema],
-  ['JudgingRuleSpec', JudgingRuleSpecSchema],
-  ['JudgingRulePatch', JudgingRulePatchSchema],
-  ['JudgingRule', JudgingRuleSchema],
-  ['JudgingRulePage', JudgingRulePageSchema],
-  ['JudgingRuleUnregisterResult', JudgingRuleUnregisterResultSchema],
-  ['JudgingClassCount', JudgingClassCountSchema],
-  ['JudgingProgress', JudgingProgressSchema],
-  ['JudgingItemCan', JudgingItemCanSchema],
-  ['JudgingItemRule', JudgingItemRuleSchema],
-  ['JudgingQueueItem', JudgingQueueItemSchema],
-  ['JudgingQueuePage', JudgingQueuePageSchema],
-  ['JudgingDismissBody', JudgingDismissBodySchema],
-  ['JudgingClassResult', JudgingClassResultSchema],
-  ['JudgingResultGroup', JudgingResultGroupSchema],
-  ['JudgingRuleResults', JudgingRuleResultsSchema],
-  ['JudgingRulePreview', JudgingRulePreviewSchema],
-  ['JudgingQueueRecentInput', JudgingQueueRecentInputSchema],
-  ['JudgingRecentQueued', JudgingRecentQueuedSchema],
+  ['ExpertQueueRunStatus', ExpertQueueRunStatusSchema],
+  ['ExpertQueueState', ExpertQueueStateSchema],
+  ['QueueRuleWhen', QueueRuleWhenSchema],
+  ['QueueRuleSpec', QueueRuleSpecSchema],
+  ['QueueRulePatch', QueueRulePatchSchema],
+  ['QueueRule', QueueRuleSchema],
+  ['QueueRulePage', QueueRulePageSchema],
+  ['QueueRuleUnregisterResult', QueueRuleUnregisterResultSchema],
+  ['ExpertQueueGroupCount', ExpertQueueGroupCountSchema],
+  ['ExpertQueueProgress', ExpertQueueProgressSchema],
+  ['ExpertQueueItemCan', ExpertQueueItemCanSchema],
+  ['ExpertQueueItemRule', ExpertQueueItemRuleSchema],
+  ['ExpertQueueItem', ExpertQueueItemSchema],
+  ['ExpertQueuePage', ExpertQueuePageSchema],
+  ['ExpertQueueDismissBody', ExpertQueueDismissBodySchema],
+  ['QueueRuleGroupResult', QueueRuleGroupResultSchema],
+  ['QueueRuleResultGroup', QueueRuleResultGroupSchema],
+  ['QueueRuleResults', QueueRuleResultsSchema],
+  ['QueueRulePreview', QueueRulePreviewSchema],
+  ['ExpertQueueRecentInput', ExpertQueueRecentInputSchema],
+  ['ExpertQueueRecentQueued', ExpertQueueRecentQueuedSchema],
   ['AccessRole', AccessRoleSchema],
   ['AccessPathDirect', AccessPathDirectSchema],
   ['AccessPathTeam', AccessPathTeamSchema],

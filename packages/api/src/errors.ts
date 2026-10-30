@@ -252,20 +252,20 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // Admin plane — eval-run dispatch.
   'eval-run-not-found': 404,
   'eval-run-not-rescorable': 409,
-  // Corrections (yes/no on a run's output items) and judge classes.
+  // Corrections (yes/no on a run's output items) and corrector groups.
   'correction-not-found': 404,
   'correction-status-change-not-allowed': 409,
-  'judge-class-not-found': 404,
-  /** A judging rule that isn't in the project (`/v1/projects/:projectId/judging-rules/:ruleId`). */
-  'judging-rule-not-found': 404,
-  /** A run that isn't in the project's judging queue. */
-  'judging-item-not-found': 404,
+  'corrector-group-not-found': 404,
+  /** A queue rule that isn't in the project (`/v1/projects/:projectId/queue-rules/:ruleId`). */
+  'queue-rule-not-found': 404,
+  /** A run that isn't in the project's expert queue. */
+  'expert-queue-item-not-found': 404,
   /** Dismissing a queued run that isn't open, or reopening one that wasn't dismissed. */
-  'judging-item-not-open': 409,
-  'judge-class-name-taken': 409,
-  'judge-class-not-applicable': 400,
-  // The judge class is restricted (`assertableBy`), and the caller isn't one who may assert it.
-  'judge-class-not-allowed': 403,
+  'expert-queue-item-not-open': 409,
+  'corrector-group-name-taken': 409,
+  'corrector-group-not-applicable': 400,
+  // The corrector group is restricted (`assertableBy`), and the caller isn't one who may assert it.
+  'corrector-group-not-allowed': 403,
   // Live versions of agents and their promotions.
   'agent-version-not-found': 404,
   'promotion-not-found': 404,

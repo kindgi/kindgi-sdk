@@ -72,7 +72,7 @@ function needsComparison(spec: GatePolicySpec): boolean {
     spec.evidence !== undefined ||
     (spec.metrics?.length ?? 0) > 0 ||
     spec.replay !== undefined ||
-    spec.onlyRestrictedClasses === true
+    spec.onlyExpertGroups === true
   );
 }
 
@@ -119,17 +119,17 @@ export function evaluateGate(input: GateInput): GateResult {
   checks.push(sameContentsCheck(input));
   checks.push(baselineCheck(summary, input));
   checks.push(scopeCheck(summary, input));
-  if (spec.onlyRestrictedClasses === true) {
-    const counted = summary.classWeights ?? 'as-recorded';
+  if (spec.onlyExpertGroups === true) {
+    const counted = summary.groupWeights ?? 'as-recorded';
     checks.push({
-      name: 'classWeights.restrictedOnly',
-      passed: counted === 'restricted-only',
+      name: 'groupWeights.expertsOnly',
+      passed: counted === 'experts-only',
       message:
-        counted === 'restricted-only'
+        counted === 'experts-only'
           ? "The test run counted only experts' corrections."
-          : "The policy counts only experts' corrections; the test run counted everyone's. Re-run it with `classWeights: 'restricted-only'`.",
+          : "The policy counts only experts' corrections; the test run counted everyone's. Re-run it with `groupWeights: 'experts-only'`.",
       value: counted,
-      threshold: 'restricted-only',
+      threshold: 'experts-only',
     });
   }
   if (spec.replay !== undefined) checks.push(...replayChecks(spec.replay, summary));

@@ -7,7 +7,7 @@ import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import type { Cursor, ProjectId, ScopeSegment, TenantId, UserId } from '@kindgi/types';
 
 import { outputItems } from '../corrected-items.js';
-import { classWeightReader, summarizeByItem } from '../corrected-summary.js';
+import { groupWeightReader, summarizeByItem } from '../corrected-summary.js';
 import {
   type CorrectedRunListInput,
   type CorrectedRunWithCorrections,
@@ -40,7 +40,7 @@ const SEMVER_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
  * - `POST /v1/eval-suites/:suiteId/versions/from-corrections` builds and
  *   publishes a version whose cases are copies of corrected runs (input,
  *   what the turn read, the corrected output) with each item's corrections
- *   summed up, weighted by judge class (an unclassified correction counts
+ *   summed up, weighted by corrector group (an unclassified correction counts
  *   1). Needs `admin` on the project, as publishing a suite does.
  * - `GET /v1/eval-suites/:suiteId/versions/:version/cases` lists them.
  */
@@ -142,7 +142,7 @@ export interface CorrectedSuiteQuery {
   readonly flowId?: string;
   readonly since?: string;
   readonly until?: string;
-  readonly judgeClassIds?: readonly string[];
+  readonly correctorGroupIds?: readonly string[];
   readonly minCorrections?: number;
   /** Only runs started in this segment path or below it. */
   readonly segments?: readonly ScopeSegment[];
@@ -235,7 +235,7 @@ function correctedRunFilter(
   tenantId: TenantId,
   body: Pick<BuildBody, 'projectId' | 'query'>,
 ): Omit<CorrectedRunListInput, 'limit' | 'cursor'> {
-  const { judgeClassIds: _ids, minCorrections: _min, ...runFilter } = body.query;
+  const { correctorGroupIds: _ids, minCorrections: _min, ...runFilter } = body.query;
   return { tenantId, projectId: body.projectId, ...runFilter };
 }
 
@@ -248,7 +248,7 @@ async function buildCases(
   const list = corrections.listCorrectedRuns as NonNullable<
     CorrectionRegistryBinding['listCorrectedRuns']
   >;
-  const weightOf = classWeightReader(corrections, tenantId);
+  const weightOf = groupWeightReader(corrections, tenantId);
   const filter = correctedRunFilter(tenantId, body);
   const cases: CorrectedEvalCase[] = [];
   let cursor: Cursor | undefined;
@@ -267,15 +267,16 @@ async function buildCases(
 async function toCase(
   corrected: CorrectedRunWithCorrections,
   q: BuildBody['query'],
-  weightOf: (judgeClassId: string | undefined) => Promise<number>,
+  weightOf: (correctorGroupId: string | undefined) => Promise<number>,
 ): Promise<CorrectedEvalCase | undefined> {
   // A comparison's replay is never a case, whatever the binding lists.
   if (isReplayCopy(corrected.run)) return undefined;
   const kept =
-    q.judgeClassIds === undefined
+    q.correctorGroupIds === undefined
       ? corrected.corrections
       : corrected.corrections.filter(
-          (j) => j.judgeClassId !== undefined && q.judgeClassIds?.includes(j.judgeClassId),
+          (j) =>
+            j.correctorGroupId !== undefined && q.correctorGroupIds?.includes(j.correctorGroupId),
         );
   if (kept.length === 0 || kept.length < (q.minCorrections ?? 1)) return undefined;
   const run = corrected.run;
@@ -285,8 +286,8 @@ async function toCase(
   )?.pointer;
   const items = await summarizeByItem(kept, weightOf, answerAt);
   // Each kept correction's expected decisions ride onto the case, keyed by
-  // its correction and carrying its judge class and restriction, so a
-  // restricted-only comparison filters them the way it filters items.
+  // its correction and carrying its corrector group and restriction, so a
+  // experts-only comparison filters them the way it filters items.
   const corrections: TestCaseExpectedDecisions[] = kept.flatMap((j) =>
     j.shouldCall === undefined && j.mustNotCall === undefined
       ? []
@@ -295,8 +296,8 @@ async function toCase(
             calls: j.shouldCall ?? [],
             notCalled: j.mustNotCall ?? [],
             correctionId: j.id,
-            ...(j.judgeClassId !== undefined && { judgeClassId: j.judgeClassId }),
-            ...(j.restricted === true && { restricted: true as const }),
+            ...(j.correctorGroupId !== undefined && { correctorGroupId: j.correctorGroupId }),
+            ...(j.expert === true && { expert: true as const }),
           },
         ],
   );
@@ -337,23 +338,23 @@ function parseStringFilters(b: Record<string, unknown>): Record<string, string> 
   return query;
 }
 
-/** Which corrections count: by class, and how many a run needs. */
+/** Which corrections count: by group, and how many a run needs. */
 function parseCorrectionFilters(
   b: Record<string, unknown>,
-): Pick<BuildBody['query'], 'judgeClassIds' | 'minCorrections'> | string {
-  const ids = b.judgeClassIds;
+): Pick<BuildBody['query'], 'correctorGroupIds' | 'minCorrections'> | string {
+  const ids = b.correctorGroupIds;
   if (
     ids !== undefined &&
     (!Array.isArray(ids) || ids.some((i) => typeof i !== 'string' || i.length === 0))
   ) {
-    return 'judgeClassIds must be a list of judge class ids.';
+    return 'correctorGroupIds must be a list of corrector group ids.';
   }
   const min = b.minCorrections;
   if (min !== undefined && !(Number.isInteger(min) && (min as number) >= 1)) {
     return 'minCorrections must be a whole number ≥ 1.';
   }
   return {
-    ...(ids !== undefined && { judgeClassIds: ids as string[] }),
+    ...(ids !== undefined && { correctorGroupIds: ids as string[] }),
     ...(min !== undefined && { minCorrections: min as number }),
   };
 }
