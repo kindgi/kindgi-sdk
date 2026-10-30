@@ -24,9 +24,10 @@ change is a pin like any other, which `kindgi agents rollback` puts back.
   shows.
 - **Corrections of the agent's runs in the project,** as
   [Correct some runs](../build-a-test-set/#correct-some-runs) shows. The
-  runtime keeps a test set for each agent and project: the corrections that
-  are cases there, and the cases added by hand. A suggested change is
-  checked on it. Without cases, making one is refused with
+  runtime keeps a test set for each agent: its corrections are its cases,
+  with the cases added by hand. A project's test set is its cases from that
+  project, and a suggested change is checked on it. Without cases, making
+  one is refused with
   `409 suggested-change-nothing-to-check`.
 - **A version of the agent that the project runs.** A suggested change is
   built on it. To pin one, the project needs a live version, its own or one
@@ -95,7 +96,7 @@ starts the check. It prints the suggested change, `checking`:
   "fixes": [],
   "check": {
     "status": "running",
-    "testSetId": "acme.rank-prompt-52080",
+    "testSetId": "agent:acme.rank.scorer",
     "now": { "testRunId": "941582fc-9e32-41bb-b148-767712664c6b" },
     "with": { "testRunId": "aefcafd1-53df-480e-b01d-05ae55724507" },
     "startedAt": "2026-10-09T13:24:24.401Z"
@@ -159,8 +160,8 @@ pnpm exec kindgi suggested-changes get <suggested-change-id>
   …
   "check": {
     "status": "done",
-    "testSetId": "acme.rank-prompt-52080",
-    "testSetVersion": "1.0.0",
+    "testSetId": "agent:acme.rank.scorer",
+    "testSetVersion": "1.0.4",
     "now": {
       "testRunId": "941582fc-9e32-41bb-b148-767712664c6b",
       "passing": 23,
