@@ -9148,7 +9148,7 @@ export const EvalComparisonSchema: JsonSchema = {
     rescoreOf: {
       type: 'string',
       description:
-        "Rescore that comparison test run instead of replaying: its replays' outputs are scored again, with the corrections recorded on them since (a changed answer corrected on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/test-runs/{runId}/rescore`.",
+        "Rescore that comparison test run instead of replaying: its replays' outputs are scored again, with the corrections recorded on them since (a changed answer corrected on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/test-runs/{testRunId}/rescore`.",
     },
   },
 };

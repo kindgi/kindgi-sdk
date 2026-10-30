@@ -6833,7 +6833,7 @@ class EvalComparison(BaseModel):
     sample: EvalSample | None = None
     rescore_of: Annotated[str | None, Field(alias="rescoreOf")] = None
     """
-    Rescore that comparison test run instead of replaying: its replays' outputs are scored again, with the corrections recorded on them since (a changed answer corrected on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/test-runs/{runId}/rescore`.
+    Rescore that comparison test run instead of replaying: its replays' outputs are scored again, with the corrections recorded on them since (a changed answer corrected on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/test-runs/{testRunId}/rescore`.
     """
 
 

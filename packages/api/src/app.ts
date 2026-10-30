@@ -948,8 +948,8 @@ export interface CreateAppInput {
    * Optional. When present alongside `testSetRegistry`, mounts the
    * evaluation-run data-plane surface: `POST /v1/test-sets/:testSetId/runs`
    * (start), `GET /v1/test-runs` (list, cursor-paginated),
-   * `GET /v1/test-runs/:runId` (get), `POST /v1/test-runs/:runId/cancel`,
-   * `GET /v1/test-runs/:runId/events` (SSE). Caller-plugged binding —
+   * `GET /v1/test-runs/:testRunId` (get), `POST /v1/test-runs/:testRunId/cancel`,
+   * `GET /v1/test-runs/:testRunId/events` (SSE). Caller-plugged binding —
    * the API package doesn't own test-run persistence. The reference
    * `createInProcessTestRunBinding` (`packages/api/src/test-run-dispatcher.ts`)
    * implements the pattern end-to-end for the `accuracy` kind; a test set
