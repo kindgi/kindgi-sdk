@@ -3,12 +3,27 @@
 
 import { type Context, Hono } from 'hono';
 
-import { BLOCK_KINDS, type BlockKind, validateBlock } from '@kindgi/agents';
+import {
+  BLOCK_KINDS,
+  type BlockKind,
+  modelNamedTwice,
+  modelSettingsIssues,
+  type SettingsBlockContent,
+  validateBlock,
+} from '@kindgi/agents';
 import { ref } from '@kindgi/authz';
+import type { AuditEventBinding } from '@kindgi/audit-events';
+import { emitAuditEvent } from '@kindgi/compliance';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
-import type { BlockPublishOutcome, BlockRecord, BlockRegistryBinding } from '../block-binding.js';
+import type {
+  BlockPublishOutcome,
+  BlockRecord,
+  BlockRegistryBinding,
+  BlockUseBinding,
+} from '../block-binding.js';
 import { continuityIssues, withCarriedSchema } from '../block-publish.js';
+import { callerIdentity } from '../caller.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
@@ -18,6 +33,7 @@ import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { actorOf } from './agent-releases.js';
 import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
 import { isRegistryVersionsCursor } from './versions-cursor.js';
@@ -38,7 +54,13 @@ import { isRegistryVersionsCursor } from './versions-cursor.js';
  *
  * A version never changes, nor does a block's kind. A settings block's
  * values must satisfy the latest version's schema as well as their
- * own, so whatever reads them sees a stable shape.
+ * own, so whatever reads them sees a stable shape. A settings block an
+ * agent version uses as its model settings takes only model settings,
+ * and never names the model that version names too.
+ *
+ * Each version records who published it and where it came from (`api`
+ * here). Publishing, unregistering and reinstating a version are audit
+ * events, with the caller as their actor.
  */
 export function blocksRouter(
   binding: BlockRegistryBinding,
@@ -53,6 +75,13 @@ export function blocksRouter(
   itemRights?: ItemRights,
   /** With no authorizer: which projects serve it, for `?projectId=` (`itemServingOf`). */
   itemServing?: ItemServing,
+  /**
+   * Which agent versions use a block, for the model-settings check on a
+   * publish. Absent: a settings version isn't checked as model settings.
+   */
+  blockUse?: BlockUseBinding,
+  /** Where the audit events land. Absent: none is recorded. */
+  auditEvents?: AuditEventBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -278,12 +307,26 @@ export function blocksRouter(
     if (continuity.length > 0) {
       return validationFailed(c, `Block "${block.id}" can't take this version`, continuity);
     }
+    if (block.kind === 'settings' && blockUse !== undefined) {
+      const refused = await modelSettingsRefusal(blockUse, tenantId, block.id, block.content);
+      if (refused !== undefined) return validationFailed(c, refused.message, refused.issues);
+    }
 
     const outcome = await binding.publish({
       tenantId,
       projectId: projectId as ProjectId,
       block: withCarriedSchema(latest, block),
+      publishedBy: actorOf(c),
+      source: { kind: 'api' },
     });
+    if (outcome.kind === 'ok') {
+      await audit(c, 'block-version-published', projectId as ProjectId, {
+        blockId: block.id,
+        version: block.version,
+        kind: block.kind,
+        source: { kind: 'api' },
+      });
+    }
     return published(c, outcome);
   });
 
@@ -296,6 +339,7 @@ export function blocksRouter(
     if (refused !== undefined) return refused;
     const outcome = await binding.unregister({ tenantId, blockId, version });
     if (!outcome.unregistered) return notFound(c, blockId, version);
+    await auditVersion(c, 'block-version-unregistered', tenantId, blockId, version);
     return c.json({ blockId, version, unregistered: true });
   });
 
@@ -308,8 +352,44 @@ export function blocksRouter(
     if (refused !== undefined) return refused;
     const outcome = await binding.reinstateVersion({ tenantId, blockId, version });
     if (outcome.kind === 'not-found') return notFound(c, blockId, version);
+    if (outcome.wasTombstoned) {
+      await auditVersion(c, 'block-version-reinstated', tenantId, blockId, version);
+    }
     return c.json({ blockId, version, wasTombstoned: outcome.wasTombstoned });
   });
+
+  /** An audit event for a change to a block version, with the caller as its actor. */
+  async function audit(
+    c: Context<AppEnv>,
+    kind: 'block-version-published' | 'block-version-unregistered' | 'block-version-reinstated',
+    projectId: ProjectId | undefined,
+    doc: Readonly<Record<string, unknown>>,
+  ): Promise<void> {
+    await emitAuditEvent({
+      auditEvents,
+      tenantId: c.get('tenantId') as TenantId,
+      ...(projectId !== undefined && { projectId }),
+      kind,
+      actor: callerIdentity(c),
+      outcome: 'succeeded',
+      correlationId: c.get('requestId'),
+      doc,
+      log: c.get('log').child({ subsystem: 'audit' }),
+    });
+  }
+
+  /** `audit` for an unregister or reinstate, in the version's own project. */
+  async function auditVersion(
+    c: Context<AppEnv>,
+    kind: 'block-version-unregistered' | 'block-version-reinstated',
+    tenantId: TenantId,
+    blockId: string,
+    version: string,
+  ): Promise<void> {
+    if (auditEvents === undefined) return;
+    const record = await binding.getVersion({ tenantId, blockId, version });
+    await audit(c, kind, record?.projectId, { blockId, version });
+  }
 
   /**
    * Unregistering or reinstating a version: `write` on its project; for a
@@ -383,6 +463,41 @@ export function blocksRouter(
   }
 
   return r;
+}
+
+/**
+ * Why a new settings version is refused as model settings: an agent
+ * version uses the block as its model settings, and the values aren't
+ * model settings, or name the model that version names too. Undefined
+ * when no agent version uses it so, or the values pass.
+ */
+async function modelSettingsRefusal(
+  blockUse: BlockUseBinding,
+  tenantId: TenantId,
+  blockId: string,
+  content: SettingsBlockContent,
+): Promise<{ message: string; issues: { path: string; message: string }[] } | undefined> {
+  const uses = (await blockUse.pinningBlock({ tenantId, blockId })).filter(
+    (u) => u.as === 'model-settings',
+  );
+  const [first] = uses;
+  if (first === undefined) return undefined;
+  const issues = modelSettingsIssues(content.values);
+  if (issues.length > 0) {
+    return {
+      message: `Block "${blockId}" is the model settings of agent "${first.agentId}" version ${first.version}, and these values aren't model settings`,
+      issues,
+    };
+  }
+  const twice = uses.flatMap((u) => {
+    const why = modelNamedTwice(u, content.values);
+    return why === undefined
+      ? []
+      : [{ path: '/content/values', message: `agent "${u.agentId}" version ${u.version}: ${why}` }];
+  });
+  return twice.length === 0
+    ? undefined
+    : { message: `Block "${blockId}"'s new values name the model twice`, issues: twice };
 }
 
 function isBlockKind(value: string): value is BlockKind {
@@ -466,5 +581,7 @@ function serializeBlock(b: BlockRecord): Record<string, unknown> {
     projectId: b.projectId as unknown as string,
     publishedAt: b.publishedAt,
     ...(b.unregisteredAt !== undefined && { unregisteredAt: b.unregisteredAt }),
+    ...(b.publishedBy !== undefined && { publishedBy: b.publishedBy }),
+    ...(b.source !== undefined && { source: b.source }),
   };
 }

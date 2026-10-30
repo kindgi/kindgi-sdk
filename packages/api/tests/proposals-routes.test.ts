@@ -541,6 +541,8 @@ async function harness(
   const agents = agentBinding(new Set(opts.unregisteredVersions ?? []));
   const blocks = inMemoryBlocks([projectId, ...(opts.orders ?? []).flat()], {}, opts.orders);
   await blocks.publish({
+    publishedBy: { kind: 'user', id: 'user-1' },
+    source: { kind: 'api' },
     tenantId,
     projectId,
     block: {
@@ -571,6 +573,8 @@ async function harness(
     },
   });
   await blocks.publish({
+    publishedBy: { kind: 'user', id: 'user-1' },
+    source: { kind: 'api' },
     tenantId,
     projectId,
     block: {
@@ -582,6 +586,8 @@ async function harness(
   });
   if (opts.modelSettings === true) {
     await blocks.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
       tenantId,
       projectId,
       block: {
@@ -882,6 +888,9 @@ describe('POST /v1/proposals/:id/evaluate', () => {
     expect(block?.content).toMatchObject({ values: { recency: 0.5, fit: 0.5 } });
     // The schema carried over from the pinned version.
     expect(block?.content).toHaveProperty('schema');
+    // Who published it, and from where: the evaluate's caller, from this proposal.
+    expect(block?.publishedBy).toEqual({ kind: 'user', id: 'user-1' });
+    expect(block?.source).toEqual({ kind: 'suggested-change', id });
     const derived = await agents.getVersion({
       tenantId,
       agentId: AGENT as never,

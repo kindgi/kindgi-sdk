@@ -265,7 +265,13 @@ describe('POST /v1/agents pins the data blocks an agent references', () => {
   async function withBlocks() {
     const blocks = inMemoryBlocks();
     const put = (block: Parameters<BlockRegistryBinding['publish']>[0]['block']) =>
-      blocks.publish({ tenantId, projectId, block });
+      blocks.publish({
+        publishedBy: { kind: 'user', id: 'user-1' },
+        source: { kind: 'api' },
+        tenantId,
+        projectId,
+        block,
+      });
     await put({
       id: 'acme.intake-prompt',
       version: '1.0.0',

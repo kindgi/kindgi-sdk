@@ -125,6 +125,19 @@ export const EVIDENCE_KINDS = [
   // names both deployments, both projects, the image digest and the
   // versions carried — never anything a project holds.
   'deployment-promoted',
+  // A prompt or settings block version was published. The payload names
+  // the block, its version and kind, and where it came from (`source`:
+  // the API, a deploy or a suggested change, with its id) — never its
+  // content.
+  'block-version-published',
+  // A block version was unregistered, or reinstated. The payload names the
+  // block and the version.
+  'block-version-unregistered',
+  'block-version-reinstated',
+  // A model provider was registered, or unregistered. The payload names
+  // the provider and its kind — never its key or the secret it reads.
+  'provider-registered',
+  'provider-unregistered',
 ] as const;
 
 /**

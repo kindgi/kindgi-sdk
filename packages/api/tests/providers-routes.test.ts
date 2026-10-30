@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import type { AuditEvent } from '@kindgi/audit-events';
+import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
 import type { ProviderMetadata } from '@kindgi/capabilities';
 import type { Cursor, TenantId } from '@kindgi/types';
 
@@ -173,13 +175,23 @@ function registerBody(over: ProviderSpecOverrides = {}): string {
 
 function makeApp() {
   const binding = makeInMemoryBinding();
+  const store = createInMemoryAuditEventBinding();
+  const written: AuditEvent[] = [];
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
     runHandler,
     providerRegistry: binding,
+    auditEvents: {
+      ...store,
+      append: async (events) => {
+        written.push(...events);
+        return store.append(events);
+      },
+    },
   });
-  return { app, binding };
+  const events = (kind: string) => written.filter((e) => e.kind === kind);
+  return { app, binding, events };
 }
 
 describe('API — providers list', () => {
@@ -756,6 +768,50 @@ describe('API — providers unregister', () => {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe('API — providers: audit events', () => {
+  test('register and unregister are recorded with the caller, never the key', async () => {
+    const { app, events } = makeApp();
+    const reg = await app.request('/v1/providers', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: registerBody(),
+    });
+    expect(reg.status).toBe(201);
+    const unreg = await app.request('/v1/providers/anthropic:claude-opus-4-7/unregister', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(unreg.status).toBe(200);
+
+    const [registered, ...moreRegistered] = events('provider-registered');
+    expect(moreRegistered).toEqual([]);
+    expect(registered?.actor).toMatch(/.+/);
+    expect(registered?.payload).toMatchObject({
+      doc: { providerId: 'anthropic:claude-opus-4-7', adapterId: TEST_ADAPTER_ID },
+    });
+    expect(Object.keys((registered?.payload as { doc: object }).doc).sort()).toEqual([
+      'adapterId',
+      'providerId',
+    ]);
+    const [unregistered, ...moreUnregistered] = events('provider-unregistered');
+    expect(moreUnregistered).toEqual([]);
+    expect(unregistered?.actor).toBe(registered?.actor);
+    expect(unregistered?.payload).toMatchObject({
+      doc: { providerId: 'anthropic:claude-opus-4-7' },
+    });
+  });
+
+  test('an unregister of an unknown provider records nothing', async () => {
+    const { app, events } = makeApp();
+    const res = await app.request('/v1/providers/nope/unregister', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(404);
+    expect(events('provider-unregistered')).toEqual([]);
   });
 });
 

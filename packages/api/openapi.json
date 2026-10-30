@@ -15184,6 +15184,52 @@
             "type": "string",
             "format": "date-time",
             "description": "Present only on an unregistered version; agent versions that pin it still read it."
+          },
+          "publishedBy": {
+            "type": "object",
+            "description": "Who published the version: a user, or a service token. Absent on a version published before it was recorded.",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "service"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/BlockVersionSource"
+          }
+        }
+      },
+      "BlockVersionSource": {
+        "description": "Where a block version came from: `api` (`POST /v1/blocks`), `deploy` (a deploy's pack; `id` is the deployment's) or `suggested-change` (`id` is the suggested change's). Absent on a version published before it was recorded.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "api",
+              "deploy",
+              "suggested-change"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "description": "Present for `deploy` and `suggested-change`."
           }
         }
       },
@@ -20564,7 +20610,12 @@
           "trigger-tools-allowed-unattended-set",
           "trigger-changed-for-owner",
           "environment-order-set",
-          "deployment-promoted"
+          "deployment-promoted",
+          "block-version-published",
+          "block-version-unregistered",
+          "block-version-reinstated",
+          "provider-registered",
+          "provider-unregistered"
         ]
       },
       "EvidenceActor": {
@@ -20738,7 +20789,12 @@
               "trigger-tools-allowed-unattended-set",
               "trigger-changed-for-owner",
               "environment-order-set",
-              "deployment-promoted"
+              "deployment-promoted",
+              "block-version-published",
+              "block-version-unregistered",
+              "block-version-reinstated",
+              "provider-registered",
+              "provider-unregistered"
             ]
           },
           "timestamp": {
@@ -20935,7 +20991,12 @@
               "trigger-tools-allowed-unattended-set",
               "trigger-changed-for-owner",
               "environment-order-set",
-              "deployment-promoted"
+              "deployment-promoted",
+              "block-version-published",
+              "block-version-unregistered",
+              "block-version-reinstated",
+              "provider-registered",
+              "provider-unregistered"
             ]
           },
           "from": {
@@ -21030,7 +21091,12 @@
                   "trigger-tools-allowed-unattended-set",
                   "trigger-changed-for-owner",
                   "environment-order-set",
-                  "deployment-promoted"
+                  "deployment-promoted",
+                  "block-version-published",
+                  "block-version-unregistered",
+                  "block-version-reinstated",
+                  "provider-registered",
+                  "provider-unregistered"
                 ]
               },
               "from": {
@@ -51072,7 +51138,7 @@
             }
           },
           "400": {
-            "description": "`validation-failed` (see `details.issues`), or an unknown `projectId`; or `projectId` isn't a project id (a UUID).",
+            "description": "`validation-failed` (see `details.issues`; for an agent version's model settings, each issue names the agent and its version), or an unknown `projectId`; or `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -51162,7 +51228,7 @@
             }
           }
         },
-        "description": "Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.",
+        "description": "Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A settings block an agent version uses as its model settings takes only model settings, which never name the model that agent version names too. The version records the caller as `publishedBy`, and `source: { kind: \"api\" }`. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.",
         "parameters": [
           {
             "name": "Idempotency-Key",

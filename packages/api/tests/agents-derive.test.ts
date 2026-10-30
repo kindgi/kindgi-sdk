@@ -164,7 +164,13 @@ async function harness(
   const agents = agentBinding(opts.recordsProject, opts.orders);
   const blocks = inMemoryBlocks([projectId]);
   const put = (block: Parameters<BlockRegistryBinding['publish']>[0]['block']) =>
-    blocks.publish({ tenantId, projectId, block });
+    blocks.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
+      tenantId,
+      projectId,
+      block,
+    });
   const prompt = (version: string, template: string) =>
     put({ id: 'acme.intake-prompt', version, kind: 'prompt', content: { template } });
   const settings = (id: string, version: string, values: Record<string, unknown>) =>

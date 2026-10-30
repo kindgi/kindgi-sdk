@@ -576,6 +576,18 @@ uv run kindgi blocks publish acme.reply-style --block-version=1.1.0 --project=<p
 `--block-version=1.1.0` is the new version, and `--settings` its values: a
 higher refund limit. It prints the block's id and version.
 
+Each version records who published it, `publishedBy`, and where it came
+from, `source`: `{ "kind": "api" }` for a publish like this one, a
+deployment's id for a version a deploy brought, and a suggested change's id
+for one that came from a suggested change.
+`GET /v1/blocks/<block-id>/versions/<version>` answers both, and the audit
+log records the publish with you as its actor. A version published before
+this was recorded has neither.
+
+A new version of a block that an agent version uses as its model settings
+must be model settings, and can't name the model that agent version names.
+Otherwise the publish is refused, naming the agent version.
+
 From your code, such as an admin page of your own, ask your coding agent: "I
 want to publish a new version of my settings block from my app." For
 reference, the code looks like this:

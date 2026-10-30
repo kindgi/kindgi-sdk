@@ -6813,7 +6813,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'blocks.publish',
     summary: 'Publish a data block version',
     description:
-      "Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.",
+      "Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A settings block an agent version uses as its model settings takes only model settings, which never name the model that agent version names too. The version records the caller as `publishedBy`, and `source: { kind: \"api\" }`. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.",
     tags: ['blocks'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6822,7 +6822,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Published.', schema: ref('PublishBlockResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "`validation-failed` (see `details.issues`), or an unknown `projectId`; or `projectId` isn't a project id (a UUID).",
+        "`validation-failed` (see `details.issues`; for an agent version's model settings, each issue names the agent and its version), or an unknown `projectId`; or `projectId` isn't a project id (a UUID).",
       ),
       '403': ErrorResponse('`permission-denied`: no `write` on the project.'),
       '409': ErrorResponse(

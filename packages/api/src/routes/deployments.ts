@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { type Context, Hono } from 'hono';
 
@@ -16,6 +16,7 @@ import {
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import { ref, tuplesForCreate } from '@kindgi/authz';
 import { runOutsideTenant } from '@kindgi/bounds';
+import { emitAuditEvent } from '@kindgi/compliance';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
 import { type Flow, type FlowPins, flowSchemaProblems } from '@kindgi/flow';
 import {
@@ -57,6 +58,7 @@ import {
 } from '../agent-pins.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
 import { type BlockPins, type BlockVersionReads, resolveBlockPins } from '../block-pins.js';
+import { callerIdentity } from '../caller.js';
 import { canonicalJson } from '../canonical-json.js';
 import {
   type PlannedBlock,
@@ -117,7 +119,7 @@ import { type ServedEnvRule, readReferencesOnce, refuseUnservedValue } from '../
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
-import type { AgentReleaseGateDeps } from './agent-releases.js';
+import { type AgentReleaseGateDeps, actorOf } from './agent-releases.js';
 import { capabilityRefusal, deniedBy } from './denied.js';
 import {
   carriedFor,
@@ -336,7 +338,11 @@ export interface DeploymentsRouterBindings {
    * Each one absent isn't checked.
    */
   readonly values?: Pick<DeploymentValuesDeps, 'env' | 'providers' | 'modelKeyLookup' | 'packEnv'>;
-  /** Where a promotion is recorded (`deployment-promoted`). Absent: it isn't. */
+  /**
+   * Where a promotion (`deployment-promoted`) and each block version a
+   * deploy publishes (`block-version-published`) are recorded. Absent:
+   * they aren't.
+   */
   readonly auditEvents?: AuditEventBinding;
   /**
    * The agents' live versions and gated promotions, for a promotion asked
@@ -1125,6 +1131,10 @@ export function deploymentsRouter(
     // the one a deploy registered in its place (`publishDeployedAgent`).
     const deployedAgents: DeployedAgent[] = [];
     const deployedFlows: DeployedFlow[] = [];
+    // Minted before the first write, so each block version it publishes
+    // names this deployment (`source`).
+    const deploymentId = randomUUID();
+    let publishedBlocks: readonly BlockDefinition[] = [];
     try {
       // Past the first write, a compile is a registry's own compile of a
       // schema compiled above, which the tenant's budget was charged for:
@@ -1133,12 +1143,14 @@ export function deploymentsRouter(
       await runOutsideTenant(async () => {
         // The pack's blocks first: what follows pins them.
         if (bindings.blockRegistry !== undefined && targetProjectId !== undefined) {
-          await publishPackBlocks({
+          publishedBlocks = await publishPackBlocks({
             blocks: bindings.blockRegistry,
             tenantId,
             projectId: targetProjectId,
             planned: packBlocks,
             rolled,
+            publishedBy: actorOf(c),
+            deploymentId,
           });
         }
         if (bindings.toolRegistry !== undefined && targetProjectId !== undefined) {
@@ -1323,6 +1335,7 @@ export function deploymentsRouter(
     let outcome: DeploymentRegisterOutcome;
     try {
       outcome = await bindings.deploymentRegistry.register({
+        deploymentId,
         tenantId,
         imageRef: wire.imageRef,
         imageDigest,
@@ -1379,6 +1392,24 @@ export function deploymentsRouter(
     }
 
     await notifyWrites(tenantId, validated, bindings);
+    for (const block of publishedBlocks) {
+      await emitAuditEvent({
+        auditEvents: bindings.auditEvents,
+        tenantId,
+        ...(targetProjectId !== undefined && { projectId: targetProjectId }),
+        kind: 'block-version-published',
+        actor: callerIdentity(c),
+        outcome: 'succeeded',
+        correlationId: requestId,
+        doc: {
+          blockId: block.id,
+          version: block.version,
+          kind: block.kind,
+          source: { kind: 'deploy', id: outcome.deployment.deploymentId },
+        },
+        log: c.get('log').child({ subsystem: 'audit' }),
+      });
+    }
     c.status(201);
     return c.json(serializeDeployment(outcome.deployment));
   });

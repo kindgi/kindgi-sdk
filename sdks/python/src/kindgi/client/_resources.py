@@ -6725,7 +6725,7 @@ class BlocksResource:
     ) -> _models.PublishBlockResult:
         """Publish a data block version. `POST /v1/blocks`
 
-        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.
+        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A settings block an agent version uses as its model settings takes only model settings, which never name the model that agent version names too. The version records the caller as `publishedBy`, and `source: { kind: "api" }`. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.
         """
         return self._client._request(
             _OPERATIONS["blocks.publish"],
@@ -16480,7 +16480,7 @@ class AsyncBlocksResource:
     ) -> _models.PublishBlockResult:
         """Publish a data block version. `POST /v1/blocks`
 
-        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.
+        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A settings block an agent version uses as its model settings takes only model settings, which never name the model that agent version names too. The version records the caller as `publishedBy`, and `source: { kind: "api" }`. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.
         """
         return await self._client._request(
             _OPERATIONS["blocks.publish"],

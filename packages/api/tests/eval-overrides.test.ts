@@ -156,6 +156,8 @@ async function setup() {
   });
   const blocks = inMemoryBlocks([projectId]);
   await blocks.publish({
+    publishedBy: { kind: 'user', id: 'user-1' },
+    source: { kind: 'api' },
     tenantId,
     projectId,
     block: {
@@ -173,6 +175,8 @@ async function setup() {
     },
   });
   await blocks.publish({
+    publishedBy: { kind: 'user', id: 'user-1' },
+    source: { kind: 'api' },
     tenantId,
     projectId,
     block: {
@@ -183,6 +187,8 @@ async function setup() {
     },
   });
   await blocks.publish({
+    publishedBy: { kind: 'user', id: 'user-1' },
+    source: { kind: 'api' },
     tenantId,
     projectId,
     block: {

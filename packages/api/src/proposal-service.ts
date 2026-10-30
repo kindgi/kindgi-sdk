@@ -482,6 +482,8 @@ export function createProposalService(deps: ProposalServiceDeps) {
       from,
       edit,
       ...(deps.orders !== undefined && { orders: deps.orders }),
+      publishedBy: actor,
+      source: { kind: 'suggested-change', id: proposal.id },
     });
     if (published.kind === 'invalid') {
       return err(

@@ -6652,45 +6652,33 @@ class SettingsBlockContent(BaseModel):
     """
 
 
-class Block(BaseModel):
+class PublishedBy(BaseModel):
     """
-    A data block version: a prompt or settings, versioned like a tool (immutable versions, soft unregister). An agent version pins the block versions it uses when it is published. Belongs to one project and is authorized through it.
+    Who published the version: a user, or a service token. Absent on a version published before it was recorded.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
+    kind: Annotated[Literal["user", "service"] | str, _open.OPEN]
     id: str
-    """
-    Dotted lowercase id (e.g. `acme.intake-prompt`).
-    """
-    version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
-    kind: Annotated[Literal["prompt", "settings"] | str, _open.OPEN]
-    """
-    `prompt`: a Liquid template an agent renders as its instructions. `settings`: a JSON object tools and templates read.
-    """
-    description: str | None = None
-    content: PromptBlockContent | SettingsBlockContent
-    """
-    `PromptBlockContent` for a prompt, `SettingsBlockContent` for settings.
-    """
-    project_id: Annotated[UUID, Field(alias="projectId")]
-    published_at: Annotated[AwareDatetime, Field(alias="publishedAt")]
-    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
-    """
-    Present only on an unregistered version; agent versions that pin it still read it.
-    """
 
 
-class BlockCollectionPage(BaseModel):
+class BlockVersionSource(BaseModel):
+    """
+    Where a block version came from: `api` (`POST /v1/blocks`), `deploy` (a deploy's pack; `id` is the deployment's) or `suggested-change` (`id` is the suggested change's). Absent on a version published before it was recorded.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Block]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    has_more: Annotated[bool, Field(alias="hasMore")]
+    kind: Annotated[Literal["api", "deploy", "suggested-change"] | str, _open.OPEN]
+    id: str | None = None
+    """
+    Present for `deploy` and `suggested-change`.
+    """
 
 
 class PublishBlockBody(BaseModel):
@@ -8991,6 +8979,11 @@ class EvidenceKind(RootModel[str]):
                 "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
+                "block-version-published",
+                "block-version-unregistered",
+                "block-version-reinstated",
+                "provider-registered",
+                "provider-unregistered",
             ],
             min_length=1,
         ),
@@ -9167,6 +9160,11 @@ class ComplianceEvidence(BaseModel):
                 "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
+                "block-version-published",
+                "block-version-unregistered",
+                "block-version-reinstated",
+                "provider-registered",
+                "provider-unregistered",
             ],
             min_length=1,
         ),
@@ -9271,6 +9269,11 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
+                "block-version-published",
+                "block-version-unregistered",
+                "block-version-reinstated",
+                "provider-registered",
+                "provider-unregistered",
             ],
             min_length=1,
         ),
@@ -9352,6 +9355,11 @@ class Filter(BaseModel):
                 "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
+                "block-version-published",
+                "block-version-unregistered",
+                "block-version-reinstated",
+                "provider-registered",
+                "provider-unregistered",
             ],
             min_length=1,
         ),
@@ -15281,6 +15289,52 @@ class CostRecordCollectionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[CostRecord]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class Block(BaseModel):
+    """
+    A data block version: a prompt or settings, versioned like a tool (immutable versions, soft unregister). An agent version pins the block versions it uses when it is published. Belongs to one project and is authorized through it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    Dotted lowercase id (e.g. `acme.intake-prompt`).
+    """
+    version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
+    kind: Annotated[Literal["prompt", "settings"] | str, _open.OPEN]
+    """
+    `prompt`: a Liquid template an agent renders as its instructions. `settings`: a JSON object tools and templates read.
+    """
+    description: str | None = None
+    content: PromptBlockContent | SettingsBlockContent
+    """
+    `PromptBlockContent` for a prompt, `SettingsBlockContent` for settings.
+    """
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    published_at: Annotated[AwareDatetime, Field(alias="publishedAt")]
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Present only on an unregistered version; agent versions that pin it still read it.
+    """
+    published_by: Annotated[PublishedBy | None, Field(alias="publishedBy")] = None
+    """
+    Who published the version: a user, or a service token. Absent on a version published before it was recorded.
+    """
+    source: BlockVersionSource | None = None
+
+
+class BlockCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Block]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
 

@@ -27,7 +27,7 @@ import type { MemoryQueryBinding } from '@kindgi/memory';
 import { type PolicyRegistryBinding, RETENTION_DOMAINS } from '@kindgi/policy-contract';
 import type { AdapterRegistryBinding } from './adapter-binding.js';
 import type { AgentRegistryBinding } from './agent-binding.js';
-import type { BlockRegistryBinding } from './block-binding.js';
+import type { BlockRegistryBinding, BlockUseBinding } from './block-binding.js';
 import type { CapabilityRegistryBinding } from './capability-binding.js';
 import type { ConnectionBinding } from './connection-binding.js';
 import type { CostBinding } from './cost-binding.js';
@@ -944,6 +944,13 @@ export interface CreateAppInput {
    * project; the binding writes no authorization tuples.
    */
   readonly blockRegistry?: BlockRegistryBinding;
+  /**
+   * Which agent versions use a block (a deployment's agent registry
+   * answers it): `POST /v1/blocks` checks a new settings version of a
+   * block an agent version uses as its model settings as model settings.
+   * Absent: it isn't checked so.
+   */
+  readonly blockUse?: BlockUseBinding;
   /**
    * Optional. When present alongside `evalSuiteRegistry`, mounts the
    * evaluation-run data-plane surface: `POST /v1/eval-suites/:suiteId/runs`
@@ -2085,7 +2092,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.onProviderWrite,
         input.adapterFactories,
         authorizer,
-        { secretUsers, ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }) },
+        {
+          secretUsers,
+          ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
+          ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+        },
       ),
     );
   }
@@ -2282,6 +2293,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.environmentOrders,
         itemRights,
         itemServing,
+        input.blockUse,
+        input.auditEvents,
       ),
     );
   }

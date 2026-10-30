@@ -736,7 +736,11 @@ export type {
   BlockRecord,
   BlockRegistryBinding,
   BlockReinstateOutcome,
+  BlockUse,
+  BlockUseBinding,
+  BlockUseInput,
   BlockVersionInput,
+  BlockVersionSource,
 } from './block-binding.js';
 export type {
   AgentReleaseBindings,

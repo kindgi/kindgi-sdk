@@ -8939,6 +8939,30 @@ export const BlockSchema: JsonSchema = {
       description:
         'Present only on an unregistered version; agent versions that pin it still read it.',
     },
+    publishedBy: {
+      type: 'object',
+      description:
+        'Who published the version: a user, or a service token. Absent on a version published before it was recorded.',
+      additionalProperties: false,
+      required: ['kind', 'id'],
+      properties: {
+        kind: { type: 'string', enum: ['user', 'service'] },
+        id: { type: 'string' },
+      },
+    },
+    source: { $ref: '#/components/schemas/BlockVersionSource' },
+  },
+};
+
+export const BlockVersionSourceSchema: JsonSchema = {
+  description:
+    "Where a block version came from: `api` (`POST /v1/blocks`), `deploy` (a deploy's pack; `id` is the deployment's) or `suggested-change` (`id` is the suggested change's). Absent on a version published before it was recorded.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  properties: {
+    kind: { type: 'string', enum: ['api', 'deploy', 'suggested-change'] },
+    id: { type: 'string', description: 'Present for `deploy` and `suggested-change`.' },
   },
 };
 
@@ -16382,6 +16406,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PromptBlockContent', PromptBlockContentSchema],
   ['SettingsBlockContent', SettingsBlockContentSchema],
   ['Block', BlockSchema],
+  ['BlockVersionSource', BlockVersionSourceSchema],
   ['BlockCollectionPage', BlockCollectionPageSchema],
   ['PublishBlockBody', PublishBlockBodySchema],
   ['PublishBlockResult', PublishBlockResultSchema],
