@@ -459,20 +459,24 @@ export const CLI_DEFAULTS = {
     project: 'none',
     status: 'none',
   },
-  'suggested-changes draft': {
+  'suggested-changes create': {
     agent: 'required',
     block: 'required',
-    correction: 'none',
+    fixes: 'none',
     project: 'required',
     why: 'required',
     'idempotency-key': 'none',
     template: 'none',
     values: 'none',
   },
-  'suggested-changes evaluate': {
+  'suggested-changes check': {
     'idempotency-key': 'none',
   },
-  'suggested-changes request': {
+  'suggested-changes pin': {
+    'idempotency-key': 'none',
+    reason: 'none',
+  },
+  'suggested-changes add-as-latest': {
     'idempotency-key': 'none',
     reason: 'none',
   },

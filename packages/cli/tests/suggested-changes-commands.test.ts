@@ -61,7 +61,7 @@ const SUGGESTED_CHANGE = {
   updatedAt: '2026-10-07T10:00:00.000Z',
 };
 
-describe('kindgi suggested-changes draft', () => {
+describe('kindgi suggested-changes create', () => {
   test('settings values from a file, for a project, with the corrections it fixes', async () => {
     const { calls, rec } = recorder();
     const file = join(cwd, 'values.json');
@@ -69,14 +69,14 @@ describe('kindgi suggested-changes draft', () => {
     const out = await run(
       [
         'suggested-changes',
-        'draft',
+        'create',
         '--agent=acme.scorer',
         `--project=${PROJECT}`,
         '--block=acme.weights',
         `--values=@${file}`,
         '--why=Recent filings matter more',
-        '--correction=j-1',
-        '--correction=j-2',
+        '--fixes=j-1',
+        '--fixes=j-2',
         '--idempotency-key=k-1',
       ],
       { suggestedChanges: { create: rec('create') } },
@@ -107,7 +107,7 @@ describe('kindgi suggested-changes draft', () => {
       const out = await run(
         [
           'suggested-changes',
-          'draft',
+          'create',
           '--agent=acme.scorer',
           `--project=${PROJECT}`,
           '--block=acme.prompt',
@@ -152,7 +152,7 @@ describe('kindgi suggested-changes draft', () => {
     ],
   ])('refuses %j: %s', async (flags, message) => {
     const { calls, rec } = recorder();
-    const out = await run(['suggested-changes', 'draft', ...flags], {
+    const out = await run(['suggested-changes', 'create', ...flags], {
       suggestedChanges: { create: rec('create') },
     });
     expect(out.exitCode).toBe(2); // a usage error
@@ -161,10 +161,10 @@ describe('kindgi suggested-changes draft', () => {
   });
 });
 
-describe('kindgi suggested-changes evaluate', () => {
+describe('kindgi suggested-changes check', () => {
   test("checks it again on the project's test cases", async () => {
     const { calls, rec } = recorder();
-    const out = await run(['suggested-changes', 'evaluate', 'prop-1', '--idempotency-key=c-1'], {
+    const out = await run(['suggested-changes', 'check', 'prop-1', '--idempotency-key=c-1'], {
       suggestedChanges: { check: rec('check') },
     });
     expect(out.exitCode, out.stderr).toBe(0);
@@ -187,7 +187,7 @@ describe('kindgi suggested-changes evaluate', () => {
     };
     const reads = [SUGGESTED_CHANGE, done];
     const gets: string[] = [];
-    const out = await run(['suggested-changes', 'evaluate', 'prop-1', '--wait'], {
+    const out = await run(['suggested-changes', 'check', 'prop-1', '--wait'], {
       suggestedChanges: {
         check: async () => SUGGESTED_CHANGE,
         get: async (id: string) => {
@@ -202,7 +202,7 @@ describe('kindgi suggested-changes evaluate', () => {
   }, 10_000);
 
   test("the server's nothing-to-check refusal comes through with its fix", async () => {
-    const out = await run(['suggested-changes', 'evaluate', 'prop-1'], {
+    const out = await run(['suggested-changes', 'check', 'prop-1'], {
       suggestedChanges: {
         check: async () => {
           throw new KindgiApiError({
@@ -220,20 +220,41 @@ describe('kindgi suggested-changes evaluate', () => {
   });
 });
 
-describe('kindgi suggested-changes request / withdraw', () => {
-  test('request takes an optional reason', async () => {
+describe('kindgi suggested-changes pin / add-as-latest / withdraw', () => {
+  test('pin takes an optional reason', async () => {
     const { calls, rec } = recorder();
     const client = { suggestedChanges: { pin: rec('pin') } };
-    await run(['suggested-changes', 'request', 'prop-1'], client);
-    await run(['suggested-changes', 'request', 'prop-1', '--reason=Better on acme'], client);
+    await run(['suggested-changes', 'pin', 'prop-1'], client);
+    await run(['suggested-changes', 'pin', 'prop-1', '--reason=Better on acme'], client);
     await run(
-      ['suggested-changes', 'request', 'prop-1', '--reason=Complaints', '--idempotency-key=r'],
+      ['suggested-changes', 'pin', 'prop-1', '--reason=Complaints', '--idempotency-key=r'],
       client,
     );
     expect(calls).toEqual([
       ['pin', 'prop-1', {}],
       ['pin', 'prop-1', { reason: 'Better on acme' }],
       ['pin', 'prop-1', { reason: 'Complaints', idempotencyKey: 'r' }],
+    ]);
+  });
+
+  test('add-as-latest takes an optional reason', async () => {
+    const { calls, rec } = recorder();
+    const client = { suggestedChanges: { addAsLatest: rec('addAsLatest') } };
+    const out = await run(['suggested-changes', 'add-as-latest', 'prop-1'], client);
+    expect(out.exitCode, out.stderr).toBe(0);
+    await run(
+      [
+        'suggested-changes',
+        'add-as-latest',
+        'prop-1',
+        '--reason=Fit first for acme',
+        '--idempotency-key=a',
+      ],
+      client,
+    );
+    expect(calls).toEqual([
+      ['addAsLatest', 'prop-1', {}],
+      ['addAsLatest', 'prop-1', { reason: 'Fit first for acme', idempotencyKey: 'a' }],
     ]);
   });
 
@@ -328,7 +349,7 @@ describe('kindgi suggested-changes list / get', () => {
   test('is wired: help lists the group', async () => {
     const out = await run(['suggested-changes', '--help'], {});
     expect(out.exitCode).toBe(0);
-    expect(`${out.stdout}${out.stderr}`).toContain('evaluate');
+    expect(`${out.stdout}${out.stderr}`).toContain('add-as-latest');
   });
 });
 

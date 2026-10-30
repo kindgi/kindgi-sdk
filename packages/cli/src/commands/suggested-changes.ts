@@ -26,8 +26,9 @@ import type { Command, LeafCommand } from './types.js';
 
 /**
  * `kindgi suggested-changes`: suggested changes. New content for one data
- * block in what a project runs: drafted and checked on the project's test
- * set, then requested (a pin of its version through the project's gate).
+ * block in what a project runs: made and checked on the project's test
+ * set, then pinned (through the project's gate) or added as the project's
+ * Latest.
  */
 
 const STATUSES: readonly SuggestedChangeStatus[] = [
@@ -41,7 +42,7 @@ const STATUSES: readonly SuggestedChangeStatus[] = [
 ];
 export const OBJECTIVES = ['weightedYesShare', 'weightedPrecisionAtK'] as const;
 
-/** The status `evaluate --wait` waits through. */
+/** The status `check --wait` waits through. */
 const CHECKING: ReadonlySet<string> = new Set(['checking']);
 
 /** How its version did on the check, then how the version it's built on did: `25/27 (now 23/27)`. */
@@ -159,13 +160,13 @@ async function contentFrom(ctx: CommandContext): Promise<SuggestedChangeContent>
   );
 }
 
-const draft: LeafCommand = {
+const create: LeafCommand = {
   kind: 'leaf',
-  name: 'draft',
+  name: 'create',
   description:
-    "Draft a suggested change by hand: new content for one block in what the project runs (settings values, or the agent's instructions). Its block version and agent version are made, and it's checked on the project's test cases: it's `checking`. The same change on the same version for the same project returns the suggested change drafted before. Needs `publish` on the agent.",
+    "Make a suggested change by hand: new content for one block in what the project runs (settings values, or the agent's instructions). Its block version and agent version are made, and it's checked on the project's test cases: it's `checking`. The same change on the same version for the same project returns the suggested change made before. Needs `publish` on the agent.",
   usage:
-    'kindgi suggested-changes draft --agent=<agent-id> --project=<project-id> --block=<block-id> (--values=<json>|@<file> | --template=<text>|@<file>) --why=<text> [--correction=<correction-id>]…',
+    'kindgi suggested-changes create --agent=<agent-id> --project=<project-id> --block=<block-id> (--values=<json>|@<file> | --template=<text>|@<file>) --why=<text> [--fixes=<correction-id>]…',
   optionSpec: {
     agent: { type: 'string', description: 'The agent.' },
     project: {
@@ -185,21 +186,21 @@ const draft: LeafCommand = {
       description: "The agent's instructions (a prompt block), new text: inline or `@<file>`.",
     },
     why: { type: 'string', description: 'What the change should fix, and why.' },
-    correction: {
+    fixes: {
       type: 'string',
       multiple: true,
-      description: 'A correction behind the change (repeatable): kept as evidence.',
+      description: 'A correction the change fixes (repeatable).',
     },
     ...IDEMPOTENCY_FLAG,
   },
   run: (ctx) =>
-    runSdk(ctx, 'suggested-changes draft', async () => {
+    runSdk(ctx, 'suggested-changes create', async () => {
       const agentId = required(ctx, 'agent');
       const projectId = required(ctx, 'project');
       const block = required(ctx, 'block');
       const why = required(ctx, 'why');
       const content = await contentFrom(ctx);
-      const fixes = listFlag(ctx, 'correction');
+      const fixes = listFlag(ctx, 'fixes');
       return await ctx.client().suggestedChanges.create({
         agentId,
         projectId,
@@ -212,12 +213,12 @@ const draft: LeafCommand = {
     }),
 };
 
-const evaluate: LeafCommand = {
+const check: LeafCommand = {
   kind: 'leaf',
-  name: 'evaluate',
+  name: 'check',
   description:
-    "Check a suggested change again on the project's test cases, frozen now, so new corrections count: its version and the version it's built on run the same cases. The suggested change is `checking`, then `ready` (its check says how each did) or `check-failed`. Allowed when `ready` or `check-failed`. Needs `publish` on the agent.",
-  usage: 'kindgi suggested-changes evaluate <suggested-change-id> [--wait]',
+    "Check a suggested change again on the project's test cases, frozen now, so new corrections count: its version and the version it's built on run the same cases. When the project now runs another version, it's rebuilt on that version first. The suggested change is `checking`, then `ready` (its check says how each did) or `check-failed`. Allowed when `ready` or `check-failed`. Needs `publish` on the agent.",
+  usage: 'kindgi suggested-changes check <suggested-change-id> [--wait]',
   optionSpec: {
     wait: {
       type: 'boolean',
@@ -227,7 +228,7 @@ const evaluate: LeafCommand = {
     ...IDEMPOTENCY_FLAG,
   },
   run: (ctx) =>
-    runSdk(ctx, 'suggested-changes evaluate', async () => {
+    runSdk(ctx, 'suggested-changes check', async () => {
       const id = requiredPositional(ctx, 0, 'suggested-change-id');
       const suggestedChanges = ctx.client().suggestedChanges;
       const started = await suggestedChanges.check(id, { ...idempotency(ctx) });
@@ -240,22 +241,43 @@ const evaluate: LeafCommand = {
     }),
 };
 
-const request: LeafCommand = {
+const pin: LeafCommand = {
   kind: 'leaf',
-  name: 'request',
+  name: 'pin',
   description:
-    "Ask to pin a suggested change's version for its project, through the project's release gate policy with its check. The suggested change is `pinned`, or `waiting-for-second-person` (a reviewer decides the approval: `kindgi approvals complete`); a refusal by the release gate policy lists every check, and leaves it `ready`. Allowed when `ready`, for a project that's pinned. Needs `promote` on the agent.",
-  usage: 'kindgi suggested-changes request <suggested-change-id> [--reason=<text>]',
+    "Pin a suggested change's version for its project, through the project's release gate policy with its check. The suggested change is `pinned`, or `waiting-for-second-person` (a reviewer decides the approval: `kindgi approvals complete`); a refusal by the release gate policy lists every check, and leaves it `ready`. Allowed when `ready`, for a project that runs a pin. Needs `promote` on the agent.",
+  usage: 'kindgi suggested-changes pin <suggested-change-id> [--reason=<text>]',
   optionSpec: {
-    reason: { type: 'string', description: 'Why, kept on the request to make it live.' },
+    reason: { type: 'string', description: 'Why, kept on the request to pin it.' },
     ...IDEMPOTENCY_FLAG,
   },
   run: (ctx) =>
-    runSdk(ctx, 'suggested-changes request', async () =>
+    runSdk(ctx, 'suggested-changes pin', async () =>
       ctx.client().suggestedChanges.pin(requiredPositional(ctx, 0, 'suggested-change-id'), {
         ...reasonFlag(ctx),
         ...idempotency(ctx),
       }),
+    ),
+};
+
+const addAsLatest: LeafCommand = {
+  kind: 'leaf',
+  name: 'add-as-latest',
+  description:
+    "Add a suggested change's version as its project's Latest, for a project that runs its Latest: the project runs it from now on, with no release gate policy. The suggested change is `added-as-latest`. Allowed when `ready`. Needs `promote` on the agent.",
+  usage: 'kindgi suggested-changes add-as-latest <suggested-change-id> [--reason=<text>]',
+  optionSpec: {
+    reason: { type: 'string', description: 'Why, kept on its `addedAsLatest`.' },
+    ...IDEMPOTENCY_FLAG,
+  },
+  run: (ctx) =>
+    runSdk(ctx, 'suggested-changes add-as-latest', async () =>
+      ctx
+        .client()
+        .suggestedChanges.addAsLatest(requiredPositional(ctx, 0, 'suggested-change-id'), {
+          ...reasonFlag(ctx),
+          ...idempotency(ctx),
+        }),
     ),
 };
 
@@ -282,6 +304,6 @@ export const suggestedChangesCommand: Command = {
   kind: 'group',
   name: 'suggested-changes',
   description:
-    "Suggested changes: new content for a data block in what a project runs; checked on the project's test cases, then pinned through the project's release gate policy (list / get / draft / evaluate / request / withdraw).",
-  subcommands: [list, get, draft, evaluate, request, withdraw],
+    "Suggested changes: new content for a data block in what a project runs; checked on the project's test cases, then pinned through the project's release gate policy, or added as the project's Latest (list / get / create / check / pin / add-as-latest / withdraw).",
+  subcommands: [list, get, create, check, pin, addAsLatest, withdraw],
 };

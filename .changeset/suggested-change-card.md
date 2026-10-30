@@ -53,7 +53,9 @@
   - `list` takes `projectId`, `status` and `madeBy`.
   - `SuggestedChange` follows the answer. `SuggestedChangeTier` and `EvaluateSuggestedChangeInput` are removed.
 - **CLI.**
-  - `kindgi suggested-changes draft` needs `--project`, and drops `--from-version`, `--tenant`, `--org` and `--segment`.
-  - `evaluate` checks it again, and takes only `--wait`.
+  - `kindgi suggested-changes create` replaces `draft`. It needs `--project`, takes `--fixes` (a correction id, more than once) in place of `--correction`, and drops `--from-version`, `--tenant`, `--org` and `--segment`.
+  - `check` replaces `evaluate`: it checks it again, and takes only `--wait`.
+  - `pin` replaces `request`.
+  - `add-as-latest` is new, with `--reason`.
   - `list` takes `--project`, and drops the scope flags and `--tier`.
   - The table shows each one's check, for example `25/27 (now 23/27)`.
