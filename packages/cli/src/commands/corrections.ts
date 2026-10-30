@@ -197,7 +197,7 @@ const add: LeafCommand = {
   kind: 'leaf',
   name: 'add',
   description:
-    'Correct a finished run: say whether its decisions (`--decisions`) and its answer (`--answer`) were right or wrong, and what should have happened, or mark an item of a ranked list (`--item` with `--yes` or `--no`). Each call adds to your correction of the run, replacing what you said before about the same part.',
+    'Correct a finished run: say whether its decisions (`--decisions`) and its answer (`--answer`) were right or wrong, and what should have happened, or mark an item of a ranked list (`--item` with `--yes` or `--no`). Each call adds to your correction of the run: it replaces the parts it gives and keeps the rest, and a part said right drops what should have happened there.',
   usage:
     'kindgi corrections add --run=<run-id> [--decisions=right|wrong] [--should-call=<tool>[:<json-args>]]… [--must-not-call=<tool>]… [--answer=right|wrong] [--should-say=<text>] [--why=<text>] [--item=<key> [--pointer=<json-pointer>] [--rank=<n>] (--yes | --no)] [--group=<corrector-group-id>] [--participant=<id>]',
   optionSpec: {
