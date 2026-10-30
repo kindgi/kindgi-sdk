@@ -15,7 +15,7 @@ description: >
   model by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.9"
+version: "0.1.10"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -218,6 +218,20 @@ then "Tool responded: …", and the turn carries the `fallback-provider` and
 `dev-echo-not-a-model` warnings. Register a real model and it
 takes over: see `kindgi-authoring-providers`
 (`kindgi providers register --preset=anthropic`).
+
+**How much the model thinks** (runtime 0.3.0 or later; an older one
+refuses a block with `thinking`): the agent names a model-settings block with
+`model_settings={"id": "acme.reply-model", "version": "^1.0.0"}`.
+It's a settings block, such as `blocks/reply-model.json`, whose values may
+set `temperature`, `maxOutputTokens` and `thinking`:
+`{ "id": "acme.reply-model", "version": "1.0.0", "kind": "settings", "content": { "values": { "thinking": "low" } } }`.
+The block's `thinking` (`lowest`, `minimal`, `low`, `medium`, `high`,
+`xhigh` or `max`) is sent; else the `thinking.default` the model's provider
+registration gives it (see `kindgi-authoring-providers`); else no level,
+and the model thinks as its vendor sets. A level the model doesn't take
+goes as the next one up that it takes, or its highest, with a
+`thinking-level-adjusted` warning. A guardrail's or an eval's model judge
+asks for `lowest`.
 
 ## Iterating
 
