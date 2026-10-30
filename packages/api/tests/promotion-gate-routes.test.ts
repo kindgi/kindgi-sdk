@@ -73,7 +73,7 @@ function summary(overrides: Partial<CorrectedComparisonSummary> = {}): Corrected
     evalRunId: 'eval-1',
     status: 'completed',
     completedAt: NOW.toISOString(),
-    suite: { id: 'acme.set', version: '1.0.0' },
+    testSet: { id: 'acme.set', version: '1.0.0' },
     candidate: { kind: 'agent', agentId: AGENT, version: '1.2.0', pinsDigest: 'sha-120' },
     baseline: { kind: 'recorded', versions: [{ agentId: AGENT, version: '1.1.0', cases: 30 }] },
     scope: { projectId: PROJECT },
@@ -250,7 +250,7 @@ function setup(opts: { request?: boolean; gatePolicies?: boolean } = {}) {
   return { app, calls, state };
 }
 
-const evalRun = (s: CorrectedComparisonSummary | undefined, kind = 'judged'): EvalRun =>
+const evalRun = (s: CorrectedComparisonSummary | undefined, kind = 'corrections'): EvalRun =>
   ({
     id: 'eval-1',
     runId: 'eval-1',

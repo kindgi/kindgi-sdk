@@ -45,10 +45,10 @@ final class OperationPlanner {
 
   /**
    * More names for an operation, beside its own: the name the other resources use for the same
-   * call ({@code evalSuites.unregister}, as {@code agents.unregister}). The Python client has the
+   * call ({@code testSets.unregister}, as {@code agents.unregister}). The Python client has the
    * same list.
    */
-  static final Map<String, List<String>> ALIASES = Map.of("evalSuites.versions.unregister", List.of("evalSuites.unregister"));
+  static final Map<String, List<String>> ALIASES = Map.of("testSets.versions.unregister", List.of("testSets.unregister"));
 
   enum ResponseKind {
     JSON,

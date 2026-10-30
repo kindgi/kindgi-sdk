@@ -23,7 +23,6 @@ import { egressCommand } from './egress.js';
 import { envCommand } from './env.js';
 import { environmentsCommand } from './environments.js';
 import { evalRunsCommand } from './eval-runs.js';
-import { evalSuitesCommand } from './eval-suites.js';
 import { expertQueueCommand } from './expert-queue.js';
 import { exportsCommand } from './exports.js';
 import { feedbackCommand } from './feedback.js';
@@ -55,6 +54,7 @@ import { sitesCommand } from './sites.js';
 import { skillsCommand } from './skills.js';
 import { ssoCommand } from './sso.js';
 import { tenantCommand } from './tenant.js';
+import { testSetsCommand } from './test-sets.js';
 import { testCommand } from './test.js';
 import { tokensCommand } from './tokens.js';
 import { toolsCommand } from './tools.js';
@@ -111,7 +111,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   queueRulesCommand,
   expertQueueCommand,
   evalRunsCommand,
-  evalSuitesCommand,
+  testSetsCommand,
   blocksCommand,
   gatePoliciesCommand,
   tokensCommand,

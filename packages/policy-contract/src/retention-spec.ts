@@ -47,7 +47,7 @@ export const RETENTION_DOMAINS = [
   'agent',
   'flow',
   'tool',
-  'eval_suite',
+  'test_set',
   'guardrail',
   'mcp_endpoint',
   'env',

@@ -176,9 +176,9 @@ def hoist(doc: dict[str, Any], schema: dict[str, Any], name: str) -> str:
 
 # More Python names for an operation, generated beside its own: the name
 # the other resources use for the same call, so the client's names line
-# up (`eval_suites.unregister`, as `agents.unregister`).
+# up (`test_sets.unregister`, as `agents.unregister`).
 ALIASES: dict[str, tuple[str, ...]] = {
-    "evalSuites.versions.unregister": ("evalSuites.unregister",),
+    "testSets.versions.unregister": ("testSets.unregister",),
 }
 
 # A run stream's follow method, generated beside it: the same call, through

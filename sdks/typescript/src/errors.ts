@@ -330,7 +330,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'nothing-to-roll-back':
     case 'not-pinned':
     case 'agent-version-live':
-    case 'eval-suite-already-registered':
+    case 'test-set-already-registered':
     case 'policy-already-registered':
     case 'mcp-endpoint-already-registered':
     case 'identity-provider-already-registered':

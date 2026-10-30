@@ -677,7 +677,7 @@ export function coordinatesOf(scope: LiveScope): Omit<LiveResolveInput, 'tenantI
 /** A finished comparison's summary, or `null` for any other eval run. */
 function summaryOf(run: EvalRun): CorrectedComparisonSummary | null {
   const summary = run.result?.summary;
-  return run.kind === 'judged' && summary !== null && typeof summary === 'object'
+  return run.kind === 'corrections' && summary !== null && typeof summary === 'object'
     ? (summary as CorrectedComparisonSummary)
     : null;
 }

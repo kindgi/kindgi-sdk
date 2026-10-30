@@ -233,7 +233,7 @@ describe('fromWire — a code this client does not list is read by its HTTP stat
   );
 
   it.each([
-    'eval-suite-already-registered',
+    'test-set-already-registered',
     'policy-already-registered',
     'version-already-exists',
     'approval-already-decided',

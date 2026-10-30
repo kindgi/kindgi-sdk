@@ -124,7 +124,7 @@ const EPSILON = 1e-9;
 /** A finished comparison's summary, or `null` for any other eval run. */
 export function comparisonSummaryOf(run: EvalRun): CorrectedComparisonSummary | null {
   const summary = run.result?.summary;
-  return run.kind === 'judged' && summary !== null && typeof summary === 'object'
+  return run.kind === 'corrections' && summary !== null && typeof summary === 'object'
     ? (summary as CorrectedComparisonSummary)
     : null;
 }

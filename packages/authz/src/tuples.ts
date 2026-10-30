@@ -26,9 +26,9 @@ import type {
 
 import type { TupleIntent } from './enqueue.js';
 
-// @kindgi/types has no branded EvalSuiteId / SecretId / EnvId /
+// @kindgi/types has no branded TestSetId / SecretId / EnvId /
 // McpEndpointId; these aliases are plain strings.
-type EvalSuiteId = string;
+type TestSetId = string;
 type SecretId = string;
 type EnvId = string;
 type McpEndpointId = string;
@@ -81,7 +81,8 @@ export function guardrailObject(id: GuardrailId): string {
   return `guardrail:${id}`;
 }
 
-export function evalSuiteObject(id: EvalSuiteId): string {
+export function testSetObject(id: TestSetId): string {
+  // The authorization model still names this type `eval_suite`; only the API calls it `test_set`.
   return `eval_suite:${id}`;
 }
 
@@ -170,8 +171,8 @@ export type EntityRef =
       readonly projectId: ProjectId;
     }
   | {
-      readonly kind: 'eval_suite';
-      readonly id: EvalSuiteId;
+      readonly kind: 'test_set';
+      readonly id: TestSetId;
       readonly tenantId: TenantId;
       readonly projectId: ProjectId;
     }
@@ -274,7 +275,7 @@ export function tuplesForCreate(entity: EntityRef, creatorUserId?: UserId): Tupl
     case 'flow':
     case 'tool':
     case 'guardrail':
-    case 'eval_suite': {
+    case 'test_set': {
       const object = contentObject(entity);
       const tuples: TupleIntent[] = [
         {
@@ -371,7 +372,7 @@ export function tuplesForDelete(entity: EntityRef): TupleIntent[] {
     case 'flow':
     case 'tool':
     case 'guardrail':
-    case 'eval_suite':
+    case 'test_set':
       return [
         {
           operation: 'delete',
@@ -461,7 +462,7 @@ export function teamProjectGrantTuple(
 //
 //   tool.invoker         — can invoke this tool
 //   flow.executor       — can execute this flow
-//   eval_suite.executor  — can execute this suite
+//   eval_suite.executor  — can execute this test set (the model still calls the type `eval_suite`)
 //   agent.caller         — can invoke this agent (agent-agent + SA-agent)
 //   secret.reader        — can read this secret
 //   env.reader           — can read this env var
@@ -475,7 +476,7 @@ export type MachineSubject =
 export type AgentAccessResource =
   | { readonly type: 'tool'; readonly id: ToolId }
   | { readonly type: 'flow'; readonly id: FlowId }
-  | { readonly type: 'eval_suite'; readonly id: EvalSuiteId }
+  | { readonly type: 'test_set'; readonly id: TestSetId }
   | { readonly type: 'agent'; readonly id: AgentId }
   | { readonly type: 'secret'; readonly id: SecretId }
   | { readonly type: 'env'; readonly id: EnvId }
@@ -510,12 +511,12 @@ export function machineAccessTuple(
         relation: 'executor',
         object: flowObject(resource.id),
       };
-    case 'eval_suite':
+    case 'test_set':
       return {
         operation: op,
         user: subjectString,
         relation: 'executor',
-        object: evalSuiteObject(resource.id),
+        object: testSetObject(resource.id),
       };
     case 'agent':
       return {
@@ -565,7 +566,7 @@ export function agentAccessTuple(
 // ============================================================
 
 function contentObject(
-  entity: Extract<EntityRef, { kind: 'agent' | 'flow' | 'tool' | 'guardrail' | 'eval_suite' }>,
+  entity: Extract<EntityRef, { kind: 'agent' | 'flow' | 'tool' | 'guardrail' | 'test_set' }>,
 ): string {
   switch (entity.kind) {
     case 'agent':
@@ -576,8 +577,8 @@ function contentObject(
       return toolObject(entity.id);
     case 'guardrail':
       return guardrailObject(entity.id);
-    case 'eval_suite':
-      return evalSuiteObject(entity.id);
+    case 'test_set':
+      return testSetObject(entity.id);
   }
 }
 

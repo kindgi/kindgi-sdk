@@ -10,7 +10,7 @@
  * `409 environment-takes-promotions`, before anything is written. A
  * project in no order, or first in its order, takes them as before.
  *
- * Eval suites aren't refused: they're test data, published in any
+ * Test sets aren't refused: they're test data, published in any
  * environment, and reached there and in the later ones.
  */
 

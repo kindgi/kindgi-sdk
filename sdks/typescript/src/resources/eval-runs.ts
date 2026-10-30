@@ -2,9 +2,9 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Eval runs — start + observe evaluation-suite executions.
+ * Eval runs — start + observe evaluation-test set executions.
  *
- * @wire /v1/eval-runs/*  and  /v1/eval-suites/:suiteId/runs
+ * @wire /v1/eval-runs/*  and  /v1/test-sets/:testSetId/runs
  *   (packages/api/src/routes/eval-runs.ts)
  * @generated Wire shapes from `../generated/api.js`.
  */
@@ -23,7 +23,7 @@ import type { Transport } from '../transport.js';
 export type EvalRunRecord = EvalRun;
 export type EvalRunPage = EvalRunCollectionPage;
 /**
- * The run fields of `POST /v1/eval-suites/:suiteId/runs` (exactly one of
+ * The run fields of `POST /v1/test-sets/:testSetId/runs` (exactly one of
  * `agentRef` / `flowRef`). The project the run belongs to travels as
  * `StartEvalRunOptions.projectId`.
  */
@@ -39,13 +39,15 @@ export type {
 
 /**
  * A comparison's result, typed from the OpenAPI `CorrectedComparisonResult`:
- * its summary and each case. `run` is a `judged` eval run (a test set
+ * its summary and each case. `run` is a `corrections` eval run (a test set
  * compared with a version); `undefined` for another kind of eval run, a
  * dry run, or one that hasn't finished.
  */
 export function comparisonOf(run: EvalRunRecord): CorrectedComparisonResult | undefined {
   const result = run.result as Partial<CorrectedComparisonResult> | undefined;
-  return run.kind === 'judged' && result?.summary !== undefined && Array.isArray(result.perCase)
+  return run.kind === 'corrections' &&
+    result?.summary !== undefined &&
+    Array.isArray(result.perCase)
     ? (result as CorrectedComparisonResult)
     : undefined;
 }
@@ -59,7 +61,7 @@ export interface StartEvalRunOptions {
 export interface ListEvalRunsFilter {
   readonly limit?: number;
   readonly cursor?: string;
-  readonly suiteId?: string;
+  readonly testSetId?: string;
   readonly status?: EvalRunStatus;
   readonly agentId?: string;
 }
@@ -72,13 +74,13 @@ export type EvalRunEvent = unknown;
 
 export interface EvalRunsClient {
   /**
-   * Start an eval-suite run against the current suite version, in a
+   * Start an test-set run against the current test set version, in a
    * project (`options.projectId`, sent next to the run fields in the
    * request body).
-   * @wire POST /v1/eval-suites/:suiteId/runs
+   * @wire POST /v1/test-sets/:testSetId/runs
    */
   start(
-    suiteId: string,
+    testSetId: string,
     input: StartEvalRunInput,
     options: StartEvalRunOptions,
   ): Promise<StartEvalRunOutcome>;
@@ -112,10 +114,10 @@ export interface EvalRunsClient {
 export function makeEvalRunsClient(transport: Transport): EvalRunsClient {
   const seg = (s: string): string => encodeURIComponent(s);
   return {
-    async start(suiteId, input, options) {
+    async start(testSetId, input, options) {
       return transport.request<StartEvalRunOutcome>({
         method: 'POST',
-        path: `/v1/eval-suites/${seg(suiteId)}/runs`,
+        path: `/v1/test-sets/${seg(testSetId)}/runs`,
         body: { ...input, projectId: options.projectId },
         ...(options.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
@@ -127,7 +129,7 @@ export function makeEvalRunsClient(transport: Transport): EvalRunsClient {
         query: {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
-          ...(filter?.suiteId !== undefined && { suiteId: filter.suiteId }),
+          ...(filter?.testSetId !== undefined && { testSetId: filter.testSetId }),
           ...(filter?.status !== undefined && { status: filter.status }),
           ...(filter?.agentId !== undefined && { agentId: filter.agentId }),
         },

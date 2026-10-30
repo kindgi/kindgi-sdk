@@ -143,8 +143,8 @@
       "description": "Deleted rows' retention (scheduled, sweep) — part of the admin control plane. Deleting most things is a tombstone; a `retention` policy per domain (see `policies`) sets how long tombstones stay before a sweep purges them for good. `scheduled` lists what's due and when; `sweep` purges what's past its grace. Nothing sweeps on its own: call `sweep` from a schedule. Caller-plugged via `RetentionBinding`."
     },
     {
-      "name": "eval-suites",
-      "description": "Evaluation suite catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: eval-run execution + per-kind grader dispatch live on the `eval-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `judged`). The cases of a `judged` suite are copies of judged runs built from corrections (`POST .../versions/from-corrections`, listed at `GET .../versions/{version}/cases`; `EvalCaseStoreBinding`). Runs against these suites are started through the `eval-runs` tag. Caller-plugged via `EvalSuiteRegistryBinding`."
+      "name": "test-sets",
+      "description": "Test set catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: eval-run execution + per-kind grader dispatch live on the `eval-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `judged`). The cases of a `judged` test set are copies of judged runs built from corrections (`POST .../versions/from-corrections`, listed at `GET .../versions/{version}/cases`; `EvalCaseStoreBinding`). Runs against these testSets are started through the `eval-runs` tag. Caller-plugged via `TestSetRegistryBinding`."
     },
     {
       "name": "blocks",
@@ -152,7 +152,7 @@
     },
     {
       "name": "eval-runs",
-      "description": "Eval-run data plane (start, list, get, cancel, events SSE). Dispatches an eval run against a registered suite. Dispatch is per-`EvalKind`; kinds without a registered dispatcher return `422 dispatcher-not-registered`. `result` is kind-specific opaque JSON on the wire — for `accuracy` it is `{ passCount, totalCount, meanScore, perCase[] }`. SSE events mirror run streaming: per-case progress followed by a terminal frame carrying the aggregate. Caller-plugged via `EvalRunBinding`."
+      "description": "Eval-run data plane (start, list, get, cancel, events SSE). Dispatches an eval run against a registered test set. Dispatch is per-`EvalKind`; kinds without a registered dispatcher return `422 dispatcher-not-registered`. `result` is kind-specific opaque JSON on the wire — for `accuracy` it is `{ passCount, totalCount, meanScore, perCase[] }`. SSE events mirror run streaming: per-case progress followed by a terminal frame carrying the aggregate. Caller-plugged via `EvalRunBinding`."
     },
     {
       "name": "auth",
@@ -289,7 +289,7 @@
           "run-erased": 410,
           "flow-gone": 410,
           "policy-gone": 410,
-          "eval-suite-gone": 410,
+          "test-set-gone": 410,
           "tool-gone": 410,
           "tool-already-registered": 409,
           "tool-project-mismatch": 409,
@@ -378,9 +378,9 @@
           "block-not-found": 404,
           "block-already-registered": 409,
           "block-project-mismatch": 409,
-          "eval-suite-not-found": 404,
-          "eval-suite-already-registered": 409,
-          "eval-suite-project-mismatch": 409,
+          "test-set-not-found": 404,
+          "test-set-already-registered": 409,
+          "test-set-project-mismatch": 409,
           "eval-run-not-found": 404,
           "eval-run-not-rescorable": 409,
           "correction-not-found": 404,
@@ -1656,7 +1656,7 @@
         "properties": {
           "name": {
             "type": "string",
-            "description": "Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.suite`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a promotion it supersedes, to say what changed since the check."
+            "description": "Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a promotion it supersedes, to say what changed since the check."
           },
           "passed": {
             "type": "boolean"
@@ -1736,7 +1736,7 @@
                 "type": "number",
                 "exclusiveMinimum": 0
               },
-              "suite": {
+              "testSet": {
                 "type": "object",
                 "additionalProperties": false,
                 "required": [
@@ -6840,7 +6840,7 @@
           "output",
           "items"
         ],
-        "description": "One case of a `judged` eval suite: a copy of a corrected run with its items' corrections summed up.",
+        "description": "One case of a `corrections` test set: a copy of a corrected run with its items' corrections summed up.",
         "properties": {
           "caseId": {
             "type": "string",
@@ -6938,7 +6938,7 @@
           }
         }
       },
-      "BuildCorrectedSuiteBody": {
+      "BuildCorrectedTestSetBody": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -7003,18 +7003,18 @@
           }
         }
       },
-      "BuildCorrectedSuiteResult": {
+      "BuildCorrectedTestSetResult": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "suiteId",
+          "testSetId",
           "version",
           "kind",
           "caseCount",
           "truncated"
         ],
         "properties": {
-          "suiteId": {
+          "testSetId": {
             "type": "string"
           },
           "version": {
@@ -7023,7 +7023,7 @@
           "kind": {
             "type": "string",
             "enum": [
-              "judged"
+              "corrections"
             ]
           },
           "caseCount": {
@@ -10932,7 +10932,7 @@
         "additionalProperties": false,
         "required": [
           "evalRunId",
-          "suiteId",
+          "testSetId",
           "objective",
           "startedAt"
         ],
@@ -10942,9 +10942,9 @@
             "type": "string",
             "format": "uuid"
           },
-          "suiteId": {
+          "testSetId": {
             "type": "string",
-            "description": "The test set (a judged eval suite)."
+            "description": "The test set (a corrections test set)."
           },
           "objective": {
             "type": "string",
@@ -11328,7 +11328,7 @@
           "agentId",
           "fromVersion",
           "scope",
-          "suiteId",
+          "testSetId",
           "tiers",
           "objective",
           "budget",
@@ -11354,7 +11354,7 @@
           "scope": {
             "$ref": "#/components/schemas/LiveScope"
           },
-          "suiteId": {
+          "testSetId": {
             "type": "string",
             "description": "The test set it searches and proves on."
           },
@@ -11568,7 +11568,7 @@
         "required": [
           "agentId",
           "scope",
-          "suiteId"
+          "testSetId"
         ],
         "description": "Start an improvement pass.",
         "properties": {
@@ -11582,14 +11582,14 @@
           "projectId": {
             "type": "string",
             "format": "uuid",
-            "description": "The project the pass works in: `suiteId` must be a test set it reaches, the version must reach it, and the pass's eval runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there."
+            "description": "The project the pass works in: `testSetId` must be a test set it reaches, the version must reach it, and the pass's eval runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there."
           },
           "scope": {
             "$ref": "#/components/schemas/LiveScope"
           },
-          "suiteId": {
+          "testSetId": {
             "type": "string",
-            "description": "The test set (a judged eval suite). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part."
+            "description": "The test set (a corrections test set). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part."
           },
           "tiers": {
             "type": "array",
@@ -11782,12 +11782,12 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "suiteId"
+          "testSetId"
         ],
         "properties": {
-          "suiteId": {
+          "testSetId": {
             "type": "string",
-            "description": "The test set: a judged eval suite."
+            "description": "The test set: a corrections test set."
           },
           "objective": {
             "type": "string",
@@ -14677,7 +14677,7 @@
           "agent",
           "flow",
           "tool",
-          "eval_suite",
+          "test_set",
           "guardrail",
           "mcp_endpoint",
           "env",
@@ -14917,10 +14917,10 @@
           "human-review",
           "benchmark",
           "custom",
-          "judged"
+          "corrections"
         ]
       },
-      "EvalSuite": {
+      "TestSet": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -14947,7 +14947,7 @@
           "version": {
             "type": "string",
             "pattern": "^\\d+\\.\\d+\\.\\d+$",
-            "description": "Semver — publishing a modified suite produces a new version."
+            "description": "Semver — publishing a modified testSet produces a new version."
           },
           "kind": {
             "$ref": "#/components/schemas/EvalKind"
@@ -14958,16 +14958,16 @@
           "spec": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Kind-specific suite body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`."
+            "description": "Kind-specific testSet body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`."
           },
           "unregisteredAt": {
             "type": "string",
             "format": "date-time",
-            "description": "Present only on an unregistered version: one `GET …/versions?includeTombstoned=true` lists, or a retired test set (every version unregistered) as `GET /v1/eval-suites?includeRetired=true` lists it."
+            "description": "Present only on an unregistered version: one `GET …/versions?includeTombstoned=true` lists, or a retired test set (every version unregistered) as `GET /v1/test-sets?includeRetired=true` lists it."
           }
         }
       },
-      "EvalSuiteCollectionPage": {
+      "TestSetCollectionPage": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -14978,7 +14978,7 @@
           "data": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/EvalSuite"
+              "$ref": "#/components/schemas/TestSet"
             }
           },
           "nextCursor": {
@@ -14989,7 +14989,7 @@
           }
         }
       },
-      "PublishEvalSuiteBody": {
+      "PublishTestSetBody": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -15030,15 +15030,15 @@
           }
         }
       },
-      "PublishEvalSuiteResult": {
+      "PublishTestSetResult": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "suiteId",
+          "testSetId",
           "version"
         ],
         "properties": {
-          "suiteId": {
+          "testSetId": {
             "type": "string"
           },
           "version": {
@@ -15046,16 +15046,16 @@
           }
         }
       },
-      "UnregisterEvalSuiteResult": {
+      "UnregisterTestSetResult": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "suiteId",
+          "testSetId",
           "version",
           "unregistered"
         ],
         "properties": {
-          "suiteId": {
+          "testSetId": {
             "type": "string"
           },
           "version": {
@@ -15067,16 +15067,16 @@
           }
         }
       },
-      "ReinstateEvalSuiteVersionResult": {
+      "ReinstateTestSetVersionResult": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "suiteId",
+          "testSetId",
           "version",
           "wasTombstoned"
         ],
         "properties": {
-          "suiteId": {
+          "testSetId": {
             "type": "string"
           },
           "version": {
@@ -15472,7 +15472,7 @@
           "repetitions",
           "k"
         ],
-        "description": "A comparison eval run's settings (a `judged` suite).",
+        "description": "A comparison eval run's settings (a `corrections` test set).",
         "properties": {
           "baseline": {
             "$ref": "#/components/schemas/EvalBaseline"
@@ -15674,7 +15674,7 @@
           "evalRunId",
           "status",
           "completedAt",
-          "suite",
+          "testSet",
           "candidate",
           "baseline",
           "scope",
@@ -15704,7 +15704,7 @@
             "type": "string",
             "format": "date-time"
           },
-          "suite": {
+          "testSet": {
             "type": "object",
             "additionalProperties": false,
             "required": [
@@ -16543,7 +16543,7 @@
         }
       },
       "CorrectedComparisonResult": {
-        "description": "A comparison's `result` (a `judged` eval run's): the summary and each case. `EvalRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).",
+        "description": "A comparison's `result` (a `corrections` eval run's): the summary and each case. `EvalRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -16568,8 +16568,8 @@
         "required": [
           "runId",
           "tenantId",
-          "suiteId",
-          "suiteVersion",
+          "testSetId",
+          "testSetVersion",
           "kind",
           "status",
           "dryRun",
@@ -16589,10 +16589,10 @@
             "format": "uuid",
             "description": "The project the eval run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6."
           },
-          "suiteId": {
+          "testSetId": {
             "type": "string"
           },
-          "suiteVersion": {
+          "testSetVersion": {
             "type": "string",
             "pattern": "^\\d+\\.\\d+\\.\\d+$"
           },
@@ -16629,7 +16629,7 @@
           "result": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: \"agent\", agentId, version }` or `{ kind: \"flow\", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship."
+            "description": "Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `corrections` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: \"agent\", agentId, version }` or `{ kind: \"flow\", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship."
           },
           "error": {
             "type": "string"
@@ -16730,7 +16730,7 @@
             "$ref": "#/components/schemas/EvalSample"
           }
         },
-        "description": "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`)."
+        "description": "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `corrections` test set (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`)."
       },
       "RescoreEvalRunBody": {
         "type": "object",
@@ -19138,7 +19138,7 @@
           "flow",
           "tool",
           "guardrail",
-          "eval_suite",
+          "test_set",
           "trigger",
           "conversation",
           "secret",
@@ -19215,7 +19215,7 @@
               ]
             }
           },
-          "eval_suite": {
+          "test_set": {
             "type": "array",
             "items": {
               "type": "string",
@@ -49921,20 +49921,20 @@
         ]
       }
     },
-    "/v1/eval-suites": {
+    "/v1/test-sets": {
       "get": {
-        "operationId": "evalSuites.list",
-        "summary": "List tenant eval suites",
+        "operationId": "testSets.list",
+        "summary": "List tenant test sets",
         "tags": [
-          "eval-suites"
+          "test-sets"
         ],
         "responses": {
           "200": {
-            "description": "Page of eval suites.",
+            "description": "Page of test sets.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EvalSuiteCollectionPage"
+                  "$ref": "#/components/schemas/TestSetCollectionPage"
                 }
               }
             }
@@ -49970,7 +49970,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id. A retired suite (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
+        "description": "Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: testSet id ascending. Latest version per id. A retired testSet (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
         "parameters": [
           {
             "name": "limit",
@@ -50000,7 +50000,7 @@
               "$ref": "#/components/schemas/EvalKind"
             },
             "required": false,
-            "description": "Filter to eval suites of a single kind. Values: `accuracy | pairwise | regression | human-review | benchmark | custom | judged`."
+            "description": "Filter to test sets of a single kind. Values: `accuracy | pairwise | regression | human-review | benchmark | custom | corrections`."
           },
           {
             "name": "name",
@@ -50009,7 +50009,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Prefix match on `EvalSuite.id`. Dotted namespaces are the natural filter shape."
+            "description": "Prefix match on `TestSet.id`. Dotted namespaces are the natural filter shape."
           },
           {
             "name": "scopeKind",
@@ -50058,18 +50058,18 @@
         ]
       },
       "post": {
-        "operationId": "evalSuites.publish",
-        "summary": "Publish an eval suite",
+        "operationId": "testSets.publish",
+        "summary": "Publish an test set",
         "tags": [
-          "eval-suites"
+          "test-sets"
         ],
         "responses": {
           "201": {
-            "description": "Eval suite published.",
+            "description": "Test set published.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PublishEvalSuiteResult"
+                  "$ref": "#/components/schemas/PublishTestSetResult"
                 }
               }
             }
@@ -50105,7 +50105,7 @@
             }
           },
           "409": {
-            "description": "`eval-suite-already-registered`: that (id, version) is taken. Or `eval-suite-project-mismatch`: the suite's versions live in another project (a suite belongs to the project its first version was published into and never moves; the message doesn't name the project).",
+            "description": "`test-set-already-registered`: that (id, version) is taken. Or `test-set-project-mismatch`: the test set's versions live in another project (a test set belongs to the project its first version was published into and never moves; the message doesn't name the project).",
             "content": {
               "application/json": {
                 "schema": {
@@ -50145,7 +50145,7 @@
             }
           }
         },
-        "description": "Body is a full `EvalSuite` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(suiteId, version)` returns `409 eval-suite-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).",
+        "description": "Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -50163,7 +50163,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PublishEvalSuiteBody"
+                "$ref": "#/components/schemas/PublishTestSetBody"
               }
             }
           }
@@ -50175,20 +50175,20 @@
         ]
       }
     },
-    "/v1/eval-suites/{suiteId}": {
+    "/v1/test-sets/{testSetId}": {
       "get": {
-        "operationId": "evalSuites.get",
-        "summary": "Fetch an eval suite (latest version)",
+        "operationId": "testSets.get",
+        "summary": "Fetch an test set (latest version)",
         "tags": [
-          "eval-suites"
+          "test-sets"
         ],
         "responses": {
           "200": {
-            "description": "Latest eval suite version.",
+            "description": "Latest test set version.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EvalSuite"
+                  "$ref": "#/components/schemas/TestSet"
                 }
               }
             }
@@ -50214,7 +50214,7 @@
             }
           },
           "404": {
-            "description": "No eval suite with that id under this tenant.",
+            "description": "No test set with that id under this tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50237,14 +50237,14 @@
         "description": "An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.",
         "parameters": [
           {
-            "name": "suiteId",
+            "name": "testSetId",
             "in": "path",
             "schema": {
               "type": "string",
               "minLength": 1
             },
             "required": true,
-            "description": "EvalSuiteId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`)."
+            "description": "TestSetId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`)."
           },
           {
             "name": "projectId",
@@ -50264,20 +50264,20 @@
         ]
       }
     },
-    "/v1/eval-suites/{suiteId}/versions": {
+    "/v1/test-sets/{testSetId}/versions": {
       "get": {
-        "operationId": "evalSuites.versions.list",
-        "summary": "List versions of an eval suite",
+        "operationId": "testSets.versions.list",
+        "summary": "List versions of an test set",
         "tags": [
-          "eval-suites"
+          "test-sets"
         ],
         "responses": {
           "200": {
-            "description": "Page of eval suite versions.",
+            "description": "Page of test set versions.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EvalSuiteCollectionPage"
+                  "$ref": "#/components/schemas/TestSetCollectionPage"
                 }
               }
             }
@@ -50303,7 +50303,7 @@
             }
           },
           "404": {
-            "description": "No eval suite was ever registered with that id under this tenant.",
+            "description": "No test set was ever registered with that id under this tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50323,17 +50323,17 @@
             }
           }
         },
-        "description": "Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired suite (every version unregistered) answers too, with its versions to reinstate.",
+        "description": "Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired testSet (every version unregistered) answers too, with its versions to reinstate.",
         "parameters": [
           {
-            "name": "suiteId",
+            "name": "testSetId",
             "in": "path",
             "schema": {
               "type": "string",
               "minLength": 1
             },
             "required": true,
-            "description": "EvalSuiteId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`)."
+            "description": "TestSetId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`)."
           },
           {
             "name": "limit",
@@ -50374,20 +50374,20 @@
         ]
       }
     },
-    "/v1/eval-suites/{suiteId}/versions/{version}": {
+    "/v1/test-sets/{testSetId}/versions/{version}": {
       "get": {
-        "operationId": "evalSuites.versions.get",
-        "summary": "Fetch a specific eval suite version",
+        "operationId": "testSets.versions.get",
+        "summary": "Fetch a specific test set version",
         "tags": [
-          "eval-suites"
+          "test-sets"
         ],
         "responses": {
           "200": {
-            "description": "Eval suite at that version.",
+            "description": "Test set at that version.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EvalSuite"
+                  "$ref": "#/components/schemas/TestSet"
                 }
               }
             }
@@ -50403,7 +50403,7 @@
             }
           },
           "404": {
-            "description": "No eval suite at that (id, version) under this tenant.",
+            "description": "No test set at that (id, version) under this tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50425,14 +50425,14 @@
         },
         "parameters": [
           {
-            "name": "suiteId",
+            "name": "testSetId",
             "in": "path",
             "schema": {
               "type": "string",
               "minLength": 1
             },
             "required": true,
-            "description": "EvalSuiteId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`)."
+            "description": "TestSetId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`)."
           },
           {
             "name": "version",
@@ -50442,7 +50442,7 @@
               "pattern": "^\\d+\\.\\d+\\.\\d+$"
             },
             "required": true,
-            "description": "Semver version string of the eval suite (e.g. `1.2.0`)."
+            "description": "Semver version string of the test set (e.g. `1.2.0`)."
           }
         ],
         "security": [
@@ -50452,12 +50452,12 @@
         ]
       }
     },
-    "/v1/eval-suites/{suiteId}/versions/from-corrections": {
+    "/v1/test-sets/{testSetId}/versions/from-corrections": {
       "post": {
-        "operationId": "evalSuites.buildFromCorrections",
+        "operationId": "testSets.buildFromCorrections",
         "summary": "Build a test set from corrections",
         "tags": [
-          "eval-suites"
+          "test-sets"
         ],
         "responses": {
           "201": {
@@ -50465,7 +50465,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BuildCorrectedSuiteResult"
+                  "$ref": "#/components/schemas/BuildCorrectedTestSetResult"
                 }
               }
             }
@@ -50511,7 +50511,7 @@
             }
           },
           "409": {
-            "description": "`eval-suite-already-registered`: that (id, version) is taken. Or `eval-suite-project-mismatch`: the suite belongs to another project than the body's `projectId` (suites never move).",
+            "description": "`test-set-already-registered`: that (id, version) is taken. Or `test-set-project-mismatch`: the test set belongs to another project than the body's `projectId` (testSets never move).",
             "content": {
               "application/json": {
                 "schema": {
@@ -50561,17 +50561,17 @@
             }
           }
         },
-        "description": "Publishes a `judged` eval suite version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.",
+        "description": "Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.",
         "parameters": [
           {
-            "name": "suiteId",
+            "name": "testSetId",
             "in": "path",
             "schema": {
               "type": "string",
               "minLength": 1
             },
             "required": true,
-            "description": "EvalSuiteId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`)."
+            "description": "TestSetId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`)."
           },
           {
             "name": "Idempotency-Key",
@@ -50589,7 +50589,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/BuildCorrectedSuiteBody"
+                "$ref": "#/components/schemas/BuildCorrectedTestSetBody"
               }
             }
           }
@@ -50601,12 +50601,12 @@
         ]
       }
     },
-    "/v1/eval-suites/{suiteId}/versions/{version}/cases": {
+    "/v1/test-sets/{testSetId}/versions/{version}/cases": {
       "get": {
-        "operationId": "evalSuites.listCases",
-        "summary": "List the cases of a judged eval suite version",
+        "operationId": "testSets.listCases",
+        "summary": "List the cases of a corrections test set version",
         "tags": [
-          "eval-suites"
+          "test-sets"
         ],
         "responses": {
           "200": {
@@ -50630,7 +50630,7 @@
             }
           },
           "404": {
-            "description": "No eval suite with that id.",
+            "description": "No test set with that id.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50653,14 +50653,14 @@
         "description": "Cursor-paginated, in the order the cases were stored (newest corrected run first).",
         "parameters": [
           {
-            "name": "suiteId",
+            "name": "testSetId",
             "in": "path",
             "schema": {
               "type": "string",
               "minLength": 1
             },
             "required": true,
-            "description": "EvalSuiteId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`)."
+            "description": "TestSetId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`)."
           },
           {
             "name": "version",
@@ -50670,7 +50670,7 @@
               "pattern": "^\\d+\\.\\d+\\.\\d+$"
             },
             "required": true,
-            "description": "Semver version string of the eval suite (e.g. `1.2.0`)."
+            "description": "Semver version string of the test set (e.g. `1.2.0`)."
           },
           {
             "name": "limit",
@@ -50701,12 +50701,12 @@
         ]
       }
     },
-    "/v1/eval-suites/{suiteId}/versions/{version}/unregister": {
+    "/v1/test-sets/{testSetId}/versions/{version}/unregister": {
       "post": {
-        "operationId": "evalSuites.versions.unregister",
-        "summary": "Unregister an eval suite version",
+        "operationId": "testSets.versions.unregister",
+        "summary": "Unregister an test set version",
         "tags": [
-          "eval-suites"
+          "test-sets"
         ],
         "responses": {
           "200": {
@@ -50714,7 +50714,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UnregisterEvalSuiteResult"
+                  "$ref": "#/components/schemas/UnregisterTestSetResult"
                 }
               }
             }
@@ -50740,7 +50740,7 @@
             }
           },
           "404": {
-            "description": "No eval suite at that (id, version) under this tenant.",
+            "description": "No test set at that (id, version) under this tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50782,14 +50782,14 @@
         },
         "parameters": [
           {
-            "name": "suiteId",
+            "name": "testSetId",
             "in": "path",
             "schema": {
               "type": "string",
               "minLength": 1
             },
             "required": true,
-            "description": "EvalSuiteId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`)."
+            "description": "TestSetId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`)."
           },
           {
             "name": "version",
@@ -50799,7 +50799,7 @@
               "pattern": "^\\d+\\.\\d+\\.\\d+$"
             },
             "required": true,
-            "description": "Semver version string of the eval suite (e.g. `1.2.0`)."
+            "description": "Semver version string of the test set (e.g. `1.2.0`)."
           },
           {
             "name": "Idempotency-Key",
@@ -50819,12 +50819,12 @@
         ]
       }
     },
-    "/v1/eval-suites/{suiteId}/versions/{version}/reinstate": {
+    "/v1/test-sets/{testSetId}/versions/{version}/reinstate": {
       "post": {
-        "operationId": "evalSuites.reinstateVersion",
-        "summary": "Reinstate a specific tombstoned eval suite version",
+        "operationId": "testSets.reinstateVersion",
+        "summary": "Reinstate a specific tombstoned test set version",
         "tags": [
-          "eval-suites"
+          "test-sets"
         ],
         "responses": {
           "200": {
@@ -50832,7 +50832,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ReinstateEvalSuiteVersionResult"
+                  "$ref": "#/components/schemas/ReinstateTestSetVersionResult"
                 }
               }
             }
@@ -50858,7 +50858,7 @@
             }
           },
           "404": {
-            "description": "No eval suite at that (id, version) under this tenant.",
+            "description": "No test set at that (id, version) under this tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50898,17 +50898,17 @@
             }
           }
         },
-        "description": "Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (refreshes `suiteKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Publish is always allowed regardless of retirement state.",
+        "description": "Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (refreshes `testSetKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Publish is always allowed regardless of retirement state.",
         "parameters": [
           {
-            "name": "suiteId",
+            "name": "testSetId",
             "in": "path",
             "schema": {
               "type": "string",
               "minLength": 1
             },
             "required": true,
-            "description": "EvalSuiteId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`)."
+            "description": "TestSetId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`)."
           },
           {
             "name": "version",
@@ -50918,7 +50918,7 @@
               "pattern": "^\\d+\\.\\d+\\.\\d+$"
             },
             "required": true,
-            "description": "Semver version string of the eval suite (e.g. `1.2.0`)."
+            "description": "Semver version string of the test set (e.g. `1.2.0`)."
           },
           {
             "name": "Idempotency-Key",
@@ -51728,10 +51728,10 @@
         ]
       }
     },
-    "/v1/eval-suites/{suiteId}/runs": {
+    "/v1/test-sets/{testSetId}/runs": {
       "post": {
         "operationId": "evalRuns.start",
-        "summary": "Start an eval run against a suite",
+        "summary": "Start an eval run against a test set",
         "tags": [
           "eval-runs"
         ],
@@ -51747,7 +51747,7 @@
             }
           },
           "400": {
-            "description": "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the suite, the agent or flow, or an agent or tool a flow candidate's `versions` names, isn't registered in `projectId`'s project, its org or the tenant; or a version named (by `agentRef`, `flowRef` or `versions.agents`) isn't one `projectId`'s project runs (`details.issues`, each at the path it was named, whose message names the version). Nothing runs.",
+            "description": "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the test set, the agent or flow, or an agent or tool a flow candidate's `versions` names, isn't registered in `projectId`'s project, its org or the tenant; or a version named (by `agentRef`, `flowRef` or `versions.agents`) isn't one `projectId`'s project runs (`details.issues`, each at the path it was named, whose message names the version). Nothing runs.",
             "content": {
               "application/json": {
                 "schema": {
@@ -51767,7 +51767,7 @@
             }
           },
           "404": {
-            "description": "No eval suite with that id under this tenant; or `projectId` names no project of this tenant (`project-not-found`).",
+            "description": "No test set with that id under this tenant; or `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -51797,7 +51797,7 @@
             }
           },
           "422": {
-            "description": "No dispatcher registered for the suite kind.",
+            "description": "No dispatcher registered for the test set kind.",
             "content": {
               "application/json": {
                 "schema": {
@@ -51827,17 +51827,17 @@
             }
           }
         },
-        "description": "Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.",
+        "description": "Dispatches an eval run against the latest version of the test set. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.",
         "parameters": [
           {
-            "name": "suiteId",
+            "name": "testSetId",
             "in": "path",
             "schema": {
               "type": "string",
               "minLength": 1
             },
             "required": true,
-            "description": "EvalSuiteId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`)."
+            "description": "TestSetId — stable string chosen by the caller (e.g. `acme.drafting-accuracy`)."
           },
           {
             "name": "Idempotency-Key",
@@ -51916,7 +51916,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Filters: `?suiteId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.",
+        "description": "Cursor-paginated. Filters: `?testSetId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.",
         "parameters": [
           {
             "name": "limit",
@@ -51940,13 +51940,13 @@
             "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
-            "name": "suiteId",
+            "name": "testSetId",
             "in": "query",
             "schema": {
               "type": "string"
             },
             "required": false,
-            "description": "Filter to runs against a specific suite id."
+            "description": "Filter to runs against a specific testSet id."
           },
           {
             "name": "status",
@@ -52238,7 +52238,7 @@
             }
           }
         },
-        "description": "Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.",
+        "description": "Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's testSet and `write` on its project.",
         "parameters": [
           {
             "name": "runId",
@@ -60069,7 +60069,7 @@
             }
           }
         },
-        "description": "Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a group the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.",
+        "description": "Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `corrections` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a group the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.",
         "parameters": [
           {
             "name": "projectId",

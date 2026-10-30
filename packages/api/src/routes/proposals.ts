@@ -261,7 +261,7 @@ export function proposalsRouter(
     const outcome = await service.evaluate({
       tenantId: c.get('tenantId') as TenantId,
       proposal: ready.proposal,
-      suiteId: parsed.suiteId,
+      testSetId: parsed.testSetId,
       objective: parsed.objective,
       ...(parsed.comparison !== undefined && { comparison: parsed.comparison }),
       actor: actorOf(c),
@@ -372,7 +372,7 @@ function evaluationWire(
   // `costUsd` and `decisions`.
   const recorded = {
     evalRunId: stored.evalRunId,
-    suiteId: stored.suiteId,
+    testSetId: stored.testSetId,
     objective: stored.objective,
     startedAt: stored.startedAt,
     ...(stored.rule !== undefined && { rule: stored.rule }),
@@ -502,29 +502,31 @@ function parseCreateBody(b: Record<string, unknown>): CreateBody | string {
 }
 
 interface EvaluateBody {
-  readonly suiteId: string;
+  readonly testSetId: string;
   readonly objective: ProposalObjective;
   readonly comparison?: EvalComparison;
 }
 
 function parseEvaluateBody(b: Record<string, unknown>): EvaluateBody | string {
-  if (!nonEmpty(b.suiteId)) {
-    return '`suiteId` is required: the test set (a judged eval suite) to compare on';
+  if (!nonEmpty(b.testSetId)) {
+    return '`testSetId` is required: the test set (a corrections test set) to compare on';
   }
   if (b.objective !== undefined && !OBJECTIVES.includes(b.objective as ProposalObjective)) {
     return `\`objective\` must be one of ${OBJECTIVES.join(', ')}`;
   }
   const extra = Object.keys(b).filter(
     (k) =>
-      !['suiteId', 'objective', 'reads', 'repetitions', 'k', 'groupWeights', 'sample'].includes(k),
+      !['testSetId', 'objective', 'reads', 'repetitions', 'k', 'groupWeights', 'sample'].includes(
+        k,
+      ),
   );
   if (extra.length > 0) {
-    return `\`${extra[0]}\` isn't a field of an evaluation: { suiteId, objective?, reads?, repetitions?, k?, groupWeights?, sample? }`;
+    return `\`${extra[0]}\` isn't a field of an evaluation: { testSetId, objective?, reads?, repetitions?, k?, groupWeights?, sample? }`;
   }
   const comparison = parseComparison(b);
   if (comparison.kind === 'err') return comparison.message;
   return {
-    suiteId: b.suiteId,
+    testSetId: b.testSetId,
     objective: (b.objective as ProposalObjective | undefined) ?? 'weightedYesShare',
     ...(comparison.value !== undefined && { comparison: comparison.value }),
   };

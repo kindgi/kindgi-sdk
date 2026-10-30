@@ -194,16 +194,16 @@ const ONCE: readonly {
     decided: `read guardrail:${ID}`,
   },
   {
-    router: 'eval-suites',
+    router: 'test-sets',
     method: 'GET',
-    path: `/eval-suites/${ID}`,
-    decided: `read eval_suite:${ID}`,
+    path: `/test-sets/${ID}`,
+    decided: `read test_set:${ID}`,
   },
   {
-    router: 'eval-suites',
+    router: 'test-sets',
     method: 'GET',
-    path: `/eval-suites/${ID}/versions`,
-    decided: `read eval_suite:${ID}`,
+    path: `/test-sets/${ID}/versions`,
+    decided: `read test_set:${ID}`,
   },
   {
     router: 'mcp',
@@ -297,11 +297,11 @@ const REFUSED: readonly {
     decided: `read guardrail:${ID}`,
   },
   {
-    router: 'eval-suites',
+    router: 'test-sets',
     token: NOBODY,
     method: 'GET',
-    path: `/eval-suites/${ID}`,
-    decided: `read eval_suite:${ID}`,
+    path: `/test-sets/${ID}`,
+    decided: `read test_set:${ID}`,
   },
   {
     router: 'mcp',

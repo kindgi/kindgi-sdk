@@ -255,7 +255,7 @@ class GateCheck(BaseModel):
     )
     name: str
     """
-    Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.suite`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a promotion it supersedes, to say what changed since the check.
+    Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a promotion it supersedes, to say what changed since the check.
     """
     passed: bool
     message: str
@@ -290,24 +290,6 @@ class GateApproval(BaseModel):
     """
     Whoever asked for the promotion may not approve it.
     """
-
-
-class Suite(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: str
-    version: str | None = None
-
-
-class Comparison(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    max_age_hours: Annotated[float | None, Field(alias="maxAgeHours", gt=0.0)] = None
-    suite: Suite | None = None
 
 
 class Evidence(BaseModel):
@@ -376,35 +358,6 @@ class Approvals(BaseModel):
     separate_approver: Annotated[bool | None, Field(alias="separateApprover")] = None
     """
     Default `true`.
-    """
-
-
-class GatePolicySpec(BaseModel):
-    """
-    What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`evalRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    comparison: Comparison | None = None
-    evidence: Evidence | None = None
-    """
-    The evidence from corrections behind each gated metric; for a metric with `maxDrop`, the baseline's too.
-    """
-    metrics: list[Metric] | None = None
-    replay: Replay | None = None
-    """
-    Each knob left out of the block is 0. No block: no replay checks.
-    """
-    approvals: Approvals | None = None
-    """
-    A passing promotion waits for a reviewer.
-    """
-    only_expert_groups: Annotated[bool | None, Field(alias="onlyExpertGroups")] = None
-    """
-    Only expert groups count: the comparison must be weighted `experts-only`, so a group anyone may assert can't move the gate.
     """
 
 
@@ -2593,7 +2546,7 @@ class CorrectorGroupId(RootModel[str]):
     root: Annotated[str, Field(min_length=1)]
 
 
-class BuildCorrectedSuiteBody(BaseModel):
+class BuildCorrectedTestSetBody(BaseModel):
     """
     Name the agent (`agentId`) or the flow (`flowId`) whose corrected runs to use.
     """
@@ -2638,14 +2591,14 @@ class BuildCorrectedSuiteBody(BaseModel):
     description: str | None = None
 
 
-class BuildCorrectedSuiteResult(BaseModel):
+class BuildCorrectedTestSetResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    suite_id: Annotated[str, Field(alias="suiteId")]
+    test_set_id: Annotated[str, Field(alias="testSetId")]
     version: str
-    kind: Annotated[Literal["judged"] | str, _open.OPEN]
+    kind: Annotated[Literal["corrections"] | str, _open.OPEN]
     case_count: Annotated[int, Field(alias="caseCount", ge=0)]
     truncated: bool
     """
@@ -6223,7 +6176,7 @@ class RetentionPolicyConflict(BaseModel):
             "agent",
             "flow",
             "tool",
-            "eval_suite",
+            "test_set",
             "guardrail",
             "mcp_endpoint",
             "env",
@@ -6267,7 +6220,7 @@ class RetentionScheduledItem(BaseModel):
             "agent",
             "flow",
             "tool",
-            "eval_suite",
+            "test_set",
             "guardrail",
             "mcp_endpoint",
             "env",
@@ -6343,7 +6296,7 @@ class RetentionScheduledPage(BaseModel):
                     "agent",
                     "flow",
                     "tool",
-                    "eval_suite",
+                    "test_set",
                     "guardrail",
                     "mcp_endpoint",
                     "env",
@@ -6377,7 +6330,7 @@ class RetentionScheduledPage(BaseModel):
                     "agent",
                     "flow",
                     "tool",
-                    "eval_suite",
+                    "test_set",
                     "guardrail",
                     "mcp_endpoint",
                     "env",
@@ -6421,7 +6374,7 @@ class RetentionSweepBody(BaseModel):
                 "agent",
                 "flow",
                 "tool",
-                "eval_suite",
+                "test_set",
                 "guardrail",
                 "mcp_endpoint",
                 "env",
@@ -6474,7 +6427,7 @@ class PerDomainItem(BaseModel):
             "agent",
             "flow",
             "tool",
-            "eval_suite",
+            "test_set",
             "guardrail",
             "mcp_endpoint",
             "env",
@@ -6529,7 +6482,7 @@ class RetentionSweepResult(BaseModel):
     """
 
 
-class EvalSuite(BaseModel):
+class TestSet(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -6542,11 +6495,17 @@ class EvalSuite(BaseModel):
     """
     version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
     """
-    Semver — publishing a modified suite produces a new version.
+    Semver — publishing a modified testSet produces a new version.
     """
     kind: Annotated[
         Literal[
-            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+            "accuracy",
+            "pairwise",
+            "regression",
+            "human-review",
+            "benchmark",
+            "custom",
+            "corrections",
         ]
         | str,
         _open.OPEN,
@@ -6554,25 +6513,25 @@ class EvalSuite(BaseModel):
     description: str | None = None
     spec: dict[str, Any]
     """
-    Kind-specific suite body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`.
+    Kind-specific testSet body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`.
     """
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
     """
-    Present only on an unregistered version: one `GET …/versions?includeTombstoned=true` lists, or a retired test set (every version unregistered) as `GET /v1/eval-suites?includeRetired=true` lists it.
+    Present only on an unregistered version: one `GET …/versions?includeTombstoned=true` lists, or a retired test set (every version unregistered) as `GET /v1/test-sets?includeRetired=true` lists it.
     """
 
 
-class EvalSuiteCollectionPage(BaseModel):
+class TestSetCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[EvalSuite]
+    data: list[TestSet]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class PublishEvalSuiteBody(BaseModel):
+class PublishTestSetBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -6589,7 +6548,13 @@ class PublishEvalSuiteBody(BaseModel):
     version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
     kind: Annotated[
         Literal[
-            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+            "accuracy",
+            "pairwise",
+            "regression",
+            "human-review",
+            "benchmark",
+            "custom",
+            "corrections",
         ]
         | str,
         _open.OPEN,
@@ -6598,31 +6563,31 @@ class PublishEvalSuiteBody(BaseModel):
     spec: dict[str, Any]
 
 
-class PublishEvalSuiteResult(BaseModel):
+class PublishTestSetResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    suite_id: Annotated[str, Field(alias="suiteId")]
+    test_set_id: Annotated[str, Field(alias="testSetId")]
     version: str
 
 
-class UnregisterEvalSuiteResult(BaseModel):
+class UnregisterTestSetResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    suite_id: Annotated[str, Field(alias="suiteId")]
+    test_set_id: Annotated[str, Field(alias="testSetId")]
     version: str
     unregistered: Literal[True]
 
 
-class ReinstateEvalSuiteVersionResult(BaseModel):
+class ReinstateTestSetVersionResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    suite_id: Annotated[str, Field(alias="suiteId")]
+    test_set_id: Annotated[str, Field(alias="testSetId")]
     version: str
     was_tombstoned: Annotated[bool, Field(alias="wasTombstoned")]
 
@@ -6839,7 +6804,7 @@ class EvalSample(BaseModel):
 
 class EvalComparison(BaseModel):
     """
-    A comparison eval run's settings (a `judged` suite).
+    A comparison eval run's settings (a `corrections` test set).
     """
 
     model_config = ConfigDict(
@@ -6901,15 +6866,6 @@ class ComparisonMetric(BaseModel):
     """
     Of `weight`, the part corrected on the candidate's replays themselves (a rescore, after people corrected a changed answer there). Absent when none. Not on `weightedPrecisionAtK`.
     """
-
-
-class Suite1(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: str
-    version: str
 
 
 class Model3(BaseModel):
@@ -7130,11 +7086,17 @@ class EvalRun(BaseModel):
     """
     The project the eval run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6.
     """
-    suite_id: Annotated[str, Field(alias="suiteId")]
-    suite_version: Annotated[str, Field(alias="suiteVersion", pattern="^\\d+\\.\\d+\\.\\d+$")]
+    test_set_id: Annotated[str, Field(alias="testSetId")]
+    test_set_version: Annotated[str, Field(alias="testSetVersion", pattern="^\\d+\\.\\d+\\.\\d+$")]
     kind: Annotated[
         Literal[
-            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+            "accuracy",
+            "pairwise",
+            "regression",
+            "human-review",
+            "benchmark",
+            "custom",
+            "corrections",
         ]
         | str,
         _open.OPEN,
@@ -7149,7 +7111,7 @@ class EvalRun(BaseModel):
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
     result: dict[str, Any] | None = None
     """
-    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.
+    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `corrections` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.
     """
     error: str | None = None
     cancel_reason: Annotated[str | None, Field(alias="cancelReason")] = None
@@ -7172,7 +7134,7 @@ class EvalRunCollectionPage(BaseModel):
 
 class StartEvalRunBody(BaseModel):
     """
-    Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).
+    Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `corrections` test set (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).
     """
 
     model_config = ConfigDict(
@@ -8512,7 +8474,7 @@ class RoleActions(BaseModel):
         Annotated[Literal["read", "write", "delete", "admin", "invoke", "pin"] | str, _open.OPEN]
     ]
     guardrail: list[Annotated[Literal["read", "write", "delete", "admin"] | str, _open.OPEN]]
-    eval_suite: list[
+    test_set: list[
         Annotated[
             Literal["read", "write", "delete", "admin", "execute", "publish"] | str, _open.OPEN
         ]
@@ -12583,6 +12545,15 @@ class RunWaitingTokenTool(BaseModel):
     """
 
 
+class GatePolicySpecComparisonTestSet(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str | None = None
+
+
 class Call(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -12671,6 +12642,15 @@ class CorrectedEvalCaseCorrection(BaseModel):
     """
     Tools that should not have been called at all.
     """
+
+
+class CorrectedComparisonSummaryTestSet(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str
 
 
 class CorrectedComparisonSummaryScope(BaseModel):
@@ -13572,6 +13552,44 @@ class UnpinVersionBody(BaseModel):
     reason: Annotated[str | None, Field(max_length=2000)] = None
 
 
+class Comparison(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    max_age_hours: Annotated[float | None, Field(alias="maxAgeHours", gt=0.0)] = None
+    test_set: Annotated[GatePolicySpecComparisonTestSet | None, Field(alias="testSet")] = None
+
+
+class GatePolicySpec(BaseModel):
+    """
+    What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`evalRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    comparison: Comparison | None = None
+    evidence: Evidence | None = None
+    """
+    The evidence from corrections behind each gated metric; for a metric with `maxDrop`, the baseline's too.
+    """
+    metrics: list[Metric] | None = None
+    replay: Replay | None = None
+    """
+    Each knob left out of the block is 0. No block: no replay checks.
+    """
+    approvals: Approvals | None = None
+    """
+    A passing promotion waits for a reviewer.
+    """
+    only_expert_groups: Annotated[bool | None, Field(alias="onlyExpertGroups")] = None
+    """
+    Only expert groups count: the comparison must be weighted `experts-only`, so a group anyone may assert can't move the gate.
+    """
+
+
 class GatePolicy(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -14444,7 +14462,7 @@ class CorrectionWithCopies(Correction):
 
 class CorrectedEvalCase(BaseModel):
     """
-    One case of a `judged` eval suite: a copy of a corrected run with its items' corrections summed up.
+    One case of a `corrections` test set: a copy of a corrected run with its items' corrections summed up.
     """
 
     model_config = ConfigDict(
@@ -14737,9 +14755,9 @@ class ProposalEvaluation(BaseModel):
         populate_by_name=True,
     )
     eval_run_id: Annotated[UUID, Field(alias="evalRunId")]
-    suite_id: Annotated[str, Field(alias="suiteId")]
+    test_set_id: Annotated[str, Field(alias="testSetId")]
     """
-    The test set (a judged eval suite).
+    The test set (a corrections test set).
     """
     objective: Annotated[Literal["weightedYesShare", "weightedPrecisionAtK"] | str, _open.OPEN]
     started_at: Annotated[AwareDatetime, Field(alias="startedAt")]
@@ -14883,7 +14901,7 @@ class ImprovementPass(BaseModel):
     """
     Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
-    suite_id: Annotated[str, Field(alias="suiteId")]
+    test_set_id: Annotated[str, Field(alias="testSetId")]
     """
     The test set it searches and proves on.
     """
@@ -14956,7 +14974,7 @@ class ImproveBody(BaseModel):
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The project the pass works in: `suiteId` must be a test set it reaches, the version must reach it, and the pass's eval runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.
+    The project the pass works in: `testSetId` must be a test set it reaches, the version must reach it, and the pass's eval runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.
     """
     scope: Annotated[
         LiveScopeTenant
@@ -14969,9 +14987,9 @@ class ImproveBody(BaseModel):
     """
     Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
-    suite_id: Annotated[str, Field(alias="suiteId")]
+    test_set_id: Annotated[str, Field(alias="testSetId")]
     """
-    The test set (a judged eval suite). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.
+    The test set (a corrections test set). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.
     """
     tiers: Annotated[
         list[Literal["settings", "prompt"]] | None, Field(max_length=1, min_length=1)
@@ -15043,9 +15061,9 @@ class EvaluateProposalBody(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    suite_id: Annotated[str, Field(alias="suiteId")]
+    test_set_id: Annotated[str, Field(alias="testSetId")]
     """
-    The test set: a judged eval suite.
+    The test set: a corrections test set.
     """
     objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
     """
@@ -15324,7 +15342,7 @@ class CorrectedComparisonSummary(BaseModel):
     eval_run_id: Annotated[str, Field(alias="evalRunId")]
     status: Literal["completed", "partial", "failed"]
     completed_at: Annotated[AwareDatetime, Field(alias="completedAt")]
-    suite: Suite1
+    test_set: Annotated[CorrectedComparisonSummaryTestSet, Field(alias="testSet")]
     candidate: ComparisonCandidateAgent | ComparisonCandidateFlow
     """
     What ran on the cases: an agent version, or a flow version (with any versions it swapped in).
@@ -15469,7 +15487,7 @@ class ComparisonCaseResult(BaseModel):
 
 class CorrectedComparisonResult(BaseModel):
     """
-    A comparison's `result` (a `judged` eval run's): the summary and each case. `EvalRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).
+    A comparison's `result` (a `corrections` eval run's): the summary and each case. `EvalRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).
     """
 
     model_config = ConfigDict(

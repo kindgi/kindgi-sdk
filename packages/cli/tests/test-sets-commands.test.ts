@@ -42,33 +42,36 @@ function recorder() {
   return { calls, rec };
 }
 
-describe('kindgi eval-suites', () => {
+describe('kindgi test-sets', () => {
   test('list narrows by kind and project', async () => {
     const { calls, rec } = recorder();
     const out = await run(
-      ['eval-suites', 'list', '--kind=judged', '--project=p-1', '--limit=5', '--cursor=c1'],
-      { evalSuites: { list: rec('list', { data: [], hasMore: false }) } },
+      ['test-sets', 'list', '--kind=corrections', '--project=p-1', '--limit=5', '--cursor=c1'],
+      { testSets: { list: rec('list', { data: [], hasMore: false }) } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
-      ['list', { kind: 'judged', scopeKind: 'project', scopeId: 'p-1', limit: 5, cursor: 'c1' }],
+      [
+        'list',
+        { kind: 'corrections', scopeKind: 'project', scopeId: 'p-1', limit: 5, cursor: 'c1' },
+      ],
     ]);
   });
 
   test('list rejects an unknown kind', async () => {
-    const out = await run(['eval-suites', 'list', '--kind=bogus'], { evalSuites: {} });
+    const out = await run(['test-sets', 'list', '--kind=bogus'], { testSets: {} });
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('--kind must be one of');
   });
 
-  test('show gets the latest, or a version with --suite-version', async () => {
+  test('show gets the latest, or a version with --test-set-version', async () => {
     const { calls, rec } = recorder();
     const client = {
-      evalSuites: { get: rec('get'), versions: { get: rec('versions.get') } },
+      testSets: { get: rec('get'), versions: { get: rec('versions.get') } },
     };
-    expect((await run(['eval-suites', 'show', 'acme.matches'], client)).exitCode).toBe(0);
+    expect((await run(['test-sets', 'show', 'acme.matches'], client)).exitCode).toBe(0);
     expect(
-      (await run(['eval-suites', 'show', 'acme.matches', '--suite-version=1.2.0'], client))
+      (await run(['test-sets', 'show', 'acme.matches', '--test-set-version=1.2.0'], client))
         .exitCode,
     ).toBe(0);
     expect(calls).toEqual([
@@ -81,10 +84,10 @@ describe('kindgi eval-suites', () => {
     const { calls, rec } = recorder();
     const out = await run(
       [
-        'eval-suites',
+        'test-sets',
         'from-corrections',
         'acme.matches',
-        '--suite-version=1.0.0',
+        '--test-set-version=1.0.0',
         '--project=p-1',
         '--agent=acme.matcher',
         '--agent-version=2.0.0',
@@ -97,7 +100,7 @@ describe('kindgi eval-suites', () => {
         '--segment=role:cfo',
         '--description=First set',
       ],
-      { evalSuites: { buildFromCorrections: rec('build', { caseCount: 3 }) } },
+      { testSets: { buildFromCorrections: rec('build', { caseCount: 3 }) } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
@@ -128,29 +131,29 @@ describe('kindgi eval-suites', () => {
     const { calls, rec } = recorder();
     const out = await run(
       [
-        'eval-suites',
+        'test-sets',
         'from-corrections',
         's',
-        '--suite-version=1.0.0',
+        '--test-set-version=1.0.0',
         '--project=p-1',
         '--flow=f',
       ],
-      { evalSuites: { buildFromCorrections: rec('build') } },
+      { testSets: { buildFromCorrections: rec('build') } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['build', 's', { version: '1.0.0', projectId: 'p-1', flowId: 'f' }]]);
   });
 
   test('from-corrections checks its flags', async () => {
-    const client = { evalSuites: {} };
-    const base = ['eval-suites', 'from-corrections', 's'];
+    const client = { testSets: {} };
+    const base = ['test-sets', 'from-corrections', 's'];
     expect((await run([...base, '--project=p', '--agent=a'], client)).stderr).toContain(
-      '--suite-version',
+      '--test-set-version',
     );
-    expect((await run([...base, '--suite-version=1.0.0', '--agent=a'], client)).stderr).toContain(
-      '--project',
-    );
-    const ok = [...base, '--suite-version=1.0.0', '--project=p'];
+    expect(
+      (await run([...base, '--test-set-version=1.0.0', '--agent=a'], client)).stderr,
+    ).toContain('--project');
+    const ok = [...base, '--test-set-version=1.0.0', '--project=p'];
     expect((await run(ok, client)).stderr).toContain('exactly one of --agent');
     expect((await run([...ok, '--agent=a', '--flow=f'], client)).stderr).toContain('exactly one');
     expect((await run([...ok, '--flow=f', '--agent-version=2'], client)).stderr).toContain(
@@ -163,13 +166,13 @@ describe('kindgi eval-suites', () => {
 
   test('cases pages a version', async () => {
     const { calls, rec } = recorder();
-    const client = { evalSuites: { listCases: rec('cases', { data: [], hasMore: false }) } };
+    const client = { testSets: { listCases: rec('cases', { data: [], hasMore: false }) } };
     const out = await run(
-      ['eval-suites', 'cases', 's', '--suite-version=1.0.0', '--limit=10', '--cursor=c2'],
+      ['test-sets', 'cases', 's', '--test-set-version=1.0.0', '--limit=10', '--cursor=c2'],
       client,
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['cases', 's', '1.0.0', { limit: 10, cursor: 'c2' }]]);
-    expect((await run(['eval-suites', 'cases', 's'], client)).stderr).toContain('--suite-version');
+    expect((await run(['test-sets', 'cases', 's'], client)).stderr).toContain('--test-set-version');
   });
 });

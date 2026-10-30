@@ -2,8 +2,8 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Test sets built from corrections: `POST /v1/eval-suites/:id/versions/from-corrections`
- * and `GET /v1/eval-suites/:id/versions/:version/cases`.
+ * Test sets built from corrections: `POST /v1/test-sets/:id/versions/from-corrections`
+ * and `GET /v1/test-sets/:id/versions/:version/cases`.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -17,9 +17,9 @@ import { createStubAppBindings } from '../src/testing/index.js';
 import { createApp } from '../src/index.js';
 import type {
   CorrectionRegistryBinding,
-  EvalSuite,
-  EvalSuiteRegistryBinding,
   RunHandlerBinding,
+  TestSet,
+  TestSetRegistryBinding,
   TokenResolver,
 } from '../src/index.js';
 import { inMemoryCaseStore } from './support/in-memory-cases.js';
@@ -27,37 +27,37 @@ import { inMemoryCorrections } from './support/in-memory-corrections.js';
 
 const tenantId = randomUUID() as TenantId;
 const project = randomUUID() as ProjectId;
-const TOKEN = 'corrected-suites-token';
+const TOKEN = 'corrected-test-sets-token';
 
 const resolveToken: TokenResolver = async (token) =>
   token === TOKEN ? { tenantId, userId: 'user-1' as UserId } : null;
 
 const runHandler = {} as RunHandlerBinding;
 
-/** An eval-suite registry that only knows how to publish; a suite stays in its first project. */
-function suiteRegistry(): EvalSuiteRegistryBinding & { readonly published: EvalSuite[] } {
-  const published: EvalSuite[] = [];
+/** An test-set registry that only knows how to publish; a test set stays in its first project. */
+function testSetRegistry(): TestSetRegistryBinding & { readonly published: TestSet[] } {
+  const published: TestSet[] = [];
   const owners = new Map<string, string>();
   return {
     published,
-    async publish({ suite, projectId }: { suite: EvalSuite; projectId: string }) {
-      const owner = owners.get(suite.id);
+    async publish({ testSet, projectId }: { testSet: TestSet; projectId: string }) {
+      const owner = owners.get(testSet.id);
       if (owner !== undefined && owner !== projectId) {
         return {
           kind: 'project-mismatch',
-          suiteId: suite.id,
-          version: suite.version,
+          testSetId: testSet.id,
+          version: testSet.version,
           projectId: owner,
         };
       }
-      owners.set(suite.id, projectId);
-      if (published.some((s) => s.id === suite.id && s.version === suite.version)) {
-        return { kind: 'already-registered', suiteId: suite.id, version: suite.version };
+      owners.set(testSet.id, projectId);
+      if (published.some((s) => s.id === testSet.id && s.version === testSet.version)) {
+        return { kind: 'already-registered', testSetId: testSet.id, version: testSet.version };
       }
-      published.push(suite);
-      return { kind: 'ok', suiteId: suite.id, version: suite.version };
+      published.push(testSet);
+      return { kind: 'ok', testSetId: testSet.id, version: testSet.version };
     },
-  } as unknown as EvalSuiteRegistryBinding & { readonly published: EvalSuite[] };
+  } as unknown as TestSetRegistryBinding & { readonly published: TestSet[] };
 }
 
 type Call = (
@@ -69,7 +69,7 @@ type Call = (
 interface Harness {
   readonly call: Call;
   readonly corrections: CorrectionRegistryBinding;
-  readonly suites: ReturnType<typeof suiteRegistry>;
+  readonly testSets: ReturnType<typeof testSetRegistry>;
   readonly expertId: string;
 }
 
@@ -143,22 +143,22 @@ async function seed(corrections: CorrectionRegistryBinding): Promise<string> {
 async function harness(): Promise<Harness> {
   const stubs = createStubAppBindings();
   const corrections = inMemoryCorrections();
-  const suites = suiteRegistry();
+  const testSets = testSetRegistry();
   const expertId = await seed(corrections);
-  return { ...makeCall(stubs, corrections, suites), corrections, suites, expertId };
+  return { ...makeCall(stubs, corrections, testSets), corrections, testSets, expertId };
 }
 
 function makeCall(
   stubs: ReturnType<typeof createStubAppBindings>,
   corrections: CorrectionRegistryBinding,
-  suites: EvalSuiteRegistryBinding,
+  testSets: TestSetRegistryBinding,
 ): { readonly call: Call } {
   const app = createApp({
     ...stubs,
     resolveToken,
     runHandler,
     correctionRegistry: corrections,
-    evalSuiteRegistry: suites,
+    testSetRegistry: testSets,
     evalCaseStore: inMemoryCaseStore(),
   });
   const call: Call = async (method, path, body) => {
@@ -175,7 +175,7 @@ function makeCall(
   return { call };
 }
 
-const BUILD = '/v1/eval-suites/acme.matches/versions/from-corrections';
+const BUILD = '/v1/test-sets/acme.matches/versions/from-corrections';
 const base = { version: '1.0.0', projectId: project, agentId: 'acme.matcher' };
 
 let h: Harness;
@@ -183,26 +183,26 @@ beforeEach(async () => {
   h = await harness();
 });
 
-describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
+describe('POST /v1/test-sets/:id/versions/from-corrections', () => {
   test('builds cases with the items summed, ranked, and the run copied', async () => {
     const res = await h.call('POST', BUILD, { ...base, description: 'First set' });
     expect(res.status).toBe(201);
     expect(res.body).toEqual({
-      suiteId: 'acme.matches',
+      testSetId: 'acme.matches',
       version: '1.0.0',
-      kind: 'judged',
+      kind: 'corrections',
       caseCount: 3,
       truncated: false,
     });
-    expect(h.suites.published[0]).toMatchObject({
+    expect(h.testSets.published[0]).toMatchObject({
       id: 'acme.matches',
       version: '1.0.0',
-      kind: 'judged',
+      kind: 'corrections',
       description: 'First set',
       spec: { source: 'corrections', caseCount: 3, truncated: false },
     });
 
-    const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
+    const cases = await h.call('GET', '/v1/test-sets/acme.matches/versions/1.0.0/cases');
     expect(cases.status).toBe(200);
     // Newest corrected run first.
     expect(cases.body.data.map((c: { caseId: string }) => c.caseId)).toEqual([
@@ -283,7 +283,7 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
     });
     expect((await h.call('POST', BUILD, base)).status).toBe(201);
 
-    const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
+    const cases = await h.call('GET', '/v1/test-sets/acme.matches/versions/1.0.0/cases');
     const built = cases.body.data.find((c: { caseId: string }) => c.caseId === 'run-corr');
     expect(built.corrections).toEqual([
       {
@@ -316,7 +316,7 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
     await recordAt(40);
     expect((await h.call('POST', BUILD, base)).status).toBe(201);
 
-    const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
+    const cases = await h.call('GET', '/v1/test-sets/acme.matches/versions/1.0.0/cases');
     const built = cases.body.data.find((c: { caseId: string }) => c.caseId === 'run-once');
     // The first was superseded, so only the second rides onto the case.
     expect(built.corrections).toHaveLength(1);
@@ -354,7 +354,7 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
     });
     expect((await h.call('POST', BUILD, base)).status).toBe(201);
 
-    const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
+    const cases = await h.call('GET', '/v1/test-sets/acme.matches/versions/1.0.0/cases');
     const built = cases.body.data.find((c: { caseId: string }) => c.caseId === 'run-apart');
     // The correction survives (before the reserved key, a 'decision' correction
     // sharing its key would have merged and dropped it), and the caller's own
@@ -397,7 +397,7 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
     const ids = async (version: string, segments: unknown) => {
       const res = await h.call('POST', BUILD, { ...base, version, segments });
       expect(res.status, JSON.stringify(res.body)).toBe(201);
-      const cases = await h.call('GET', `/v1/eval-suites/acme.matches/versions/${version}/cases`);
+      const cases = await h.call('GET', `/v1/test-sets/acme.matches/versions/${version}/cases`);
       return cases.body.data.map((c: { caseId: string }) => c.caseId).sort();
     };
     expect(await ids('2.0.0', at('acme'))).toEqual(['acme-cfo-run', 'acme-run']);
@@ -408,7 +408,7 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
     // Runs corrected before segments were recorded (seed's run-1..3) and runs with none are in no segment.
     expect(await ids('2.3.0', at('initech'))).toEqual([]);
     // The test set says what it was narrowed to.
-    expect(h.suites.published.find((s) => s.version === '2.0.0')?.spec).toMatchObject({
+    expect(h.testSets.published.find((s) => s.version === '2.0.0')?.spec).toMatchObject({
       query: { segments: at('acme') },
     });
     expect(
@@ -431,14 +431,14 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
     const res = await h.call('POST', BUILD, { ...base, minCorrections: 2 });
     expect(res.status).toBe(201);
     expect(res.body.caseCount).toBe(1);
-    const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
+    const cases = await h.call('GET', '/v1/test-sets/acme.matches/versions/1.0.0/cases');
     expect(cases.body.data.map((c: { caseId: string }) => c.caseId)).toEqual(['run-1']);
   });
 
   test("correctorGroupIds counts only those groups' corrections", async () => {
     const res = await h.call('POST', BUILD, { ...base, correctorGroupIds: [h.expertId] });
     expect(res.body.caseCount).toBe(2);
-    const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
+    const cases = await h.call('GET', '/v1/test-sets/acme.matches/versions/1.0.0/cases');
     const byId = new Map(cases.body.data.map((c: { caseId: string }) => [c.caseId, c]));
     // run-1 keeps the expert's correction on c1 and drops the rest.
     expect((byId.get('run-1') as { items: unknown[] }).items).toEqual([
@@ -479,7 +479,7 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
       assertedBy: { kind: 'user', id: 'senior-1' },
     });
     await h.call('POST', BUILD, base);
-    const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases');
+    const cases = await h.call('GET', '/v1/test-sets/acme.matches/versions/1.0.0/cases');
     const run1 = cases.body.data.find((c: { caseId: string }) => c.caseId === 'run-1');
     // c1: the expert's yes (3) predates the restriction, so nothing on it is restricted.
     expect(run1.items[0]).toMatchObject({
@@ -536,7 +536,7 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
     await correctReplay('run-replay-new', { matches: [{ id: 'c1' }] }, { replayOf: 'run-1' });
     const built = await h.call('POST', BUILD, base);
     expect(built.status, JSON.stringify(built.body)).toBe(201);
-    const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases?limit=50');
+    const cases = await h.call('GET', '/v1/test-sets/acme.matches/versions/1.0.0/cases?limit=50');
     expect(cases.body.data.map((c: { caseId: string }) => c.caseId).sort()).toEqual([
       'run-1',
       'run-2',
@@ -589,7 +589,7 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
         };
       },
     };
-    const { call } = makeCall(createStubAppBindings(), unfiltered, suiteRegistry());
+    const { call } = makeCall(createStubAppBindings(), unfiltered, testSetRegistry());
     const built = await call('POST', BUILD, base);
     expect(built.status, JSON.stringify(built.body)).toBe(201);
     expect(built.body.caseCount).toBe(3);
@@ -622,36 +622,36 @@ describe('POST /v1/eval-suites/:id/versions/from-corrections', () => {
     expect((await h.call('POST', BUILD, base)).status).toBe(201);
     const again = await h.call('POST', BUILD, base);
     expect(again.status).toBe(409);
-    expect(again.body.error.code).toBe('eval-suite-already-registered');
+    expect(again.body.error.code).toBe('test-set-already-registered');
   });
 
-  test('a suite of another project: 409 eval-suite-project-mismatch, and nothing is built', async () => {
+  test('a test set of another project: 409 test-set-project-mismatch, and nothing is built', async () => {
     expect((await h.call('POST', BUILD, base)).status).toBe(201);
     const elsewhere = { ...base, version: '2.0.0', projectId: randomUUID() };
     const res = await h.call('POST', BUILD, elsewhere);
     expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe('eval-suite-project-mismatch');
+    expect(res.body.error.code).toBe('test-set-project-mismatch');
     expect(res.body.error.message).toContain(
       'belongs to another project; build its versions there',
     );
     expect(JSON.stringify(res.body)).not.toContain(project);
-    expect(h.suites.published.map((s) => s.version)).toEqual(['1.0.0']);
+    expect(h.testSets.published.map((s) => s.version)).toEqual(['1.0.0']);
   });
 
   test('a binding that cannot list corrected runs: 501', async () => {
     const { listCorrectedRuns: _unsupported, ...without } = h.corrections;
-    const { call } = makeCall(createStubAppBindings(), without, h.suites);
+    const { call } = makeCall(createStubAppBindings(), without, h.testSets);
     const res = await call('POST', BUILD, base);
     expect(res.status).toBe(501);
     expect(res.body.error.code).toBe('test-sets-not-supported');
-    expect(h.suites.published).toHaveLength(0);
+    expect(h.testSets.published).toHaveLength(0);
   });
 });
 
-describe('GET /v1/eval-suites/:id/versions/:version/cases', () => {
+describe('GET /v1/test-sets/:id/versions/:version/cases', () => {
   test('pages with limit and cursor', async () => {
     await h.call('POST', BUILD, base);
-    const path = '/v1/eval-suites/acme.matches/versions/1.0.0/cases';
+    const path = '/v1/test-sets/acme.matches/versions/1.0.0/cases';
     const first = await h.call('GET', `${path}?limit=2`);
     expect(first.status).toBe(200);
     expect(first.body.data.map((c: { caseId: string }) => c.caseId)).toEqual(['run-3', 'run-2']);
@@ -663,7 +663,7 @@ describe('GET /v1/eval-suites/:id/versions/:version/cases', () => {
   });
 
   test('a version with no cases is an empty page', async () => {
-    const res = await h.call('GET', '/v1/eval-suites/acme.matches/versions/9.9.9/cases');
+    const res = await h.call('GET', '/v1/test-sets/acme.matches/versions/9.9.9/cases');
     expect(res.body).toEqual({ data: [], hasMore: false });
   });
 });

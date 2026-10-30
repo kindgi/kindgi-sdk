@@ -252,7 +252,7 @@ def test_parse_event_reads_an_improvement_pass_finished() -> None:
                 "agentId": "acme.scorer",
                 "fromVersion": "1.0.0",
                 "scope": {"kind": "tenant"},
-                "suiteId": "acme.scorer.improve",
+                "testSetId": "acme.scorer.improve",
                 "tiers": ["settings"],
                 "objective": "weightedYesShare",
                 "groupWeights": "experts-only",

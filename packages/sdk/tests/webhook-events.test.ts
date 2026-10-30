@@ -57,7 +57,7 @@ const PASS = {
     projectId: PROJECT,
     path: [{ key: 'company', value: 'acme' }],
   },
-  suiteId: 'acme-shop.helpdesk-suite',
+  testSetId: 'acme-shop.helpdesk-testSet',
   tiers: ['prompt'],
   objective: 'weightedYesShare',
   budget: { maxCostUsd: 2, maxCandidates: 3 },

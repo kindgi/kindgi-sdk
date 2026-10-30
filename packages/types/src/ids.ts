@@ -16,7 +16,7 @@
  * Naming convention:
  *   - `<Entity>Id`     — a single identifier for that entity kind.
  *   - Most entity kinds in the `@kindgi/specs/*.schema.json` files have an ID
- *     here (eval suites, for one, use plain strings); some IDs (e.g.
+ *     here (test sets, for one, use plain strings); some IDs (e.g.
  *     `ConversationId`, `TriggerId`) name entities that have no schema.
  *
  * If you add a new entity kind to Kindgi, add its ID here. Consumers rely on

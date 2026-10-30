@@ -12,14 +12,14 @@ import { createStubAppBindings } from '../src/testing/index.js';
 import { createApp } from '../src/index.js';
 import type {
   EvalKind,
-  EvalSuite,
-  EvalSuiteRegistryBinding,
   RunHandlerBinding,
+  TestSet,
+  TestSetRegistryBinding,
   TokenResolver,
 } from '../src/index.js';
 
 /**
- * Eval-suite route tests. The registry is caller-plugged;
+ * Eval-test set route tests. The registry is caller-plugged;
  * these tests back it with an in-memory `Map`-based adapter — same
  * pattern as `policies-routes.test.ts`. Full versioned CRUD, kind
  * filter, name prefix filter, idempotency-key replay, validation, and
@@ -27,7 +27,7 @@ import type {
  */
 
 const tenantId = randomUUID() as TenantId;
-const TOKEN = 'eval-suites-token-abc';
+const TOKEN = 'test-sets-token-abc';
 
 const resolveToken: TokenResolver = async (token) => {
   if (token === TOKEN) return { tenantId };
@@ -55,8 +55,8 @@ const runHandler: RunHandlerBinding = {
  */
 let lastPublishedProjectId: ProjectId | undefined;
 
-function makeInMemoryBinding(): EvalSuiteRegistryBinding {
-  const store = new Map<string, Map<string, EvalSuite>>(); // suiteId -> version -> EvalSuite
+function makeInMemoryBinding(): TestSetRegistryBinding {
+  const store = new Map<string, Map<string, TestSet>>(); // testSetId -> version -> TestSet
 
   function paginate<T>(
     rows: readonly T[],
@@ -84,7 +84,7 @@ function makeInMemoryBinding(): EvalSuiteRegistryBinding {
     return parts.map((p) => p.padStart(6, '0')).join('.');
   }
 
-  function latestVersion(versions: Map<string, EvalSuite>): EvalSuite | null {
+  function latestVersion(versions: Map<string, TestSet>): TestSet | null {
     const sorted = [...versions.entries()].sort(([a], [b]) =>
       semverKey(a) < semverKey(b) ? 1 : -1,
     );
@@ -94,7 +94,7 @@ function makeInMemoryBinding(): EvalSuiteRegistryBinding {
 
   return {
     async list({ limit, cursor, evalKind, nameFilter }) {
-      const latestPerId: EvalSuite[] = [];
+      const latestPerId: TestSet[] = [];
       for (const [id, versions] of [...store.entries()].sort(([a], [b]) => a.localeCompare(b))) {
         if (nameFilter !== undefined && !id.startsWith(nameFilter)) continue;
         const latest = latestVersion(versions);
@@ -104,54 +104,54 @@ function makeInMemoryBinding(): EvalSuiteRegistryBinding {
       }
       return paginate(latestPerId, (s) => s.id, limit, cursor);
     },
-    async get({ suiteId }) {
-      const versions = store.get(suiteId);
+    async get({ testSetId }) {
+      const versions = store.get(testSetId);
       if (versions === undefined) return null;
       return latestVersion(versions);
     },
-    async getVersion({ suiteId, version }) {
-      const versions = store.get(suiteId);
+    async getVersion({ testSetId, version }) {
+      const versions = store.get(testSetId);
       if (versions === undefined) return null;
       return versions.get(version) ?? null;
     },
-    async headExists({ suiteId }) {
-      return store.has(suiteId);
+    async headExists({ testSetId }) {
+      return store.has(testSetId);
     },
-    async listVersions({ suiteId, limit, cursor }) {
-      const versions = store.get(suiteId);
+    async listVersions({ testSetId, limit, cursor }) {
+      const versions = store.get(testSetId);
       if (versions === undefined) return { data: [] };
       const sorted = [...versions.values()].sort((a, b) =>
         semverKey(a.version) < semverKey(b.version) ? -1 : 1,
       );
       return paginate(sorted, (s) => s.version, limit, cursor);
     },
-    async publish({ suite, projectId }) {
+    async publish({ testSet, projectId }) {
       lastPublishedProjectId = projectId;
-      let versions = store.get(suite.id);
+      let versions = store.get(testSet.id);
       if (versions === undefined) {
         versions = new Map();
-        store.set(suite.id, versions);
+        store.set(testSet.id, versions);
       }
-      if (versions.has(suite.version)) {
-        return { kind: 'already-registered', suiteId: suite.id, version: suite.version };
+      if (versions.has(testSet.version)) {
+        return { kind: 'already-registered', testSetId: testSet.id, version: testSet.version };
       }
-      versions.set(suite.version, suite);
-      return { kind: 'ok', suiteId: suite.id, version: suite.version };
+      versions.set(testSet.version, testSet);
+      return { kind: 'ok', testSetId: testSet.id, version: testSet.version };
     },
-    async unregister({ suiteId, version }) {
-      const versions = store.get(suiteId);
+    async unregister({ testSetId, version }) {
+      const versions = store.get(testSetId);
       if (versions === undefined) return { unregistered: false };
       const removed = versions.delete(version);
-      if (versions.size === 0) store.delete(suiteId);
+      if (versions.size === 0) store.delete(testSetId);
       return { unregistered: removed };
     },
-    async reinstateVersion({ suiteId, version }) {
-      return { kind: 'not-found', suiteId, version };
+    async reinstateVersion({ testSetId, version }) {
+      return { kind: 'not-found', testSetId, version };
     },
   };
 }
 
-function evalSuiteSpec(
+function testSetSpec(
   overrides: {
     id?: string;
     version?: string;
@@ -181,11 +181,11 @@ function evalSuiteSpec(
 }
 
 /**
- * Build a POST /v1/eval-suites body. `projectId` is REQUIRED (content-scope
+ * Build a POST /v1/test-sets body. `projectId` is REQUIRED (content-scope
  * anchor) — the fixture supplies a stable uuid by default
  * so happy-path tests read cleanly.
  */
-function evalSuitePostBody(
+function testSetPostBody(
   overrides: {
     id?: string;
     version?: string;
@@ -197,7 +197,7 @@ function evalSuitePostBody(
 ): Record<string, unknown> {
   const { projectId, ...specOverrides } = overrides;
   return {
-    ...evalSuiteSpec(specOverrides),
+    ...testSetSpec(specOverrides),
     projectId: projectId ?? randomUUID(),
   };
 }
@@ -208,13 +208,13 @@ function makeApp() {
     ...createStubAppBindings(),
     resolveToken,
     runHandler,
-    evalSuiteRegistry: binding,
+    testSetRegistry: binding,
   });
   return { app, binding };
 }
 
-async function seed(binding: EvalSuiteRegistryBinding, body: Record<string, unknown>) {
-  const suite: EvalSuite = {
+async function seed(binding: TestSetRegistryBinding, body: Record<string, unknown>) {
+  const testSet: TestSet = {
     id: body.id as string,
     tenantId,
     version: body.version as string,
@@ -225,15 +225,15 @@ async function seed(binding: EvalSuiteRegistryBinding, body: Record<string, unkn
   await binding.publish({
     tenantId,
     projectId: randomUUID() as ProjectId,
-    suite,
+    testSet,
     enqueueTuples: () => [],
   });
 }
 
-describe('API — eval-suites list', () => {
+describe('API — test-sets list', () => {
   test('empty registry → empty list', async () => {
     const { app } = makeApp();
-    const res = await app.request('/v1/eval-suites', {
+    const res = await app.request('/v1/test-sets', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(200);
@@ -244,10 +244,10 @@ describe('API — eval-suites list', () => {
 
   test('kind filter narrows to a single eval kind', async () => {
     const { app, binding } = makeApp();
-    await seed(binding, evalSuiteSpec({ id: 'a.accuracy', kind: 'accuracy' }));
+    await seed(binding, testSetSpec({ id: 'a.accuracy', kind: 'accuracy' }));
     await seed(
       binding,
-      evalSuiteSpec({
+      testSetSpec({
         id: 'b.pairwise',
         kind: 'pairwise',
         spec: {
@@ -259,14 +259,14 @@ describe('API — eval-suites list', () => {
     );
     await seed(
       binding,
-      evalSuiteSpec({
+      testSetSpec({
         id: 'c.human-review',
         kind: 'human-review',
         spec: { rubric: ['clarity', 'accuracy'], reviewerRole: 'reviewer:senior' },
       }),
     );
 
-    const res = await app.request('/v1/eval-suites?kind=pairwise', {
+    const res = await app.request('/v1/test-sets?kind=pairwise', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(200);
@@ -278,9 +278,9 @@ describe('API — eval-suites list', () => {
   test('name prefix filter', async () => {
     const { app, binding } = makeApp();
     for (const id of ['acme.accuracy', 'acme.regression', 'globex.accuracy']) {
-      await seed(binding, evalSuiteSpec({ id, kind: 'accuracy' }));
+      await seed(binding, testSetSpec({ id, kind: 'accuracy' }));
     }
-    const res = await app.request('/v1/eval-suites?name=acme', {
+    const res = await app.request('/v1/test-sets?name=acme', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(200);
@@ -291,9 +291,9 @@ describe('API — eval-suites list', () => {
   test('cursor pagination — hasMore + nextCursor', async () => {
     const { app, binding } = makeApp();
     for (const id of ['a.1', 'a.2', 'a.3', 'a.4', 'a.5']) {
-      await seed(binding, evalSuiteSpec({ id }));
+      await seed(binding, testSetSpec({ id }));
     }
-    const first = await app.request('/v1/eval-suites?limit=2', {
+    const first = await app.request('/v1/test-sets?limit=2', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(first.status).toBe(200);
@@ -307,7 +307,7 @@ describe('API — eval-suites list', () => {
     expect(firstBody.nextCursor).toBeTruthy();
 
     const second = await app.request(
-      `/v1/eval-suites?limit=2&cursor=${encodeURIComponent(firstBody.nextCursor as string)}`,
+      `/v1/test-sets?limit=2&cursor=${encodeURIComponent(firstBody.nextCursor as string)}`,
       { headers: { authorization: `Bearer ${TOKEN}` } },
     );
     const secondBody = (await second.json()) as { data: Array<{ id: string }>; hasMore: boolean };
@@ -317,7 +317,7 @@ describe('API — eval-suites list', () => {
 
   test('unknown kind → 400 bad-input', async () => {
     const { app } = makeApp();
-    const res = await app.request('/v1/eval-suites?kind=not-a-real-kind', {
+    const res = await app.request('/v1/test-sets?kind=not-a-real-kind', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(400);
@@ -326,20 +326,20 @@ describe('API — eval-suites list', () => {
   });
 });
 
-describe('API — eval-suites publish + get', () => {
+describe('API — test-sets publish + get', () => {
   test('publish + get roundtrip (accuracy)', async () => {
     const { app } = makeApp();
-    const publish = await app.request('/v1/eval-suites', {
+    const publish = await app.request('/v1/test-sets', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify(evalSuitePostBody()),
+      body: JSON.stringify(testSetPostBody()),
     });
     expect(publish.status).toBe(201);
-    const published = (await publish.json()) as { suiteId: string; version: string };
-    expect(published.suiteId).toBe('acme.drafting-accuracy');
+    const published = (await publish.json()) as { testSetId: string; version: string };
+    expect(published.testSetId).toBe('acme.drafting-accuracy');
     expect(published.version).toBe('1.0.0');
 
-    const get = await app.request('/v1/eval-suites/acme.drafting-accuracy', {
+    const get = await app.request('/v1/test-sets/acme.drafting-accuracy', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(get.status).toBe(200);
@@ -366,17 +366,17 @@ describe('API — eval-suites publish + get', () => {
     });
   });
 
-  test('publish human-review suite carries rubric through spec verbatim', async () => {
+  test('publish human-review testSet carries rubric through spec verbatim', async () => {
     const { app } = makeApp();
     const rubric = [
       { id: 'clarity', description: 'Is the answer clear?', weight: 0.5 },
       { id: 'accuracy', description: 'Is the answer factually correct?', weight: 0.5 },
     ];
-    const publish = await app.request('/v1/eval-suites', {
+    const publish = await app.request('/v1/test-sets', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify(
-        evalSuitePostBody({
+        testSetPostBody({
           id: 'acme.human-review',
           kind: 'human-review',
           spec: { rubric, reviewerRole: 'reviewer:senior' },
@@ -385,7 +385,7 @@ describe('API — eval-suites publish + get', () => {
     });
     expect(publish.status).toBe(201);
 
-    const get = await app.request('/v1/eval-suites/acme.human-review', {
+    const get = await app.request('/v1/test-sets/acme.human-review', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(get.status).toBe(200);
@@ -398,7 +398,7 @@ describe('API — eval-suites publish + get', () => {
 
   test('validation failure (missing kind) → 400 validation-failed with issues', async () => {
     const { app } = makeApp();
-    const res = await app.request('/v1/eval-suites', {
+    const res = await app.request('/v1/test-sets', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -418,10 +418,10 @@ describe('API — eval-suites publish + get', () => {
 
   test('validation failure (unknown kind) → 400 validation-failed', async () => {
     const { app } = makeApp();
-    const res = await app.request('/v1/eval-suites', {
+    const res = await app.request('/v1/test-sets', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ ...evalSuitePostBody(), kind: 'not-a-real-kind' }),
+      body: JSON.stringify({ ...testSetPostBody(), kind: 'not-a-real-kind' }),
     });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string } };
@@ -430,10 +430,10 @@ describe('API — eval-suites publish + get', () => {
 
   test('validation failure (bad semver) → 400 validation-failed', async () => {
     const { app } = makeApp();
-    const res = await app.request('/v1/eval-suites', {
+    const res = await app.request('/v1/test-sets', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ ...evalSuitePostBody(), version: 'latest' }),
+      body: JSON.stringify({ ...testSetPostBody(), version: 'latest' }),
     });
     expect(res.status).toBe(400);
     const body = (await res.json()) as {
@@ -445,10 +445,10 @@ describe('API — eval-suites publish + get', () => {
 
   test('validation failure (spec not an object) → 400 validation-failed', async () => {
     const { app } = makeApp();
-    const res = await app.request('/v1/eval-suites', {
+    const res = await app.request('/v1/test-sets', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ ...evalSuitePostBody(), spec: 'not an object' }),
+      body: JSON.stringify({ ...testSetPostBody(), spec: 'not an object' }),
     });
     expect(res.status).toBe(400);
     const body = (await res.json()) as {
@@ -461,10 +461,10 @@ describe('API — eval-suites publish + get', () => {
   test('validation failure (cross-tenant tenantId) → 400 validation-failed', async () => {
     const { app } = makeApp();
     const otherTenant = randomUUID();
-    const res = await app.request('/v1/eval-suites', {
+    const res = await app.request('/v1/test-sets', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ ...evalSuitePostBody(), tenantId: otherTenant }),
+      body: JSON.stringify({ ...testSetPostBody(), tenantId: otherTenant }),
     });
     expect(res.status).toBe(400);
     const body = (await res.json()) as {
@@ -476,7 +476,7 @@ describe('API — eval-suites publish + get', () => {
 
   test('non-JSON body → 400 bad-input', async () => {
     const { app } = makeApp();
-    const res = await app.request('/v1/eval-suites', {
+    const res = await app.request('/v1/test-sets', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: 'not json at all',
@@ -490,20 +490,20 @@ describe('API — eval-suites publish + get', () => {
     const { app } = makeApp();
     // No idempotency-key header — both bodies use fresh projectIds and
     // still collide because the id+version is what makes them dupes.
-    const first = await app.request('/v1/eval-suites', {
+    const first = await app.request('/v1/test-sets', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify(evalSuitePostBody()),
+      body: JSON.stringify(testSetPostBody()),
     });
     expect(first.status).toBe(201);
-    const second = await app.request('/v1/eval-suites', {
+    const second = await app.request('/v1/test-sets', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify(evalSuitePostBody()),
+      body: JSON.stringify(testSetPostBody()),
     });
     expect(second.status).toBe(409);
     const body = (await second.json()) as { error: { code: string } };
-    expect(body.error.code).toBe('eval-suite-already-registered');
+    expect(body.error.code).toBe('test-set-already-registered');
   });
 
   test('idempotency-key retry replays original 201', async () => {
@@ -512,8 +512,8 @@ describe('API — eval-suites publish + get', () => {
     // Stable projectId across both POSTs — the idempotency middleware
     // hashes the body and rejects a replay with a different body as
     // `idempotency-key-body-mismatch`.
-    const stableBody = evalSuitePostBody({ projectId: randomUUID() });
-    const first = await app.request('/v1/eval-suites', {
+    const stableBody = testSetPostBody({ projectId: randomUUID() });
+    const first = await app.request('/v1/test-sets', {
       method: 'POST',
       headers: {
         authorization: `Bearer ${TOKEN}`,
@@ -523,7 +523,7 @@ describe('API — eval-suites publish + get', () => {
       body: JSON.stringify(stableBody),
     });
     expect(first.status).toBe(201);
-    const second = await app.request('/v1/eval-suites', {
+    const second = await app.request('/v1/test-sets', {
       method: 'POST',
       headers: {
         authorization: `Bearer ${TOKEN}`,
@@ -534,41 +534,41 @@ describe('API — eval-suites publish + get', () => {
     });
     expect(second.status).toBe(201);
     expect(second.headers.get('X-Idempotent-Replay')).toBe('true');
-    const body = (await second.json()) as { suiteId: string; version: string };
-    expect(body.suiteId).toBe('acme.drafting-accuracy');
+    const body = (await second.json()) as { testSetId: string; version: string };
+    expect(body.testSetId).toBe('acme.drafting-accuracy');
     expect(body.version).toBe('1.0.0');
   });
 
-  test('unknown suiteId → 404 eval-suite-not-found', async () => {
+  test('unknown testSetId → 404 test-set-not-found', async () => {
     const { app } = makeApp();
-    const res = await app.request('/v1/eval-suites/nope.missing', {
+    const res = await app.request('/v1/test-sets/nope.missing', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe('eval-suite-not-found');
+    expect(body.error.code).toBe('test-set-not-found');
   });
 
   // ------------------ projectId on POST ------------------
 
-  test('POST /v1/eval-suites threads projectId to the binding', async () => {
+  test('POST /v1/test-sets threads projectId to the binding', async () => {
     const { app } = makeApp();
     lastPublishedProjectId = undefined;
     const projectId = randomUUID();
-    const res = await app.request('/v1/eval-suites', {
+    const res = await app.request('/v1/test-sets', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify(evalSuitePostBody({ projectId })),
+      body: JSON.stringify(testSetPostBody({ projectId })),
     });
     expect(res.status).toBe(201);
     expect(lastPublishedProjectId as unknown as string).toBe(projectId);
   });
 
-  test('POST /v1/eval-suites without projectId → 400 bad-input', async () => {
+  test('POST /v1/test-sets without projectId → 400 bad-input', async () => {
     const { app } = makeApp();
-    // Build a body without projectId (the evalSuitePostBody fixture always adds one).
-    const { projectId: _pid, ...bodyWithoutProjectId } = evalSuitePostBody();
-    const res = await app.request('/v1/eval-suites', {
+    // Build a body without projectId (the testSetPostBody fixture always adds one).
+    const { projectId: _pid, ...bodyWithoutProjectId } = testSetPostBody();
+    const res = await app.request('/v1/test-sets', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify(bodyWithoutProjectId),
@@ -580,13 +580,13 @@ describe('API — eval-suites publish + get', () => {
   });
 });
 
-describe('API — eval-suites versions', () => {
+describe('API — test-sets versions', () => {
   test('list versions returns each semver, sorted asc', async () => {
     const { app, binding } = makeApp();
     for (const v of ['1.0.0', '1.1.0', '2.0.0']) {
-      await seed(binding, evalSuiteSpec({ version: v }));
+      await seed(binding, testSetSpec({ version: v }));
     }
-    const res = await app.request('/v1/eval-suites/acme.drafting-accuracy/versions', {
+    const res = await app.request('/v1/test-sets/acme.drafting-accuracy/versions', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(200);
@@ -596,7 +596,7 @@ describe('API — eval-suites versions', () => {
 
   test('list versions of unknown id → 404', async () => {
     const { app } = makeApp();
-    const res = await app.request('/v1/eval-suites/nope/versions', {
+    const res = await app.request('/v1/test-sets/nope/versions', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(404);
@@ -605,9 +605,9 @@ describe('API — eval-suites versions', () => {
   test('get specific version', async () => {
     const { app, binding } = makeApp();
     for (const v of ['1.0.0', '2.0.0']) {
-      await seed(binding, evalSuiteSpec({ version: v }));
+      await seed(binding, testSetSpec({ version: v }));
     }
-    const res = await app.request('/v1/eval-suites/acme.drafting-accuracy/versions/1.0.0', {
+    const res = await app.request('/v1/test-sets/acme.drafting-accuracy/versions/1.0.0', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(200);
@@ -618,33 +618,33 @@ describe('API — eval-suites versions', () => {
 
   test('get unknown version → 404', async () => {
     const { app, binding } = makeApp();
-    await seed(binding, evalSuiteSpec({ version: '1.0.0' }));
-    const res = await app.request('/v1/eval-suites/acme.drafting-accuracy/versions/9.9.9', {
+    await seed(binding, testSetSpec({ version: '1.0.0' }));
+    const res = await app.request('/v1/test-sets/acme.drafting-accuracy/versions/9.9.9', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(404);
   });
 });
 
-describe('API — eval-suites unregister', () => {
+describe('API — test-sets unregister', () => {
   test('unregister known version → 200 unregistered: true', async () => {
     const { app, binding } = makeApp();
-    await seed(binding, evalSuiteSpec({ version: '1.0.0' }));
+    await seed(binding, testSetSpec({ version: '1.0.0' }));
     const res = await app.request(
-      '/v1/eval-suites/acme.drafting-accuracy/versions/1.0.0/unregister',
+      '/v1/test-sets/acme.drafting-accuracy/versions/1.0.0/unregister',
       { method: 'POST', headers: { authorization: `Bearer ${TOKEN}` } },
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      suiteId: string;
+      testSetId: string;
       version: string;
       unregistered: boolean;
     };
-    expect(body.suiteId).toBe('acme.drafting-accuracy');
+    expect(body.testSetId).toBe('acme.drafting-accuracy');
     expect(body.version).toBe('1.0.0');
     expect(body.unregistered).toBe(true);
 
-    const get = await app.request('/v1/eval-suites/acme.drafting-accuracy/versions/1.0.0', {
+    const get = await app.request('/v1/test-sets/acme.drafting-accuracy/versions/1.0.0', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(get.status).toBe(404);
@@ -652,7 +652,7 @@ describe('API — eval-suites unregister', () => {
 
   test('unregister unknown version → 404', async () => {
     const { app } = makeApp();
-    const res = await app.request('/v1/eval-suites/nope.missing/versions/1.0.0/unregister', {
+    const res = await app.request('/v1/test-sets/nope.missing/versions/1.0.0/unregister', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}` },
     });
@@ -660,10 +660,10 @@ describe('API — eval-suites unregister', () => {
   });
 });
 
-describe('API — eval-suites surface unmounted when no binding supplied', () => {
-  test('no `evalSuiteRegistry` binding → routes 404 at Hono level', async () => {
+describe('API — test-sets surface unmounted when no binding supplied', () => {
+  test('no `testSetRegistry` binding → routes 404 at Hono level', async () => {
     const app = createApp({ ...createStubAppBindings(), resolveToken, runHandler });
-    const res = await app.request('/v1/eval-suites', {
+    const res = await app.request('/v1/test-sets', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(404);
@@ -672,11 +672,11 @@ describe('API — eval-suites surface unmounted when no binding supplied', () =>
 
 // -------------------- scope filter --------------------
 
-describe('API — eval-suites scope filter', () => {
+describe('API — test-sets scope filter', () => {
   function makeSpy() {
     const inner = makeInMemoryBinding();
-    let lastListInput: Parameters<EvalSuiteRegistryBinding['list']>[0] | null = null;
-    const spy: EvalSuiteRegistryBinding = {
+    let lastListInput: Parameters<TestSetRegistryBinding['list']>[0] | null = null;
+    const spy: TestSetRegistryBinding = {
       ...inner,
       async list(input) {
         lastListInput = input;
@@ -687,7 +687,7 @@ describe('API — eval-suites scope filter', () => {
       ...createStubAppBindings(),
       resolveToken,
       runHandler,
-      evalSuiteRegistry: spy,
+      testSetRegistry: spy,
     });
     return { app, getLastInput: (): typeof lastListInput => lastListInput };
   }
@@ -695,7 +695,7 @@ describe('API — eval-suites scope filter', () => {
   test('?scopeKind=project&scopeId=<uuid> → binding receives project scope', async () => {
     const { app, getLastInput } = makeSpy();
     const projectId = randomUUID();
-    const res = await app.request(`/v1/eval-suites?scopeKind=project&scopeId=${projectId}`, {
+    const res = await app.request(`/v1/test-sets?scopeKind=project&scopeId=${projectId}`, {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(200);
@@ -705,7 +705,7 @@ describe('API — eval-suites scope filter', () => {
   test('?scopeKind=org&scopeId=<uuid> → binding receives org scope', async () => {
     const { app, getLastInput } = makeSpy();
     const orgId = randomUUID();
-    const res = await app.request(`/v1/eval-suites?scopeKind=org&scopeId=${orgId}`, {
+    const res = await app.request(`/v1/test-sets?scopeKind=org&scopeId=${orgId}`, {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(200);
@@ -714,7 +714,7 @@ describe('API — eval-suites scope filter', () => {
 
   test('no scope params → binding receives scope=undefined', async () => {
     const { app, getLastInput } = makeSpy();
-    const res = await app.request('/v1/eval-suites', {
+    const res = await app.request('/v1/test-sets', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(200);
@@ -723,7 +723,7 @@ describe('API — eval-suites scope filter', () => {
 
   test('?scopeKind=tenant&scopeId=<uuid> → 400 scope-invalid', async () => {
     const { app } = makeSpy();
-    const res = await app.request(`/v1/eval-suites?scopeKind=tenant&scopeId=${randomUUID()}`, {
+    const res = await app.request(`/v1/test-sets?scopeKind=tenant&scopeId=${randomUUID()}`, {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(400);

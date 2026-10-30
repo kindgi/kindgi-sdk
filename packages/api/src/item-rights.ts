@@ -211,7 +211,7 @@ export interface ItemRights {
 const ITEM_TYPE: Readonly<Record<OrderItemKind, ResourceRef['type'] | undefined>> = {
   agent: 'agent',
   flow: 'flow',
-  eval_suite: 'eval_suite',
+  test_set: 'test_set',
   tool: 'tool',
   guardrail: 'guardrail',
   block: undefined,
@@ -221,7 +221,7 @@ const ITEM_TYPE: Readonly<Record<OrderItemKind, ResourceRef['type'] | undefined>
 const KIND_NAME: Readonly<Record<OrderItemKind, string>> = {
   agent: 'agent',
   flow: 'flow',
-  eval_suite: 'eval suite',
+  test_set: 'test set',
   tool: 'tool',
   guardrail: 'guardrail',
   block: 'block',
@@ -707,8 +707,8 @@ export async function filterOwned<T>(
 }
 
 /**
- * Running an agent, flow or eval suite in one of the projects that serve
- * it: that project's `call` (agents) or `execute` (flows and suites)
+ * Running an agent, flow or test set in one of the projects that serve
+ * it: that project's `call` (agents) or `execute` (flows and test sets)
  * alone, the item's own `execute` not asked. `undefined` when allowed;
  * else the 403, naming the right it needs there. `what`: what the caller
  * does, when not running the item (opening a conversation with it).
@@ -716,7 +716,7 @@ export async function filterOwned<T>(
 export async function runIn(
   c: Ctx,
   rights: ItemRights,
-  item: { readonly kind: 'agent' | 'flow' | 'eval_suite'; readonly id: string },
+  item: { readonly kind: 'agent' | 'flow' | 'test_set'; readonly id: string },
   projectId: string,
   what?: string,
 ): Promise<Response | undefined> {

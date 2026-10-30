@@ -41,7 +41,7 @@ async function run(argv: readonly string[]) {
   const client = {
     agents: { list: rec('agents.list'), versions: { list: rec('agents.versions.list') } },
     tools: { list: rec('tools.list'), versions: { list: rec('tools.versions.list') } },
-    evalSuites: { list: rec('evalSuites.list') },
+    testSets: { list: rec('testSets.list') },
   };
   const out = await runCli({
     argv: [...argv, '--url=https://x', '--token=t'],
@@ -72,8 +72,8 @@ describe('retired items and unregistered versions', () => {
       ['tools.versions.list', 'acme.lookup', { includeTombstoned: true }],
     ],
     [
-      ['eval-suites', 'list', '--include-retired'],
-      ['evalSuites.list', { includeRetired: true }],
+      ['test-sets', 'list', '--include-retired'],
+      ['testSets.list', { includeRetired: true }],
     ],
   ])('%j', async (argv, call) => {
     const { out, calls } = await run(argv);

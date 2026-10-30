@@ -17,7 +17,7 @@
 export const ERROR_ENTRIES = {
   'validation-failed': {
     description:
-      "The request body is well-formed JSON but fails validation, for example an agent, flow, tool, policy or eval suite definition that breaks the rules, or a version pin that can't be resolved. Fix the entries in `details.issues` and resend. On `POST /v1/proposals/improve`, a version with nothing for the Improve run to work on is refused with no issues, and `details.reason` says what it lacks.",
+      "The request body is well-formed JSON but fails validation, for example an agent, flow, tool, policy or test set definition that breaks the rules, or a version pin that can't be resolved. Fix the entries in `details.issues` and resend. On `POST /v1/proposals/improve`, a version with nothing for the Improve run to work on is refused with no issues, and `details.reason` says what it lacks.",
     details: [
       {
         key: 'issues',
@@ -32,7 +32,7 @@ export const ERROR_ENTRIES = {
   },
   'reference-out-of-scope': {
     description:
-      "A request names an item its project can't reach: a tool, agent, flow, guardrail, data block, check or eval suite that isn't registered in the project, its org or the tenant, or a version of an agent, flow or eval suite that the project doesn't run, such as one made in an earlier environment and not yet promoted. Nothing is written. Register the item where the project reaches it, use it from the project that has it, or promote the version first.",
+      "A request names an item its project can't reach: a tool, agent, flow, guardrail, data block, check or test set that isn't registered in the project, its org or the tenant, or a version of an agent, flow or test set that the project doesn't run, such as one made in an earlier environment and not yet promoted. Nothing is written. Register the item where the project reaches it, use it from the project that has it, or promote the version first.",
     details: [
       {
         key: 'issues',
@@ -600,16 +600,16 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['GET /v1/policies/{policyId}'],
   },
-  'eval-suite-gone': {
+  'test-set-gone': {
     description:
-      'The eval suite has no active versions left; it exists but every version is unregistered. Reinstate a version or publish a new one.',
+      'The test set has no active versions left; it exists but every version is unregistered. Reinstate a version or publish a new one.',
     details: [
       {
-        key: 'suiteId',
-        meaning: 'the suite id',
+        key: 'testSetId',
+        meaning: 'the test set id',
       },
     ],
-    seeAlso: ['GET /v1/eval-suites/{suiteId}'],
+    seeAlso: ['GET /v1/test-sets/{testSetId}'],
   },
   'tool-gone': {
     description:
@@ -1832,23 +1832,23 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'eval-suite-not-found': {
-    description: 'No eval suite is registered with that id.',
+  'test-set-not-found': {
+    description: 'No test set is registered with that id.',
     details: [
       {
-        key: 'suiteId',
-        meaning: 'the suite id that was looked up',
+        key: 'testSetId',
+        meaning: 'the test set id that was looked up',
       },
     ],
-    seeAlso: ['GET /v1/eval-suites/{suiteId}'],
+    seeAlso: ['GET /v1/test-sets/{testSetId}'],
   },
-  'eval-suite-already-registered': {
+  'test-set-already-registered': {
     description:
-      'That eval suite id and version are already registered; versions never change, so publish a new version.',
+      'That test set id and version are already registered; versions never change, so publish a new version.',
     details: [
       {
-        key: 'suiteId',
-        meaning: 'the suite id',
+        key: 'testSetId',
+        meaning: 'the test set id',
       },
       {
         key: 'version',
@@ -1856,13 +1856,13 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'eval-suite-project-mismatch': {
+  'test-set-project-mismatch': {
     description:
-      'The eval suite belongs to another project and suites never move. Publish or build its versions in the project that owns it.',
+      'The test set belongs to another project and test sets never move. Publish or build its versions in the project that owns it.',
     details: [
       {
-        key: 'suiteId',
-        meaning: 'the suite id',
+        key: 'testSetId',
+        meaning: 'the test set id',
       },
     ],
   },
@@ -2623,18 +2623,18 @@ export const ERROR_ENTRIES = {
   },
   'dispatcher-not-registered': {
     description:
-      "The runtime has no eval-run dispatcher for the suite's kind, so it can't start a run of that suite.",
+      "The runtime has no eval-run dispatcher for the test set's kind, so it can't start a run of that test set.",
     details: [
       {
         key: 'evalKind',
-        meaning: 'the suite kind with no dispatcher',
+        meaning: 'the test set kind with no dispatcher',
       },
     ],
     seeAlso: ['guides/evals/compare-an-agent-version'],
   },
   'dispatcher-input-invalid': {
     description:
-      "The eval run's input doesn't fit the suite's kind: neither an agent nor a flow reference was given, or the kind's validation rejected the target or comparison.",
+      "The eval run's input doesn't fit the test set's kind: neither an agent nor a flow reference was given, or the kind's validation rejected the target or comparison.",
     details: [],
   },
   'mcp-endpoint-not-found': {
@@ -3043,7 +3043,7 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: [
       'POST /v1/deployments',
-      'POST /v1/eval-suites/{suiteId}/runs',
+      'POST /v1/test-sets/{testSetId}/runs',
       'POST /v1/proposals/improve',
       'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
       'POST /v1/deployments/{deploymentId}/promotions',

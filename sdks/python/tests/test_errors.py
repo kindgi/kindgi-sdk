@@ -80,7 +80,7 @@ def test_an_unlisted_403_is_forbidden_and_401_unauthenticated() -> None:
 @pytest.mark.parametrize(
     "code",
     [
-        "eval-suite-already-registered",
+        "test-set-already-registered",
         "policy-already-registered",
         "version-already-exists",
         "gate-policy-already-registered",

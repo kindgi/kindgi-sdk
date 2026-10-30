@@ -20,11 +20,11 @@ import type {
   EvalRunStatus,
   EvalRunSubjectInvokeOutcome,
   EvalSubjectInvoker,
-  EvalSuite,
-  EvalSuiteRegistryBinding,
   ItemReference,
   ReferenceScopeBinding,
   RunHandlerBinding,
+  TestSet,
+  TestSetRegistryBinding,
   TokenResolver,
 } from '../src/index.js';
 import { createAccuracyDispatcher, createInProcessEvalRunBinding } from '../src/index.js';
@@ -32,10 +32,10 @@ import { createAccuracyDispatcher, createInProcessEvalRunBinding } from '../src/
 /**
  * Eval-run route tests. The registry + run binding are
  * both caller-plugged. The registry uses the same in-memory pattern
- * as `eval-suites-routes.test.ts`; the run binding uses the reference
+ * as `test-sets-routes.test.ts`; the run binding uses the reference
  * `createInProcessEvalRunBinding` with a synthetic subject invoker
  * and a deterministic grader. Covers start (accuracy happy path,
- * dryRun, unknown suite, both/neither ref, idempotency replay,
+ * dryRun, unknown test set, both/neither ref, idempotency replay,
  * dispatcher-not-registered for the other five kinds), list (filter
  * matrix), get, cancel (roundtrip + already-terminal), SSE (event
  * ordering + terminal), unmounted-route.
@@ -74,73 +74,73 @@ const runHandler: RunHandlerBinding = {
   }),
 };
 
-// ---------- in-memory registry (mirrors eval-suites test) ----------
+// ---------- in-memory registry (mirrors test-sets test) ----------
 
-function makeInMemoryRegistry(): EvalSuiteRegistryBinding {
-  const store = new Map<string, Map<string, EvalSuite>>();
-  const latest = (versions: Map<string, EvalSuite>): EvalSuite | null => {
+function makeInMemoryRegistry(): TestSetRegistryBinding {
+  const store = new Map<string, Map<string, TestSet>>();
+  const latest = (versions: Map<string, TestSet>): TestSet | null => {
     const arr = [...versions.values()];
     return arr[arr.length - 1] ?? null;
   };
   return {
     async list({ limit }) {
-      const rows: EvalSuite[] = [];
+      const rows: TestSet[] = [];
       for (const versions of store.values()) {
         const l = latest(versions);
         if (l !== null) rows.push(l);
       }
       return { data: rows.slice(0, limit) };
     },
-    async get({ suiteId }) {
-      const versions = store.get(suiteId);
+    async get({ testSetId }) {
+      const versions = store.get(testSetId);
       if (versions === undefined) return null;
       return latest(versions);
     },
-    async getVersion({ suiteId, version }) {
-      return store.get(suiteId)?.get(version) ?? null;
+    async getVersion({ testSetId, version }) {
+      return store.get(testSetId)?.get(version) ?? null;
     },
-    async headExists({ suiteId }) {
-      return store.has(suiteId);
+    async headExists({ testSetId }) {
+      return store.has(testSetId);
     },
-    async listVersions({ suiteId, limit }) {
-      const versions = store.get(suiteId);
+    async listVersions({ testSetId, limit }) {
+      const versions = store.get(testSetId);
       if (versions === undefined) return { data: [] };
       return { data: [...versions.values()].slice(0, limit) };
     },
-    async publish({ suite }) {
-      let versions = store.get(suite.id);
+    async publish({ testSet }) {
+      let versions = store.get(testSet.id);
       if (versions === undefined) {
         versions = new Map();
-        store.set(suite.id, versions);
+        store.set(testSet.id, versions);
       }
-      if (versions.has(suite.version)) {
-        return { kind: 'already-registered', suiteId: suite.id, version: suite.version };
+      if (versions.has(testSet.version)) {
+        return { kind: 'already-registered', testSetId: testSet.id, version: testSet.version };
       }
-      versions.set(suite.version, suite);
-      return { kind: 'ok', suiteId: suite.id, version: suite.version };
+      versions.set(testSet.version, testSet);
+      return { kind: 'ok', testSetId: testSet.id, version: testSet.version };
     },
-    async unregister({ suiteId, version }) {
-      const versions = store.get(suiteId);
+    async unregister({ testSetId, version }) {
+      const versions = store.get(testSetId);
       if (versions === undefined) return { unregistered: false };
       const removed = versions.delete(version);
-      if (versions.size === 0) store.delete(suiteId);
+      if (versions.size === 0) store.delete(testSetId);
       return { unregistered: removed };
     },
-    async reinstateVersion({ suiteId, version }) {
-      return { kind: 'not-found', suiteId, version };
+    async reinstateVersion({ testSetId, version }) {
+      return { kind: 'not-found', testSetId, version };
     },
   };
 }
 
-async function seedSuite(
-  registry: EvalSuiteRegistryBinding,
-  overrides: Partial<EvalSuite> & {
+async function seedTestSet(
+  registry: TestSetRegistryBinding,
+  overrides: Partial<TestSet> & {
     id: string;
     kind: EvalKind;
     spec: Readonly<Record<string, unknown>>;
   },
 ): Promise<void> {
-  const suite: EvalSuite = {
+  const testSet: TestSet = {
     id: overrides.id,
     tenantId,
     version: overrides.version ?? '1.0.0',
@@ -151,7 +151,7 @@ async function seedSuite(
   await registry.publish({
     tenantId,
     projectId: TEST_PROJECT_ID as never,
-    suite,
+    testSet,
     enqueueTuples: () => [],
   });
 }
@@ -206,7 +206,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
 
 interface AppSetup {
   readonly app: ReturnType<typeof createApp>;
-  readonly registry: EvalSuiteRegistryBinding;
+  readonly registry: TestSetRegistryBinding;
   readonly binding: EvalRunBinding;
 }
 
@@ -229,7 +229,7 @@ function makeApp(
     dispatchers.accuracy = createAccuracyDispatcher({ grader: eqGrader });
   }
   const binding = createInProcessEvalRunBinding({
-    suiteRegistry: registry,
+    testSetRegistry: registry,
     subject,
     dispatchers,
   });
@@ -237,7 +237,7 @@ function makeApp(
     ...createStubAppBindings(),
     resolveToken: options.grants === undefined ? resolveToken : resolveUserToken,
     runHandler,
-    evalSuiteRegistry: registry,
+    testSetRegistry: registry,
     evalRunBinding: binding,
     ...(options.grants !== undefined && { authz: grantsAuthz(options.grants) }),
     ...(options.projectSuspended !== undefined && { projectSuspended: options.projectSuspended }),
@@ -300,21 +300,21 @@ const accuracySpec: Readonly<Record<string, unknown>> = {
 
 describe('API — eval-runs start: who may start one', () => {
   // An editor of the project (write on it, execute on the agent and on the
-  // suite) runs the test set: the improve loop's step. Starting a run
-  // doesn't change the suite, so it doesn't need admin on it.
-  const editor = (suiteId: string) => [
-    `read eval_suite:${suiteId}`,
-    `execute eval_suite:${suiteId}`,
+  // test set) runs the test set: the improve loop's step. Starting a run
+  // doesn't change the test set, so it doesn't need admin on it.
+  const editor = (testSetId: string) => [
+    `read test_set:${testSetId}`,
+    `execute test_set:${testSetId}`,
     `read project:${TEST_PROJECT_ID}`,
     `write project:${TEST_PROJECT_ID}`,
     'execute agent:acme.drafting',
   ];
   const start = (
     app: ReturnType<typeof createApp>,
-    suiteId: string,
+    testSetId: string,
     projectId: string = TEST_PROJECT_ID,
   ) =>
-    app.request(`/v1/eval-suites/${suiteId}/runs`, {
+    app.request(`/v1/test-sets/${testSetId}/runs`, {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -323,9 +323,9 @@ describe('API — eval-runs start: who may start one', () => {
       }),
     });
 
-  test('a project editor starts a run: 201, without admin on the suite', async () => {
+  test('a project editor starts a run: 201, without admin on the test set', async () => {
     const { app, registry } = makeApp({ grants: editor('acme.editor-run') });
-    await seedSuite(registry, { id: 'acme.editor-run', kind: 'accuracy', spec: accuracySpec });
+    await seedTestSet(registry, { id: 'acme.editor-run', kind: 'accuracy', spec: accuracySpec });
     const res = await start(app, 'acme.editor-run');
     expect(res.status, await res.text()).toBe(201);
   });
@@ -333,44 +333,44 @@ describe('API — eval-runs start: who may start one', () => {
   test("without execute on the agent: 403, the route's own check", async () => {
     const grants = editor('acme.no-exec').filter((g) => !g.startsWith('execute agent'));
     const { app, registry } = makeApp({ grants });
-    await seedSuite(registry, { id: 'acme.no-exec', kind: 'accuracy', spec: accuracySpec });
+    await seedTestSet(registry, { id: 'acme.no-exec', kind: 'accuracy', spec: accuracySpec });
     const res = await start(app, 'acme.no-exec');
     expect(res.status).toBe(403);
     expect(await res.text()).toContain('agent:acme.drafting');
   });
 
   test('a viewer (read only) is refused: 403', async () => {
-    const grants = ['read eval_suite:acme.viewer', `read project:${TEST_PROJECT_ID}`];
+    const grants = ['read test_set:acme.viewer', `read project:${TEST_PROJECT_ID}`];
     const { app, registry } = makeApp({ grants });
-    await seedSuite(registry, { id: 'acme.viewer', kind: 'accuracy', spec: accuracySpec });
+    await seedTestSet(registry, { id: 'acme.viewer', kind: 'accuracy', spec: accuracySpec });
     const res = await start(app, 'acme.viewer');
     expect(res.status).toBe(403);
-    expect(await res.text()).toContain('eval_suite:acme.viewer');
+    expect(await res.text()).toContain('test_set:acme.viewer');
   });
 
-  test("a suite's viewer who edits another project can't run it into that one: 403", async () => {
-    // Read on the suite (a viewer of its project), write on project B and
+  test("a test set's viewer who edits another project can't run it into that one: 403", async () => {
+    // Read on the test set (a viewer of its project), write on project B and
     // execute on the agent: the run would land in B, so it needs `execute`
-    // on the suite itself.
+    // on the test set itself.
     const other = randomUUID();
     const grants = [
-      'read eval_suite:acme.cross',
+      'read test_set:acme.cross',
       `read project:${TEST_PROJECT_ID}`,
       `read project:${other}`,
       `write project:${other}`,
       'execute agent:acme.drafting',
     ];
     const { app, registry } = makeApp({ grants });
-    await seedSuite(registry, { id: 'acme.cross', kind: 'accuracy', spec: accuracySpec });
+    await seedTestSet(registry, { id: 'acme.cross', kind: 'accuracy', spec: accuracySpec });
     const res = await start(app, 'acme.cross', other);
     expect(res.status).toBe(403);
-    expect(await res.text()).toContain('eval_suite:acme.cross');
+    expect(await res.text()).toContain('test_set:acme.cross');
   });
 
-  test('only `POST /:suiteId/runs` itself skips the suite admin check', async () => {
+  test('only `POST /:testSetId/runs` itself skips the test set admin check', async () => {
     const { app, registry } = makeApp({ grants: editor('acme.deeper') });
-    await seedSuite(registry, { id: 'acme.deeper', kind: 'accuracy', spec: accuracySpec });
-    const res = await app.request('/v1/eval-suites/acme.deeper/versions/acme.deeper/runs', {
+    await seedTestSet(registry, { id: 'acme.deeper', kind: 'accuracy', spec: accuracySpec });
+    const res = await app.request('/v1/test-sets/acme.deeper/versions/acme.deeper/runs', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}` },
     });
@@ -378,10 +378,10 @@ describe('API — eval-runs start: who may start one', () => {
     expect(await res.text()).toContain('"action":"admin"');
   });
 
-  test('changing the suite still needs admin on it: an editor unregistering a version gets 403', async () => {
+  test('changing the test set still needs admin on it: an editor unregistering a version gets 403', async () => {
     const { app, registry } = makeApp({ grants: editor('acme.editor-unreg') });
-    await seedSuite(registry, { id: 'acme.editor-unreg', kind: 'accuracy', spec: accuracySpec });
-    const res = await app.request('/v1/eval-suites/acme.editor-unreg/versions/1.0.0/unregister', {
+    await seedTestSet(registry, { id: 'acme.editor-unreg', kind: 'accuracy', spec: accuracySpec });
+    const res = await app.request('/v1/test-sets/acme.editor-unreg/versions/1.0.0/unregister', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}` },
     });
@@ -391,11 +391,11 @@ describe('API — eval-runs start: who may start one', () => {
 });
 
 describe('API — eval-runs start (accuracy happy path)', () => {
-  test('POST /v1/eval-suites/:suiteId/runs → 201, runId; run completes with aggregate result', async () => {
+  test('POST /v1/test-sets/:testSetId/runs → 201, runId; run completes with aggregate result', async () => {
     const { app, registry, binding } = makeApp({ behavior: 'pass' });
-    await seedSuite(registry, { id: 'acme.accuracy', kind: 'accuracy', spec: accuracySpec });
+    await seedTestSet(registry, { id: 'acme.accuracy', kind: 'accuracy', spec: accuracySpec });
 
-    const res = await app.request('/v1/eval-suites/acme.accuracy/runs', {
+    const res = await app.request('/v1/test-sets/acme.accuracy/runs', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -409,8 +409,8 @@ describe('API — eval-runs start (accuracy happy path)', () => {
 
     const final = await waitForRun(binding, body.runId, (r) => r.status === 'completed');
     expect(final.status).toBe('completed');
-    expect(final.suiteId).toBe('acme.accuracy');
-    expect(final.suiteVersion).toBe('1.0.0');
+    expect(final.testSetId).toBe('acme.accuracy');
+    expect(final.testSetVersion).toBe('1.0.0');
     expect(final.kind).toBe('accuracy');
     expect(final.agentRef?.agentId).toBe('acme.drafting');
     const result = final.result as {
@@ -427,9 +427,9 @@ describe('API — eval-runs start (accuracy happy path)', () => {
 
   test('accuracy run with mixed outputs → completed with partial pass', async () => {
     const { app, registry, binding } = makeApp({ behavior: 'mixed' });
-    await seedSuite(registry, { id: 'acme.acc-mixed', kind: 'accuracy', spec: accuracySpec });
+    await seedTestSet(registry, { id: 'acme.acc-mixed', kind: 'accuracy', spec: accuracySpec });
 
-    const res = await app.request('/v1/eval-suites/acme.acc-mixed/runs', {
+    const res = await app.request('/v1/test-sets/acme.acc-mixed/runs', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -475,7 +475,7 @@ describe("API — eval-runs start: the version it runs must be the project's to 
     return { calls, subject };
   };
   const start = (app: AppSetup['app'], body: Record<string, unknown>) =>
-    app.request('/v1/eval-suites/acme.reach/runs', {
+    app.request('/v1/test-sets/acme.reach/runs', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({ projectId: TEST_PROJECT_ID, ...body }),
@@ -511,7 +511,7 @@ describe("API — eval-runs start: the version it runs must be the project's to 
     async (_, body, kind, id, version) => {
       const asked: ItemReference[] = [];
       const { app, registry } = makeApp({ referenceScope: reach(UNREACHED, asked) });
-      await seedSuite(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
+      await seedTestSet(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
       const res = await start(app, body);
       expect(res.status).toBe(201);
       expect(asked.filter((r) => r.kind === kind)).toStrictEqual([{ kind, id, version }]);
@@ -540,7 +540,7 @@ describe("API — eval-runs start: the version it runs must be the project's to 
     async (_, body, path, kind, id, named) => {
       const { calls, subject } = counting();
       const { app, registry, binding } = makeApp({ subject, referenceScope: reach(UNREACHED) });
-      await seedSuite(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
+      await seedTestSet(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
       const res = await start(app, body);
       expect(res.status).toBe(400);
       const error = await refusal(res);
@@ -564,7 +564,7 @@ describe("API — eval-runs start: the version it runs must be the project's to 
   test('with no version, the item is asked about by its id, as before: reached, it starts; not, the refusal names no version', async () => {
     const asked: ItemReference[] = [];
     const { app, registry } = makeApp({ referenceScope: reach(UNREACHED, asked) });
-    await seedSuite(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
+    await seedTestSet(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
     expect((await start(app, { agentRef: { agentId: 'acme.drafting' } })).status).toBe(201);
     expect(asked.filter((r) => r.kind === 'agent')).toStrictEqual([
       { kind: 'agent', id: 'acme.drafting' },
@@ -582,7 +582,7 @@ describe("API — eval-runs start: the version it runs must be the project's to 
     test("an agent at a version the project doesn't reach is refused at its own path, naming the version, and no case runs", async () => {
       const { calls, subject } = counting();
       const { app, registry, binding } = makeApp({ subject, referenceScope: reach(UNREACHED) });
-      await seedSuite(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
+      await seedTestSet(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
       const res = await start(app, { flowRef, versions: { agents: { 'acme.drafting': '1.1.0' } } });
       expect(res.status).toBe(400);
       const error = await refusal(res);
@@ -605,7 +605,7 @@ describe("API — eval-runs start: the version it runs must be the project's to 
     test('the same agent at a version the project does reach starts: 201, asked at that version', async () => {
       const asked: ItemReference[] = [];
       const { app, registry } = makeApp({ referenceScope: reach(UNREACHED, asked) });
-      await seedSuite(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
+      await seedTestSet(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
       const res = await start(app, { flowRef, versions: { agents: { 'acme.drafting': '1.0.0' } } });
       expect(res.status).toBe(201);
       expect(asked.filter((r) => r.kind === 'agent')).toStrictEqual([
@@ -616,7 +616,7 @@ describe("API — eval-runs start: the version it runs must be the project's to 
     test('a tool is asked about by its id: reached, it starts; not, it is refused at its own path, with no version named', async () => {
       const asked: ItemReference[] = [];
       const { app, registry } = makeApp({ referenceScope: reach(UNREACHED, asked) });
-      await seedSuite(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
+      await seedTestSet(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
       const res = await start(app, { flowRef, versions: { tools: { 'acme.lookup': '2.0.0' } } });
       expect(res.status).toBe(201);
       expect(asked.filter((r) => r.kind === 'tool')).toStrictEqual([
@@ -638,7 +638,7 @@ describe("API — eval-runs start: the version it runs must be the project's to 
 
     test('each refused entry is named at its own path, beside the flow', async () => {
       const { app, registry } = makeApp({ referenceScope: reach(UNREACHED) });
-      await seedSuite(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
+      await seedTestSet(registry, { id: 'acme.reach', kind: 'accuracy', spec: accuracySpec });
       const error = await refusal(
         await start(app, {
           flowRef: { flowId: 'acme.triage', version: '2.0.0' },
@@ -669,8 +669,8 @@ describe('API — eval-runs and a suspended project', () => {
       { id: 'c3', input: { prompt: 'c', expected: 'C' }, expected: 'C' },
     ],
   };
-  const start = (app: AppSetup['app'], suiteId: string) =>
-    app.request(`/v1/eval-suites/${suiteId}/runs`, {
+  const start = (app: AppSetup['app'], testSetId: string) =>
+    app.request(`/v1/test-sets/${testSetId}/runs`, {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -702,7 +702,7 @@ describe('API — eval-runs and a suspended project', () => {
         return suspended;
       },
     });
-    await seedSuite(registry, { id: 'acme.suspended', kind: 'accuracy', spec: accuracySpec });
+    await seedTestSet(registry, { id: 'acme.suspended', kind: 'accuracy', spec: accuracySpec });
     const refused = await start(app, 'acme.suspended');
     expect(refused.status).toBe(409);
     expect(((await refused.json()) as { error: { code: string } }).error.code).toBe(
@@ -719,7 +719,7 @@ describe('API — eval-runs and a suspended project', () => {
       halt: { reason: 'project-suspended', message: 'The project is suspended' },
     });
     const { app, registry, binding } = makeApp({ subject });
-    await seedSuite(registry, { id: 'acme.halted', kind: 'accuracy', spec: threeCases });
+    await seedTestSet(registry, { id: 'acme.halted', kind: 'accuracy', spec: threeCases });
     const res = await start(app, 'acme.halted');
     const { runId } = (await res.json()) as { runId: string };
     const final = await waitForRun(binding, runId, (r) => r.status === 'cancelled');
@@ -740,7 +740,7 @@ describe('API — eval-runs and a suspended project', () => {
   test("a case's error isn't a halt: the run goes on to the end", async () => {
     const { calls, subject } = refusingSecond({ error: 'pack-suspended: the pack is suspended' });
     const { app, registry, binding } = makeApp({ subject });
-    await seedSuite(registry, { id: 'acme.errored', kind: 'accuracy', spec: threeCases });
+    await seedTestSet(registry, { id: 'acme.errored', kind: 'accuracy', spec: threeCases });
     const res = await start(app, 'acme.errored');
     const { runId } = (await res.json()) as { runId: string };
     const final = await waitForRun(binding, runId, (r) => r.status === 'completed');
@@ -760,9 +760,9 @@ describe('API — eval-runs start (dryRun preview)', () => {
       },
     };
     const { app, registry, binding } = makeApp({ subject: trackingSubject });
-    await seedSuite(registry, { id: 'acme.dryrun', kind: 'accuracy', spec: accuracySpec });
+    await seedTestSet(registry, { id: 'acme.dryrun', kind: 'accuracy', spec: accuracySpec });
 
-    const res = await app.request('/v1/eval-suites/acme.dryrun/runs', {
+    const res = await app.request('/v1/test-sets/acme.dryrun/runs', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -784,22 +784,22 @@ describe('API — eval-runs start (dryRun preview)', () => {
 });
 
 describe('API — eval-runs start validation', () => {
-  test('unknown suite → 404 eval-suite-not-found', async () => {
+  test('unknown test set → 404 test-set-not-found', async () => {
     const { app } = makeApp();
-    const res = await app.request('/v1/eval-suites/nope/runs', {
+    const res = await app.request('/v1/test-sets/nope/runs', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({ projectId: TEST_PROJECT_ID, agentRef: { agentId: 'a' } }),
     });
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe('eval-suite-not-found');
+    expect(body.error.code).toBe('test-set-not-found');
   });
 
   test('both agentRef + flowRef → 400 bad-input', async () => {
     const { app, registry } = makeApp();
-    await seedSuite(registry, { id: 'acme.acc', kind: 'accuracy', spec: accuracySpec });
-    const res = await app.request('/v1/eval-suites/acme.acc/runs', {
+    await seedTestSet(registry, { id: 'acme.acc', kind: 'accuracy', spec: accuracySpec });
+    const res = await app.request('/v1/test-sets/acme.acc/runs', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -816,8 +816,8 @@ describe('API — eval-runs start validation', () => {
 
   test('neither agentRef nor flowRef → 400 bad-input', async () => {
     const { app, registry } = makeApp();
-    await seedSuite(registry, { id: 'acme.acc', kind: 'accuracy', spec: accuracySpec });
-    const res = await app.request('/v1/eval-suites/acme.acc/runs', {
+    await seedTestSet(registry, { id: 'acme.acc', kind: 'accuracy', spec: accuracySpec });
+    const res = await app.request('/v1/test-sets/acme.acc/runs', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({}),
@@ -829,8 +829,8 @@ describe('API — eval-runs start validation', () => {
 
   test('malformed JSON body → 400 bad-input', async () => {
     const { app, registry } = makeApp();
-    await seedSuite(registry, { id: 'acme.acc', kind: 'accuracy', spec: accuracySpec });
-    const res = await app.request('/v1/eval-suites/acme.acc/runs', {
+    await seedTestSet(registry, { id: 'acme.acc', kind: 'accuracy', spec: accuracySpec });
+    const res = await app.request('/v1/test-sets/acme.acc/runs', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: 'not-json',
@@ -842,8 +842,8 @@ describe('API — eval-runs start validation', () => {
 
   test('empty accuracy spec.cases → 400 dispatcher-input-invalid', async () => {
     const { app, registry } = makeApp();
-    await seedSuite(registry, { id: 'acme.empty', kind: 'accuracy', spec: { cases: [] } });
-    const res = await app.request('/v1/eval-suites/acme.empty/runs', {
+    await seedTestSet(registry, { id: 'acme.empty', kind: 'accuracy', spec: { cases: [] } });
+    const res = await app.request('/v1/test-sets/acme.empty/runs', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({ projectId: TEST_PROJECT_ID, agentRef: { agentId: 'a' } }),
@@ -865,12 +865,12 @@ describe('API — eval-runs start: kind-not-yet-dispatchable', () => {
   for (const kind of otherKinds) {
     test(`kind "${kind}" without dispatcher → 422 dispatcher-not-registered`, async () => {
       const { app, registry } = makeApp({ kinds: ['accuracy'] });
-      await seedSuite(registry, {
+      await seedTestSet(registry, {
         id: `acme.${kind}`,
         kind,
         spec: { cases: [{ input: 'x', expected: 'x' }] },
       });
-      const res = await app.request(`/v1/eval-suites/acme.${kind}/runs`, {
+      const res = await app.request(`/v1/test-sets/acme.${kind}/runs`, {
         method: 'POST',
         headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
         body: JSON.stringify({ projectId: TEST_PROJECT_ID, agentRef: { agentId: 'a' } }),
@@ -885,13 +885,13 @@ describe('API — eval-runs start: kind-not-yet-dispatchable', () => {
 describe('API — eval-runs idempotency', () => {
   test('same Idempotency-Key replays original 201 + runId', async () => {
     const { app, registry } = makeApp();
-    await seedSuite(registry, { id: 'acme.idem', kind: 'accuracy', spec: accuracySpec });
+    await seedTestSet(registry, { id: 'acme.idem', kind: 'accuracy', spec: accuracySpec });
     const key = randomUUID();
     const body = JSON.stringify({
       projectId: TEST_PROJECT_ID,
       agentRef: { agentId: 'acme.drafting' },
     });
-    const first = await app.request('/v1/eval-suites/acme.idem/runs', {
+    const first = await app.request('/v1/test-sets/acme.idem/runs', {
       method: 'POST',
       headers: {
         authorization: `Bearer ${TOKEN}`,
@@ -903,7 +903,7 @@ describe('API — eval-runs idempotency', () => {
     expect(first.status).toBe(201);
     const firstBody = (await first.json()) as { runId: string };
 
-    const second = await app.request('/v1/eval-suites/acme.idem/runs', {
+    const second = await app.request('/v1/test-sets/acme.idem/runs', {
       method: 'POST',
       headers: {
         authorization: `Bearer ${TOKEN}`,
@@ -920,22 +920,22 @@ describe('API — eval-runs idempotency', () => {
 });
 
 describe('API — eval-runs list + filter', () => {
-  test('list happy path + suiteId filter + status filter matrix', async () => {
+  test('list happy path + testSetId filter + status filter matrix', async () => {
     const { app, registry, binding } = makeApp();
-    await seedSuite(registry, { id: 'a.one', kind: 'accuracy', spec: accuracySpec });
-    await seedSuite(registry, { id: 'a.two', kind: 'accuracy', spec: accuracySpec });
+    await seedTestSet(registry, { id: 'a.one', kind: 'accuracy', spec: accuracySpec });
+    await seedTestSet(registry, { id: 'a.two', kind: 'accuracy', spec: accuracySpec });
 
     const startBody = JSON.stringify({
       projectId: TEST_PROJECT_ID,
       agentRef: { agentId: 'acme.drafting' },
     });
-    const r1 = await app.request('/v1/eval-suites/a.one/runs', {
+    const r1 = await app.request('/v1/test-sets/a.one/runs', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: startBody,
     });
     const { runId: id1 } = (await r1.json()) as { runId: string };
-    const r2 = await app.request('/v1/eval-suites/a.two/runs', {
+    const r2 = await app.request('/v1/test-sets/a.two/runs', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: startBody,
@@ -952,11 +952,11 @@ describe('API — eval-runs list + filter', () => {
     expect(ids.has(id1)).toBe(true);
     expect(ids.has(id2)).toBe(true);
 
-    const filtered = await app.request('/v1/eval-runs?suiteId=a.one', {
+    const filtered = await app.request('/v1/eval-runs?testSetId=a.one', {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     const filteredBody = (await filtered.json()) as { data: EvalRun[] };
-    expect(filteredBody.data.map((r) => r.suiteId)).toEqual(['a.one']);
+    expect(filteredBody.data.map((r) => r.testSetId)).toEqual(['a.one']);
 
     const status = await app.request('/v1/eval-runs?status=completed', {
       headers: { authorization: `Bearer ${TOKEN}` },
@@ -975,8 +975,8 @@ describe('API — eval-runs list + filter', () => {
 describe('API — eval-runs get', () => {
   test('GET /v1/eval-runs/:runId returns the run row', async () => {
     const { app, registry, binding } = makeApp();
-    await seedSuite(registry, { id: 'acme.get', kind: 'accuracy', spec: accuracySpec });
-    const start = await app.request('/v1/eval-suites/acme.get/runs', {
+    await seedTestSet(registry, { id: 'acme.get', kind: 'accuracy', spec: accuracySpec });
+    const start = await app.request('/v1/test-sets/acme.get/runs', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -991,9 +991,9 @@ describe('API — eval-runs get', () => {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { runId: string; suiteId: string; status: EvalRunStatus };
+    const body = (await res.json()) as { runId: string; testSetId: string; status: EvalRunStatus };
     expect(body.runId).toBe(runId);
-    expect(body.suiteId).toBe('acme.get');
+    expect(body.testSetId).toBe('acme.get');
     expect(body.status).toBe('completed');
   });
 
@@ -1027,9 +1027,9 @@ describe('API — eval-runs cancel', () => {
       },
     };
     const { app, registry, binding } = makeApp({ subject: slowSubject });
-    await seedSuite(registry, { id: 'acme.slow', kind: 'accuracy', spec: accuracySpec });
+    await seedTestSet(registry, { id: 'acme.slow', kind: 'accuracy', spec: accuracySpec });
 
-    const start = await app.request('/v1/eval-suites/acme.slow/runs', {
+    const start = await app.request('/v1/test-sets/acme.slow/runs', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -1055,8 +1055,8 @@ describe('API — eval-runs cancel', () => {
 
   test('cancel already-terminal → 409 eval-run-already-terminal', async () => {
     const { app, registry, binding } = makeApp();
-    await seedSuite(registry, { id: 'acme.term', kind: 'accuracy', spec: accuracySpec });
-    const start = await app.request('/v1/eval-suites/acme.term/runs', {
+    await seedTestSet(registry, { id: 'acme.term', kind: 'accuracy', spec: accuracySpec });
+    const start = await app.request('/v1/test-sets/acme.term/runs', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -1127,8 +1127,8 @@ describe('API — eval-runs SSE events', () => {
 
   test('per-case + terminal frames emitted in order', async () => {
     const { app, registry, binding } = makeApp({ behavior: 'pass' });
-    await seedSuite(registry, { id: 'acme.sse', kind: 'accuracy', spec: accuracySpec });
-    const start = await app.request('/v1/eval-suites/acme.sse/runs', {
+    await seedTestSet(registry, { id: 'acme.sse', kind: 'accuracy', spec: accuracySpec });
+    const start = await app.request('/v1/test-sets/acme.sse/runs', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -1177,8 +1177,8 @@ describe('API — eval-runs SSE events', () => {
     const running = {
       runId,
       tenantId,
-      suiteId: 'acme.sse',
-      suiteVersion: '1.0.0',
+      testSetId: 'acme.sse',
+      testSetVersion: '1.0.0',
       kind: 'accuracy',
       status: 'running',
       dryRun: false,
@@ -1331,10 +1331,10 @@ describe('API — eval-runs surface unmounted when no binding supplied', () => {
       ...createStubAppBindings(),
       resolveToken,
       runHandler,
-      evalSuiteRegistry: registry,
+      testSetRegistry: registry,
     });
-    await seedSuite(registry, { id: 'a.one', kind: 'accuracy', spec: accuracySpec });
-    const start = await app.request('/v1/eval-suites/a.one/runs', {
+    await seedTestSet(registry, { id: 'a.one', kind: 'accuracy', spec: accuracySpec });
+    const start = await app.request('/v1/test-sets/a.one/runs', {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({ agentRef: { agentId: 'a' } }),
@@ -1370,7 +1370,7 @@ describe('API — eval-runs scope filter', () => {
       ...createStubAppBindings(),
       resolveToken,
       runHandler,
-      evalSuiteRegistry: registry,
+      testSetRegistry: registry,
       evalRunBinding: spy,
     });
     return { app, getLastInput: (): typeof lastListInput => lastListInput };

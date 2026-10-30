@@ -198,16 +198,16 @@ const ENTRIES: readonly Entry[] = [
     name: 'eval runs',
     path: '/v1/eval-runs',
     bindings: () => {
-      const l = page('list', () => ({ suiteId: 'hid-suite' }));
+      const l = page('list', () => ({ testSetId: 'hid-testSet' }));
       return { bindings: { evalRunBinding: l.binding }, received: l.received };
     },
   },
   {
-    name: 'eval suites',
-    path: '/v1/eval-suites',
+    name: 'test sets',
+    path: '/v1/test-sets',
     bindings: () => {
       const l = page('list', (id) => ({ id }));
-      return { bindings: { evalSuiteRegistry: l.binding }, received: l.received };
+      return { bindings: { testSetRegistry: l.binding }, received: l.received };
     },
   },
   {

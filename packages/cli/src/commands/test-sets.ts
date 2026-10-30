@@ -21,21 +21,21 @@ const KINDS = [
   'human-review',
   'benchmark',
   'custom',
-  'judged',
+  'corrections',
 ] as const;
 type Kind = (typeof KINDS)[number];
 
 /**
- * The version flag is `--suite-version`: the global `--version` flag
+ * The version flag is `--test-set-version`: the global `--version` flag
  * would swallow `--version` before a command saw it.
  */
-function suiteVersion(ctx: CommandContext): string | undefined {
-  return stringFlag(ctx, 'suite-version');
+function testSetVersion(ctx: CommandContext): string | undefined {
+  return stringFlag(ctx, 'test-set-version');
 }
 
-function requiredSuiteVersion(ctx: CommandContext): string {
-  const version = suiteVersion(ctx);
-  if (version === undefined) throw new UsageError('--suite-version=<semver> is required');
+function requiredTestSetVersion(ctx: CommandContext): string {
+  const version = testSetVersion(ctx);
+  if (version === undefined) throw new UsageError('--test-set-version=<semver> is required');
   return version;
 }
 
@@ -63,20 +63,20 @@ const PAGE_FLAGS = {
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: 'List eval suites (the latest version of each).',
-  usage: `kindgi eval-suites list [--project=<id>] [--kind=${KINDS.join('|')}] [--include-retired] [--limit=<n>] [--cursor=<c>]`,
+  description: 'List test sets (the latest version of each).',
+  usage: `kindgi test-sets list [--project=<id>] [--kind=${KINDS.join('|')}] [--include-retired] [--limit=<n>] [--cursor=<c>]`,
   optionSpec: {
-    project: { type: 'string', description: 'Only suites in this project.' },
+    project: { type: 'string', description: 'Only testSets in this project.' },
     kind: { type: 'string', description: `Only this kind: ${KINDS.join(', ')}.` },
     'include-retired': {
       type: 'boolean',
       description:
-        'Include retired suites (every version unregistered), each as its highest version with `unregisteredAt`.',
+        'Include retired testSets (every version unregistered), each as its highest version with `unregisteredAt`.',
     },
     ...PAGE_FLAGS,
   },
   run: (ctx) =>
-    runSdk(ctx, 'eval-suites list', async () => {
+    runSdk(ctx, 'test-sets list', async () => {
       const kind = stringFlag(ctx, 'kind');
       if (kind !== undefined && !(KINDS as readonly string[]).includes(kind)) {
         throw new UsageError(`--kind must be one of ${KINDS.join(', ')}, got "${kind}"`);
@@ -84,7 +84,7 @@ const list: LeafCommand = {
       const projectId = stringFlag(ctx, 'project');
       const limit = integerFlag(ctx, 'limit');
       const cursor = stringFlag(ctx, 'cursor');
-      return await ctx.client().evalSuites.list({
+      return await ctx.client().testSets.list({
         ...(kind !== undefined && { kind: kind as Kind }),
         ...(projectId !== undefined && { scopeKind: 'project' as const, scopeId: projectId }),
         ...(limit !== undefined && { limit }),
@@ -97,19 +97,22 @@ const list: LeafCommand = {
 const show: LeafCommand = {
   kind: 'leaf',
   name: 'show',
-  description: 'Show an eval suite: its latest version, or the one named by `--suite-version`.',
-  usage: 'kindgi eval-suites show <suite-id> [--suite-version=<semver>]',
+  description: 'Show an test set: its latest version, or the one named by `--test-set-version`.',
+  usage: 'kindgi test-sets show <test-set-id> [--test-set-version=<semver>]',
   optionSpec: {
-    'suite-version': { type: 'string', description: 'The version to show. Default: the latest.' },
+    'test-set-version': {
+      type: 'string',
+      description: 'The version to show. Default: the latest.',
+    },
   },
   run: (ctx) =>
-    runSdk(ctx, 'eval-suites show', async () => {
-      const suiteId = requiredPositional(ctx, 0, 'suite-id');
-      const version = suiteVersion(ctx);
-      const suites = ctx.client().evalSuites;
+    runSdk(ctx, 'test-sets show', async () => {
+      const testSetId = requiredPositional(ctx, 0, 'test-set-id');
+      const version = testSetVersion(ctx);
+      const testSets = ctx.client().testSets;
       return version === undefined
-        ? await suites.get(suiteId)
-        : await suites.versions.get(suiteId, version);
+        ? await testSets.get(testSetId)
+        : await testSets.versions.get(testSetId, version);
     }),
 };
 
@@ -117,11 +120,11 @@ const fromCorrections: LeafCommand = {
   kind: 'leaf',
   name: 'from-corrections',
   description:
-    "Build test cases: publish a `judged` suite version whose cases are copies of an agent's or flow's corrected runs, with each item's corrections summed up.",
+    "Build test cases: publish a `corrections` test set version whose cases are copies of an agent's or flow's corrected runs, with each item's corrections summed up.",
   usage:
-    'kindgi eval-suites from-corrections <suite-id> --suite-version=<semver> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id>) [--since=<iso>] [--until=<iso>] [--group=<corrector-group-id> ...] [--min-corrections=<n>] [--segment=<key:value> ...] [--description=<text>]',
+    'kindgi test-sets from-corrections <test-set-id> --test-set-version=<semver> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id>) [--since=<iso>] [--until=<iso>] [--group=<corrector-group-id> ...] [--min-corrections=<n>] [--segment=<key:value> ...] [--description=<text>]',
   optionSpec: {
-    'suite-version': { type: 'string', description: 'The version to publish. Required.' },
+    'test-set-version': { type: 'string', description: 'The version to publish. Required.' },
     project: { type: 'string', description: 'The project whose corrected runs to use. Required.' },
     agent: { type: 'string', description: 'Use corrected runs of this agent.' },
     'agent-version': {
@@ -155,12 +158,12 @@ const fromCorrections: LeafCommand = {
       description:
         'Only runs started in this segment or below it, as key:value; repeat it for a path, coarse to fine (`--segment=company:acme --segment=role:cfo`).',
     },
-    description: { type: 'string', description: 'A description for the suite version.' },
+    description: { type: 'string', description: 'A description for the test set version.' },
   },
   run: (ctx) =>
-    runSdk(ctx, 'eval-suites from-corrections', async () => {
-      const suiteId = requiredPositional(ctx, 0, 'suite-id');
-      const version = requiredSuiteVersion(ctx);
+    runSdk(ctx, 'test-sets from-corrections', async () => {
+      const testSetId = requiredPositional(ctx, 0, 'test-set-id');
+      const version = requiredTestSetVersion(ctx);
       const projectId = stringFlag(ctx, 'project');
       if (projectId === undefined) throw new UsageError('--project=<id> is required');
       const agent = stringFlag(ctx, 'agent');
@@ -179,7 +182,7 @@ const fromCorrections: LeafCommand = {
       const segments = segmentsFlag(ctx);
       const since = timeFlag(ctx, 'since');
       const until = timeFlag(ctx, 'until');
-      return await ctx.client().evalSuites.buildFromCorrections(suiteId, {
+      return await ctx.client().testSets.buildFromCorrections(testSetId, {
         version,
         projectId,
         ...givenFlags(ctx, {
@@ -200,30 +203,30 @@ const fromCorrections: LeafCommand = {
 const cases: LeafCommand = {
   kind: 'leaf',
   name: 'cases',
-  description: 'List the cases of a judged suite version.',
+  description: 'List the cases of a corrections test set version.',
   usage:
-    'kindgi eval-suites cases <suite-id> --suite-version=<semver> [--limit=<n>] [--cursor=<c>]',
+    'kindgi test-sets cases <test-set-id> --test-set-version=<semver> [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
-    'suite-version': { type: 'string', description: 'The suite version. Required.' },
+    'test-set-version': { type: 'string', description: 'The test set version. Required.' },
     ...PAGE_FLAGS,
   },
   run: (ctx) =>
-    runSdk(ctx, 'eval-suites cases', async () => {
-      const suiteId = requiredPositional(ctx, 0, 'suite-id');
-      const version = requiredSuiteVersion(ctx);
+    runSdk(ctx, 'test-sets cases', async () => {
+      const testSetId = requiredPositional(ctx, 0, 'test-set-id');
+      const version = requiredTestSetVersion(ctx);
       const limit = integerFlag(ctx, 'limit');
       const cursor = stringFlag(ctx, 'cursor');
-      return await ctx.client().evalSuites.listCases(suiteId, version, {
+      return await ctx.client().testSets.listCases(testSetId, version, {
         ...(limit !== undefined && { limit }),
         ...(cursor !== undefined && { cursor }),
       });
     }),
 };
 
-export const evalSuitesCommand: Command = {
+export const testSetsCommand: Command = {
   kind: 'group',
-  name: 'eval-suites',
+  name: 'test-sets',
   description:
-    'Eval suites and test cases built from corrections (list / show / from-corrections / cases).',
+    'Test sets and test cases built from corrections (list / show / from-corrections / cases).',
   subcommands: [list, show, fromCorrections, cases],
 };

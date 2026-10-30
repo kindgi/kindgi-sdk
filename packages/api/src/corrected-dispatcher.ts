@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * The comparison eval run of a `judged` suite (a test set): each case is a
+ * The comparison eval run of a `corrections` test set (a test set): each case is a
  * past run people corrected; the candidate agent version re-runs it as a
  * replay (`EvalRunSubjectInvokeInput.replay`, so it does nothing the past
  * run didn't), `repetitions` times, and its output's items are scored
@@ -141,7 +141,7 @@ export interface CorrectedComparisonSummary {
   readonly evalRunId: string;
   readonly status: 'completed' | 'partial' | 'failed';
   readonly completedAt: string;
-  readonly suite: { readonly id: string; readonly version: string };
+  readonly testSet: { readonly id: string; readonly version: string };
   readonly candidate: ComparisonCandidate;
   readonly baseline: ComparisonBaselineSummary;
   /** Where the test set's corrections came from. */
@@ -319,7 +319,7 @@ export const VERSIONS_NEED_A_FLOW =
   '`versions` runs a flow with some of its agents or tools at other versions: it needs `flowRef`.';
 
 function validateComparison(
-  suite: { readonly spec: Readonly<Record<string, unknown>> },
+  testSet: { readonly spec: Readonly<Record<string, unknown>> },
   target: AgentRef | FlowRef,
   comparison: EvalComparison | undefined,
 ): { kind: 'ok' } | { kind: 'err'; message: string } {
@@ -332,7 +332,7 @@ function validateComparison(
           : '`flowRef.version` is required: the candidate is one version of the flow.',
     };
   }
-  if (suite.spec.caseCount === 0) {
+  if (testSet.spec.caseCount === 0) {
     return { kind: 'err', message: 'The test set has no cases.' };
   }
   const c = comparison ?? DEFAULT_COMPARISON;
@@ -350,9 +350,9 @@ function validateComparison(
 
 export function createCorrectedDispatcher(options: CorrectedDispatcherOptions): EvalRunDispatcher {
   return {
-    kind: 'judged',
-    validate(suite, target, comparison) {
-      const checked = validateComparison(suite, target, comparison);
+    kind: 'corrections',
+    validate(testSet, target, comparison) {
+      const checked = validateComparison(testSet, target, comparison);
       if (checked.kind === 'err' || comparison?.rescoreOf === undefined) return checked;
       return options.evalRuns !== undefined &&
         options.runs !== undefined &&
@@ -433,8 +433,8 @@ async function allCases(
   for (;;) {
     const page = await store.listCases({
       tenantId: ctx.tenantId,
-      suiteId: ctx.suite.id,
-      version: ctx.suite.version,
+      testSetId: ctx.testSet.id,
+      version: ctx.testSet.version,
       limit: CASE_PAGE,
       ...(cursor !== undefined && { cursor }),
     });
@@ -660,10 +660,10 @@ async function rescore(
       error: `Eval run "${of}" can't be rescored: it isn't a finished comparison here.`,
     };
   }
-  if (prior.suiteId !== ctx.suite.id || prior.suiteVersion !== ctx.suite.version) {
+  if (prior.testSetId !== ctx.testSet.id || prior.testSetVersion !== ctx.testSet.version) {
     return {
       result: {},
-      error: `Eval run "${of}" ran ${prior.suiteId}@${prior.suiteVersion}: a rescore runs that test set version.`,
+      error: `Eval run "${of}" ran ${prior.testSetId}@${prior.testSetVersion}: a rescore runs that test set version.`,
     };
   }
   const fresh = freshReader(options.corrections, ctx.tenantId, comparison);
@@ -765,7 +765,7 @@ function priorCases(run: {
   readonly result?: Readonly<Record<string, unknown>>;
 }): Map<string, CorrectedCaseResult> | undefined {
   const perCase = run.result?.perCase;
-  if (run.kind !== 'judged' || run.status !== 'completed' || !Array.isArray(perCase)) {
+  if (run.kind !== 'corrections' || run.status !== 'completed' || !Array.isArray(perCase)) {
     return undefined;
   }
   return new Map((perCase as CorrectedCaseResult[]).map((r) => [r.caseId, r]));
@@ -933,7 +933,7 @@ function summarize(
     kept.cases += 1;
     versions.set(key, kept);
   }
-  const specProject = ctx.suite.spec.projectId;
+  const specProject = ctx.testSet.spec.projectId;
   const projectId =
     typeof specProject === 'string'
       ? specProject
@@ -950,7 +950,7 @@ function summarize(
           ? 'partial'
           : 'failed',
     completedAt: new Date().toISOString(),
-    suite: { id: ctx.suite.id, version: ctx.suite.version },
+    testSet: { id: ctx.testSet.id, version: ctx.testSet.version },
     candidate: candidateOf(ctx.target, ctx.comparison, pinsDigest),
     baseline: {
       kind: 'recorded',

@@ -684,12 +684,12 @@ export type {
   CorrectedItemSummary,
   CorrectedReason,
 } from './eval-case-binding.js';
-export { MAX_CORRECTED_CASES, buildCorrectedSuite } from './routes/corrected-suites.js';
+export { MAX_CORRECTED_CASES, buildCorrectedTestSet } from './routes/corrected-test-sets.js';
 export type {
-  BuildCorrectedSuiteInput,
-  BuildCorrectedSuiteOutcome,
-  CorrectedSuiteQuery,
-} from './routes/corrected-suites.js';
+  BuildCorrectedTestSetInput,
+  BuildCorrectedTestSetOutcome,
+  CorrectedTestSetQuery,
+} from './routes/corrected-test-sets.js';
 export { segmentsStartWith } from './routes/segments.js';
 export { MAX_CORRECTED_HISTORY } from './routes/correction-context.js';
 export type {
@@ -792,24 +792,24 @@ export { evaluateGate, gateApproval } from './gate.js';
 export type { AgentReleaseGateDeps } from './routes/agent-releases.js';
 export { coordinatesOf as liveScopeCoordinates } from './routes/agent-releases.js';
 export type { GuardrailConfigCheck } from './routes/guardrails.js';
-export { EVAL_KINDS } from './eval-suite-binding.js';
+export { EVAL_KINDS } from './test-set-binding.js';
 export type {
   EvalKind,
-  EvalSuite,
-  EvalSuiteGetInput,
-  EvalSuiteGetVersionInput,
-  EvalSuiteListInput,
-  EvalSuiteListVersionsInput,
-  EvalSuitePage,
-  EvalSuitePublishInput,
-  EvalSuitePublishOutcome,
-  EvalSuiteRecord,
-  EvalSuiteRegistryBinding,
-  EvalSuiteReinstateVersionInput,
-  EvalSuiteReinstateVersionOutcome,
-  EvalSuiteUnregisterInput,
-  EvalSuiteUnregisterOutcome,
-} from './eval-suite-binding.js';
+  TestSet,
+  TestSetGetInput,
+  TestSetGetVersionInput,
+  TestSetListInput,
+  TestSetListVersionsInput,
+  TestSetPage,
+  TestSetPublishInput,
+  TestSetPublishOutcome,
+  TestSetRecord,
+  TestSetRegistryBinding,
+  TestSetReinstateVersionInput,
+  TestSetReinstateVersionOutcome,
+  TestSetUnregisterInput,
+  TestSetUnregisterOutcome,
+} from './test-set-binding.js';
 export { EVAL_RUN_STATUSES } from './eval-run-binding.js';
 export type {
   AgentRef,

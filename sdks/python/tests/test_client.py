@@ -193,15 +193,15 @@ def test_path_and_query_parameters() -> None:
     assert dict(seen[1].url.params) == {"limit": "5", "topLevel": "true"}
 
 
-def test_eval_suites_unregister_names_the_call_as_the_other_resources_do() -> None:
-    # `eval_suites.unregister`, as `agents.unregister`: the same call as
-    # `eval_suites.versions.unregister`.
-    answer = {"suiteId": "acme.set", "version": "1.0.0", "unregistered": True}
+def test_test_sets_unregister_names_the_call_as_the_other_resources_do() -> None:
+    # `test_sets.unregister`, as `agents.unregister`: the same call as
+    # `test_sets.versions.unregister`.
+    answer = {"testSetId": "acme.set", "version": "1.0.0", "unregistered": True}
     api, seen = client(lambda r: httpx.Response(200, json=answer))
-    api.eval_suites.unregister("acme.set", "1.0.0")
-    api.eval_suites.versions.unregister("acme.set", "1.0.0")
+    api.test_sets.unregister("acme.set", "1.0.0")
+    api.test_sets.versions.unregister("acme.set", "1.0.0")
     assert [(r.method, r.url.path) for r in seen] == [
-        ("POST", "/v1/eval-suites/acme.set/versions/1.0.0/unregister"),
+        ("POST", "/v1/test-sets/acme.set/versions/1.0.0/unregister"),
     ] * 2
 
 
@@ -1010,7 +1010,7 @@ def test_my_permissions() -> None:
                     "flow",
                     "tool",
                     "guardrail",
-                    "eval_suite",
+                    "test_set",
                     "trigger",
                     "conversation",
                     "secret",

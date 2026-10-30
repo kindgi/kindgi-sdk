@@ -8,13 +8,13 @@ import type { CorrectedEvalCase, EvalCaseStoreBinding } from '../../src/index.js
 /** An in-memory case store; the cursor is an offset. */
 export function inMemoryCaseStore(): EvalCaseStoreBinding {
   const sets = new Map<string, readonly CorrectedEvalCase[]>();
-  const key = (suiteId: string, version: string) => `${suiteId}@${version}`;
+  const key = (testSetId: string, version: string) => `${testSetId}@${version}`;
   return {
-    async putCases({ suiteId, version, cases }) {
-      sets.set(key(suiteId, version), cases);
+    async putCases({ testSetId, version, cases }) {
+      sets.set(key(testSetId, version), cases);
     },
-    async listCases({ suiteId, version, cursor, limit }) {
-      const all = sets.get(key(suiteId, version)) ?? [];
+    async listCases({ testSetId, version, cursor, limit }) {
+      const all = sets.get(key(testSetId, version)) ?? [];
       const from = cursor === undefined ? 0 : Number(cursor);
       const data = all.slice(from, from + limit);
       const next = from + data.length;

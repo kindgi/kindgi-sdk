@@ -63,10 +63,10 @@ const KINDS = [
   { kind: 'flow', path: '/v1/flows', registry: 'flowRegistry', idKey: 'flowId', change: 'admin' },
   { kind: 'tool', path: '/v1/tools', registry: 'toolRegistry', idKey: 'toolId', change: 'admin' },
   {
-    kind: 'eval_suite',
-    path: '/v1/eval-suites',
-    registry: 'evalSuiteRegistry',
-    idKey: 'suiteId',
+    kind: 'test_set',
+    path: '/v1/test-sets',
+    registry: 'testSetRegistry',
+    idKey: 'testSetId',
     change: 'admin',
   },
   // Blocks are content agents pin: changing one is `write` (on every project it serves).
@@ -499,8 +499,8 @@ describe('deriving a version of an agent an order carries', () => {
   });
 });
 
-describe('building a test set from corrections under a suite an order carries', () => {
-  const path = (suiteId: string) => `/v1/eval-suites/${suiteId}/versions/from-corrections`;
+describe('building a test set from corrections under a test set an order carries', () => {
+  const path = (testSetId: string) => `/v1/test-sets/${testSetId}/versions/from-corrections`;
   const body = (projectId: ProjectId) => ({
     version: '2.0.0',
     projectId,
@@ -531,13 +531,13 @@ describe('building a test set from corrections under a suite an order carries', 
     expect(no.body.error.message).toContain(`refused on project ${STAGING}`);
   });
 
-  test("a project the suite isn't in: admin on every project of the suite", async () => {
+  test("a project the test set isn't in: admin on every project of the test set", async () => {
     const no = await harness().call('prod-admin', 'POST', path(SERVED), body(OTHER));
     expect(no.status, no.text).toBe(403);
     expect(no.body.error.message).toContain(`refused on project ${STAGING}`);
   });
 
-  test('a suite with one project: the same answers and checks as without an order', async () => {
+  test('a test set with one project: the same answers and checks as without an order', async () => {
     const a = await harness().call('solo', 'POST', path(SOLO), body(OTHER));
     const b = await harness({ served: false }).call('solo', 'POST', path(SOLO), body(OTHER));
     expect(a.status, a.text).toBe(BUILT);

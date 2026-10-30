@@ -7,9 +7,9 @@ import type { CorrectedItem, CorrectedRunContext, CorrectedSubject } from './cor
 import type { ExpectedDecisions } from './expected-decisions.js';
 
 /**
- * Caller-plugged storage for the cases of an eval-suite version, kept
+ * Caller-plugged storage for the cases of an test-set version, kept
  * apart from the version's `spec` because a set can hold hundreds of
- * cases. A `judged` suite version's cases are built from corrections: each
+ * cases. A `corrections` test set version's cases are built from corrections: each
  * is a copy of one corrected run (its input, what it read, the output that
  * was corrected) with the corrections of its items summed up. Copies, so a
  * test set stays the same when corrections are removed or runs purged.
@@ -73,7 +73,7 @@ export interface TestCaseExpectedDecisions extends ExpectedDecisions {
   readonly expert?: true;
 }
 
-/** One case of a `judged` suite: a copy of a corrected run and what people said about it. */
+/** One case of a `corrections` test set: a copy of a corrected run and what people said about it. */
 export interface CorrectedEvalCase {
   /** The corrected run's id. */
   readonly caseId: string;
@@ -101,14 +101,14 @@ export interface CorrectedEvalCase {
 
 export interface EvalCasePutInput {
   readonly tenantId: TenantId;
-  readonly suiteId: string;
+  readonly testSetId: string;
   readonly version: string;
   readonly cases: readonly CorrectedEvalCase[];
 }
 
 export interface EvalCaseListInput {
   readonly tenantId: TenantId;
-  readonly suiteId: string;
+  readonly testSetId: string;
   readonly version: string;
   readonly cursor?: Cursor;
   readonly limit: number;

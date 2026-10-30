@@ -233,8 +233,8 @@ describe('an improve schedule', () => {
       '`monthlyCapUsd`',
     ],
     [
-      { ...hourly, config: { cronExpression: '0 * * * *', input: { suiteId: 'x' } } },
-      "`suiteId` isn't an option",
+      { ...hourly, config: { cronExpression: '0 * * * *', input: { testSetId: 'x' } } },
+      "`testSetId` isn't an option",
     ],
   ])('a bad improve body is a 400: %j', async (body, message) => {
     const res = await app().built.request('/v1/schedules', send('POST', body));

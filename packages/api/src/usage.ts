@@ -18,7 +18,7 @@ import type { ProjectId, TenantId } from '@kindgi/types';
  * - `production`: an ordinary run in a project that's in production;
  * - `staging`: an ordinary run in a project that isn't;
  * - `dry-run`, `replay`, `eval`: a dry run, a replay of a run, a run of an
- *   eval suite, wherever it runs;
+ *   test set, wherever it runs;
  * - `child`: a run started inside another run, which counts as part of it.
  */
 export const USAGE_CLASSES = [

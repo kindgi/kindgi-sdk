@@ -21,7 +21,7 @@ import { evalRunsRouters } from '../src/routes/eval-runs.js';
 import type { AppEnv } from '../src/types.js';
 
 const tenantId = randomUUID() as TenantId;
-const SUITE = 'acme.answers';
+const TEST_SET = 'acme.answers';
 const PROJECT_A = randomUUID() as ProjectId;
 const PROJECT_B = randomUUID() as ProjectId;
 
@@ -30,9 +30,9 @@ function completedComparison(projectId: ProjectId | undefined): EvalRun {
     runId: randomUUID() as RunId,
     tenantId,
     ...(projectId !== undefined && { projectId }),
-    suiteId: SUITE,
-    suiteVersion: '1.0.0',
-    kind: 'judged',
+    testSetId: TEST_SET,
+    testSetVersion: '1.0.0',
+    kind: 'corrections',
     status: 'completed',
     agentRef: { agentId: 'acme.helpdesk', version: '1.0.0' },
   } as unknown as EvalRun;
@@ -82,26 +82,26 @@ function mounted(run: EvalRun, may: readonly string[]) {
   return { rescore, asked, started };
 }
 
-const onSuite = `admin eval_suite:${SUITE}`;
+const onTestSet = `admin test_set:${TEST_SET}`;
 
 describe("rescoring an eval run: write on the run's own project", () => {
   test("a project in the body the caller may write doesn't stand in for the run's: 403, nothing started", async () => {
-    const h = mounted(completedComparison(PROJECT_A), [onSuite, `write project:${PROJECT_B}`]);
+    const h = mounted(completedComparison(PROJECT_A), [onTestSet, `write project:${PROJECT_B}`]);
     const res = await h.rescore({ projectId: PROJECT_B });
     expect(res.status).toBe(403);
-    expect(h.asked).toEqual([onSuite, `write project:${PROJECT_A}`]);
+    expect(h.asked).toEqual([onTestSet, `write project:${PROJECT_A}`]);
     expect(h.started).toEqual([]);
   });
 
   test("with write on the run's project it starts there, whatever the body names", async () => {
-    const h = mounted(completedComparison(PROJECT_A), [onSuite, `write project:${PROJECT_A}`]);
+    const h = mounted(completedComparison(PROJECT_A), [onTestSet, `write project:${PROJECT_A}`]);
     const res = await h.rescore({ projectId: PROJECT_B });
     expect(res.status).toBe(201);
     expect(h.started.map((s) => s.projectId)).toEqual([PROJECT_A]);
   });
 
   test("from a runtime that doesn't record the run's project, the body's is the one checked", async () => {
-    const h = mounted(completedComparison(undefined), [onSuite, `write project:${PROJECT_B}`]);
+    const h = mounted(completedComparison(undefined), [onTestSet, `write project:${PROJECT_B}`]);
     expect((await h.rescore({ projectId: PROJECT_B })).status).toBe(201);
     expect(h.asked.at(-1)).toBe(`write project:${PROJECT_B}`);
     expect(h.started.map((s) => s.projectId)).toEqual([PROJECT_B]);

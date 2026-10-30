@@ -21,9 +21,9 @@ import type {
   EvalCaseStoreBinding,
   TestCaseExpectedDecisions,
 } from '../eval-case-binding.js';
-import type { EvalSuiteRegistryBinding } from '../eval-suite-binding.js';
 import type { ItemRights } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import type { TestSetRegistryBinding } from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
@@ -36,28 +36,28 @@ const PAGE = 100;
 const SEMVER_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 
 /**
- * Test sets built from corrections: `judged` eval suites.
+ * Test sets built from corrections: `corrections` test sets.
  *
- * - `POST /v1/eval-suites/:suiteId/versions/from-corrections` builds and
+ * - `POST /v1/test-sets/:testSetId/versions/from-corrections` builds and
  *   publishes a version whose cases are copies of corrected runs (input,
  *   what the turn read, the corrected output) with each item's corrections
  *   summed up, weighted by corrector group (an unclassified correction counts
- *   1). Needs `admin` on the project, as publishing a suite does.
- * - `GET /v1/eval-suites/:suiteId/versions/:version/cases` lists them.
+ *   1). Needs `admin` on the project, as publishing a test set does.
+ * - `GET /v1/test-sets/:testSetId/versions/:version/cases` lists them.
  */
-export function correctedSuitesRouter(
-  suites: EvalSuiteRegistryBinding,
+export function correctedTestSetsRouter(
+  testSets: TestSetRegistryBinding,
   corrections: CorrectionRegistryBinding,
   cases: EvalCaseStoreBinding,
   authorizer?: Authorizer,
-  /** Rights on a suite more than one project serves (`item-rights.ts`); absent → the suite's own. */
+  /** Rights on a test set more than one project serves (`item-rights.ts`); absent → the test set's own. */
   itemRights?: ItemRights,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
-  r.post('/:suiteId/versions/from-corrections', async (c) => {
+  r.post('/:testSetId/versions/from-corrections', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
-    const suiteId = c.req.param('suiteId');
+    const testSetId = c.req.param('testSetId');
     const parsed = parseBuildBody(await c.req.json().catch(() => null));
     if (parsed.kind === 'err') return fail(c, 'bad-input', parsed.message);
     const body = parsed.body;
@@ -78,50 +78,50 @@ export function correctedSuitesRouter(
     const principal = c.get('principal') as Principal | undefined;
     const creatorUserId =
       principal?.actor.kind === 'user' ? (principal.actor.id as UserId) : undefined;
-    const outcome = await buildCorrectedSuite(
-      { suites, corrections, cases },
-      { tenantId, suiteId, ...body, ...(creatorUserId !== undefined && { creatorUserId }) },
+    const outcome = await buildCorrectedTestSet(
+      { testSets, corrections, cases },
+      { tenantId, testSetId, ...body, ...(creatorUserId !== undefined && { creatorUserId }) },
     );
     if (outcome.kind === 'already-registered') {
       return fail(
         c,
-        'eval-suite-already-registered',
-        `Eval suite "${suiteId}" version "${body.version}" is already registered.`,
+        'test-set-already-registered',
+        `Test set "${testSetId}" version "${body.version}" is already registered.`,
       );
     }
     if (outcome.kind === 'project-not-found') {
       return fail(c, 'bad-input', `\`projectId\` "${body.projectId}" is not a project here.`);
     }
     if (outcome.kind === 'project-mismatch') {
-      return projectMismatch(c, 'eval-suite', suiteId, outcome.projectId, 'build');
+      return projectMismatch(c, 'test-set', testSetId, outcome.projectId, 'build');
     }
     c.status(201);
     return c.json({
-      suiteId,
+      testSetId,
       version: body.version,
-      kind: 'judged',
+      kind: 'corrections',
       caseCount: outcome.caseCount,
       truncated: outcome.truncated,
     });
   });
 
-  r.get('/:suiteId/versions/:version/cases', async (c) => {
+  r.get('/:testSetId/versions/:version/cases', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
-    const suiteId = c.req.param('suiteId');
+    const testSetId = c.req.param('testSetId');
     const version = c.req.param('version');
-    // A suite more than one project serves was checked on those projects,
-    // this version among them (`item-rights.ts`, the suites' middleware).
+    // A test set more than one project serves was checked on those projects,
+    // this version among them (`item-rights.ts`, the test sets' middleware).
     if (
       authorizer !== undefined &&
-      (await itemRights?.multi(c, 'eval_suite', suiteId)) === undefined &&
-      !(await authorizer.can(c, 'read', ref('eval_suite', suiteId)))
+      (await itemRights?.multi(c, 'test_set', testSetId)) === undefined &&
+      !(await authorizer.can(c, 'read', ref('test_set', testSetId)))
     ) {
-      return fail(c, 'eval-suite-not-found', `No eval suite "${suiteId}".`);
+      return fail(c, 'test-set-not-found', `No test set "${testSetId}".`);
     }
     const cursor = c.req.query('cursor');
     const page = await cases.listCases({
       tenantId,
-      suiteId,
+      testSetId,
       version,
       limit: clampLimit(c.req.query('limit'), 25, 100),
       ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
@@ -137,7 +137,7 @@ export function correctedSuitesRouter(
 }
 
 /** Which corrected runs a test set is built from, and which of their corrections count. */
-export interface CorrectedSuiteQuery {
+export interface CorrectedTestSetQuery {
   readonly agentId?: string;
   readonly agentVersion?: string;
   readonly flowId?: string;
@@ -149,50 +149,50 @@ export interface CorrectedSuiteQuery {
   readonly segments?: readonly ScopeSegment[];
 }
 
-export interface BuildCorrectedSuiteInput {
+export interface BuildCorrectedTestSetInput {
   readonly tenantId: TenantId;
-  readonly suiteId: string;
+  readonly testSetId: string;
   readonly version: string;
-  /** The project whose corrected runs it takes, and the suite's project. */
+  /** The project whose corrected runs it takes, and the test set's project. */
   readonly projectId: ProjectId;
   readonly description?: string;
-  readonly query: CorrectedSuiteQuery;
-  /** The user who built it, made the suite's creator. */
+  readonly query: CorrectedTestSetQuery;
+  /** The user who built it, made the test set's creator. */
   readonly creatorUserId?: UserId;
 }
 
-export type BuildCorrectedSuiteOutcome =
+export type BuildCorrectedTestSetOutcome =
   | { readonly kind: 'ok'; readonly caseCount: number; readonly truncated: boolean }
   | { readonly kind: 'already-registered' }
   | { readonly kind: 'project-not-found' }
-  /** The suite belongs to another project: nothing is written. */
+  /** The test set belongs to another project: nothing is written. */
   | { readonly kind: 'project-mismatch'; readonly projectId: ProjectId };
 
 /**
- * Build a test set and publish it as a `judged` suite version, as
- * `POST /v1/eval-suites/{suiteId}/versions/from-corrections` does: the
+ * Build a test set and publish it as a `corrections` test set version, as
+ * `POST /v1/test-sets/{testSetId}/versions/from-corrections` does: the
  * corrected runs the query picks (newest first, at most `MAX_CORRECTED_CASES`),
  * each a case with its items' corrections summed up. The binding must list
  * corrected runs (`listCorrectedRuns`).
  */
-export async function buildCorrectedSuite(
+export async function buildCorrectedTestSet(
   deps: {
-    readonly suites: EvalSuiteRegistryBinding;
+    readonly testSets: TestSetRegistryBinding;
     readonly corrections: CorrectionRegistryBinding;
     readonly cases: EvalCaseStoreBinding;
   },
-  input: BuildCorrectedSuiteInput,
-): Promise<BuildCorrectedSuiteOutcome> {
-  const { tenantId, suiteId, version, projectId } = input;
+  input: BuildCorrectedTestSetInput,
+): Promise<BuildCorrectedTestSetOutcome> {
+  const { tenantId, testSetId, version, projectId } = input;
   const built = await buildCases(deps.corrections, tenantId, input);
-  const outcome = await deps.suites.publish({
+  const outcome = await deps.testSets.publish({
     tenantId,
     projectId,
-    suite: {
-      id: suiteId,
+    testSet: {
+      id: testSetId,
       tenantId,
       version,
-      kind: 'judged',
+      kind: 'corrections',
       ...(input.description !== undefined && { description: input.description }),
       spec: {
         source: 'corrections',
@@ -205,7 +205,7 @@ export async function buildCorrectedSuite(
       },
     },
     enqueueTuples: (id) =>
-      tuplesForCreate({ kind: 'eval_suite', id, tenantId, projectId }, input.creatorUserId),
+      tuplesForCreate({ kind: 'test_set', id, tenantId, projectId }, input.creatorUserId),
   });
   if (outcome.kind === 'already-registered' || outcome.kind === 'project-not-found') {
     return { kind: outcome.kind };
@@ -213,7 +213,7 @@ export async function buildCorrectedSuite(
   if (outcome.kind === 'project-mismatch') {
     return { kind: 'project-mismatch', projectId: outcome.projectId };
   }
-  await deps.cases.putCases({ tenantId, suiteId, version, cases: built.cases });
+  await deps.cases.putCases({ tenantId, testSetId, version, cases: built.cases });
   return { kind: 'ok', caseCount: built.cases.length, truncated: built.truncated };
 }
 
@@ -228,8 +228,8 @@ interface BuildBody {
   readonly version: string;
   readonly projectId: ProjectId;
   readonly description?: string;
-  /** The corrected-run filter, as recorded in the suite's spec. */
-  readonly query: CorrectedSuiteQuery;
+  /** The corrected-run filter, as recorded in the test set's spec. */
+  readonly query: CorrectedTestSetQuery;
 }
 
 function correctedRunFilter(

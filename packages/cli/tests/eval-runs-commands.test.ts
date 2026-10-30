@@ -435,13 +435,13 @@ describe('kindgi eval-runs show / list / cancel', () => {
     expect(calls).toEqual([['get', 'er-1']]);
   });
 
-  test('list narrows by suite, status and agent', async () => {
+  test('list narrows by test set, status and agent', async () => {
     const { calls, rec } = recorder();
     const out = await run(
       [
         'eval-runs',
         'list',
-        '--suite=acme.matches',
+        '--test-set=acme.matches',
         '--status=completed',
         '--agent=acme.triage',
         '--limit=5',
@@ -454,7 +454,7 @@ describe('kindgi eval-runs show / list / cancel', () => {
       [
         'list',
         {
-          suiteId: 'acme.matches',
+          testSetId: 'acme.matches',
           status: 'completed',
           agentId: 'acme.triage',
           limit: 5,

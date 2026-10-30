@@ -7,7 +7,7 @@
  * block through the API into one is refused with `409
  * environment-takes-promotions`, before anything is written. The first
  * environment, and a project in no order, take them as before. An eval
- * suite isn't refused: it's test data, published in any environment. The
+ * test set isn't refused: it's test data, published in any environment. The
  * deploy and derive refusals are tested with their routes.
  */
 
@@ -84,7 +84,7 @@ async function harness(opts: { ordered?: boolean; hidesFirst?: boolean } = {}) {
     }) as T['publish'],
   });
   const registries = Object.fromEntries(
-    [...KINDS.map((k) => k.registry), 'evalSuiteRegistry' as const].map((name) => [
+    [...KINDS.map((k) => k.registry), 'testSetRegistry' as const].map((name) => [
       name,
       counted(name, input[name] as never),
     ]),
@@ -159,9 +159,9 @@ describe('publishing through the API into an environment order', () => {
     expect(res.body.error?.code).not.toBe('environment-takes-promotions');
   });
 
-  test('an eval suite is published in a later environment: test data, not a build', async () => {
+  test('an test set is published in a later environment: test data, not a build', async () => {
     const { post, writes, staging2 } = await harness();
-    const res = await post('/v1/eval-suites', {
+    const res = await post('/v1/test-sets', {
       id: 'acme.drafting-accuracy',
       version: '1.0.0',
       kind: 'accuracy',
@@ -172,7 +172,7 @@ describe('publishing through the API into an environment order', () => {
       projectId: staging2,
     });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
-    expect(writes).toEqual(['evalSuiteRegistry']);
+    expect(writes).toEqual(['testSetRegistry']);
   });
 
   test("a caller who can't read the first environment isn't told which it is", async () => {

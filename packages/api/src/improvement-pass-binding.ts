@@ -79,7 +79,7 @@ export interface StartImprovementPassInput {
   /** The live scope the proposal it writes is for. */
   readonly scope: LiveScope;
   /** The test set it searches and proves on (split into a search and a hold-out part). */
-  readonly suiteId: string;
+  readonly testSetId: string;
   readonly tiers: readonly ImprovementTier[];
   readonly objective: ProposalObjective;
   /**
@@ -111,7 +111,7 @@ export interface EstimateImprovementPassInput {
    */
   readonly fromVersion: string;
   readonly scope: LiveScope;
-  readonly suiteId: string;
+  readonly testSetId: string;
   readonly tiers: readonly ImprovementTier[];
   /** For a prompt pass: what drafts the templates. */
   readonly model?: ImprovementModel;
@@ -203,7 +203,7 @@ export interface ImprovementPass {
   readonly agentId: string;
   readonly fromVersion: string;
   readonly scope: LiveScope;
-  readonly suiteId: string;
+  readonly testSetId: string;
   readonly tiers: readonly ImprovementTier[];
   readonly objective: ProposalObjective;
   readonly groupWeights: EvalGroupWeights;

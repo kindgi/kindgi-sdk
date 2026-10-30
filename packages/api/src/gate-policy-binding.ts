@@ -38,7 +38,7 @@ export interface GatePolicySpec {
     /** The comparison must have finished within this many hours. */
     readonly maxAgeHours?: number;
     /** The comparison must have run this test set (and version). */
-    readonly suite?: { readonly id: string; readonly version?: string };
+    readonly testSet?: { readonly id: string; readonly version?: string };
   };
   /** The evidence from corrections behind each gated metric (`n` cases, total weight). */
   readonly evidence?: { readonly minCases?: number; readonly minWeight?: number };
