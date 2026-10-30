@@ -36,7 +36,7 @@ import type {
   EnvBinding,
   EnvironmentOrderBinding,
   EvalCaseStoreBinding,
-  EvalRunBinding,
+  TestRunBinding,
   ExpertQueueBinding,
   FlowRegistryBinding,
   GuardrailRegistryBinding,
@@ -412,7 +412,7 @@ const noopExpertQueue: ExpertQueueBinding = {
   preview: async () => ({ considered: 0, matched: 0, failed: 0 }),
 };
 
-const noopEvalRunBinding: EvalRunBinding = {
+const noopTestRunBinding: TestRunBinding = {
   start: async () => ({ kind: 'test-set-not-found', testSetId: 'noop' }),
   get: async () => null,
   list: async () => ({ data: [] }),
@@ -699,7 +699,7 @@ export function fullAppInput(): CreateAppInput {
     retention: noopRetention,
     testSetRegistry: noopTestSetRegistry,
     blockRegistry: noopBlockRegistry,
-    evalRunBinding: noopEvalRunBinding,
+    testRunBinding: noopTestRunBinding,
     correctionRegistry: noopCorrectionRegistry,
     expertQueue: noopExpertQueue,
     evalCaseStore: noopEvalCaseStore,

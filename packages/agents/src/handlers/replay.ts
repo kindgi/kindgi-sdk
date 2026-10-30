@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Replay turns: an eval run re-running a past run (`InvokeAgentInput.replay`)
+ * Replay turns: a test run re-running a past run (`InvokeAgentInput.replay`)
  * on an agent version, without doing anything the past run didn't already
  * do. Each tool call is decided by the deployment's `ReplayBinding`:
  *
@@ -406,7 +406,7 @@ export function replayReport(ctx: TurnContext): ReplayTurnReport | undefined {
   if (replay === undefined) return undefined;
   return {
     of: replay.of,
-    evalRunId: replay.evalRunId,
+    testRunId: replay.testRunId,
     tools: [...(ctx.replayTrace ?? [])].sort((a, b) => a.step - b.step),
     ...(ctx.replayApproval !== undefined && { approval: ctx.replayApproval }),
   };
@@ -415,7 +415,7 @@ export function replayReport(ctx: TurnContext): ReplayTurnReport | undefined {
 /** A replay's tag on its usage records (`ModelUsageRecord.replay`). */
 export function replayTag(replay: RunReplayRef): {
   readonly of: string;
-  readonly evalRunId: string;
+  readonly testRunId: string;
 } {
-  return { of: replay.of as unknown as string, evalRunId: replay.evalRunId };
+  return { of: replay.of as unknown as string, testRunId: replay.testRunId };
 }

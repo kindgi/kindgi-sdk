@@ -555,10 +555,10 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
   },
   { name: 'observations', route: '/v1/observations', paging: cursor },
   {
-    name: 'eval-runs',
-    route: '/v1/eval-runs',
+    name: 'test-runs',
+    route: '/v1/test-runs',
     paging: cursor,
-    covers: ['/v1/eval-runs/{runId}'],
+    covers: ['/v1/test-runs/{runId}'],
   },
   {
     name: 'cost-records',
@@ -619,7 +619,7 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/runs/{runId}/stream': 'a live view of run-journals',
   '/v1/runs/{runId}/progress': 'a live view of runs',
   '/v1/runs/{runId}/progress/stream': 'a live view of runs',
-  '/v1/eval-runs/{runId}/events': 'a live view of eval-runs',
+  '/v1/test-runs/{runId}/events': 'a live view of test-runs',
   '/v1/secrets/{name}/rotations/{rotationId}/events': 'a live view of a rotation',
   // Computed from records that are exported, not stored.
   '/v1/runs/failures': 'computed from runs',

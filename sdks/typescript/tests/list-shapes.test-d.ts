@@ -90,8 +90,8 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
   test('env.list', () => {
     expectTypeOf<Answer<KindgiClient['env']['list']>>().toMatchTypeOf<WirePage>();
   });
-  test('evalRuns.list', () => {
-    expectTypeOf<Answer<KindgiClient['evalRuns']['list']>>().toMatchTypeOf<WirePage>();
+  test('testRuns.list', () => {
+    expectTypeOf<Answer<KindgiClient['testRuns']['list']>>().toMatchTypeOf<WirePage>();
   });
   test('testSets.list', () => {
     expectTypeOf<Answer<KindgiClient['testSets']['list']>>().toMatchTypeOf<WirePage>();

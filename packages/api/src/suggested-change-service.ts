@@ -35,10 +35,10 @@ import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import { rescoreRefusal, rescoreStart } from './eval-rescore.js';
 import type {
   EvalComparison,
-  EvalRun,
-  EvalRunBinding,
-  EvalRunStartOutcome,
-} from './eval-run-binding.js';
+  TestRun,
+  TestRunBinding,
+  TestRunStartOutcome,
+} from './test-run-binding.js';
 import type { GateApproval } from './gate.js';
 import type {
   AgentReleaseBindings,
@@ -94,7 +94,7 @@ export interface SuggestedChangeServiceDeps {
   >;
   readonly agents: AgentRegistryBinding;
   readonly blocks: BlockRegistryBinding;
-  readonly evalRuns: EvalRunBinding;
+  readonly testRuns: TestRunBinding;
   readonly releases: AgentReleaseBindings;
   readonly projects?: ProjectBinding;
   /** What the agent's project may reach (`reference-scope.ts`); absent → as named. */
@@ -168,7 +168,7 @@ export interface EvaluateSuggestedChangeInput {
    */
   readonly against?: {
     readonly rule: SuggestedChangeRule;
-    readonly reference: { readonly evalRunId: string };
+    readonly reference: { readonly testRunId: string };
   };
   /** Who it's done for: what the derived version records as `by`. */
   readonly actor: PromotionActor;
@@ -319,19 +319,19 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
   }
 
   /**
-   * A suggested change's evaluation, read off its eval run (and its reference's,
+   * A suggested change's evaluation, read off its test run (and its reference's,
    * when it has one); `null` when either can't be read.
    */
   async function evaluationOf(
     tenantId: TenantId,
     stored: SuggestedChangeEvaluationRef,
   ): Promise<SuggestedChangeEvaluationOutcome | null> {
-    const run = await deps.evalRuns.get({ tenantId, runId: stored.evalRunId as RunId });
+    const run = await deps.testRuns.get({ tenantId, testRunId: stored.testRunId as RunId });
     if (run === null) return null;
     if (stored.reference === undefined) return evaluationOutcome(stored.objective, run);
-    const reference = await deps.evalRuns.get({
+    const reference = await deps.testRuns.get({
       tenantId,
-      runId: stored.reference.evalRunId as RunId,
+      testRunId: stored.reference.testRunId as RunId,
     });
     if (reference === null) return null;
     return evaluationOutcome(stored.objective, run, {
@@ -341,24 +341,28 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
   }
 
   /**
-   * The eval runs a rescore scores again, each a completed comparison of a
+   * The test runs a rescore scores again, each a completed comparison of a
    * test set: the latest evaluation's, then the current version's replays
    * it's held to, if any, so both sides count the same corrections.
    */
   async function rescorable(
     tenantId: TenantId,
     latest: SuggestedChangeEvaluationRef,
-  ): Promise<SuggestedChangeOutcome<EvalRun[]>> {
-    const runs: EvalRun[] = [];
-    for (const runId of [latest.evalRunId, latest.reference?.evalRunId]) {
-      if (runId === undefined) continue;
-      const run = await deps.evalRuns.get({ tenantId, runId: runId as RunId });
+  ): Promise<SuggestedChangeOutcome<TestRun[]>> {
+    const runs: TestRun[] = [];
+    for (const testRunId of [latest.testRunId, latest.reference?.testRunId]) {
+      if (testRunId === undefined) continue;
+      const run = await deps.testRuns.get({ tenantId, testRunId: testRunId as RunId });
       if (run === null) {
-        return err({ code: 'eval-run-not-found', message: `No eval run with id ${runId}`, runId });
+        return err({
+          code: 'test-run-not-found',
+          message: `No test run with id ${testRunId}`,
+          testRunId,
+        });
       }
       const notRescorable = rescoreRefusal(run);
       if (notRescorable !== undefined) {
-        return err({ code: 'eval-run-not-rescorable', message: notRescorable, runId });
+        return err({ code: 'test-run-not-rescorable', message: notRescorable, testRunId });
       }
       runs.push(run);
     }
@@ -371,21 +375,21 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
    */
   async function startRescores(
     tenantId: TenantId,
-    runs: readonly EvalRun[],
+    runs: readonly TestRun[],
     projectId: ProjectId,
     correlationId: string,
   ): Promise<SuggestedChangeOutcome<string[]>> {
     const started: RunId[] = [];
     for (const run of runs) {
       // A runtime that doesn't record the run's project: the candidate's, as evaluate starts it.
-      const again = await deps.evalRuns.start(
+      const again = await deps.testRuns.start(
         rescoreStart(run, run.projectId ?? projectId, correlationId),
       );
       if (again.kind !== 'ok') {
-        for (const runId of started) await deps.evalRuns.cancel({ tenantId, runId });
+        for (const testRunId of started) await deps.testRuns.cancel({ tenantId, testRunId });
         return err(startError(again));
       }
-      started.push(again.runId);
+      started.push(again.testRunId);
     }
     return { kind: 'ok', value: started.map((id) => id as unknown as string) };
   }
@@ -692,7 +696,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         { path: '/testSetId', kind: 'test-set', id: input.testSetId },
       ]);
       if (testSetOutOfScope !== undefined) return err({ ...testSetOutOfScope });
-      const started = await deps.evalRuns.start({
+      const started = await deps.testRuns.start({
         tenantId,
         projectId: runIn,
         testSetId: input.testSetId,
@@ -704,13 +708,13 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       return record(suggestedChange, {
         kind: 'evaluation',
         evaluation: {
-          evalRunId: started.runId as unknown as string,
+          testRunId: started.testRunId as unknown as string,
           testSetId: input.testSetId,
           objective: input.objective,
           startedAt: new Date().toISOString() as Timestamp,
           ...(input.against !== undefined && {
             rule: input.against.rule,
-            reference: { evalRunId: input.against.reference.evalRunId },
+            reference: { testRunId: input.against.reference.testRunId },
           }),
         },
       });
@@ -746,16 +750,16 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         `suggested-change:${suggestedChange.id as unknown as string}`,
       );
       if (started.kind === 'err') return started;
-      const [evalRunId, referenceId] = started.value;
+      const [testRunId, referenceId] = started.value;
       return record(suggestedChange, {
         kind: 'evaluation',
         evaluation: {
-          evalRunId: evalRunId as string,
+          testRunId: testRunId as string,
           testSetId: latest.testSetId,
           objective: latest.objective,
           startedAt: new Date().toISOString() as Timestamp,
           ...(latest.rule !== undefined && { rule: latest.rule }),
-          ...(referenceId !== undefined && { reference: { evalRunId: referenceId } }),
+          ...(referenceId !== undefined && { reference: { testRunId: referenceId } }),
         },
       });
     },
@@ -801,7 +805,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         deps.agents,
         deps.releases,
         {
-          evalRuns: deps.evalRuns,
+          testRuns: deps.testRuns,
           ...(deps.projects !== undefined && { projects: deps.projects }),
           ...(deps.referenceScope !== undefined && { referenceScope: deps.referenceScope }),
         },
@@ -812,7 +816,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
           scope: suggestedChange.scope,
           requestedBy: input.actor,
           reason: input.reason ?? `Suggested change ${suggestedChange.id as unknown as string}`,
-          evalRunId: evaluation.evalRunId,
+          testRunId: evaluation.testRunId,
         },
         drafterApproval,
       );
@@ -906,7 +910,7 @@ function modelSettingsRefusal(
 }
 
 function startError(
-  outcome: Exclude<EvalRunStartOutcome, { kind: 'ok' }>,
+  outcome: Exclude<TestRunStartOutcome, { kind: 'ok' }>,
 ): SuggestedChangeServiceError {
   switch (outcome.kind) {
     case 'test-set-not-found':
@@ -918,7 +922,7 @@ function startError(
     case 'dispatcher-not-registered':
       return {
         code: 'dispatcher-not-registered',
-        message: `No eval-run dispatcher registered for kind "${outcome.evalKind}"`,
+        message: `No test-run dispatcher registered for kind "${outcome.evalKind}"`,
       };
     case 'dispatcher-input-invalid':
       return { code: 'dispatcher-input-invalid', message: outcome.message };

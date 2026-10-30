@@ -22,7 +22,7 @@ sources:
   - packages/cli/src/commands/runs.ts
   - packages/cli/src/commands/blocks.ts
   - packages/cli/src/commands/agents.ts
-  - packages/cli/src/commands/eval-runs.ts
+  - packages/cli/src/commands/test-runs.ts
   - packages/cli/src/commands/test.ts
 ---
 

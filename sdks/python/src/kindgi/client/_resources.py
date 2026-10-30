@@ -701,19 +701,19 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
-    "evalRuns.start": Operation(
-        "evalRuns.start", "POST", "/v1/test-sets/{testSetId}/runs", "json", True
+    "testRuns.start": Operation(
+        "testRuns.start", "POST", "/v1/test-sets/{testSetId}/runs", "json", True
     ),
-    "evalRuns.list": Operation("evalRuns.list", "GET", "/v1/eval-runs", "json", False),
-    "evalRuns.get": Operation("evalRuns.get", "GET", "/v1/eval-runs/{runId}", "json", False),
-    "evalRuns.cancel": Operation(
-        "evalRuns.cancel", "POST", "/v1/eval-runs/{runId}/cancel", "json", False
+    "testRuns.list": Operation("testRuns.list", "GET", "/v1/test-runs", "json", False),
+    "testRuns.get": Operation("testRuns.get", "GET", "/v1/test-runs/{testRunId}", "json", False),
+    "testRuns.cancel": Operation(
+        "testRuns.cancel", "POST", "/v1/test-runs/{testRunId}/cancel", "json", False
     ),
-    "evalRuns.rescore": Operation(
-        "evalRuns.rescore", "POST", "/v1/eval-runs/{runId}/rescore", "json", False
+    "testRuns.rescore": Operation(
+        "testRuns.rescore", "POST", "/v1/test-runs/{testRunId}/rescore", "json", False
     ),
-    "evalRuns.events": Operation(
-        "evalRuns.events", "GET", "/v1/eval-runs/{runId}/events", "empty", False
+    "testRuns.events": Operation(
+        "testRuns.events", "GET", "/v1/test-runs/{testRunId}/events", "empty", False
     ),
     "auth.providers.list": Operation(
         "auth.providers.list", "GET", "/v1/auth/providers", "json", False
@@ -1394,7 +1394,7 @@ class RunsResource:
         top_level: bool | None = None,
         agent_id: str | UUID | None = None,
         replays: Literal["exclude", "include", "only"] | None = None,
-        eval_run_id: str | UUID | None = None,
+        test_run_id: str | UUID | None = None,
         trigger_id: str | UUID | None = None,
         include: Literal["output"] | None = None,
         status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
@@ -1423,7 +1423,7 @@ class RunsResource:
                 "topLevel": top_level,
                 "agentId": agent_id,
                 "replays": replays,
-                "evalRunId": eval_run_id,
+                "testRunId": test_run_id,
                 "triggerId": trigger_id,
                 "include": include,
                 "status": status,
@@ -1476,7 +1476,7 @@ class RunsResource:
     ) -> _models.RunFailureGroups:
         """A project's failed runs, grouped by cause and version. `GET /v1/runs/failures`
 
-        Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, eval runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.
+        Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, test runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.
         """
         return self._client._request(
             _OPERATIONS["runs.failures"],
@@ -4706,7 +4706,7 @@ class SuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Compare a suggested change on a test set. `POST /v1/suggested-changes/{suggestedChangeId}/evaluate`
 
-        The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
+        The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a promotion makes them live. Then a comparison test run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
         """
         return self._client._request(
             _OPERATIONS["suggestedChanges.evaluate"],
@@ -4728,7 +4728,7 @@ class SuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Rescore a suggested change's latest evaluation. `POST /v1/suggested-changes/{suggestedChangeId}/rescore`
 
-        After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those corrections, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
+        After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison test run scores the same replays again, counting those corrections, as `POST /v1/test-runs/{testRunId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
         """
         return self._client._request(
             _OPERATIONS["suggestedChanges.rescore"],
@@ -4805,7 +4805,7 @@ class ProposalsResource:
     ) -> _models.ImprovementPass:
         """Start an improvement pass. `POST /v1/proposals/improve`
 
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
         """
         return self._client._request(
             _OPERATIONS["proposals.improve"],
@@ -6335,7 +6335,7 @@ class TestSetsVersionsResource:
         include_tombstoned: bool | None = None,
         timeout: float | None = None,
     ) -> _models.TestSetCollectionPage:
-        """List versions of an test set. `GET /v1/test-sets/{testSetId}/versions`
+        """List versions of a test set. `GET /v1/test-sets/{testSetId}/versions`
 
         Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired test set (every version unregistered) answers too, with its versions to reinstate.
         """
@@ -6370,7 +6370,7 @@ class TestSetsVersionsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.UnregisterTestSetResult:
-        """Unregister an test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
+        """Unregister a test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
         return self._client._request(
             _OPERATIONS["testSets.versions.unregister"],
             path={"testSetId": test_set_id, "version": version},
@@ -6442,7 +6442,7 @@ class TestSetsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.PublishTestSetResult:
-        """Publish an test set. `POST /v1/test-sets`
+        """Publish a test set. `POST /v1/test-sets`
 
         Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
         """
@@ -6464,7 +6464,7 @@ class TestSetsResource:
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.TestSet:
-        """Fetch an test set (latest version). `GET /v1/test-sets/{testSetId}`
+        """Fetch a test set (latest version). `GET /v1/test-sets/{testSetId}`
 
         An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
         """
@@ -6555,7 +6555,7 @@ class TestSetsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.UnregisterTestSetResult:
-        """Unregister an test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
+        """Unregister a test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
         return self._client._request(
             _OPERATIONS["testSets.unregister"],
             path={"testSetId": test_set_id, "version": version},
@@ -6740,8 +6740,8 @@ class BlocksResource:
         )
 
 
-class EvalRunsResource:
-    """`client.eval_runs` — the `evalRuns` operations."""
+class TestRunsResource:
+    """`client.test_runs` — the `testRuns` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
@@ -6749,24 +6749,24 @@ class EvalRunsResource:
     def start(
         self,
         test_set_id: str | UUID,
-        body: _models.StartEvalRunBody | Mapping[str, Any] | None = None,
+        body: _models.StartTestRunBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.StartEvalRunResult:
-        """Start an eval run against a test set. `POST /v1/test-sets/{testSetId}/runs`
+    ) -> _models.StartTestRunResult:
+        """Start a test run against a test set. `POST /v1/test-sets/{testSetId}/runs`
 
-        Dispatches an eval run against the latest version of the test set. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
+        Dispatches a test run against the latest version of the test set. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
         """
         return self._client._request(
-            _OPERATIONS["evalRuns.start"],
+            _OPERATIONS["testRuns.start"],
             path={"testSetId": test_set_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.StartEvalRunBody, body, fields),
-            response=_models.StartEvalRunResult,
+            body=_body(_models.StartTestRunBody, body, fields),
+            response=_models.StartTestRunResult,
             timeout=timeout,
         )
 
@@ -6786,13 +6786,13 @@ class EvalRunsResource:
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalRunCollectionPage:
-        """List eval runs. `GET /v1/eval-runs`
+    ) -> _models.TestRunCollectionPage:
+        """List test runs. `GET /v1/test-runs`
 
         Cursor-paginated. Filters: `?testSetId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.
         """
         return self._client._request(
-            _OPERATIONS["evalRuns.list"],
+            _OPERATIONS["testRuns.list"],
             path={},
             query={
                 "limit": limit,
@@ -6808,73 +6808,75 @@ class EvalRunsResource:
                 "inherit": inherit,
             },
             headers={},
-            response=_models.EvalRunCollectionPage,
+            response=_models.TestRunCollectionPage,
             timeout=timeout,
         )
 
-    def get(self, run_id: str | UUID, /, *, timeout: float | None = None) -> _models.EvalRun:
-        """Fetch an eval run. `GET /v1/eval-runs/{runId}`"""
+    def get(self, test_run_id: str | UUID, /, *, timeout: float | None = None) -> _models.TestRun:
+        """Fetch a test run. `GET /v1/test-runs/{testRunId}`"""
         return self._client._request(
-            _OPERATIONS["evalRuns.get"],
-            path={"runId": run_id},
+            _OPERATIONS["testRuns.get"],
+            path={"testRunId": test_run_id},
             query={},
             headers={},
-            response=_models.EvalRun,
+            response=_models.TestRun,
             timeout=timeout,
         )
 
-    def cancel(self, run_id: str | UUID, /, *, timeout: float | None = None) -> _models.EvalRun:
-        """Cancel an eval run. `POST /v1/eval-runs/{runId}/cancel`
+    def cancel(
+        self, test_run_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.TestRun:
+        """Cancel a test run. `POST /v1/test-runs/{testRunId}/cancel`
 
         Best-effort cancel. Returns 409 when the run is already terminal.
         """
         return self._client._request(
-            _OPERATIONS["evalRuns.cancel"],
-            path={"runId": run_id},
+            _OPERATIONS["testRuns.cancel"],
+            path={"testRunId": test_run_id},
             query={},
             headers={},
-            response=_models.EvalRun,
+            response=_models.TestRun,
             timeout=timeout,
         )
 
     def rescore(
         self,
-        run_id: str | UUID,
-        body: _models.RescoreEvalRunBody | Mapping[str, Any] | None = None,
+        test_run_id: str | UUID,
+        body: _models.RescoreTestRunBody | Mapping[str, Any] | None = None,
         /,
         *,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.StartEvalRunResult:
-        """Rescore a comparison eval run. `POST /v1/eval-runs/{runId}/rescore`
+    ) -> _models.StartTestRunResult:
+        """Rescore a comparison test run. `POST /v1/test-runs/{testRunId}/rescore`
 
-        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's test set and `write` on its project.
+        Starts a new comparison test run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's test set and `write` on its project.
         """
         return self._client._request(
-            _OPERATIONS["evalRuns.rescore"],
-            path={"runId": run_id},
+            _OPERATIONS["testRuns.rescore"],
+            path={"testRunId": test_run_id},
             query={},
             headers={},
-            body=_body(_models.RescoreEvalRunBody, body, fields),
-            response=_models.StartEvalRunResult,
+            body=_body(_models.RescoreTestRunBody, body, fields),
+            response=_models.StartTestRunResult,
             timeout=timeout,
         )
 
     def events(
         self,
-        run_id: str | UUID,
+        test_run_id: str | UUID,
         /,
         *,
         last_event_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> None:
-        """Stream eval-run events (SSE). `GET /v1/eval-runs/{runId}/events`
+        """Stream test-run events (SSE). `GET /v1/test-runs/{testRunId}/events`
 
-        Server-Sent Events. Per-case progress events (`eval-run.case-completed` / `eval-run.case-failed`) followed by a terminal event (`eval-run.completed` / `eval-run.failed` / `eval-run.cancelled`) carrying the aggregate result. Mirrors `/v1/runs/:runId/stream` structurally.
+        Server-Sent Events. Per-case progress events (`test-run.case-completed` / `test-run.case-failed`) followed by a terminal event (`test-run.completed` / `test-run.failed` / `test-run.cancelled`) carrying the aggregate result. Mirrors `/v1/runs/:runId/stream` structurally.
         """
         return self._client._request(
-            _OPERATIONS["evalRuns.events"],
-            path={"runId": run_id},
+            _OPERATIONS["testRuns.events"],
+            path={"testRunId": test_run_id},
             query={},
             headers={"Last-Event-Id": last_event_id},
             timeout=timeout,
@@ -11098,7 +11100,7 @@ class AsyncRunsResource:
         top_level: bool | None = None,
         agent_id: str | UUID | None = None,
         replays: Literal["exclude", "include", "only"] | None = None,
-        eval_run_id: str | UUID | None = None,
+        test_run_id: str | UUID | None = None,
         trigger_id: str | UUID | None = None,
         include: Literal["output"] | None = None,
         status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
@@ -11127,7 +11129,7 @@ class AsyncRunsResource:
                 "topLevel": top_level,
                 "agentId": agent_id,
                 "replays": replays,
-                "evalRunId": eval_run_id,
+                "testRunId": test_run_id,
                 "triggerId": trigger_id,
                 "include": include,
                 "status": status,
@@ -11180,7 +11182,7 @@ class AsyncRunsResource:
     ) -> _models.RunFailureGroups:
         """A project's failed runs, grouped by cause and version. `GET /v1/runs/failures`
 
-        Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, eval runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.
+        Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, test runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.
         """
         return await self._client._request(
             _OPERATIONS["runs.failures"],
@@ -14422,7 +14424,7 @@ class AsyncSuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Compare a suggested change on a test set. `POST /v1/suggested-changes/{suggestedChangeId}/evaluate`
 
-        The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
+        The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a promotion makes them live. Then a comparison test run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
         """
         return await self._client._request(
             _OPERATIONS["suggestedChanges.evaluate"],
@@ -14444,7 +14446,7 @@ class AsyncSuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Rescore a suggested change's latest evaluation. `POST /v1/suggested-changes/{suggestedChangeId}/rescore`
 
-        After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those corrections, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
+        After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison test run scores the same replays again, counting those corrections, as `POST /v1/test-runs/{testRunId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
         """
         return await self._client._request(
             _OPERATIONS["suggestedChanges.rescore"],
@@ -14521,7 +14523,7 @@ class AsyncProposalsResource:
     ) -> _models.ImprovementPass:
         """Start an improvement pass. `POST /v1/proposals/improve`
 
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
+        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
         """
         return await self._client._request(
             _OPERATIONS["proposals.improve"],
@@ -16055,7 +16057,7 @@ class AsyncTestSetsVersionsResource:
         include_tombstoned: bool | None = None,
         timeout: float | None = None,
     ) -> _models.TestSetCollectionPage:
-        """List versions of an test set. `GET /v1/test-sets/{testSetId}/versions`
+        """List versions of a test set. `GET /v1/test-sets/{testSetId}/versions`
 
         Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired test set (every version unregistered) answers too, with its versions to reinstate.
         """
@@ -16090,7 +16092,7 @@ class AsyncTestSetsVersionsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.UnregisterTestSetResult:
-        """Unregister an test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
+        """Unregister a test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
         return await self._client._request(
             _OPERATIONS["testSets.versions.unregister"],
             path={"testSetId": test_set_id, "version": version},
@@ -16162,7 +16164,7 @@ class AsyncTestSetsResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.PublishTestSetResult:
-        """Publish an test set. `POST /v1/test-sets`
+        """Publish a test set. `POST /v1/test-sets`
 
         Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
         """
@@ -16184,7 +16186,7 @@ class AsyncTestSetsResource:
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.TestSet:
-        """Fetch an test set (latest version). `GET /v1/test-sets/{testSetId}`
+        """Fetch a test set (latest version). `GET /v1/test-sets/{testSetId}`
 
         An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
         """
@@ -16275,7 +16277,7 @@ class AsyncTestSetsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.UnregisterTestSetResult:
-        """Unregister an test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
+        """Unregister a test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
         return await self._client._request(
             _OPERATIONS["testSets.unregister"],
             path={"testSetId": test_set_id, "version": version},
@@ -16460,8 +16462,8 @@ class AsyncBlocksResource:
         )
 
 
-class AsyncEvalRunsResource:
-    """`client.eval_runs` — the `evalRuns` operations."""
+class AsyncTestRunsResource:
+    """`client.test_runs` — the `testRuns` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
@@ -16469,24 +16471,24 @@ class AsyncEvalRunsResource:
     async def start(
         self,
         test_set_id: str | UUID,
-        body: _models.StartEvalRunBody | Mapping[str, Any] | None = None,
+        body: _models.StartTestRunBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.StartEvalRunResult:
-        """Start an eval run against a test set. `POST /v1/test-sets/{testSetId}/runs`
+    ) -> _models.StartTestRunResult:
+        """Start a test run against a test set. `POST /v1/test-sets/{testSetId}/runs`
 
-        Dispatches an eval run against the latest version of the test set. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
+        Dispatches a test run against the latest version of the test set. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
         """
         return await self._client._request(
-            _OPERATIONS["evalRuns.start"],
+            _OPERATIONS["testRuns.start"],
             path={"testSetId": test_set_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.StartEvalRunBody, body, fields),
-            response=_models.StartEvalRunResult,
+            body=_body(_models.StartTestRunBody, body, fields),
+            response=_models.StartTestRunResult,
             timeout=timeout,
         )
 
@@ -16506,13 +16508,13 @@ class AsyncEvalRunsResource:
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalRunCollectionPage:
-        """List eval runs. `GET /v1/eval-runs`
+    ) -> _models.TestRunCollectionPage:
+        """List test runs. `GET /v1/test-runs`
 
         Cursor-paginated. Filters: `?testSetId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.
         """
         return await self._client._request(
-            _OPERATIONS["evalRuns.list"],
+            _OPERATIONS["testRuns.list"],
             path={},
             query={
                 "limit": limit,
@@ -16528,75 +16530,77 @@ class AsyncEvalRunsResource:
                 "inherit": inherit,
             },
             headers={},
-            response=_models.EvalRunCollectionPage,
+            response=_models.TestRunCollectionPage,
             timeout=timeout,
         )
 
-    async def get(self, run_id: str | UUID, /, *, timeout: float | None = None) -> _models.EvalRun:
-        """Fetch an eval run. `GET /v1/eval-runs/{runId}`"""
+    async def get(
+        self, test_run_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.TestRun:
+        """Fetch a test run. `GET /v1/test-runs/{testRunId}`"""
         return await self._client._request(
-            _OPERATIONS["evalRuns.get"],
-            path={"runId": run_id},
+            _OPERATIONS["testRuns.get"],
+            path={"testRunId": test_run_id},
             query={},
             headers={},
-            response=_models.EvalRun,
+            response=_models.TestRun,
             timeout=timeout,
         )
 
     async def cancel(
-        self, run_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.EvalRun:
-        """Cancel an eval run. `POST /v1/eval-runs/{runId}/cancel`
+        self, test_run_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.TestRun:
+        """Cancel a test run. `POST /v1/test-runs/{testRunId}/cancel`
 
         Best-effort cancel. Returns 409 when the run is already terminal.
         """
         return await self._client._request(
-            _OPERATIONS["evalRuns.cancel"],
-            path={"runId": run_id},
+            _OPERATIONS["testRuns.cancel"],
+            path={"testRunId": test_run_id},
             query={},
             headers={},
-            response=_models.EvalRun,
+            response=_models.TestRun,
             timeout=timeout,
         )
 
     async def rescore(
         self,
-        run_id: str | UUID,
-        body: _models.RescoreEvalRunBody | Mapping[str, Any] | None = None,
+        test_run_id: str | UUID,
+        body: _models.RescoreTestRunBody | Mapping[str, Any] | None = None,
         /,
         *,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.StartEvalRunResult:
-        """Rescore a comparison eval run. `POST /v1/eval-runs/{runId}/rescore`
+    ) -> _models.StartTestRunResult:
+        """Rescore a comparison test run. `POST /v1/test-runs/{testRunId}/rescore`
 
-        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's test set and `write` on its project.
+        Starts a new comparison test run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's test set and `write` on its project.
         """
         return await self._client._request(
-            _OPERATIONS["evalRuns.rescore"],
-            path={"runId": run_id},
+            _OPERATIONS["testRuns.rescore"],
+            path={"testRunId": test_run_id},
             query={},
             headers={},
-            body=_body(_models.RescoreEvalRunBody, body, fields),
-            response=_models.StartEvalRunResult,
+            body=_body(_models.RescoreTestRunBody, body, fields),
+            response=_models.StartTestRunResult,
             timeout=timeout,
         )
 
     async def events(
         self,
-        run_id: str | UUID,
+        test_run_id: str | UUID,
         /,
         *,
         last_event_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> None:
-        """Stream eval-run events (SSE). `GET /v1/eval-runs/{runId}/events`
+        """Stream test-run events (SSE). `GET /v1/test-runs/{testRunId}/events`
 
-        Server-Sent Events. Per-case progress events (`eval-run.case-completed` / `eval-run.case-failed`) followed by a terminal event (`eval-run.completed` / `eval-run.failed` / `eval-run.cancelled`) carrying the aggregate result. Mirrors `/v1/runs/:runId/stream` structurally.
+        Server-Sent Events. Per-case progress events (`test-run.case-completed` / `test-run.case-failed`) followed by a terminal event (`test-run.completed` / `test-run.failed` / `test-run.cancelled`) carrying the aggregate result. Mirrors `/v1/runs/:runId/stream` structurally.
         """
         return await self._client._request(
-            _OPERATIONS["evalRuns.events"],
-            path={"runId": run_id},
+            _OPERATIONS["testRuns.events"],
+            path={"testRunId": test_run_id},
             query={},
             headers={"Last-Event-Id": last_event_id},
             timeout=timeout,
@@ -20818,7 +20822,7 @@ class Resources:
     retention: RetentionResource
     test_sets: TestSetsResource
     blocks: BlocksResource
-    eval_runs: EvalRunsResource
+    test_runs: TestRunsResource
     auth: AuthResource
     identity: IdentityResource
     deployments: DeploymentsResource
@@ -20880,7 +20884,7 @@ class Resources:
         self.retention = RetentionResource(client)
         self.test_sets = TestSetsResource(client)
         self.blocks = BlocksResource(client)
-        self.eval_runs = EvalRunsResource(client)
+        self.test_runs = TestRunsResource(client)
         self.auth = AuthResource(client)
         self.identity = IdentityResource(client)
         self.deployments = DeploymentsResource(client)
@@ -20944,7 +20948,7 @@ class AsyncResources:
     retention: AsyncRetentionResource
     test_sets: AsyncTestSetsResource
     blocks: AsyncBlocksResource
-    eval_runs: AsyncEvalRunsResource
+    test_runs: AsyncTestRunsResource
     auth: AsyncAuthResource
     identity: AsyncIdentityResource
     deployments: AsyncDeploymentsResource
@@ -21006,7 +21010,7 @@ class AsyncResources:
         self.retention = AsyncRetentionResource(client)
         self.test_sets = AsyncTestSetsResource(client)
         self.blocks = AsyncBlocksResource(client)
-        self.eval_runs = AsyncEvalRunsResource(client)
+        self.test_runs = AsyncTestRunsResource(client)
         self.auth = AsyncAuthResource(client)
         self.identity = AsyncIdentityResource(client)
         self.deployments = AsyncDeploymentsResource(client)

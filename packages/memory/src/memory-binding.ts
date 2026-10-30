@@ -65,7 +65,7 @@ export interface MemoryQueryBinding {
    * `source: 'conversations'`): what `readers` may recall
    * (`isRecallReadableBy`), narrowed by `selections`, newest first
    * (`list`), by full-text rank (`keyword`) or by meaning (`semantic`).
-   * Never a comparison's replay conversation (an eval run's replay turn
+   * Never a comparison's replay conversation (a test run's replay turn
    * opens one): its messages are no one's earlier conversation.
    * Optional: without it, such an intent recalls nothing and its turn
    * journals why. `semantic` without embeddings answers

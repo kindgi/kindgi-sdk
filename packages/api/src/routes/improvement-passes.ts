@@ -11,7 +11,7 @@ import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.
 import type { BlockRegistryBinding } from '../block-binding.js';
 import type { CorrectionRegistryBinding, CorrectorGroupScope } from '../correction-binding.js';
 import { statusFor, toWireError } from '../errors.js';
-import type { EvalGroupWeights } from '../eval-run-binding.js';
+import type { EvalGroupWeights } from '../test-run-binding.js';
 import {
   IMPROVE_SCHEDULE_DEFAULTS,
   type ImproveScheduleInput,
@@ -178,11 +178,11 @@ const OBJECTIVES: readonly SuggestedChangeObjective[] = [
  * (`item-rights.ts`).
  *
  * The pass works in one project: its test set must be one that project
- * reaches, and its eval runs run there. As an improve schedule's: the
+ * reaches, and its test runs run there. As an improve schedule's: the
  * `projectId` named, else the scope's project, else the agent version's.
  * A project or segment scope must be in it, the version must reach it,
  * and a project other than the version's needs `write` there, as the
- * pass's eval runs do. Its suggested change's version is made where the agent's
+ * pass's test runs do. Its suggested change's version is made where the agent's
  * versions are, as any suggested change's.
  */
 export function mountImproveRoute(

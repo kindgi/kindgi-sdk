@@ -259,7 +259,7 @@ describe('runs.list — filters', () => {
     expect(query.get('topLevel')).toBe('true');
   });
 
-  it('sends replays and evalRunId', async () => {
+  it('sends replays and testRunId', async () => {
     const stub = recordingFetch([
       { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
       { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
@@ -270,9 +270,9 @@ describe('runs.list — filters', () => {
       fetch: stub.fetch,
     });
     await client.runs.list({ replays: 'only' });
-    await client.runs.list({ evalRunId: 'eval-1' });
+    await client.runs.list({ testRunId: 'eval-1' });
     expect(new URL(stub.calls[0]?.url ?? '').searchParams.get('replays')).toBe('only');
-    expect(new URL(stub.calls[1]?.url ?? '').searchParams.get('evalRunId')).toBe('eval-1');
+    expect(new URL(stub.calls[1]?.url ?? '').searchParams.get('testRunId')).toBe('eval-1');
   });
 
   it("sends triggerId, and reads a run's trigger", async () => {

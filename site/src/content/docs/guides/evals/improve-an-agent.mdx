@@ -145,7 +145,7 @@ pnpm exec kindgi proposals improve --agent=acme.rank.scorer --tenant --test-set=
 - **The project:** an Improve run works in one project and learns from its
   runs. Its version and test cases must be ones
   [that project's runs can use](../../projects/organize-by-org-and-project/#what-a-projects-runs-can-use),
-  and its eval runs run there. With `--project`, it's that project. With
+  and its test runs run there. With `--project`, it's that project. With
   `--tenant` or `--org`, it's `--pass-project=<project-id>`, else the agent
   version's. A project other than the version's needs `write` there. In the
   API and the clients, it's `projectId` (`project_id` in Python). The Improve
@@ -240,7 +240,7 @@ wrote none. The cost is 0 on `dev-echo`, which costs nothing:
     {
       "role": "reference",
       "part": "search",
-      "evalRunId": "6c4d6ce7-6838-4eb1-b2ec-d7992ed86278",
+      "testRunId": "6c4d6ce7-6838-4eb1-b2ec-d7992ed86278",
       "score": 0.5714285714285714
     },
     {
@@ -250,7 +250,7 @@ wrote none. The cost is 0 on `dev-echo`, which costs nothing:
       "changed": {
         "fit": 0
       },
-      "evalRunId": "7a0ba425-57dc-43aa-83ce-0e37b9d5b9f4",
+      "testRunId": "7a0ba425-57dc-43aa-83ce-0e37b9d5b9f4",
       "score": 1
     },
     …
@@ -395,7 +395,7 @@ pnpm exec kindgi proposals passes cancel <pass-id>
 
 - `list --table` prints each Improve run's agent version, scope, status, the
   candidates tried, the cost and the outcome.
-- `get` adds its runs on the test cases, each an eval run you can open.
+- `get` adds its runs on the test cases, each a test run you can open.
   `<pass-id>` is the Improve run's `id`.
 - `cancel` stops a running Improve run: it ends `cancelled` and writes no
   suggested change. An Improve run that already ended answers

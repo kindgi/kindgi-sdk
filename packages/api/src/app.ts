@@ -39,7 +39,7 @@ import type { EnvBinding } from './env-binding.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import type { WireErrorBody } from './errors.js';
 import type { EvalCaseStoreBinding } from './eval-case-binding.js';
-import type { EvalRunBinding } from './eval-run-binding.js';
+import type { TestRunBinding } from './test-run-binding.js';
 import type { EventBusBinding } from './event-bus-binding.js';
 import type { ExpertQueueBinding } from './expert-queue-binding.js';
 import type { FlowRegistryBinding } from './flow-binding.js';
@@ -146,7 +146,7 @@ import { deploymentsRouter } from './routes/deployments.js';
 import { envRouter } from './routes/env.js';
 import { environmentOrdersRouter } from './routes/environment-orders.js';
 import { environmentsRouter } from './routes/environments.js';
-import { evalRunsRouters } from './routes/eval-runs.js';
+import { testRunsRouters } from './routes/test-runs.js';
 import { eventTriggersRouter } from './routes/event-triggers.js';
 import { expertQueueRouter } from './routes/expert-queue.js';
 import { exportSigningKeysRouter } from './routes/export-signing-keys.js';
@@ -694,7 +694,7 @@ export interface CreateAppInput {
   /**
    * Whether a project is suspended (`PUT
    * /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`): a
-   * deploy into it, an eval run started in it and an improvement pass for
+   * deploy into it, a test run started in it and an improvement pass for
    * one of its agents are refused `409 project-suspended`, and a webhook
    * delivery to one of its triggers is skipped. Absent: no check.
    */
@@ -931,10 +931,10 @@ export interface CreateAppInput {
    * Optional. When present, mounts the evaluation-test set catalog surface
    * (`/v1/test-sets` list/get/publish, `/v1/test-sets/:testSetId/versions/*`).
    * Full versioned CRUD — mirrors `policies` 1:1. Registry-only:
-   * eval-run execution + per-kind grader dispatch (eval-judge adapter
+   * test-run execution + per-kind grader dispatch (eval-judge adapter
    * for `accuracy` / `pairwise` / `regression`, HITL bridge for
    * `human-review`, sandbox handler for `custom`) is out of scope
-   * here (see `evalRunBinding`). `evalKind` is enumerated + extensible
+   * here (see `testRunBinding`). `evalKind` is enumerated + extensible
    * — new kinds require a spec + validator update in tandem.
    */
   readonly testSetRegistry?: TestSetRegistryBinding;
@@ -947,16 +947,16 @@ export interface CreateAppInput {
   /**
    * Optional. When present alongside `testSetRegistry`, mounts the
    * evaluation-run data-plane surface: `POST /v1/test-sets/:testSetId/runs`
-   * (start), `GET /v1/eval-runs` (list, cursor-paginated),
-   * `GET /v1/eval-runs/:runId` (get), `POST /v1/eval-runs/:runId/cancel`,
-   * `GET /v1/eval-runs/:runId/events` (SSE). Caller-plugged binding —
-   * the API package doesn't own eval-run persistence. The reference
-   * `createInProcessEvalRunBinding` (`packages/api/src/eval-run-dispatcher.ts`)
+   * (start), `GET /v1/test-runs` (list, cursor-paginated),
+   * `GET /v1/test-runs/:runId` (get), `POST /v1/test-runs/:runId/cancel`,
+   * `GET /v1/test-runs/:runId/events` (SSE). Caller-plugged binding —
+   * the API package doesn't own test-run persistence. The reference
+   * `createInProcessTestRunBinding` (`packages/api/src/test-run-dispatcher.ts`)
    * implements the pattern end-to-end for the `accuracy` kind; a test set
    * of a kind with no registered dispatcher answers
    * `422 dispatcher-not-registered`.
    */
-  readonly evalRunBinding?: EvalRunBinding;
+  readonly testRunBinding?: TestRunBinding;
   /**
    * Optional. Mounts corrections, yes or no with an optional reason about
    * one item of a run's output (`/v1/corrections`), and the corrector groups
@@ -1754,7 +1754,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.blockRegistry,
         input.agentReleases,
         {
-          ...(input.evalRunBinding !== undefined && { evalRuns: input.evalRunBinding }),
+          ...(input.testRunBinding !== undefined && { testRuns: input.testRunBinding }),
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         },
         {
@@ -1907,7 +1907,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     input.supervisor !== undefined &&
     input.agentRegistry !== undefined &&
     input.blockRegistry !== undefined &&
-    input.evalRunBinding !== undefined &&
+    input.testRunBinding !== undefined &&
     input.agentReleases !== undefined
   ) {
     const improveDeps = {
@@ -1931,7 +1931,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         {
           agents: input.agentRegistry,
           blocks: input.blockRegistry,
-          evalRuns: input.evalRunBinding,
+          testRuns: input.testRunBinding,
           releases: input.agentReleases,
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
@@ -2518,7 +2518,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.agentReleases !== undefined && {
             agentReleases: input.agentReleases,
             releaseGateDeps: {
-              ...(input.evalRunBinding !== undefined && { evalRuns: input.evalRunBinding }),
+              ...(input.testRunBinding !== undefined && { testRuns: input.testRunBinding }),
               ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
               ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
             },
@@ -2561,15 +2561,15 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ),
     );
   }
-  if (input.evalRunBinding !== undefined) {
+  if (input.testRunBinding !== undefined) {
     // Mount the start route under `/v1/test-sets/:testSetId/runs` and
-    // the readback surface under `/v1/eval-runs/*`. Both share one
+    // the readback surface under `/v1/test-runs/*`. Both share one
     // binding — the start-route registration happens even without an
     // `testSetRegistry` binding: the dispatcher itself surfaces
     // `test-set-not-found` when the caller-plugged binding can't resolve
     // the test set id, so the API layer stays consumer-neutral.
-    const evalRuns = evalRunsRouters(
-      input.evalRunBinding,
+    const testRuns = testRunsRouters(
+      input.testRunBinding,
       input.flowRegistry !== undefined
         ? {
             flows: input.flowRegistry,
@@ -2585,8 +2585,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       input.projectSuspended,
       itemRights,
     );
-    v1.route('/test-sets', evalRuns.start);
-    v1.route('/eval-runs', evalRuns.readback);
+    v1.route('/test-sets', testRuns.start);
+    v1.route('/test-runs', testRuns.readback);
   }
   // ---------- auth routes ----------
   // The session store + identity-provider catalog: the auth router mounts

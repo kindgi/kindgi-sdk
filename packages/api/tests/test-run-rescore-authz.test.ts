@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * `POST /v1/eval-runs/{runId}/rescore` authorizes `write` on the project
+ * `POST /v1/test-runs/{testRunId}/rescore` authorizes `write` on the project
  * the run belongs to: a `projectId` in the body can't move the check to a
  * project the caller may write. The body's is read only from a runtime
  * that doesn't record the run's project.
@@ -15,9 +15,9 @@ import { describe, expect, test } from 'vitest';
 
 import type { ProjectId, RunId, TenantId } from '@kindgi/types';
 
-import type { EvalRun, EvalRunBinding, EvalRunStartInput } from '../src/index.js';
+import type { TestRun, TestRunBinding, TestRunStartInput } from '../src/index.js';
 import type { Authorizer } from '../src/middleware/authorize.js';
-import { evalRunsRouters } from '../src/routes/eval-runs.js';
+import { testRunsRouters } from '../src/routes/test-runs.js';
 import type { AppEnv } from '../src/types.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -25,9 +25,9 @@ const TEST_SET = 'acme.answers';
 const PROJECT_A = randomUUID() as ProjectId;
 const PROJECT_B = randomUUID() as ProjectId;
 
-function completedComparison(projectId: ProjectId | undefined): EvalRun {
+function completedComparison(projectId: ProjectId | undefined): TestRun {
   return {
-    runId: randomUUID() as RunId,
+    testRunId: randomUUID() as RunId,
     tenantId,
     ...(projectId !== undefined && { projectId }),
     testSetId: TEST_SET,
@@ -35,13 +35,13 @@ function completedComparison(projectId: ProjectId | undefined): EvalRun {
     kind: 'corrections',
     status: 'completed',
     agentRef: { agentId: 'acme.helpdesk', version: '1.0.0' },
-  } as unknown as EvalRun;
+  } as unknown as TestRun;
 }
 
 /** The router, with an authorizer that allows `may` (`<action> <type>:<id>`) and records each ask. */
-function mounted(run: EvalRun, may: readonly string[]) {
+function mounted(run: TestRun, may: readonly string[]) {
   const asked: string[] = [];
-  const started: EvalRunStartInput[] = [];
+  const started: TestRunStartInput[] = [];
   const authorizer: Authorizer = {
     authorize: (action, getResource) => async (c, next) => {
       const r = await getResource(c);
@@ -60,21 +60,21 @@ function mounted(run: EvalRun, may: readonly string[]) {
     filterByCan: async () => [],
   };
   const binding = {
-    get: async ({ runId }: { runId: RunId }) => (runId === run.runId ? run : null),
-    start: async (input: EvalRunStartInput) => {
+    get: async ({ testRunId }: { testRunId: RunId }) => (testRunId === run.testRunId ? run : null),
+    start: async (input: TestRunStartInput) => {
       started.push(input);
-      return { kind: 'ok', runId: randomUUID() as RunId };
+      return { kind: 'ok', testRunId: randomUUID() as RunId };
     },
-  } as unknown as EvalRunBinding;
+  } as unknown as TestRunBinding;
   const app = new Hono<AppEnv>();
   app.use('*', async (c, next) => {
     c.set('tenantId' as never, tenantId as never);
     c.set('requestId' as never, 'req-rescore' as never);
     return next();
   });
-  app.route('/', evalRunsRouters(binding, undefined, undefined, authorizer).readback);
+  app.route('/', testRunsRouters(binding, undefined, undefined, authorizer).readback);
   const rescore = (body?: unknown) =>
-    app.request(`/${run.runId as unknown as string}/rescore`, {
+    app.request(`/${run.testRunId as unknown as string}/rescore`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       ...(body !== undefined && { body: JSON.stringify(body) }),
@@ -84,7 +84,7 @@ function mounted(run: EvalRun, may: readonly string[]) {
 
 const onTestSet = `admin test_set:${TEST_SET}`;
 
-describe("rescoring an eval run: write on the run's own project", () => {
+describe("rescoring a test run: write on the run's own project", () => {
   test("a project in the body the caller may write doesn't stand in for the run's: 403, nothing started", async () => {
     const h = mounted(completedComparison(PROJECT_A), [onTestSet, `write project:${PROJECT_B}`]);
     const res = await h.rescore({ projectId: PROJECT_B });

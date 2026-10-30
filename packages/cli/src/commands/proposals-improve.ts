@@ -6,7 +6,7 @@ import type { ImprovementPass, ListPage } from '@kindgi/client';
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
 import { SCOPE_FLAGS, SCOPE_USAGE, scopeCell, scopeFrom } from './agents.js';
-import { GROUP_WEIGHTS, followEvalRun, oneOfFlag } from './eval-runs.js';
+import { GROUP_WEIGHTS, followTestRun, oneOfFlag } from './test-runs.js';
 import { type TableSpec, integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import { IDEMPOTENCY_FLAG, OBJECTIVES, idempotency, required } from './suggested-changes.js';
 import type { Command, LeafCommand } from './types.js';
@@ -89,7 +89,7 @@ const improve: LeafCommand = {
   kind: 'leaf',
   name: 'improve',
   description:
-    "Ask the runtime to look for better values for the settings an agent version marks as what Improve may change — or, with `--tier=prompt`, have a model draft new instructions — for a scope, within a budget. It searches on part of the test cases and checks its best candidate on the cases it didn't learn from; if that candidate is better, it writes a suggested change, which a reviewer decides (`kindgi suggested-changes request`). The Improve run works in one project: the test cases must be ones that project reaches, and its eval runs run there. With `--project`, it's that project; with `--tenant` or `--org`, `--pass-project`, else the agent version's. Answers at once with the Improve run; `--wait` waits for its outcome. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's.",
+    "Ask the runtime to look for better values for the settings an agent version marks as what Improve may change — or, with `--tier=prompt`, have a model draft new instructions — for a scope, within a budget. It searches on part of the test cases and checks its best candidate on the cases it didn't learn from; if that candidate is better, it writes a suggested change, which a reviewer decides (`kindgi suggested-changes request`). The Improve run works in one project: the test cases must be ones that project reaches, and its test runs run there. With `--project`, it's that project; with `--tenant` or `--org`, `--pass-project`, else the agent version's. Answers at once with the Improve run; `--wait` waits for its outcome. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's.",
   usage: `kindgi proposals improve --agent=<agent-id> ${SCOPE_USAGE} --test-set=<test-set-id> [--pass-project=<project-id>] [--from-version=<semver>] [--tier=settings|prompt] [--objective=weightedYesShare|weightedPrecisionAtK] [--group-weights=as-recorded|experts-only] [--provider=<id> --model=<model>] [--drafts=<n>] [--max-cost=<usd>] [--max-candidates=<n>] [--wait]`,
   optionSpec: {
     agent: { type: 'string', description: 'The agent.' },
@@ -187,7 +187,7 @@ const improve: LeafCommand = {
         ...idempotency(ctx),
       });
       if (ctx.options.wait !== true) return pass;
-      return await followEvalRun(pass.id, {
+      return await followTestRun(pass.id, {
         get: (id) => client.improvementPasses.get(id),
         inProgress: PASS_RUNNING,
         showCommand: 'kindgi proposals passes get',

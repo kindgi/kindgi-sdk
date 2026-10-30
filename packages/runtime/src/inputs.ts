@@ -74,10 +74,10 @@ export interface RunAgentRef {
   readonly liveScope?: LiveScope;
 }
 
-/** Marks a run as a replay: an eval run re-running a past run (`of`). */
+/** Marks a run as a replay: a test run re-running a past run (`of`). */
 export interface RunReplayRef {
   readonly of: RunId;
-  readonly evalRunId: string;
+  readonly testRunId: string;
 }
 
 /** Every value of `RunTriggerRef.kind`. */
@@ -316,7 +316,7 @@ export interface RunFlowInput {
   readonly parent?: ParentRunRef;
   /** The agent this run is a turn of; see `RunAgentRef`. */
   readonly agent?: RunAgentRef;
-  /** Set when an eval run is replaying a past run; see `RunReplayRef`. */
+  /** Set when a test run is replaying a past run; see `RunReplayRef`. */
   readonly replay?: RunReplayRef;
   /**
    * Set when the run doesn't exist yet (no `runId`): start it at most once
@@ -447,7 +447,7 @@ export interface StartRunParams {
   readonly parent?: ParentRunRef;
   /** The agent this run is a turn of; see `RunAgentRef`. */
   readonly agent?: RunAgentRef;
-  /** Set when an eval run is replaying a past run; see `RunReplayRef`. */
+  /** Set when a test run is replaying a past run; see `RunReplayRef`. */
   readonly replay?: RunReplayRef;
   /** Start it at most once per key; see `RunIdempotencyKey`. */
   readonly idempotencyKey?: RunIdempotencyKey;

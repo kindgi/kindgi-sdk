@@ -159,7 +159,7 @@ describe('publishing through the API into an environment order', () => {
     expect(res.body.error?.code).not.toBe('environment-takes-promotions');
   });
 
-  test('an test set is published in a later environment: test data, not a build', async () => {
+  test('a test set is published in a later environment: test data, not a build', async () => {
     const { post, writes, staging2 } = await harness();
     const res = await post('/v1/test-sets', {
       id: 'acme.drafting-accuracy',

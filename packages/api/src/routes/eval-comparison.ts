@@ -11,7 +11,7 @@ import type {
   EvalComparison,
   EvalOverrides,
   EvalSample,
-} from '../eval-run-binding.js';
+} from '../test-run-binding.js';
 import { parseSegmentsBody } from './segments.js';
 
 const MAX_REPETITIONS = 10;
@@ -156,7 +156,7 @@ function parseSample(raw: unknown): EvalSample | string {
 }
 
 /**
- * A comparison eval run's settings from the start body: `baseline`,
+ * A comparison test run's settings from the start body: `baseline`,
  * `reads`, `repetitions`, `k`, `groupWeights` and a flow candidate's
  * `versions`.
  * `undefined` when none is given (the defaults apply); an error message

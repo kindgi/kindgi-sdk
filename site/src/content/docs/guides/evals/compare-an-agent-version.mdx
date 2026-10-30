@@ -48,28 +48,28 @@ The test cases keep their copies of the 0.1.0 runs. Try 0.2.0 on them:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+pnpm exec kindgi test-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+uv run kindgi test-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+./kindgiw test-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+./kindgiw test-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
 ```
 
 </TabItem>
@@ -109,7 +109,7 @@ It prints the run, with its metrics:
 ```
 
 Without `--wait`, the command returns the run's id at once, and
-`kindgi eval-runs show <run-id>` reads it later.
+`kindgi test-runs show <run-id>` reads it later.
 
 From your code, ask your coding agent: "I want a script that tries my
 new agent version on my test cases, and shows me the scores." For reference,
@@ -126,16 +126,16 @@ const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the runni
 const projectId = process.argv[2];
 
 // Replay version 0.2.0 on each case of the test set.
-const { runId } = await kindgi.evalRuns.start(
+const { runId } = await kindgi.testRuns.start(
   'acme.article-picks',
   { agentRef: { agentId: 'acme-ops.article-picker', version: '0.2.0' } },
   { projectId },
 );
 
-let run = await kindgi.evalRuns.get(runId);
+let run = await kindgi.testRuns.get(runId);
 while (run.status === 'pending' || run.status === 'running') {
   await new Promise((resolve) => setTimeout(resolve, 2000));
-  run = await kindgi.evalRuns.get(runId);
+  run = await kindgi.testRuns.get(runId);
 }
 
 const comparison = comparisonOf(run); // undefined until it's finished
@@ -164,16 +164,16 @@ kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 project_id = sys.argv[1]
 
 # Replay version 0.2.0 on each case of the test set.
-started = kindgi.eval_runs.start(
+started = kindgi.test_runs.start(
     "acme.article-picks",
     project_id=project_id,
     agent_ref={"agent_id": "acme-ops.article-picker", "version": "0.2.0"},
 )
 
-run = kindgi.eval_runs.get(str(started.run_id))
+run = kindgi.test_runs.get(str(started.run_id))
 while run.status in ("pending", "running"):
     time.sleep(2)
-    run = kindgi.eval_runs.get(str(started.run_id))
+    run = kindgi.test_runs.get(str(started.run_id))
 
 comparison = comparison_of(run)  # None until it's finished
 if comparison is not None:
@@ -202,11 +202,11 @@ package com.acme.app;
 import com.kindgi.client.Comparisons;
 import com.kindgi.client.Kindgi;
 import com.kindgi.client.models.ComparisonMetric;
-import com.kindgi.client.models.EvalRun;
-import com.kindgi.client.models.EvalRunAgentRef;
+import com.kindgi.client.models.TestRun;
+import com.kindgi.client.models.TestRunAgentRef;
 import com.kindgi.client.models.CorrectedComparisonSummary;
-import com.kindgi.client.models.StartEvalRunBody;
-import com.kindgi.client.models.StartEvalRunResult;
+import com.kindgi.client.models.StartTestRunBody;
+import com.kindgi.client.models.StartTestRunResult;
 import java.util.UUID;
 
 public final class Compare {
@@ -215,19 +215,19 @@ public final class Compare {
     UUID projectId = UUID.fromString(args[0]);
 
     // Replay version 0.2.0 on each case of the test set.
-    StartEvalRunResult started =
-        kindgi.evalRuns().start(
+    StartTestRunResult started =
+        kindgi.testRuns().start(
             "acme.article-picks",
-            StartEvalRunBody.builder()
+            StartTestRunBody.builder()
                 .projectId(projectId)
                 .agentRef(
-                    EvalRunAgentRef.builder().agentId("acme-ops.article-picker").version("0.2.0").build())
+                    TestRunAgentRef.builder().agentId("acme-ops.article-picker").version("0.2.0").build())
                 .build());
 
-    EvalRun run = kindgi.evalRuns().get(started.runId());
-    while (run.status().equals(EvalRun.Status.PENDING) || run.status().equals(EvalRun.Status.RUNNING)) {
+    TestRun run = kindgi.testRuns().get(started.runId());
+    while (run.status().equals(TestRun.Status.PENDING) || run.status().equals(TestRun.Status.RUNNING)) {
       Thread.sleep(2000);
-      run = kindgi.evalRuns().get(started.runId());
+      run = kindgi.testRuns().get(started.runId());
     }
 
     // comparisonOf is empty until the run finishes, or for a dry run.
@@ -258,7 +258,7 @@ weightedPrecisionAtK: 0.3333333333333333 → 1.0
 </TabItem>
 <TabItem label="Scala">
 
-Scala apps use the Java helper: call `Comparisons.comparisonOf` from `com.kindgi.client` as the Java tab shows. It takes the `EvalRun` and returns a `java.util.Optional` of the `CorrectedComparisonResult`: its `summary()`, and each case in `perCase()`.
+Scala apps use the Java helper: call `Comparisons.comparisonOf` from `com.kindgi.client` as the Java tab shows. It takes the `TestRun` and returns a `java.util.Optional` of the `CorrectedComparisonResult`: its `summary()`, and each case in `perCase()`.
 
 </TabItem>
 </Tabs>
@@ -434,8 +434,8 @@ tool with the same arguments.
   runtime, an agent step's answer to a paused call reads as it came.
 
 **The replay runs** are ordinary runs, marked with `replayOf`, the past run,
-and `evalRunId`. Lists of runs leave them out. `kindgi runs list
---eval-run=<run-id>` lists those of one run on the test cases, and
+and `testRunId`. Lists of runs leave them out. `kindgi runs list
+--test-run=<run-id>` lists those of one run on the test cases, and
 `--replays=include` or `--replays=only` adds them to any list. Conversation
 lists leave out their conversations the same way: `kindgi conversations list
 --replays=only` lists them. You can [correct](../judge-a-runs-output/) them
@@ -443,7 +443,7 @@ like any run: that's how a version's new items get their corrections.
 
 **A run on the test cases stopped** before it finished, because the runtime
 stopped, ends `failed` with the cases it got through:
-`Interrupted: the eval run's executor stopped before it finished. 2 of 3 cases finished.`
+`Interrupted: the test run's executor stopped before it finished. 2 of 3 cases finished.`
 Start it again.
 
 ## Try a flow version on the test cases
@@ -463,28 +463,28 @@ new flow version, add `--with=<id>@<version>` once for each. Here the flow
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
+pnpm exec kindgi test-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
+uv run kindgi test-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
+./kindgiw test-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw eval-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
+./kindgiw test-runs start acme.flow-picks --project=<project-id> --flow=acme-ops.suggest-articles --flow-version=0.1.0 --with=acme-ops.find-articles@0.2.0 --reads=live --wait
 ```
 
 </TabItem>

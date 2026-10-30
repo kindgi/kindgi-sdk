@@ -109,12 +109,12 @@ const PEOPLE: Record<string, readonly Grant[]> = {
   ],
 };
 
-/** Eval runs: of `acme.desk`'s test set in prod and in staging, and of the one-project test set. */
+/** Test runs: of `acme.desk`'s test set in prod and in staging, and of the one-project test set. */
 const EVAL_IN_PROD = randomUUID();
 const EVAL_IN_STAGING = randomUUID();
 const EVAL_SOLO = randomUUID();
-const evalRun = (runId: string, testSetId: string, projectId: ProjectId) => ({
-  runId,
+const testRun = (testRunId: string, testSetId: string, projectId: ProjectId) => ({
+  testRunId,
   tenantId,
   projectId,
   testSetId,
@@ -125,10 +125,10 @@ const evalRun = (runId: string, testSetId: string, projectId: ProjectId) => ({
   dryRun: false,
   startedAt: '2026-10-01T00:00:00.000Z',
 });
-const EVAL_RUNS = [
-  evalRun(EVAL_IN_PROD, SERVED, PROD),
-  evalRun(EVAL_IN_STAGING, SERVED, STAGING),
-  evalRun(EVAL_SOLO, SOLO, OTHER),
+const TEST_RUNS = [
+  testRun(EVAL_IN_PROD, SERVED, PROD),
+  testRun(EVAL_IN_STAGING, SERVED, STAGING),
+  testRun(EVAL_SOLO, SOLO, OTHER),
 ];
 
 const resolveToken: TokenResolver = async (token) => {
@@ -198,32 +198,32 @@ function harness(opts: { served?: boolean; projects?: readonly ProjectId[] } = {
     getVersion: async (input: Record<string, string>) =>
       record(input.agentId ?? input.flowId ?? ''),
   };
-  /** Each eval run started, cancelled or rescored. */
+  /** Each test run started, cancelled or rescored. */
   const evals: string[] = [];
-  const evalRunBinding = {
+  const testRunBinding = {
     async start(input: { testSetId: string; projectId: string }) {
       evals.push(`start ${input.testSetId} in ${input.projectId}`);
       return { kind: 'test-set-not-found', testSetId: input.testSetId };
     },
-    async get({ runId }: { runId: string }) {
-      return EVAL_RUNS.find((r) => r.runId === runId) ?? null;
+    async get({ testRunId }: { testRunId: string }) {
+      return TEST_RUNS.find((r) => r.testRunId === testRunId) ?? null;
     },
     async list({ filter }: { filter?: { testSetId?: string } }) {
       return {
-        data: EVAL_RUNS.filter(
+        data: TEST_RUNS.filter(
           (r) => filter?.testSetId === undefined || r.testSetId === filter.testSetId,
         ),
       };
     },
-    async cancel({ runId }: { runId: string }) {
-      evals.push(`cancel ${runId}`);
+    async cancel({ testRunId }: { testRunId: string }) {
+      evals.push(`cancel ${testRunId}`);
       return { kind: 'ok' };
     },
-    async rescore({ runId }: { runId: string }) {
-      evals.push(`rescore ${runId}`);
+    async rescore({ testRunId }: { testRunId: string }) {
+      evals.push(`rescore ${testRunId}`);
       return { kind: 'not-found' };
     },
-  } as unknown as CreateAppInput['evalRunBinding'];
+  } as unknown as CreateAppInput['testRunBinding'];
   const triggers = createInMemoryTriggerRegistry({ defaultProjectId: STAGING });
   const observation = (id: string, agentId: string) => ({
     id,
@@ -259,7 +259,7 @@ function harness(opts: { served?: boolean; projects?: readonly ProjectId[] } = {
     conversationBinding,
     resolveToken,
     runHandler,
-    evalRunBinding,
+    testRunBinding,
     triggerRegistry: triggers,
     secretsBinding: { get: async () => null } as unknown as CreateAppInput['secretsBinding'],
     supervisor,
@@ -673,7 +673,7 @@ describe('conversations with an agent an order carries', () => {
   });
 });
 
-describe('eval runs of a test set an order carries', () => {
+describe('test runs of a test set an order carries', () => {
   const start = (projectId: ProjectId, testSetId = SERVED) => ({
     projectId,
     agentRef: { agentId: testSetId },
@@ -703,39 +703,41 @@ describe('eval runs of a test set an order carries', () => {
 
   test("a prod member reads, cancels and rescores prod's runs, and lists only those", async () => {
     const { call, evals } = harness();
-    const read = await call('prod-evals', 'GET', `/v1/eval-runs/${EVAL_IN_PROD}`);
+    const read = await call('prod-evals', 'GET', `/v1/test-runs/${EVAL_IN_PROD}`);
     expect(read.status, read.text).toBe(200);
     expect(read.asked).toEqual([`prod-evals read project:${PROD}`]);
-    const cancel = await call('prod-evals', 'POST', `/v1/eval-runs/${EVAL_IN_PROD}/cancel`);
+    const cancel = await call('prod-evals', 'POST', `/v1/test-runs/${EVAL_IN_PROD}/cancel`);
     expect(cancel.status, cancel.text).not.toBe(403);
     expect(cancel.asked).toEqual([`prod-evals execute project:${PROD}`]);
-    const rescore = await call('prod-evals', 'POST', `/v1/eval-runs/${EVAL_IN_PROD}/rescore`);
+    const rescore = await call('prod-evals', 'POST', `/v1/test-runs/${EVAL_IN_PROD}/rescore`);
     expect(rescore.status, rescore.text).not.toBe(403);
     expect(rescore.asked[0]).toBe(`prod-evals execute project:${PROD}`);
     expect(evals[0]).toBe(`cancel ${EVAL_IN_PROD}`);
-    const listed = await call('prod-evals', 'GET', '/v1/eval-runs');
-    expect(listed.body.data.map((r: { runId: string }) => r.runId)).toEqual([EVAL_IN_PROD]);
+    const listed = await call('prod-evals', 'GET', '/v1/test-runs');
+    expect(listed.body.data.map((r: { testRunId: string }) => r.testRunId)).toEqual([EVAL_IN_PROD]);
   });
 
   test("a staging member doesn't read, cancel or rescore prod's runs", async () => {
     const { call, evals } = harness();
-    expect((await call('staging', 'GET', `/v1/eval-runs/${EVAL_IN_PROD}`)).status).toBe(403);
-    expect((await call('staging', 'GET', `/v1/eval-runs/${EVAL_IN_PROD}/events`)).status).toBe(403);
-    expect((await call('staging', 'POST', `/v1/eval-runs/${EVAL_IN_PROD}/cancel`)).status).toBe(
+    expect((await call('staging', 'GET', `/v1/test-runs/${EVAL_IN_PROD}`)).status).toBe(403);
+    expect((await call('staging', 'GET', `/v1/test-runs/${EVAL_IN_PROD}/events`)).status).toBe(403);
+    expect((await call('staging', 'POST', `/v1/test-runs/${EVAL_IN_PROD}/cancel`)).status).toBe(
       403,
     );
-    expect((await call('staging', 'POST', `/v1/eval-runs/${EVAL_IN_PROD}/rescore`)).status).toBe(
+    expect((await call('staging', 'POST', `/v1/test-runs/${EVAL_IN_PROD}/rescore`)).status).toBe(
       403,
     );
     expect(evals).toEqual([]);
-    const listed = await call('staging', 'GET', '/v1/eval-runs');
-    expect(listed.body.data.map((r: { runId: string }) => r.runId)).toEqual([EVAL_IN_STAGING]);
+    const listed = await call('staging', 'GET', '/v1/test-runs');
+    expect(listed.body.data.map((r: { testRunId: string }) => r.testRunId)).toEqual([
+      EVAL_IN_STAGING,
+    ]);
   });
 
   test("today's rights on the test set don't reach its runs in its projects", async () => {
     const { call } = harness();
-    expect((await call('test-set-admin', 'GET', `/v1/eval-runs/${EVAL_IN_PROD}`)).status).toBe(403);
-    expect((await call('test-set-admin', 'GET', '/v1/eval-runs')).body.data).toEqual([]);
+    expect((await call('test-set-admin', 'GET', `/v1/test-runs/${EVAL_IN_PROD}`)).status).toBe(403);
+    expect((await call('test-set-admin', 'GET', '/v1/test-runs')).body.data).toEqual([]);
   });
 
   test('a test set with one project: its runs are checked as before', async () => {
@@ -743,10 +745,10 @@ describe('eval runs of a test set an order carries', () => {
     const without = harness({ served: false });
     for (const [method, path, body] of [
       ['POST', `/v1/test-sets/${SOLO}/runs`, start(OTHER, SOLO)],
-      ['GET', `/v1/eval-runs/${EVAL_SOLO}`, undefined],
-      ['POST', `/v1/eval-runs/${EVAL_SOLO}/cancel`, undefined],
-      ['POST', `/v1/eval-runs/${EVAL_SOLO}/rescore`, undefined],
-      ['GET', `/v1/eval-runs?testSetId=${SOLO}`, undefined],
+      ['GET', `/v1/test-runs/${EVAL_SOLO}`, undefined],
+      ['POST', `/v1/test-runs/${EVAL_SOLO}/cancel`, undefined],
+      ['POST', `/v1/test-runs/${EVAL_SOLO}/rescore`, undefined],
+      ['GET', `/v1/test-runs?testSetId=${SOLO}`, undefined],
     ] as const) {
       const a = await withBinding.call('solo', method, path, body);
       const b = await without.call('solo', method, path, body);

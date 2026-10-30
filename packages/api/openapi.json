@@ -148,15 +148,15 @@
     },
     {
       "name": "test-sets",
-      "description": "Test set catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: eval-run execution + per-kind grader dispatch live on the `eval-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `judged`). The cases of a `judged` test set are copies of judged runs built from corrections (`POST .../versions/from-corrections`, listed at `GET .../versions/{version}/cases`; `EvalCaseStoreBinding`). Runs against these test sets are started through the `eval-runs` tag. Caller-plugged via `TestSetRegistryBinding`."
+      "description": "Test set catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: test-run execution + per-kind grader dispatch live on the `test-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `judged`). The cases of a `judged` test set are copies of judged runs built from corrections (`POST .../versions/from-corrections`, listed at `GET .../versions/{version}/cases`; `EvalCaseStoreBinding`). Runs against these test sets are started through the `test-runs` tag. Caller-plugged via `TestSetRegistryBinding`."
     },
     {
       "name": "blocks",
       "description": "Data blocks: versioned prompts and settings an agent version pins when it's published (list, get, versions, publish, unregister, reinstate). A version never changes, nor does a block's kind; a settings block's values satisfy its schema and the latest version's. A block belongs to one project and is authorized through it: `read` on the project to read, `write` to publish, unregister or reinstate. Caller-plugged via `BlockRegistryBinding`."
     },
     {
-      "name": "eval-runs",
-      "description": "Eval-run data plane (start, list, get, cancel, events SSE). Dispatches an eval run against a registered test set. Dispatch is per-`EvalKind`; kinds without a registered dispatcher return `422 dispatcher-not-registered`. `result` is kind-specific opaque JSON on the wire — for `accuracy` it is `{ passCount, totalCount, meanScore, perCase[] }`. SSE events mirror run streaming: per-case progress followed by a terminal frame carrying the aggregate. Caller-plugged via `EvalRunBinding`."
+      "name": "test-runs",
+      "description": "Test-run data plane (start, list, get, cancel, events SSE). Dispatches a test run against a registered test set. Dispatch is per-`EvalKind`; kinds without a registered dispatcher return `422 dispatcher-not-registered`. `result` is kind-specific opaque JSON on the wire — for `accuracy` it is `{ passCount, totalCount, meanScore, perCase[] }`. SSE events mirror run streaming: per-case progress followed by a terminal frame carrying the aggregate. Caller-plugged via `TestRunBinding`."
     },
     {
       "name": "auth",
@@ -385,8 +385,8 @@
           "test-set-not-found": 404,
           "test-set-already-registered": 409,
           "test-set-project-mismatch": 409,
-          "eval-run-not-found": 404,
-          "eval-run-not-rescorable": 409,
+          "test-run-not-found": 404,
+          "test-run-not-rescorable": 409,
           "correction-not-found": 404,
           "corrector-group-not-found": 404,
           "queue-rule-not-found": 404,
@@ -481,7 +481,7 @@
           "authz-membership-unsupported": 501,
           "guardrail-outcomes-not-supported": 501,
           "pinned-versions-not-supported": 501,
-          "eval-run-already-terminal": 409,
+          "test-run-already-terminal": 409,
           "dispatcher-not-registered": 422,
           "dispatcher-input-invalid": 400,
           "mcp-endpoint-not-found": 404,
@@ -1285,7 +1285,7 @@
           "reason": {
             "type": "string"
           },
-          "evalRunId": {
+          "testRunId": {
             "type": "string",
             "description": "The comparison behind the change."
           },
@@ -1730,7 +1730,7 @@
       "GatePolicySpec": {
         "type": "object",
         "additionalProperties": false,
-        "description": "What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`evalRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.",
+        "description": "What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.",
         "properties": {
           "comparison": {
             "type": "object",
@@ -2034,7 +2034,7 @@
             "type": "string",
             "maxLength": 2000
           },
-          "evalRunId": {
+          "testRunId": {
             "type": "string",
             "description": "The comparison behind this promotion."
           }
@@ -2195,7 +2195,7 @@
           },
           "actsFor": {
             "type": "string",
-            "description": "Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run."
+            "description": "Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run."
           },
           "toolsAllowedUnattended": {
             "type": "array",
@@ -2207,11 +2207,11 @@
           "replayOf": {
             "type": "string",
             "format": "uuid",
-            "description": "Set on a replay run (an eval run re-running a past run): the run it replays."
+            "description": "Set on a replay run (a test run re-running a past run): the run it replays."
           },
-          "evalRunId": {
+          "testRunId": {
             "type": "string",
-            "description": "Set on a replay run: the eval run that started it."
+            "description": "Set on a replay run: the test run that started it."
           },
           "versions": {
             "$ref": "#/components/schemas/FlowVersionOverrides"
@@ -2646,7 +2646,7 @@
                 },
                 "actsFor": {
                   "type": "string",
-                  "description": "Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run."
+                  "description": "Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run."
                 },
                 "toolsAllowedUnattended": {
                   "type": "array",
@@ -2658,11 +2658,11 @@
                 "replayOf": {
                   "type": "string",
                   "format": "uuid",
-                  "description": "Set on a replay run (an eval run re-running a past run): the run it replays."
+                  "description": "Set on a replay run (a test run re-running a past run): the run it replays."
                 },
-                "evalRunId": {
+                "testRunId": {
                   "type": "string",
-                  "description": "Set on a replay run: the eval run that started it."
+                  "description": "Set on a replay run: the test run that started it."
                 },
                 "versions": {
                   "$ref": "#/components/schemas/FlowVersionOverrides"
@@ -6915,7 +6915,7 @@
           "erased": {
             "type": "boolean",
             "const": true,
-            "description": "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and eval runs leave it out (counted as `erased`)."
+            "description": "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and test runs leave it out (counted as `erased`)."
           }
         }
       },
@@ -10807,7 +10807,7 @@
           "rolled-back",
           "withdrawn"
         ],
-        "description": "Where a suggested change stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `pinned`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the suggested change. `withdrawn`: withdrawn."
+        "description": "Where a suggested change stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `pinned`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: only on an older suggested change rolled back by its own `rollback`, which is removed; a rollback today goes through the agent's live routes and leaves it `pinned`. `withdrawn`: withdrawn."
       },
       "SuggestedChangeBlockEdit": {
         "type": "object",
@@ -10935,14 +10935,14 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "evalRunId",
+          "testRunId",
           "testSetId",
           "objective",
           "startedAt"
         ],
-        "description": "The comparison the suggested change was evaluated with, and what it found on the objective metric (the full summary is the eval run's).",
+        "description": "The comparison the suggested change was evaluated with, and what it found on the objective metric (the full summary is the test run's).",
         "properties": {
-          "evalRunId": {
+          "testRunId": {
             "type": "string",
             "format": "uuid"
           },
@@ -10970,7 +10970,7 @@
               "failed",
               "cancelled"
             ],
-            "description": "The eval run's status. Absent when the run can't be read."
+            "description": "The test run's status. Absent when the run can't be read."
           },
           "baseline": {
             "type": [
@@ -11438,11 +11438,11 @@
           },
           "cancelReason": {
             "type": "string",
-            "description": "Why a `cancelled` pass stopped when nobody cancelled it: a comparison's eval run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no suggested change. Absent when it was cancelled."
+            "description": "Why a `cancelled` pass stopped when nobody cancelled it: a comparison's test run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no suggested change. Absent when it was cancelled."
           },
           "comparisons": {
             "type": "array",
-            "description": "Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the suggested change, on the hold-out part). Absent from older servers.",
+            "description": "Its comparisons so far, each a test run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the suggested change, on the hold-out part). Absent from older servers.",
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -11451,7 +11451,7 @@
                 "part"
               ],
               "properties": {
-                "evalRunId": {
+                "testRunId": {
                   "type": "string",
                   "format": "uuid"
                 },
@@ -11586,7 +11586,7 @@
           "projectId": {
             "type": "string",
             "format": "uuid",
-            "description": "The project the pass works in: `testSetId` must be a test set it reaches, the version must reach it, and the pass's eval runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there."
+            "description": "The project the pass works in: `testSetId` must be a test set it reaches, the version must reach it, and the pass's test runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there."
           },
           "scope": {
             "$ref": "#/components/schemas/LiveScope"
@@ -15312,7 +15312,7 @@
           }
         }
       },
-      "EvalRunStatus": {
+      "TestRunStatus": {
         "type": "string",
         "enum": [
           "pending",
@@ -15322,7 +15322,7 @@
           "cancelled"
         ]
       },
-      "EvalRunAgentRef": {
+      "TestRunAgentRef": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -15338,7 +15338,7 @@
           }
         }
       },
-      "EvalRunFlowRef": {
+      "TestRunFlowRef": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -15476,7 +15476,7 @@
           "repetitions",
           "k"
         ],
-        "description": "A comparison eval run's settings (a `corrections` test set).",
+        "description": "A comparison test run's settings (a `corrections` test set).",
         "properties": {
           "baseline": {
             "$ref": "#/components/schemas/EvalBaseline"
@@ -15518,7 +15518,7 @@
           },
           "rescoreOf": {
             "type": "string",
-            "description": "Rescore that comparison eval run instead of replaying: its replays' outputs are scored again, with the corrections recorded on them since (a changed answer corrected on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/eval-runs/{runId}/rescore`."
+            "description": "Rescore that comparison test run instead of replaying: its replays' outputs are scored again, with the corrections recorded on them since (a changed answer corrected on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/test-runs/{runId}/rescore`."
           }
         }
       },
@@ -15675,7 +15675,7 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "evalRunId",
+          "testRunId",
           "status",
           "completedAt",
           "testSet",
@@ -15693,7 +15693,7 @@
           "metrics"
         ],
         "properties": {
-          "evalRunId": {
+          "testRunId": {
             "type": "string"
           },
           "status": {
@@ -15845,7 +15845,7 @@
           },
           "rescoreOf": {
             "type": "string",
-            "description": "A rescore: the comparison eval run whose replays it scored again."
+            "description": "A rescore: the comparison test run whose replays it scored again."
           },
           "notRescored": {
             "type": "integer",
@@ -16547,7 +16547,7 @@
         }
       },
       "CorrectedComparisonResult": {
-        "description": "A comparison's `result` (a `corrections` eval run's): the summary and each case. `EvalRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).",
+        "description": "A comparison's `result` (a `corrections` test run's): the summary and each case. `TestRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -16566,11 +16566,11 @@
           }
         }
       },
-      "EvalRun": {
+      "TestRun": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "runId",
+          "testRunId",
           "tenantId",
           "testSetId",
           "testSetVersion",
@@ -16580,7 +16580,7 @@
           "startedAt"
         ],
         "properties": {
-          "runId": {
+          "testRunId": {
             "type": "string",
             "format": "uuid"
           },
@@ -16591,7 +16591,7 @@
           "projectId": {
             "type": "string",
             "format": "uuid",
-            "description": "The project the eval run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6."
+            "description": "The project the test run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6."
           },
           "testSetId": {
             "type": "string"
@@ -16604,10 +16604,10 @@
             "$ref": "#/components/schemas/EvalKind"
           },
           "agentRef": {
-            "$ref": "#/components/schemas/EvalRunAgentRef"
+            "$ref": "#/components/schemas/TestRunAgentRef"
           },
           "flowRef": {
-            "$ref": "#/components/schemas/EvalRunFlowRef"
+            "$ref": "#/components/schemas/TestRunFlowRef"
           },
           "status": {
             "type": "string",
@@ -16650,7 +16650,7 @@
           }
         }
       },
-      "EvalRunCollectionPage": {
+      "TestRunCollectionPage": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -16661,7 +16661,7 @@
           "data": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/EvalRun"
+              "$ref": "#/components/schemas/TestRun"
             }
           },
           "nextCursor": {
@@ -16672,7 +16672,7 @@
           }
         }
       },
-      "StartEvalRunBody": {
+      "StartTestRunBody": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -16685,10 +16685,10 @@
             "description": "Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`."
           },
           "agentRef": {
-            "$ref": "#/components/schemas/EvalRunAgentRef"
+            "$ref": "#/components/schemas/TestRunAgentRef"
           },
           "flowRef": {
-            "$ref": "#/components/schemas/EvalRunFlowRef"
+            "$ref": "#/components/schemas/TestRunFlowRef"
           },
           "dryRun": {
             "type": "boolean"
@@ -16736,10 +16736,10 @@
         },
         "description": "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `corrections` test set (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`)."
       },
-      "RescoreEvalRunBody": {
+      "RescoreTestRunBody": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Body of `POST /v1/eval-runs/{runId}/rescore`: optional.",
+        "description": "Body of `POST /v1/test-runs/{testRunId}/rescore`: optional.",
         "properties": {
           "projectId": {
             "type": "string",
@@ -16747,14 +16747,14 @@
           }
         }
       },
-      "StartEvalRunResult": {
+      "StartTestRunResult": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "runId"
+          "testRunId"
         ],
         "properties": {
-          "runId": {
+          "testRunId": {
             "type": "string",
             "format": "uuid"
           },
@@ -20521,7 +20521,7 @@
           "secret-rotation",
           "incident-event",
           "guardrail-violation",
-          "eval-run",
+          "test-run",
           "approval-completed",
           "data-retention-action",
           "authn-event",
@@ -20695,7 +20695,7 @@
               "secret-rotation",
               "incident-event",
               "guardrail-violation",
-              "eval-run",
+              "test-run",
               "approval-completed",
               "data-retention-action",
               "authn-event",
@@ -20892,7 +20892,7 @@
               "secret-rotation",
               "incident-event",
               "guardrail-violation",
-              "eval-run",
+              "test-run",
               "approval-completed",
               "data-retention-action",
               "authn-event",
@@ -20987,7 +20987,7 @@
                   "secret-rotation",
                   "incident-event",
                   "guardrail-violation",
-                  "eval-run",
+                  "test-run",
                   "approval-completed",
                   "data-retention-action",
                   "authn-event",
@@ -27818,17 +27818,17 @@
               "default": "exclude"
             },
             "required": false,
-            "description": "Replay runs (an eval run re-running a past run). `exclude` (default) leaves them out; `include` lists them with the other runs; `only` lists just them."
+            "description": "Replay runs (a test run re-running a past run). `exclude` (default) leaves them out; `include` lists them with the other runs; `only` lists just them."
           },
           {
-            "name": "evalRunId",
+            "name": "testRunId",
             "in": "query",
             "schema": {
               "type": "string",
               "minLength": 1
             },
             "required": false,
-            "description": "Only the replay runs of this eval run. Implies replays are included; cannot be combined with `replays=exclude`."
+            "description": "Only the replay runs of this test run. Implies replays are included; cannot be combined with `replays=exclude`."
           },
           {
             "name": "triggerId",
@@ -27981,7 +27981,7 @@
             }
           }
         },
-        "description": "Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, eval runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.",
+        "description": "Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, test runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.",
         "parameters": [
           {
             "name": "projectId",
@@ -35878,7 +35878,7 @@
             }
           },
           "404": {
-            "description": "The version is not registered, or was unregistered; or the eval run is not found.",
+            "description": "The version is not registered, or was unregistered; or the test run is not found.",
             "content": {
               "application/json": {
                 "schema": {
@@ -35958,7 +35958,7 @@
             }
           }
         },
-        "description": "Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.\n\nWith a gate policy for the scope (`GET …/gate-policy`), the promotion is checked first against the comparison named by `evalRunId`: `201` promoted; `202` the gate passed and the policy wants a reviewer's approval (a HITL approval, subject `agent-promotion`; the live version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.promotionId`, `details.policy` and every check in `details.checks`. A refused promotion is recorded too.\n\nA pin in place skips the gate: when the scope has no live version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is promoted (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 promotion-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: making a version live writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole tenant, which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its suggested change changed, or another block's file a version not older), or the block left the pack, `409 promotion-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way.",
+        "description": "Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.\n\nWith a gate policy for the scope (`GET …/gate-policy`), the promotion is checked first against the comparison named by `testRunId`: `201` promoted; `202` the gate passed and the policy wants a reviewer's approval (a HITL approval, subject `agent-promotion`; the live version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.promotionId`, `details.policy` and every check in `details.checks`. A refused promotion is recorded too.\n\nA pin in place skips the gate: when the scope has no live version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is promoted (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 promotion-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: making a version live writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole tenant, which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its suggested change changed, or another block's file a version not older), or the block left the pack, `409 promotion-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way.",
         "parameters": [
           {
             "name": "agentId",
@@ -36141,7 +36141,7 @@
             }
           },
           "400": {
-            "description": "Malformed body, or the eval run is not a finished comparison. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
+            "description": "Malformed body, or the test run is not a finished comparison. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -36161,7 +36161,7 @@
             }
           },
           "404": {
-            "description": "The version, the agent or the eval run is not found.",
+            "description": "The version, the agent or the test run is not found.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42968,7 +42968,7 @@
             }
           }
         },
-        "description": "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.",
+        "description": "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -43253,7 +43253,7 @@
             }
           }
         },
-        "description": "The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.",
+        "description": "The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a promotion makes them live. Then a comparison test run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.",
         "parameters": [
           {
             "name": "suggestedChangeId",
@@ -43342,7 +43342,7 @@
             }
           },
           "409": {
-            "description": "`suggested-change-invalid-state-transition`: the suggested change's status doesn't allow it. `eval-run-not-rescorable`: the latest evaluation isn't a completed comparison.",
+            "description": "`suggested-change-invalid-state-transition`: the suggested change's status doesn't allow it. `test-run-not-rescorable`: the latest evaluation isn't a completed comparison.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43372,7 +43372,7 @@
             }
           }
         },
-        "description": "After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those corrections, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.",
+        "description": "After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison test run scores the same replays again, counting those corrections, as `POST /v1/test-runs/{testRunId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.",
         "parameters": [
           {
             "name": "suggestedChangeId",
@@ -49934,7 +49934,7 @@
       },
       "post": {
         "operationId": "testSets.publish",
-        "summary": "Publish an test set",
+        "summary": "Publish a test set",
         "tags": [
           "test-sets"
         ],
@@ -50053,7 +50053,7 @@
     "/v1/test-sets/{testSetId}": {
       "get": {
         "operationId": "testSets.get",
-        "summary": "Fetch an test set (latest version)",
+        "summary": "Fetch a test set (latest version)",
         "tags": [
           "test-sets"
         ],
@@ -50142,7 +50142,7 @@
     "/v1/test-sets/{testSetId}/versions": {
       "get": {
         "operationId": "testSets.versions.list",
-        "summary": "List versions of an test set",
+        "summary": "List versions of a test set",
         "tags": [
           "test-sets"
         ],
@@ -50579,7 +50579,7 @@
     "/v1/test-sets/{testSetId}/versions/{version}/unregister": {
       "post": {
         "operationId": "testSets.versions.unregister",
-        "summary": "Unregister an test set version",
+        "summary": "Unregister a test set version",
         "tags": [
           "test-sets"
         ],
@@ -51605,18 +51605,18 @@
     },
     "/v1/test-sets/{testSetId}/runs": {
       "post": {
-        "operationId": "evalRuns.start",
-        "summary": "Start an eval run against a test set",
+        "operationId": "testRuns.start",
+        "summary": "Start a test run against a test set",
         "tags": [
-          "eval-runs"
+          "test-runs"
         ],
         "responses": {
           "201": {
-            "description": "Eval run started.",
+            "description": "Test run started.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StartEvalRunResult"
+                  "$ref": "#/components/schemas/StartTestRunResult"
                 }
               }
             }
@@ -51652,7 +51652,7 @@
             }
           },
           "409": {
-            "description": "`project-suspended`: the project is suspended, so no eval run starts in it. Or Idempotency-Key was reused with a different body.",
+            "description": "`project-suspended`: the project is suspended, so no test run starts in it. Or Idempotency-Key was reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -51702,7 +51702,7 @@
             }
           }
         },
-        "description": "Dispatches an eval run against the latest version of the test set. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.",
+        "description": "Dispatches a test run against the latest version of the test set. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.",
         "parameters": [
           {
             "name": "testSetId",
@@ -51730,7 +51730,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/StartEvalRunBody"
+                "$ref": "#/components/schemas/StartTestRunBody"
               }
             }
           }
@@ -51742,20 +51742,20 @@
         ]
       }
     },
-    "/v1/eval-runs": {
+    "/v1/test-runs": {
       "get": {
-        "operationId": "evalRuns.list",
-        "summary": "List eval runs",
+        "operationId": "testRuns.list",
+        "summary": "List test runs",
         "tags": [
-          "eval-runs"
+          "test-runs"
         ],
         "responses": {
           "200": {
-            "description": "Page of eval runs.",
+            "description": "Page of test runs.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EvalRunCollectionPage"
+                  "$ref": "#/components/schemas/TestRunCollectionPage"
                 }
               }
             }
@@ -51827,10 +51827,10 @@
             "name": "status",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/EvalRunStatus"
+              "$ref": "#/components/schemas/TestRunStatus"
             },
             "required": false,
-            "description": "Filter to a single EvalRunStatus."
+            "description": "Filter to a single TestRunStatus."
           },
           {
             "name": "agentId",
@@ -51907,20 +51907,20 @@
         ]
       }
     },
-    "/v1/eval-runs/{runId}": {
+    "/v1/test-runs/{testRunId}": {
       "get": {
-        "operationId": "evalRuns.get",
-        "summary": "Fetch an eval run",
+        "operationId": "testRuns.get",
+        "summary": "Fetch a test run",
         "tags": [
-          "eval-runs"
+          "test-runs"
         ],
         "responses": {
           "200": {
-            "description": "Eval run.",
+            "description": "Test run.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EvalRun"
+                  "$ref": "#/components/schemas/TestRun"
                 }
               }
             }
@@ -51936,7 +51936,7 @@
             }
           },
           "404": {
-            "description": "No eval run with that id under this tenant.",
+            "description": "No test run with that id under this tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -51958,14 +51958,14 @@
         },
         "parameters": [
           {
-            "name": "runId",
+            "name": "testRunId",
             "in": "path",
             "schema": {
               "type": "string",
               "format": "uuid"
             },
             "required": true,
-            "description": "EvalRunId — opaque branded UUID."
+            "description": "TestRunId — opaque branded UUID."
           }
         ],
         "security": [
@@ -51975,12 +51975,12 @@
         ]
       }
     },
-    "/v1/eval-runs/{runId}/cancel": {
+    "/v1/test-runs/{testRunId}/cancel": {
       "post": {
-        "operationId": "evalRuns.cancel",
-        "summary": "Cancel an eval run",
+        "operationId": "testRuns.cancel",
+        "summary": "Cancel a test run",
         "tags": [
-          "eval-runs"
+          "test-runs"
         ],
         "responses": {
           "200": {
@@ -51988,7 +51988,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EvalRun"
+                  "$ref": "#/components/schemas/TestRun"
                 }
               }
             }
@@ -52004,7 +52004,7 @@
             }
           },
           "404": {
-            "description": "No eval run with that id under this tenant.",
+            "description": "No test run with that id under this tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -52027,14 +52027,14 @@
         "description": "Best-effort cancel. Returns 409 when the run is already terminal.",
         "parameters": [
           {
-            "name": "runId",
+            "name": "testRunId",
             "in": "path",
             "schema": {
               "type": "string",
               "format": "uuid"
             },
             "required": true,
-            "description": "EvalRunId — opaque branded UUID."
+            "description": "TestRunId — opaque branded UUID."
           }
         ],
         "security": [
@@ -52044,12 +52044,12 @@
         ]
       }
     },
-    "/v1/eval-runs/{runId}/rescore": {
+    "/v1/test-runs/{testRunId}/rescore": {
       "post": {
-        "operationId": "evalRuns.rescore",
-        "summary": "Rescore a comparison eval run",
+        "operationId": "testRuns.rescore",
+        "summary": "Rescore a comparison test run",
         "tags": [
-          "eval-runs"
+          "test-runs"
         ],
         "responses": {
           "201": {
@@ -52057,7 +52057,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StartEvalRunResult"
+                  "$ref": "#/components/schemas/StartTestRunResult"
                 }
               }
             }
@@ -52083,7 +52083,7 @@
             }
           },
           "404": {
-            "description": "No eval run with that id under this tenant.",
+            "description": "No test run with that id under this tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -52093,7 +52093,7 @@
             }
           },
           "409": {
-            "description": "`eval-run-not-rescorable`: only a completed comparison of a test set can be rescored.",
+            "description": "`test-run-not-rescorable`: only a completed comparison of a test set can be rescored.",
             "content": {
               "application/json": {
                 "schema": {
@@ -52113,17 +52113,17 @@
             }
           }
         },
-        "description": "Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's test set and `write` on its project.",
+        "description": "Starts a new comparison test run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's test set and `write` on its project.",
         "parameters": [
           {
-            "name": "runId",
+            "name": "testRunId",
             "in": "path",
             "schema": {
               "type": "string",
               "format": "uuid"
             },
             "required": true,
-            "description": "EvalRunId — opaque branded UUID."
+            "description": "TestRunId — opaque branded UUID."
           }
         ],
         "requestBody": {
@@ -52131,7 +52131,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RescoreEvalRunBody"
+                "$ref": "#/components/schemas/RescoreTestRunBody"
               }
             }
           }
@@ -52143,12 +52143,12 @@
         ]
       }
     },
-    "/v1/eval-runs/{runId}/events": {
+    "/v1/test-runs/{testRunId}/events": {
       "get": {
-        "operationId": "evalRuns.events",
-        "summary": "Stream eval-run events (SSE)",
+        "operationId": "testRuns.events",
+        "summary": "Stream test-run events (SSE)",
         "tags": [
-          "eval-runs"
+          "test-runs"
         ],
         "responses": {
           "200": {
@@ -52165,7 +52165,7 @@
             }
           },
           "404": {
-            "description": "No eval run with that id under this tenant.",
+            "description": "No test run with that id under this tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -52185,17 +52185,17 @@
             }
           }
         },
-        "description": "Server-Sent Events. Per-case progress events (`eval-run.case-completed` / `eval-run.case-failed`) followed by a terminal event (`eval-run.completed` / `eval-run.failed` / `eval-run.cancelled`) carrying the aggregate result. Mirrors `/v1/runs/:runId/stream` structurally.",
+        "description": "Server-Sent Events. Per-case progress events (`test-run.case-completed` / `test-run.case-failed`) followed by a terminal event (`test-run.completed` / `test-run.failed` / `test-run.cancelled`) carrying the aggregate result. Mirrors `/v1/runs/:runId/stream` structurally.",
         "parameters": [
           {
-            "name": "runId",
+            "name": "testRunId",
             "in": "path",
             "schema": {
               "type": "string",
               "format": "uuid"
             },
             "required": true,
-            "description": "EvalRunId — opaque branded UUID."
+            "description": "TestRunId — opaque branded UUID."
           },
           {
             "name": "Last-Event-Id",

@@ -394,7 +394,7 @@ export const PromotionSchema: JsonSchema = {
       },
     },
     reason: { type: 'string' },
-    evalRunId: { type: 'string', description: 'The comparison behind the change.' },
+    testRunId: { type: 'string', description: 'The comparison behind the change.' },
     createdAt: { type: 'string', format: 'date-time' },
     status: {
       type: 'string',
@@ -644,7 +644,7 @@ export const GatePolicySpecSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`evalRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.',
+    'What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.',
   properties: {
     comparison: {
       type: 'object',
@@ -791,7 +791,7 @@ export const PromoteBodySchema: JsonSchema = {
     },
     scope: { $ref: '#/components/schemas/LiveScope' },
     reason: { type: 'string', maxLength: 2000 },
-    evalRunId: { type: 'string', description: 'The comparison behind this promotion.' },
+    testRunId: { type: 'string', description: 'The comparison behind this promotion.' },
   },
 };
 
@@ -1114,7 +1114,7 @@ export const RunSchema: JsonSchema = {
     actsFor: {
       type: 'string',
       description:
-        "Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.",
+        "Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.",
     },
     toolsAllowedUnattended: {
       type: 'array',
@@ -1125,11 +1125,11 @@ export const RunSchema: JsonSchema = {
     replayOf: {
       type: 'string',
       format: 'uuid',
-      description: 'Set on a replay run (an eval run re-running a past run): the run it replays.',
+      description: 'Set on a replay run (a test run re-running a past run): the run it replays.',
     },
-    evalRunId: {
+    testRunId: {
       type: 'string',
-      description: 'Set on a replay run: the eval run that started it.',
+      description: 'Set on a replay run: the test run that started it.',
     },
     versions: { $ref: '#/components/schemas/FlowVersionOverrides' },
     segments: {
@@ -5523,7 +5523,7 @@ export const CorrectedEvalCaseSchema: JsonSchema = {
       type: 'boolean',
       const: true,
       description:
-        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and eval runs leave it out (counted as `erased`).",
+        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and test runs leave it out (counted as `erased`).",
     },
   },
 };
@@ -6291,7 +6291,7 @@ export const SuggestedChangeStatusSchema: JsonSchema = {
     'withdrawn',
   ],
   description:
-    "Where a suggested change stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `pinned`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the suggested change. `withdrawn`: withdrawn.",
+    "Where a suggested change stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `pinned`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: only on an older suggested change rolled back by its own `rollback`, which is removed; a rollback today goes through the agent's live routes and leaves it `pinned`. `withdrawn`: withdrawn.",
 };
 
 export const SuggestedChangeBlockEditSchema: JsonSchema = {
@@ -6384,18 +6384,18 @@ export const SuggestedChangeCandidateSchema: JsonSchema = {
 export const SuggestedChangeEvaluationSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['evalRunId', 'testSetId', 'objective', 'startedAt'],
+  required: ['testRunId', 'testSetId', 'objective', 'startedAt'],
   description:
-    "The comparison the suggested change was evaluated with, and what it found on the objective metric (the full summary is the eval run's).",
+    "The comparison the suggested change was evaluated with, and what it found on the objective metric (the full summary is the test run's).",
   properties: {
-    evalRunId: { type: 'string', format: 'uuid' },
+    testRunId: { type: 'string', format: 'uuid' },
     testSetId: { type: 'string', description: 'The test set (a corrections test set).' },
     objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
     startedAt: { type: 'string', format: 'date-time' },
     runStatus: {
       type: 'string',
       enum: ['pending', 'running', 'completed', 'failed', 'cancelled'],
-      description: "The eval run's status. Absent when the run can't be read.",
+      description: "The test run's status. Absent when the run can't be read.",
     },
     baseline: {
       type: ['number', 'null'],
@@ -6649,18 +6649,18 @@ export const ImprovementPassSchema: JsonSchema = {
     cancelReason: {
       type: 'string',
       description:
-        "Why a `cancelled` pass stopped when nobody cancelled it: a comparison's eval run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no suggested change. Absent when it was cancelled.",
+        "Why a `cancelled` pass stopped when nobody cancelled it: a comparison's test run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no suggested change. Absent when it was cancelled.",
     },
     comparisons: {
       type: 'array',
       description:
-        'Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the suggested change, on the hold-out part). Absent from older servers.',
+        'Its comparisons so far, each a test run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the suggested change, on the hold-out part). Absent from older servers.',
       items: {
         type: 'object',
         additionalProperties: false,
         required: ['role', 'part'],
         properties: {
-          evalRunId: { type: 'string', format: 'uuid' },
+          testRunId: { type: 'string', format: 'uuid' },
           role: { type: 'string', enum: ['reference', 'candidate', 'proof'] },
           part: { type: 'string', enum: ['search', 'hold-out'] },
           blockId: { type: 'string' },
@@ -6725,7 +6725,7 @@ export const ImproveBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The project the pass works in: `testSetId` must be a test set it reaches, the version must reach it, and the pass's eval runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.",
+        "The project the pass works in: `testSetId` must be a test set it reaches, the version must reach it, and the pass's test runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.",
     },
     scope: { $ref: '#/components/schemas/LiveScope' },
     testSetId: {
@@ -9017,19 +9017,19 @@ export const ReinstateBlockResultSchema: JsonSchema = {
   },
 };
 
-// ---------------- eval runs (admin plane) ----------------
+// ---------------- test runs (admin plane) ----------------
 
 /**
- * Terminal + pre-terminal statuses for an eval run. Same vocabulary as
+ * Terminal + pre-terminal statuses for a test run. Same vocabulary as
  * runs, plus a `pending` state for dispatchers that queue before
  * executing.
  */
-export const EvalRunStatusSchema: JsonSchema = {
+export const TestRunStatusSchema: JsonSchema = {
   type: 'string',
   enum: ['pending', 'running', 'completed', 'failed', 'cancelled'],
 };
 
-export const EvalRunAgentRefSchema: JsonSchema = {
+export const TestRunAgentRefSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['agentId'],
@@ -9039,7 +9039,7 @@ export const EvalRunAgentRefSchema: JsonSchema = {
   },
 };
 
-export const EvalRunFlowRefSchema: JsonSchema = {
+export const TestRunFlowRefSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['flowId'],
@@ -9125,7 +9125,7 @@ export const EvalComparisonSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['baseline', 'reads', 'repetitions', 'k'],
-  description: "A comparison eval run's settings (a `corrections` test set).",
+  description: "A comparison test run's settings (a `corrections` test set).",
   properties: {
     baseline: { $ref: '#/components/schemas/EvalBaseline' },
     reads: {
@@ -9148,12 +9148,12 @@ export const EvalComparisonSchema: JsonSchema = {
     rescoreOf: {
       type: 'string',
       description:
-        "Rescore that comparison eval run instead of replaying: its replays' outputs are scored again, with the corrections recorded on them since (a changed answer corrected on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/eval-runs/{runId}/rescore`.",
+        "Rescore that comparison test run instead of replaying: its replays' outputs are scored again, with the corrections recorded on them since (a changed answer corrected on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/test-runs/{runId}/rescore`.",
     },
   },
 };
 
-// ---------------- comparison results (a `corrections` eval run's `result`) ----------------
+// ---------------- comparison results (a `corrections` test run's `result`) ----------------
 
 const nullableNumber = { type: ['number', 'null'] } as const;
 
@@ -9248,7 +9248,7 @@ export const CorrectedComparisonSummarySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: [
-    'evalRunId',
+    'testRunId',
     'status',
     'completedAt',
     'testSet',
@@ -9266,7 +9266,7 @@ export const CorrectedComparisonSummarySchema: JsonSchema = {
     'metrics',
   ],
   properties: {
-    evalRunId: { type: 'string' },
+    testRunId: { type: 'string' },
     status: { type: 'string', enum: ['completed', 'partial', 'failed'] },
     completedAt: { type: 'string', format: 'date-time' },
     testSet: {
@@ -9343,7 +9343,7 @@ export const CorrectedComparisonSummarySchema: JsonSchema = {
     },
     rescoreOf: {
       type: 'string',
-      description: 'A rescore: the comparison eval run whose replays it scored again.',
+      description: 'A rescore: the comparison test run whose replays it scored again.',
     },
     notRescored: {
       type: 'integer',
@@ -9657,10 +9657,10 @@ export const ComparisonCaseResultSchema: JsonSchema = {
   },
 };
 
-export const RescoreEvalRunBodySchema: JsonSchema = {
+export const RescoreTestRunBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  description: 'Body of `POST /v1/eval-runs/{runId}/rescore`: optional.',
+  description: 'Body of `POST /v1/test-runs/{testRunId}/rescore`: optional.',
   properties: {
     projectId: {
       type: 'string',
@@ -9672,7 +9672,7 @@ export const RescoreEvalRunBodySchema: JsonSchema = {
 
 export const CorrectedComparisonResultSchema: JsonSchema = {
   description:
-    "A comparison's `result` (a `corrections` eval run's): the summary and each case. `EvalRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).",
+    "A comparison's `result` (a `corrections` test run's): the summary and each case. `TestRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).",
   type: 'object',
   additionalProperties: false,
   required: ['summary', 'perCase'],
@@ -9682,11 +9682,11 @@ export const CorrectedComparisonResultSchema: JsonSchema = {
   },
 };
 
-export const EvalRunSchema: JsonSchema = {
+export const TestRunSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: [
-    'runId',
+    'testRunId',
     'tenantId',
     'testSetId',
     'testSetVersion',
@@ -9696,20 +9696,20 @@ export const EvalRunSchema: JsonSchema = {
     'startedAt',
   ],
   properties: {
-    runId: { type: 'string', format: 'uuid' },
+    testRunId: { type: 'string', format: 'uuid' },
     tenantId: { type: 'string', format: 'uuid' },
     projectId: {
       type: 'string',
       format: 'uuid',
       description:
-        'The project the eval run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6.',
+        'The project the test run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6.',
     },
     testSetId: { type: 'string' },
     testSetVersion: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
     kind: { $ref: '#/components/schemas/EvalKind' },
-    agentRef: { $ref: '#/components/schemas/EvalRunAgentRef' },
-    flowRef: { $ref: '#/components/schemas/EvalRunFlowRef' },
-    status: EvalRunStatusSchema,
+    agentRef: { $ref: '#/components/schemas/TestRunAgentRef' },
+    flowRef: { $ref: '#/components/schemas/TestRunFlowRef' },
+    status: TestRunStatusSchema,
     dryRun: { type: 'boolean' },
     startedAt: { type: 'string', format: 'date-time' },
     completedAt: { type: 'string', format: 'date-time' },
@@ -9730,25 +9730,25 @@ export const EvalRunSchema: JsonSchema = {
   },
 };
 
-export const EvalRunCollectionPageSchema: JsonSchema = {
+export const TestRunCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/EvalRun' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/TestRun' } },
     nextCursor: { type: 'string' },
     hasMore: { type: 'boolean' },
   },
 };
 
-export const StartEvalRunBodySchema: JsonSchema = {
+export const StartTestRunBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['projectId'],
   properties: {
     projectId: ContentProjectIdProperty,
-    agentRef: { $ref: '#/components/schemas/EvalRunAgentRef' },
-    flowRef: { $ref: '#/components/schemas/EvalRunFlowRef' },
+    agentRef: { $ref: '#/components/schemas/TestRunAgentRef' },
+    flowRef: { $ref: '#/components/schemas/TestRunFlowRef' },
     dryRun: { type: 'boolean' },
     correlationId: { type: 'string' },
     baseline: { $ref: '#/components/schemas/EvalBaseline' },
@@ -9769,12 +9769,12 @@ export const StartEvalRunBodySchema: JsonSchema = {
     "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `corrections` test set (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).",
 };
 
-export const StartEvalRunResultSchema: JsonSchema = {
+export const StartTestRunResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['runId'],
+  required: ['testRunId'],
   properties: {
-    runId: { type: 'string', format: 'uuid' },
+    testRunId: { type: 'string', format: 'uuid' },
     dryRunPreview: { type: 'object', additionalProperties: true },
   },
 };
@@ -16404,9 +16404,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PublishBlockResult', PublishBlockResultSchema],
   ['UnregisterBlockResult', UnregisterBlockResultSchema],
   ['ReinstateBlockResult', ReinstateBlockResultSchema],
-  ['EvalRunStatus', EvalRunStatusSchema],
-  ['EvalRunAgentRef', EvalRunAgentRefSchema],
-  ['EvalRunFlowRef', EvalRunFlowRefSchema],
+  ['TestRunStatus', TestRunStatusSchema],
+  ['TestRunAgentRef', TestRunAgentRefSchema],
+  ['TestRunFlowRef', TestRunFlowRefSchema],
   ['EvalBaseline', EvalBaselineSchema],
   ['EvalOverrides', EvalOverridesSchema],
   ['EvalSample', EvalSampleSchema],
@@ -16418,11 +16418,11 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CallDifference', CallDifferenceSchema],
   ['ComparisonCaseResult', ComparisonCaseResultSchema],
   ['CorrectedComparisonResult', CorrectedComparisonResultSchema],
-  ['EvalRun', EvalRunSchema],
-  ['EvalRunCollectionPage', EvalRunCollectionPageSchema],
-  ['StartEvalRunBody', StartEvalRunBodySchema],
-  ['RescoreEvalRunBody', RescoreEvalRunBodySchema],
-  ['StartEvalRunResult', StartEvalRunResultSchema],
+  ['TestRun', TestRunSchema],
+  ['TestRunCollectionPage', TestRunCollectionPageSchema],
+  ['StartTestRunBody', StartTestRunBodySchema],
+  ['RescoreTestRunBody', RescoreTestRunBodySchema],
+  ['StartTestRunResult', StartTestRunResultSchema],
   ['IdentityProviderKind', IdentityProviderKindSchema],
   ['ClaimMappingScopesSpec', ClaimMappingScopesSpecSchema],
   ['ClaimMappingSpec', ClaimMappingSpecSchema],

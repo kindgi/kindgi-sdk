@@ -241,7 +241,7 @@ function turn(guardrails: readonly Guardrail[], options: TurnOptions = {}) {
       conversationId: 'c-1',
       agent,
       userMessage: 'Refund order A-1042.',
-      ...(options.replayed !== undefined && { replay: { of: 'run-past', evalRunId: 'eval-1' } }),
+      ...(options.replayed !== undefined && { replay: { of: 'run-past', testRunId: 'eval-1' } }),
     },
     bindings: {
       checks,

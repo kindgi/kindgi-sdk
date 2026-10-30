@@ -13,7 +13,7 @@ import type {
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
 import { SCOPE_FLAGS, SCOPE_USAGE, scopeCell, scopeFrom } from './agents.js';
-import { GROUP_WEIGHTS, READS, followEvalRun, oneOfFlag } from './eval-runs.js';
+import { GROUP_WEIGHTS, READS, followTestRun, oneOfFlag } from './test-runs.js';
 import {
   type TableSpec,
   integerFlag,
@@ -273,7 +273,7 @@ const evaluate: LeafCommand = {
       const id = requiredPositional(ctx, 0, 'suggested-change-id');
       const suggestedChanges = ctx.client().suggestedChanges;
       const follow = () =>
-        followEvalRun(id, {
+        followTestRun(id, {
           get: (suggestedChangeId) => suggestedChanges.get(suggestedChangeId),
           inProgress: EVALUATING,
           showCommand: 'kindgi suggested-changes get',

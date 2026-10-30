@@ -42,7 +42,7 @@ export interface ImproveInput {
   readonly fromVersion?: string;
   /**
    * The project the pass works in: the test sets it may use, and where
-   * its eval runs run. Default: the scope's project, else (a tenant or
+   * its test runs run. Default: the scope's project, else (a tenant or
    * org scope) the agent version's.
    */
   readonly projectId?: string;

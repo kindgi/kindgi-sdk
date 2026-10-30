@@ -55,12 +55,12 @@ function withRunExit(
 /** Statuses `start --wait` waits through. */
 const IN_PROGRESS: ReadonlySet<string> = new Set(['pending', 'running']);
 
-export interface FollowEvalRunOptions<T> {
-  /** Read the eval run by id (the client's `evalRuns.get`). */
-  readonly get: (runId: string) => Promise<T>;
+export interface FollowTestRunOptions<T> {
+  /** Read the test run by id (the client's `testRuns.get`). */
+  readonly get: (testRunId: string) => Promise<T>;
   /** The statuses it waits through (default `pending` and `running`). */
   readonly inProgress?: ReadonlySet<string>;
-  /** The command that shows it, for the message when it stops waiting (default `kindgi eval-runs show`). */
+  /** The command that shows it, for the message when it stops waiting (default `kindgi test-runs show`). */
   readonly showCommand?: string;
   /** The pause between reads (default 1 s). */
   readonly pollMs?: number;
@@ -70,13 +70,13 @@ export interface FollowEvalRunOptions<T> {
 }
 
 /**
- * The eval run as it is when it stops being in progress (`start --wait`).
+ * The test run as it is when it stops being in progress (`start --wait`).
  * Throws when it's still running after `maxMs`, naming the command that
  * shows it.
  */
-export async function followEvalRun<T extends { readonly status: string }>(
-  runId: string,
-  options: FollowEvalRunOptions<T>,
+export async function followTestRun<T extends { readonly status: string }>(
+  testRunId: string,
+  options: FollowTestRunOptions<T>,
 ): Promise<T> {
   const pollMs = options.pollMs ?? 1_000;
   const maxMs = options.maxMs ?? 30 * 60 * 1_000;
@@ -84,11 +84,11 @@ export async function followEvalRun<T extends { readonly status: string }>(
   for (let waited = 0; ; ) {
     await sleep(pollMs);
     waited += pollMs;
-    const run = await options.get(runId);
+    const run = await options.get(testRunId);
     if (!(options.inProgress ?? IN_PROGRESS).has(run.status)) return run;
     if (waited >= maxMs) {
       throw new Error(
-        `Still running after ${Math.round(maxMs / 60_000)} minutes: ${options.showCommand ?? 'kindgi eval-runs show'} ${runId}`,
+        `Still running after ${Math.round(maxMs / 60_000)} minutes: ${options.showCommand ?? 'kindgi test-runs show'} ${testRunId}`,
       );
     }
   }
@@ -223,9 +223,9 @@ const start: LeafCommand = {
   kind: 'leaf',
   name: 'start',
   description:
-    "Start an eval run. On test cases (a `corrections` test set), the run tries a version (`--agent` with `--agent-version`, or `--flow` with `--flow-version`) against the recorded runs: each case is replayed without doing anything the past run didn't, and the result's summary has the metrics.",
+    "Start a test run. On test cases (a `corrections` test set), the run tries a version (`--agent` with `--agent-version`, or `--flow` with `--flow-version`) against the recorded runs: each case is replayed without doing anything the past run didn't, and the result's summary has the metrics.",
   usage:
-    'kindgi eval-runs start <test-set-id> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id> [--flow-version=<v>] [--with=<id>@<version> ...]) [--baseline=recorded|<agentId>@<version>|live] [--baseline-project=<id>] [--baseline-segment=<key>:<value> ...] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--group-weights=as-recorded|experts-only] [--dry-run] [--wait]',
+    'kindgi test-runs start <test-set-id> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id> [--flow-version=<v>] [--with=<id>@<version> ...]) [--baseline=recorded|<agentId>@<version>|live] [--baseline-project=<id>] [--baseline-segment=<key>:<value> ...] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--group-weights=as-recorded|experts-only] [--dry-run] [--wait]',
   optionSpec: {
     project: { type: 'string', description: 'The project the run belongs to. Required.' },
     agent: { type: 'string', description: 'Run this agent.' },
@@ -286,7 +286,7 @@ const start: LeafCommand = {
     },
   },
   run: (ctx) =>
-    runSdkRendered(ctx, 'eval-runs start', async () => {
+    runSdkRendered(ctx, 'test-runs start', async () => {
       const testSetId = requiredPositional(ctx, 0, 'test-set-id');
       const projectId = stringFlag(ctx, 'project');
       if (projectId === undefined) throw new UsageError('--project=<id> is required');
@@ -307,11 +307,11 @@ const start: LeafCommand = {
         ...(groupWeights !== undefined && { groupWeights }),
         ...(ctx.options['dry-run'] === true && { dryRun: true }),
       };
-      const evalRuns = ctx.client().evalRuns;
-      const started = await evalRuns.start(testSetId, input, { projectId });
+      const testRuns = ctx.client().testRuns;
+      const started = await testRuns.start(testSetId, input, { projectId });
       if (ctx.options.wait !== true) return renderJson(started, ctx.globals.format);
 
-      const run = await followEvalRun(started.runId, { get: (id) => evalRuns.get(id) });
+      const run = await followTestRun(started.testRunId, { get: (id) => testRuns.get(id) });
       return withRunExit(run, ctx);
     }),
 };
@@ -319,21 +319,21 @@ const start: LeafCommand = {
 const show: LeafCommand = {
   kind: 'leaf',
   name: 'show',
-  description: 'Show an eval run: its status and, once done, its summary.',
-  usage: 'kindgi eval-runs show <run-id>',
+  description: 'Show a test run: its status and, once done, its summary.',
+  usage: 'kindgi test-runs show <test-run-id>',
   optionSpec: {},
   run: (ctx) =>
-    runSdk(ctx, 'eval-runs show', async () => {
-      const runId = requiredPositional(ctx, 0, 'run-id');
-      return await ctx.client().evalRuns.get(runId);
+    runSdk(ctx, 'test-runs show', async () => {
+      const testRunId = requiredPositional(ctx, 0, 'test-run-id');
+      return await ctx.client().testRuns.get(testRunId);
     }),
 };
 
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: 'List eval runs, newest first.',
-  usage: `kindgi eval-runs list [--test-set=<id>] [--status=${STATUSES.join('|')}] [--agent=<id>] [--limit=<n>] [--cursor=<c>]`,
+  description: 'List test runs, newest first.',
+  usage: `kindgi test-runs list [--test-set=<id>] [--status=${STATUSES.join('|')}] [--agent=<id>] [--limit=<n>] [--cursor=<c>]`,
   optionSpec: {
     'test-set': { type: 'string', description: 'Only runs of this test set.' },
     status: { type: 'string', description: `Only this status: ${STATUSES.join(', ')}.` },
@@ -341,7 +341,7 @@ const list: LeafCommand = {
     ...PAGE_FLAGS,
   },
   run: (ctx) =>
-    runSdk(ctx, 'eval-runs list', async () => {
+    runSdk(ctx, 'test-runs list', async () => {
       const status = stringFlag(ctx, 'status');
       if (status !== undefined && !(STATUSES as readonly string[]).includes(status)) {
         throw new UsageError(`--status must be one of ${STATUSES.join(', ')}, got "${status}"`);
@@ -350,7 +350,7 @@ const list: LeafCommand = {
       const agentId = stringFlag(ctx, 'agent');
       const limit = integerFlag(ctx, 'limit');
       const cursor = stringFlag(ctx, 'cursor');
-      return await ctx.client().evalRuns.list({
+      return await ctx.client().testRuns.list({
         ...(testSetId !== undefined && { testSetId }),
         ...(status !== undefined && { status: status as Status }),
         ...(agentId !== undefined && { agentId }),
@@ -363,13 +363,13 @@ const list: LeafCommand = {
 const cancel: LeafCommand = {
   kind: 'leaf',
   name: 'cancel',
-  description: 'Cancel an eval run that is pending or running.',
-  usage: 'kindgi eval-runs cancel <run-id>',
+  description: 'Cancel a test run that is pending or running.',
+  usage: 'kindgi test-runs cancel <test-run-id>',
   optionSpec: {},
   run: (ctx) =>
-    runSdk(ctx, 'eval-runs cancel', async () => {
-      const runId = requiredPositional(ctx, 0, 'run-id');
-      return await ctx.client().evalRuns.cancel(runId);
+    runSdk(ctx, 'test-runs cancel', async () => {
+      const testRunId = requiredPositional(ctx, 0, 'test-run-id');
+      return await ctx.client().testRuns.cancel(testRunId);
     }),
 };
 
@@ -377,8 +377,8 @@ const rescore: LeafCommand = {
   kind: 'leaf',
   name: 'rescore',
   description:
-    "Rescore a completed run on the test cases: a new eval run that replays nothing and scores the run's replays again, with what people corrected on them since (correct a changed answer on its replay, then rescore). The run rescored stays as it was.",
-  usage: 'kindgi eval-runs rescore <run-id> [--project=<project-id>] [--wait]',
+    "Rescore a completed run on the test cases: a new test run that replays nothing and scores the run's replays again, with what people corrected on them since (correct a changed answer on its replay, then rescore). The run rescored stays as it was.",
+  usage: 'kindgi test-runs rescore <test-run-id> [--project=<project-id>] [--wait]',
   optionSpec: {
     project: {
       type: 'string',
@@ -391,24 +391,24 @@ const rescore: LeafCommand = {
     },
   },
   run: (ctx) =>
-    runSdkRendered(ctx, 'eval-runs rescore', async () => {
-      const runId = requiredPositional(ctx, 0, 'run-id');
+    runSdkRendered(ctx, 'test-runs rescore', async () => {
+      const testRunId = requiredPositional(ctx, 0, 'test-run-id');
       const project = stringFlag(ctx, 'project');
       const client = ctx.client();
-      const started = await client.evalRuns.rescore(
-        runId,
+      const started = await client.testRuns.rescore(
+        testRunId,
         project !== undefined ? { projectId: project } : undefined,
       );
       if (ctx.options.wait !== true) return renderJson(started, ctx.globals.format);
-      const run = await followEvalRun(started.runId, { get: (id) => client.evalRuns.get(id) });
+      const run = await followTestRun(started.testRunId, { get: (id) => client.testRuns.get(id) });
       return withRunExit(run, ctx);
     }),
 };
 
-export const evalRunsCommand: Command = {
+export const testRunsCommand: Command = {
   kind: 'group',
-  name: 'eval-runs',
+  name: 'test-runs',
   description:
-    'Eval runs: run a test set, or try an agent version on the test cases (start / show / list / cancel / rescore).',
+    'Test runs: run a test set, or try an agent version on the test cases (start / show / list / cancel / rescore).',
   subcommands: [start, show, list, cancel, rescore],
 };

@@ -138,7 +138,7 @@ cases, with a `delta` of 0, so it's `not-better`:
   },
   "evaluation": {
     "testSetId": "acme.rank-prompt-52080",
-    "evalRunId": "aefcafd1-53df-480e-b01d-05ae55724507",
+    "testRunId": "aefcafd1-53df-480e-b01d-05ae55724507",
     "objective": "weightedYesShare",
     "startedAt": "2026-10-09T13:24:24.401Z",
     "runStatus": "completed",
@@ -162,10 +162,10 @@ be better. Here a change to the agent's instructions from "Answer briefly." to
 them case by case:
 
 ```sh
-pnpm exec kindgi eval-runs show <eval-run-id>
+pnpm exec kindgi test-runs show <test-run-id>
 ```
 
-`<eval-run-id>` is the suggested change's `evaluation.evalRunId`. It prints
+`<test-run-id>` is the suggested change's `evaluation.testRunId`. It prints
 the run on the test cases:
 
 ```json
@@ -247,7 +247,7 @@ Equal isn't better: a rescore that finds the candidate better makes it
   },
   "evaluation": {
     "testSetId": "acme.desk-checks",
-    "evalRunId": "e6d9ec9a-0341-4d18-a3f3-d8e1289f5dc0",
+    "testRunId": "e6d9ec9a-0341-4d18-a3f3-d8e1289f5dc0",
     "objective": "weightedYesShare",
     "startedAt": "2026-10-11T08:09:47.089Z",
     "runStatus": "completed",
@@ -279,9 +279,9 @@ corrected since. `comparison.rescoreOf` names the run rescored. Each metric's
   `refused`, `superseded` or `expired`.
 - **A run on the test cases you started yourself,** not through a suggested
   change, rescores
-  with `kindgi eval-runs rescore <eval-run-id> --wait`.
+  with `kindgi test-runs rescore <test-run-id> --wait`.
 - **In the clients:** `suggestedChanges.rescore(suggestedChangeId)` and
-  `evalRuns.rescore(runId)`, or `eval_runs.rescore(run_id)` in Python.
+  `testRuns.rescore(runId)`, or `test_runs.rescore(run_id)` in Python.
 
 #### In the console
 
@@ -437,7 +437,7 @@ Suggested changes are authorized on their agent: `read` to see one.
 | `rejected` | The reviewer rejected it. |
 | `expired` | The approval expired undecided. |
 | `superseded` | Approved after the scope's live version or policy changed. |
-| `rolled-back` | The scope was rolled back after it was pinned. |
+| `rolled-back` | Only on an older suggested change rolled back by its own `rollback`, which is removed. A rollback today goes through the agent's live routes and leaves it `pinned`. |
 | `withdrawn` | Withdrawn. |
 
 From your app, the clients have the same calls: `suggestedChanges.create`, `list`,

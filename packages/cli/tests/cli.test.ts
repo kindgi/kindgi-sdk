@@ -109,7 +109,7 @@ describe('root-level flags and help', () => {
     const evalCmd = await runCli(baseInputs({ argv: ['eval'] }));
     expect(evalCmd.exitCode).toBe(2);
     expect(evalCmd.stderr).toContain(
-      'Unknown command "eval". Did you mean "kindgi eval-runs" or "kindgi test-sets"?',
+      'Unknown command "eval". Did you mean "kindgi test-runs" or "kindgi test-sets"?',
     );
 
     // A word that is no near-miss keeps the plain message, with no hint.
@@ -121,7 +121,7 @@ describe('root-level flags and help', () => {
   test('the commands a near-miss points to are real', async () => {
     for (const argv of [
       ['proposals', 'improve', '--help'],
-      ['eval-runs', '--help'],
+      ['test-runs', '--help'],
       ['test-sets', '--help'],
     ]) {
       const out = await runCli(baseInputs({ argv }));

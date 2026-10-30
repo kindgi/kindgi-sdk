@@ -22,7 +22,7 @@ import { doctorCommand } from './doctor.js';
 import { egressCommand } from './egress.js';
 import { envCommand } from './env.js';
 import { environmentsCommand } from './environments.js';
-import { evalRunsCommand } from './eval-runs.js';
+import { testRunsCommand } from './test-runs.js';
 import { expertQueueCommand } from './expert-queue.js';
 import { exportsCommand } from './exports.js';
 import { feedbackCommand } from './feedback.js';
@@ -112,7 +112,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   correctorGroupsCommand,
   queueRulesCommand,
   expertQueueCommand,
-  evalRunsCommand,
+  testRunsCommand,
   testSetsCommand,
   blocksCommand,
   gatePoliciesCommand,

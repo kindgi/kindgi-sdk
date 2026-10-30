@@ -663,7 +663,7 @@ function served(kind: OrderItemKind, id: string, refused: ItemRefusal, version?:
 }
 
 /**
- * The project a row of an item's (an eval run, a schedule) is checked on:
+ * The project a row of an item's (a test run, a schedule) is checked on:
  * for an item more than one project serves, the row's own project, so a
  * project's members see and act on what happens there and not elsewhere.
  * `undefined`: an item with one project (or a row without one), checked
@@ -931,7 +931,7 @@ function spansEnvironments(
  * or several. The 409 to answer, else `undefined`. For an agent in no order,
  * with a project scope, or with no rights to ask, `undefined` — today's
  * checks hold. It reads no body and answers nothing but the refusal. The
- * suggested changes' request and rollback call it after their own `deny`, as the
+ * suggested change's pin calls it after its own `deny`, as the
  * live routes and a deployment's make-live call it through
  * `liveChangeRefusal`.
  */

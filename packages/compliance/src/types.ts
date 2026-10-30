@@ -33,7 +33,7 @@ export const EVIDENCE_KINDS = [
   'secret-rotation',
   'incident-event',
   'guardrail-violation',
-  'eval-run',
+  'test-run',
   'approval-completed',
   'data-retention-action',
   'authn-event',

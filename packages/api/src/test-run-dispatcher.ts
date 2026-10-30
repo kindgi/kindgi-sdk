@@ -11,30 +11,30 @@ import type { ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
 import type {
   AgentRef,
   EvalComparison,
-  EvalRun,
-  EvalRunBinding,
-  EvalRunCancelInput,
-  EvalRunCancelOutcome,
-  EvalRunGetInput,
-  EvalRunListInput,
-  EvalRunPage,
-  EvalRunStartInput,
-  EvalRunStartOutcome,
-  EvalRunStatus,
+  TestRun,
+  TestRunBinding,
+  TestRunCancelInput,
+  TestRunCancelOutcome,
+  TestRunGetInput,
+  TestRunListInput,
+  TestRunPage,
+  TestRunStartInput,
+  TestRunStartOutcome,
+  TestRunStatus,
   FlowRef,
-} from './eval-run-binding.js';
-import { EVAL_RUN_STATUSES } from './eval-run-binding.js';
+} from './test-run-binding.js';
+import { TEST_RUN_STATUSES } from './test-run-binding.js';
 import type { EvalKind, TestSet, TestSetRegistryBinding } from './test-set-binding.js';
 
 /**
- * Reference eval-run dispatcher — proves the pattern end-to-end for
- * the `accuracy` kind with an in-process `EvalRunBinding` that wraps
+ * Reference test-run dispatcher — proves the pattern end-to-end for
+ * the `accuracy` kind with an in-process `TestRunBinding` that wraps
  * an in-memory run store. Durable deployments swap this for a
- * dispatcher that starts real runs (`runGraph`) so the EvalRun is a
+ * dispatcher that starts real runs (`runGraph`) so the TestRun is a
  * specialized run and inherits durability + replay + cancel.
  *
  * The in-process shape lets tests wire a subject invoker + a judge
- * without booting a full runtime — the surface (`EvalRunBinding`) is
+ * without booting a full runtime — the surface (`TestRunBinding`) is
  * identical to what a durable deployment exposes.
  */
 
@@ -48,17 +48,17 @@ export interface EvalCase {
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
-export interface EvalRunSubjectInvokeInput {
+export interface TestRunSubjectInvokeInput {
   readonly tenantId: TenantId;
   readonly target: AgentRef | FlowRef;
   readonly input: unknown;
   readonly dryRun: boolean;
   readonly abortSignal: AbortSignal;
-  /** The eval run's project: where the subject runs. */
+  /** The test run's project: where the subject runs. */
   readonly projectId?: ProjectId;
   /**
-   * Set when the subject re-runs a past run (a comparison eval run): the
-   * run is a replay of `of` for the eval run, under the replay rules
+   * Set when the subject re-runs a past run (a comparison test run): the
+   * run is a replay of `of` for the test run, under the replay rules
    * (`InvokeAgentInput.replay`).
    */
   readonly replay?: RunReplayRef;
@@ -68,7 +68,7 @@ export interface EvalRunSubjectInvokeInput {
   readonly versions?: FlowVersionOverrides;
 }
 
-export interface EvalRunSubjectInvokeOutcome {
+export interface TestRunSubjectInvokeOutcome {
   readonly output?: unknown;
   readonly error?: string;
   readonly costUsd?: number;
@@ -100,7 +100,7 @@ export interface EvalRunSubjectInvokeOutcome {
    * The case couldn't start: its project or tenant takes no new runs
    * (`project-suspended`, `tenant-suspended`, `tenant-closing`, as a run
    * start is refused). Not the case's error: the dispatcher stops at it,
-   * counting it nowhere, and the eval run ends `cancelled` with `reason`
+   * counting it nowhere, and the test run ends `cancelled` with `reason`
    * as its `cancelReason`. A runtime that refuses no starts never sets it.
    */
   readonly halt?: { readonly reason: string; readonly message: string };
@@ -112,7 +112,7 @@ export interface EvalRunSubjectInvokeOutcome {
  * `/v1/runs` uses); tests pass a synchronous stub.
  */
 export interface EvalSubjectInvoker {
-  invoke(input: EvalRunSubjectInvokeInput): Promise<EvalRunSubjectInvokeOutcome>;
+  invoke(input: TestRunSubjectInvokeInput): Promise<TestRunSubjectInvokeOutcome>;
 }
 
 /**
@@ -141,15 +141,15 @@ export interface EvalGraderOutcome {
 
 export interface DispatchContext {
   readonly tenantId: TenantId;
-  readonly runId: RunId;
+  readonly testRunId: RunId;
   readonly testSet: TestSet;
   readonly target: AgentRef | FlowRef;
   readonly dryRun: boolean;
   readonly abortSignal: AbortSignal;
   readonly subject: EvalSubjectInvoker;
-  /** The eval run's project. */
+  /** The test run's project. */
   readonly projectId?: ProjectId;
-  /** A comparison eval run's baseline, reads and repetitions. */
+  /** A comparison test run's baseline, reads and repetitions. */
   readonly comparison?: EvalComparison;
   onProgress(perCase: Readonly<Record<string, unknown>>): void;
 }
@@ -161,7 +161,7 @@ export interface DispatchResult {
   readonly cancelReason?: string;
 }
 
-export interface EvalRunDispatcher {
+export interface TestRunDispatcher {
   readonly kind: EvalKind;
   validate?(
     testSet: TestSet,
@@ -190,7 +190,7 @@ export interface AccuracyDispatcherOptions {
  * `dryRun: true` requests. Callers use it as a sanity check before
  * paying for the real run.
  */
-export function createAccuracyDispatcher(options: AccuracyDispatcherOptions): EvalRunDispatcher {
+export function createAccuracyDispatcher(options: AccuracyDispatcherOptions): TestRunDispatcher {
   return {
     kind: 'accuracy',
     validate(testSet): { kind: 'ok' } | { kind: 'err'; message: string } {
@@ -309,12 +309,12 @@ function extractExpected(c: EvalCase): unknown {
   return c.expectedOutput;
 }
 
-// ---------- in-process EvalRunBinding ----------
+// ---------- in-process TestRunBinding ----------
 
-export interface InProcessEvalRunBindingOptions {
+export interface InProcessTestRunBindingOptions {
   readonly testSetRegistry: TestSetRegistryBinding;
   readonly subject: EvalSubjectInvoker;
-  readonly dispatchers: Partial<Record<EvalKind, EvalRunDispatcher>>;
+  readonly dispatchers: Partial<Record<EvalKind, TestRunDispatcher>>;
   /**
    * Optional clock override — tests inject a monotonic stub so
    * timestamps are deterministic. Defaults to `() => new Date()`.
@@ -323,8 +323,8 @@ export interface InProcessEvalRunBindingOptions {
 }
 
 /**
- * Reference in-process `EvalRunBinding`. Persists eval-run rows in a
- * `Map<runId, EvalRun>`; suitable for tests and dev deployments.
+ * Reference in-process `TestRunBinding`. Persists test-run rows in a
+ * `Map<testRunId, TestRun>`; suitable for tests and dev deployments.
  * Production deployments swap in a durable binding that starts real
  * runs (`runGraph`) — the surface is identical, only the persistence +
  * execution substrate changes.
@@ -335,19 +335,19 @@ export interface InProcessEvalRunBindingOptions {
  * already returned cannot be undone; the row transitions to
  * `cancelled` and any partial `perCase` results are preserved.
  */
-export function createInProcessEvalRunBinding(
-  options: InProcessEvalRunBindingOptions,
-): EvalRunBinding {
+export function createInProcessTestRunBinding(
+  options: InProcessTestRunBindingOptions,
+): TestRunBinding {
   const now = options.now ?? ((): Date => new Date());
-  const runs = new Map<string, EvalRun>();
+  const runs = new Map<string, TestRun>();
   const controllers = new Map<string, AbortController>();
 
-  const setRun = (r: EvalRun): void => {
-    runs.set(r.runId as unknown as string, r);
+  const setRun = (r: TestRun): void => {
+    runs.set(r.testRunId as unknown as string, r);
   };
 
   return {
-    async start(input: EvalRunStartInput): Promise<EvalRunStartOutcome> {
+    async start(input: TestRunStartInput): Promise<TestRunStartOutcome> {
       const testSet =
         input.testSetVersion === undefined
           ? await options.testSetRegistry.get({
@@ -379,11 +379,11 @@ export function createInProcessEvalRunBinding(
           return { kind: 'dispatcher-input-invalid', message: v.message };
         }
       }
-      const runId = randomUUID() as unknown as RunId;
-      const record = newRunRecord(input, testSet, runId, now());
+      const testRunId = randomUUID() as unknown as RunId;
+      const record = newRunRecord(input, testSet, testRunId, now());
       setRun(record);
       const controller = new AbortController();
-      controllers.set(runId as unknown as string, controller);
+      controllers.set(testRunId as unknown as string, controller);
 
       // Fire-and-forget the dispatch — completion updates the row.
       // Errors thrown by the dispatcher itself land the run in
@@ -393,7 +393,7 @@ export function createInProcessEvalRunBinding(
         try {
           outcome = await dispatcher.dispatch({
             tenantId: input.tenantId,
-            runId,
+            testRunId,
             testSet,
             target,
             dryRun: input.dryRun === true,
@@ -402,7 +402,7 @@ export function createInProcessEvalRunBinding(
             projectId: input.projectId,
             ...(input.comparison !== undefined && { comparison: input.comparison }),
             onProgress: (perCaseEntry: Readonly<Record<string, unknown>>) => {
-              const current = runs.get(runId as unknown as string);
+              const current = runs.get(testRunId as unknown as string);
               if (current === undefined) return;
               const currentResult = (current.result ?? {}) as Record<string, unknown>;
               const perCase = Array.isArray(currentResult.perCase)
@@ -416,7 +416,7 @@ export function createInProcessEvalRunBinding(
           });
         } catch (cause) {
           const message = cause instanceof Error ? cause.message : String(cause);
-          const current = runs.get(runId as unknown as string);
+          const current = runs.get(testRunId as unknown as string);
           if (current === undefined) return;
           setRun({
             ...current,
@@ -426,7 +426,7 @@ export function createInProcessEvalRunBinding(
           });
           return;
         }
-        const current = runs.get(runId as unknown as string);
+        const current = runs.get(testRunId as unknown as string);
         if (current === undefined) return;
         if (current.status === 'cancelled') {
           // Cancel path already set the terminal row; preserve any
@@ -440,7 +440,7 @@ export function createInProcessEvalRunBinding(
           });
           return;
         }
-        const status: EvalRunStatus =
+        const status: TestRunStatus =
           outcome.error === undefined
             ? 'completed'
             : outcome.error === 'cancelled'
@@ -460,11 +460,11 @@ export function createInProcessEvalRunBinding(
         });
       })();
 
-      return { kind: 'ok', runId };
+      return { kind: 'ok', testRunId };
     },
 
-    async get(input: EvalRunGetInput): Promise<EvalRun | null> {
-      const record = runs.get(input.runId as unknown as string);
+    async get(input: TestRunGetInput): Promise<TestRun | null> {
+      const record = runs.get(input.testRunId as unknown as string);
       if (record === undefined) return null;
       if ((record.tenantId as unknown as string) !== (input.tenantId as unknown as string)) {
         return null;
@@ -472,9 +472,9 @@ export function createInProcessEvalRunBinding(
       return record;
     },
 
-    async list(input: EvalRunListInput): Promise<EvalRunPage> {
+    async list(input: TestRunListInput): Promise<TestRunPage> {
       const filter = input.filter ?? {};
-      const all: EvalRun[] = [];
+      const all: TestRun[] = [];
       for (const r of runs.values()) {
         if ((r.tenantId as unknown as string) !== (input.tenantId as unknown as string)) continue;
         if (filter.testSetId !== undefined && r.testSetId !== filter.testSetId) continue;
@@ -503,13 +503,13 @@ export function createInProcessEvalRunBinding(
         const at = a.startedAt as unknown as string;
         const bt = b.startedAt as unknown as string;
         if (at !== bt) return at < bt ? 1 : -1;
-        return (a.runId as unknown as string) < (b.runId as unknown as string) ? 1 : -1;
+        return (a.testRunId as unknown as string) < (b.testRunId as unknown as string) ? 1 : -1;
       });
       const cursor = input.cursor as unknown as string | undefined;
       const startAt =
         cursor === undefined
           ? 0
-          : Math.max(0, all.findIndex((r) => (r.runId as unknown as string) === cursor) + 1);
+          : Math.max(0, all.findIndex((r) => (r.testRunId as unknown as string) === cursor) + 1);
       const slice = all.slice(startAt, startAt + input.limit);
       const hasMore = startAt + slice.length < all.length;
       const last = slice[slice.length - 1];
@@ -517,13 +517,13 @@ export function createInProcessEvalRunBinding(
         data: slice,
         ...(hasMore &&
           last !== undefined && {
-            nextCursor: last.runId as unknown as import('@kindgi/types').Cursor,
+            nextCursor: last.testRunId as unknown as import('@kindgi/types').Cursor,
           }),
       };
     },
 
-    async cancel(input: EvalRunCancelInput): Promise<EvalRunCancelOutcome> {
-      const record = runs.get(input.runId as unknown as string);
+    async cancel(input: TestRunCancelInput): Promise<TestRunCancelOutcome> {
+      const record = runs.get(input.testRunId as unknown as string);
       if (record === undefined) return { kind: 'not-found' };
       if ((record.tenantId as unknown as string) !== (input.tenantId as unknown as string)) {
         return { kind: 'not-found' };
@@ -531,7 +531,7 @@ export function createInProcessEvalRunBinding(
       if (isTerminal(record.status)) {
         return { kind: 'already-terminal', status: record.status };
       }
-      const controller = controllers.get(input.runId as unknown as string);
+      const controller = controllers.get(input.testRunId as unknown as string);
       controller?.abort();
       setRun({
         ...record,
@@ -544,9 +544,14 @@ export function createInProcessEvalRunBinding(
 }
 
 /** A started run's row: `running`, with what it runs and how. */
-function newRunRecord(input: EvalRunStartInput, testSet: TestSet, runId: RunId, at: Date): EvalRun {
+function newRunRecord(
+  input: TestRunStartInput,
+  testSet: TestSet,
+  testRunId: RunId,
+  at: Date,
+): TestRun {
   return {
-    runId,
+    testRunId,
     tenantId: input.tenantId,
     testSetId: testSet.id,
     testSetVersion: testSet.version,
@@ -562,9 +567,9 @@ function newRunRecord(input: EvalRunStartInput, testSet: TestSet, runId: RunId, 
   };
 }
 
-function isTerminal(status: EvalRunStatus): boolean {
+function isTerminal(status: TestRunStatus): boolean {
   return status === 'completed' || status === 'failed' || status === 'cancelled';
 }
 
 // re-export for callers that only import the dispatcher module.
-export { EVAL_RUN_STATUSES };
+export { TEST_RUN_STATUSES };

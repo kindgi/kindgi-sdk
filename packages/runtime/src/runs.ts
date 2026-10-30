@@ -55,9 +55,9 @@ export interface KernelRunRecord {
    * every other run, and on agent runs started before runs recorded it.
    */
   readonly agent?: RunAgentRef;
-  /** Set on a replay run: the run it re-ran and the eval run that did so (`RunReplayRef`). */
+  /** Set on a replay run: the run it re-ran and the test run that did so (`RunReplayRef`). */
   readonly replayOf?: RunId | null;
-  readonly evalRunId?: string | null;
+  readonly testRunId?: string | null;
   /**
    * The versions the run swaps in over its flow version's pins
    * (`RunFlowInput.versions`). Absent on a run that has none.
@@ -86,7 +86,7 @@ export interface KernelRunRecord {
   readonly startedBy?: RunStartedBy;
   /**
    * Whom the run acts for (`RunActsFor`). Absent on a run that acts for no
-   * one (a system job, an agent on its own, an eval run's replay run), runs
+   * one (a system job, an agent on its own, a test run's replay run), runs
    * from before runs recorded it included.
    */
   readonly actsFor?: RunActsFor;
@@ -162,8 +162,8 @@ export interface ListRunsInput {
   readonly agentId?: string;
   /** Replay runs: `exclude` leaves them out, `only` returns just them. Absent = include, so internal callers see every run. */
   readonly replays?: 'exclude' | 'include' | 'only';
-  /** Only the replays of this eval run. */
-  readonly evalRunId?: string;
+  /** Only the replays of this test run. */
+  readonly testRunId?: string;
   /** Only the runs this trigger started (`RunTriggerRef.triggerId`). */
   readonly triggerId?: TriggerId;
   /** Only runs in one of these statuses. */

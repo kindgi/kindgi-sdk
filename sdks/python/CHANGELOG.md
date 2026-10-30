@@ -47,6 +47,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `SuggestedChange*`, and the block edit a suggested change carries is
   `SuggestedChangeBlockEdit`), `proposal_id` is `suggested_change_id`, and a
   suggested change's status `promoted` is `pinned`.
+- `kindgi`: **Eval runs are now test runs.** This is a breaking rename, and no
+  old name is kept. `client.eval_runs` is `client.test_runs`, sync and async.
+  The models follow (`EvalRun*` models are `TestRun*`). A test run's own id is
+  `test_run_id` where it was `run_id`, `eval_run_id` is `test_run_id`, and the
+  stream's `eval-run.*` events are `test-run.*`.
 
 ## 0.3.0
 

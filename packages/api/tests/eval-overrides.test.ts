@@ -21,8 +21,8 @@ import type {
   AgentVersionRecord,
   CorrectedComparisonSummary,
   CorrectedEvalCase,
-  EvalRun,
-  EvalRunBinding,
+  TestRun,
+  TestRunBinding,
   GatePolicySpec,
   RunHandlerBinding,
   TestSet,
@@ -32,7 +32,7 @@ import type {
 import {
   createApp,
   createCorrectedDispatcher,
-  createInProcessEvalRunBinding,
+  createInProcessTestRunBinding,
   evaluateGate,
 } from '../src/index.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
@@ -218,7 +218,7 @@ async function setup() {
     get: async ({ testSetId }: { testSetId: string }) =>
       testSetId === testSet.id ? testSet : null,
   } as unknown as TestSetRegistryBinding;
-  const binding = createInProcessEvalRunBinding({
+  const binding = createInProcessTestRunBinding({
     testSetRegistry: registry,
     subject: {
       invoke: async (input) => {
@@ -236,7 +236,7 @@ async function setup() {
     resolveToken,
     runHandler,
     testSetRegistry: registry,
-    evalRunBinding: binding,
+    testRunBinding: binding,
     agentRegistry: agents,
     blockRegistry: blocks,
   });
@@ -255,9 +255,9 @@ async function setup() {
   return { binding, start, invoked };
 }
 
-async function settled(binding: EvalRunBinding, runId: string): Promise<EvalRun> {
+async function settled(binding: TestRunBinding, runId: string): Promise<TestRun> {
   for (let i = 0; i < 400; i++) {
-    const run = await binding.get({ tenantId, runId: runId as RunId });
+    const run = await binding.get({ tenantId, testRunId: runId as RunId });
     if (run !== null && run.status !== 'running' && run.status !== 'pending') return run;
     await new Promise((r) => setTimeout(r, 5));
   }
@@ -269,7 +269,7 @@ describe('settings overrides', () => {
     const { binding, start } = await setup();
     const res = await start({ overrides: { settings: { 'acme.weights': { recency: 0.9 } } } });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
-    const run = await settled(binding, res.body.runId);
+    const run = await settled(binding, res.body.testRunId);
     expect(run.comparison?.overrides).toEqual({ settings: { 'acme.weights': { recency: 0.9 } } });
     const summary = (run.result?.summary ?? {}) as CorrectedComparisonSummary;
     expect(summary.candidate).toMatchObject({
@@ -321,7 +321,7 @@ describe('settings overrides', () => {
       },
     });
     expect(ok.status, JSON.stringify(ok.body)).toBe(201);
-    const run = await settled(binding, ok.body.runId);
+    const run = await settled(binding, ok.body.testRunId);
     expect((run.result?.summary as CorrectedComparisonSummary).candidate).toMatchObject({
       overrides: { prompts: ['acme.prompt'] },
     });
@@ -355,7 +355,7 @@ describe('a sample of the test set', () => {
     const sample = { part: 'hold-out', seed: 'pass-1', holdOutShare: 0.3 };
     const res = await start({ sample });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
-    const run = await settled(binding, res.body.runId);
+    const run = await settled(binding, res.body.testRunId);
     const expected = sampleCases(
       CASES.map((id) => correctedCase(id)),
       sample as Parameters<typeof sampleCases>[1],
@@ -389,7 +389,7 @@ describe('the gate', () => {
     direction: 'higher' as const,
   };
   const summary = (extra: Partial<CorrectedComparisonSummary>): CorrectedComparisonSummary => ({
-    evalRunId: 'er',
+    testRunId: 'er',
     status: 'completed',
     completedAt: new Date().toISOString(),
     testSet: { id: testSet.id, version: '1.0.0' },

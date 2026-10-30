@@ -29,7 +29,7 @@ export interface GateMetricSpec {
 /**
  * What a policy asks of a promotion. Every part is optional; an empty
  * spec checks nothing (the promotion is still recorded with the policy).
- * A promotion must name a comparison (`evalRunId`) exactly when the spec
+ * A promotion must name a comparison (`testRunId`) exactly when the spec
  * checks anything one shows: `comparison`, `evidence`, `metrics`,
  * `replay` or `onlyExpertGroups`.
  */

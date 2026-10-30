@@ -43,9 +43,9 @@ import { UUID_RE } from './uuid-param.js';
  * validation of `spec` is the runtime consumer's responsibility (they
  * own the semantics for their kind).
  *
- * Registry-only. Actual eval runs (dispatch to eval-judge adapters,
+ * Registry-only. Actual test runs (dispatch to eval-judge adapters,
  * HITL delegation for `human-review`, custom-handler dispatch via
- * handler-as-code) live in the eval-runs surface — the same
+ * handler-as-code) live in the test-runs surface — the same
  * discipline that split policies (registry) from policy enforcement
  * (consumer).
  */
@@ -526,7 +526,7 @@ export function testSetsRouter(
  * What a route under a test set more than one project serves asks
  * (`itemPathCheck`), but for a test set built from corrections: `admin` in
  * the one project whose corrected runs it takes, where the new version is
- * made, as an eval run follows its own project (rule 3). A body naming
+ * made, as a test run follows its own project (rule 3). A body naming
  * none of the test set's projects is checked on every project, and the
  * route answers what's wrong with it.
  */

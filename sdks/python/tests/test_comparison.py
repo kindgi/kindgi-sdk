@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026 Kindgi Inc.
 
-"""`comparison_of` reads a comparison eval run's result as the OpenAPI `CorrectedComparisonResult`."""
+"""`comparison_of` reads a comparison test run's result as the OpenAPI `CorrectedComparisonResult`."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from kindgi.client import comparison_of, models
 # A comparison's result as the runtime returns it.
 RESULT: dict[str, Any] = {
     "summary": {
-        "evalRunId": "er-1",
+        "testRunId": "er-1",
         "status": "completed",
         "completedAt": "2026-10-06T08:00:00.000Z",
         "testSet": {"id": "acme.set", "version": "1.0.0"},
@@ -151,7 +151,7 @@ RUN: dict[str, Any] = {
 
 
 def test_reads_a_comparisons_result_typed() -> None:
-    result = comparison_of(models.EvalRun.model_validate({**RUN, "result": RESULT}))
+    result = comparison_of(models.TestRun.model_validate({**RUN, "result": RESULT}))
     assert result is not None
     assert result.summary.metrics.weighted_yes_share.delta == 0.25
     assert result.summary.stopped == 1
@@ -160,13 +160,13 @@ def test_reads_a_comparisons_result_typed() -> None:
 
 
 def test_none_for_another_kind_a_dry_run_or_one_not_finished() -> None:
-    assert comparison_of(models.EvalRun.model_validate({**RUN, "kind": "accuracy"})) is None
+    assert comparison_of(models.TestRun.model_validate({**RUN, "kind": "accuracy"})) is None
     dry = {**RUN, "dryRun": True, "result": {"dryRun": True, "cases": 2}}
-    assert comparison_of(models.EvalRun.model_validate(dry)) is None
-    assert comparison_of(models.EvalRun.model_validate({**RUN, "status": "running"})) is None
+    assert comparison_of(models.TestRun.model_validate(dry)) is None
+    assert comparison_of(models.TestRun.model_validate({**RUN, "status": "running"})) is None
 
 
 def test_a_result_that_does_not_fit_is_an_error() -> None:
     broken = {**RESULT, "summary": {**RESULT["summary"], "cases": "two"}}
     with pytest.raises(ValidationError):
-        comparison_of(models.EvalRun.model_validate({**RUN, "result": broken}))
+        comparison_of(models.TestRun.model_validate({**RUN, "result": broken}))

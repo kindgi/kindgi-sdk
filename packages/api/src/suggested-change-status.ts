@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { CorrectedComparisonSummary } from './corrected-dispatcher.js';
-import type { EvalRun, EvalRunStatus } from './eval-run-binding.js';
+import type { TestRun, TestRunStatus } from './test-run-binding.js';
 import type { Promotion } from './live-version-binding.js';
 import type {
   StoredSuggestedChange,
@@ -12,7 +12,7 @@ import type {
 
 /**
  * Where a suggested change stands. Never stored: it follows from the
- * suggested change's own steps, its comparison eval run and its promotion.
+ * suggested change's own steps, its comparison test run and its promotion.
  *
  * - `draft`: not evaluated yet.
  * - `evaluating`: its comparison is queued or running.
@@ -30,7 +30,7 @@ import type {
  * - `rejected`: the reviewer rejected it.
  * - `expired`: the approval expired undecided.
  * - `superseded`: approved after the scope's live version or policy changed.
- * - `rolled-back`: rolled back through the suggested change.
+ * - `rolled-back`: only on an older suggested change rolled back by its own `rollback`, which is removed; a rollback today goes through the agent's live routes and leaves it `pinned`.
  * - `withdrawn`: withdrawn.
  */
 export type SuggestedChangeStatus =
@@ -66,7 +66,7 @@ export const SUGGESTED_CHANGE_STATUSES: readonly SuggestedChangeStatus[] = [
 
 /** What a finished comparison says about the candidate, on the suggested change's objective. */
 export interface SuggestedChangeEvaluationOutcome {
-  readonly runStatus: EvalRunStatus;
+  readonly runStatus: TestRunStatus;
   readonly objective: SuggestedChangeObjective;
   /** The recorded (corrected) outputs' score. `null` without evidence from corrections. */
   readonly baseline?: number | null;
@@ -79,8 +79,8 @@ export interface SuggestedChangeEvaluationOutcome {
   readonly better?: boolean;
   /** How the candidate is kept (`SuggestedChangeEvaluationRef.rule`). Absent: `better`. */
   readonly rule?: SuggestedChangeRule;
-  /** With a reference: its eval run's status (the candidate's is `runStatus`). */
-  readonly referenceStatus?: EvalRunStatus;
+  /** With a reference: its test run's status (the candidate's is `runStatus`). */
+  readonly referenceStatus?: TestRunStatus;
   /** With a reference, once both finished: each side's replays' cost, when both reported one. */
   readonly costUsd?: { readonly current: number; readonly candidate: number };
   /** With a reference, once both finished: the corrections the current version was checked on. */
@@ -125,8 +125,8 @@ export type SuggestedChangeNotKept =
 /** Room for float rounding. */
 const EPSILON = 1e-9;
 
-/** A finished comparison's summary, or `null` for any other eval run. */
-export function comparisonSummaryOf(run: EvalRun): CorrectedComparisonSummary | null {
+/** A finished comparison's summary, or `null` for any other test run. */
+export function comparisonSummaryOf(run: TestRun): CorrectedComparisonSummary | null {
   const summary = run.result?.summary;
   return run.kind === 'corrections' && summary !== null && typeof summary === 'object'
     ? (summary as CorrectedComparisonSummary)
@@ -134,14 +134,14 @@ export function comparisonSummaryOf(run: EvalRun): CorrectedComparisonSummary | 
 }
 
 /**
- * The suggested change's evaluation, read off its eval run, and with a reference
+ * The suggested change's evaluation, read off its test run, and with a reference
  * (the current version replayed on the same cases) held to it under its
  * rule.
  */
 export function evaluationOutcome(
   objective: SuggestedChangeObjective,
-  run: EvalRun,
-  against?: { readonly rule: SuggestedChangeRule; readonly reference: EvalRun },
+  run: TestRun,
+  against?: { readonly rule: SuggestedChangeRule; readonly reference: TestRun },
 ): SuggestedChangeEvaluationOutcome {
   const rule = against !== undefined && { rule: against.rule };
   const referenceStatus = against !== undefined && { referenceStatus: against.reference.status };
