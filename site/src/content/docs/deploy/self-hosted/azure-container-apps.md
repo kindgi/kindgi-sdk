@@ -500,7 +500,7 @@ It prints the deployment as JSON, then each step. The last steps:
 
   Deploy complete.
   Runs started from now use image sha256:4d18e69581b56… (artifactVersion 20261008.211554).
-  Runs already in flight continue on their pinned image.
+  With one pack service, runs already in flight call that service's current build, as new runs do: a call naming a tool version that build doesn't have fails with tool-version-mismatch.
 ```
 
 To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
