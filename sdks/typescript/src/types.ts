@@ -416,7 +416,7 @@ export interface Supervisor {
 
 /**
  * Where a suggested change stands — `@kindgi/api/openapi.json#SuggestedChangeStatus`.
- * Derived by the server from the suggested change's comparison and promotion.
+ * Derived by the server from the suggested change's comparison and pin.
  */
 export type SuggestedChangeStatus =
   | 'draft'
@@ -442,20 +442,20 @@ export type SuggestedChangeContent =
   | { readonly template: string };
 
 /** The metric that says whether a candidate is better. */
-export type SuggestedChangeObjective = 'weightedYesShare' | 'weightedPrecisionAtK';
+export type SuggestedChangeObjective = 'passRate' | 'weightedPrecisionAtK';
 
 /**
  * A suggested change — `@kindgi/api/openapi.json#SuggestedChange`: a
- * change to one data block an agent version pins, for one live scope,
- * taken through the same comparison, gate and promotion as any version.
+ * change to one data block an agent version pins, for one pinned scope,
+ * taken through the same comparison, gate and pin as any version.
  */
 export interface SuggestedChange {
   readonly id: SuggestedChangeId;
   readonly agentId: import('@kindgi/types').AgentId;
   /** The agent version the change applies to. */
   readonly fromVersion: string;
-  /** The live scope it's for. */
-  readonly scope: import('./generated/api.js').LiveScope;
+  /** The pinned scope it's for. */
+  readonly scope: import('./generated/api.js').AgentPinScope;
   readonly tier: SuggestedChangeTier;
   readonly change: {
     readonly blockId: string;
@@ -482,7 +482,7 @@ export interface SuggestedChange {
         readonly model?: { readonly providerId: string; readonly model: string };
       };
   readonly status: SuggestedChangeStatus;
-  /** The versions evaluating it published; they serve no scope until promoted. */
+  /** The versions evaluating it published; they serve no scope until pinned. */
   readonly candidate?: {
     readonly agentVersion: string;
     readonly blockVersion: string;
@@ -522,11 +522,11 @@ export interface SuggestedChange {
       readonly stillWrong: number;
     };
   };
-  /** The promotion its pin made. */
-  readonly promotion?: {
+  /** The pin it made. */
+  readonly pin?: {
     readonly id: string;
     readonly status:
-      | 'promoted'
+      | 'pinned'
       | 'pending-approval'
       | 'refused'
       | 'superseded'
@@ -534,11 +534,11 @@ export interface SuggestedChange {
       | 'expired';
     readonly approvalId?: string;
     /** For a pinned suggested change: whether its version still serves the scope. */
-    readonly liveNow?: boolean;
+    readonly pinnedNow?: boolean;
   };
   readonly rolledBack?: {
     readonly at: import('@kindgi/types').Timestamp;
-    readonly promotionId: string;
+    readonly changeId: string;
     readonly by: string;
     readonly reason?: string;
   };

@@ -23,8 +23,8 @@ import {
 import type { EnvName, SigningKeyId, TenantId } from '@kindgi/types';
 import type {
   AdapterRegistryBinding,
+  AgentPinBindings,
   AgentRegistryBinding,
-  AgentReleaseBindings,
   BlobStorageBinding,
   BlockRegistryBinding,
   CapabilityRegistryBinding,
@@ -447,19 +447,18 @@ const noopPinnedVersions: PinnedVersionBinding = {
   history: async () => ({ data: [] }),
 };
 
-const noopAgentReleases: AgentReleaseBindings = {
-  live: { resolve: async () => null, list: async () => [] },
-  promotions: {
-    promote: async () => ({
+const noopAgentPins: AgentPinBindings = {
+  pinned: { resolve: async () => null, list: async () => [] },
+  changes: {
+    pin: async () => ({
       kind: 'err',
       error: { code: 'agent-version-not-found', message: 'noop' },
     }),
-    rollback: async () => ({ kind: 'err', error: { code: 'not-pinned', message: 'noop' } }),
     unpin: async () => ({ kind: 'err', error: { code: 'not-pinned', message: 'noop' } }),
     list: async () => ({ data: [] }),
     get: async () => null,
   },
-  gatePolicies: {
+  releaseGates: {
     publish: async () => ({ kind: 'err', error: { code: 'persistence-error', message: 'noop' } }),
     get: async () => null,
     getVersion: async () => null,
@@ -467,11 +466,11 @@ const noopAgentReleases: AgentReleaseBindings = {
     list: async () => ({ data: [] }),
     unregister: async () => ({
       kind: 'err',
-      error: { code: 'gate-policy-not-found', message: 'noop' },
+      error: { code: 'release-gate-not-found', message: 'noop' },
     }),
     reinstate: async () => ({
       kind: 'err',
-      error: { code: 'gate-policy-not-found', message: 'noop' },
+      error: { code: 'release-gate-not-found', message: 'noop' },
     }),
     resolve: async () => null,
   },
@@ -680,7 +679,7 @@ export function fullAppInput(): CreateAppInput {
     reviewerRegistry: noopReviewerRegistry,
     enableObservations: true,
     agentRegistry: noopAgentRegistry,
-    agentReleases: noopAgentReleases,
+    agentPins: noopAgentPins,
     pinnedVersions: noopPinnedVersions,
     flowRegistry: noopFlowRegistry,
     toolRegistry: noopToolRegistry,

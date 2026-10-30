@@ -27,7 +27,7 @@ import type { Command, LeafCommand } from './types.js';
 
 /**
  * `kindgi suggested-changes`: suggested changes. New content for one data
- * block an agent version pins, for one live scope: drafted, evaluated on
+ * block an agent version pins, for one pinned scope: drafted, evaluated on
  * a test set, then requested (a pin of the candidate through the
  * scope's gate).
  */
@@ -48,7 +48,7 @@ const STATUSES: readonly SuggestedChangeStatus[] = [
   'withdrawn',
 ];
 const TIERS = ['settings-block', 'prompt-block'] as const;
-export const OBJECTIVES = ['weightedYesShare', 'weightedPrecisionAtK'] as const;
+export const OBJECTIVES = ['passRate', 'weightedPrecisionAtK'] as const;
 
 /** The status `evaluate --wait` waits through. */
 const EVALUATING: ReadonlySet<string> = new Set(['evaluating']);
@@ -138,7 +138,7 @@ const get: LeafCommand = {
   kind: 'leaf',
   name: 'get',
   description:
-    'Show a suggested change: its change, status, candidate versions, the run on the test cases it was evaluated on and its request to make it live.',
+    'Show a suggested change: its change, status, candidate versions, the run on the test cases it was evaluated on and its pin.',
   usage: 'kindgi suggested-changes get <suggested-change-id>',
   run: (ctx) =>
     runSdk(ctx, 'suggested-changes get', async () =>
@@ -227,15 +227,15 @@ const evaluate: LeafCommand = {
   kind: 'leaf',
   name: 'evaluate',
   description:
-    'Evaluate a suggested change on the test cases: a run on the test cases that tries the candidate against the version it changes. The first evaluation publishes the block version and derives the agent version; they serve no scope until made live, so the agent needs a live version for the whole tenant (`kindgi agents promote <agent-id> <version> --tenant`). The suggested change is `evaluating`, then `evaluated` (better), `not-better` or `evaluation-failed`. With `--rescore`, after people corrected the new answers of its replay runs: the latest evaluation scored again, counting those corrections, on the same replays (no other flag). Needs `publish` on the agent.',
+    'Evaluate a suggested change on the test cases: a run on the test cases that tries the candidate against the version it changes. The first evaluation publishes the block version and derives the agent version; they serve no scope until pinned, so the agent needs a pinned version for the whole tenant (`kindgi agents pin <agent-id> <version> --tenant`). The suggested change is `evaluating`, then `evaluated` (better), `not-better` or `evaluation-failed`. With `--rescore`, after people corrected the new answers of its replay runs: the latest evaluation scored again, counting those corrections, on the same replays (no other flag). Needs `publish` on the agent.',
   usage:
-    'kindgi suggested-changes evaluate <suggested-change-id> --test-set=<test-set-id> [--objective=weightedYesShare|weightedPrecisionAtK] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--group-weights=as-recorded|experts-only] [--wait]\n       kindgi suggested-changes evaluate <suggested-change-id> --rescore [--wait]',
+    'kindgi suggested-changes evaluate <suggested-change-id> --test-set=<test-set-id> [--objective=passRate|weightedPrecisionAtK] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--group-weights=as-recorded|experts-only] [--wait]\n       kindgi suggested-changes evaluate <suggested-change-id> --rescore [--wait]',
   optionSpec: {
     'test-set': { type: 'string', description: 'The test cases: a corrections test set, by id.' },
     objective: {
       type: 'string',
       description:
-        'The metric that says whether the candidate is better: `weightedYesShare` (the default) or `weightedPrecisionAtK`.',
+        'The metric that says whether the candidate is better: `passRate` (the default) or `weightedPrecisionAtK`.',
     },
     reads: {
       type: 'string',
@@ -321,10 +321,10 @@ const request: LeafCommand = {
   kind: 'leaf',
   name: 'request',
   description:
-    "Ask to make a suggested change live: its candidate version, for its scope, through the scope's release gate policy with its evaluation. The suggested change is `pinned`, or `in-review` (a reviewer decides the approval to make it live: `kindgi approvals complete`); a refusal by the release gate policy lists every check. Allowed once evaluated, also when `not-better`: the release gate policy decides. Needs `promote` on the agent.",
+    "Ask to pin a suggested change: its candidate version, for its scope, through the scope's release gate with its evaluation. The suggested change is `pinned`, or `in-review` (a reviewer decides the approval to pin it: `kindgi approvals complete`); a refusal by the release gate lists every check. Allowed once evaluated, also when `not-better`: the release gate decides. Needs `pin` on the agent.",
   usage: 'kindgi suggested-changes request <suggested-change-id> [--reason=<text>]',
   optionSpec: {
-    reason: { type: 'string', description: 'Why, kept on the request to make it live.' },
+    reason: { type: 'string', description: 'Why, kept on the pin request.' },
     ...IDEMPOTENCY_FLAG,
   },
   run: (ctx) =>
@@ -340,7 +340,7 @@ const withdraw: LeafCommand = {
   kind: 'leaf',
   name: 'withdraw',
   description:
-    'Withdraw a suggested change before review, or after its request to make it live was refused, superseded or expired. Needs `publish` on the agent.',
+    'Withdraw a suggested change before review, or after its pin request was refused, superseded or expired. Needs `publish` on the agent.',
   usage: 'kindgi suggested-changes withdraw <suggested-change-id> --reason=<text>',
   optionSpec: {
     reason: { type: 'string', description: 'Why, kept on the record (required).' },
@@ -359,6 +359,6 @@ export const suggestedChangesCommand: Command = {
   kind: 'group',
   name: 'suggested-changes',
   description:
-    "Suggested changes: new content for a data block an agent pins, for one scope; evaluated on the test cases, then made live through the scope's release gate policy (list / get / draft / evaluate / request / withdraw).",
+    "Suggested changes: new content for a data block an agent pins, for one scope; evaluated on the test cases, then pinned through the scope's release gate (list / get / draft / evaluate / request / withdraw).",
   subcommands: [list, get, draft, evaluate, request, withdraw],
 };

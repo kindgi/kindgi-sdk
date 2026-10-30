@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `kindgi suggested-changes …`: suggested changes (evals step 5). */
+/** `kindgi suggested-changes …`: suggested changes. */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -276,14 +276,14 @@ describe('kindgi suggested-changes evaluate', () => {
             code: 'conflict',
             reason: 'suggested-change-needs-pin',
             message:
-              'acme.scorer has no live version for the whole tenant: promote one for {kind:"tenant"} first.',
+              'acme.scorer has no pinned version for the whole tenant: pin one for {kind:"tenant"} first.',
           } as never);
         },
       },
     });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('Error [suggested-change-needs-pin]');
-    expect(out.stderr).toContain('promote one');
+    expect(out.stderr).toContain('pin one');
   });
 });
 
@@ -404,7 +404,7 @@ const IMPROVE_RUN = {
   scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
   testSetId: 'acme.judged',
   tiers: ['settings'],
-  objective: 'weightedYesShare',
+  objective: 'passRate',
   budget: { maxCostUsd: 5, maxCandidates: 30 },
   requestedBy: 'user:alice',
   status: 'running',

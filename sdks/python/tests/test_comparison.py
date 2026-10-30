@@ -39,7 +39,7 @@ RESULT: dict[str, Any] = {
         "sampling": {"models": [{"providerId": "acme", "model": "m-1", "runs": 1}]},
         "repetitions": 1,
         "metrics": {
-            "weightedYesShare": {
+            "passRate": {
                 "baseline": 0.5,
                 "candidate": 0.75,
                 "delta": 0.25,
@@ -49,7 +49,7 @@ RESULT: dict[str, Any] = {
                 "baselineWeight": 2,
                 "direction": "higher",
             },
-            "judgedCoverage": {
+            "caseCoverage": {
                 "baseline": 1,
                 "candidate": 1,
                 "delta": 0,
@@ -153,7 +153,7 @@ RUN: dict[str, Any] = {
 def test_reads_a_comparisons_result_typed() -> None:
     result = comparison_of(models.TestRun.model_validate({**RUN, "result": RESULT}))
     assert result is not None
-    assert result.summary.metrics.weighted_yes_share.delta == 0.25
+    assert result.summary.metrics.pass_rate.delta == 0.25
     assert result.summary.stopped == 1
     assert result.per_case[1].stopped is not None
     assert result.per_case[1].stopped.tool_id == "acme.send"

@@ -422,10 +422,10 @@ Tell the person, in your own words:
 > 2. **Correct a few runs:** say whether what it did and answered was right,
 >    and what was right instead, so later versions can be checked against
 >    your corrections
->    ([Correct a run's output](https://docs.kindgi.com/guides/evals/judge-a-runs-output/)).
+>    ([Correct a run's output](https://docs.kindgi.com/guides/improve/correct-a-runs-output/)).
 > 3. **Compare two versions:** change its instructions and see whether people's
 >    corrections rate the new version higher
->    ([Try a version on the test cases](https://docs.kindgi.com/guides/evals/compare-an-agent-version/)).
+>    ([Try a version on the test cases](https://docs.kindgi.com/guides/improve/compare-an-agent-version/)).
 
 If the person then asks for an app that starts the agent's runs, read
 [Start runs from your app](https://docs.kindgi.com/start/call-from-your-app.md)

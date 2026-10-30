@@ -1236,7 +1236,7 @@ def open_mark(metadata: list[ast.expr]) -> str | None:
 
 
 def site(owner: str, path: tuple[Any, ...]) -> str:
-    """`Secret.state` for a component's property, `EvalBaseline/oneOf/0` for a member."""
+    """`Secret.state` for a component's property, `TestRunBaseline/oneOf/0` for a member."""
     out = owner
     for i, key in enumerate(path):
         if key != "properties":

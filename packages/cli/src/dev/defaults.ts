@@ -181,7 +181,7 @@ export function createPackServiceReal(opts: DevPackServiceOptions): DevPackServi
     env,
     onLog: opts.onLog,
     onEvent: opts.onEvent,
-    // A version made live in the console goes into the pack's own file.
+    // A version pinned in the console goes into the pack's own file.
     writeBlock: async (write) => {
       const outcome = await writePackBlock(opts.packDir, opts.blocks.pattern, write);
       if (outcome.kind === 'ok') opts.blocks.onWritten(write, outcome);

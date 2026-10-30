@@ -45,10 +45,10 @@ A run keeps the version it started with, also when it resumes. A pin doesn't
 change what a version's steps run: each tool and agent step runs the version
 it was locked to when the flow version was published. The one exception is an
 agent step that names no version, in a run whose segment a
-[release gate policy](../../evals/release-an-agent-version/#gate-a-release)
+[release gate](../../improve/release-an-agent-version/#gate-a-pin)
 of that agent set on a segment covers: it runs the agent's
-[live version](../../evals/live-versions-reference/) for that segment, as a run
-started in that segment would. A policy for the project, its org or the tenant
+[pinned version](../../improve/pinned-versions-reference/) for that segment, as a run
+started in that segment would. A release gate for the project, its org or the tenant
 doesn't change what the step runs.
 
 ## Try a new version without putting it in use
@@ -56,6 +56,9 @@ doesn't change what the step runs.
 1. **Pin the version in use,** 1.0.0, for the project.
 2. **Publish the new version,** 1.1.0, as you published 1.0.0. Runs in the
    project still take 1.0.0.
+   On a self-hosted runtime with one pack service, 1.0.0 runs only while
+   your pack still has the tool versions it locked
+   ([A self-hosted runtime runs what your pack has](../../agents/agent-and-tool-versions/#a-self-hosted-runtime-runs-what-your-pack-has)).
 3. **Try it by naming it:** a run with `flowVersion` 1.1.0 runs it; every
    other run there still takes 1.0.0.
 4. **Move the pin** to 1.1.0 once it does what you want. Runs take it from the
@@ -264,11 +267,11 @@ environment of the order at once. The pin is refused with
 `409 pin-scope-spans-environments`; pin it for each project instead. A pin
 for a later environment of an order is fine: runs there take it.
 
-A promotion into the next environment that makes what it carries live
-(`makeLive`) also pins each flow version it carries for that project, and
-the answer lists them in `pinnedFlows`. Once a flow is pinned in a project,
-a promotion without `makeLive` keeps the pinned flow in use there: move the
-pin, or promote with `makeLive`.
+A promotion into the next environment with `pin` pins each agent version
+it carries in that project, and each flow version too: the answer lists
+the flows in `pinnedFlows`. Once a flow is pinned in a project, a
+promotion without `pin` keeps the pinned flow in use there: move the pin,
+or promote with `pin`.
 
 ## Remove a pin
 

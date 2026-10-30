@@ -26,7 +26,9 @@ password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or tr
 - **The runtime** (`<name_prefix>-server`): Kindgi's server, a container app
   with its own user-assigned managed identity. External ingress, port 4000,
   one replica.
-- **Your pack's service** (`<name_prefix>-pack`): your tools' code.
+- **Your pack's service** (`<name_prefix>-pack`): your tools' code. It runs
+  only the tool versions in its image's build
+  ([A self-hosted runtime runs what your pack has](../../../guides/agents/agent-and-tool-versions/#a-self-hosted-runtime-runs-what-your-pack-has)).
   Environment-internal ingress: only apps in the same Container Apps
   environment reach it, and the runtime sends the shared pack token on every
   call.
@@ -193,8 +195,8 @@ digest, with every platform it was built for:
 ```sh
 ACR=$(terraform output -raw image_registry)
 az acr login -n "${ACR%%.*}"
-docker buildx imagetools create --tag "$ACR/runtime:0.2.0" \
-  registry.kindgi.com/kindgi/runtime:0.2.0@sha256:76251214ab450d96995af8d4fecefd747aef1dd6611518221e209e386443aed8
+docker buildx imagetools create --tag "$ACR/runtime:0.3.0" \
+  registry.kindgi.com/kindgi/runtime:0.3.0@sha256:1f5cfe0032bb82b467781949978719d6a3da4d500cd994471f2f2e009c9a1b9f
 ```
 
 - `ACR` is the registry's address, from the foundation's output, and
@@ -500,7 +502,7 @@ It prints the deployment as JSON, then each step. The last steps:
 
   Deploy complete.
   Runs started from now use image sha256:4d18e69581b56… (artifactVersion 20261008.211554).
-  Runs already in flight continue on their pinned image.
+  With one pack service, runs already in flight call that service's current build, as new runs do: a call naming a tool version that build doesn't have fails with tool-version-mismatch.
 ```
 
 To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).

@@ -1,0 +1,405 @@
+---
+title: Build test cases from corrections
+description: Gather an agent's corrected runs into versioned test cases, with what people said about each item, to test new versions on.
+sidebar:
+  order: 2
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+This guide gathers an agent's corrected runs into versioned test cases, to
+test new versions on.
+
+**Test cases** are a set of past runs that people corrected. Each case is a
+copy of one run, with the corrections of each item of its output added up.
+You [try a new agent version](../compare-an-agent-version/) on them to see
+whether people would rate its answers higher, before anyone uses it.
+
+## Before you start
+
+- **An agent with finished runs** in a project, on a runtime such as
+  `kindgi dev`, with Kindgi 0.2's CLI.
+- **`admin` on the project,** when authorization is on.
+- **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
+  Kindgi 0.2's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+
+## Correct some runs
+
+Test cases are made of corrected runs, so correct some first. The examples
+on this page use an agent, `acme-ops.article-picker`, that picks
+the help articles answering a customer's question. Its
+[typed answer](../../agents/typed-answer/) is a list of articles, each with
+its own id:
+
+```json
+{
+  "articles": [
+    { "id": "kb-101", "title": "Reset your password" },
+    { "id": "kb-102", "title": "Change the email on your account" },
+    { "id": "kb-103", "title": "Turn on two-step sign-in" }
+  ]
+}
+```
+
+Correct each article by its id. Then a correction of `kb-101` still applies when
+a new version returns `kb-101`, at any place in its list.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi corrections add --run=<run-id> --item=kb-101 --pointer=/output/articles/0 --rank=0 --yes
+pnpm exec kindgi corrections add --run=<run-id> --item=kb-102 --pointer=/output/articles/1 --rank=1 --no
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi corrections add --run=<run-id> --item=kb-101 --pointer=/output/articles/0 --rank=0 --yes
+uv run kindgi corrections add --run=<run-id> --item=kb-102 --pointer=/output/articles/1 --rank=1 --no
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw corrections add --run=<run-id> --item=kb-101 --pointer=/output/articles/0 --rank=0 --yes
+./kindgiw corrections add --run=<run-id> --item=kb-102 --pointer=/output/articles/1 --rank=1 --no
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw corrections add --run=<run-id> --item=kb-101 --pointer=/output/articles/0 --rank=0 --yes
+./kindgiw corrections add --run=<run-id> --item=kb-102 --pointer=/output/articles/1 --rank=1 --no
+```
+
+</TabItem>
+</Tabs>
+
+- `<run-id>` is the run's id.
+- `--item` is the article's id, and `--pointer` where it is in the output.
+- `--rank` is its place in the list, 0 first.
+- `--yes` says the article was right there, and `--no` that it wasn't. A
+  wrong item needs nothing more.
+
+Each call adds the article to your one correction of the run, as one of its
+`items`, and prints your correction so far, as
+[Correct a run's answer](../correct-a-runs-output/#correct-a-runs-answer) shows.
+The clients' `corrections.create` takes the whole list at once:
+`items: [{ key: 'kb-101', pointer: '/output/articles/0', rank: 0, verdict: 'right' }, …]`.
+
+In the console, a finished run's **Correct this run** opens its Corrections
+tab. It lists the answer, and each element of a list in the output, each with
+**Yes** and **No**. [Correct a run's output](../correct-a-runs-output/) has the
+rest: reasons, your users' corrections, and corrector groups.
+
+## Build the test cases
+
+Build version 1.0.0 of the `acme.article-picks` test cases from the agent's
+corrected runs in a project:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi test-sets from-corrections acme.article-picks --test-set-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi test-sets from-corrections acme.article-picks --test-set-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw test-sets from-corrections acme.article-picks --test-set-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw test-sets from-corrections acme.article-picks --test-set-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker
+```
+
+</TabItem>
+</Tabs>
+
+- `acme.article-picks` is the test cases' id, and `--test-set-version` their
+  version.
+- `--project=<project-id>` is the project the runs are in, where
+  `<project-id>` is its id.
+- `--agent` is the agent whose corrected runs it takes.
+
+It prints the test cases:
+
+```json
+{
+  "testSetId": "acme.article-picks",
+  "version": "1.0.0",
+  "kind": "corrections",
+  "caseCount": 3,
+  "truncated": false
+}
+```
+
+With [authorization](../../../deploy/authorization/) on, building test cases
+under a new id takes `admin` on the project it names.
+
+From your code, ask your coding agent: "I want a script that builds test
+cases from my agent's corrected runs, and shows me the cases." For
+reference, the script looks like this, with the project's id as its
+argument:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// test-set.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+const projectId = process.argv[2];
+
+// Version 1.0.0 of the test set: copies of the agent's corrected runs.
+const built = await kindgi.testSets.buildFromCorrections('acme.article-picks', {
+  version: '1.0.0',
+  projectId,
+  agentId: 'acme-ops.article-picker',
+});
+console.log(`${built.caseCount} cases`);
+
+const cases = await kindgi.testSets.listCases('acme.article-picks', '1.0.0');
+for (const c of cases.data) {
+  console.log(c.input, c.items.map((item) => `${item.key} ${item.yes} yes, ${item.no} no`));
+}
+```
+
+```text
+3 cases
+I was charged twice for one order. How do I get my money back? [ 'kb-201 1 yes, 0 no', 'kb-203 0 yes, 1 no', 'kb-202 0 yes, 1 no' ]
+I forgot my password and can't sign in. [ 'kb-101 1 yes, 0 no', 'kb-102 0 yes, 1 no', 'kb-103 0 yes, 1 no' ]
+My package hasn't arrived yet. Where is it? [ 'kb-301 1 yes, 0 no', 'kb-303 0 yes, 1 no', 'kb-201 0 yes, 1 no' ]
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# test_set.py
+import sys
+
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+project_id = sys.argv[1]
+
+# Version 1.0.0 of the test set: copies of the agent's corrected runs.
+built = kindgi.test_sets.build_from_corrections(
+    "acme.article-picks",
+    version="1.0.0",
+    project_id=project_id,
+    agent_id="acme-ops.article-picker",
+)
+print(f"{built.case_count} cases")
+
+cases = kindgi.test_sets.list_cases("acme.article-picks", "1.0.0")
+for case in cases.data:
+    print(case.input, [f"{item.key} {item.yes} yes, {item.no} no" for item in case.items])
+```
+
+```text
+3 cases
+I was charged twice for one order. How do I get my money back? ['kb-201 1 yes, 0 no', 'kb-203 0 yes, 1 no', 'kb-202 0 yes, 1 no']
+I forgot my password and can't sign in. ['kb-101 1 yes, 0 no', 'kb-102 0 yes, 1 no', 'kb-103 0 yes, 1 no']
+My package hasn't arrived yet. Where is it? ['kb-301 1 yes, 0 no', 'kb-303 0 yes, 1 no', 'kb-201 0 yes, 1 no']
+```
+
+</TabItem>
+</Tabs>
+
+It prints how many cases there are, then each case's input and its items'
+counts.
+
+- **The project's id:** `kindgi projects get-default` prints the Default
+  project, with its `id`, and `kindgi projects list` lists them all. In code,
+  it's `kindgi.projects.getDefault()`, or `kindgi.projects.get_default()` in
+  Python.
+- **Which runs:** every run of the agent in the project with at least one
+  correction. These narrow it:
+  - `--agent-version`: one version's runs;
+  - `--since` and `--until`: when the run was first corrected;
+  - `--group`: count only corrections of these
+    [corrector groups](../correct-a-runs-output/#weight-corrections-by-corrector-group);
+  - `--min-corrections`: leave out runs with fewer corrections.
+- **Up to 1000 cases.** `truncated: true` says there were more: narrow the
+  runs, or build several sets of test cases.
+- **Versions never change.** When more runs are corrected, build the next
+  version: the same id and a new `--test-set-version`. A taken version is
+  refused: `Test set "acme.article-picks" version "1.0.0" is already registered.`
+- **Building test cases takes `admin` on the project.**
+
+### Narrow it to a segment
+
+`--segment=<key:value>` keeps the runs started in that segment or below it.
+Repeat it for a path, coarse to fine. In the clients, it's `segments`:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi test-sets from-corrections acme.rank-acme-segment --test-set-version=1.0.0 --project=<project-id> \
+  --agent=acme.rank.scorer --segment=company:acme --description="acme company only"
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi test-sets from-corrections acme.rank-acme-segment --test-set-version=1.0.0 --project=<project-id> \
+  --agent=acme.rank.scorer --segment=company:acme --description="acme company only"
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw test-sets from-corrections acme.rank-acme-segment --test-set-version=1.0.0 --project=<project-id> \
+  --agent=acme.rank.scorer --segment=company:acme --description="acme company only"
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw test-sets from-corrections acme.rank-acme-segment --test-set-version=1.0.0 --project=<project-id> \
+  --agent=acme.rank.scorer --segment=company:acme --description="acme company only"
+```
+
+</TabItem>
+</Tabs>
+
+`--description` says what the test cases hold. It prints the test cases:
+
+```json
+{
+  "testSetId": "acme.rank-acme-segment",
+  "version": "1.0.0",
+  "kind": "corrections",
+  "caseCount": 20,
+  "truncated": false
+}
+```
+
+A corrected run keeps the segment path it was started with. A run corrected
+without one, such as one an older runtime recorded, is in no segment, and
+narrowed test cases leave it out.
+
+## What a case keeps
+
+To see what each case holds, list the cases:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi test-sets cases acme.article-picks --test-set-version=1.0.0
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi test-sets cases acme.article-picks --test-set-version=1.0.0
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw test-sets cases acme.article-picks --test-set-version=1.0.0
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw test-sets cases acme.article-picks --test-set-version=1.0.0
+```
+
+</TabItem>
+</Tabs>
+
+One of them:
+
+```json
+{
+  "caseId": "240c0a0b-542b-4cb1-9156-fe7153a4377a",
+  "subject": { "kind": "agent", "id": "acme-ops.article-picker", "version": "0.1.0" },
+  "input": "I forgot my password and can't sign in.",
+  "items": [
+    {
+      "key": "kb-101",
+      "pointer": "/output/articles/0",
+      "rank": 0,
+      "yes": 1,
+      "no": 0,
+      "yesWeight": 1,
+      "totalWeight": 1,
+      "expert": { "yesWeight": 0, "totalWeight": 0, "correctionIds": [] },
+      "correctionIds": ["8f2c4e1a-6b0d-4c3e-9a57-2d1f0b7e4c93"],
+      "reasons": []
+    },
+    …
+  ],
+  "output": { "output": { "articles": [ … ] }, "appended": [ … ], … },
+  "context": { … }
+}
+```
+
+- **`caseId`** is the id of the corrected run.
+- **`items`** has each corrected item: its yes and no counts, the same weighted
+  by corrector group, and the reasons people gave, from each correction's `why`
+  about the answer. The weighted counts are
+  `yesWeight` of `totalWeight`, and a correction with no group weighs 1.
+  `expert` has the weights of the
+  [expert group](../correct-a-runs-output/#restrict-who-may-correct-as-a-group)
+  corrections alone, such as `{ "yesWeight": 3, "totalWeight": 3 }`.
+  `correctionIds` (runtime 0.2.0 or later) names every correction counted in
+  the item, and `expert.correctionIds` the expert-group ones. Test cases
+  built before these ids have neither.
+- **`corrections`** (runtime 0.2.0 or later) has the run's corrections
+  that say [what it should have done](../correct-a-runs-output/#say-what-it-should-have-done),
+  with `decisions: "wrong"`: each one's `shouldCall` and `mustNotCall`, as
+  `calls` and `notCalled`, its `correctionId`, its `correctorGroupId` when it
+  had a group, and `expert: true` when that group was restricted. A case without them
+  has no `corrections`.
+- **`output`** is the run's output, as it was when people corrected it.
+- **`context`**, for an agent turn, is what the turn had before it answered:
+  the conversation so far, up to 200 messages, and what it retrieved. A run
+  on the test cases replays the turn with the same context. Its `toolEnv`
+  has the [env values](../../tools/give-a-tool-env-values/) each tool was
+  sent, by tool id. A read-only tool that run uses live gets those, not the
+  values set now.
+
+## In the console
+
+A project's **Test cases** section lists its test cases, and its form **Build
+test cases from corrections** takes the id, the agent, and optionally one
+version and the corrections a run needs. Each set of test cases has a page
+that shows its versions and its cases: each item with its yes and no
+counts, its weighted yes share, up to two reasons, and a link to the
+original run.
+
+## Next
+
+- [Try a version on the test cases](../compare-an-agent-version/)
+- [Correct a run's output](../correct-a-runs-output/)
+- [Corrections reference](../expert-queue-reference/)

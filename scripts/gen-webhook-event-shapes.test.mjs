@@ -66,7 +66,7 @@ test('a format, a type or a oneOf it cannot check fails the generation', () => {
   schemas(type).FinishedRun.properties.flowVersion.type = ['string', 'integer'];
   assert.throws(() => shapesOf(type), /type \["string","integer"\] isn't one the checker reads/);
   const union = openapi();
-  schemas(union).LiveScope.discriminator = undefined;
+  schemas(union).AgentPinScope.discriminator = undefined;
   assert.throws(() => shapesOf(union), /a oneOf without a discriminator/);
 });
 
@@ -79,7 +79,7 @@ test('a field with no type is any JSON value; a keyword on it fails the generati
   assert.throws(() => shapesOf(doc), /RunFailure\.cause: "minimum" without a type isn't a keyword/);
 });
 
-test("LiveScope's variants are keyed by their kind, and a nullable type is kept nullable", () => {
+test("AgentPinScope's variants are keyed by their kind, and a nullable type is kept nullable", () => {
   const shapes = shapesOf(openapi());
   const scope = shapes['improve-run.finished'].required.data.required.improveRun.required.scope;
   assert.equal(scope.kind, 'union');

@@ -8,6 +8,7 @@ import { type Action, ref } from '@kindgi/authz';
 import type { Cursor, ProjectId, Semver, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
+import type { AgentPinBindings } from '../agent-pin-binding.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
 import type { CorrectionRegistryBinding, CorrectorGroupScope } from '../correction-binding.js';
 import { statusFor, toWireError } from '../errors.js';
@@ -22,33 +23,32 @@ import {
   type ImprovementTier,
 } from '../improve-run-binding.js';
 import { type ItemRights, writeWhereMade } from '../item-rights.js';
-import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
   type ReferenceScopeBinding,
-  liveScopeOutOfScope,
+  agentPinScopeOutOfScope,
   outOfScopeResponse,
   referencesOutOfScope,
 } from '../reference-scope.js';
 import { refusesCandidates, refusesScope } from '../registry-read-only.js';
 import type { SuggestedChangeObjective } from '../supervisor-binding.js';
-import type { EvalGroupWeights } from '../test-run-binding.js';
+import type { TestRunGroupWeights } from '../test-run-binding.js';
 import type { TestSetRegistryBinding } from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
-import { actorOf, coordinatesOf } from './agent-releases.js';
+import { agentPinScopeToWire, parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
+import { actorOf, coordinatesOf } from './agent-pins.js';
 import { deniedBy } from './denied.js';
-import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
 import { UUID_RE } from './uuid-param.js';
 
 type Ctx = Context<AppEnv>;
 
-/** What `improve` checks an Improve run against before it starts. */
+/** What `POST /v1/improve-runs` checks an Improve run against before it starts. */
 export interface ImproveDeps {
   readonly improveRuns?: ImproveRunBinding;
   readonly agents: AgentRegistryBinding;
   readonly blocks: BlockRegistryBinding;
-  readonly releases: AgentReleaseBindings;
+  readonly agentPins: AgentPinBindings;
   /** What the agent's project may reach (`reference-scope.ts`); absent → as named. */
   readonly referenceScope?: ReferenceScopeBinding;
   /** Whether a project is suspended: no Improve run starts in one. Absent: no check. */
@@ -87,8 +87,8 @@ async function resolveGroupWeights(
   tenantId: TenantId,
   projectId: ProjectId | undefined,
   agentId: string | undefined,
-  explicit: EvalGroupWeights | undefined,
-): Promise<EvalGroupWeights> {
+  explicit: TestRunGroupWeights | undefined,
+): Promise<TestRunGroupWeights> {
   if (explicit !== undefined) return explicit;
   if (deps.correctorGroups === undefined) return 'experts-only';
   return (await projectHasExpertClass(deps.correctorGroups, tenantId, projectId, agentId))
@@ -160,19 +160,16 @@ async function testSetProjectId(
 export const DEFAULT_BUDGET: ImprovementBudget = { maxCostUsd: 5, maxCandidates: 30 };
 const MAX_COST_USD = 100;
 const MAX_CANDIDATES = 200;
-const OBJECTIVES: readonly SuggestedChangeObjective[] = [
-  'weightedYesShare',
-  'weightedPrecisionAtK',
-];
+const OBJECTIVES: readonly SuggestedChangeObjective[] = ['passRate', 'weightedPrecisionAtK'];
 
 /**
  * `POST /` (under `/v1/improve-runs`): start an Improve run for
- * an agent version and a live scope. It answers 202 with the Improve run; the
+ * an agent version and a pin scope. It answers 202 with the Improve run; the
  * Improve run carries on in the background (`GET /v1/improve-runs/:id`).
  *
  * Checked first, as evaluating its suggested change would be: the version must be
  * active and pinned, it must pin a settings block with tunable keys, the
- * agent registry must take writes, and the agent must have a live version
+ * agent registry must take writes, and the agent must have a pinned version
  * for the whole tenant. Needs `publish` on the agent; for an agent more
  * than one project serves, `write` where its new versions are made
  * (`item-rights.ts`).
@@ -234,10 +231,10 @@ function mountStartRoutes(
         issues: [],
       });
     }
-    if ((await deps.releases.live.resolve({ tenantId, agentId: parsed.agentId })) === null) {
+    if ((await deps.agentPins.pinned.resolve({ tenantId, agentId: parsed.agentId })) === null) {
       return fail(c, 'suggested-change-needs-pin', {
         code: 'suggested-change-needs-pin',
-        message: `${parsed.agentId} has no live version for the whole tenant, so the version an Improve run suggests would serve every scope nothing is pinned for. Promote its current version for the tenant first (scope { "kind": "tenant" }), then start the Improve run.`,
+        message: `${parsed.agentId} has no pinned version for the whole tenant, so the version an Improve run suggests would serve every scope nothing is pinned for. Pin its current version for the tenant first (scope { "kind": "tenant" }), then start the Improve run.`,
       });
     }
     // The `groupWeights` default keys off the project the Improve run READS its
@@ -285,9 +282,9 @@ function mountStartRoutes(
     if (denied !== undefined) return denied;
     const improveRuns = deps.improveRuns;
     if (improveRuns === undefined || improveRuns.checkBasis === undefined) return unsupported(c);
-    // Resolve and reach-check the same body `/improve` would, so a bad body
+    // Resolve and reach-check the same body `POST /v1/improve-runs` would, so a bad body
     // fails the same way here; the estimate is a read, so it stops there and
-    // doesn't take `/improve`'s run-gating refusals.
+    // doesn't take `POST /v1/improve-runs`'s run-gating refusals.
     const resolved = await resolveImproveTarget(c, deps, authorizer, tenantId, parsed);
     if (resolved instanceof Response) return resolved;
     const basis = await improveRuns.checkBasis({
@@ -319,7 +316,9 @@ function mountStartRoutes(
  * `/v1/improve-runs`: start an Improve run (`POST /`), check what one would cost
  * (`POST /check`), read Improve runs back, and cancel one.
  *
- *   GET  /               newest first; `?agentId=` narrows
+ *   POST /                     start an Improve run (202)
+ *   POST /check                what one would cost
+ *   GET  /                     newest first; `?agentId=` narrows
  *   GET  /:improveRunId        one
  *   POST /:improveRunId/cancel stop a running Improve run (it writes no suggested change)
  *
@@ -429,11 +428,11 @@ export function improveRunsRouter(
 }
 
 /**
- * Resolve and reach-check an improve body the way `/improve` does before it
+ * Resolve and reach-check an improve body the way `POST /v1/improve-runs` does before it
  * runs — so `POST /` and `POST /check`, which take the same body,
  * fail it the same way. Resolves the from-version (given, or the one serving
  * the scope), 404s an unknown or inactive one, then the Improve run's project
- * (`passProject`). Returns the version and the project, or the response to
+ * (`runProject`). Returns the version and the project, or the response to
  * send.
  */
 async function resolveImproveTarget(
@@ -461,7 +460,7 @@ async function resolveImproveTarget(
       message: `${parsed.agentId} has no active version ${fromVersion ?? '(none is registered)'}`,
     });
   }
-  const project = await passProject(c, deps, authorizer, tenantId, parsed, from);
+  const project = await runProject(c, deps, authorizer, tenantId, parsed, from);
   if (project instanceof Response) return project;
   return { from, projectId: project.projectId };
 }
@@ -474,7 +473,7 @@ async function resolveImproveTarget(
  * the scope the agent. The project, or the refusal. Whether it's suspended
  * is the start route's to ask, since the check starts nothing.
  */
-async function passProject(
+async function runProject(
   c: Ctx,
   deps: ImproveDeps,
   authorizer: Authorizer | undefined,
@@ -499,7 +498,7 @@ async function passProject(
   // the version (when it isn't the version's own) and the test set
   // (`reference-scope.ts`).
   const outOfScope =
-    (await liveScopeOutOfScope(deps.referenceScope, tenantId, parsed.agentId, parsed.scope)) ??
+    (await agentPinScopeOutOfScope(deps.referenceScope, tenantId, parsed.agentId, parsed.scope)) ??
     (projectId === undefined
       ? undefined
       : await referencesOutOfScope(deps.referenceScope, tenantId, projectId, [
@@ -524,15 +523,19 @@ function scopeProjectOf(scope: ImproveRun['scope']): ProjectId | undefined {
   return scope.kind === 'project' || scope.kind === 'segment' ? scope.projectId : undefined;
 }
 
-/** What serves the scope now: its live version, else the agent's latest. */
+/** What serves the scope now: its pinned version, else the agent's latest. */
 async function servingVersion(
   deps: ImproveDeps,
   tenantId: TenantId,
   agentId: string,
   scope: ImproveRun['scope'],
 ): Promise<string | undefined> {
-  const live = await deps.releases.live.resolve({ tenantId, agentId, ...coordinatesOf(scope) });
-  if (live !== null) return live.version as unknown as string;
+  const pinned = await deps.agentPins.pinned.resolve({
+    tenantId,
+    agentId,
+    ...coordinatesOf(scope),
+  });
+  if (pinned !== null) return pinned.version as unknown as string;
   const latest = await deps.agents.get({ tenantId, agentId: agentId as AgentId });
   return latest?.version as unknown as string | undefined;
 }
@@ -589,7 +592,7 @@ export function serializeImproveRun(p: ImproveRun): Record<string, unknown> {
     id: p.id,
     agentId: p.agentId,
     fromVersion: p.fromVersion,
-    scope: liveScopeToWire(p.scope),
+    scope: agentPinScopeToWire(p.scope),
     testSetId: p.testSetId,
     tiers: p.tiers,
     objective: p.objective,
@@ -622,7 +625,7 @@ interface StartImproveRunBody {
   readonly testSetId: string;
   readonly tiers: readonly ImprovementTier[];
   readonly objective: SuggestedChangeObjective;
-  readonly groupWeights?: EvalGroupWeights;
+  readonly groupWeights?: TestRunGroupWeights;
   readonly model?: ImprovementModel;
   readonly candidates?: number;
   readonly budget: ImprovementBudget;
@@ -713,10 +716,10 @@ function parseStartImproveRunBody(b: Record<string, unknown>): StartImproveRunBo
   ) {
     return '`projectId` must be a project id (a UUID)';
   }
-  const scope = parseLiveScopeBody(b.scope);
+  const scope = parseAgentPinScopeBody(b.scope);
   if (scope.kind === 'err') return scope.message;
   if (!nonEmpty(b.testSetId)) return '`testSetId` is required: the test set to search and prove on';
-  const options = parsePassOptions(b);
+  const options = parseRunOptions(b);
   if (typeof options === 'string') return options;
   return {
     agentId: b.agentId,
@@ -728,13 +731,13 @@ function parseStartImproveRunBody(b: Record<string, unknown>): StartImproveRunBo
   };
 }
 
-type PassOptions = Pick<
+type RunOptions = Pick<
   StartImproveRunBody,
   'tiers' | 'objective' | 'groupWeights' | 'model' | 'candidates' | 'budget'
 >;
 
 /** An Improve run's options (`tiers`, `objective`, `groupWeights`, `model`, `candidates`, `budget`), defaults applied. */
-function parsePassOptions(b: Record<string, unknown>): PassOptions | string {
+function parseRunOptions(b: Record<string, unknown>): RunOptions | string {
   const tiers = b.tiers ?? ['settings'];
   if (
     !Array.isArray(tiers) ||
@@ -761,7 +764,7 @@ function parsePassOptions(b: Record<string, unknown>): PassOptions | string {
   if (typeof budget === 'string') return budget;
   return {
     tiers: [tier],
-    objective: (b.objective as SuggestedChangeObjective | undefined) ?? 'weightedYesShare',
+    objective: (b.objective as SuggestedChangeObjective | undefined) ?? 'passRate',
     ...(groupWeights !== undefined && { groupWeights }),
     ...prompt,
     budget,
@@ -802,7 +805,7 @@ export function parseImproveScheduleInput(
       `\`${extra}\` isn't an option of an improve schedule's \`config.input\`: { ${known.join(', ')} }`,
     );
   }
-  const options = parsePassOptions(o);
+  const options = parseRunOptions(o);
   if (typeof options === 'string') return err(options);
   const threshold = parseThreshold(o.threshold);
   if (typeof threshold === 'string') return err(threshold);

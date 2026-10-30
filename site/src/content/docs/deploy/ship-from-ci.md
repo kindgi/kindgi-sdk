@@ -1,6 +1,6 @@
 ---
 title: Ship a pack from CI
-description: Test a pack on every pull request, deploy it to staging from main, and promote the same signed build to prod through its release gate policy, with keys that reach only what each step needs.
+description: Test a pack on every pull request, deploy it to staging from main, and promote the same signed build to prod through its release gate, with keys that reach only what each step needs.
 sidebar:
   order: 5.3
 ---
@@ -30,7 +30,7 @@ change made on the runtime comes back to git as a pull request
 ([Changes made on the runtime](#changes-made-on-the-runtime)).
 
 A person sets up the rest once, not CI: the environment order, trusting
-CI's signing key, providers, release gate policies, test cases and
+CI's signing key, providers, release gates, test cases and
 triggers. [Projects, packs and values](../../concepts/projects-packs-values/)
 has how a pack, its projects and its values fit together.
 
@@ -77,17 +77,17 @@ A person does these, with a key of their own:
   CI never holds a key that trusts signing keys.
 - **Register the providers** each environment's agents call
   ([`kindgi providers`](../../reference/cli/providers/)).
-- **In prod, pin a version of each agent, and publish its release gate
-  policy** ([Gate a release](../../guides/evals/release-an-agent-version/#gate-a-release)).
-  A scope with a release gate policy needs a Pinned version of its own.
+- **In prod, pin a version of each agent, and publish its release gate**
+  ([Gate a pin](../../guides/improve/release-an-agent-version/#gate-a-pin)).
+  A scope with a release gate needs a Pinned version of its own.
   Without one, prod's runs take each agent's latest version.
 - **Build the test cases** that prod's test run uses, in prod's project
-  ([Build test cases from corrections](../../guides/evals/build-a-test-set/)).
+  ([Build test cases from corrections](../../guides/improve/build-a-test-set/)).
 - **Create the triggers:** schedules, webhooks and mail triggers.
 
-Registering a provider again under its id, publishing a release gate
-policy's version again, or making a test set of test cases again under its id
-and version is refused, as already registered. A trigger has no name to
+Registering a provider again under its id, publishing a release gate's
+version again, or making a test set of test cases again under its id and
+version is refused, as already registered. A trigger has no name to
 match, so a second `create` of a schedule or a mail trigger, or a second
 `register` of a webhook, makes a second trigger. A script that sets these up
 checks first with each kind's `list`, and tells its triggers apart by
@@ -131,7 +131,7 @@ pnpm exec kindgi tokens create --for=sa:<service-account-id> --role=admin --labe
 ```
 
 That key reaches the whole tenant, prod included. Even with no capability,
-it can change the environment order, replace prod's release gate policy,
+it can change the environment order, replace prod's release gate,
 promote to prod, and make service accounts, tenant admins among them, and
 keys for them. So on Kindgi Cloud, prod's required reviewers don't guard
 prod from a job that holds it. Main's own protection does: a required review
@@ -142,8 +142,8 @@ of each pull request before it merges.
 - **If it leaks,** revoke it, then look for the keys and accounts it made
   with `kindgi tokens list` and `kindgi service-accounts list`, and revoke
   those too. Revoking doesn't undo what it changed, so check that
-  `kindgi environments list` and `kindgi gate-policies list` still show the
-  order and the release gate policies you set.
+  `kindgi environments list` and `kindgi release-gates list` still show the
+  order and the release gates you set.
 
 ### A promote key for each later environment
 
@@ -227,7 +227,7 @@ the new key.
   staging.
 - **Then prod,** once GitHub's required reviewers let its job start:
   promote the build, run the test cases on the new version in prod, and make
-  it Pinned there through its release gate policy.
+  it Pinned there through its release gate.
 
 ### Exit codes
 
@@ -238,8 +238,8 @@ stops on it, and 1 when it couldn't ask:
 |---|---|---|---|
 | `kindgi promote --from --to`, and with `--check` | it moved, or would | never | a value the build needs isn't set in the target, or an error |
 | `kindgi test-runs start --wait` | the run completed | it failed or was cancelled | it's still running after 30 minutes, or an error |
-| `kindgi agents promote --wait` | the version is Pinned | the release gate policy refused it, its approval was rejected or expired, the request was superseded, or the wait ran out | an error, or 3 reads of the promotion in a row failed |
-| `kindgi promote --make-live --wait` | every version it carries is Pinned | one isn't | an error, or 3 reads of a promotion in a row failed |
+| `kindgi agents pin --wait` | the version is Pinned | the release gate refused it, its approval was rejected or expired, the request was superseded, or the wait ran out | an error, or 3 reads of the pin in a row failed |
+| `kindgi promote --pin --wait` | every version it carries is Pinned | one isn't | an error, or 3 reads of a promotion in a row failed |
 
 A usage error exits 2.
 
@@ -329,13 +329,13 @@ jobs:
           VERSION: ${{ steps.promoted.outputs.version }}
         run: |
           pnpm exec kindgi test-runs start "$TEST_SET" --project="$PROD_PROJECT" --agent="$AGENT" --agent-version="$VERSION" --wait > run.json
-          echo "run=$(jq -r .runId run.json)" >> "$GITHUB_OUTPUT"
+          echo "run=$(jq -r .testRunId run.json)" >> "$GITHUB_OUTPUT"
       - if: steps.promoted.outputs.version != ''
         env:
           KINDGI_API_TOKEN: ${{ secrets.KINDGI_PROMOTE_KEY }}
           VERSION: ${{ steps.promoted.outputs.version }}
           RUN: ${{ steps.tested.outputs.run }}
-        run: pnpm exec kindgi agents promote "$AGENT" "$VERSION" --project="$PROD_PROJECT" --test-run="$RUN" --reason="${{ github.sha }} passed its test cases" --wait=1h
+        run: pnpm exec kindgi agents pin "$AGENT" "$VERSION" --project="$PROD_PROJECT" --test-run="$RUN" --reason="${{ github.sha }} passed its test cases" --wait=1h
 ```
 
 ### Make the new version Pinned in prod
@@ -347,28 +347,28 @@ The last three steps of `promote-prod` do it for one agent:
    unchanged, the next two steps skip.
 2. **`test-runs start --wait` runs the test cases on that version in prod.**
    The job stops when the run fails, and `jq` reads its id.
-3. **`agents promote --wait` asks prod's release gate policy,** with that
-   run. When the policy asks for an approval, the step prints the approval's
+3. **`agents pin --wait` asks prod's release gate,** with that
+   run. When the gate asks for an approval, the step prints the approval's
    id and the command that approves it, then waits for a reviewer, up to an
    hour. It exits 0 once the version is Pinned.
 
 - **A step that waits ends before the CI system ends it.** `test-runs start
   --wait` waits up to 30 minutes, and exits 1 when the run is still going
-  then. `agents promote --wait=1h` waits up to an hour: when it runs out, it
-  exits 3, and when 3 reads of the promotion in a row fail, it exits 1.
+  then. `agents pin --wait=1h` waits up to an hour: when it runs out, it
+  exits 3, and when 3 reads of the pin in a row fail, it exits 1.
   Either way the approval stays open: once a reviewer approves it, the
   version is Pinned. Keep the job's `timeout-minutes` longer than the two
   waits together, as the example's 120 is.
 - **A carried agent the workflow doesn't name** stays on the version Pinned
   for it in prod. Name each agent that should go further, with its own test
-  run and `agents promote` steps.
-- **When prod's release gate policy asks only for an approval,** with no
-  test run, `kindgi promote --from=staging --to=prod --make-live --wait` does
-  the whole step for every agent the build carries. `--make-live` can't name
-  a test run, so a policy that needs one holds every version it carries.
+  run and `agents pin` steps.
+- **When prod's release gate asks only for an approval,** with no
+  test run, `kindgi promote --from=staging --to=prod --pin --wait` does
+  the whole step for every agent the build carries. `--pin` can't name
+  a test run, so a release gate that needs one holds every version it carries.
 
-[Gate a release](../../guides/evals/release-an-agent-version/#gate-a-release)
-has what a release gate policy checks, and how a reviewer approves.
+[Gate a pin](../../guides/improve/release-an-agent-version/#gate-a-pin)
+has what a release gate checks, and how a reviewer approves.
 [`kindgi agents`](../../reference/cli/agents/) and
 [`kindgi test-runs`](../../reference/cli/test-runs/) have every flag.
 
@@ -384,9 +384,9 @@ has what a release gate policy checks, and how a reviewer approves.
 
 ## When a release goes wrong
 
-- **Roll an agent back in prod:** one step, with no release gate policy in
+- **Unpin an agent in prod:** one step, with no release gate in
   the way
-  ([Roll back, or unpin](../../guides/evals/release-an-agent-version/#roll-back-or-unpin)).
+  ([Unpin](../../guides/improve/release-an-agent-version/#unpin)).
 - **For anything else, revert the change in git** and let the pipeline ship
   it. That rolls forward: each agent and flow whose content changed gets a
   new version.
@@ -397,7 +397,7 @@ has what a release gate policy checks, and how a reviewer approves.
 Improve, suggested changes and edits in the console change the runtime, not git, so
 the next deploy from git doesn't have them. Bring each one back as a pull
 request: copy the change into the pack's files, and open the pull request.
-[Improve an agent](../../guides/evals/improve-an-agent/) has what Improve
+[Improve an agent](../../guides/improve/improve-an-agent/) has what Improve
 changes.
 
 ## Separate runtimes
@@ -406,7 +406,7 @@ There's no promotion between runtimes. A signed build names its tenant, and
 a runtime checks the signature against its own tenant. So build and sign
 from the same commit for each runtime, and deploy each build to its
 runtime's first environment. Set up each runtime once: its trusted signing
-key, providers, release gate policies, test cases and triggers.
+key, providers, release gates, test cases and triggers.
 
 ## Python, Java and Scala packs
 
@@ -430,5 +430,5 @@ protected jobs read, and set `KINDGI_API_TOKEN` on the `kindgi` steps only.
 
 - [People, API keys and service accounts](../people-and-keys/): the service
   accounts and keys CI uses, and how to revoke one.
-- [Release an agent version](../../guides/evals/release-an-agent-version/):
-  pin, roll back and gate a release by hand.
+- [Release an agent version](../../guides/improve/release-an-agent-version/):
+  pin, unpin and gate a release by hand.
