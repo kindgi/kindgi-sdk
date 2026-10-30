@@ -398,7 +398,7 @@ NAMED: dict[str, tuple[tuple[str, ...], list[str]]] = {
 
 # The API's unions without one, whose members are numbered names, and those names in order.
 UNIONS: dict[str, tuple[tuple[str, ...], list[str]]] = {
-    "EvalBaseline": (("EvalBaseline",), ["EvalBaseline1", "EvalBaseline2"]),
+    "TestRunBaseline": (("TestRunBaseline",), ["TestRunBaseline1", "TestRunBaseline2"]),
     "IdentityProviderSignIn": (
         ("IdentityProviderSignIn",),
         ["IdentityProviderSignIn1", "IdentityProviderSignIn2"],

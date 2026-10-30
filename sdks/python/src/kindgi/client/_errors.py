@@ -143,7 +143,7 @@ _NOT_FOUND = {
     "suggested-change-not-found", "provenance-not-found", "observation-not-found", "blob-not-found",
     "audit-bundle-not-found", "signing-not-configured", "signing-key-not-found",
     "adapter-not-found", "fact-not-found", "identity-user-not-found", "provider-not-found",
-    "capability-not-found", "token-not-found", "agent-version-not-found", "promotion-not-found",
+    "capability-not-found", "token-not-found", "agent-version-not-found", "pin-not-found",
 }  # fmt: skip
 _CONFLICT = {
     "conflict", "already-terminal", "run-already-terminal", "idempotency-key-body-mismatch",
@@ -153,12 +153,12 @@ _CONFLICT = {
     "provider-already-registered", "suggested-change-invalid-state-transition", "approval-not-decided",
     "slug-conflict", "project-default-already-exists", "registry-read-only",
     "policy-already-registered", "policy-scope-taken", "policy-scope-changed",
-    "nothing-to-roll-back", "not-pinned", "agent-version-live", "test-set-already-registered",
+    "not-pinned", "agent-version-pinned", "test-set-already-registered",
     "mcp-endpoint-already-registered", "identity-provider-already-registered",
     "version-already-exists", "test-run-already-terminal", "approval-already-decided",
-    "corrector-group-name-taken", "promotion-superseded", "gate-policy-already-registered",
-    "gate-policy-scope-taken", "gate-policy-scope-changed", "gate-policy-scope-unpinned",
-    "gate-policy-needs-pin", "gate-policy-descendant-unpinned", "fact-changed", "legal-hold",
+    "corrector-group-name-taken", "pin-superseded", "release-gate-already-registered",
+    "release-gate-scope-taken", "release-gate-scope-changed", "release-gate-scope-unpinned",
+    "release-gate-needs-pin", "release-gate-descendant-unpinned", "fact-changed", "legal-hold",
     "erasure-in-progress", "provider-key-in-use",
 }  # fmt: skip
 _INVALID = {

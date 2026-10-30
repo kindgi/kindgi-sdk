@@ -74,7 +74,7 @@ describe('client.suggestedChanges', () => {
     });
   });
 
-  it('list sends a live scope as the promotions history takes it', async () => {
+  it('list sends a pinned scope as the pin history takes it', async () => {
     const stub = jsonFetch({ data: [], hasMore: false });
     await clientWith(stub).suggestedChanges.list({ scope: WIRE_SUGGESTED_CHANGE.scope as never });
     const url = new URL(stub.calls[0]!.url);
@@ -107,7 +107,7 @@ describe('client.suggestedChanges', () => {
 
     const refused = errorFetch(422, {
       code: 'gate-failed',
-      message: 'The release gate policy refused acme.scorer 1.0.1',
+      message: 'The release gate refused acme.scorer 1.0.1',
       details: { suggestedChangeId: ID },
     });
     await expect(clientWith(refused).suggestedChanges.pin(ID)).rejects.toMatchObject({

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, LiveScope, ProjectId, TenantId, Timestamp } from '@kindgi/types';
+import type { AgentPinScope, Cursor, ProjectId, TenantId, Timestamp } from '@kindgi/types';
 
-import type { PromotionActor } from './live-version-binding.js';
+import type { PinActor } from './agent-pin-binding.js';
 import type { SuggestedChangeObjective } from './supervisor-binding.js';
-import type { EvalGroupWeights } from './test-run-binding.js';
+import type { TestRunGroupWeights } from './test-run-binding.js';
 
 /**
  * Improve runs (`POST /v1/improve-runs`,
@@ -76,8 +76,8 @@ export interface StartImproveRunInput {
   readonly agentId: string;
   /** The version whose settings it tunes. */
   readonly fromVersion: string;
-  /** The live scope the suggested change it writes is for. */
-  readonly scope: LiveScope;
+  /** The pinned scope the suggested change it writes is for. */
+  readonly scope: AgentPinScope;
   /** The test set it searches and proves on (split into a search and a hold-out part). */
   readonly testSetId: string;
   readonly tiers: readonly ImprovementTier[];
@@ -86,13 +86,13 @@ export interface StartImproveRunInput {
    * Which corrections its comparisons count: everyone (`as-recorded`) or trusted
    * only (`experts-only`).
    */
-  readonly groupWeights: EvalGroupWeights;
+  readonly groupWeights: TestRunGroupWeights;
   /** For a prompt Improve run: what drafts the templates. */
   readonly model?: ImprovementModel;
   /** For a prompt Improve run: how many templates it drafts. */
   readonly candidates?: number;
   readonly budget: ImprovementBudget;
-  readonly requestedBy: PromotionActor;
+  readonly requestedBy: PinActor;
 }
 
 /**
@@ -110,7 +110,7 @@ export interface CheckImproveRunInput {
    * real version.
    */
   readonly fromVersion: string;
-  readonly scope: LiveScope;
+  readonly scope: AgentPinScope;
   readonly testSetId: string;
   readonly tiers: readonly ImprovementTier[];
   /** For a prompt Improve run: what drafts the templates. */
@@ -153,7 +153,7 @@ export interface ImproveScheduleInput {
    * resolves the project default — everyone (`as-recorded`) until the
    * project names an expert group, then `experts-only`.
    */
-  readonly groupWeights?: EvalGroupWeights;
+  readonly groupWeights?: TestRunGroupWeights;
   readonly model?: ImprovementModel;
   readonly candidates?: number;
   /** Each Improve run's budget; never more than what's left of the month's cap. */
@@ -202,11 +202,11 @@ export interface ImproveRun {
   readonly tenantId: TenantId;
   readonly agentId: string;
   readonly fromVersion: string;
-  readonly scope: LiveScope;
+  readonly scope: AgentPinScope;
   readonly testSetId: string;
   readonly tiers: readonly ImprovementTier[];
   readonly objective: SuggestedChangeObjective;
-  readonly groupWeights: EvalGroupWeights;
+  readonly groupWeights: TestRunGroupWeights;
   readonly model?: ImprovementModel;
   readonly candidates?: number;
   readonly budget: ImprovementBudget;

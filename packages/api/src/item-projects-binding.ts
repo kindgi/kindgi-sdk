@@ -117,7 +117,7 @@ export interface ItemProjectsBinding {
   versionProjectsOf(input: VersionProjectsInput): Promise<readonly ProjectId[] | undefined>;
   /**
    * `versionProjectsOf` for some of one item's versions (a page of its
-   * versions, its live entries, its promotions), in one query. A version
+   * versions, its pinned entries, its pin history), in one query. A version
    * missing from the map is no version of the item.
    */
   versionProjectsOfMany(

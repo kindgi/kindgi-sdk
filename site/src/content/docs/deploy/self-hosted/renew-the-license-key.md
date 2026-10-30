@@ -331,7 +331,7 @@ from the runtime (`GET /v1/license/usage`, which only the deployment's own
 token, or a [system key holding `system:license`](#a-key-for-the-counts),
 can read):
 
-- **runs:** the runs started, not counting dry runs, replays, evals or the
+- **runs:** the runs started, not counting dry runs, replays, test runs or the
   runs another run starts;
 - **people:** the distinct people who started runs or decided approvals,
   counted in each tenant and summed, so a person in two tenants counts twice;

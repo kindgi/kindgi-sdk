@@ -3,7 +3,7 @@
 
 import type { AgentId, Cursor, SuggestedChangeId } from '@kindgi/types';
 
-import type { LiveScope } from '../generated/api.js';
+import type { AgentPinScope } from '../generated/api.js';
 
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
@@ -19,7 +19,7 @@ import { scopeQuery } from './agents.js';
 /**
  * suggested changes (`/v1/suggested-changes`): new content for one data block
  * an agent version pins (settings values, or a prompt template), for one
- * live scope. A suggested change is evaluated on a test set (a comparison of the
+ * pinned scope. A suggested change is evaluated on a test set (a comparison of the
  * candidate version), then pinned: the candidate version is pinned for
  * the scope, through the scope's gate. `status` is derived by the server.
  *
@@ -59,7 +59,7 @@ export interface SuggestedChangesClient {
   /**
    * Compare the suggested change on a test set. The first evaluation publishes the
    * block version and derives the agent version (they serve no scope until
-   * pinned); it needs a live version of the agent for the whole tenant.
+   * pinned); it needs a pinned version of the agent for the whole tenant.
    * Returns the suggested change, `evaluating`.
    *
    * @wire `POST /v1/suggested-changes/{suggestedChangeId}/evaluate`
@@ -103,16 +103,16 @@ export interface SuggestedChangesListInput {
   readonly tier?: SuggestedChangeTier;
   /** Statuses are derived, so a page filtered by status can hold fewer rows than `limit`. */
   readonly status?: SuggestedChangeStatus;
-  /** Only suggested changes for exactly this live scope. */
-  readonly scope?: LiveScope;
+  /** Only suggested changes for exactly this pinned scope. */
+  readonly scope?: AgentPinScope;
 }
 
 export interface CreateSuggestedChangeInput {
   readonly agentId: AgentId | string;
   /** The agent version the change applies to. */
   readonly fromVersion: string;
-  /** The live scope it's for. */
-  readonly scope: LiveScope;
+  /** The pinned scope it's for. */
+  readonly scope: AgentPinScope;
   readonly tier: SuggestedChangeTier;
   /** A block `fromVersion` pins, and its new content. */
   readonly change: { readonly blockId: string; readonly content: SuggestedChangeContent };
@@ -125,7 +125,7 @@ export interface CreateSuggestedChangeInput {
 export interface EvaluateSuggestedChangeInput {
   /** The test set: a corrections test set. */
   readonly testSetId: string;
-  /** Default `weightedYesShare`. */
+  /** Default `passRate`. */
   readonly objective?: SuggestedChangeObjective;
   readonly reads?: 'recorded' | 'live';
   readonly repetitions?: number;

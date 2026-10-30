@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { Pin } from './agent-pin-binding.js';
 import type { CorrectedComparisonSummary } from './corrected-dispatcher.js';
-import type { Promotion } from './live-version-binding.js';
 import type {
   StoredSuggestedChange,
   SuggestedChangeObjective,
@@ -12,7 +12,7 @@ import type { TestRun, TestRunStatus } from './test-run-binding.js';
 
 /**
  * Where a suggested change stands. Never stored: it follows from the
- * suggested change's own steps, its comparison test run and its promotion.
+ * suggested change's own steps, its comparison test run and its pin.
  *
  * - `draft`: not evaluated yet.
  * - `evaluating`: its comparison is queued or running.
@@ -25,12 +25,12 @@ import type { TestRun, TestRunStatus } from './test-run-binding.js';
  * - `not-better`: the comparison finished; the candidate didn't.
  * - `evaluation-failed`: the comparison failed or was cancelled.
  * - `in-review`: requested; the gate passed and an approval is open.
- * - `pinned`: the candidate went live for the scope.
+ * - `pinned`: the candidate was pinned for the scope.
  * - `refused`: requested; the gate refused it.
  * - `rejected`: the reviewer rejected it.
  * - `expired`: the approval expired undecided.
- * - `superseded`: approved after the scope's live version or policy changed.
- * - `rolled-back`: only on an older suggested change rolled back by its own `rollback`, which is removed; a rollback today goes through the agent's live routes and leaves it `pinned`.
+ * - `superseded`: approved after the scope's pinned version or policy changed.
+ * - `rolled-back`: only on an older suggested change rolled back by its own `rollback`, which is removed; going back is a pin of an earlier version, through the agent's pin routes, and leaves it `pinned`.
  * - `withdrawn`: withdrawn.
  */
 export type SuggestedChangeStatus =
@@ -247,31 +247,30 @@ function decisionsOf(
   return { checked: checked.length, held, broken, stillWrong };
 }
 
-const PROMOTION_STATUS: Readonly<Record<NonNullable<Promotion['status']>, SuggestedChangeStatus>> =
-  {
-    'pending-approval': 'in-review',
-    promoted: 'pinned',
-    refused: 'refused',
-    rejected: 'rejected',
-    expired: 'expired',
-    superseded: 'superseded',
-  };
+const PIN_STATUS: Readonly<Record<NonNullable<Pin['status']>, SuggestedChangeStatus>> = {
+  'pending-approval': 'in-review',
+  pinned: 'pinned',
+  refused: 'refused',
+  rejected: 'rejected',
+  expired: 'expired',
+  superseded: 'superseded',
+};
 
 /**
  * A suggested change's status from what's recorded: its own steps first
- * (withdrawn, rolled back), then its promotion, then its comparison.
- * `promotion` and `evaluation` are what the suggested change's ids resolve to
+ * (withdrawn, rolled back), then its pin, then its comparison.
+ * `pin` and `evaluation` are what the suggested change's ids resolve to
  * (`undefined` when it has none).
  */
 export function suggestedChangeStatus(
   suggestedChange: StoredSuggestedChange,
-  promotion: Promotion | null | undefined,
+  pin: Pin | null | undefined,
   evaluation: SuggestedChangeEvaluationOutcome | null | undefined,
 ): SuggestedChangeStatus {
   if (suggestedChange.withdrawn !== undefined) return 'withdrawn';
   if (suggestedChange.rolledBack !== undefined) return 'rolled-back';
-  if (promotion !== undefined && promotion !== null) {
-    return PROMOTION_STATUS[promotion.status ?? 'promoted'];
+  if (pin !== undefined && pin !== null) {
+    return PIN_STATUS[pin.status ?? 'pinned'];
   }
   if (evaluation === undefined || evaluation === null) {
     return suggestedChange.evaluation === undefined ? 'draft' : 'evaluation-failed';
@@ -320,7 +319,7 @@ export const SUGGESTED_CHANGE_ACTIONS = {
   ],
   // Its latest evaluation scored again: once that comparison completed.
   rescore: ['evaluated', 'not-better', 'refused', 'superseded', 'expired'],
-  // The gate decides what goes live: a candidate that isn't measurably
+  // The gate decides what gets pinned: a candidate that isn't measurably
   // better (a wording change) can still be pinned through it.
   pin: ['evaluated', 'not-better', 'refused', 'superseded', 'expired'],
   withdraw: [

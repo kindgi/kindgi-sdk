@@ -282,8 +282,8 @@ function harness(opts: { readonly projects?: boolean } = {}) {
 }
 
 const RULE = {
-  name: 'Live refund runs',
-  when: { agentIds: ['acme.refunds'], versions: ['live'], status: ['completed'] },
+  name: 'Pinned refund runs',
+  when: { agentIds: ['acme.refunds'], versions: ['pinned'], status: ['completed'] },
   sample: 0.5,
   maxOpen: 20,
   correctorGroupId: 'cls-expert',
@@ -337,6 +337,13 @@ describe('queue rules', () => {
           [
             { ...RULE, when: { status: ['completed', status] } },
             'Only a completed run can be corrected, so `when.status` takes `completed` only',
+          ] as const,
+      ),
+      ...[['live'], ['pinned', 'latest'], ['1.2']].map(
+        (versions) =>
+          [
+            { ...RULE, when: { agentIds: ['acme.refunds'], versions } },
+            '`when.versions` takes exact versions, such as `1.2.0`, or `pinned`',
           ] as const,
       ),
       [

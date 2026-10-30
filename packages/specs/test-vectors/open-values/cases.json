@@ -43,7 +43,7 @@
   {
     "name": "union-tag",
     "description": "A union variant this client doesn't know, told apart by its tag.",
-    "operation": "agents.live.unpin",
+    "operation": "agents.pinned.unpin",
     "args": ["acme.triage"],
     "body": {
       "scope": {

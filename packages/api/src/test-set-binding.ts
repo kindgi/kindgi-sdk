@@ -101,7 +101,7 @@ export interface TestSetRegistryBinding {
  * - `benchmark` — reference to a standardized test set (name + version).
  * - `custom` — caller-supplied evaluator handler.
  */
-export const EVAL_KINDS = [
+export const TEST_SET_KINDS = [
   'accuracy',
   'pairwise',
   'regression',
@@ -111,7 +111,7 @@ export const EVAL_KINDS = [
   /** Built from corrections of past runs: cases are copies of corrected runs (`EvalCaseStoreBinding`). */
   'corrections',
 ] as const;
-export type EvalKind = (typeof EVAL_KINDS)[number];
+export type TestSetKind = (typeof TEST_SET_KINDS)[number];
 
 /**
  * Wire shape for a single test set. `spec` is a JSON object
@@ -128,7 +128,7 @@ export interface TestSet {
   readonly id: string;
   readonly tenantId: TenantId;
   readonly version: string;
-  readonly kind: EvalKind;
+  readonly kind: TestSetKind;
   readonly description?: string;
   readonly spec: Readonly<Record<string, unknown>>;
 }
@@ -138,7 +138,7 @@ export interface TestSetListInput {
   readonly limit: number;
   readonly cursor?: Cursor;
   /** Exact match on `TestSet.kind`. Undefined = no filter. */
-  readonly evalKind?: EvalKind;
+  readonly evalKind?: TestSetKind;
   /** Prefix match on `TestSet.id`. Undefined = no filter. */
   readonly nameFilter?: string;
   /**

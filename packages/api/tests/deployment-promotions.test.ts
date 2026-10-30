@@ -26,9 +26,9 @@ import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import { generateEd25519KeyPair, signEd25519 } from '@kindgi/crypto';
 import type {
+  AgentPinScope,
   Cursor,
   EnvName,
-  LiveScope,
   ProjectId,
   RecordedSecretScope,
   SigningKeyId,
@@ -41,18 +41,18 @@ import type {
 import { canonicalizeEnvelope } from '../src/deployment-envelope.js';
 import { createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
 import type {
-  AgentReleaseBindings,
+  AgentPinBindings,
+  AgentPinInput,
   CarriedVersion,
   Deployment,
   DeploymentBinding,
   DeploymentContents,
   DeploymentEndpoint,
-  GatePolicy,
+  Pin,
   PinVersionInput,
   PinnedVersionBinding,
-  PromoteInput,
   PromotedToolSecretScopes,
-  Promotion,
+  ReleaseGate,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
@@ -260,7 +260,7 @@ const notUsed = async (): Promise<never> => {
 };
 
 /**
- * A flow and tool pin binding that records every pin a make-live asks for
+ * A flow and tool pin binding that records every pin a promotion's `pin` asks for
  * and answers it pinned; a flow in `errorOn` fails its write (the error
  * only the write can give). `bindings` wires it into the app; with no
  * `how`, there's no binding and `asked` stays empty.
@@ -302,24 +302,24 @@ function flowPinBinding(how: { readonly errorOn?: readonly string[] } | undefine
 }
 
 /**
- * A live-release binding that records every pin a make-live asks for and
- * answers it live at once, with no gate. `pinned` is each `promote` input,
+ * An agent pin binding that records every pin a promotion's `pin` asks for
+ * and answers it pinned at once, with no gate. `pinned` is each `pin` input,
  * in order, so a test can read the scope the pin was set at.
  */
-function livePins(
+function agentPinBinding(
   opts: {
     readonly gated?: readonly string[] | undefined;
     /** Carried agents whose pin write fails (the error only the write can give). */
     readonly errorOn?: readonly string[] | undefined;
   } = {},
 ): {
-  readonly releases: AgentReleaseBindings;
-  readonly pinned: PromoteInput[];
+  readonly releases: AgentPinBindings;
+  readonly pinned: AgentPinInput[];
 } {
-  const pinned: PromoteInput[] = [];
+  const pinned: AgentPinInput[] = [];
   const errorOn = new Set(opts.errorOn ?? []);
-  const promotions = {
-    promote: async (input: PromoteInput) => {
+  const changes = {
+    pin: async (input: AgentPinInput) => {
       if (errorOn.has(input.agentId)) {
         return {
           kind: 'err' as const,
@@ -333,26 +333,25 @@ function livePins(
           id: `pin-${pinned.length}`,
           agentId: input.agentId,
           scope: input.scope,
-          action: 'promote',
+          action: 'pin',
           fromVersion: null,
           toVersion: input.version,
           requestedBy: input.requestedBy,
           createdAt: '2026-10-01T10:00:00.000Z' as Timestamp,
           ...(input.reason !== undefined && { reason: input.reason }),
-        } satisfies Promotion,
+        } satisfies Pin,
       };
     },
-    rollback: notUsed,
     unpin: notUsed,
     list: async () => ({ data: [] }),
     get: async () => null,
   };
-  // A gate policy on a carried agent's scope, so `makeLive` sees a gate it
-  // can't record (this binding has no `promotions.request`): `promotion-
+  // A release gate on a carried agent's scope, so `pin` sees a gate it
+  // can't record (this binding has no `changes.request`): `pin-
   // gate-unsupported`, decided before any pin.
   const gated = new Set(opts.gated ?? []);
-  const gatePolicies = {
-    resolve: async ({ agentId, scope }: { agentId: string; scope: LiveScope }) =>
+  const releaseGates = {
+    resolve: async ({ agentId, scope }: { agentId: string; scope: AgentPinScope }) =>
       gated.has(agentId)
         ? ({
             id: `gate-${agentId}`,
@@ -362,16 +361,16 @@ function livePins(
             scope,
             spec: {},
             createdAt: '2026-10-01T00:00:00.000Z' as Timestamp,
-          } satisfies GatePolicy)
+          } satisfies ReleaseGate)
         : null,
   };
   return {
     pinned,
     releases: {
-      live: { resolve: async () => null, list: async () => [] },
-      promotions: promotions as unknown as AgentReleaseBindings['promotions'],
+      pinned: { resolve: async () => null, list: async () => [] },
+      changes: changes as unknown as AgentPinBindings['changes'],
       ...(gated.size > 0 && {
-        gatePolicies: gatePolicies as unknown as NonNullable<AgentReleaseBindings['gatePolicies']>,
+        releaseGates: releaseGates as unknown as NonNullable<AgentPinBindings['releaseGates']>,
       }),
     },
   };
@@ -393,15 +392,15 @@ function harness(
     readonly envName?: string | null;
     /** The tool's schema for `ACME_TOKEN`; absent: a required string. */
     readonly secretSchema?: object;
-    /** Wire a live-release binding (`livePins`), so `makeLive` can pin. */
-    readonly live?: boolean;
-    /** Carried agents whose scope has a gate policy this binding can't record. */
+    /** Wire an agent pin binding (`agentPinBinding`), so `pin` pins the carried agents. */
+    readonly agentPins?: boolean;
+    /** Carried agents whose scope has a release gate this binding can't record. */
     readonly gated?: readonly string[];
     /** Carried agents whose pin write fails (the error only the write can give). */
     readonly errorOn?: readonly string[];
     /** Items an order carries, so an agent spans more than one project. */
     readonly itemRows?: readonly ItemRow[];
-    /** Wire a flow pin binding (`flowPinBinding`), so `makeLive` pins the carried flows; the flows named fail their write. */
+    /** Wire a flow pin binding (`flowPinBinding`), so `pin` pins the carried flows; the flows named fail their write. */
     readonly flowPins?: { readonly errorOn?: readonly string[] };
   } = {},
 ) {
@@ -459,8 +458,10 @@ function harness(
     },
   };
   const grants = opts.grants;
-  const live =
-    opts.live === true ? livePins({ gated: opts.gated, errorOn: opts.errorOn }) : undefined;
+  const agentPins =
+    opts.agentPins === true
+      ? agentPinBinding({ gated: opts.gated, errorOn: opts.errorOn })
+      : undefined;
   const items = opts.itemRows !== undefined ? itemProjects([...opts.itemRows]) : undefined;
   const flowPins = flowPinBinding(opts.flowPins);
   const app = createApp({
@@ -496,7 +497,7 @@ function harness(
     } as never,
     secretsBinding: secretsBinding as never,
     environmentOrders: environmentOrders(opts.orders ?? [ORDER]),
-    ...(live !== undefined && { agentReleases: live.releases }),
+    ...(agentPins !== undefined && { agentPins: agentPins.releases }),
     ...flowPins.bindings,
     ...(items !== undefined && { itemProjects: items }),
     ...(opts.suspended !== undefined && {
@@ -527,17 +528,17 @@ function harness(
     trusted,
     appended,
     versions,
-    /** The pins the make-live asked for, in order (empty without `live`). */
-    pinned: live?.pinned ?? [],
-    /** The flow pins the make-live asked for, in order (empty without `flowPins`). */
+    /** The pins a promotion's `pin` asked for, in order (empty without `agentPins`). */
+    pinned: agentPins?.pinned ?? [],
+    /** The flow pins a promotion's `pin` asked for, in order (empty without `flowPins`). */
     flowPinned: flowPins.asked,
     promote: (id: string, toProjectId: ProjectId, reason?: string) =>
       call(`/v1/deployments/${id}/promotions`, {
         toProjectId,
         ...(reason !== undefined && { reason }),
       }),
-    makeLive: (id: string, toProjectId: ProjectId, token = TOKEN) =>
-      call(`/v1/deployments/${id}/promotions`, { toProjectId, makeLive: true }, token),
+    promoteAndPin: (id: string, toProjectId: ProjectId, token = TOKEN) =>
+      call(`/v1/deployments/${id}/promotions`, { toProjectId, pin: true }, token),
     check: (id: string, toProjectId: ProjectId) =>
       call(`/v1/deployments/${id}/promotions/check`, { toProjectId }),
     // What `kindgi deploy --sync-secrets` asks of a deployment once it lands.
@@ -1084,18 +1085,18 @@ describe('the record, and what a promotion takes', () => {
   });
 });
 
-describe('making the carried agents live in the target (makeLive)', () => {
+describe('pinning the carried agents in the target (pin)', () => {
   const AGENT = 'acme.matcher';
 
-  test('pins each carried agent in the target and reports it live; an agent one project serves is asked the promote right it has today', async () => {
+  test('pins each carried agent in the target and reports it pinned; an agent one project serves is asked the pin right', async () => {
     const h = harness({
-      live: true,
-      grants: [`read project:${S1}`, `admin project:${S2}`, `promote agent:${AGENT}`],
+      agentPins: true,
+      grants: [`read project:${S1}`, `admin project:${S2}`, `pin agent:${AGENT}`],
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(201);
-    expect(res.body.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    expect(res.body.pinned).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
     // Pinned in the target, at the target's own project scope — never the tenant's.
     expect(h.pinned).toHaveLength(1);
     expect(h.pinned[0]).toMatchObject({
@@ -1105,15 +1106,15 @@ describe('making the carried agents live in the target (makeLive)', () => {
     });
   });
 
-  test("refused when the caller can't promote an agent one project serves: 403, though the build has already moved", async () => {
+  test("refused when the caller can't pin an agent one project serves: 403, though the build has already moved", async () => {
     const h = harness({
-      live: true,
+      agentPins: true,
       grants: [`read project:${S1}`, `admin project:${S2}`],
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(403);
-    expect(res.body.error.details).toMatchObject({ action: 'promote', resource: `agent:${AGENT}` });
+    expect(res.body.error.details).toMatchObject({ action: 'pin', resource: `agent:${AGENT}` });
     // The promotion committed (the move isn't undone); nothing was pinned.
     expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
     expect(h.pinned).toEqual([]);
@@ -1121,82 +1122,82 @@ describe('making the carried agents live in the target (makeLive)', () => {
 
   test('an agent an order carries is asked admin on the target project, not its home: a target admin who runs neither the source nor the home pins it', async () => {
     const h = harness({
-      live: true,
+      agentPins: true,
       // `acme.matcher` runs in S1 (its home) and S2 (the target).
       itemRows: [{ kind: 'agent', id: AGENT, projects: [S1, S2] }],
       // Admin on the target S2 and read on the source S1 — but no admin on the home S1.
       grants: [`read project:${S1}`, `admin project:${S2}`],
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(201);
-    expect(res.body.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    expect(res.body.pinned).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
     expect(h.pinned[0]).toMatchObject({ scope: { kind: 'project', projectId: S2 } });
   });
 
-  test('admin on the source alone, not the target: the promotion is refused before anything is made live', async () => {
+  test('admin on the source alone, not the target: the promotion is refused before anything is pinned', async () => {
     const h = harness({
-      live: true,
+      agentPins: true,
       grants: [`read project:${S1}`, `admin project:${S1}`],
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(403);
     expect(res.body.error.details).toMatchObject({ action: 'admin', resource: `project:${S2}` });
     expect(h.pinned).toEqual([]);
     expect(h.deployments.rows.filter((d) => d.projectId === S2)).toHaveLength(0);
   });
 
-  test('making it live again is safe: the move is idempotent and a pin in place passes, with the same answer', async () => {
+  test('pinning it again is safe: the move is idempotent and a pin in place passes, with the same answer', async () => {
     const h = harness({
-      live: true,
-      grants: [`read project:${S1}`, `admin project:${S2}`, `promote agent:${AGENT}`],
+      agentPins: true,
+      grants: [`read project:${S1}`, `admin project:${S2}`, `pin agent:${AGENT}`],
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const first = await h.makeLive('dep-s1', S2);
-    const again = await h.makeLive('dep-s1', S2);
+    const first = await h.promoteAndPin('dep-s1', S2);
+    const again = await h.promoteAndPin('dep-s1', S2);
     expect(first.status).toBe(201);
     expect(first.body.created).toBe(true);
-    // The target already has the build, so the repeat answers 200 — and makes
-    // it live again all the same, with the same answer.
+    // The target already has the build, so the repeat answers 200 — and pins
+    // it again all the same, with the same answer.
     expect(again.status).toBe(200);
     expect(again.body.created).toBe(false);
-    expect(again.body.live).toEqual(first.body.live);
+    expect(again.body.pinned).toEqual(first.body.pinned);
     // One deployment in the target; the pin was asked both times (in place, a no-op the binding absorbs).
     expect(h.deployments.rows.filter((d) => d.projectId === S2)).toHaveLength(1);
     expect(h.pinned).toHaveLength(2);
   });
 
-  test('made live in the Default project: the pin names that project, so a Default run resolves it over an older tenant-wide pin', async () => {
+  test('pinned in the Default project: the pin names that project, so a Default run resolves it over an older tenant-wide pin', async () => {
     const h = harness({
-      live: true,
+      agentPins: true,
       rows: [built({ id: 'dep-s2', projectId: S2 })],
     });
-    const res = await h.makeLive('dep-s2', PROD);
+    const res = await h.promoteAndPin('dep-s2', PROD);
     expect(res.status).toBe(201);
-    expect(res.body.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    expect(res.body.pinned).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
     // A project-kind pin on the Default — never tenant- or org-wide — so it
-    // takes precedence over an older tenant pin when the Default resolves live.
+    // takes precedence over an older tenant pin when a Default run resolves its version.
     expect(h.pinned).toHaveLength(1);
     expect(h.pinned[0]?.scope).toEqual({ kind: 'project', projectId: PROD });
   });
 
-  test("a composition without a live-release binding can't make a promotion live: 501, the move still done", async () => {
+  test("a composition without an agent pin binding can't pin what a promotion carries: 501, the move still done", async () => {
     const h = harness();
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(501);
     expect(res.body.error.code).toBe('promotions-unsupported');
-    // The build moved; only making it live is unsupported.
+    // The build moved; only pinning what it carried is unsupported.
     expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
   });
 
   // S2: everything decidable before a pin is decided for every agent first,
   // so a later agent's gate the deployment can't record never leaves an
-  // earlier agent half-live.
-  test('a later carried agent whose scope is gated, in a deployment that can’t record a gated promotion: refused before any pin, nothing made live', async () => {
+  // earlier agent pinned on its own.
+  test('a later carried agent whose scope is gated, in a deployment that can’t record a gated promotion: refused before any pin, nothing pinned', async () => {
     const GATED_AGENT = 'acme.ranker';
     const h = harness({
-      live: true,
+      agentPins: true,
       gated: [GATED_AGENT],
       rows: [
         built({
@@ -1214,29 +1215,29 @@ describe('making the carried agents live in the target (makeLive)', () => {
       grants: [
         `read project:${S1}`,
         `admin project:${S2}`,
-        `promote agent:${AGENT}`,
-        `promote agent:${GATED_AGENT}`,
+        `pin agent:${AGENT}`,
+        `pin agent:${GATED_AGENT}`,
       ],
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(501);
-    expect(res.body.error.code).toBe('promotion-gate-unsupported');
-    // The first agent is not left live: the gate is decided before any pin.
+    expect(res.body.error.code).toBe('pin-gate-unsupported');
+    // The first agent is not left pinned: the gate is decided before any pin.
     expect(h.pinned).toEqual([]);
-    // Nothing was pinned, so the refusal carries no `live` (N3: assert the
-    // error body, not a top-level field that an error answer never has).
-    expect(res.body.error.details?.live).toBeUndefined();
-    // The build still moved — only making the carried agents live is refused.
+    // Nothing was pinned, so the refusal carries no `pinned` (assert the error
+    // body, not a top-level field that an error answer never has).
+    expect(res.body.error.details?.pinned).toBeUndefined();
+    // The build still moved — only pinning the carried agents is refused.
     expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
   });
 
   // S3: an error only the pin write can give, after an earlier agent is
-  // already live, answers with the pins made so far in `error.details.live`.
-  test('a later carried agent’s pin write fails after an earlier one is live: the error carries the pins already made', async () => {
+  // already pinned, answers with the pins made so far in `error.details.pinned`.
+  test('a later carried agent’s pin write fails after an earlier one is pinned: the error carries the pins already made', async () => {
     const FAILS = 'acme.ranker';
     const h = harness({
-      live: true,
+      agentPins: true,
       errorOn: [FAILS],
       rows: [
         built({
@@ -1254,23 +1255,23 @@ describe('making the carried agents live in the target (makeLive)', () => {
       grants: [
         `read project:${S1}`,
         `admin project:${S2}`,
-        `promote agent:${AGENT}`,
-        `promote agent:${FAILS}`,
+        `pin agent:${AGENT}`,
+        `pin agent:${FAILS}`,
       ],
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(503);
     expect(res.body.error.code).toBe('database-busy');
-    // The write failed on the second agent, but the first is already live, so
-    // the answer names it (its `live` shape) rather than hiding it.
-    expect(res.body.error.details?.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    // The write failed on the second agent, but the first is already pinned, so
+    // the answer names it (its `pinned` shape) rather than hiding it.
+    expect(res.body.error.details?.pinned).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
     expect(h.pinned).toHaveLength(1);
     expect(h.pinned[0]).toMatchObject({ agentId: AGENT });
   });
 });
 
-describe('making the carried flows the ones in use in the target (makeLive)', () => {
+describe('making the carried flows the ones in use in the target (pin)', () => {
   const AGENT = 'acme.matcher';
   const FLOW = 'acme.refunds';
   const LATER = 'acme.returns';
@@ -1283,21 +1284,21 @@ describe('making the carried flows the ones in use in the target (makeLive)', ()
   const grants = (...extra: string[]) => [
     `read project:${S1}`,
     `admin project:${S2}`,
-    `promote agent:${AGENT}`,
+    `pin agent:${AGENT}`,
     ...extra,
   ];
 
   test('pins each carried flow version in the target project, after the agents, and reports it in pinnedFlows; a flow one project serves is asked the pin right', async () => {
     const h = harness({
-      live: true,
+      agentPins: true,
       flowPins: {},
       rows: [shipsFlows(FLOW)],
       grants: grants(`pin flow:${FLOW}`),
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(201);
-    expect(res.body.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    expect(res.body.pinned).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
     expect(res.body.pinnedFlows).toEqual([{ id: FLOW, version: '1.0.0' }]);
     // The target project's own pin: never the org's or the tenant's.
     expect(h.flowPinned).toHaveLength(1);
@@ -1311,13 +1312,13 @@ describe('making the carried flows the ones in use in the target (makeLive)', ()
 
   test("refused when the caller can't pin a flow one project serves: 403 before any pin, an agent's included", async () => {
     const h = harness({
-      live: true,
+      agentPins: true,
       flowPins: {},
       rows: [shipsFlows(FLOW)],
       grants: grants(),
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(403);
     expect(res.body.error.details).toMatchObject({ action: 'pin', resource: `flow:${FLOW}` });
     expect(h.pinned).toEqual([]);
@@ -1328,47 +1329,47 @@ describe('making the carried flows the ones in use in the target (makeLive)', ()
 
   test('a flow an order carries is asked admin on the target project, which the promotion needs anyway', async () => {
     const h = harness({
-      live: true,
+      agentPins: true,
       flowPins: {},
       rows: [shipsFlows(FLOW)],
       itemRows: [{ kind: 'flow', id: FLOW, projects: [S1, S2] }],
       grants: grants(),
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(201);
     expect(res.body.pinnedFlows).toEqual([{ id: FLOW, version: '1.0.0' }]);
   });
 
-  test('a later carried flow’s pin write fails: the error carries the agents made live and the flows pinned so far', async () => {
+  test('a later carried flow’s pin write fails: the error carries the agents and flows pinned so far', async () => {
     const h = harness({
-      live: true,
+      agentPins: true,
       flowPins: { errorOn: [LATER] },
       rows: [shipsFlows(FLOW, LATER)],
       grants: grants(`pin flow:${FLOW}`, `pin flow:${LATER}`),
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(500);
     expect(res.body.error.code).toBe('persistence-error');
-    expect(res.body.error.details?.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    expect(res.body.error.details?.pinned).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
     expect(res.body.error.details?.pinnedFlows).toEqual([{ id: FLOW, version: '1.0.0' }]);
     expect(h.flowPinned.map((p) => p.itemId)).toEqual([FLOW]);
   });
 
-  test('without a pin binding nothing pins a flow, so the answer has no pinnedFlows; a promotion without makeLive pins none either', async () => {
+  test("without a pin binding nothing pins a flow, so the answer has no pinnedFlows; a promotion that doesn't ask to pin pins none either", async () => {
     const without = harness({
-      live: true,
+      agentPins: true,
       rows: [shipsFlows(FLOW)],
       grants: grants(),
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const res = await without.makeLive('dep-s1', S2);
+    const res = await without.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(201);
     expect(res.body.pinnedFlows).toBeUndefined();
 
     const plain = harness({
-      live: true,
+      agentPins: true,
       flowPins: {},
       rows: [shipsFlows(FLOW)],
       grants: grants(`pin flow:${FLOW}`),

@@ -27,6 +27,7 @@ import type { MemoryQueryBinding } from '@kindgi/memory';
 import { type PolicyRegistryBinding, RETENTION_DOMAINS } from '@kindgi/policy-contract';
 import type { AdapterRegistryBinding } from './adapter-binding.js';
 import type { AgentRegistryBinding } from './agent-binding.js';
+import type { AgentPinBindings } from './agent-pin-binding.js';
 import type { BlockRegistryBinding } from './block-binding.js';
 import type { CapabilityRegistryBinding } from './capability-binding.js';
 import type { ConnectionBinding } from './connection-binding.js';
@@ -51,7 +52,6 @@ import type { ImageRegistryBinding } from './image-registry-binding.js';
 import type { ImproveRunBinding } from './improve-run-binding.js';
 import type { ItemProjectsBinding } from './item-projects-binding.js';
 import { itemRightsOf, itemServingOf } from './item-rights.js';
-import type { AgentReleaseBindings } from './live-version-binding.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
 import type { MemoryBinding } from './memory-binding.js';
 import type { MemoryErasureBinding } from './memory-erasure-binding.js';
@@ -149,7 +149,6 @@ import { eventTriggersRouter } from './routes/event-triggers.js';
 import { expertQueueRouter } from './routes/expert-queue.js';
 import { exportSigningKeysRouter } from './routes/export-signing-keys.js';
 import { flowsRouter } from './routes/flows.js';
-import { gatePoliciesRouter } from './routes/gate-policies.js';
 import { guardrailsRouter } from './routes/guardrails.js';
 import { hooksRouter } from './routes/hooks.js';
 import { identityRouter } from './routes/identity.js';
@@ -172,6 +171,7 @@ import { projectsRouter } from './routes/projects.js';
 import { provenanceRouter } from './routes/provenance.js';
 import { providersRouter } from './routes/providers.js';
 import { publicRunTokensRouter } from './routes/public-run-tokens.js';
+import { releaseGatesRouter } from './routes/release-gates.js';
 import { retentionRouter } from './routes/retention.js';
 import { reviewersRouter } from './routes/reviewers.js';
 import { type RunsRouterOptions, runsRouter } from './routes/runs.js';
@@ -594,8 +594,7 @@ export interface CreateAppInput {
    */
   readonly supervisor?: SupervisorBinding;
   /**
-   * Optional. Improve runs (`POST /v1/improve-runs`,
-   * `/v1/improve-runs`): the runtime's search for better settings
+   * Optional. Improve runs (`/v1/improve-runs`): the runtime's search for better settings
    * values, written as a suggested change. Without it, both answer
    * `501 improve-unsupported`.
    */
@@ -979,13 +978,13 @@ export interface CreateAppInput {
    */
   readonly evalCaseStore?: EvalCaseStoreBinding;
   /**
-   * Optional. Live versions of agents per scope, and their promotions
-   * (`/v1/agents/{id}/live`, `/live-versions`, `/promotions`,
-   * `/live/rollback`, `/live/unpin`), and with `projectBinding`, a
+   * Optional. Pinned versions of agents per scope, and their pin changes
+   * (`/v1/agents/{id}/pinned`, `/pinned-versions`, `/pinned/pin`,
+   * `/pinned/unpin`, `/pin-history`), and with `projectBinding`, a
    * project's pinned versions (`/v1/projects/{id}/pinned-versions`).
    * Absent → a run takes the latest version, as before.
    */
-  readonly agentReleases?: AgentReleaseBindings;
+  readonly agentPins?: AgentPinBindings;
   /**
    * Optional. Pinned versions of flows and tools per scope
    * (`/v1/flows/{id}/pinned`, `/pinned-versions`, `/pinned/pin`,
@@ -1753,7 +1752,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         authorizer,
         input.toolRegistry,
         input.blockRegistry,
-        input.agentReleases,
+        input.agentPins,
         {
           ...(input.testRunBinding !== undefined && { testRuns: input.testRunBinding }),
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
@@ -1778,16 +1777,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ),
     );
   }
-  if (input.agentReleases?.gatePolicies !== undefined) {
-    v1.route('/gate-policies', gatePoliciesRouter(input.agentReleases.gatePolicies, authorizer));
+  if (input.agentPins?.releaseGates !== undefined) {
+    v1.route('/release-gates', releaseGatesRouter(input.agentPins.releaseGates, authorizer));
   }
   // A project's pinned versions need its project (the 404, and the org the
   // binding reads), so the route mounts only with the project binding too.
-  if (input.agentReleases !== undefined && input.projectBinding !== undefined) {
+  if (input.agentPins !== undefined && input.projectBinding !== undefined) {
     v1.route(
       '/projects',
       projectPinnedVersionsRouter({
-        live: input.agentReleases.live,
+        agentPinned: input.agentPins.pinned,
         projects: input.projectBinding,
         ...(authorizer !== undefined && { authorizer }),
         ...(itemRights !== undefined && { itemRights }),
@@ -1804,7 +1803,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ? {
               tools: input.toolRegistry,
               agents: input.agentRegistry,
-              ...(input.agentReleases !== undefined && { live: input.agentReleases.live }),
+              ...(input.agentPins !== undefined && { agentPinned: input.agentPins.pinned }),
               ...(input.pinnedVersions !== undefined && { pinned: input.pinnedVersions }),
             }
           : undefined,
@@ -1910,13 +1909,13 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     input.agentRegistry !== undefined &&
     input.blockRegistry !== undefined &&
     input.testRunBinding !== undefined &&
-    input.agentReleases !== undefined
+    input.agentPins !== undefined
   ) {
     const improveDeps = {
       ...(input.improveRuns !== undefined && { improveRuns: input.improveRuns }),
       agents: input.agentRegistry,
       blocks: input.blockRegistry,
-      releases: input.agentReleases,
+      agentPins: input.agentPins,
       ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
       ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
       ...(input.correctionRegistry !== undefined && { correctorGroups: input.correctionRegistry }),
@@ -1930,11 +1929,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           agents: input.agentRegistry,
           blocks: input.blockRegistry,
           testRuns: input.testRunBinding,
-          releases: input.agentReleases,
+          agentPins: input.agentPins,
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
           ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
           ...(input.environmentOrders !== undefined && { orders: input.environmentOrders }),
-          // A drafter's promotion needs a separate approver when the tenant has
+          // A drafter's pin needs a separate approver when the tenant has
           // a second person who could approve it — one who can read the
           // approval's resource, so the count matches who the decide route lets in.
           ...(input.reviewerRegistry !== undefined && { reviewers: input.reviewerRegistry }),
@@ -2507,13 +2506,13 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           }),
           ...(input.agentRegistry !== undefined && { agentRegistry: input.agentRegistry }),
           ...(input.flowRegistry !== undefined && { flowRegistry: input.flowRegistry }),
-          ...(input.agentReleases !== undefined && { liveVersions: input.agentReleases.live }),
+          ...(input.agentPins !== undefined && { agentPinned: input.agentPins.pinned }),
           ...(input.pinnedVersions !== undefined && { pinnedVersions: input.pinnedVersions }),
-          // A promotion asked to make its carried agents live pins each in
-          // the target through the same gate a live route uses.
-          ...(input.agentReleases !== undefined && {
-            agentReleases: input.agentReleases,
-            releaseGateDeps: {
+          // A promotion asked to pin its carried agents pins each in the
+          // target through the same gate the agent pin route uses.
+          ...(input.agentPins !== undefined && {
+            agentPins: input.agentPins,
+            agentPinGateDeps: {
               ...(input.testRunBinding !== undefined && { testRuns: input.testRunBinding }),
               ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
               ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
@@ -2560,7 +2559,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.testRunBinding !== undefined) {
     // Mount the start route under `/v1/test-sets/:testSetId/runs` and
     // the readback surface under `/v1/test-runs/*`. Both share one
-    // binding — the start-route registration happens even without an
+    // binding — the start-route registration happens even without a
     // `testSetRegistry` binding: the dispatcher itself surfaces
     // `test-set-not-found` when the caller-plugged binding can't resolve
     // the test set id, so the API layer stays consumer-neutral.

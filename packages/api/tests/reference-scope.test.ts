@@ -342,15 +342,15 @@ const ROUTES: readonly RouteCase[] = [
     kind: 'agent',
   },
   {
-    name: 'POST /v1/agents/{agentId}/promotions: a project scope',
-    path: (id) => `/v1/agents/${id}/promotions`,
+    name: 'POST /v1/agents/{agentId}/pinned/pin: a project scope',
+    path: (id) => `/v1/agents/${id}/pinned/pin`,
     body: (projectId) => ({ version: '1.0.0', scope: { kind: 'project', projectId } }),
     issuePath: '/scope',
     kind: 'agent',
   },
   {
-    name: 'POST /v1/agents/{agentId}/promotions: a segment scope',
-    path: (id) => `/v1/agents/${id}/promotions`,
+    name: 'POST /v1/agents/{agentId}/pinned/pin: a segment scope',
+    path: (id) => `/v1/agents/${id}/pinned/pin`,
     body: (projectId) => ({
       version: '1.0.0',
       scope: { kind: 'segment', projectId, path: [{ key: 'company', value: 'acme' }] },
@@ -649,11 +649,11 @@ describe('a version named at open or registration: refused there when the projec
   });
 });
 
-describe('POST /v1/agents/{agentId}/promotions: a tenant scope', () => {
+describe('POST /v1/agents/{agentId}/pinned/pin: a tenant scope', () => {
   test("isn't asked: no other project can name the agent anyway", async () => {
     const asked: Parameters<ReferenceScopeBinding['reachable']>[0][] = [];
     const a = app(scope(asked));
-    const res = await a.request('/v1/agents/acme.other-item/promotions', {
+    const res = await a.request('/v1/agents/acme.other-item/pinned/pin', {
       method: 'POST',
       headers: auth,
       body: JSON.stringify({ version: '1.0.0', scope: { kind: 'tenant' } }),

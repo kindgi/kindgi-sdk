@@ -16,7 +16,7 @@ import {
 } from '../correction-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type {
-  CorrectedEvalCase,
+  CorrectedTestCase,
   EvalCaseStoreBinding,
   TestCaseExpectedDecisions,
 } from '../eval-case-binding.js';
@@ -244,13 +244,13 @@ async function buildCases(
   corrections: CorrectionRegistryBinding,
   tenantId: TenantId,
   body: Pick<BuildBody, 'projectId' | 'query'>,
-): Promise<{ readonly cases: CorrectedEvalCase[]; readonly truncated: boolean }> {
+): Promise<{ readonly cases: CorrectedTestCase[]; readonly truncated: boolean }> {
   const list = corrections.listCorrectedRuns as NonNullable<
     CorrectionRegistryBinding['listCorrectedRuns']
   >;
   const weightOf = groupWeightReader(corrections, tenantId);
   const filter = correctedRunFilter(tenantId, body);
-  const cases: CorrectedEvalCase[] = [];
+  const cases: CorrectedTestCase[] = [];
   let cursor: Cursor | undefined;
   for (;;) {
     const page = await list({ ...filter, limit: PAGE, ...(cursor !== undefined && { cursor }) });
@@ -268,7 +268,7 @@ async function toCase(
   corrected: CorrectedRunWithCorrections,
   q: BuildBody['query'],
   weightOf: (correctorGroupId: string | undefined) => Promise<number>,
-): Promise<CorrectedEvalCase | undefined> {
+): Promise<CorrectedTestCase | undefined> {
   // A comparison's replay is never a case, whatever the binding lists.
   if (isReplayCopy(corrected.run)) return undefined;
   const kept =
@@ -286,7 +286,7 @@ async function toCase(
   )?.pointer;
   const items = await summarizeByItem(kept, weightOf, answerAt);
   // Each kept correction's expected decisions ride onto the case, keyed by
-  // its correction and carrying its corrector group and restriction, so a
+  // its correction and carrying its corrector group and restriction, so an
   // experts-only comparison filters them the way it filters items.
   const corrections: TestCaseExpectedDecisions[] = kept.flatMap((j) =>
     j.shouldCall === undefined && j.mustNotCall === undefined

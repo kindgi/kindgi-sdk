@@ -80,8 +80,7 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   approvals: 'Human-in-the-loop review queue (role-scoped).',
   observations: 'Supervisor readback of run outcomes.',
   agents: 'Agent catalog (list, get, publish, unregister — caller-plugged registry).',
-  'gate-policies':
-    'What a promotion of an agent must show before a version goes live for a scope (evals step 4b).',
+  'release-gates': 'What an agent version must show before it is pinned for a scope.',
   flows:
     'Flow catalog (list, get, publish, unregister — caller-plugged registry). Enables non-agent workflows via HTTP — publish once, execute many via `POST /v1/runs`.',
   tools: 'Tool catalog (list, get, register, unregister — caller-plugged registry, metadata-only).',
@@ -91,7 +90,7 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   memory:
     'Fact catalog + retrieval (list, get, write, supersede, retrieve — caller-plugged binding wraps the memory subsystem).',
   'suggested-changes':
-    'Suggested changes: a change to one data block an agent version pins, for one live scope (list, get, draft, evaluate, rescore, pin, withdraw).',
+    'Suggested changes: a change to one data block an agent version pins, for one pinned scope (list, get, draft, evaluate, rescore, pin, withdraw).',
   'improve-runs':
     'Improve runs: the runtime looking for better settings (start, check, list, get, cancel).',
   provenance:
@@ -122,7 +121,7 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   'corrector-groups':
     'Corrector groups (list, get, create, update, unregister): the deployment\'s named kinds of person who corrects ("expert", "user", ...), each with a weight, scoped to the tenant, a project, or an agent in a project. A correction may name a class; an unclassified correction counts with weight 1. Caller-plugged via `CorrectionRegistryBinding`.',
   'test-runs':
-    'Test-run data plane (start, list, get, cancel, events SSE). Dispatches a test run against a registered test set. Dispatch is per-`EvalKind`; kinds without a registered dispatcher return `422 dispatcher-not-registered`. `result` is kind-specific opaque JSON on the wire — for `accuracy` it is `{ passCount, totalCount, meanScore, perCase[] }`. SSE events mirror run streaming: per-case progress followed by a terminal frame carrying the aggregate. Caller-plugged via `TestRunBinding`.',
+    'Test-run data plane (start, list, get, cancel, events SSE). Dispatches a test run against a registered test set. Dispatch is per-`TestSetKind`; kinds without a registered dispatcher return `422 dispatcher-not-registered`. `result` is kind-specific opaque JSON on the wire — for `accuracy` it is `{ passCount, totalCount, meanScore, perCase[] }`. SSE events mirror run streaming: per-case progress followed by a terminal frame carrying the aggregate. Caller-plugged via `TestRunBinding`.',
   sites:
     "Sites that sign their own people in to one project: a site (a WordPress admin, say) vouches for whoever is signed in there, so they ask the project's agents and decide its approvals as themselves. A site holds its own Ed25519 key; Kindgi only ever has the public half.",
   auth: 'OIDC and SAML identity providers + session lifecycle. Layers browser-based auth on top of the static bearer-token surface: bearer tokens continue to work byte-shape-identical; session tokens use the `kgi_sk_*` prefix so the same middleware routes both flavors. Providers are caller-plugged via `IdentityProviderBinding` (no baked-in list); sign-in runs in the deployment, which reads them. Sessions persist via `SessionStoreBinding`. `clientSecretRef` is a REFERENCE — the plaintext secret never crosses the wire.',

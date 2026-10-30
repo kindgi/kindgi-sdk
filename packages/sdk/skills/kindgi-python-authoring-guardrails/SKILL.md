@@ -16,7 +16,7 @@ description: >
   kindgi-python-authoring-tools.
 type: core
 library: "kindgi (Python)"
-version: "0.1.7"
+version: "0.1.8"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -161,7 +161,12 @@ def no_fabricated_quotes(config: Config, trace: RunTrace) -> CheckResult:
 - **`scope`** — when it applies: `{"when": "always" | "ci-only" |
   "runtime-only"}`, narrowed by `agents`, `flows`, `tenants` lists.
 - **`kind`** — `"zero-llm"` (default): a check over the trace — what a
-  pack writes.
+  pack writes. `"llm-judge"`: a model judges the turn against the rubric
+  in `config` (`{"rubric": "...", "responseFormat": "pass-fail"}`), and
+  the check is never called. It costs model calls and needs
+  **`judge_capabilities`**, what the judge model is routed by
+  (`{"needs": [{"feature": "structured-output"}]}`); the decorator
+  refuses an llm-judge guardrail without it.
 - **`config`** — the values the check runs with (above); **`config_type`**
   — the config's type when the check's first parameter isn't annotated
   with it.

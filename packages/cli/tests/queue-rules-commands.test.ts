@@ -55,7 +55,7 @@ describe('kindgi queue-rules', () => {
         '--agent=acme.refund',
         '--flow=acme.flow',
         '--agent-version=2.0.0',
-        '--agent-version=live',
+        '--agent-version=pinned',
         '--status=completed',
         '--include-dry-runs',
         '--sample=0.5',
@@ -75,7 +75,7 @@ describe('kindgi queue-rules', () => {
           when: {
             agentIds: ['acme.matcher', 'acme.refund'],
             flowIds: ['acme.flow'],
-            versions: ['2.0.0', 'live'],
+            versions: ['2.0.0', 'pinned'],
             status: ['completed'],
             includeDryRuns: true,
           },

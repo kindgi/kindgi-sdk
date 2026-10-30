@@ -573,8 +573,8 @@ What to check before you upgrade, and what's different after:
   - **Corrections:** a project's queue rules queue the runs that need a
     person's verdict, results per agent version, and runs on the test cases
     and suggested changes rescored after people correct the new answers
-    ([Correct a run's output](../../../guides/evals/judge-a-runs-output/),
-    [Improve an agent](../../../guides/evals/improve-an-agent/)).
+    ([Correct a run's output](../../../guides/improve/correct-a-runs-output/),
+    [Improve an agent](../../../guides/improve/improve-an-agent/)).
   - **What failed and why:** a project's failed runs grouped by cause and
     version (`GET /v1/runs/failures`) and a failure's `reason`
     ([See why runs failed](../../../guides/runs/see-why-runs-failed/)), and
@@ -597,7 +597,7 @@ What to check before you upgrade, and what's different after:
     [guardrails](../../../guides/guardrails/write-a-guardrail/#in-the-console) and
     [members](../../authorization/#in-the-console-members), each with a page of
     its own, plus
-    [Quality](../../../guides/evals/expert-queue-reference/#in-the-console) for
+    [Quality](../../../guides/improve/expert-queue-reference/#in-the-console) for
     correcting runs, and [costs](../../../guides/observability/cost-per-run/#cost-in-the-console)
     for the project and each run. The tenant gets
     [Teams](../../authorization/#in-the-console-teams),
@@ -982,8 +982,8 @@ and what's different after:
     tenant admin can erase an end user's words, their conversations and the
     runs that served them (`kindgi memory erasures`).
   - **Improve:** suggest new settings or a new prompt for an agent
-    version, try the candidate on the test cases, and make it live through
-    the release gate policy where it goes live, after review
+    version, try the candidate on the test cases, and pin it through
+    the release gate where it is pinned, after review
     (`kindgi suggested-changes`). Improve can look for better settings on its own,
     and a schedule can start an Improve run.
   - **Files kept with a run** (artifacts) and the capability catalog

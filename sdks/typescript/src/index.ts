@@ -15,18 +15,16 @@ export { createClient } from './client.js';
 export type { KindgiClient } from './client.js';
 
 export type {
-  AgentGatePolicyClient,
-  AgentLiveClient,
-  AgentPromotionsClient,
+  AgentReleaseGateClient,
+  AgentPinnedClient,
+  AgentUnpinInput,
   AgentsClient,
   DefineAgentOptions,
   DeriveAgentVersionInput,
-  ListPromotionsFilter,
-  LiveWhere,
-  PromoteInput,
+  ListPinHistoryFilter,
+  AgentPinnedWhere,
+  AgentPinInput,
   ReinstateAgentVersionResult,
-  RollbackLiveInput,
-  UnpinLiveInput,
 } from './resources/agents.js';
 export type {
   PinHistoryPage,
@@ -37,11 +35,11 @@ export type {
   UnpinVersionInput,
 } from './resources/pinned-versions.js';
 export type {
-  GatePoliciesClient,
-  GatePolicyFilter,
-  GatePolicyVersionsClient,
-  PublishGatePolicyInput,
-} from './resources/gate-policies.js';
+  ReleaseGatesClient,
+  ReleaseGateFilter,
+  ReleaseGateVersionsClient,
+  PublishReleaseGateInput,
+} from './resources/release-gates.js';
 export type {
   Run,
   RunAgent,
@@ -299,17 +297,17 @@ export { comparisonOf } from './resources/test-runs.js';
 export type {
   AgentProject,
   AgentProjectList,
-  LivePin,
-  LivePinList,
-  LiveScope,
-  LiveVersionResolution,
+  AgentPinnedVersion,
+  AgentPinnedVersionList,
+  AgentPinScope,
+  AgentPinnedVersionResolution,
   GateApproval,
   GateCheck,
-  GatePolicy,
-  GatePolicyPage,
-  GatePolicyRef,
-  GatePolicyResolution,
-  GatePolicySpec,
+  ReleaseGate,
+  ReleaseGatePage,
+  ReleaseGateRef,
+  ReleaseGateResolution,
+  ReleaseGateSpec,
   PinActor,
   PinScope,
   PinnedVersion,
@@ -317,9 +315,9 @@ export type {
   PinnedVersionChangePage,
   PinnedVersionList,
   PinnedVersionResolution,
-  Promotion,
-  PromotionCheck,
-  PromotionPage,
+  Pin,
+  PinCheck,
+  PinPage,
   RunProgress,
   ScopeSegment,
 } from './generated/api.js';
