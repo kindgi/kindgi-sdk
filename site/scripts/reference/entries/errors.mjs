@@ -791,7 +791,7 @@ export const ERROR_ENTRIES = {
   },
   'promotions-unsupported': {
     description:
-      "This runtime can't promote deployments: it has nowhere to write a promotion. The promotion check still answers. Nothing is written.",
+      "This runtime can't promote deployments: it has nowhere to write a promotion. The promotion check still answers. Nothing is written. From a deployment promotion with `makeLive` on a runtime that can't make versions live, the build has already moved and nothing is pinned in the target: promote without `makeLive` there.",
     details: [],
     seeAlso: ['POST /v1/deployments/{deploymentId}/promotions'],
   },
@@ -1236,6 +1236,11 @@ export const ERROR_ENTRIES = {
         key: 'approvalsPending',
         meaning:
           "the tenant's limit on approvals waiting for a decision; absent when the server doesn't name it",
+      },
+      {
+        key: 'live',
+        meaning:
+          "from a deployment promotion with `makeLive`, when some were: the carried agents pinned before this one, in the answer's `live` shape",
       },
     ],
   },
@@ -1998,11 +2003,17 @@ export const ERROR_ENTRIES = {
   'promotion-superseded': {
     description:
       "The scope's live version changed while the release gate policy was being checked, so the check no longer applies. Check the go-live again against the new live version.",
-    details: [],
+    details: [
+      {
+        key: 'live',
+        meaning:
+          "from a deployment promotion with `makeLive`, when some were: the carried agents pinned before this one, in the answer's `live` shape",
+      },
+    ],
   },
   'promotion-gate-unsupported': {
     description:
-      "A release gate policy applies to this go-live, and the deployment can't record a gated go-live, so the go-live is refused.",
+      "A release gate policy applies to this go-live, and the deployment can't record a gated go-live, so the go-live is refused. From a deployment promotion with `makeLive`, the build has already moved and nothing is pinned in the target.",
     details: [],
   },
   'separate-approver-required': {
@@ -2071,7 +2082,13 @@ export const ERROR_ENTRIES = {
   'gate-policy-descendant-unpinned': {
     description:
       'The change would also move a narrower scope that a release gate policy applies to and that has no live version of its own, bypassing that policy. Pin that scope at its current version first.',
-    details: [],
+    details: [
+      {
+        key: 'live',
+        meaning:
+          "from a deployment promotion with `makeLive`, when some were: the carried agents pinned before this one, in the answer's `live` shape",
+      },
+    ],
   },
   'principal-not-found': {
     description:
