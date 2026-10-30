@@ -752,8 +752,8 @@ object ProfessionalTone {
   - `temperature`: the judge's temperature, when you set one.
 - **The verdict:** a FAIL, or a score below the threshold, fails the check.
   A reply that starts with neither PASS nor FAIL, or, for a score, whose
-  first line isn't a number, fails it too. The action handles a failure as
-  it handles any check's
+  first line doesn't start with a number, fails it too. The action handles
+  a failure as it handles any check's
   ([Choose the action](../halt-or-record/#choose-the-action)). The judge's
   reason is the violation's reason, and shows wherever the failure does, so
   the rubric can ask for a reason that doesn't quote the answer.
