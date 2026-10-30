@@ -56063,7 +56063,7 @@
             }
           },
           "400": {
-            "description": "Malformed cursor, `from`, or `to`.",
+            "description": "Malformed cursor, `from` or `to`, or a `kind` that is no evidence kind.",
             "content": {
               "application/json": {
                 "schema": {
@@ -56160,7 +56160,7 @@
               "$ref": "#/components/schemas/EvidenceKind"
             },
             "required": false,
-            "description": "Filter by evidence kind (any `EvidenceKind`). A kind the classifier does not mark exportable yields an empty page."
+            "description": "Filter by evidence kind: a built-in `EvidenceKind`, or a kind the classifier names. Any other kind is a 400. A kind the classifier does not mark exportable yields an empty page."
           },
           {
             "name": "from",

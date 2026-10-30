@@ -19,6 +19,7 @@
   - `evalRunId` is `testRunId` everywhere it names a test run: in the agent pin body, in a run's replay marker (`{ of, testRunId }`), in a replay's provenance, and in `/v1/runs`'s filter.
   - The stream's events `eval-run.completed`, `eval-run.failed`, `eval-run.cancelled`, `eval-run.case-completed` and `eval-run.case-failed` are `test-run.*`, with the same endings.
   - The compliance evidence kind `eval-run` is `test-run`.
+  - `GET /v1/compliance/evidence?kind=` answers 400 for a kind that is neither a built-in evidence kind nor one the classifier names, such as `eval-run`. It was an empty page. A kind the classifier names but doesn't mark exportable is still an empty page.
 - **Errors.** Codes starting `eval-run-` start `test-run-`.
 - **Schemas and types.** `EvalRun*` names are `TestRun*`.
 - **TypeScript client.** `client.evalRuns` is `client.testRuns`.

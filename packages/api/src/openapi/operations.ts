@@ -8101,7 +8101,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         in: 'query',
         required: false,
         description:
-          'Filter by evidence kind (any `EvidenceKind`). A kind the classifier does not mark exportable yields an empty page.',
+          'Filter by evidence kind: a built-in `EvidenceKind`, or a kind the classifier names. Any other kind is a 400. A kind the classifier does not mark exportable yields an empty page.',
         schema: { $ref: '#/components/schemas/EvidenceKind' },
       },
       {
@@ -8126,7 +8126,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonAuthErrors,
       ...TenantAdminErrors,
-      '400': ErrorResponse('Malformed cursor, `from`, or `to`.'),
+      '400': ErrorResponse(
+        'Malformed cursor, `from` or `to`, or a `kind` that is no evidence kind.',
+      ),
     },
   },
   {
