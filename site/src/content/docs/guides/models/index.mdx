@@ -478,9 +478,9 @@ sends nothing for `none`, so `lowest` on a model whose `lowest` is `none` or
 adapter's models don't think.
 
 Thinking counts against the call's output cap, `maxOutputTokens`, and bills
-as output, so it's in a turn's tokens and cost. A guardrail's or an eval's
-model judge asks for the least thinking. It allows 2,048 tokens for thinking,
-on top of the 256 its verdict gets.
+as output, so it's in a turn's tokens and cost. A guardrail's model judge, or
+a test run's judging model, asks for the least thinking. It allows 2,048
+tokens for thinking, on top of the 256 its verdict gets.
 
 | Preset | Model | Takes a temperature | Thinks | Least thinking | Levels |
 | --- | --- | --- | --- | --- | --- |

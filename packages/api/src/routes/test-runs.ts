@@ -60,7 +60,7 @@ import { parseTimeInput } from './time-input.js';
  *
  * With an authorizer (T243 A): starting a run needs `write` on the
  * project it lands in and `execute` on what it evaluates (the agent or
- * flow), on top of the test-sets router's own check on the test set. An
+ * flow), on top of the test-sets router's own check on the test set. A
  * test run is read through its test set: `read` on the test set to list, get or
  * follow it, `write` to cancel it. A run that isn't there is still the
  * handler's 404.

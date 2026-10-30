@@ -2556,7 +2556,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.testRunBinding !== undefined) {
     // Mount the start route under `/v1/test-sets/:testSetId/runs` and
     // the readback surface under `/v1/test-runs/*`. Both share one
-    // binding — the start-route registration happens even without an
+    // binding — the start-route registration happens even without a
     // `testSetRegistry` binding: the dispatcher itself surfaces
     // `test-set-not-found` when the caller-plugged binding can't resolve
     // the test set id, so the API layer stays consumer-neutral.

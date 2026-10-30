@@ -286,7 +286,7 @@ async function toCase(
   for (const [key, list] of byKey) items.push(await summarizeCorrections(key, list, weightOf));
   items.sort((a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER));
   // Each kept correction's expected decisions ride onto the case, keyed by
-  // its correction and carrying its corrector group and restriction, so a
+  // its correction and carrying its corrector group and restriction, so an
   // experts-only comparison filters them the way it filters items.
   const corrections: TestCaseExpectedDecisions[] = kept.flatMap((j) =>
     j.correction === undefined
