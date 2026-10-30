@@ -318,13 +318,6 @@ export const CLI_DEFAULTS = {
     project: "the tenant's Default project",
     spec: 'required',
   },
-  'agents derive': {
-    from: 'required',
-    label: 'none',
-    project: 'none',
-    prompt: 'none (at least one `--prompt` or `--setting` is required)',
-    setting: 'none (at least one `--prompt` or `--setting` is required)',
-  },
   'agents versions': {
     cursor: 'none',
     limit: '`25` (at most `100`)',

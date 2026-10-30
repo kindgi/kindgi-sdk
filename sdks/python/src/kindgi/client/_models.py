@@ -3037,7 +3037,7 @@ class VersionDerivation(BaseModel):
         Literal["pins-changed", "unpinned", "version-taken", "edited"] | str, _open.OPEN
     ]
     """
-    `pins-changed`: a block it uses has a new version; `unpinned`: the definition's version was published before pins existed; `version-taken`: the definition's version holds another definition; `edited`: derived from `version` with some data-block pins swapped (`POST /v1/agents/{agentId}/versions`).
+    `pins-changed`: a block it uses has a new version; `unpinned`: the definition's version was published before pins existed; `version-taken`: the definition's version holds another definition; `edited`: derived from `version` with some data-block pins swapped: a suggested change's version (`suggestedChangeId`), or an earlier hand edit's (`label`, `by`).
     """
     label: str | None = None
     """
@@ -3050,25 +3050,6 @@ class VersionDerivation(BaseModel):
     suggested_change_id: Annotated[str | None, Field(alias="suggestedChangeId")] = None
     """
     For `edited`: the suggested change it was derived for. Such a version serves no scope until a promotion makes it live.
-    """
-
-
-class AgentPinSwaps(BaseModel):
-    """
-    The data-block pins to swap, by block id → exact version. Only blocks the version already references; tool pins come from code.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    prompts: dict[str, str] | None = None
-    """
-    Prompt block id → exact version.
-    """
-    settings: dict[str, str] | None = None
-    """
-    Settings block id → exact version.
     """
 
 
@@ -14850,30 +14831,6 @@ class Agent(BaseModel):
     owner: AgentOwner | None = None
     """
     `GET /v1/agents/{agentId}` only: the agent's owner, absent until one is set (`PUT /v1/agents/{agentId}/owner`).
-    """
-
-
-class DeriveAgentVersionBody(BaseModel):
-    """
-    Derive a new agent version from a pinned one with some data-block pins swapped: an expert's edit reaching an agent with no code change.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    from_: Annotated[str, Field(alias="from")]
-    """
-    The version to derive from (it must be pinned).
-    """
-    pins: AgentPinSwaps
-    label: str | None = None
-    """
-    A short label for the new version.
-    """
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    """
-    The agent's project, when the runtime doesn't record it on the version.
     """
 
 

@@ -113,6 +113,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
     `InvalidRequestError` (`400 bad-input`). A test set with such an id
     published before keeps reading and running, but a new version of it is
     refused: publish it under another id.
+  - `client.agents.derive_version` is removed, with
+    `POST /v1/agents/{agentId}/versions` and the `DeriveAgentVersionBody`
+    and `AgentPinSwaps` models. A suggested change makes an agent version
+    from a block's new content, and checks it.
   - New models: `SuggestedChangeChange`, `SuggestedChangeCheck`,
     `SuggestedChangeCheckSide`, `SuggestedChangeNote` and
     `SuggestedChangeBlockContent`.

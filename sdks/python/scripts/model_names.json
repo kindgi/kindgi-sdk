@@ -27,7 +27,7 @@
   "AgentMemoryPolicy": ["AgentMemoryPolicy"],
   "AgentOutputSpec": ["AgentOutputSpec"],
   "AgentOwner": ["AgentOwner"],
-  "AgentPinSwaps": ["AgentPinSwaps"],
+  "AgentPinSwaps": [],
   "AgentPins": ["AgentPins"],
   "AgentProject": ["AgentProject"],
   "AgentProjectList": ["AgentProjectList"],
@@ -257,7 +257,7 @@
   "DeploymentValue": ["DeploymentValue"],
   "DeploymentValueList": ["DeploymentValueList"],
   "DeploymentValueNeededBy": ["DeploymentValueNeededBy"],
-  "DeriveAgentVersionBody": ["DeriveAgentVersionBody"],
+  "DeriveAgentVersionBody": [],
   "Domain": [
     "OidcIdentityProviderConfig.domains",
     "SamlIdentityProviderConfig.domains",

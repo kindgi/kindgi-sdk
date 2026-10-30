@@ -20,7 +20,6 @@ export type {
   AgentPromotionsClient,
   AgentsClient,
   DefineAgentOptions,
-  DeriveAgentVersionInput,
   ListPromotionsFilter,
   LiveWhere,
   PromoteInput,

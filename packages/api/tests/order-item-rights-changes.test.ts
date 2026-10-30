@@ -7,8 +7,7 @@
  * right on that project only, never the item's own on top (a promotion,
  * a rollback or an unpin there). A change that reaches every project (a
  * tenant's or an org's live version, unregistering or reinstating a
- * version) needs it on every project that version can run in. Deriving a
- * version is `write` where the item's new versions are made. A version
+ * version) needs it on every project that version can run in. A version
  * the caller can't see is asked as one that doesn't exist. An item with
  * one project is checked as before, check for check. A deployment's
  * promotion that makes what it moved live asks the live routes' one
@@ -468,33 +467,6 @@ describe('unregistering a guardrail an order carries', () => {
       'solo',
       'POST',
       `/v1/guardrails/${SOLO}/unregister`,
-    );
-    expect(a.text).toBe(b.text);
-    expect(a.asked).toEqual(b.asked);
-  });
-});
-
-describe('deriving a version of an agent an order carries', () => {
-  const path = `/v1/agents/${SERVED}/versions`;
-  const body = { fromVersion: '1.0.0', changes: {} };
-
-  test("write in the order's first environment, where its new versions are made", async () => {
-    const { call } = harness();
-    const no = await call('prod-admin', 'POST', path, body);
-    expect(no.status, no.text).toBe(403);
-    expect(no.body.error.message).toContain(`refused on project ${STAGING}`);
-    const ok = await call('staging-admin', 'POST', path, body);
-    expect(ok.status, ok.text).not.toBe(403);
-    expect(ok.asked).toEqual([`staging-admin write project:${STAGING}`]);
-  });
-
-  test('an agent with one project: publish on the agent, as before', async () => {
-    const a = await harness().call('solo', 'POST', `/v1/agents/${SOLO}/versions`, body);
-    const b = await harness({ served: false }).call(
-      'solo',
-      'POST',
-      `/v1/agents/${SOLO}/versions`,
-      body,
     );
     expect(a.text).toBe(b.text);
     expect(a.asked).toEqual(b.asked);

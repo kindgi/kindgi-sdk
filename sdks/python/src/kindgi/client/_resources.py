@@ -216,9 +216,6 @@ OPERATIONS: dict[str, Operation] = {
     "agents.listVersions": Operation(
         "agents.listVersions", "GET", "/v1/agents/{agentId}/versions", "json", False
     ),
-    "agents.deriveVersion": Operation(
-        "agents.deriveVersion", "POST", "/v1/agents/{agentId}/versions", "json", True
-    ),
     "agents.getVersion": Operation(
         "agents.getVersion", "GET", "/v1/agents/{agentId}/versions/{version}", "json", False
     ),
@@ -3243,30 +3240,6 @@ class AgentsResource:
             query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
             response=_models.AgentCollectionPage,
-            timeout=timeout,
-        )
-
-    def derive_version(
-        self,
-        agent_id: str | UUID,
-        body: _models.DeriveAgentVersionBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.Agent:
-        """Derive an agent version with data-block pins swapped. `POST /v1/agents/{agentId}/versions`
-
-        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent. In a tenant with environment orders, the new version is made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted; the agent's project doesn't change. It doesn't become the project's Latest by itself: a run that names no version gets it only where a pin names it.
-        """
-        return self._client._request(
-            _OPERATIONS["agents.deriveVersion"],
-            path={"agentId": agent_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.DeriveAgentVersionBody, body, fields),
-            response=_models.Agent,
             timeout=timeout,
         )
 
@@ -6521,7 +6494,7 @@ class TestSetsResource:
     ) -> _models.PublishTestSetResult:
         """Publish a test set. `POST /v1/test-sets`
 
-        Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201). An id that starts with `agent.` is refused with `400 bad-input`: those are agents' own test sets, whose versions only a check or a test run makes.
         """
         return self._client._request(
             _OPERATIONS["testSets.publish"],
@@ -6566,7 +6539,7 @@ class TestSetsResource:
     ) -> _models.BuildCorrectedTestSetResult:
         """Build a test set from corrections. `POST /v1/test-sets/{testSetId}/versions/from-corrections`
 
-        Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
+        Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project. A `testSetId` that starts with `agent.` is refused with `400 bad-input`: those are agents' own test sets, whose versions only a check or a test run makes.
         """
         return self._client._request(
             _OPERATIONS["testSets.buildFromCorrections"],
@@ -13032,30 +13005,6 @@ class AsyncAgentsResource:
             timeout=timeout,
         )
 
-    async def derive_version(
-        self,
-        agent_id: str | UUID,
-        body: _models.DeriveAgentVersionBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.Agent:
-        """Derive an agent version with data-block pins swapped. `POST /v1/agents/{agentId}/versions`
-
-        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent. In a tenant with environment orders, the new version is made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted; the agent's project doesn't change. It doesn't become the project's Latest by itself: a run that names no version gets it only where a pin names it.
-        """
-        return await self._client._request(
-            _OPERATIONS["agents.deriveVersion"],
-            path={"agentId": agent_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.DeriveAgentVersionBody, body, fields),
-            response=_models.Agent,
-            timeout=timeout,
-        )
-
     async def get_version(
         self, agent_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.Agent:
@@ -16315,7 +16264,7 @@ class AsyncTestSetsResource:
     ) -> _models.PublishTestSetResult:
         """Publish a test set. `POST /v1/test-sets`
 
-        Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201). An id that starts with `agent.` is refused with `400 bad-input`: those are agents' own test sets, whose versions only a check or a test run makes.
         """
         return await self._client._request(
             _OPERATIONS["testSets.publish"],
@@ -16360,7 +16309,7 @@ class AsyncTestSetsResource:
     ) -> _models.BuildCorrectedTestSetResult:
         """Build a test set from corrections. `POST /v1/test-sets/{testSetId}/versions/from-corrections`
 
-        Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
+        Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project. A `testSetId` that starts with `agent.` is refused with `400 bad-input`: those are agents' own test sets, whose versions only a check or a test run makes.
         """
         return await self._client._request(
             _OPERATIONS["testSets.buildFromCorrections"],

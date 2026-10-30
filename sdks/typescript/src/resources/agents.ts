@@ -8,7 +8,6 @@ import type {
   Agent,
   AgentCollectionPage,
   AgentProjectList,
-  DeriveAgentVersionBody,
   GatePolicyResolution,
   LivePinList,
   LiveScope,
@@ -137,22 +136,7 @@ export interface AgentVersionsClient {
     version: Semver,
     options?: MutationOptions,
   ): Promise<ReinstateAgentVersionResult>;
-  /**
-   * Derive a new version from a pinned one with some data-block pins
-   * swapped (an expert's edit, no code change). Numbered the next free
-   * patch after the agent's highest version. Needs `publish` on the agent.
-   *
-   * @wire POST /v1/agents/:agentId/versions
-   */
-  derive(
-    agentId: AgentId,
-    input: DeriveAgentVersionInput,
-    options?: MutationOptions,
-  ): Promise<Agent>;
 }
-
-/** Body of `POST /v1/agents/{agentId}/versions`. */
-export type DeriveAgentVersionInput = DeriveAgentVersionBody;
 
 /**
  * Live versions. A run that doesn't name its version uses the live
@@ -347,16 +331,6 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
       return transport.request<UnregisterAgentResult>({
         method: 'POST',
         path: `/v1/agents/${seg(agentId as unknown as string)}/versions/${seg(version as unknown as string)}/unregister`,
-        ...(options?.idempotencyKey !== undefined && {
-          idempotencyKey: options.idempotencyKey,
-        }),
-      });
-    },
-    async derive(agentId, input, options) {
-      return transport.request<Agent>({
-        method: 'POST',
-        path: `/v1/agents/${seg(agentId as unknown as string)}/versions`,
-        body: input,
         ...(options?.idempotencyKey !== undefined && {
           idempotencyKey: options.idempotencyKey,
         }),

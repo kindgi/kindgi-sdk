@@ -730,7 +730,6 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
 
   test.each([
     '/v1/agents',
-    `/v1/agents/${AGENT}/versions`,
     `/v1/agents/${AGENT}/versions/1.0.0/unregister`,
     `/v1/agents/${AGENT}/versions/1.0.0/reinstate`,
   ])('POST %s is still refused with the registry reason', async (path) => {
