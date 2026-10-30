@@ -1958,8 +1958,14 @@ export const ERROR_ENTRIES = {
   },
   'nothing-runs-in-scope': {
     description:
-      "No version of the agent runs in the scope yet: no pin covers it, and the agent has no Latest there (a tenant or org scope takes Latest over every project), so there's nothing to measure the version against. Nothing is promoted. Deploy or publish a version into the project first; into a later environment of an order, which takes builds only by promotion, promote a build that ships a version of the agent. A deployment promotion with `makeLive` that carries only such a version commits the move and pins nothing for that agent; its message names the agent. When the scope's project is suspended, the refusal is `project-suspended` instead.",
-    details: [],
+      "No version of the agent runs in the scope yet: no pin covers it, and the agent has no Latest there (a tenant or org scope takes Latest over every project), so there's nothing to measure the version against. Nothing is promoted. Deploy or publish a version into the project first; into a later environment of an order, which takes builds only by promotion, promote a build that ships a version of the agent. From a deployment promotion with `makeLive`, the move has already committed: the carried agents pinned before this one stay pinned (`details.live`), and this agent, the carried agents after it and the carried flows aren't pinned. The message names the agent. When the scope's project is suspended, the refusal is `project-suspended` instead.",
+    details: [
+      {
+        key: 'live',
+        meaning:
+          "from a deployment promotion with `makeLive`, when some were: the carried agents pinned before this one, in the answer's `live` shape",
+      },
+    ],
     seeAlso: [
       'POST /v1/agents/{agentId}/promotions',
       'POST /v1/agents/{agentId}/promotions/check',
