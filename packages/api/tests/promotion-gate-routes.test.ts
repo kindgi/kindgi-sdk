@@ -21,8 +21,6 @@ import type {
   AgentRegistryBinding,
   AgentReleaseBindings,
   CorrectedComparisonSummary,
-  TestRun,
-  TestRunBinding,
   GatePolicy,
   GatePolicySpec,
   LatestAnswer,
@@ -32,6 +30,8 @@ import type {
   PromotionError,
   PromotionRequestInput,
   RunHandlerBinding,
+  TestRun,
+  TestRunBinding,
   TokenResolver,
 } from '../src/index.js';
 import { highestAsLatest } from './support/latest.js';

@@ -23,12 +23,12 @@ import { createApp } from '../src/index.js';
 import type {
   AgentRegistryBinding,
   CreateAppInput,
-  TestRunBinding,
   FlowRegistryBinding,
   GuardrailRegistryBinding,
   IdentityDirectoryBinding,
   InvokeAgentBindingInput,
   RunHandlerBinding,
+  TestRunBinding,
   TestSetRegistryBinding,
   TokenResolver,
   ToolRegistryBinding,

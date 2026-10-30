@@ -14,10 +14,10 @@ import { createStubAppBindings } from '../src/testing/index.js';
 import type {
   AgentRegistryBinding,
   CorrectedComparisonSummary,
-  TestRun,
-  TestRunBinding,
   FlowRegistryBinding,
   RunHandlerBinding,
+  TestRun,
+  TestRunBinding,
   TestSet,
   TestSetRegistryBinding,
   TokenResolver,

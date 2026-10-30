@@ -11,6 +11,7 @@ import type { ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
 import type {
   AgentRef,
   EvalComparison,
+  FlowRef,
   TestRun,
   TestRunBinding,
   TestRunCancelInput,
@@ -21,7 +22,6 @@ import type {
   TestRunStartInput,
   TestRunStartOutcome,
   TestRunStatus,
-  FlowRef,
 } from './test-run-binding.js';
 import { TEST_RUN_STATUSES } from './test-run-binding.js';
 import type { EvalKind, TestSet, TestSetRegistryBinding } from './test-set-binding.js';
