@@ -170,7 +170,7 @@ the run on the test cases:
 
 ```json
 {
-  "runId": "941582fc-9e32-41bb-b148-767712664c6b",
+  "testRunId": "941582fc-9e32-41bb-b148-767712664c6b",
   …
   "testSetId": "acme.desk-checks",
   "testSetVersion": "1.0.0",
@@ -281,7 +281,7 @@ corrected since. `comparison.rescoreOf` names the run rescored. Each metric's
   change, rescores
   with `kindgi test-runs rescore <test-run-id> --wait`.
 - **In the clients:** `suggestedChanges.rescore(suggestedChangeId)` and
-  `testRuns.rescore(runId)`, or `test_runs.rescore(run_id)` in Python.
+  `testRuns.rescore(testRunId)`, or `test_runs.rescore(test_run_id)` in Python.
 
 #### In the console
 

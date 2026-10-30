@@ -10,7 +10,7 @@ const AUTH = { kind: 'apiToken' as const, token: 't' };
 const API = 'https://api.example.com';
 
 const SAMPLE_TEST_RUN = {
-  runId: '00000000-0000-4000-8000-00000000e001',
+  testRunId: '00000000-0000-4000-8000-00000000e001',
   tenantId: '00000000-0000-4000-8000-000000000002',
   testSetId: 'testSet.x',
   testSetVersion: '1.0.0',
@@ -24,7 +24,7 @@ const SAMPLE_TEST_RUN = {
 describe('test-runs — wire round-trips', () => {
   it('start + list + get + cancel hit the right endpoints', async () => {
     const stub = recordingFetch([
-      { status: 201, body: JSON.stringify({ runId: SAMPLE_TEST_RUN.runId }) },
+      { status: 201, body: JSON.stringify({ testRunId: SAMPLE_TEST_RUN.testRunId }) },
       { status: 200, body: JSON.stringify({ data: [SAMPLE_TEST_RUN], hasMore: false }) },
       { status: 200, body: JSON.stringify(SAMPLE_TEST_RUN) },
       { status: 200, body: JSON.stringify(SAMPLE_TEST_RUN) },
@@ -36,13 +36,13 @@ describe('test-runs — wire round-trips', () => {
       { projectId: 'proj-1', idempotencyKey: 'idem-run' },
     );
     await client.testRuns.list({ testSetId: 'testSet.x', status: 'running' });
-    await client.testRuns.get(SAMPLE_TEST_RUN.runId);
-    await client.testRuns.cancel(SAMPLE_TEST_RUN.runId);
+    await client.testRuns.get(SAMPLE_TEST_RUN.testRunId);
+    await client.testRuns.cancel(SAMPLE_TEST_RUN.testRunId);
     expect(stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual([
       'POST /v1/test-sets/testSet.x/runs',
       'GET /v1/test-runs',
-      `GET /v1/test-runs/${SAMPLE_TEST_RUN.runId}`,
-      `POST /v1/test-runs/${SAMPLE_TEST_RUN.runId}/cancel`,
+      `GET /v1/test-runs/${SAMPLE_TEST_RUN.testRunId}`,
+      `POST /v1/test-runs/${SAMPLE_TEST_RUN.testRunId}/cancel`,
     ]);
     expect(stub.calls[0]?.headers['idempotency-key']).toBe('idem-run');
   });
@@ -51,7 +51,7 @@ describe('test-runs — wire round-trips', () => {
 describe('testRuns.start — projectId (POST /v1/test-sets/:testSetId/runs requires it)', () => {
   it('sends options.projectId in the body next to the run fields', async () => {
     const stub = recordingFetch([
-      { status: 201, body: JSON.stringify({ runId: '00000000-0000-4000-8000-00000000e001' }) },
+      { status: 201, body: JSON.stringify({ testRunId: '00000000-0000-4000-8000-00000000e001' }) },
     ]);
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
     const input = { agentRef: { agentId: 'acme.drafter', version: '1.0.0' }, dryRun: true };

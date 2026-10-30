@@ -510,8 +510,8 @@ It prints the schedule, with the defaults applied to its input:
 At each fire, it counts the corrections that marked the agent's runs wrong
 ("no") in its scope since the agent's last Improve run there, the way the
 Improve run will count them:
-everyone's until the tenant, the project, or the agent being improved has a
-[expert group](../../improve/correct-a-runs-output/#restrict-who-may-correct-as-a-class),
+everyone's until the tenant, the project, or the agent being improved has an
+[expert group](../../improve/correct-a-runs-output/#restrict-who-may-correct-as-a-group),
 then only the ones recorded under one. With `groupWeights` in the schedule's
 input, it counts the way that value says. The last Improve run is one that
 didn't fail or get cancelled, whoever started it. With enough of them, across

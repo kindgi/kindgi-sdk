@@ -169,7 +169,7 @@ class KnownValuesOnSendTest {
     assertThat(sent).isEmpty();
 
     // A value it knows is sent as before.
-    answer = "{\"runId\":\"f531e37d-f29f-463c-81d2-ffad65e4d4e9\"}";
+    answer = "{\"testRunId\":\"f531e37d-f29f-463c-81d2-ffad65e4d4e9\"}";
     client.testRuns().start("acme.suite", start.toBuilder().baseline(TestRunBaseline.RECORDED).build());
     assertThat(sent).hasSize(1);
     assertThat(sent.get(0)).contains("\"baseline\":\"recorded\"");

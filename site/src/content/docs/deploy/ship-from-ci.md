@@ -329,7 +329,7 @@ jobs:
           VERSION: ${{ steps.promoted.outputs.version }}
         run: |
           pnpm exec kindgi test-runs start "$TEST_SET" --project="$PROD_PROJECT" --agent="$AGENT" --agent-version="$VERSION" --wait > run.json
-          echo "run=$(jq -r .runId run.json)" >> "$GITHUB_OUTPUT"
+          echo "run=$(jq -r .testRunId run.json)" >> "$GITHUB_OUTPUT"
       - if: steps.promoted.outputs.version != ''
         env:
           KINDGI_API_TOKEN: ${{ secrets.KINDGI_PROMOTE_KEY }}

@@ -84,7 +84,7 @@ It prints the run, with its metrics:
 
 ```json
 {
-  "runId": "b0b9f27a-14d9-4a4d-bc46-31aea6948d5f",
+  "testRunId": "b0b9f27a-14d9-4a4d-bc46-31aea6948d5f",
   "status": "completed",
   "result": {
     "summary": {
@@ -126,16 +126,16 @@ const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the runni
 const projectId = process.argv[2];
 
 // Replay version 0.2.0 on each case of the test set.
-const { runId } = await kindgi.testRuns.start(
+const { testRunId } = await kindgi.testRuns.start(
   'acme.article-picks',
   { agentRef: { agentId: 'acme-ops.article-picker', version: '0.2.0' } },
   { projectId },
 );
 
-let run = await kindgi.testRuns.get(runId);
+let run = await kindgi.testRuns.get(testRunId);
 while (run.status === 'pending' || run.status === 'running') {
   await new Promise((resolve) => setTimeout(resolve, 2000));
-  run = await kindgi.testRuns.get(runId);
+  run = await kindgi.testRuns.get(testRunId);
 }
 
 const comparison = comparisonOf(run); // undefined until it's finished
@@ -170,10 +170,10 @@ started = kindgi.test_runs.start(
     agent_ref={"agent_id": "acme-ops.article-picker", "version": "0.2.0"},
 )
 
-run = kindgi.test_runs.get(str(started.run_id))
+run = kindgi.test_runs.get(str(started.test_run_id))
 while run.status in ("pending", "running"):
     time.sleep(2)
-    run = kindgi.test_runs.get(str(started.run_id))
+    run = kindgi.test_runs.get(str(started.test_run_id))
 
 comparison = comparison_of(run)  # None until it's finished
 if comparison is not None:
@@ -224,10 +224,10 @@ public final class Compare {
                     TestRunAgentRef.builder().agentId("acme-ops.article-picker").version("0.2.0").build())
                 .build());
 
-    TestRun run = kindgi.testRuns().get(started.runId());
+    TestRun run = kindgi.testRuns().get(started.testRunId());
     while (run.status().equals(TestRun.Status.PENDING) || run.status().equals(TestRun.Status.RUNNING)) {
       Thread.sleep(2000);
-      run = kindgi.testRuns().get(started.runId());
+      run = kindgi.testRuns().get(started.testRunId());
     }
 
     // comparisonOf is empty until the run finishes, or for a dry run.
@@ -296,7 +296,7 @@ reworded answer is a new item, with no corrections yet.
 
 ### Count only experts' corrections
 
-`--group-weights=experts-only` counts only the corrections made under a
+`--group-weights=experts-only` counts only the corrections made under an
 [expert group](../correct-a-runs-output/#restrict-who-may-correct-as-a-group).
 An item none of them corrected counts as not corrected. In TypeScript, it's
 `groupWeights: 'experts-only'`, and in Python
@@ -373,7 +373,7 @@ CAPTURE: one perCase entry with "corrections": [{ "correctionId": …, "pass": f
 CAPTURE: "corrections": { "checked": …, "passed": … } from the same run's summary
 ```
 
-With `--group-weights=experts-only`, only the ones made under a
+With `--group-weights=experts-only`, only the ones made under an
 expert group are checked. No release gate checks them: read them
 before you [pin the version](../release-an-agent-version/#check-before-you-pin-it).
 
