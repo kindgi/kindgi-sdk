@@ -336,6 +336,16 @@ export interface TestSetFreezeBinding {
   freezeTestSet(input: FreezeTestSetInput): Promise<FrozenTestSet>;
 }
 
+/**
+ * The id of an agent's test set in one project: `agent:<agentId>:<projectId>`.
+ * A freeze publishes its versions under it, so a reader finds the newest
+ * frozen version with `TestSetRegistryBinding.get` and its cases under
+ * `/v1/test-sets/{testSetId}/versions/{version}/cases`.
+ */
+export function agentTestSetId(agentId: AgentId, projectId: ProjectId): string {
+  return `agent:${agentId as unknown as string}:${projectId as unknown as string}`;
+}
+
 export interface FreezeTestSetInput {
   readonly tenantId: TenantId;
   readonly agentId: AgentId;
