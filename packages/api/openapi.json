@@ -478,7 +478,6 @@
           "unsupported-media-type": 415,
           "run-not-finished": 409,
           "item-not-found": 400,
-          "test-sets-not-supported": 501,
           "run-failures-not-supported": 501,
           "memory-operation-unsupported": 501,
           "conversation-unregister-unsupported": 501,

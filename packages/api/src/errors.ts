@@ -428,8 +428,6 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'unsupported-media-type': 415,
   'run-not-finished': 409,
   'item-not-found': 400,
-  // The correction binding can't list corrected runs, so no test sets from corrections.
-  'test-sets-not-supported': 501,
   'run-failures-not-supported': 501,
   'memory-operation-unsupported': 501,
   // The conversation binding can't unregister (a runtime built before it).

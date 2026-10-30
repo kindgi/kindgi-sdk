@@ -16,8 +16,8 @@ called, were right, whether its answer was right, and what was right
 instead. For an answer that is a ranked list, it says which items were
 right. People who know the work, your users or your experts, correct it.
 Each correction goes to whoever fixes it, and moves on until it's fixed.
-The corrections also tell you how an agent or flow version does: you
-[build test cases](../build-a-test-set/) from them, and
+The corrections also tell you how an agent or flow version does: they're
+the cases of the agent's [test set](../build-a-test-set/), and you
 [try a new version](../compare-an-agent-version/) on them.
 [Corrections reference](../expert-queue-reference/) has every field, rule and
 console page.
@@ -210,7 +210,7 @@ object RecordCorrection {
   correction. Who called comes from the token, as `madeBy`. Your users'
   corrections stay `open` until a person sorts them.
 - **For an answer that is a ranked list,** `items` says which items were
-  right, as [Build test cases](../build-a-test-set/#correct-some-runs) shows.
+  right, as [An agent's test set](../build-a-test-set/#correct-some-runs) shows.
   Each item's `key` is an id, such as the matched case's id, never the
   item's text.
 - **One correction per run and person.** Correcting the run again, as the
@@ -481,7 +481,7 @@ uv run kindgi corrections add --run=<run-id> --item=answer --yes --group=<correc
 - `--name` names the group, and `--weight=3` counts its corrections three
   times.
 - `--project=<project-id>` is the project it applies to.
-  [Build the test cases](../build-a-test-set/#build-the-test-cases) shows how to
+  [Read the test set](../build-a-test-set/#read-the-test-set) shows how to
   find a project's id.
 - `--group=<corrector-group-id>` is the group's `id`, which `add` printed. In the
   clients, it's `correctorGroupId`.
@@ -835,6 +835,6 @@ a run does.
 
 ## Next
 
-- [Build test cases from corrections](../build-a-test-set/)
+- [An agent's test set](../build-a-test-set/)
 - [Try a version on the test cases](../compare-an-agent-version/)
 - [Corrections reference](../expert-queue-reference/)

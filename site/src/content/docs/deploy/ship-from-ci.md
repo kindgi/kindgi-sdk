@@ -81,8 +81,8 @@ A person does these, with a key of their own:
   policy** ([Gate a release](../../guides/evals/release-an-agent-version/#gate-a-release)).
   A scope with a release gate policy needs a Pinned version of its own.
   Without one, prod's runs take each agent's latest version.
-- **Build the test cases** that prod's test run uses, in prod's project
-  ([Build test cases from corrections](../../guides/evals/build-a-test-set/)).
+- **Correct runs in prod's project:** the agent's test set there is what
+  prod's test run uses ([An agent's test set](../../guides/evals/build-a-test-set/)).
 - **Create the triggers:** schedules, webhooks and mail triggers.
 
 Registering a provider again under its id, publishing a release gate

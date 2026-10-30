@@ -17,8 +17,7 @@ recorded runs.
 
 ## Before you start
 
-- **Test cases,** as [Build test cases from corrections](../build-a-test-set/)
-  shows, and the new version of their agent or flow. Under `kindgi dev`,
+- **Test cases:** the agent's [test set](../build-a-test-set/), and the new version of their agent or flow. Under `kindgi dev`,
   saving the agent's file with its new `version` is enough. On a runtime you
   deploy to, deploy the new version first.
 - **Kindgi 0.2's CLI**, and the project's id.
@@ -448,8 +447,7 @@ Start it again.
 
 ## Try a flow version on the test cases
 
-Test cases built from a flow's corrected runs, with
-`kindgi test-sets from-corrections … --flow=<flow-id>`, try a flow
+A `corrections` test set built from a flow's corrected runs tries a flow
 version. Each case runs the past run's input through that version, as a
 replay. The flow's whole output is rated: the output itself, the `output`
 item, and each element of a list in it.

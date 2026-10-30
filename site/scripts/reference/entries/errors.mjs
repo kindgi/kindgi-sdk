@@ -2583,10 +2583,14 @@ export const ERROR_ENTRIES = {
     description: "The pointer in `item` resolves to nothing in the run's output. Fix the pointer.",
     details: [],
   },
-  'test-sets-not-supported': {
+  'test-case-not-found': {
     description:
-      "This deployment can't list corrected runs, so it can't build test cases from corrections.",
+      "The agent's test set has no case by that id. A correction's case has the correction's id, and a case added by hand an id that starts `case-`: list the cases to find it.",
     details: [],
+  },
+  'test-case-retired': {
+    description: 'The case is retired already. A retired case stays retired: there is no un-retire.',
+    details: [{ key: 'retired', meaning: 'the reason, who retired the case, and when' }],
   },
   'run-failures-not-supported': {
     description: "This deployment can't group failed runs by cause.",
