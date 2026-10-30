@@ -104,53 +104,6 @@ describe('kindgi agents — the registry', () => {
   });
 });
 
-describe('kindgi agents owner', () => {
-  test('--set makes the person the owner; without it, the owner is shown', async () => {
-    const { calls, rec } = recorder();
-    const client = {
-      agents: {
-        setOwner: rec('setOwner', { agentId: 'acme.drafter', owner: { userId: 'u-1' } }),
-        get: rec('get', {
-          id: 'acme.drafter',
-          version: '1.0.0',
-          owner: { userId: 'u-1', name: 'Ana Ortiz' },
-        }),
-      },
-    };
-    const set = await run(['agents', 'owner', 'acme.drafter', '--set=u-1'], client);
-    expect(set.exitCode, set.stderr).toBe(0);
-    const shown = await run(['agents', 'owner', 'acme.drafter'], client);
-    expect(shown.exitCode, shown.stderr).toBe(0);
-    expect(JSON.parse(shown.stdout)).toEqual({
-      agentId: 'acme.drafter',
-      owner: { userId: 'u-1', name: 'Ana Ortiz' },
-    });
-    expect(calls).toEqual([
-      ['setOwner', 'acme.drafter', 'u-1'],
-      ['get', 'acme.drafter'],
-    ]);
-  });
-
-  test('an agent without an owner shows none', async () => {
-    const { rec } = recorder();
-    const out = await run(['agents', 'owner', 'acme.drafter'], {
-      agents: { get: rec('get', { id: 'acme.drafter', version: '1.0.0' }) },
-    });
-    expect(out.exitCode, out.stderr).toBe(0);
-    expect(JSON.parse(out.stdout)).toEqual({ agentId: 'acme.drafter' });
-  });
-
-  test('an empty --set is a usage error, never a read of the owner', async () => {
-    const { calls, rec } = recorder();
-    const out = await run(['agents', 'owner', 'acme.drafter', '--set='], {
-      agents: { setOwner: rec('setOwner'), get: rec('get') },
-    });
-    expect(out.exitCode).not.toBe(0);
-    expect(out.stderr).toContain('--set takes a value');
-    expect(calls).toEqual([]);
-  });
-});
-
 describe('kindgi agents — live versions', () => {
   test('live resolves for a project and a segment path, in order', async () => {
     const { calls, rec } = recorder();

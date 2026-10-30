@@ -325,9 +325,6 @@ export const CLI_DEFAULTS = {
     prompt: 'none (at least one `--prompt` or `--setting` is required)',
     setting: 'none (at least one `--prompt` or `--setting` is required)',
   },
-  'agents owner': {
-    set: 'none (shows the owner)',
-  },
   'agents versions': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
@@ -1533,16 +1530,6 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Unregister one version of an agent, so runs stop using it.',
       line: 'kindgi agents unregister acme-ops.reply-drafter 1.2.0',
-    },
-  ],
-  'agents owner': [
-    {
-      purpose: "Show the agent's owner.",
-      line: 'kindgi agents owner acme-ops.reply-drafter',
-    },
-    {
-      purpose: 'Make a person the owner, replacing the one before.',
-      line: 'kindgi agents owner acme-ops.reply-drafter --set=<user-id>',
     },
   ],
   'agents versions': [
