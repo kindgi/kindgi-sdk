@@ -64,7 +64,7 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List runs (paginated).',
   usage:
-    'kindgi runs list [--agent=<agent-id>] [--trigger=<schedule-id>] [--replays=exclude|include|only] [--test-run=<id>] [--limit=<n>] [--cursor=<c>]',
+    'kindgi runs list [--agent=<agent-id>] [--trigger=<schedule-id>] [--replays=exclude|include|only] [--test-run=<test-run-id>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     agent: {
       type: 'string',
@@ -258,7 +258,7 @@ const start: LeafCommand = {
       type: 'string',
       multiple: true,
       description:
-        "One step of the run's segment path, `key:value` (e.g. `company:acme`); repeat it in order, coarse to fine. It picks the agent's live version.",
+        "One step of the run's segment path, `key:value` (e.g. `company:acme`); repeat it in order, coarse to fine. It picks the agent's pinned version.",
     },
     'idempotency-key': {
       type: 'string',

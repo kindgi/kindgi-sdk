@@ -4,9 +4,9 @@
 import type { Agent, AgentId } from '@kindgi/agents';
 import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
-import type { Cursor, LiveScope, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
+import type { AgentPinScope, Cursor, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
 
-import type { PromotionActor } from './live-version-binding.js';
+import type { PinActor } from './agent-pin-binding.js';
 import type { RegistryReadOnly } from './registry-read-only.js';
 
 /**
@@ -102,8 +102,8 @@ export interface AgentRegistryBinding {
    * Soft-tombstone a specific `(agentId, version)`. Returns
    * `{ unregistered: true }` on success; `{ unregistered: false }`
    * when the version was unknown OR already tombstoned — the route
-   * flips the latter to `404` — or, with `live`, when it's a scope's live
-   * version (`409 agent-version-live`). Head row is preserved; when this
+   * flips the latter to `404` — or, with `pinned`, when it's a scope's pinned
+   * version (`409 agent-version-pinned`). Head row is preserved; when this
    * unregister leaves NO active versions, the agent has no latest
    * version — it enters the derived "retired" state
    * (GET returns 410 gone) but the identity persists. Publish of a
@@ -154,7 +154,7 @@ export type AgentVersionRecord = Agent & {
   /** ISO-8601: when a person made the version Latest in its project (`AgentPublishInput.latestBy`). */
   readonly latestAt?: string;
   /** Who did, with `latestAt`. */
-  readonly latestBy?: PromotionActor;
+  readonly latestBy?: PinActor;
   /**
    * The agent's project, when the store records it: agents never move
    * between projects, so every version reads the same one. In a tenant
@@ -271,7 +271,7 @@ export interface AgentPublishInput {
    * a deploy, whose deployment is the record, and for a card's version,
    * which is Latest only once someone adds it.
    */
-  readonly latestBy?: PromotionActor;
+  readonly latestBy?: PinActor;
   /**
    * REQUIRED. Called inside the binding's write transaction after the
    * head + version rows are inserted, receiving the FGA subject id
@@ -307,7 +307,7 @@ export interface AgentMarkLatestInput {
   readonly agentId: AgentId;
   readonly version: Semver;
   /** Who made it Latest: the request's principal. */
-  readonly by: PromotionActor;
+  readonly by: PinActor;
 }
 
 export interface AgentSetOwnerInput {
@@ -369,14 +369,14 @@ export type AgentPublishOutcome =
 export type AgentUnregisterOutcome = {
   readonly unregistered: boolean;
   /**
-   * Set when the version wasn't unregistered because it's live: the
-   * scopes whose live pin it is (evals step 4). Unregister stops a version
-   * being chosen, and a live pin is a standing choice, so the operator
-   * moves those pins first (rollback, unpin, or promote another version).
-   * The route answers `409 agent-version-live`. Absent: a registry that
-   * doesn't know live versions, as before.
+   * Set when the version wasn't unregistered because it's pinned: the
+   * scopes whose pin it is. Unregister stops a version
+   * being chosen, and a pin is a standing choice, so the operator
+   * moves those pins first (unpin, or pin another version).
+   * The route answers `409 agent-version-pinned`. Absent: a registry that
+   * doesn't know pinned versions, as before.
    */
-  readonly live?: readonly LiveScope[];
+  readonly pinned?: readonly AgentPinScope[];
 };
 
 export type AgentMarkLatestOutcome =

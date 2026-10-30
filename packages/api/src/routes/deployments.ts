@@ -24,10 +24,12 @@ import {
   GUARDRAIL_SPEC_KEYS,
   type Guardrail,
   type GuardrailConfigProblem,
+  type GuardrailPoint,
   checkPoints,
   createCheckRegistry,
   guardrailCheckPointProblems,
   guardrailPoint,
+  indexedCheckPoints,
   isGuardrailPoint,
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
@@ -49,6 +51,7 @@ import type {
 } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
+import type { AgentPinBindings } from '../agent-pin-binding.js';
 import {
   type ToolPinLookup,
   type UnpinnableRef,
@@ -84,12 +87,11 @@ import { environmentTakesPromotionsResponse, laterEnvironment } from '../environ
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { type WireErrorBody, retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
-import { type FlowPinsLive, publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
-import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
+import { type FlowAgentPins, publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
+import type { GuardrailRecord, GuardrailRegistryBinding } from '../guardrail-binding.js';
 import { imageRefWithin, parseImagePrefix, parseImageRef } from '../image-ref.js';
 import type { ImageRegistryBinding, ImageRegistryError } from '../image-registry-binding.js';
 import type { ItemRights } from '../item-rights.js';
-import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { packEnvCheck } from '../pack-env.js';
@@ -120,7 +122,7 @@ import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-
 import type { DeployCardsInput, DeployCardsOutcome } from '../suggested-change-service.js';
 import type { ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
-import { type AgentReleaseGateDeps, actorOf } from './agent-releases.js';
+import { type AgentPinGateDeps, actorOf } from './agent-pins.js';
 import { capabilityRefusal, deniedBy } from './denied.js';
 import {
   carriedFor,
@@ -269,8 +271,8 @@ export interface DeploymentsRouterBindings {
    * The flows' and tools' pinned versions: each tool a deployed agent or
    * flow runs pins the version pinned for the deploy's project (an
    * agent's, when it's in the reference's range), else as without it; and
-   * a promotion asked to make what it carried live (`{ makeLive: true }`)
-   * pins each carried flow version in the target. Absent: neither.
+   * a promotion asked to pin what it carried (`{ pin: true }`) pins each
+   * carried flow version in the target. Absent: neither.
    */
   readonly pinnedVersions?: PinnedVersionBinding;
   /** Data blocks: an agent's block references are pinned at deploy with its tools. */
@@ -341,19 +343,19 @@ export interface DeploymentsRouterBindings {
    */
   readonly auditEvents?: AuditEventBinding;
   /**
-   * The agents' live versions and gated promotions, for a promotion asked
-   * to make what it carried live (`{ makeLive: true }`): each carried
-   * agent is pinned in the target through the same gate a live route uses
-   * (`requestPromotion`). Absent: `makeLive` answers `501`.
+   * The agents' pinned versions and gated pins, for a promotion asked
+   * to pin what it carried (`{ pin: true }`): each carried agent is
+   * pinned in the target through the same gate a pin route uses
+   * (`requestPin`). Absent: `pin` answers `501`.
    */
-  readonly agentReleases?: AgentReleaseBindings;
-  /** What the make-live gate reads besides the releases (`requestPromotion`): comparisons, projects, the reference scope. */
-  readonly releaseGateDeps?: AgentReleaseGateDeps;
+  readonly agentPins?: AgentPinBindings;
+  /** What a promotion's pin gate reads besides the pins (`requestPin`): comparisons, projects, the reference scope. */
+  readonly agentPinGateDeps?: AgentPinGateDeps;
   /**
-   * Rights on an agent more than one project serves, for a make-live: an
+   * Rights on an agent more than one project serves, for a promotion's pin: an
    * agent in an order is pinned by an admin of the target project, and a
-   * pin wider than one project is refused (`liveChangeRefusal`). Absent, or
-   * with no authorizer: today's `promote` check.
+   * pin wider than one project is refused (`agentPinChangeRefusal`). Absent, or
+   * with no authorizer: today's `pin` check.
    */
   readonly itemRights?: ItemRights;
   /**
@@ -1237,10 +1239,12 @@ export function deploymentsRouter(
         if (bindings.guardrailRegistry !== undefined && targetProjectId !== undefined) {
           for (const guardrail of validated.guardrails) {
             const projectIdForGuardrail = targetProjectId;
+            const points = validated.guardrailCheckPoints.get(guardrail.id);
             const outcome = await bindings.guardrailRegistry.register({
               tenantId,
               projectId: projectIdForGuardrail,
               guardrail,
+              ...(points !== undefined && { checkPoints: points }),
               enqueueTuples: (guardrailId) =>
                 tuplesForCreate({
                   kind: 'guardrail',
@@ -1266,6 +1270,7 @@ export function deploymentsRouter(
                 tenantId,
                 projectIdForGuardrail,
                 guardrail,
+                points,
               );
               // Unregistered since the registry answered: registered afresh.
               if (kept.kind === 'registered') {
@@ -1283,6 +1288,7 @@ export function deploymentsRouter(
                   bindings.guardrailRegistry,
                   tenantId,
                   guardrail,
+                  points,
                   kept.existing,
                   rolled,
                 );
@@ -1317,7 +1323,7 @@ export function deploymentsRouter(
               flows: bindings.flowRegistry,
               tools: bindings.toolRegistry,
               agents: bindings.agentRegistry,
-              ...(bindings.agentReleases !== undefined && { releases: bindings.agentReleases }),
+              ...(bindings.agentPins !== undefined && { agentPins: bindings.agentPins }),
               toolPins,
               tenantId,
               projectId: targetProjectId,
@@ -2001,6 +2007,11 @@ interface ValidationDetail {
 interface ValidatedPrimitives {
   readonly tools: readonly import('@kindgi/tools').ToolManifest[];
   readonly guardrails: readonly Guardrail[];
+  /**
+   * The points each guardrail's check runs at, by guardrail id, when the
+   * check is the pack's (`indexedCheckPoints`); none for a built-in check.
+   */
+  readonly guardrailCheckPoints: ReadonlyMap<GuardrailId, readonly GuardrailPoint[]>;
   readonly agents: readonly import('@kindgi/agents').Agent[];
   readonly flows: readonly import('@kindgi/flow').Flow[];
   /** The pack's data blocks (`blocks/`), each a valid block. */
@@ -2039,8 +2050,9 @@ async function keepRegisteredGuardrail(
   tenantId: TenantId,
   projectId: ProjectId,
   guardrail: Guardrail,
+  points: readonly GuardrailPoint[] | undefined,
 ): Promise<
-  { readonly kind: 'kept'; readonly existing: Guardrail } | { readonly kind: 'registered' }
+  { readonly kind: 'kept'; readonly existing: GuardrailRecord } | { readonly kind: 'registered' }
 > {
   for (let attempt = 0; attempt < 3; attempt++) {
     const existing = await registry.get({ tenantId, guardrailId: guardrail.id });
@@ -2063,6 +2075,7 @@ async function keepRegisteredGuardrail(
       tenantId,
       projectId,
       guardrail,
+      ...(points !== undefined && { checkPoints: points }),
       enqueueTuples: (guardrailId) =>
         tuplesForCreate({
           kind: 'guardrail',
@@ -2253,17 +2266,20 @@ async function reinstateRetiredVersion<
 
 /**
  * A guardrail a deploy keeps gets what this deploy derived for it: its
- * code pointer and its check's config schema, when its registry can take
- * them (`refreshDeployedFields`); rolling the deploy back restores the old
- * ones, unless another deploy has refreshed them since (compare-and-set on
- * what this deploy wrote). Without it, the guardrail keeps what its first
- * deploy derived.
+ * code pointer, its check's config schema and the points its check runs
+ * at, when its registry can take them (`refreshDeployedFields`); rolling
+ * the deploy back restores the old ones, unless another deploy has
+ * refreshed them since (compare-and-set on what this deploy wrote).
+ * Without it, the guardrail keeps what its first deploy derived. So a
+ * deploy whose check now runs at other points gives the kept guardrail
+ * those points.
  */
 async function refreshGuardrailFields(
   registry: GuardrailRegistryBinding,
   tenantId: TenantId,
   guardrail: Guardrail,
-  existing: Guardrail,
+  points: readonly GuardrailPoint[] | undefined,
+  existing: GuardrailRecord,
   rolled: RollbackAction[],
 ): Promise<void> {
   const refresh = registry.refreshDeployedFields?.bind(registry);
@@ -2271,10 +2287,12 @@ async function refreshGuardrailFields(
   const now = {
     codeArtifactRef: guardrail.codeArtifactRef ?? null,
     configSchema: guardrail.configSchema ?? null,
+    checkPoints: points ?? null,
   };
   const was = {
     codeArtifactRef: existing.codeArtifactRef ?? null,
     configSchema: existing.configSchema ?? null,
+    checkPoints: existing.checkPoints ?? null,
   };
   if (canonicalJson(now) === canonicalJson(was)) return;
   const done = await refresh({ tenantId, guardrailId: guardrail.id, ...now });
@@ -2283,7 +2301,7 @@ async function refreshGuardrailFields(
   rolled.push({
     primitive: 'guardrail',
     id: guardrail.id,
-    undo: 'put back the code pointer and config schema of',
+    undo: 'put back the code pointer, config schema and check points of',
     run: async () => {
       await refresh({ tenantId, guardrailId: guardrail.id, ...was, expected: now });
     },
@@ -2359,9 +2377,12 @@ const DECLARED_GUARDRAIL_FIELDS = [
 
 /**
  * The same guardrail definition: equal in what its author declares
- * (`DECLARED_GUARDRAIL_FIELDS`, and of where its code lives only the
- * module path), as JSON with keys in any order (a registry may store it as
- * JSONB) and an absent field the same as an `undefined` one.
+ * (`DECLARED_GUARDRAIL_FIELDS`, where it runs and what its check sees,
+ * and of where its code lives only the module path), as JSON with keys in
+ * any order (a registry may store it as JSONB) and an absent field the
+ * same as an `undefined` one. An absent `at` is the final answer and an
+ * absent `sees` is `'turn'`, as a runtime reads them, so a row stored
+ * before either existed matches a pack that names the default.
  */
 export function sameGuardrailDefinition(a: Guardrail, b: Guardrail): boolean {
   return canonicalJson(definitionOf(a)) === canonicalJson(definitionOf(b));
@@ -2372,6 +2393,8 @@ function definitionOf(guardrail: Guardrail): Record<string, unknown> {
   for (const field of DECLARED_GUARDRAIL_FIELDS) {
     declared[field] = (guardrail as unknown as Record<string, unknown>)[field];
   }
+  declared.at = guardrailPoint(guardrail);
+  declared.sees = guardrail.sees ?? 'turn';
   declared.modulePath = guardrail.codeArtifactRef?.modulePath;
   return declared;
 }
@@ -2460,6 +2483,7 @@ function validatePrimitives(
   });
 
   const validatedGuardrails: Guardrail[] = [];
+  const guardrailCheckPoints = new Map<GuardrailId, readonly GuardrailPoint[]>();
   guardrails.forEach((raw, i) => {
     if (raw === null || typeof raw !== 'object') {
       details.push({ primitive: 'guardrail', index: i, path: '', message: 'must be an object' });
@@ -2541,6 +2565,15 @@ function validatePrimitives(
       return;
     }
     validatedGuardrails.push(r.value);
+    // A check the pack ships: the registry keeps its points beside the
+    // guardrail, and the runtime runs the check at those.
+    if (
+      builtIn === undefined &&
+      r.value.checkBuiltIn !== true &&
+      r.value.codeArtifactRef !== undefined
+    ) {
+      guardrailCheckPoints.set(r.value.id, indexedCheckPoints(packCheckPoints));
+    }
   });
 
   const validatedAgents: import('@kindgi/agents').Agent[] = [];
@@ -2617,6 +2650,7 @@ function validatePrimitives(
     value: {
       tools: validatedTools,
       guardrails: validatedGuardrails,
+      guardrailCheckPoints,
       agents: validatedAgents,
       flows: validatedGraphs,
       blocks: validatedBlocks,
@@ -2932,8 +2966,8 @@ async function registerAgents(input: {
  * agents, so a flow's agent pins see the versions this deploy
  * registered: a tool change cascades through an agent into a flow
  * within the one deploy, each derived once. An agent step that names no
- * version pins what a run in the project gets: the agent's live version
- * there, with `live`, else the latest (this deploy's, when it registered
+ * version pins what a run in the project gets: the agent's pinned version
+ * there, with `agentPinned`, else the latest (this deploy's, when it registered
  * one).
  *
  * With the tool and agent registries, every flow is pinned first; one
@@ -2946,7 +2980,7 @@ async function registerFlows(input: {
   readonly tools: ToolRegistryBinding | undefined;
   readonly agents: AgentRegistryBinding | undefined;
   /** The agents' pins and Latest: an agent step with no version pins what runs in the flow's project. */
-  readonly releases?: Pick<AgentReleaseBindings, 'live' | 'latest'>;
+  readonly agentPins?: Pick<AgentPinBindings, 'pinned' | 'latest'>;
   /** The tools' pins for the deploy's project, shared with its agents. */
   readonly toolPins: ToolPinLookup | undefined;
   readonly tenantId: TenantId;
@@ -2956,7 +2990,7 @@ async function registerFlows(input: {
   readonly referenceScope: ReferenceScopeBinding | undefined;
   readonly rolled: RollbackAction[];
 }): Promise<DeployedFlow[]> {
-  const { flows, tools, agents, releases, toolPins, tenantId, projectId, rolled } = input;
+  const { flows, tools, agents, agentPins, toolPins, tenantId, projectId, rolled } = input;
   const enqueueTuples = (flowId: string) =>
     tuplesForCreate({ kind: 'flow', id: flowId as FlowId, tenantId, projectId });
   const written = (flowId: FlowId, version: string) =>
@@ -3000,7 +3034,7 @@ async function registerFlows(input: {
     agents,
     tenantId,
     input.defined,
-    releases !== undefined ? { releases, projectId } : undefined,
+    agentPins !== undefined ? { bindings: agentPins, projectId } : undefined,
     toolPins,
   );
   const deployed: DeployedFlow[] = [];
@@ -3027,13 +3061,13 @@ async function pinFlows(
   agents: AgentRegistryBinding,
   tenantId: TenantId,
   defined: readonly Flow[],
-  live: FlowPinsLive | undefined,
+  agentPins: FlowAgentPins | undefined,
   toolPins: ToolPinLookup | undefined,
 ): Promise<FlowPins[]> {
   const pins: FlowPins[] = [];
   const unpinnable: UnpinnableRef[] = [];
   for (const [i, flow] of defined.entries()) {
-    const resolved = await resolveFlowPins(tools, agents, tenantId, flow, live, toolPins);
+    const resolved = await resolveFlowPins(tools, agents, tenantId, flow, agentPins, toolPins);
     if (resolved.kind === 'ok') {
       pins.push(resolved.pins);
       continue;

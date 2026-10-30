@@ -17,12 +17,14 @@ import {
 } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
-  EVAL_KINDS,
-  type EvalKind,
   LISTED_EVAL_KINDS,
+  TEST_SET_KINDS,
   type TestSet,
+  type TestSetKind,
   type TestSetRecord,
   type TestSetRegistryBinding,
+  agentTestSetIdReserved,
+  isAgentTestSetId,
 } from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
@@ -174,13 +176,13 @@ export function testSetsRouter(
     const includeRetired = c.req.query('includeRetired') === 'true';
 
     const askedKind = kindRaw !== undefined && kindRaw.length > 0 ? kindRaw : undefined;
-    if (askedKind !== undefined && !(EVAL_KINDS as readonly string[]).includes(askedKind)) {
+    if (askedKind !== undefined && !(TEST_SET_KINDS as readonly string[]).includes(askedKind)) {
       c.status(statusFor('bad-input') as never);
       return c.json(
         toWireError(
           {
             code: 'bad-input',
-            message: `Unknown eval kind "${askedKind}". Expected one of: ${EVAL_KINDS.join(', ')}.`,
+            message: `Unknown eval kind "${askedKind}". Expected one of: ${TEST_SET_KINDS.join(', ')}.`,
           },
           requestId,
         ),
@@ -199,7 +201,7 @@ export function testSetsRouter(
       tenantId,
       limit,
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
-      ...(askedKind !== undefined && { evalKind: askedKind as EvalKind }),
+      ...(askedKind !== undefined && { evalKind: askedKind as TestSetKind }),
       ...(nameRaw !== undefined && nameRaw.length > 0 && { nameFilter: nameRaw }),
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
@@ -411,6 +413,16 @@ export function testSetsRouter(
       );
     }
 
+    if (isAgentTestSetId(validation.value.id)) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: agentTestSetIdReserved(validation.value.id) },
+          requestId,
+        ),
+      );
+    }
+
     const principal = c.get('principal') as Principal | undefined;
     const creatorUserId =
       principal?.actor.kind === 'user' ? (principal.actor.id as UserId) : undefined;
@@ -528,8 +540,8 @@ function serializeTestSet(s: TestSetRecord): Record<string, unknown> {
   };
 }
 
-function isEvalKind(value: string): value is EvalKind {
-  return (EVAL_KINDS as readonly string[]).includes(value);
+function isTestSetKind(value: string): value is TestSetKind {
+  return (TEST_SET_KINDS as readonly string[]).includes(value);
 }
 
 const SEMVER_RE = /^\d+\.\d+\.\d+$/;
@@ -561,10 +573,10 @@ function validateTestSet(
       message: 'testSet.version must be a semver string (e.g. "1.0.0")',
     });
   }
-  if (typeof b.kind !== 'string' || !isEvalKind(b.kind)) {
+  if (typeof b.kind !== 'string' || !isTestSetKind(b.kind)) {
     issues.push({
       path: 'kind',
-      message: `testSet.kind must be one of: ${EVAL_KINDS.join(', ')}`,
+      message: `testSet.kind must be one of: ${TEST_SET_KINDS.join(', ')}`,
     });
   }
   // tenantId is optional on the wire — when present, it must match the
@@ -604,7 +616,7 @@ function validateTestSet(
     id: b.id as string,
     tenantId,
     version: b.version as string,
-    kind: b.kind as EvalKind,
+    kind: b.kind as TestSetKind,
     ...(typeof b.description === 'string' && { description: b.description }),
     spec: b.spec as Readonly<Record<string, unknown>>,
   };

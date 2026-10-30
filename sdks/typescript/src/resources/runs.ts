@@ -7,7 +7,7 @@ import type { ScopeRef } from '../scope-wire.js';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
 import type {
-  LiveScope,
+  AgentPinScope,
   PinScope,
   RunFailureGroups,
   RunProgress,
@@ -313,13 +313,13 @@ export type StartRunInput =
   | {
       readonly agent: AgentId | string;
       /**
-       * Omit to use the live version for this project and segment path
+       * Omit to use the pinned version for this project and segment path
        * (or, in a conversation, the version its earlier turns used).
        */
       readonly agentVersion?: string;
       /** Project the run belongs to. Omit to use the tenant's default project. */
       readonly projectId?: string;
-      /** Where the run happens, coarse to fine (e.g. company, then role); picks the live version. */
+      /** Where the run happens, coarse to fine (e.g. company, then role); picks the pinned version. */
       readonly segments?: readonly ScopeSegment[];
       readonly input: unknown;
       readonly options?: StartRunOptions;
@@ -341,7 +341,7 @@ export type StartRunInput =
       readonly flowVersion?: string;
       /** Project the run belongs to. Optional; when omitted, the API's run handler chooses. */
       readonly projectId?: string;
-      /** Where the run happens; picks the live version of each agent step. */
+      /** Where the run happens; picks the pinned version of each agent step. */
       readonly segments?: readonly ScopeSegment[];
       readonly input: unknown;
       readonly options?: StartRunOptions;
@@ -385,12 +385,12 @@ export interface RunAgent {
    * How the version was chosen: named on the run (`explicit`), held by the
    * flow version a flow's agent step runs in (`flow-pin`: the node's
    * `config.version`, else the flow version's pin), the conversation's
-   * version (`conversation`), a live version (`live`), or the latest
+   * version (`conversation`), a pinned version (`pinned`), or the latest
    * (`latest`). Absent on turns from before 0.1.4.
    */
-  readonly via?: 'explicit' | 'flow-pin' | 'conversation' | 'live' | 'latest';
-  /** With `via: 'live'`: the scope whose live version ran. */
-  readonly liveScope?: LiveScope;
+  readonly via?: 'explicit' | 'flow-pin' | 'conversation' | 'pinned' | 'latest';
+  /** With `via: 'pinned'`: the scope whose pinned version ran. */
+  readonly pinnedScope?: AgentPinScope;
 }
 
 /** Why a failed run failed. Matches `@kindgi/api/openapi.json#RunFailure`. */

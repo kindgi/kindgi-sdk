@@ -254,7 +254,7 @@ def test_parse_event_reads_an_improve_run_finished() -> None:
                 "scope": {"kind": "tenant"},
                 "testSetId": "acme.scorer.improve",
                 "tiers": ["settings"],
-                "objective": "weightedYesShare",
+                "objective": "passRate",
                 "groupWeights": "experts-only",
                 "budget": {"maxCostUsd": 5, "maxCandidates": 30},
                 "requestedBy": "service:schedule",

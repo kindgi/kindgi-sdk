@@ -59,8 +59,7 @@ export const ACTIONS = [
   'rotate',
   'fire',
   'cancel',
-  'promote',
-  // Pinning a flow or tool version for a scope (the version in use there).
+  // Pinning an agent, flow or tool version for a scope (the version in use there).
   'pin',
   // Delegation: naming a principal as the one a trigger's runs act as.
   'act_as',
@@ -82,7 +81,6 @@ export const ACTION_TO_RELATION: Record<Action, string> = {
   rotate: 'can_rotate',
   fire: 'can_fire',
   cancel: 'can_cancel',
-  promote: 'can_promote',
   pin: 'can_pin',
   act_as: 'can_act_as',
   call: 'can_call',
@@ -101,7 +99,7 @@ export const OBJECT_ACTIONS: Record<ObjectType, readonly Action[]> = {
   // here — the account's lifecycle is its binding's, not an authz object's.
   service_account: ['act_as'],
 
-  agent: ['read', 'write', 'delete', 'admin', 'execute', 'publish', 'promote'],
+  agent: ['read', 'write', 'delete', 'admin', 'execute', 'publish', 'pin'],
   flow: ['read', 'write', 'delete', 'admin', 'execute', 'publish', 'pin'],
   tool: ['read', 'write', 'delete', 'admin', 'invoke', 'pin'],
   guardrail: ['read', 'write', 'delete', 'admin'],

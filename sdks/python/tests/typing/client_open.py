@@ -14,13 +14,13 @@ from kindgi.client import Kindgi, models
 
 
 def read_open(kindgi: Kindgi) -> None:
-    promotion = kindgi.agents.live.unpin("acme.triage", scope={"kind": "tenant"})
-    assert_type(promotion.action, Literal["promote", "rollback", "unpin"] | str)
-    scope = promotion.scope
-    if isinstance(scope, models.LiveScopeUnrecognized):
+    pin = kindgi.agents.pinned.unpin("acme.triage", scope={"kind": "tenant"})
+    assert_type(pin.action, Literal["pin", "unpin"] | str)
+    scope = pin.scope
+    if isinstance(scope, models.PinScopeUnrecognized):
         assert_type(scope.kind, str)
     elif scope.kind == "tenant":
-        assert_type(scope, models.LiveScopeTenant)
+        assert_type(scope, models.PinScopeTenant)
 
 
 def read_open_one_value(kindgi: Kindgi) -> None:

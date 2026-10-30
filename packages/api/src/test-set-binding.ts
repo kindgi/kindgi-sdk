@@ -101,7 +101,7 @@ export interface TestSetRegistryBinding {
  * - `benchmark` — reference to a standardized test set (name + version).
  * - `custom` — caller-supplied evaluator handler.
  */
-export const EVAL_KINDS = [
+export const TEST_SET_KINDS = [
   'accuracy',
   'pairwise',
   'regression',
@@ -111,7 +111,7 @@ export const EVAL_KINDS = [
   /** Built from corrections of past runs: cases are copies of corrected runs (`EvalCaseStoreBinding`). */
   'corrections',
 ] as const;
-export type EvalKind = (typeof EVAL_KINDS)[number];
+export type TestSetKind = (typeof TEST_SET_KINDS)[number];
 
 /**
  * The kinds `GET /v1/test-sets` lists unless asked for one: all but
@@ -120,7 +120,7 @@ export type EvalKind = (typeof EVAL_KINDS)[number];
  * frozen versions and those built before, is listed with `kind=corrections`
  * and read by id.
  */
-export const LISTED_EVAL_KINDS: readonly EvalKind[] = EVAL_KINDS.filter(
+export const LISTED_EVAL_KINDS: readonly TestSetKind[] = TEST_SET_KINDS.filter(
   (kind) => kind !== 'corrections',
 );
 
@@ -139,7 +139,7 @@ export interface TestSet {
   readonly id: string;
   readonly tenantId: TenantId;
   readonly version: string;
-  readonly kind: EvalKind;
+  readonly kind: TestSetKind;
   readonly description?: string;
   readonly spec: Readonly<Record<string, unknown>>;
 }
@@ -149,7 +149,7 @@ export interface TestSetListInput {
   readonly limit: number;
   readonly cursor?: Cursor;
   /** Exact match on `TestSet.kind`. Undefined = no filter. */
-  readonly evalKind?: EvalKind;
+  readonly evalKind?: TestSetKind;
   /** Prefix match on `TestSet.id`. Undefined = no filter. */
   readonly nameFilter?: string;
   /**
@@ -339,6 +339,18 @@ export interface TestSetFreezeBinding {
 }
 
 /**
+ * How every agent's test set id starts (`agentTestSetId`). It's reserved:
+ * only a freeze makes their versions, through the binding, and the routes
+ * refuse to publish a test set whose id starts with it.
+ */
+export const AGENT_TEST_SET_ID_PREFIX = 'agent.';
+
+/** Whether `testSetId` is reserved for an agent's test set (`AGENT_TEST_SET_ID_PREFIX`). */
+export function isAgentTestSetId(testSetId: string): boolean {
+  return testSetId.startsWith(AGENT_TEST_SET_ID_PREFIX);
+}
+
+/**
  * The id of an agent's test set in one project: `agent.<agentId>.<projectId>`.
  * A freeze publishes its versions under it, so a reader finds the newest
  * frozen version with `TestSetRegistryBinding.get` and its cases under
@@ -346,7 +358,12 @@ export interface TestSetFreezeBinding {
  * authorization object's id can't hold one.
  */
 export function agentTestSetId(agentId: AgentId, projectId: ProjectId): string {
-  return `agent.${agentId as unknown as string}.${projectId as unknown as string}`;
+  return `${AGENT_TEST_SET_ID_PREFIX}${agentId as unknown as string}.${projectId as unknown as string}`;
+}
+
+/** The answer when a caller publishes a test set under an agent's test set id. */
+export function agentTestSetIdReserved(testSetId: string): string {
+  return `Test set ids starting \`${AGENT_TEST_SET_ID_PREFIX}\` are agents' own test sets, and only a test run or a suggested change's check makes their versions. Publish "${testSetId}" under another id.`;
 }
 
 export interface FreezeTestSetInput {

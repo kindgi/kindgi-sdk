@@ -15,8 +15,8 @@ import {
 import type { ProjectBinding } from '@kindgi/platform';
 import { canonicalize } from '@kindgi/schema';
 import type {
+  AgentPinScope,
   Cursor,
-  LiveScope,
   ProjectId,
   RunId,
   Semver,
@@ -27,6 +27,7 @@ import type {
 } from '@kindgi/types';
 
 import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.js';
+import type { AgentPinBindings, AgentPinnedVersion, Pin, PinActor } from './agent-pin-binding.js';
 import { approvalResourceRef, projectOfScope } from './approval-resource.js';
 import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
 import { type BlockEdit, blockEditDefinition, publishBlockEdit } from './block-publish.js';
@@ -40,25 +41,15 @@ import {
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import { rescoreRefusal, rescoreStart } from './eval-rescore.js';
 import type { GateApproval } from './gate.js';
-import type {
-  AgentReleaseBindings,
-  LivePin,
-  Promotion,
-  PromotionActor,
-} from './live-version-binding.js';
 import {
   type ReferenceScopeBinding,
-  liveScopeOutOfScope,
+  agentPinScopeOutOfScope,
   referencesOutOfScope,
 } from './reference-scope.js';
 import { refusesCandidates, refusesScope } from './registry-read-only.js';
 import type { ReviewerRegistryBinding } from './reviewer-binding.js';
-import {
-  type AgentReleaseGateDeps,
-  type PromotionRequestOutcome,
-  requestPromotion,
-} from './routes/agent-releases.js';
-import { liveScopeToWire } from './routes/live-scope-wire.js';
+import { agentPinScopeToWire } from './routes/agent-pin-scope-wire.js';
+import { type AgentPinGateDeps, type PinRequestOutcome, requestPin } from './routes/agent-pins.js';
 import {
   SUGGESTED_CHANGE_ACTIONS,
   type SuggestedChangeAction,
@@ -88,9 +79,9 @@ import type {
   SupervisorBinding,
 } from './supervisor-binding.js';
 import type {
-  EvalComparison,
   TestRun,
   TestRunBinding,
+  TestRunComparison,
   TestRunStartOutcome,
 } from './test-run-binding.js';
 import type { FrozenTestSet, TestSetFreezeBinding } from './test-set-binding.js';
@@ -114,12 +105,12 @@ export interface SuggestedChangeServiceDeps {
   readonly agents: AgentRegistryBinding;
   readonly blocks: BlockRegistryBinding;
   readonly testRuns: TestRunBinding;
-  readonly releases: AgentReleaseBindings;
+  readonly agentPins: AgentPinBindings;
   readonly projects?: ProjectBinding;
   /** What the agent's project may reach (`reference-scope.ts`); absent → as named. */
   readonly referenceScope?: ReferenceScopeBinding;
-  /** Whether a project is suspended, for a promotion's gate (`AgentReleaseGateDeps`). Absent: no check. */
-  readonly projectSuspended?: AgentReleaseGateDeps['projectSuspended'];
+  /** Whether a project is suspended, for a pin's gate (`AgentPinGateDeps`). Absent: no check. */
+  readonly projectSuspended?: AgentPinGateDeps['projectSuspended'];
   /**
    * The tenant's environment orders: a candidate (its block version and
    * agent version) is made in the first environment of the agent's
@@ -129,14 +120,14 @@ export interface SuggestedChangeServiceDeps {
    */
   readonly orders?: Pick<EnvironmentOrderBinding, 'orderOf'>;
   /**
-   * The tenant's reviewer roster, to decide whether a drafter's promotion
-   * needs a separate approver. Absent: a drafter's promotion keeps
+   * The tenant's reviewer roster, to decide whether a drafter's pin
+   * needs a separate approver. Absent: a drafter's pin keeps
    * the legacy rule — any reviewer, the requester included, may approve.
    */
   readonly reviewers?: Pick<ReviewerRegistryBinding, 'list'>;
   /**
    * The PDP, to count only reviewers who could actually decide a drafter's
-   * promotion: one who can't read its resource is 404'd by the decide route
+   * pin: one who can't read its resource is 404'd by the decide route
    * (routes/approvals.ts `mayRead`), so they can't separate it. Absent
    * (no authorizer): every roster reviewer may read, as `mayRead` allows.
    */
@@ -163,9 +154,9 @@ export type SuggestedChangeOutcome<T> =
 export interface SuggestedChangeFacts {
   readonly status: SuggestedChangeStatus;
   readonly evaluation?: SuggestedChangeEvaluationOutcome | null;
-  readonly promotion?: Promotion | null;
+  readonly pin?: Pin | null;
   /** For a pinned suggested change: whether its version still serves the scope. */
-  readonly liveNow?: boolean;
+  readonly pinnedNow?: boolean;
   /** For a `ready` one asked to be pinned: why its pin didn't go through. */
   readonly note?: SuggestedChangeNote;
 }
@@ -174,7 +165,7 @@ export interface DraftSuggestedChangeInput {
   readonly tenantId: TenantId;
   readonly agentId: string;
   readonly fromVersion: string;
-  readonly scope: LiveScope;
+  readonly scope: AgentPinScope;
   readonly tier: SuggestedChangeTier;
   readonly blockId: string;
   readonly content: ProposedChange['change']['content'];
@@ -201,7 +192,7 @@ export interface DeployCardsInput {
   /** The deploy's image, when it named one by digest. */
   readonly imageDigest?: string;
   /** Who deployed or promoted it. */
-  readonly by: PromotionActor;
+  readonly by: PinActor;
   /** Each agent version the deploy registered. */
   readonly agents: readonly { readonly agentId: AgentId; readonly version: Semver }[];
 }
@@ -230,14 +221,14 @@ export interface NewSuggestedChangeInput {
   readonly fixes?: readonly string[];
   readonly madeBy: SuggestedChangeCreator;
   /** Who it's done for: the publisher its block and agent versions record. */
-  readonly actor: PromotionActor;
+  readonly actor: PinActor;
 }
 
 export interface CheckSuggestedChangeInput {
   readonly tenantId: TenantId;
   readonly suggestedChange: StoredSuggestedChange;
   /** Who it's done for: the publisher its versions record, when it has none yet. */
-  readonly actor: PromotionActor;
+  readonly actor: PinActor;
 }
 
 export interface EvaluateSuggestedChangeInput {
@@ -245,7 +236,7 @@ export interface EvaluateSuggestedChangeInput {
   readonly suggestedChange: StoredSuggestedChange;
   readonly testSetId: string;
   readonly objective: SuggestedChangeObjective;
-  readonly comparison?: EvalComparison;
+  readonly comparison?: TestRunComparison;
   /**
    * The current version replayed on the same cases (an Improve run's
    * model-settings change): no correction it passes may fail on the
@@ -257,7 +248,7 @@ export interface EvaluateSuggestedChangeInput {
     readonly reference: { readonly testRunId: string };
   };
   /** Who it's done for: what the derived version records as `by`. */
-  readonly actor: PromotionActor;
+  readonly actor: PinActor;
 }
 
 export interface RescoreSuggestedChangeInput {
@@ -266,8 +257,8 @@ export interface RescoreSuggestedChangeInput {
 }
 
 /**
- * What a promotion that a drafter (not a person) asks for needs even when
- * the scope's policy asks for none: a reviewer (K2). Any reviewer may
+ * What a pin that a drafter (not a person) asks for needs even when
+ * the scope's release gate asks for none: a reviewer (K2). Any reviewer may
  * approve: the drafter, not a person, requested it.
  */
 export const DRAFTED_SUGGESTED_CHANGE_APPROVAL: GateApproval = {
@@ -278,14 +269,14 @@ export const DRAFTED_SUGGESTED_CHANGE_APPROVAL: GateApproval = {
 
 /**
  * Whether the tenant has a reviewer who could actually approve a drafter's
- * promotion other than whoever requested it — the test the `separateApprover`
+ * pin other than whoever requested it — the test the `separateApprover`
  * flag enforces (the decide call blocks an `approve` by the requester
  * themselves, `user:<id>` against `user:<id>`). A reviewer counts when all of
  * these hold: active (not deactivated); ranked at or above the rule's role;
  * not the requester; and, with an authorizer wired, able to read the
  * approval's `resource` — the decide route 404s a reviewer who can't
  * (routes/approvals.ts `mayRead`), so a count that ignored it could leave the
- * promotion stuck. A service requester (an Improve run) is no
+ * pin stuck. A service requester (an Improve run) is no
  * `user:<id>`, so every eligible reviewer counts; a human requester who is the
  * only one who counts counts as none, so they may approve their own request
  * rather than being deadlocked.
@@ -333,20 +324,20 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
   const err = (error: SuggestedChangeServiceError) => ({ kind: 'err' as const, error });
 
   /**
-   * The approval a drafter's promotion needs (K2), with `separateApprover`
+   * The approval a drafter's pin needs (K2), with `separateApprover`
    * decided from the tenant roster. No reviewer registry wired keeps the
    * legacy rule (any reviewer, the requester included, may approve).
    *
    * Returns both the approval (its `separateApprover` settled at the drafter's
-   * own `standard` rank, which is what a promotion with no scope policy waits
+   * own `standard` rank, which is what a pin with no release gate waits
    * for) and `eligibleAtRole`, the same roster test at an arbitrary role: a
-   * scope policy that sets `separateApprover: false` asks it again at the
-   * policy's (higher) role, so a lower-ranked reviewer doesn't deadlock a
-   * requester the policy would let decide alone.
+   * release gate that sets `separateApprover: false` asks it again at the
+   * gate's (higher) role, so a lower-ranked reviewer doesn't deadlock a
+   * requester the gate would let decide alone.
    */
   async function draftedApproval(
     tenantId: TenantId,
-    actor: PromotionActor,
+    actor: PinActor,
     suggestedChange: StoredSuggestedChange,
   ): Promise<{
     readonly approval: GateApproval;
@@ -374,33 +365,33 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
 
   /** A reader of suggested change facts for one call: each agent's pins are read once. */
   function facts(tenantId: TenantId): (p: StoredSuggestedChange) => Promise<SuggestedChangeFacts> {
-    const pins = new Map<string, Promise<readonly LivePin[]>>();
-    const pinsOf = (agentId: string): Promise<readonly LivePin[]> => {
+    const pins = new Map<string, Promise<readonly AgentPinnedVersion[]>>();
+    const pinsOf = (agentId: string): Promise<readonly AgentPinnedVersion[]> => {
       const known = pins.get(agentId);
       if (known !== undefined) return known;
-      const found = deps.releases.live.list({ tenantId, agentId });
+      const found = deps.agentPins.pinned.list({ tenantId, agentId });
       pins.set(agentId, found);
       return found;
     };
     return async (p) => {
-      const promotion =
-        p.promotionId === undefined
+      const change =
+        p.pinChangeId === undefined
           ? undefined
-          : await deps.releases.promotions.get(tenantId, p.promotionId);
+          : await deps.agentPins.changes.get(tenantId, p.pinChangeId);
       let evaluation: SuggestedChangeEvaluationOutcome | null | undefined;
       if (p.evaluation !== undefined) evaluation = await evaluationOf(tenantId, p.evaluation);
-      const status = suggestedChangeStatus(p, promotion, evaluation);
-      let liveNow: boolean | undefined;
-      if (status === 'pinned' && promotion !== undefined && promotion !== null) {
+      const status = suggestedChangeStatus(p, change, evaluation);
+      let pinnedNow: boolean | undefined;
+      if (status === 'pinned' && change !== undefined && change !== null) {
         const all = await pinsOf(p.agentId as unknown as string);
-        liveNow = all.some((pin) => pin.promotionId === promotion.id);
+        pinnedNow = all.some((pin) => pin.changeId === change.id);
       }
-      const note = noteOf(status, promotion, p);
+      const note = noteOf(status, change, p);
       return {
         status,
         ...(evaluation !== undefined && { evaluation }),
-        ...(promotion !== undefined && { promotion }),
-        ...(liveNow !== undefined && { liveNow }),
+        ...(change !== undefined && { pin: change }),
+        ...(pinnedNow !== undefined && { pinnedNow }),
         ...(note !== undefined && { note }),
       };
     };
@@ -544,7 +535,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
    */
   async function makeCandidate(
     suggestedChange: StoredSuggestedChange,
-    actor: PromotionActor,
+    actor: PinActor,
     projectId?: ProjectId,
   ): Promise<SuggestedChangeOutcome<NonNullable<StoredSuggestedChange['candidate']>>> {
     const { tenantId } = suggestedChange;
@@ -667,7 +658,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
   }
 
   /** Why the registry takes no candidate for the suggested change; `undefined` when it does. */
-  function readOnlyRefusal(scope: LiveScope): SuggestedChangeServiceError | undefined {
+  function readOnlyRefusal(scope: AgentPinScope): SuggestedChangeServiceError | undefined {
     // Checking derives an agent version: not into a registry that takes
     // no writes, unless it takes Improve's candidates.
     if (deps.agents.readOnly !== undefined && refusesCandidates(deps.agents.readOnly)) {
@@ -702,7 +693,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
    */
   async function checkOn(
     stored: StoredSuggestedChange,
-    actor: PromotionActor,
+    actor: PinActor,
     projectId: ProjectId,
     frozen: FrozenTestSet,
   ): Promise<SuggestedChangeOutcome<StoredSuggestedChange>> {
@@ -745,7 +736,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         evaluation: {
           testRunId: withIt.testRunId as unknown as string,
           testSetId: frozen.testSetId,
-          objective: 'weightedYesShare',
+          objective: 'passRate',
           startedAt: new Date().toISOString() as Timestamp,
           rule: 'better',
           ...(reused !== undefined && { reference: { testRunId: reused } }),
@@ -762,7 +753,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       evaluation: {
         testRunId: withIt.testRunId as unknown as string,
         testSetId: frozen.testSetId,
-        objective: 'weightedYesShare',
+        objective: 'passRate',
         startedAt: new Date().toISOString() as Timestamp,
         rule: 'better',
         reference: { testRunId: now.testRunId as unknown as string },
@@ -852,7 +843,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
    */
   async function rebuildIfMoved(
     suggestedChange: StoredSuggestedChange,
-    actor: PromotionActor,
+    actor: PinActor,
     projectId: ProjectId,
     runs: WhatRuns | null,
   ): Promise<SuggestedChangeOutcome<StoredSuggestedChange> | undefined> {
@@ -901,7 +892,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
    */
   async function rebuildOne(
     card: StoredSuggestedChange,
-    actor: PromotionActor,
+    actor: PinActor,
     projectId: ProjectId,
     runs: WhatRuns,
   ): Promise<boolean | string> {
@@ -924,7 +915,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
    */
   async function refuseMoved(
     suggestedChange: StoredSuggestedChange,
-    actor: PromotionActor,
+    actor: PinActor,
     projectId: ProjectId,
     runs: WhatRuns | null,
   ): Promise<SuggestedChangeServiceError | undefined> {
@@ -981,7 +972,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
   ): Promise<SuggestedChangeOutcome<StoredSuggestedChange> | undefined> {
     const { tenantId, projectId } = input;
     const { agentId } = agent;
-    const runs = await whatRuns(deps.releases, { tenantId, agentId, projectId });
+    const runs = await whatRuns(deps.agentPins, { tenantId, agentId, projectId });
     if (runs === null || runs.follows !== 'pin' || runs.version === agent.version) return undefined;
     const version = await deps.agents.getVersion({ tenantId, agentId, version: agent.version });
     if (version === null || version.unregisteredAt !== undefined) {
@@ -1084,7 +1075,12 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       // Its scope must reach the agent, and the block it edits must be in
       // the agent's project's reach (`reference-scope.ts`).
       const outOfScope =
-        (await liveScopeOutOfScope(deps.referenceScope, tenantId, input.agentId, input.scope)) ??
+        (await agentPinScopeOutOfScope(
+          deps.referenceScope,
+          tenantId,
+          input.agentId,
+          input.scope,
+        )) ??
         (from.projectId === undefined
           ? undefined
           : await referencesOutOfScope(deps.referenceScope, tenantId, from.projectId, [
@@ -1161,13 +1157,13 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
     > {
       const { tenantId, projectId } = input;
       const agentId = input.agentId as AgentId;
-      const scope: LiveScope = { kind: 'project', projectId };
+      const scope: AgentPinScope = { kind: 'project', projectId };
       const readOnly = cardReadOnly();
       if (readOnly !== undefined) return err(readOnly);
       if (deps.testSets === undefined) return err(checkUnsupported());
       const later = await laterEnvironment(deps.orders, tenantId, projectId);
       if (later !== undefined) return err(environmentTakesPromotions(later));
-      const runs = await whatRuns(deps.releases, { tenantId, agentId: input.agentId, projectId });
+      const runs = await whatRuns(deps.agentPins, { tenantId, agentId: input.agentId, projectId });
       if (runs === null) {
         return err({
           code: 'nothing-runs-in-scope',
@@ -1230,7 +1226,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       if (readOnly !== undefined) return err(readOnly);
       if (deps.testSets === undefined) return err(checkUnsupported());
       // Its project moved first: checked again means rebuilt on what runs.
-      const runs = await whatRuns(deps.releases, {
+      const runs = await whatRuns(deps.agentPins, {
         tenantId,
         agentId: suggestedChange.agentId as unknown as string,
         projectId,
@@ -1245,7 +1241,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
     /**
      * Publish the suggested change's block version and derive its agent version
      * (once: an evaluation again reuses them), then start the comparison.
-     * Needs a writable agent registry and a tenant-wide live version.
+     * Needs a writable agent registry and a tenant-wide pinned version.
      */
     async evaluate(
       input: EvaluateSuggestedChangeInput,
@@ -1257,12 +1253,12 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       if (refused !== undefined) return err(refused);
       const readOnly = readOnlyRefusal(suggestedChange.scope);
       if (readOnly !== undefined) return err(readOnly);
-      // A version promoted nowhere is still the agent's latest, and the
+      // A version pinned nowhere is still the agent's latest, and the
       // latest serves every scope nothing is pinned for.
-      if ((await deps.releases.live.resolve({ tenantId, agentId })) === null) {
+      if ((await deps.agentPins.pinned.resolve({ tenantId, agentId })) === null) {
         return err({
           code: 'suggested-change-needs-pin',
-          message: `${agentId} has no live version for the whole tenant, so a new version of it would serve every scope nothing is pinned for. Promote its current version for the tenant first (scope { "kind": "tenant" }), then evaluate.`,
+          message: `${agentId} has no pinned version for the whole tenant, so a new version of it would serve every scope nothing is pinned for. Pin its current version for the tenant first (scope { "kind": "tenant" }), then evaluate.`,
         });
       }
       if (suggestedChange.candidate === undefined) {
@@ -1378,20 +1374,20 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
     },
 
     /**
-     * A gated promotion of the candidate for the suggested change's scope, with its
+     * A gated pin of the candidate for the suggested change's scope, with its
      * evaluation's comparison. A drafter's suggested change always waits for a
-     * reviewer (K2). `promotion` is the request's outcome, as promotions
-     * answer it; the suggested change records its promotion once one is recorded.
+     * reviewer (K2). `pin` is the request's outcome, as the pin routes
+     * answer it; the suggested change records its pin change once one is recorded.
      */
     async pin(input: {
       readonly tenantId: TenantId;
       readonly suggestedChange: StoredSuggestedChange;
-      readonly actor: PromotionActor;
+      readonly actor: PinActor;
       readonly reason?: string;
     }): Promise<
       SuggestedChangeOutcome<{
         suggestedChange: StoredSuggestedChange;
-        promotion: PromotionRequestOutcome;
+        pin: PinRequestOutcome;
       }>
     > {
       const { tenantId, suggestedChange } = input;
@@ -1400,7 +1396,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       const projectId = projectOfCard(suggestedChange);
       if (projectId === undefined) return err(notForAProject(suggestedChange, 'pin'));
       // A project on Latest takes a change as its Latest (`add-as-latest`).
-      const runs = await whatRuns(deps.releases, {
+      const runs = await whatRuns(deps.agentPins, {
         tenantId,
         agentId: suggestedChange.agentId as unknown as string,
         projectId,
@@ -1418,11 +1414,11 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       if (candidate === undefined || evaluation === undefined) {
         throw new Error('an evaluated suggested change has a candidate and an evaluation');
       }
-      // A drafter's promotion always waits for a reviewer (K2). Whether that
+      // A drafter's pin always waits for a reviewer (K2). Whether that
       // reviewer must differ from whoever asked is the tenant roster's to say:
       // a second eligible reviewer → a separate approver; a lone reviewer →
-      // the requester may approve their own, so they aren't stuck. A scope
-      // policy's approval is the floor; the drafter's rule only tightens it.
+      // the requester may approve their own, so they aren't stuck. A release
+      // gate's approval is the floor; the drafter's rule only tightens it.
       const drafted =
         suggestedChange.drafter.kind === 'person'
           ? undefined
@@ -1431,9 +1427,9 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         drafted === undefined
           ? {}
           : { requireApproval: drafted.approval, draftedEligibleAtRole: drafted.eligibleAtRole };
-      const promotion = await requestPromotion(
+      const outcome = await requestPin(
         deps.agents,
-        deps.releases,
+        deps.agentPins,
         {
           testRuns: deps.testRuns,
           ...(deps.projects !== undefined && { projects: deps.projects }),
@@ -1451,13 +1447,13 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         },
         drafterApproval,
       );
-      if (promotion.kind !== 'ok') return { kind: 'ok', value: { suggestedChange, promotion } };
+      if (outcome.kind !== 'ok') return { kind: 'ok', value: { suggestedChange, pin: outcome } };
       const recorded = await record(suggestedChange, {
-        kind: 'promotion',
-        promotionId: promotion.promotion.id,
+        kind: 'pin',
+        pinChangeId: outcome.pin.id,
       });
       if (recorded.kind === 'err') return recorded;
-      return { kind: 'ok', value: { suggestedChange: recorded.value, promotion } };
+      return { kind: 'ok', value: { suggestedChange: recorded.value, pin: outcome } };
     },
 
     /**
@@ -1470,7 +1466,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
     async addAsLatest(input: {
       readonly tenantId: TenantId;
       readonly suggestedChange: StoredSuggestedChange;
-      readonly actor: PromotionActor;
+      readonly actor: PinActor;
       readonly reason?: string;
     }): Promise<SuggestedChangeOutcome<StoredSuggestedChange>> {
       const { tenantId, suggestedChange } = input;
@@ -1482,7 +1478,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       if (readOnly !== undefined) return err(readOnly);
       const id = suggestedChange.id as unknown as string;
       const agentId = suggestedChange.agentId as unknown as string;
-      const runs = await whatRuns(deps.releases, { tenantId, agentId, projectId });
+      const runs = await whatRuns(deps.agentPins, { tenantId, agentId, projectId });
       if (runs?.follows === 'pin') {
         return err({
           code: 'suggested-change-project-pinned',
@@ -1528,7 +1524,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       readonly tenantId: TenantId;
       readonly agentId: AgentId;
       readonly projectId: ProjectId;
-      readonly actor: PromotionActor;
+      readonly actor: PinActor;
       readonly except: SuggestedChangeId;
     }): Promise<{
       readonly rebuilt: readonly SuggestedChangeId[];
@@ -1540,7 +1536,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       const { tenantId, agentId, projectId } = input;
       const rebuilt: SuggestedChangeId[] = [];
       const failed: { suggestedChangeId: SuggestedChangeId; message: string }[] = [];
-      const runs = await whatRuns(deps.releases, {
+      const runs = await whatRuns(deps.agentPins, {
         tenantId,
         agentId: agentId as unknown as string,
         projectId,
@@ -1552,7 +1548,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
           tenantId,
           limit: 100,
           agentId,
-          liveScope: { kind: 'project', projectId },
+          pinnedScope: { kind: 'project', projectId },
           ...(cursor !== undefined && { cursor }),
         });
         for (const card of page.data) {
@@ -1594,7 +1590,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
     async withdraw(input: {
       readonly tenantId: TenantId;
       readonly suggestedChange: StoredSuggestedChange;
-      readonly actor: PromotionActor;
+      readonly actor: PinActor;
       readonly reason: string;
     }): Promise<SuggestedChangeOutcome<StoredSuggestedChange>> {
       const refused = await refuseStatus('withdraw', input.suggestedChange);
@@ -1912,12 +1908,10 @@ async function pinnedBlock(
 /** Its note: why a `ready` one's pin didn't go through, else a deploy card's `not-running`. */
 function noteOf(
   status: SuggestedChangeStatus,
-  promotion: Promotion | null | undefined,
+  pin: Pin | null | undefined,
   suggestedChange: StoredSuggestedChange,
 ): SuggestedChangeNote | undefined {
-  return (
-    (status === 'ready' ? suggestedChangeNote(promotion) : undefined) ?? notRunning(suggestedChange)
-  );
+  return (status === 'ready' ? suggestedChangeNote(pin) : undefined) ?? notRunning(suggestedChange);
 }
 
 /**
@@ -1948,7 +1942,7 @@ function fingerprintOf(input: DraftSuggestedChangeInput, change: ProposedChange[
   const canonical = canonicalize({
     agentId: input.agentId,
     fromVersion: input.fromVersion,
-    scope: liveScopeToWire(input.scope),
+    scope: agentPinScopeToWire(input.scope),
     tier: input.tier,
     change,
   });

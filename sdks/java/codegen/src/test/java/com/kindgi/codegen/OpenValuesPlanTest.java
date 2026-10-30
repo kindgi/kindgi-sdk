@@ -140,7 +140,7 @@ class OpenValuesPlanTest {
         unions.add(String.join(".", d.name().simpleNames()));
       }
     }
-    assertThat(unions).containsExactly("EvalBaseline");
+    assertThat(unions).containsExactly("TestRunBaseline");
   }
 
   @Test
@@ -205,6 +205,6 @@ class OpenValuesPlanTest {
         }
       }
     }
-    assertThat(untagged).containsExactly("BlockContent", "EvalBaseline", "IdentityProviderSignIn", "MemoryErasureSelector");
+    assertThat(untagged).containsExactly("BlockContent", "TestRunBaseline", "IdentityProviderSignIn", "MemoryErasureSelector");
   }
 }

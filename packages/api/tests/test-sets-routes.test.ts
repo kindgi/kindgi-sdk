@@ -11,9 +11,9 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
-  EvalKind,
   RunHandlerBinding,
   TestSet,
+  TestSetKind,
   TestSetRegistryBinding,
   TokenResolver,
 } from '../src/index.js';
@@ -155,7 +155,7 @@ function testSetSpec(
   overrides: {
     id?: string;
     version?: string;
-    kind?: EvalKind;
+    kind?: TestSetKind;
     spec?: Record<string, unknown>;
     description?: string;
   } = {},
@@ -189,7 +189,7 @@ function testSetPostBody(
   overrides: {
     id?: string;
     version?: string;
-    kind?: EvalKind;
+    kind?: TestSetKind;
     spec?: Record<string, unknown>;
     description?: string;
     projectId?: string;
@@ -218,7 +218,7 @@ async function seed(binding: TestSetRegistryBinding, body: Record<string, unknow
     id: body.id as string,
     tenantId,
     version: body.version as string,
-    kind: body.kind as EvalKind,
+    kind: body.kind as TestSetKind,
     ...(body.description !== undefined && { description: body.description as string }),
     spec: (body.spec ?? {}) as Readonly<Record<string, unknown>>,
   };
@@ -604,6 +604,31 @@ describe('API — test-sets publish + get', () => {
     const body = (await res.json()) as { error: { code: string; message: string } };
     expect(body.error.code).toBe('bad-input');
     expect(body.error.message).toContain('projectId');
+  });
+
+  test("an id starting `agent.` is an agent's own test set: publishing one is 400, and nothing is written", async () => {
+    const { app } = makeApp();
+    lastPublishedProjectId = undefined;
+    const id = 'agent.acme.desk.5e3c1f0a-0b1d-4c2e-9f3a-7d6b2a1c0e9f';
+    const res = await app.request('/v1/test-sets', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(testSetPostBody({ id, kind: 'corrections' })),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error).toMatchObject({
+      code: 'bad-input',
+      message: `Test set ids starting \`agent.\` are agents' own test sets, and only a test run or a suggested change's check makes their versions. Publish "${id}" under another id.`,
+    });
+    expect(lastPublishedProjectId).toBeUndefined();
+    // Only the prefix is reserved.
+    const named = await app.request('/v1/test-sets', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(testSetPostBody({ id: 'agents.acme.desk' })),
+    });
+    expect(named.status).toBe(201);
   });
 });
 

@@ -18,7 +18,7 @@
 
 import type { Agent } from '@kindgi/agents';
 import { type Flow, type FlowNode, isFanoutNode, isLoopNode, isSubflowNode } from '@kindgi/flow';
-import type { LiveScope, ProjectId, TenantId } from '@kindgi/types';
+import type { AgentPinScope, ProjectId, TenantId } from '@kindgi/types';
 
 import type { TriggerTarget } from '@kindgi/runtime';
 import type { Context } from 'hono';
@@ -247,18 +247,18 @@ export function outOfScopeResponse(
 }
 
 /**
- * Whether making `agentId` live for `scope` stays within the scope's
+ * Whether pinning `agentId` for `scope` stays within the scope's
  * project: a project or segment scope must reach the agent. A tenant or
  * org scope isn't checked (other projects can't name the agent anyway).
  */
-export async function liveScopeOutOfScope(
+export async function agentPinScopeOutOfScope(
   scope: ReferenceScopeBinding | undefined,
   tenantId: TenantId,
   agentId: string,
-  live: LiveScope,
+  pinScope: AgentPinScope,
 ): Promise<ReferenceOutOfScopeError | undefined> {
-  if (live.kind !== 'project' && live.kind !== 'segment') return undefined;
-  return referencesOutOfScope(scope, tenantId, live.projectId, [
+  if (pinScope.kind !== 'project' && pinScope.kind !== 'segment') return undefined;
+  return referencesOutOfScope(scope, tenantId, pinScope.projectId, [
     { path: '/scope', kind: 'agent', id: agentId },
   ]);
 }

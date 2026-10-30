@@ -3,7 +3,7 @@
 
 import type { AgentId, Cursor } from '@kindgi/types';
 
-import type { LiveScope } from '../generated/api.js';
+import type { AgentPinScope } from '../generated/api.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type { SuggestedChangeObjective } from '../types.js';
@@ -65,7 +65,7 @@ export interface StartImproveRunInput {
    * org scope) the agent version's.
    */
   readonly projectId?: string;
-  readonly scope: LiveScope;
+  readonly scope: AgentPinScope;
   /** The test set to search and prove on. */
   readonly testSetId: string;
   /** `['settings']` (the default): tunable settings values; `['prompt']`: drafted templates (needs `model`). */

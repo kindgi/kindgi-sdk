@@ -7,14 +7,19 @@ import type { AgentId } from '@kindgi/agents';
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import { type Action, ref } from '@kindgi/authz';
 import { emitAuditEvent } from '@kindgi/compliance';
-import type { Cursor, LiveScope, ProjectId, SuggestedChangeId, TenantId } from '@kindgi/types';
+import type { AgentPinScope, Cursor, ProjectId, SuggestedChangeId, TenantId } from '@kindgi/types';
 
+import type { Pin, PinActor } from '../agent-pin-binding.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
 import { callerIdentity } from '../caller.js';
 import { environmentTakesPromotionsResponse } from '../environment-entry.js';
 import { statusFor, toWireError } from '../errors.js';
-import { type ItemRights, liveScopeCheck, widthRefusal, writeWhereMade } from '../item-rights.js';
-import type { Promotion, PromotionActor } from '../live-version-binding.js';
+import {
+  type ItemRights,
+  agentPinScopeCheck,
+  widthRefusal,
+  writeWhereMade,
+} from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import {
@@ -39,7 +44,7 @@ import type {
   SuggestedChangeMaker,
 } from '../supervisor-binding.js';
 import type { AppEnv } from '../types.js';
-import { actorOf, promotionResponse } from './agent-releases.js';
+import { actorOf, pinResponse } from './agent-pins.js';
 import { clampLimit } from './pagination.js';
 
 /** What the suggested change lifecycle runs on besides its own store. */
@@ -96,9 +101,8 @@ type Ctx = Context<AppEnv>;
  *
  * Authorized on the suggested change's agent: reading is `read`, making,
  * checking and withdrawing are `publish`, and pinning and adding as
- * Latest are `promote`. A
- * suggested change the caller can't read answers 404, as one that
- * doesn't exist.
+ * Latest are `pin`. A suggested change the caller can't read answers
+ * 404, as one that doesn't exist.
  *
  * For an agent more than one project serves (`item-rights.ts`): reading
  * is `read` on the agent or on any of its projects; making, checking and
@@ -152,15 +156,15 @@ export function suggestedChangesRouter(
   /**
    * `undefined` when allowed; else the 403. For an agent more than one
    * project serves, `publish` is `write` where its versions are made and
-   * `promote` is `admin` where `scope` is (the module's rules).
+   * `pin` is `admin` where `scope` is (the module's rules).
    */
-  async function deny(c: Ctx, action: Action, agentId: string, scope?: LiveScope) {
+  async function deny(c: Ctx, action: Action, agentId: string, scope?: AgentPinScope) {
     if (authorizer === undefined) return undefined;
     const projects = await served(c, agentId);
     if (itemRights !== undefined && projects !== undefined) {
-      if (action === 'promote') {
-        // A live scope's check names no version, so the 404 is never answered.
-        return itemRights.enforce(c, 'agent', agentId, projects, liveScopeCheck(scope), () =>
+      if (action === 'pin') {
+        // A pin scope's check names no version, so the 404 is never answered.
+        return itemRights.enforce(c, 'agent', agentId, projects, agentPinScopeCheck(scope), () =>
           failWith(c, suggestedChangeNotFound(c.req.param('suggestedChangeId') ?? '')),
         );
       }
@@ -286,7 +290,7 @@ export function suggestedChangesRouter(
       ...(agentId !== undefined && agentId !== '' && { agentId: agentId as AgentId }),
       ...(projectId !== undefined &&
         projectId !== '' && {
-          liveScope: { kind: 'project', projectId: projectId as ProjectId },
+          pinnedScope: { kind: 'project', projectId: projectId as ProjectId },
         }),
     });
     const shown = await readableOnPage(c, page.data);
@@ -363,7 +367,7 @@ export function suggestedChangesRouter(
 
   // ---------- POST /:suggestedChangeId/pin ----------
   r.post('/:suggestedChangeId/pin', async (c) => {
-    const ready = await prepare(c, 'promote');
+    const ready = await prepare(c, 'pin');
     if (ready instanceof Response) return ready;
     const spans = await widthRefusal(c, {
       rights: itemRights,
@@ -380,14 +384,14 @@ export function suggestedChangesRouter(
       ...(reason.value !== undefined && { reason: reason.value }),
     });
     if (outcome.kind === 'err') return refuse(c, outcome.error);
-    const { suggestedChange, promotion } = outcome.value;
-    if (promotion.kind !== 'ok') return promotionResponse(c, promotion);
-    if (promotion.promotion.status === 'refused') {
-      return promotionResponse(c, promotion, {
+    const { suggestedChange, pin } = outcome.value;
+    if (pin.kind !== 'ok') return pinResponse(c, pin);
+    if (pin.pin.status === 'refused') {
+      return pinResponse(c, pin, {
         suggestedChangeId: suggestedChange.id as unknown as string,
       });
     }
-    return pinned(c, suggestedChange, promotion.promotion);
+    return pinned(c, suggestedChange, pin.pin);
   });
 
   /**
@@ -397,11 +401,11 @@ export function suggestedChangesRouter(
   async function pinned(
     c: Ctx,
     suggestedChange: StoredSuggestedChange,
-    promotion: Promotion,
+    pin: Pin,
   ): Promise<Response> {
-    const waits = promotion.status === 'pending-approval';
+    const waits = pin.status === 'pending-approval';
     await audit(c, 'suggested-change-pinned', suggestedChange, {
-      promotionId: promotion.id,
+      pinChangeId: pin.id,
       status: waits ? 'waiting-for-second-person' : 'pinned',
     });
     if (!waits) await rebuildOthers(c, suggestedChange);
@@ -439,7 +443,7 @@ export function suggestedChangesRouter(
 
   // ---------- POST /:suggestedChangeId/add-as-latest ----------
   r.post('/:suggestedChangeId/add-as-latest', async (c) => {
-    const ready = await prepare(c, 'promote');
+    const ready = await prepare(c, 'pin');
     if (ready instanceof Response) return ready;
     const spans = await widthRefusal(c, {
       rights: itemRights,
@@ -507,14 +511,14 @@ function auditDoc(p: StoredSuggestedChange): Readonly<Record<string, unknown>> {
 // ---------- wire ----------
 
 /** Who made a suggested change through the API: the caller. */
-function makerOf(actor: PromotionActor): SuggestedChangeCreator {
+function makerOf(actor: PinActor): SuggestedChangeCreator {
   return actor.kind === 'user'
     ? { kind: 'person', userId: actor.id }
     : { kind: 'service', id: actor.id };
 }
 
 /** `user:<id>` or `service:<id>`, as a step records who took it, on the wire (`PinActor`). */
-function actorWire(by: string): PromotionActor {
+function actorWire(by: string): PinActor {
   const at = by.indexOf(':');
   const kind = at < 0 ? '' : by.slice(0, at);
   return kind === 'user' || kind === 'service'
@@ -625,15 +629,15 @@ export function serialize(
   f: SuggestedChangeFacts,
   before?: ProposedChange['change']['content'],
 ) {
-  const promotion = f.promotion ?? undefined;
+  const pin = f.pin ?? undefined;
   const version = p.candidate?.agentVersion;
   const projectId = p.scope.kind === 'project' ? p.scope.projectId : p.projectId;
   const pinned =
-    f.status === 'pinned' && promotion !== undefined && version !== undefined
+    f.status === 'pinned' && pin !== undefined && version !== undefined
       ? {
           version,
-          by: promotion.requestedBy,
-          at: promotion.resolvedAt ?? promotion.createdAt,
+          by: pin.requestedBy,
+          at: pin.resolvedAt ?? pin.createdAt,
         }
       : undefined;
   return {
@@ -655,7 +659,7 @@ export function serialize(
     ...(f.note !== undefined && { note: f.note }),
     ...(pinned !== undefined && { pinned }),
     ...(f.status === 'waiting-for-second-person' &&
-      promotion?.approvalId !== undefined && { approvalId: promotion.approvalId }),
+      pin?.approvalId !== undefined && { approvalId: pin.approvalId }),
     ...(p.addedAsLatest !== undefined &&
       version !== undefined && {
         addedAsLatest: {

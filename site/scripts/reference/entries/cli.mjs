@@ -318,22 +318,15 @@ export const CLI_DEFAULTS = {
     project: "the tenant's Default project",
     spec: 'required',
   },
-  'agents derive': {
-    from: 'required',
-    label: 'none',
-    project: 'none',
-    prompt: 'none (at least one `--prompt` or `--setting` is required)',
-    setting: 'none (at least one `--prompt` or `--setting` is required)',
-  },
   'agents versions': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
-  'agents live': {
+  'agents pinned': {
     project: 'none',
     segment: 'none',
   },
-  'agents promote': {
+  'agents pin': {
     'test-run': 'none',
     'idempotency-key': 'none',
     tenant: 'required: one of `--tenant`, `--org`, `--project`',
@@ -343,20 +336,11 @@ export const CLI_DEFAULTS = {
     reason: 'none',
     wait: 'off; a bare `--wait` waits at most `1h`',
   },
-  'agents gate-policy': {
+  'agents release-gate': {
     tenant: 'required: one of `--tenant`, `--org`, `--project`',
     org: 'required: one of `--tenant`, `--org`, `--project`',
     project: 'required: one of `--tenant`, `--org`, `--project`',
     segment: 'none',
-  },
-  'agents rollback': {
-    tenant: 'required: one of `--tenant`, `--org`, `--project`',
-    org: 'required: one of `--tenant`, `--org`, `--project`',
-    project: 'required: one of `--tenant`, `--org`, `--project`',
-    segment: 'none',
-    'idempotency-key': 'none',
-    reason: 'none',
-    to: 'the previous live version',
   },
   'agents unpin': {
     tenant: 'required: one of `--tenant`, `--org`, `--project`',
@@ -366,7 +350,7 @@ export const CLI_DEFAULTS = {
     'idempotency-key': 'none',
     reason: 'none',
   },
-  'agents promotions list': {
+  'agents pin-history list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
     tenant: 'none (no scope given: the history of every scope)',
@@ -494,7 +478,7 @@ export const CLI_DEFAULTS = {
     'max-candidates': '`30`',
     'max-cost': '`5` (US dollars)',
     model: 'none (needed with `--tier=prompt`, with `--provider`)',
-    objective: '`weightedYesShare`',
+    objective: '`passRate`',
     org: 'none',
     'run-project': "the scope's project, else the agent version's",
     project: 'none',
@@ -673,7 +657,7 @@ export const CLI_DEFAULTS = {
   },
   'mail-triggers create': {
     agent: 'none',
-    'agent-version': 'none (its live version, else the latest)',
+    'agent-version': 'none (its pinned version, else the latest)',
     'allow-unattended': 'none (a tool that waits for a person still waits)',
     as: '`person` (your own mailbox)',
     flow: 'none',
@@ -978,7 +962,7 @@ export const CLI_DEFAULTS = {
   'blocks reinstate': {
     'block-version': 'required',
   },
-  'gate-policies list': {
+  'release-gates list': {
     agent: 'none',
     cursor: 'none',
     limit: '`25` (at most `100`)',
@@ -986,12 +970,12 @@ export const CLI_DEFAULTS = {
     project: 'none',
     segment: 'none',
   },
-  'gate-policies publish': {
+  'release-gates publish': {
     agent: 'required',
     description: 'none',
     org: 'required: one of `--tenant`, `--org`, `--project`',
-    'policy-version': 'required',
     project: 'required: one of `--tenant`, `--org`, `--project`',
+    'release-gate-version': 'required',
     segment: 'none',
     spec: 'required',
     tenant: 'required: one of `--tenant`, `--org`, `--project`',
@@ -1291,8 +1275,8 @@ export const CLI_EXAMPLES = {
     },
     {
       purpose:
-        'Promote to prod and make each agent the build carries live there, each through its release gate policy.',
-      line: 'kindgi promote --from=staging --to=prod --make-live --reason="release 12"',
+        'Promote to prod and pin each agent the build carries there, each through its release gate.',
+      line: 'kindgi promote --from=staging --to=prod --pin --reason="release 12"',
     },
     {
       purpose: 'See what would move to prod and which values it lacks, changing nothing.',
@@ -1516,26 +1500,26 @@ export const CLI_EXAMPLES = {
       line: 'kindgi agents versions acme-ops.reply-drafter --include-unregistered',
     },
   ],
-  'agents live-versions': [
+  'agents pinned-versions': [
     {
-      purpose: 'List every scope with a live version of the agent.',
-      line: 'kindgi agents live-versions acme.order-desk',
+      purpose: 'List every scope with a pinned version of the agent.',
+      line: 'kindgi agents pinned-versions acme.order-desk',
     },
   ],
-  'agents gate-policy': [
+  'agents release-gate': [
     {
-      purpose: 'Show the release gate policy for the whole tenant.',
-      line: 'kindgi agents gate-policy acme.order-desk --tenant',
+      purpose: 'Show the release gate for the whole tenant.',
+      line: 'kindgi agents release-gate acme.order-desk --tenant',
     },
     {
-      purpose: 'Show the policy for a segment of a project.',
-      line: 'kindgi agents gate-policy acme.order-desk --project=<project-id> --segment=company:acme',
+      purpose: 'Show the release gate for a segment of a project.',
+      line: 'kindgi agents release-gate acme.order-desk --project=<project-id> --segment=company:acme',
     },
   ],
-  'agents promotions get': [
+  'agents pin-history get': [
     {
-      purpose: "Show one entry of an agent's go-live history.",
-      line: 'kindgi agents promotions get acme.order-desk <promotion-id>',
+      purpose: "Show one entry of an agent's pin history.",
+      line: 'kindgi agents pin-history get acme.order-desk <change-id>',
     },
   ],
   'conversations list': [
@@ -2075,17 +2059,17 @@ export const CLI_EXAMPLES = {
   'test-runs cancel': [
     {
       purpose: 'Cancel a pending or running test run.',
-      line: 'kindgi test-runs cancel <run-id>',
+      line: 'kindgi test-runs cancel <test-run-id>',
     },
   ],
   'test-runs rescore': [
     {
       purpose: 'Rescore a completed run on the test cases and wait for the new run.',
-      line: 'kindgi test-runs rescore <run-id> --wait',
+      line: 'kindgi test-runs rescore <test-run-id> --wait',
     },
     {
       purpose: 'Rescore against a runtime that does not record the project on the run.',
-      line: 'kindgi test-runs rescore <run-id> --project=<project-id>',
+      line: 'kindgi test-runs rescore <test-run-id> --project=<project-id>',
     },
   ],
   'test-sets list': [
@@ -2160,42 +2144,42 @@ export const CLI_EXAMPLES = {
       line: 'kindgi blocks reinstate acme.reply-style --block-version=1.0.0',
     },
   ],
-  'gate-policies list': [
+  'release-gates list': [
     {
-      purpose: 'List the release gate policies of one agent.',
-      line: 'kindgi gate-policies list --agent=acme.order-desk --table',
+      purpose: 'List the release gates of one agent.',
+      line: 'kindgi release-gates list --agent=acme.order-desk --table',
     },
     {
-      purpose: 'List the policies set for the whole tenant.',
-      line: 'kindgi gate-policies list --tenant',
-    },
-  ],
-  'gate-policies show': [
-    {
-      purpose: "Show a policy's latest active version.",
-      line: 'kindgi gate-policies show acme.order-desk-release',
-    },
-    {
-      purpose: 'Show one version of a policy.',
-      line: 'kindgi gate-policies show acme.order-desk-release 1.0.0',
+      purpose: 'List the release gates set for the whole tenant.',
+      line: 'kindgi release-gates list --tenant',
     },
   ],
-  'gate-policies versions': [
+  'release-gates show': [
     {
-      purpose: "List a policy's versions, unregistered ones too.",
-      line: 'kindgi gate-policies versions acme.order-desk-release --table',
+      purpose: "Show a release gate's latest active version.",
+      line: 'kindgi release-gates show acme.order-desk-release',
+    },
+    {
+      purpose: 'Show one version of a release gate.',
+      line: 'kindgi release-gates show acme.order-desk-release 1.0.0',
     },
   ],
-  'gate-policies unregister': [
+  'release-gates versions': [
     {
-      purpose: 'Unregister a release gate policy version.',
-      line: 'kindgi gate-policies unregister acme.order-desk-release 1.0.0',
+      purpose: "List a release gate's versions, unregistered ones too.",
+      line: 'kindgi release-gates versions acme.order-desk-release --table',
     },
   ],
-  'gate-policies reinstate': [
+  'release-gates unregister': [
     {
-      purpose: 'Reinstate an unregistered release gate policy version.',
-      line: 'kindgi gate-policies reinstate acme.order-desk-release 1.0.0',
+      purpose: 'Unregister a release gate version.',
+      line: 'kindgi release-gates unregister acme.order-desk-release 1.0.0',
+    },
+  ],
+  'release-gates reinstate': [
+    {
+      purpose: 'Reinstate an unregistered release gate version.',
+      line: 'kindgi release-gates reinstate acme.order-desk-release 1.0.0',
     },
   ],
   'tokens get': [
@@ -2526,6 +2510,6 @@ export const CLI_GROUP_SEE_ALSO = {
   health: ['deploy/self-hosted/operate'],
   version: ['start/install'],
   usage: ['guides/observability/cost-per-run', 'guides/projects/organize-by-org-and-project'],
-  'queue-rules': ['guides/evals/judge-a-runs-output', 'guides/evals/expert-queue-reference'],
-  'expert-queue': ['guides/evals/judge-a-runs-output', 'guides/evals/expert-queue-reference'],
+  'queue-rules': ['guides/improve/correct-a-runs-output', 'guides/improve/expert-queue-reference'],
+  'expert-queue': ['guides/improve/correct-a-runs-output', 'guides/improve/expert-queue-reference'],
 };

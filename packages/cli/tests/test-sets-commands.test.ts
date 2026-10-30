@@ -5,6 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { createClient } from '@kindgi/client';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { runCli } from '../src/main.js';

@@ -5,7 +5,7 @@ import type { BlockDefinition, BlockKind } from '@kindgi/agents';
 import type { Scope } from '@kindgi/platform';
 import type { AgentId, Cursor, ProjectId, TenantId } from '@kindgi/types';
 
-import type { PromotionActor } from './live-version-binding.js';
+import type { PinActor } from './agent-pin-binding.js';
 import type { RegistryReadOnly } from './registry-read-only.js';
 
 /**
@@ -73,7 +73,7 @@ export type BlockRecord = BlockDefinition & {
   /** ISO-8601; present only on an unregistered version. */
   readonly unregisteredAt?: string;
   /** Who published it. Absent on a version published before it was recorded. */
-  readonly publishedBy?: PromotionActor;
+  readonly publishedBy?: PinActor;
   /** Where it came from. Absent on a version published before it was recorded. */
   readonly source?: BlockVersionSource;
 };
@@ -138,7 +138,7 @@ export interface BlockPublishInput {
   readonly projectId: ProjectId;
   readonly block: BlockDefinition;
   /** Who publishes it: the request's principal. Stored with the version. */
-  readonly publishedBy: PromotionActor;
+  readonly publishedBy: PinActor;
   /** Where it comes from. Stored with the version. */
   readonly source: BlockVersionSource;
 }

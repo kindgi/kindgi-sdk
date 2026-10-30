@@ -24,13 +24,13 @@ describe('projects — queue rules and queue', () => {
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
     await client.projects.queueRules.list('p-1');
     await client.projects.queueRules.create('p-1', {
-      name: 'Live refund runs',
-      when: { agentIds: ['acme.refunds'], versions: ['live'] },
+      name: 'Pinned refund runs',
+      when: { agentIds: ['acme.refunds'], versions: ['pinned'] },
       sample: 0.05,
     });
     await client.projects.queueRules.preview('p-1', {
       agentIds: ['acme.refunds'],
-      versions: ['live', '2.1.0'],
+      versions: ['pinned', '2.1.0'],
       sample: 0.05,
     });
     const queue = await client.projects.expertQueue.list('p-1', { forMe: true, limit: 0 });
@@ -48,7 +48,7 @@ describe('projects — queue rules and queue', () => {
       'POST /v1/projects/p-1/queue-rules/r-1/queue-recent',
     ]);
     const preview = new URL(stub.calls[2]?.url ?? '').searchParams;
-    expect(preview.get('versions')).toBe('live,2.1.0');
+    expect(preview.get('versions')).toBe('pinned,2.1.0');
     expect(preview.get('sample')).toBe('0.05');
     const list = new URL(stub.calls[3]?.url ?? '').searchParams;
     expect([list.get('forMe'), list.get('limit')]).toEqual(['true', '0']);

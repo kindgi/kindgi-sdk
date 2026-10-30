@@ -7,8 +7,8 @@ import { type Flow, type FlowNode, isFanoutNode, isLoopNode, isSubflowNode } fro
 import type { AgentId, FlowId, ProjectId, Semver, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
+import type { AgentPinBindings } from '../agent-pin-binding.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
-import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { TriggerTarget } from '../trigger-binding.js';
 import { whatRuns } from '../what-runs.js';
 
@@ -90,7 +90,7 @@ export interface TargetToolsDeps {
    * trigger's project (`whatRuns`). Absent: its highest version, as a run
    * gets with none wired.
    */
-  readonly releases?: Pick<AgentReleaseBindings, 'live' | 'latest'>;
+  readonly agentPins?: Pick<AgentPinBindings, 'pinned' | 'latest'>;
 }
 
 /** Subflows followed from one target, at most: a guard against a cycle the loader missed. */
@@ -234,7 +234,7 @@ function agentToolIds(agent: Agent): string[] {
 /**
  * An agent at `version`, else at what a run in the trigger's project that
  * names no version gets: its pin, else its Latest (`whatRuns`), or its
- * highest version with no releases wired. `NOTHING_RUNS` when no version
+ * highest version with no pins wired. `NOTHING_RUNS` when no version
  * runs there; `undefined` when the agent or version can't be read.
  */
 async function agentAt(
@@ -244,7 +244,7 @@ async function agentAt(
   version: string | undefined,
 ): Promise<Agent | typeof NOTHING_RUNS | undefined> {
   if (deps?.agents === undefined) return undefined;
-  const { agents, releases } = deps;
+  const { agents, agentPins } = deps;
   const { tenantId } = scope;
   if (version !== undefined) {
     const found = await agents.getVersion({
@@ -254,11 +254,11 @@ async function agentAt(
     });
     return found ?? undefined;
   }
-  // No pins or Latest wired (`createApp` without `agentReleases`): the highest, as a run gets.
-  if (releases === undefined) {
+  // No pins or Latest wired (`createApp` without `agentPins`): the highest, as a run gets.
+  if (agentPins === undefined) {
     return (await agents.get({ tenantId, agentId: agentId as AgentId })) ?? undefined;
   }
-  const runs = await whatRuns(releases, {
+  const runs = await whatRuns(agentPins, {
     tenantId,
     agentId,
     ...(scope.projectId !== undefined && { projectId: scope.projectId }),

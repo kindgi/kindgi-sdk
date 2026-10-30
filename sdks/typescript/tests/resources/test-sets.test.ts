@@ -56,6 +56,28 @@ describe('test-sets — wire round-trips', () => {
   });
 });
 
+describe("an agent's own test set id (`agent.`)", () => {
+  it('is refused before a request is sent, with the words the API answers', async () => {
+    const stub = recordingFetch([]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const id = 'agent.acme.desk.p1';
+    const message = `Test set ids starting \`agent.\` are agents' own test sets, and only a test run or a suggested change's check makes their versions. Publish "${id}" under another id.`;
+
+    await expect(
+      client.testSets.publish({ ...PUBLISH_BODY, id }, { projectId: 'proj-1' }),
+    ).rejects.toMatchObject({
+      name: 'KindgiApiError',
+      error: { code: 'invalid-request', message, issues: [{ path: '/id' }] },
+    });
+    await expect(
+      client.testSets.buildFromCorrections(id, { version: '1.0.0', projectId: 'proj-1' } as never),
+    ).rejects.toMatchObject({
+      error: { code: 'invalid-request', message, issues: [{ path: '/testSetId' }] },
+    });
+    expect(stub.calls).toEqual([]);
+  });
+});
+
 describe('testSets.publish — projectId (POST /v1/test-sets requires it)', () => {
   it('sends options.projectId in the body next to the test set fields', async () => {
     const stub = recordingFetch([
