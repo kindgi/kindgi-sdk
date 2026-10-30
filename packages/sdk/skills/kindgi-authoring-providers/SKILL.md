@@ -18,7 +18,7 @@ description: >
   steps are kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.10.1"
+version: "0.10.2"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 sources:
@@ -75,7 +75,7 @@ with nothing else to change. This skill covers wiring a real one.
 | Gemini on Vertex AI, signed in with Application Default Credentials | [path-d-vertex.md](path-d-vertex.md) |
 | Amazon Bedrock | [bedrock.md](bedrock.md) |
 | The pack on Kindgi Cloud: the key and the provider on `prod` | [kindgi-cloud.md](kindgi-cloud.md) |
-| Where keys are read from, the registration body, fallbacks | [keys-and-registration.md](keys-and-registration.md) |
+| Where keys are read from, the registration body, fallbacks, a model's thinking level | [keys-and-registration.md](keys-and-registration.md) |
 | Several providers or models: which one answers | [router.md](router.md) |
 | An error, or replies still from dev-echo | [common-mistakes.md](common-mistakes.md) |
 
