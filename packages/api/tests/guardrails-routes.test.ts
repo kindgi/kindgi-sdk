@@ -251,6 +251,42 @@ describe('API — guardrails get', () => {
     expect(body.kind).toBe('zero-llm');
   });
 
+  test('get and list give where it runs and what it sees, as registered', async () => {
+    const { app } = makeApp();
+    const headers = { authorization: `Bearer ${TOKEN}` };
+    const post = (body: Record<string, unknown>) =>
+      app.request('/v1/guardrails', {
+        method: 'POST',
+        headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const placed = await post({
+      ...guardrailPostBody({ id: 'acme.no-refunds' }),
+      check: 'never-call-tool',
+      config: { tools: ['acme.woo.refund'] },
+      at: 'before-tool',
+      sees: 'conversation',
+    });
+    expect(placed.status).toBe(201);
+    expect((await post(guardrailPostBody({ id: 'acme.cites' }))).status).toBe(201);
+
+    const get = await app.request('/v1/guardrails/acme.no-refunds', { headers });
+    expect(get.status).toBe(200);
+    expect(await get.json()).toMatchObject({ at: 'before-tool', sees: 'conversation' });
+
+    const list = await app.request('/v1/guardrails', { headers });
+    const [cites, noRefunds] = ((await list.json()) as { data: Record<string, unknown>[] }).data;
+    expect(noRefunds).toMatchObject({
+      id: 'acme.no-refunds',
+      at: 'before-tool',
+      sees: 'conversation',
+    });
+    // One that names neither gives neither: the schema's defaults (final-answer, turn) stand.
+    expect(cites?.id).toBe('acme.cites');
+    expect(cites).not.toHaveProperty('at');
+    expect(cites).not.toHaveProperty('sees');
+  });
+
   test('unknown id → 404 guardrail-not-found', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/guardrails/nope.missing', {
