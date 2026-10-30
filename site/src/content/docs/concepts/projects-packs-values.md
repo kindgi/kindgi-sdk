@@ -165,7 +165,7 @@ env values or model keys. A run reads those when it runs. So:
   pinned version reads, though the new version isn't pinned yet.
 - **A conversation keeps its version.** One that's already open goes on
   with the version it started with
-  ([Conversations keep their version](../../guides/evals/live-versions-reference/#conversations-keep-their-version)).
+  ([Conversations keep their version](../../guides/improve/pinned-versions-reference/#conversations-keep-their-version)).
 
 On Kindgi Cloud,
 [Change your agent once it's live](../../hosted/deploy-your-agent/#change-your-agent-once-its-live)

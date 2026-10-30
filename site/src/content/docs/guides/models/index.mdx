@@ -449,7 +449,7 @@ A `default` the model doesn't take is refused, and nothing is registered:
 `provider "gemini" model "gemini-3.8-flash" thinking default "max" isn't a level this model takes: it takes lowest, low, medium, high`.
 
 An agent asks for a level with `thinking` in its
-[model settings](../evals/change-a-prompt-or-setting/#use-them-in-an-agent):
+[model settings](../improve/change-a-prompt-or-setting/#use-them-in-an-agent):
 `lowest`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. It wins over
 the model's `default`. A level the model doesn't take goes as the next one up
 that it takes, or as its highest when none is above. The call goes on, and

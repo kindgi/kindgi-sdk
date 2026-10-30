@@ -1087,7 +1087,7 @@ export const ERROR_ENTRIES = {
         meaning: 'the run that failed',
       },
     ],
-    seeAlso: ['guides/evals/change-a-prompt-or-setting'],
+    seeAlso: ['guides/improve/change-a-prompt-or-setting'],
   },
   'tool-invocation-failed': {
     description:
@@ -1377,7 +1377,7 @@ export const ERROR_ENTRIES = {
   'invalid-transition': {
     description: "The API doesn't send this code.",
     details: [],
-    seeAlso: ['guides/evals/propose-a-change'],
+    seeAlso: ['guides/improve/suggest-a-change'],
   },
   'audit-bundle-not-found': {
     description:
@@ -1415,7 +1415,7 @@ export const ERROR_ENTRIES = {
   'observation-not-found': {
     description: "The API doesn't send this code.",
     details: [],
-    seeAlso: ['guides/evals/improve-an-agent'],
+    seeAlso: ['guides/improve/improve-an-agent'],
   },
   'provenance-not-found': {
     description:
@@ -1490,7 +1490,7 @@ export const ERROR_ENTRIES = {
         meaning: 'the suggested change id that was looked up',
       },
     ],
-    seeAlso: ['guides/evals/propose-a-change'],
+    seeAlso: ['guides/improve/suggest-a-change'],
   },
   'suggested-change-invalid-state-transition': {
     description:
@@ -1542,7 +1542,7 @@ export const ERROR_ENTRIES = {
   'version-already-exists': {
     description: "The API doesn't send this code.",
     details: [],
-    seeAlso: ['guides/evals/propose-a-change'],
+    seeAlso: ['guides/improve/suggest-a-change'],
   },
   'supervisor-header-missing': {
     description: "The API doesn't send this code.",
@@ -1869,7 +1869,7 @@ export const ERROR_ENTRIES = {
         meaning: 'the run id that was looked up',
       },
     ],
-    seeAlso: ['guides/evals/compare-an-agent-version'],
+    seeAlso: ['guides/improve/compare-an-agent-version'],
   },
   'test-run-not-rescorable': {
     description:
@@ -1885,7 +1885,7 @@ export const ERROR_ENTRIES = {
     description:
       "No correction exists with that id, or it's in a project your key can't read. Removing one also needs it to be live.",
     details: [],
-    seeAlso: ['guides/evals/judge-a-runs-output'],
+    seeAlso: ['guides/improve/correct-a-runs-output'],
   },
   'corrector-group-not-found': {
     description: 'No live corrector group exists with that id.',
@@ -1940,7 +1940,7 @@ export const ERROR_ENTRIES = {
   'pin-not-found': {
     description: "No entry with that id exists in this agent's pin history.",
     details: [],
-    seeAlso: ['guides/evals/release-an-agent-version'],
+    seeAlso: ['guides/improve/release-an-agent-version'],
   },
   'not-pinned': {
     description:
@@ -2608,7 +2608,7 @@ export const ERROR_ENTRIES = {
         meaning: 'its final status',
       },
     ],
-    seeAlso: ['guides/evals/compare-an-agent-version'],
+    seeAlso: ['guides/improve/compare-an-agent-version'],
   },
   'dispatcher-not-registered': {
     description:
@@ -2619,7 +2619,7 @@ export const ERROR_ENTRIES = {
         meaning: 'the test set kind with no dispatcher',
       },
     ],
-    seeAlso: ['guides/evals/compare-an-agent-version'],
+    seeAlso: ['guides/improve/compare-an-agent-version'],
   },
   'dispatcher-input-invalid': {
     description:

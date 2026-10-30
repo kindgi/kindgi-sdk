@@ -103,7 +103,7 @@ To try a new tool version without putting it in use:
    1.1.0.
 3. **Try it** in an agent version whose range is the exact `1.2.0`, and run
    that version by name (`agentVersion`). With the agent's
-   [pinned version](../../evals/live-versions-reference/) set, runs that name
+   [pinned version](../../improve/pinned-versions-reference/) set, runs that name
    no version keep the one they had.
 4. **Move the pin** to 1.2.0. The next agent and flow versions made there lock
    it.
@@ -454,7 +454,7 @@ Under kindgi dev, the pack is the source of agents: change the agent in the pack
 
 - **A version pinned somewhere can't be unregistered.** First unpin it or pin
   another version everywhere this one is pinned, as
-  [Release an agent version](../../evals/release-an-agent-version/#unpin)
+  [Release an agent version](../../improve/release-an-agent-version/#unpin)
   shows. Until then, it's refused with `409 agent-version-pinned`, naming
   where it's pinned in `details.scopes`:
 
@@ -494,6 +494,6 @@ Under kindgi dev, the pack is the source of agents: change the agent in the pack
 
 ## Next
 
-- [Release an agent version](../../evals/release-an-agent-version/)
+- [Release an agent version](../../improve/release-an-agent-version/)
 - [Write an agent](../write-an-agent/)
 - [Choose the model an agent uses](../choose-a-model/)

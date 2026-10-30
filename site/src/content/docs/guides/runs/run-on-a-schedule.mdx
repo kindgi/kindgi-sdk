@@ -454,7 +454,7 @@ filtered to that schedule.
 
 ## Improve on a schedule
 
-A schedule can start [Improve runs](../../evals/improve-an-agent/) instead
+A schedule can start [Improve runs](../../improve/improve-an-agent/) instead
 of agent or flow runs, when enough new corrections have come in on an
 agent's runs, counted the way the Improve run will count them:
 
@@ -511,7 +511,7 @@ At each fire, it counts the corrections that marked the agent's runs wrong
 ("no") in its scope since the agent's last Improve run there, the way the
 Improve run will count them:
 everyone's until the tenant, the project, or the agent being improved has a
-[expert group](../../evals/judge-a-runs-output/#restrict-who-may-correct-as-a-class),
+[expert group](../../improve/correct-a-runs-output/#restrict-who-may-correct-as-a-class),
 then only the ones recorded under one. With `groupWeights` in the schedule's
 input, it counts the way that value says. The last Improve run is one that
 didn't fail or get cancelled, whoever started it. With enough of them, across
@@ -606,4 +606,4 @@ project. Start Improve from the agent's **Suggested changes** page instead.
 
 - [List runs](../list-runs/)
 - [Start runs from WooCommerce, Drupal or any signed webhook](../../webhooks/start-runs-from-webhooks/)
-- [Improve an agent](../../evals/improve-an-agent/)
+- [Improve an agent](../../improve/improve-an-agent/)

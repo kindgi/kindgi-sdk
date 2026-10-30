@@ -78,11 +78,11 @@ A person does these, with a key of their own:
 - **Register the providers** each environment's agents call
   ([`kindgi providers`](../../reference/cli/providers/)).
 - **In prod, pin a version of each agent, and publish its release gate**
-  ([Gate a pin](../../guides/evals/release-an-agent-version/#gate-a-pin)).
+  ([Gate a pin](../../guides/improve/release-an-agent-version/#gate-a-pin)).
   A scope with a release gate needs a Pinned version of its own.
   Without one, prod's runs take each agent's latest version.
 - **Build the test cases** that prod's test run uses, in prod's project
-  ([Build test cases from corrections](../../guides/evals/build-a-test-set/)).
+  ([Build test cases from corrections](../../guides/improve/build-a-test-set/)).
 - **Create the triggers:** schedules, webhooks and mail triggers.
 
 Registering a provider again under its id, publishing a release gate's
@@ -367,7 +367,7 @@ The last three steps of `promote-prod` do it for one agent:
   the whole step for every agent the build carries. `--pin` can't name
   a test run, so a release gate that needs one holds every version it carries.
 
-[Gate a pin](../../guides/evals/release-an-agent-version/#gate-a-pin)
+[Gate a pin](../../guides/improve/release-an-agent-version/#gate-a-pin)
 has what a release gate checks, and how a reviewer approves.
 [`kindgi agents`](../../reference/cli/agents/) and
 [`kindgi test-runs`](../../reference/cli/test-runs/) have every flag.
@@ -386,7 +386,7 @@ has what a release gate checks, and how a reviewer approves.
 
 - **Unpin an agent in prod:** one step, with no release gate in
   the way
-  ([Unpin](../../guides/evals/release-an-agent-version/#unpin)).
+  ([Unpin](../../guides/improve/release-an-agent-version/#unpin)).
 - **For anything else, revert the change in git** and let the pipeline ship
   it. That rolls forward: each agent and flow whose content changed gets a
   new version.
@@ -397,7 +397,7 @@ has what a release gate checks, and how a reviewer approves.
 Improve, suggested changes and edits in the console change the runtime, not git, so
 the next deploy from git doesn't have them. Bring each one back as a pull
 request: copy the change into the pack's files, and open the pull request.
-[Improve an agent](../../guides/evals/improve-an-agent/) has what Improve
+[Improve an agent](../../guides/improve/improve-an-agent/) has what Improve
 changes.
 
 ## Separate runtimes
@@ -430,5 +430,5 @@ protected jobs read, and set `KINDGI_API_TOKEN` on the `kindgi` steps only.
 
 - [People, API keys and service accounts](../people-and-keys/): the service
   accounts and keys CI uses, and how to revoke one.
-- [Release an agent version](../../guides/evals/release-an-agent-version/):
+- [Release an agent version](../../guides/improve/release-an-agent-version/):
   pin, unpin and gate a release by hand.

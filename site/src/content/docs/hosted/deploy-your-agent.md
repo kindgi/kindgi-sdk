@@ -223,12 +223,12 @@ its version, before you pin it.
    workspace's keys and secrets, and its tools do what they do.
 3. **Try it on your test cases,** if you have some. A run on the test cases
    replays them with the new version
-   ([Try a version on the test cases](../../guides/evals/compare-an-agent-version/)).
+   ([Try a version on the test cases](../../guides/improve/compare-an-agent-version/)).
 4. **Pin it:**
    `kindgi agents pin acme-desk.reply-drafter <new version> --project=<project-id> --reason=…`.
    Runs get it from the next run, except that a conversation that's
    already open keeps the version it started with
-   ([Conversations keep their version](../../guides/evals/live-versions-reference/#conversations-keep-their-version)).
+   ([Conversations keep their version](../../guides/improve/pinned-versions-reference/#conversations-keep-their-version)).
 5. **Undo it if you need to:**
    `kindgi agents unpin acme-desk.reply-drafter --project=<project-id> --reason=…`,
    or pin the earlier version again.
@@ -237,10 +237,10 @@ Several new versions can wait at once. Each deploy that changes the code
 registers a version, and you can run any of them by its number. You make
 one of them; the others stay, and you can still run them.
 
-[Release an agent version](../../guides/evals/release-an-agent-version/)
+[Release an agent version](../../guides/improve/release-an-agent-version/)
 shows each step, a release for some runs only, and a release gate
 that needs a reviewer.
-[Pinned versions reference](../../guides/evals/live-versions-reference/) has
+[Pinned versions reference](../../guides/improve/pinned-versions-reference/) has
 every rule and refusal.
 
 ### Secrets and keys aren't part of a version

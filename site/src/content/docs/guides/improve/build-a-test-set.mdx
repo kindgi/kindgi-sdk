@@ -84,11 +84,11 @@ uv run kindgi corrections add --run=<run-id> --item=kb-102 --pointer=/output/art
 - `--rank` is its place in the list, 0 first.
 
 Each prints its correction, as
-[Correct an item](../judge-a-runs-output/#correct-an-item) shows.
+[Correct an item](../correct-a-runs-output/#correct-an-item) shows.
 
 In the console, a finished run's **Correct this run** opens its Corrections
 tab. It lists the answer, and each element of a list in the output, each with
-**Yes** and **No**. [Correct a run's output](../judge-a-runs-output/) has the
+**Yes** and **No**. [Correct a run's output](../correct-a-runs-output/) has the
 rest: reasons, your users' corrections, and corrector groups.
 
 ## Build the test cases
@@ -232,7 +232,7 @@ counts.
   - `--agent-version`: one version's runs;
   - `--since` and `--until`: when the run was first corrected;
   - `--group`: count only corrections of these
-    [corrector groups](../judge-a-runs-output/#weight-corrections-by-corrector-group);
+    [corrector groups](../correct-a-runs-output/#weight-corrections-by-corrector-group);
   - `--min-corrections`: leave out runs with fewer corrections.
 - **Up to 1000 cases.** `truncated: true` says there were more: narrow the
   runs, or build several sets of test cases.
@@ -364,13 +364,13 @@ One of them:
   by corrector group, and the reasons people gave. The weighted counts are
   `yesWeight` of `totalWeight`, and a correction with no group weighs 1.
   `expert` has the weights of the
-  [expert group](../judge-a-runs-output/#restrict-who-may-correct-as-a-group)
+  [expert group](../correct-a-runs-output/#restrict-who-may-correct-as-a-group)
   corrections alone, such as `{ "yesWeight": 3, "totalWeight": 3 }`.
   `correctionIds` (runtime 0.2.0 or later) names every correction counted in
   the item, and `expert.correctionIds` the expert-group ones. Test cases
   built before these ids have neither.
 - **`corrections`** (runtime 0.2.0 or later) has the run's corrections
-  that say [what it should have done](../judge-a-runs-output/#say-what-it-should-have-done),
+  that say [what it should have done](../correct-a-runs-output/#say-what-it-should-have-done),
   whatever their verdict: each one's `calls` and `notCalled`, its
   `correctionId`, its `correctorGroupId` when it had a group, and
   `expert: true` when that group was restricted. A case without them
@@ -395,5 +395,5 @@ original run.
 ## Next
 
 - [Try a version on the test cases](../compare-an-agent-version/)
-- [Correct a run's output](../judge-a-runs-output/)
+- [Correct a run's output](../correct-a-runs-output/)
 - [Corrections reference](../expert-queue-reference/)

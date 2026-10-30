@@ -16,7 +16,7 @@ version has done better on your test cases, as
 can **pin** it where you choose: the whole tenant, an org, a project, or
 a segment of a project's runs, such as one company's. Runs there use it from
 the next run, nothing changes anywhere else, and you can unpin at once.
-[Pinned versions reference](../live-versions-reference/) has every rule,
+[Pinned versions reference](../pinned-versions-reference/) has every rule,
 refusal and console page.
 
 ## Before you start
@@ -132,7 +132,7 @@ uv run kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where 
 ```
 
 `via: "pinned"` says it got the pinned version of the scope in `pinnedScope`.
-[How a run gets its version](../live-versions-reference/#how-a-run-gets-its-version)
+[How a run gets its version](../pinned-versions-reference/#how-a-run-gets-its-version)
 lists every `via`. A version is only pinned this way: publishing a newer
 version doesn't change what a scope with a pinned version runs.
 
@@ -414,8 +414,8 @@ uv run kindgi agents unpin acme.order-desk --tenant --reason="Back to the latest
 Every request to pin a version and every unpin is kept, with who
 asked and why.
 `kindgi agents pin-history list acme.order-desk --table` lists them, as
-[The pin history](../live-versions-reference/#pin-history) shows.
-[Unpins](../live-versions-reference/#unpins)
+[The pin history](../pinned-versions-reference/#pin-history) shows.
+[Unpins](../pinned-versions-reference/#unpins)
 lists what each refuses.
 
 ## Gate a pin
@@ -522,7 +522,7 @@ uv run kindgi release-gates publish acme.order-desk-release --release-gate-versi
 
 Requests to pin `acme.order-desk` anywhere in the tenant now go
 through the release gate, unless a narrower scope has one of its own.
-[Release gates](../live-versions-reference/#release-gates) has what
+[Release gates](../pinned-versions-reference/#release-gates) has what
 each part asks, and who may publish one.
 
 ### Check before you pin it
@@ -779,7 +779,7 @@ pending-approval fa6fbbcf-7b0d-4c70-b462-d6a78bbcfd11
 
 ## Next
 
-- [Pinned versions reference](../live-versions-reference/)
+- [Pinned versions reference](../pinned-versions-reference/)
 - [Try a version on the test cases](../compare-an-agent-version/)
 - [Decide an approval](../../approvals/decide-an-approval/)
 - [Agent and tool versions](../../agents/agent-and-tool-versions/)

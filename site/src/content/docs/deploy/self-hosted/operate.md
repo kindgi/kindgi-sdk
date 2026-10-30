@@ -573,8 +573,8 @@ What to check before you upgrade, and what's different after:
   - **Corrections:** a project's queue rules queue the runs that need a
     person's verdict, results per agent version, and runs on the test cases
     and suggested changes rescored after people correct the new answers
-    ([Correct a run's output](../../../guides/evals/judge-a-runs-output/),
-    [Improve an agent](../../../guides/evals/improve-an-agent/)).
+    ([Correct a run's output](../../../guides/improve/correct-a-runs-output/),
+    [Improve an agent](../../../guides/improve/improve-an-agent/)).
   - **What failed and why:** a project's failed runs grouped by cause and
     version (`GET /v1/runs/failures`) and a failure's `reason`
     ([See why runs failed](../../../guides/runs/see-why-runs-failed/)), and
@@ -597,7 +597,7 @@ What to check before you upgrade, and what's different after:
     [guardrails](../../../guides/guardrails/write-a-guardrail/#in-the-console) and
     [members](../../authorization/#in-the-console-members), each with a page of
     its own, plus
-    [Quality](../../../guides/evals/expert-queue-reference/#in-the-console) for
+    [Quality](../../../guides/improve/expert-queue-reference/#in-the-console) for
     correcting runs, and [costs](../../../guides/observability/cost-per-run/#cost-in-the-console)
     for the project and each run. The tenant gets
     [Teams](../../authorization/#in-the-console-teams),

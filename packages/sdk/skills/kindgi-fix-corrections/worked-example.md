@@ -6,7 +6,7 @@ policy, not a one-off.
 
 - **If the agent already reads a `returnWindowDays` setting:** publish the
   block with `returnWindowDays: 14` and derive a version that pins it
-  (Step 4, `publish-and-promote.md`). Tell the owner they can change this themselves in the console —
+  (Step 4, `publish-and-pin.md`). Tell the owner they can change this themselves in the console —
   Edit as a new version, then Derive a version.
 - **If it doesn't read one yet:** this is a code change, in two parts. First
   publish the settings block with the key — `returnWindowDays` in its schema

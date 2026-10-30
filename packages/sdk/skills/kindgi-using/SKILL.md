@@ -275,4 +275,4 @@ say there were none.
 - Mail triggers: https://docs.kindgi.com/v0.3/guides/runs/start-runs-from-new-mail/
 - People and keys: https://docs.kindgi.com/v0.3/deploy/people-and-keys/
 - Cost: https://docs.kindgi.com/v0.3/guides/observability/cost-per-run/
-- Rating answers: https://docs.kindgi.com/v0.3/guides/evals/judge-a-runs-output/
+- Rating answers: https://docs.kindgi.com/v0.3/guides/improve/correct-a-runs-output/

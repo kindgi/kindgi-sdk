@@ -6,7 +6,7 @@ sidebar:
 ---
 
 An expert — a support lead, a claims reviewer, an editor —
-[marks a run's answer wrong and says why](../judge-a-runs-output/). This
+[marks a run's answer wrong and says why](../correct-a-runs-output/). This
 guide turns those corrections into changes to the agent, each at the layer
 where it belongs, so the agent stops making the mistake and you can see the
 mistake is gone.
@@ -21,7 +21,7 @@ its `kindgi-fix-corrections` skill, which walks it through these same steps.
 ## Before you start
 
 - **an agent whose settings and instructions are [data blocks](../change-a-prompt-or-setting/),** so a setting or a wording changes without a code deploy;
-- **corrections to work from:** runs the experts [marked wrong, with a reason](../judge-a-runs-output/);
+- **corrections to work from:** runs the experts [marked wrong, with a reason](../correct-a-runs-output/);
 - **a coding agent,** or someone who runs the CLI, to make the changes and add the tests;
 - **permission to change things:** `publish` on the agent to derive a version, `pin` to pin one, and `write` on the project to publish a settings block.
 
@@ -75,7 +75,7 @@ reason and the run you have what the agent did and what it should have done.
 
 An expert can also have said exactly what the run should have done (runtime
 0.2.0 or later): the correction then has a
-[`correction`](../judge-a-runs-output/#say-what-it-should-have-done) field,
+[`correction`](../correct-a-runs-output/#say-what-it-should-have-done) field,
 with the calls it should have made and the tools it shouldn't have called. Take
 those as what the test checks. Leave it on the run: test cases built from
 these runs check each new version against it.
@@ -212,7 +212,7 @@ still always asks.
 
 ## Next
 
-- [Correct a run's output](../judge-a-runs-output/)
+- [Correct a run's output](../correct-a-runs-output/)
 - [Change a prompt or a setting without a deploy](../change-a-prompt-or-setting/)
 - [Improve an agent](../improve-an-agent/)
 - [Release an agent version](../release-an-agent-version/)

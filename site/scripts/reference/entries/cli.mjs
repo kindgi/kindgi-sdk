@@ -2532,6 +2532,6 @@ export const CLI_GROUP_SEE_ALSO = {
   health: ['deploy/self-hosted/operate'],
   version: ['start/install'],
   usage: ['guides/observability/cost-per-run', 'guides/projects/organize-by-org-and-project'],
-  'queue-rules': ['guides/evals/judge-a-runs-output', 'guides/evals/expert-queue-reference'],
-  'expert-queue': ['guides/evals/judge-a-runs-output', 'guides/evals/expert-queue-reference'],
+  'queue-rules': ['guides/improve/correct-a-runs-output', 'guides/improve/expert-queue-reference'],
+  'expert-queue': ['guides/improve/correct-a-runs-output', 'guides/improve/expert-queue-reference'],
 };

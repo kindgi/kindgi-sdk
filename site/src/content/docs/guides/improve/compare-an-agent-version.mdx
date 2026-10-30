@@ -297,7 +297,7 @@ reworded answer is a new item, with no corrections yet.
 ### Count only experts' corrections
 
 `--group-weights=experts-only` counts only the corrections made under a
-[expert group](../judge-a-runs-output/#restrict-who-may-correct-as-a-group).
+[expert group](../correct-a-runs-output/#restrict-who-may-correct-as-a-group).
 An item none of them corrected counts as not corrected. In TypeScript, it's
 `groupWeights: 'experts-only'`, and in Python
 `group_weights="experts-only"`. The summary says which it used, in
@@ -349,7 +349,7 @@ afterwards:
 ### What it should have done
 
 When the test cases' runs have corrections that say
-[what the run should have done](../judge-a-runs-output/#say-what-it-should-have-done)
+[what the run should have done](../correct-a-runs-output/#say-what-it-should-have-done)
 (runtime 0.2.0 or later), each one is checked against what the version
 did on that case:
 
@@ -438,7 +438,7 @@ and `testRunId`. Lists of runs leave them out. `kindgi runs list
 --test-run=<run-id>` lists those of one run on the test cases, and
 `--replays=include` or `--replays=only` adds them to any list. Conversation
 lists leave out their conversations the same way: `kindgi conversations list
---replays=only` lists them. You can [correct](../judge-a-runs-output/) them
+--replays=only` lists them. You can [correct](../correct-a-runs-output/) them
 like any run: that's how a version's new items get their corrections.
 
 **A run on the test cases stopped** before it finished, because the runtime
@@ -579,4 +579,4 @@ no output to rate."
 
 - [Release an agent version](../release-an-agent-version/)
 - [Change a prompt or a setting without a deploy](../change-a-prompt-or-setting/)
-- [Correct a run's output](../judge-a-runs-output/)
+- [Correct a run's output](../correct-a-runs-output/)

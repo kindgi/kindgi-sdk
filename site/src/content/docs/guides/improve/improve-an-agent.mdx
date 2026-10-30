@@ -9,7 +9,7 @@ This guide has an Improve run search for better settings or better
 instructions for an agent version, within a budget, and write its best
 candidate as a suggested change a person reviews.
 
-An **Improve run** does the search a [suggested change](../propose-a-change/)
+An **Improve run** does the search a [suggested change](../suggest-a-change/)
 starts from. It tries candidates on part of the test cases, within a budget,
 proves the best one on the rest, and writes it as a suggested change only
 when it's better. A person still decides: the suggested change waits for a
@@ -18,7 +18,7 @@ reviewer.
 ## Before you start
 
 An Improve run needs what a suggested change does, as
-[Suggest a change, and test it](../propose-a-change/#before-you-start)
+[Suggest a change, and test it](../suggest-a-change/#before-you-start)
 lists:
 
 - **an agent whose instructions or settings are data blocks;**
@@ -28,7 +28,7 @@ lists:
 - **a runtime: `kindgi dev`, or a deployed one,** with Kindgi 0.2's CLI.
   Under `kindgi dev`, pinning a suggested change writes it into the pack's
   files,
-  as [Under `kindgi dev`](../propose-a-change/#under-kindgi-dev) shows;
+  as [Under `kindgi dev`](../suggest-a-change/#under-kindgi-dev) shows;
 - **`publish` on the agent,** to start one, and `write` on the project it
   works in when that isn't the agent version's.
 
@@ -100,7 +100,7 @@ the next one in line.
   `preferredModel` or `preferredProvider`, an Improve run doesn't try `model` or
   `providerId`, and says why.
 - **The decisions must stay right.** A change to this block is kept only when
-  no [correction](../judge-a-runs-output/) the current version gets right
+  no [correction](../correct-a-runs-output/) the current version gets right
   goes wrong: the tool calls an expert said the agent should have made,
   graded on each replay. The Improve run checks one on the part it searches and
   again on the part that proves its best change, and the split puts cases
@@ -210,7 +210,7 @@ most 30 minutes, and prints it:
   that corrections cover (a ranking's entries, say). So a changed free-text
   answer is a new answer no one has corrected yet and has nothing to score,
   and then you
-  [correct the new answers, then rescore](../propose-a-change/#correct-the-new-answers-then-rescore).
+  [correct the new answers, then rescore](../suggest-a-change/#correct-the-new-answers-then-rescore).
   The reason also says if the Improve run ran out of budget before trying the
   rest.
 - **`failed`**, with the reason.
@@ -264,7 +264,7 @@ wrote none. The cost is 0 on `dev-echo`, which costs nothing:
 ### Whose corrections it learns from
 
 By default, once your test cases' project, its tenant, or the agent you're
-improving there has a [expert group](../judge-a-runs-output/#restrict-who-may-correct-as-a-group),
+improving there has a [expert group](../correct-a-runs-output/#restrict-who-may-correct-as-a-group),
 an Improve run counts only the corrections recorded under one
 (`groupWeights: "experts-only"`), so who may steer Improve is a choice
 you make. That's the test cases' project, which can differ from the one the
@@ -434,6 +434,6 @@ page above.
 
 ## Next
 
-- [Suggest a change, and test it](../propose-a-change/)
-- [Correct a run's output](../judge-a-runs-output/)
+- [Suggest a change, and test it](../suggest-a-change/)
+- [Correct a run's output](../correct-a-runs-output/)
 - [Run on a schedule](../../runs/run-on-a-schedule/)
