@@ -122,11 +122,11 @@ describe('renderResponse: a deploy that landed', () => {
   const landed = (kind: 'created' | 'replayed', r: DeploymentRecord): PostDeploymentResult =>
     kind === 'created' ? { kind, status: 201, record: r } : { kind, status: 200, record: r };
 
-  test('with one pack service, runs in flight call the build it runs, as new runs do', () => {
+  test("with one pack service, runs in flight call that service's current build, as new runs do", () => {
     for (const kind of ['created', 'replayed'] as const) {
       const text = banner(landed(kind, record));
       expect(text).toContain(
-        "With one pack service, runs already in flight call the build it runs, as new runs do: a tool version that build doesn't have fails at that tool with tool-version-mismatch.",
+        "With one pack service, runs already in flight call that service's current build, as new runs do: a call naming a tool version that build doesn't have fails with tool-version-mismatch.",
       );
       expect(text).not.toContain('pinned image');
       expect(text).not.toContain('keep their tool versions');

@@ -320,7 +320,7 @@ function whyRenumbered(kind: 'agent' | 'flow', e: DeployedVersionRecord): string
 function inFlightLine(record: DeploymentRecord): string {
   return record.endpoint !== undefined
     ? '  Runs already in flight keep their tool versions: each tool call goes to the newest deployment that shipped the version it names.'
-    : "  With one pack service, runs already in flight call the build it runs, as new runs do: a tool version that build doesn't have fails at that tool with tool-version-mismatch.";
+    : "  With one pack service, runs already in flight call that service's current build, as new runs do: a call naming a tool version that build doesn't have fails with tool-version-mismatch.";
 }
 
 /** `versionLines` for a deployment's agents then flows, followed by a blank line; none when there are none. */
