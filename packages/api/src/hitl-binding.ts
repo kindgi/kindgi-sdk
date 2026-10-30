@@ -120,6 +120,8 @@ export interface ReviewDecision {
   readonly evidence?: Readonly<Record<string, unknown>>;
   readonly reviewerRoleAtDecision: ReviewerRole;
   readonly decidedAt: Timestamp;
+  /** The text a reviewer approved a remembered fact with; see `SubmitReviewBindingInput.factText`. */
+  readonly factText?: string;
 }
 
 // ---------- method inputs / outputs ----------
@@ -216,6 +218,12 @@ export interface SubmitReviewBindingInput {
    * exported audit bundle names the trust behind it without a join.
    */
   readonly sessionProvider?: string;
+  /**
+   * With `approve`, on the approval of a fact an agent wants to remember:
+   * the text the fact holds once approved, in place of the agent's. The
+   * route has checked it (`rememberedTextProblem`, `@kindgi/memory`).
+   */
+  readonly factText?: string;
 }
 
 /**
@@ -256,6 +264,8 @@ export interface ReviewDecisionRecord {
    * (a site may rename its people) still shows as they were.
    */
   readonly deciderName?: string;
+  /** The text a reviewer approved a remembered fact with, when they edited the agent's. */
+  readonly factText?: string;
 }
 
 // ---------- error shape ----------

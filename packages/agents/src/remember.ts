@@ -41,7 +41,6 @@ export function rememberStaysInProject(policy: RememberPolicy): boolean {
 /** Days an unverified remembered fact is kept when the agent doesn't say. */
 export const DEFAULT_REMEMBER_DAYS = 30;
 export const MAX_REMEMBER_DAYS = 3650;
-export const MAX_REMEMBER_TEXT = 2000;
 export const MAX_REMEMBER_KEY = 100;
 
 /** The Kindgi user a run acts for: the one an agent was delegated by, or the actor. */

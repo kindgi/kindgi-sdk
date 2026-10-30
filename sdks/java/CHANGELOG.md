@@ -10,6 +10,7 @@ candidates, and theirs are just below it.
 
 ## Unreleased
 
+- `kindgi-models`, `kindgi-client`: **a fact's approval takes the reviewer's text.** `CompleteApprovalBody` gains `factText`: on `client.approvals().complete(...)` with `decision` `approve`, on an approval whose `subjectKind` is `fact`, the approved fact holds that text in place of the agent's. Anything else is refused (400 `bad-input`). The decision it answers and the approval read back carry it (`ReviewDecision.factText`, `ApprovalDecisionRecord.factText`).
 - `kindgi-pack`, `kindgi-pack-scala`: **an `llm-judge` guardrail is judged.** `Guardrail.define(id).kind("llm-judge").judgeCapabilities(Map.of("needs", List.of(Map.of("feature", "structured-output"))))` (Scala: `.judgeCapabilities(Map("needs" -> List(Map("feature" -> "structured-output"))))`) names what the judge model is routed by, and the index carries it; `check(...)` refuses an `llm-judge` guardrail without it. Before, the index schema refused the field, so `set("judgeCapabilities", ...)` failed the build, and without it the runtime refused the guardrail on every turn.
 
 ## 0.3.0
