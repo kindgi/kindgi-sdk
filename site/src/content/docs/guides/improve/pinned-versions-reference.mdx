@@ -43,17 +43,16 @@ only when:
 - a person adds a suggested change's version as the project's Latest, as
   [Add it as Latest](../suggest-a-change/#add-it-as-latest) shows.
 
-It doesn't move by itself. A version derived from an edit to its prompts or
-settings (`POST /v1/agents/{agentId}/versions`) runs only where it's pinned,
-a version pinned somewhere doesn't become Latest, and a version shipped into
-another environment isn't Latest here until a deployment ships it here. When
-two versions became Latest at the same time, the higher one is. A version
-published before the runtime recorded Latest also counts from when it was
-published, in the project it was made in. A version that's unregistered
-drops out, and the one with the newest time of those left is Latest. For a
-tenant or org scope, which has no project, every version that can be Latest
-counts, wherever it was made or shipped: its Latest is the one with the
-newest time.
+It doesn't move by itself. A suggested change's version runs only where it's
+pinned or added as Latest, a version pinned somewhere doesn't become Latest,
+and a version shipped into another environment isn't Latest here until a
+deployment ships it here. When two versions became Latest at the same time,
+the higher one is. A version published before the runtime recorded Latest also
+counts from when it was published, in the project it was made in. A version
+that's unregistered drops out, and the one with the newest time of those left
+is Latest. For a tenant or org scope, which has no project, every version that
+can be Latest counts, wherever it was made or shipped: its Latest is the one
+with the newest time.
 
 A project can have no pinned version and no Latest yet: a later environment
 before its first promotion, or one whose only version of the agent was
