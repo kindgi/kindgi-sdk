@@ -21019,7 +21019,11 @@
           "block-version-unregistered",
           "block-version-reinstated",
           "provider-registered",
-          "provider-unregistered"
+          "provider-unregistered",
+          "suggested-change-created",
+          "suggested-change-pinned",
+          "suggested-change-added-as-latest",
+          "suggested-change-withdrawn"
         ]
       },
       "EvidenceActor": {
@@ -21198,7 +21202,11 @@
               "block-version-unregistered",
               "block-version-reinstated",
               "provider-registered",
-              "provider-unregistered"
+              "provider-unregistered",
+              "suggested-change-created",
+              "suggested-change-pinned",
+              "suggested-change-added-as-latest",
+              "suggested-change-withdrawn"
             ]
           },
           "timestamp": {
@@ -21400,7 +21408,11 @@
               "block-version-unregistered",
               "block-version-reinstated",
               "provider-registered",
-              "provider-unregistered"
+              "provider-unregistered",
+              "suggested-change-created",
+              "suggested-change-pinned",
+              "suggested-change-added-as-latest",
+              "suggested-change-withdrawn"
             ]
           },
           "from": {
@@ -21500,7 +21512,11 @@
                   "block-version-unregistered",
                   "block-version-reinstated",
                   "provider-registered",
-                  "provider-unregistered"
+                  "provider-unregistered",
+                  "suggested-change-created",
+                  "suggested-change-pinned",
+                  "suggested-change-added-as-latest",
+                  "suggested-change-withdrawn"
                 ]
               },
               "from": {

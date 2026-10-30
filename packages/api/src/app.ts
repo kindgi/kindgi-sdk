@@ -1958,6 +1958,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           // approval's resource, so the count matches who the decide route lets in.
           ...(input.reviewerRegistry !== undefined && { reviewers: input.reviewerRegistry }),
           ...(input.authz !== undefined && { authz: input.authz.authzCheckBinding }),
+          ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
         },
         authorizer,
         itemRights,

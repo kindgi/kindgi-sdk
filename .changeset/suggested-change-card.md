@@ -2,6 +2,8 @@
 "@kindgi/api": patch
 "@kindgi/cli": patch
 "@kindgi/client": patch
+"@kindgi/compliance": patch
+"@kindgi/specs": patch
 ---
 
 **A suggested change is made for one project, and checked on that project's test set.** This is a breaking change.
@@ -37,6 +39,7 @@
   - `suggested-change-nothing-to-check` (409): the project's test set has no cases;
   - `suggested-change-project-on-latest` (409);
   - `suggested-change-project-pinned` (409).
+- **Audit events.** Making one, pinning it, adding it as Latest and withdrawing it are recorded, in its project, with the caller as the actor: `suggested-change-created`, `suggested-change-pinned` (with its promotion, and whether it's pinned or waits for a second person), `suggested-change-added-as-latest` and `suggested-change-withdrawn`. Each names the suggested change, its agent, block, versions and who made it, never its content, its `why` or a reason. The same change sent again records nothing. `EVIDENCE_KINDS` lists the four kinds. The `kind` examples in `compliance-evidence.schema.json` list them too, with the block version and provider kinds.
 - **Binding.** `TestSetFreezeBinding` freezes a project's test set for a check. A stored suggested change keeps who drafted its content as `drafter` (`SuggestedChangeDrafter`). It gains `madeBy` (`SuggestedChangeMaker`), `builtOnVersion`, `rebuiltAt` and `addedAsLatest`, and a store records the new `added-as-latest` step.
 - **TypeScript client.**
   - `client.suggestedChanges.create` takes the new body.

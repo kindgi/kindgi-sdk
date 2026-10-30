@@ -16,6 +16,8 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import { type Agent, createAgentRegistry, pinsDigest } from '@kindgi/agents';
+import type { AuditEvent } from '@kindgi/audit-events';
+import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
 import type {
   Action,
   AuthzCheckBinding,
@@ -730,10 +732,19 @@ async function harness(
       } as unknown as TestSetRecord;
     },
   } as unknown as TestSetRegistryBinding;
+  const audit = createInMemoryAuditEventBinding();
+  const written: AuditEvent[] = [];
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
     runHandler: {} as RunHandlerBinding,
+    auditEvents: {
+      ...audit,
+      append: async (events) => {
+        written.push(...events);
+        return audit.append(events);
+      },
+    },
     agentRegistry:
       opts.readOnly === true
         ? { ...agents, readOnly: { reason: 'The pack files are the source: change them instead.' } }
@@ -779,7 +790,9 @@ async function harness(
       body: (await res.json()) as Record<string, any>,
     };
   };
-  return { call, agents, blocks, testRuns, freeze, releases, suggestedChanges };
+  /** The audit events of `kind` recorded so far. */
+  const events = (kind: string) => written.filter((e) => e.kind === kind);
+  return { call, agents, blocks, testRuns, freeze, releases, suggestedChanges, events };
 }
 
 type Harness = Awaited<ReturnType<typeof harness>>;
@@ -1683,6 +1696,116 @@ describe('POST /v1/suggested-changes/:id/withdraw', () => {
       expect(res.status, JSON.stringify(res.body)).toBe(200);
       expect(res.body.status).toBe('withdrawn');
     }
+  });
+});
+
+describe('audit events: making one, pinning it, adding it as Latest and withdrawing it', () => {
+  /** What every event names of the suggested change `id` made from `CARD` (its content never). */
+  const named = (id: string) => ({
+    suggestedChangeId: id,
+    agentId: AGENT,
+    builtOn: '1.0.0',
+    version: '1.0.1',
+    blockId: WEIGHTS,
+    blockVersion: expect.any(String),
+    madeBy: { kind: 'person', userId: 'user-1' },
+  });
+
+  test('making one is recorded in its project, with the caller as its actor, naming no content; the same one again is not', async () => {
+    const h = await made();
+    const [created, ...more] = h.events('suggested-change-created');
+    expect(more).toEqual([]);
+    expect(created?.actor).toBe('user:user-1');
+    expect(created?.projectId).toBe(projectId);
+    expect(created?.outcome).toBe('succeeded');
+    expect((created?.payload as { doc: unknown }).doc).toEqual(named(h.id));
+    const sent = JSON.stringify(created?.payload);
+    for (const content of [CARD.why, 'recency']) expect(sent).not.toContain(content);
+
+    const again = await h.call('POST', '/v1/suggested-changes', CARD);
+    expect(again.headers.get('X-Suggested-Change-Deduped')).toBe('true');
+    expect(h.events('suggested-change-created')).toHaveLength(1);
+  });
+
+  test('pinning one names its promotion, pinned or waiting for a second person; a pin the gate refuses is not recorded', async () => {
+    const pinned = await checked();
+    expect((await pinned.call('POST', `/v1/suggested-changes/${pinned.id}/pin`, {})).status).toBe(
+      201,
+    );
+    const [now] = pinned.events('suggested-change-pinned');
+    expect(now?.actor).toBe('user:user-1');
+    expect(now?.projectId).toBe(projectId);
+    expect((now?.payload as { doc: unknown }).doc).toEqual({
+      ...named(pinned.id),
+      promotionId: pinned.suggestedChanges.rows.get(pinned.id)?.promotionId,
+      status: 'pinned',
+    });
+
+    const waits = await checked();
+    waits.releases.state.policy = {
+      id: 'acme.prod',
+      version: '1.0.0',
+      tenantId,
+      agentId: AGENT,
+      scope: PROJECT,
+      spec: { approvals: { role: 'standard' } },
+      createdAt: NOW,
+    };
+    expect((await waits.call('POST', `/v1/suggested-changes/${waits.id}/pin`, {})).status).toBe(
+      202,
+    );
+    expect(waits.events('suggested-change-pinned').map((e) => e.payload)).toMatchObject([
+      { doc: { suggestedChangeId: waits.id, status: 'waiting-for-second-person' } },
+    ]);
+
+    const refused = await checked();
+    refused.releases.state.policy = {
+      id: 'acme.prod',
+      version: '1.0.0',
+      tenantId,
+      agentId: AGENT,
+      scope: PROJECT,
+      spec: { metrics: [{ name: 'weightedYesShare', minCandidate: 0.99 }] },
+      createdAt: NOW,
+    };
+    expect((await refused.call('POST', `/v1/suggested-changes/${refused.id}/pin`, {})).status).toBe(
+      422,
+    );
+    expect(refused.events('suggested-change-pinned')).toEqual([]);
+  });
+
+  test('adding one as Latest is recorded, its reason kept off the event', async () => {
+    const h = await harness();
+    const res = await h.call('POST', '/v1/suggested-changes', CARD);
+    await h.testRuns.finish(res.body.check.with.testRunId, { delta: 0.1 });
+    await h.testRuns.finish(res.body.check.now.testRunId, { delta: 0 });
+    const added = await h.call('POST', `/v1/suggested-changes/${res.body.id}/add-as-latest`, {
+      reason: 'Fit first for acme',
+    });
+    expect(added.status, JSON.stringify(added.body)).toBe(200);
+    const [event, ...more] = h.events('suggested-change-added-as-latest');
+    expect(more).toEqual([]);
+    expect(event?.actor).toBe('user:user-1');
+    expect(event?.projectId).toBe(projectId);
+    expect((event?.payload as { doc: unknown }).doc).toEqual(named(res.body.id));
+    expect(JSON.stringify(event?.payload)).not.toContain('Fit first');
+  });
+
+  test('withdrawing one is recorded, its reason kept off the event; a refused withdrawal is not', async () => {
+    const h = await made();
+    expect((await h.call('POST', `/v1/suggested-changes/${h.id}/withdraw`, {})).status).toBe(400);
+    expect(h.events('suggested-change-withdrawn')).toEqual([]);
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/withdraw`, {
+      reason: 'wrong block',
+    });
+    expect(res.status).toBe(200);
+    const [event, ...more] = h.events('suggested-change-withdrawn');
+    expect(more).toEqual([]);
+    expect(event?.actor).toBe('user:user-1');
+    expect(event?.projectId).toBe(projectId);
+    // Withdrawn while still checking: its version was published when it was made.
+    expect((event?.payload as { doc: unknown }).doc).toEqual(named(h.id));
+    expect(JSON.stringify(event?.payload)).not.toContain('wrong block');
   });
 });
 

@@ -4,14 +4,17 @@
 import { type Context, Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
+import type { AuditEventBinding } from '@kindgi/audit-events';
 import { type Action, ref } from '@kindgi/authz';
+import { emitAuditEvent } from '@kindgi/compliance';
 import type { Cursor, LiveScope, ProjectId, SuggestedChangeId, TenantId } from '@kindgi/types';
 
 import type { BlockRegistryBinding } from '../block-binding.js';
+import { callerIdentity } from '../caller.js';
 import { environmentTakesPromotionsResponse } from '../environment-entry.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, liveScopeCheck, widthRefusal, writeWhereMade } from '../item-rights.js';
-import type { PromotionActor } from '../live-version-binding.js';
+import type { Promotion, PromotionActor } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import {
@@ -38,7 +41,13 @@ import { actorOf, promotionResponse } from './agent-releases.js';
 import { clampLimit } from './pagination.js';
 
 /** What the suggested change lifecycle runs on besides its own store. */
-export type SuggestedChangesRouteDeps = Omit<SuggestedChangeServiceDeps, 'store'>;
+export type SuggestedChangesRouteDeps = Omit<SuggestedChangeServiceDeps, 'store'> & {
+  /**
+   * Where making, pinning, adding as Latest and withdrawing one are
+   * recorded, with the caller as their actor. Absent: none is.
+   */
+  readonly auditEvents?: AuditEventBinding;
+};
 
 const MAKER_KINDS: readonly SuggestedChangeMaker['kind'][] = [
   'improve-run',
@@ -72,6 +81,9 @@ type Ctx = Context<AppEnv>;
  *                          Latest (200 added-as-latest; no gate)
  *   POST /:id/withdraw     closed by a person
  *
+ * Making one, pinning it, adding it as Latest and withdrawing it are audit
+ * events (`suggested-change-*`), with the caller as their actor.
+ *
  * Authorized on the suggested change's agent: reading is `read`, making,
  * checking and withdrawing are `publish`, and pinning and adding as
  * Latest are `promote`. A
@@ -93,7 +105,33 @@ export function suggestedChangesRouter(
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
   const publishCompiles = publishCompilesMiddleware();
-  const service = createSuggestedChangeService({ ...deps, store });
+  const { auditEvents, ...serviceDeps } = deps;
+  const service = createSuggestedChangeService({ ...serviceDeps, store });
+
+  /** An audit event for a suggested change, in its project, with the caller as its actor. */
+  async function audit(
+    c: Ctx,
+    kind:
+      | 'suggested-change-created'
+      | 'suggested-change-pinned'
+      | 'suggested-change-added-as-latest'
+      | 'suggested-change-withdrawn',
+    p: StoredSuggestedChange,
+    extra: Readonly<Record<string, unknown>> = {},
+  ): Promise<void> {
+    const projectId = p.scope.kind === 'project' ? p.scope.projectId : p.projectId;
+    await emitAuditEvent({
+      auditEvents,
+      tenantId: c.get('tenantId') as TenantId,
+      ...(projectId !== undefined && { projectId }),
+      kind,
+      actor: callerIdentity(c),
+      outcome: 'succeeded',
+      correlationId: c.get('requestId'),
+      doc: { ...auditDoc(p), ...extra },
+      log: c.get('log').child({ subsystem: 'audit' }),
+    });
+  }
 
   /** The agent's projects, when more than one serves it; else `undefined` (today's checks). */
   const served = (c: Ctx, agentId: string) =>
@@ -289,6 +327,7 @@ export function suggestedChangesRouter(
       c.header('X-Suggested-Change-Deduped', 'true');
       return answer(c, outcome.value.suggestedChange);
     }
+    await audit(c, 'suggested-change-created', outcome.value.suggestedChange);
     return answer(c, outcome.value.suggestedChange, 201);
   });
 
@@ -338,12 +377,25 @@ export function suggestedChangesRouter(
         suggestedChangeId: suggestedChange.id as unknown as string,
       });
     }
-    return answer(
-      c,
-      suggestedChange,
-      promotion.promotion.status === 'pending-approval' ? 202 : 201,
-    );
+    return pinned(c, suggestedChange, promotion.promotion);
   });
+
+  /**
+   * A pin the gate let through: recorded, and answered `201` pinned, or
+   * `202` while it waits for a second person.
+   */
+  async function pinned(
+    c: Ctx,
+    suggestedChange: StoredSuggestedChange,
+    promotion: Promotion,
+  ): Promise<Response> {
+    const waits = promotion.status === 'pending-approval';
+    await audit(c, 'suggested-change-pinned', suggestedChange, {
+      promotionId: promotion.id,
+      status: waits ? 'waiting-for-second-person' : 'pinned',
+    });
+    return answer(c, suggestedChange, waits ? 202 : 201);
+  }
 
   // ---------- POST /:suggestedChangeId/add-as-latest ----------
   r.post('/:suggestedChangeId/add-as-latest', async (c) => {
@@ -364,6 +416,7 @@ export function suggestedChangesRouter(
       ...(reason.value !== undefined && { reason: reason.value }),
     });
     if (outcome.kind === 'err') return failWith(c, outcome.error);
+    await audit(c, 'suggested-change-added-as-latest', outcome.value);
     return answer(c, outcome.value);
   });
 
@@ -383,10 +436,28 @@ export function suggestedChangesRouter(
       reason: reason.value,
     });
     if (outcome.kind === 'err') return failWith(c, outcome.error);
+    await audit(c, 'suggested-change-withdrawn', outcome.value);
     return answer(c, outcome.value);
   });
 
   return r;
+}
+
+/**
+ * What an audit event names of a suggested change: its id, agent, block,
+ * versions and who or what made it — never its content, its why or its
+ * check's answers.
+ */
+function auditDoc(p: StoredSuggestedChange): Readonly<Record<string, unknown>> {
+  return {
+    suggestedChangeId: p.id as unknown as string,
+    agentId: p.agentId as unknown as string,
+    builtOn: p.builtOnVersion ?? p.fromVersion,
+    ...(p.candidate !== undefined && { version: p.candidate.agentVersion }),
+    blockId: p.change.blockId,
+    ...(p.candidate !== undefined && { blockVersion: p.candidate.blockVersion }),
+    madeBy: suggestedChangeMaker(p),
+  };
 }
 
 // ---------- wire ----------

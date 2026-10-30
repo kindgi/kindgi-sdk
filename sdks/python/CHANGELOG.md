@@ -127,6 +127,9 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
       for a project that runs a pin;
     - `suggested-change-check-unsupported` (`ServerError`, a 501): the
       server freezes no test set, so nothing can be checked.
+  - An audit event's `kind` can be `suggested-change-created`,
+    `suggested-change-pinned`, `suggested-change-added-as-latest` or
+    `suggested-change-withdrawn`.
 
 ## 0.3.0
 
