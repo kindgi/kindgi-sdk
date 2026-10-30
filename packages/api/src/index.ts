@@ -858,6 +858,8 @@ export type { AgentReleaseGateDeps } from './routes/agent-releases.js';
 export { coordinatesOf as liveScopeCoordinates } from './routes/agent-releases.js';
 export type { GuardrailConfigCheck } from './routes/guardrails.js';
 export { agentTestSetId, EVAL_KINDS } from './test-set-binding.js';
+export { createTestSetFreeze } from './test-set-freeze.js';
+export type { CreateTestSetFreezeOptions } from './test-set-freeze.js';
 export type {
   EvalKind,
   TestSet,
