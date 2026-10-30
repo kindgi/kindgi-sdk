@@ -384,6 +384,8 @@ export interface IndexedGuardrail {
   readonly config?: Readonly<Record<string, unknown>>;
   /** The guardrail's `budget`: the agent loop stops its check past `maxLatencyMs`. */
   readonly budget?: Readonly<Record<string, unknown>>;
+  /** An `llm-judge` guardrail's `judgeCapabilities`: what its judge model is routed by. */
+  readonly judgeCapabilities?: Readonly<Record<string, unknown>>;
   readonly sandbox?: string;
   readonly limits?: Readonly<Record<string, unknown>>;
   readonly network?: Readonly<Record<string, unknown>>;
@@ -1898,6 +1900,17 @@ function buildGuardrail(
   if (rec.sees !== undefined && rec.sees !== 'turn' && rec.sees !== 'conversation') {
     return manifestErr(relPath, `'sees' must be 'turn' or 'conversation'`);
   }
+  // The runtime judges an llm-judge guardrail with the model its `judgeCapabilities` route
+  // to, and refuses one without them on every turn: refused here, at build.
+  if (rec.judgeCapabilities !== undefined && !isObject(rec.judgeCapabilities)) {
+    return manifestErr(relPath, `guardrail ${rec.id}: 'judgeCapabilities' must be an object`);
+  }
+  if (rec.kind === 'llm-judge' && rec.judgeCapabilities === undefined) {
+    return manifestErr(
+      relPath,
+      `guardrail ${rec.id} is kind 'llm-judge' with no 'judgeCapabilities': name what its judge model is routed by (for example { needs: [{ feature: 'structured-output' }] })`,
+    );
+  }
   const scopeTools = isObject(rec.scope) ? rec.scope.tools : undefined;
   if (
     scopeTools !== undefined &&
@@ -1949,6 +1962,9 @@ function buildGuardrail(
     ...(configSchema !== undefined && { configSchema }),
     ...(isObject(rec.config) && { config: rec.config as Readonly<Record<string, unknown>> }),
     ...(isObject(rec.budget) && { budget: rec.budget as Readonly<Record<string, unknown>> }),
+    ...(isObject(rec.judgeCapabilities) && {
+      judgeCapabilities: rec.judgeCapabilities as Readonly<Record<string, unknown>>,
+    }),
     ...(typeof rec.sandbox === 'string' && { sandbox: rec.sandbox }),
     ...(isObject(rec.limits) && {
       limits: rec.limits as Readonly<Record<string, unknown>>,
