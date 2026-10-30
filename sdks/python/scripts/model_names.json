@@ -151,6 +151,7 @@
   "ConversationStatus": ["ConversationStatus"],
   "Corrected": ["ComparisonCaseResult.changes.new.corrected"],
   "CorrectedAnswerItem": ["CorrectedAnswerItem"],
+  "CorrectedAnswerItemInput": ["CorrectedAnswerItemInput"],
   "CorrectedComparisonCost": ["CorrectedComparisonCost"],
   "CorrectedComparisonResult": ["CorrectedComparisonResult"],
   "CorrectedComparisonSummary": ["CorrectedComparisonSummary"],

@@ -2231,11 +2231,11 @@ class CorrectedItem(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    key: Annotated[str, Field(max_length=200, min_length=1)]
+    key: Annotated[str, Field(min_length=1)]
     """
     The caller's stable id for the item, such as a matched case's id, never the item's own text. `kindgi:correction` is reserved for Kindgi.
     """
-    pointer: Annotated[str | None, Field(max_length=500)] = None
+    pointer: str | None = None
     """
     Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`. `""` is the whole output.
     """
@@ -2301,6 +2301,26 @@ class CorrectedAnswerItem(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
+    key: Annotated[str, Field(min_length=1)]
+    """
+    The caller's stable id for the item, such as a matched case's id, never the item's own text.
+    """
+    pointer: str | None = None
+    """
+    Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`.
+    """
+    rank: Annotated[int | None, Field(ge=0)] = None
+    """
+    The item's position in the ranked list (0 = first).
+    """
+    verdict: Annotated[Literal["right", "wrong"] | str, _open.OPEN]
+
+
+class CorrectedAnswerItemInput(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
     key: Annotated[str, Field(max_length=200, min_length=1)]
     """
     The caller's stable id for the item, such as a matched case's id, never the item's own text.
@@ -2313,7 +2333,7 @@ class CorrectedAnswerItem(BaseModel):
     """
     The item's position in the ranked list (0 = first).
     """
-    verdict: Annotated[Literal["right", "wrong"] | str, _open.OPEN]
+    verdict: Literal["right", "wrong"]
 
 
 class By(BaseModel):
@@ -2493,7 +2513,7 @@ class CreateCorrectionBody(BaseModel):
     Only with `answer: "wrong"`: what it should have said.
     """
     why: Annotated[str | None, Field(max_length=4000)] = None
-    items: Annotated[list[CorrectedAnswerItem] | None, Field(max_length=100)] = None
+    items: Annotated[list[CorrectedAnswerItemInput] | None, Field(max_length=100)] = None
     """
     For an answer that is a ranked list: each item, and whether it was right. Each key once.
     """

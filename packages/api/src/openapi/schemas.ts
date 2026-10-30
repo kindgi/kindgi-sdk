@@ -5060,12 +5060,10 @@ export const CorrectedItemSchema: JsonSchema = {
     key: {
       type: 'string',
       minLength: 1,
-      maxLength: 200,
       description: `The caller's stable id for the item, such as a matched case's id, never the item's own text. \`${CORRECTION_ITEM.key}\` is reserved for Kindgi.`,
     },
     pointer: {
       type: 'string',
-      maxLength: 500,
       description:
         'Where the item is in the run\'s output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`. `""` is the whole output.',
     },
@@ -5210,8 +5208,38 @@ export const CallDifferenceSchema: JsonSchema = {
 
 const verdictProperty = { type: 'string', enum: ['right', 'wrong'] } as const;
 
-/** One item of a ranked answer, and whether it was right there. */
+/**
+ * One item of a ranked answer, and whether it was right there. A read
+ * answers it as stored, so it has no length caps: corrections made before
+ * the caps may hold longer keys.
+ */
 export const CorrectedAnswerItemSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['key', 'verdict'],
+  properties: {
+    key: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "The caller's stable id for the item, such as a matched case's id, never the item's own text.",
+    },
+    pointer: {
+      type: 'string',
+      description:
+        "Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`.",
+    },
+    rank: {
+      type: 'integer',
+      minimum: 0,
+      description: "The item's position in the ranked list (0 = first).",
+    },
+    verdict: verdictProperty,
+  },
+};
+
+/** One item of a ranked answer as a new correction sends it: its key and pointer have caps. */
+export const CorrectedAnswerItemInputSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['key', 'verdict'],
@@ -5640,7 +5668,7 @@ export const CreateCorrectionBodySchema: JsonSchema = {
       maxItems: 100,
       description:
         'For an answer that is a ranked list: each item, and whether it was right. Each key once.',
-      items: { $ref: '#/components/schemas/CorrectedAnswerItem' },
+      items: { $ref: '#/components/schemas/CorrectedAnswerItemInput' },
     },
     correctorGroupId: {
       type: 'string',
@@ -16469,6 +16497,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CorrectionMadeBy', CorrectionMadeBySchema],
   ['Correction', CorrectionSchema],
   ['CorrectedAnswerItem', CorrectedAnswerItemSchema],
+  ['CorrectedAnswerItemInput', CorrectedAnswerItemInputSchema],
   ['CorrectionSorted', CorrectionSortedSchema],
   ['CorrectionLink', CorrectionLinkSchema],
   ['CorrectionFixedIn', CorrectionFixedInSchema],

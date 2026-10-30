@@ -24,9 +24,11 @@ each `right` or `wrong`:
 - **`items`** correct an answer that is a ranked list, one entry for each
   element: `{ key, pointer?, rank?, verdict }`.
   - **`key`** is your stable id for the element, such as a matched case's
-    id. Each key appears once, and `kindgi:correction` is reserved.
+    id, never the element's own text. It's at most 200 characters, each key
+    appears once, and `kindgi:correction` is reserved. It stays when an
+    erasure clears the rest of the correction.
   - **`pointer`** (optional) is where the element is in the run's output, as
-    a JSON Pointer such as `/matches/2`.
+    a JSON Pointer such as `/matches/2`, at most 500 characters.
   - **`rank`** (optional) is its place in the list, 0 first.
   - **`verdict`** is `right` or `wrong`. A wrong item needs nothing more.
 
@@ -76,6 +78,8 @@ shouldCall and mustNotCall go with decisions: "wrong".
 answer: "wrong" needs shouldSay or why.
 shouldSay goes with answer: "wrong".
 the item key "kb-101" is in items twice.
+an item's key is at most 200 characters: its id, not its text.
+an item's pointer is at most 500 characters.
 verdict is gone: a correction says decisions and answer.
 The corrected version has no tool "acme-store.refunds".
 ```

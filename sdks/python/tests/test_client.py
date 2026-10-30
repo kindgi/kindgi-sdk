@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pydantic
 import pytest
 
 from kindgi.client import (
@@ -224,6 +225,36 @@ def test_a_usage_group_keeps_a_kind_class_or_state_this_client_does_not_list() -
     (got,) = read.data
     assert (got.kind, got.class_, got.state) == ("a-later-kind", "a-later-class", "a-later-state")
     assert seen[0].url.path == "/v1/system/usage"
+
+
+def test_an_items_key_and_pointer_have_caps_when_sent_but_not_when_read() -> None:
+    # A new correction's item key is an id, at most 200 characters, and its
+    # pointer at most 500. One saved before the caps may hold longer ones,
+    # and it still reads.
+    key, pointer = "k" * 201, "/" + "p" * 500
+    correction = {
+        "id": "c-1",
+        "tenantId": RUN["tenantId"],
+        "projectId": "p-1",
+        "runId": RUN["id"],
+        "subject": {"kind": "agent", "id": "acme.refunds", "version": "2.1.0"},
+        "items": [{"key": key, "pointer": pointer, "verdict": "wrong"}],
+        "madeBy": {"kind": "user", "id": "u-1"},
+        "status": "open",
+        "createdAt": "2026-10-01T14:07:42.379Z",
+        "updatedAt": "2026-10-01T14:07:42.379Z",
+    }
+    api, seen = client(lambda r: httpx.Response(201, json=correction))
+    for item in (
+        {"key": key, "verdict": "wrong"},
+        {"key": "kb-101", "pointer": pointer, "verdict": "wrong"},
+    ):
+        with pytest.raises(pydantic.ValidationError):
+            api.corrections.create(run_id=RUN["id"], items=[item])
+    assert seen == []
+    read = api.corrections.create(run_id=RUN["id"], items=[{"key": "kb-101", "verdict": "wrong"}])
+    assert read.items is not None
+    assert [(i.key, i.pointer) for i in read.items] == [(key, pointer)]
 
 
 def test_a_tenant_is_renamed_by_its_admins_or_the_operator_and_answers_nothing() -> None:

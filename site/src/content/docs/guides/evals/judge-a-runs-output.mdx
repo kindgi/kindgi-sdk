@@ -211,6 +211,8 @@ object RecordCorrection {
   corrections stay `open` until a person sorts them.
 - **For an answer that is a ranked list,** `items` says which items were
   right, as [Build test cases](../build-a-test-set/#correct-some-runs) shows.
+  Each item's `key` is an id, such as the matched case's id, never the
+  item's text.
 - **One correction per run and person.** Correcting the run again, as the
   same caller and participant, replaces your earlier correction, and the
   earlier one stays in the history. From a client, send the whole
