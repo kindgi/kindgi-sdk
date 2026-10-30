@@ -500,8 +500,9 @@ def guardrail(
             raise DefinitionError(f'{where}: action needs a string "on-violation"')
         if kind == "llm-judge" and judge_capabilities is None:
             raise DefinitionError(
-                f'{where} is kind "llm-judge" with no judge_capabilities=: name what its judge model'
-                ' is routed by (judge_capabilities={"needs": [{"feature": "structured-output"}]})'
+                f'{where} is kind "llm-judge" with no judge_capabilities=: name what its judge'
+                " model is routed by"
+                ' (judge_capabilities={"needs": [{"feature": "structured-output"}]})'
             )
         params = _positional_params(check, where)
         if len(params) != 2:
