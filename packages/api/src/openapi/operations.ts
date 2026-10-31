@@ -1274,18 +1274,7 @@ const TestSetKindFilterQueryParam: ParameterSpec = {
   required: false,
   description:
     "Filter to test sets of a single kind. `corrections` is listed only when asked for here: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`), and its frozen versions are `corrections` test sets.",
-  schema: {
-    type: 'string',
-    enum: [
-      'accuracy',
-      'pairwise',
-      'regression',
-      'human-review',
-      'benchmark',
-      'custom',
-      'corrections',
-    ],
-  },
+  schema: { $ref: '#/components/schemas/TestSetKind' },
 };
 
 const TestSetNameFilterQueryParam: ParameterSpec = {
