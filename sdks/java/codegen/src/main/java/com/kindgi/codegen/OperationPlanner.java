@@ -486,7 +486,7 @@ final class OperationPlanner {
     return t;
   }
 
-  /** `Idempotency-Key` → `idempotencyKey`; `X-Supervisor-Id` → `supervisorId`. */
+  /** `Idempotency-Key` → `idempotencyKey`; `X-Request-Id` → `requestId`. */
   static String javaParamName(String wire) {
     String name = wire.startsWith("X-") || wire.startsWith("x-") ? wire.substring(2) : wire;
     return Names.member(name);

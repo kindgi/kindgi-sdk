@@ -3,8 +3,9 @@
 
 /**
  * `@kindgi/connections/microsoft/tools` — tools that act with a Microsoft
- * connection on its Outlook mailbox: the person's own, or the company's
- * (`as`). A pack includes one by exporting it as a tool under an id the
+ * connection on its Outlook mailbox or calendar: the person's own, or the
+ * company's (`as`). The calendar tools are
+ * `./microsoft-calendar-tools.ts`'s. A pack includes one by exporting it as a tool under an id the
  * pack names: a tool folder whose `index.ts` is
  * `export default outlookSend({ id: 'acme.outlook.send' })`.
  * The id is the pack's because a tool id is the tenant's, filed under the
@@ -54,6 +55,27 @@ export type {
   MailAttachmentNotShownReason,
 } from './mail-attachment.js';
 export type { MailMessage, MailPerson } from './mail.js';
+export type {
+  CalendarAttendee,
+  CalendarBusy,
+  CalendarEvent,
+  CalendarEventWritten,
+  CalendarOwner,
+  CalendarResponse,
+  CalendarToolOptions,
+} from './calendar.js';
+export {
+  type OutlookCalendarEventCreateInput,
+  type OutlookCalendarEventUpdateInput,
+  type OutlookCalendarEventsListInput,
+  type OutlookCalendarEventsListOutput,
+  type OutlookCalendarFreeBusyInput,
+  type OutlookCalendarFreeBusyOutput,
+  outlookCalendarEventCreate,
+  outlookCalendarEventUpdate,
+  outlookCalendarEventsList,
+  outlookCalendarFreeBusy,
+} from './microsoft-calendar-tools.js';
 
 /** A mail address. Line breaks and list separators are refused, as for every mail tool. */
 const ADDRESS = {

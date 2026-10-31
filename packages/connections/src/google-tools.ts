@@ -3,7 +3,8 @@
 
 /**
  * `@kindgi/connections/google/tools` — tools that act with a Google
- * connection: the person's own, or the company's mailbox (`as`). A pack
+ * connection: the person's own, or the company's mailbox or calendar
+ * (`as`). The calendar tools are `./google-calendar-tools.ts`'s. A pack
  * includes one by exporting it as a tool under an id the pack names: a
  * tool folder whose `index.ts` is
  * `export default gmailSend({ id: 'acme.gmail.send' })`. The id is the
@@ -69,6 +70,27 @@ export type {
   MailAttachmentNotShownReason,
 } from './mail-attachment.js';
 export type { MailMessage, MailPerson } from './mail.js';
+export type {
+  CalendarAttendee,
+  CalendarBusy,
+  CalendarEvent,
+  CalendarEventWritten,
+  CalendarOwner,
+  CalendarResponse,
+  CalendarToolOptions,
+} from './calendar.js';
+export {
+  type GoogleCalendarEventCreateInput,
+  type GoogleCalendarEventUpdateInput,
+  type GoogleCalendarEventsListInput,
+  type GoogleCalendarEventsListOutput,
+  type GoogleCalendarFreeBusyInput,
+  type GoogleCalendarFreeBusyOutput,
+  googleCalendarEventCreate,
+  googleCalendarEventUpdate,
+  googleCalendarEventsList,
+  googleCalendarFreeBusy,
+} from './google-calendar-tools.js';
 
 const SEND_URL = `${GMAIL}/messages/send`;
 /** Messages read at once for a list. */
