@@ -135,7 +135,7 @@ readonly RUNTIME_REPO="registry.kindgi.com/kindgi/runtime"
 readonly VERSION_FLOOR="0.1.8"         # upgrades from before this are refused
 readonly TARGET_FLOOR="0.2.0"          # the first release on registry.kindgi.com
 # Releases this script knows the upgrade steps for, oldest first.
-readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1")
+readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0")
 # The newest of them.
 readonly DEFAULT_TARGET="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 
@@ -883,6 +883,16 @@ EOT
      or sees changed while an earlier deploy kept the old ones.
 EOT
       ;;
+    0.4.0)
+      # STEPS-PENDING marks a release whose runtime steps aren't here yet:
+      # they come from its release notes' Upgrade steps before its rc, and
+      # the rc's cut stops while either script has the marker.
+      cat <<'EOT'
+   - STEPS-PENDING: this copy doesn't have 0.4.0's runtime steps yet. Don't
+     upgrade a deployment you keep with it: read the 0.4.0 release notes'
+     Upgrade steps.
+EOT
+      ;;
   esac
 }
 # <<<
@@ -1019,10 +1029,14 @@ plan_protects_instance() {
 # Every change in a plan (terraform show -json) that $allowed doesn't name,
 # one line each: a create, delete, replace or forget by what it does; an
 # update by each attribute it changes, a value it knows or one known only
-# after the apply. Never a value: a plan holds the variables' values, secret
-# ones too. An env var or a database flag is keyed by its name, so one added
-# or dropped from a list says which, and moves no other; one known only after
-# the apply is named from the plan's after.
+# after the apply. $allowed names a resource by "<type>.<name>", which covers
+# each of its instances, or one instance by "<type>.<name>[<index>]" (a
+# string index in double quotes); a create or a delete by the path
+# "(created)" or "(deleted)". A replace or a forget is always listed. Never a
+# value: a plan holds the variables' values, secret ones too. An env var or
+# a database flag is keyed by its name, so one added or dropped from a list
+# says which, and moves no other; one known only after the apply is named
+# from the plan's after.
 readonly PLAN_CHANGES_JQ='
   def leaves(p):
     if type == "object" then to_entries[] | .key as $k | .value | leaves(p + [$k])
@@ -1054,14 +1068,20 @@ readonly PLAN_CHANGES_JQ='
     else join(", ") end;
   .resource_changes[]?
   | .address as $addr | "\(.type).\(.name)" as $key | .change as $c
+  | ($key + (if .index == null then "" elif (.index | type) == "string"
+      then "[\(.index | tojson)]" else "[\(.index)]" end)) as $inst
   | select($c.actions != ["no-op"] and $c.actions != ["read"])
-  | if $c.actions != ["update"] then "\($addr): \($c.actions | act)"
+  | if $c.actions != ["update"] then
+      ($c.actions | act) as $did
+      | select(($did == "created" or $did == "deleted")
+          and ($allowed | any(.[]; (.key == $key or .key == $inst) and .path == "(\($did))")) | not)
+      | "\($addr): \($did)"
     else
       ($c.before // {} | flat) as $b | ($c.after // {} | flat) as $a
       | ([$b, $a] | map(keys) | add | unique | map(. as $k | select($b[$k] != $a[$k])))
         + [$c.after_unknown // {} | paths(. == true) | named($c.after // {}) | tojson]
       | map(said) | unique | .[]
-      | select(. as $w | $allowed | any(.[]; .key == $key and (.path as $p | $w == $p or ($w | startswith($p + ".")))) | not)
+      | select(. as $w | $allowed | any(.[]; (.key == $key or .key == $inst) and (.path as $p | $w == $p or ($w | startswith($p + ".")))) | not)
       | "\($addr): changes \(.)"
     end'
 # <<<
@@ -1098,7 +1118,7 @@ check_plan() {
     ok=false
   fi
   if [[ $ok == true ]]; then
-    info "plan check: it changes the image(s), and only what the releases crossed change in place."
+    info "plan check: it changes the image(s), and only what the releases crossed change."
     return 0
   fi
   warn "Nothing above was applied. A var file left off the command (a pack's env, say) is what usually does this: give each file the deployment uses its own --var-file. If the changes are yours (a variable you changed, say), apply them on the release it runs now with a plan you review, then run this again."
