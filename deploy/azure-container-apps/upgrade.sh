@@ -961,13 +961,55 @@ EOT
 EOT
       ;;
     0.4.0)
-      # STEPS-PENDING marks a release whose runtime steps aren't here yet:
-      # they come from its release notes' Upgrade steps before its rc, and
-      # the rc's cut stops while either script has the marker.
+      # STEPS-PENDING marks a release whose runtime steps here aren't final
+      # yet: they come from its release notes' Upgrade steps before its rc,
+      # and the rc's cut stops while either script has the marker.
       cat <<'EOT'
-   - STEPS-PENDING: this copy doesn't have 0.4.0's runtime steps yet. Don't
-     upgrade a deployment you keep with it: read the 0.4.0 release notes'
-     Upgrade steps.
+   - STEPS-PENDING: this copy's 0.4.0 runtime steps below aren't final yet.
+     Don't upgrade a deployment you keep with it: read the 0.4.0 release
+     notes' Upgrade steps.
+   - First start runs sixteen migrations: one new table, new columns that
+     are empty or have a fixed default, nothing rewritten, and the
+     supervisor_fix_proposals table dropped. They lock the tables they
+     change or point to: agent_registry, agent_registry_versions,
+     agent_promotions, block_registry_versions, deployments,
+     deployment_endpoints, eval_runs, eval_suite_cases,
+     improvement_proposals, judgments and projects. Seven of them hold the
+     lock while they read every row, to check a new rule or build an
+     index. One keeps judgments locked while it indexes every judgment, so
+     people's judgments and corrections wait, on the old revision too; one
+     indexes eval_runs, so starting or updating a test run waits. With many
+     of either (SELECT count(*) FROM judgments; and the same FROM
+     eval_runs) upgrade at a quiet time.
+     A long transaction holding one of those tables makes the new revision
+     fail after about a minute, naming the session that holds it (end it
+     with pg_terminate_backend, or let it finish). The old revision keeps
+     serving meanwhile.
+   - With KINDGI_ARTIFACTS set to a gcs: bucket in server_env, give the
+     identity the server reads it as storage.buckets.get on that bucket
+     first: the 0.4.0 runtime reads the bucket's settings at start, and
+     without it the runtime refuses to start. roles/storage.objectAdmin
+     doesn't grant it: grant roles/storage.legacyBucketReader on the bucket,
+     or add the permission to a custom role. A ledger or purge-record bucket
+     needs only storage.objects.create.
+   - A mail trigger on the company's mailbox now stores the connection it
+     reads with. At its next look at the mailbox, one whose project has a
+     single company connection at the app stores that one and reads on.
+     With several, it reads nothing and shows connection-not-chosen, naming
+     them, until a project admin points it at one:
+       kindgi mail-triggers update <trigger-id> --mailbox=google \
+         --as=company --connection=<name>
+     (or --mailbox=microsoft), with --folder again if it watches a folder
+     other than the inbox, and --allow-unattended if it lists tools allowed
+     unattended.
+   - Upgrading drops the old supervisor_fix_proposals table; at 0.3.x no
+     route or job wrote to it.
+   - Projects gain one column, sort_end_user_corrections, empty on existing
+     projects, and empty reads as no: their end users' corrections aren't
+     sorted until a project turns it on.
+   - In KINDGI_LOG_LEVELS (server_env), change judging=<level> to
+     expert-queue=<level>. The old name only warns at boot, and has no
+     effect.
 EOT
       ;;
   esac
