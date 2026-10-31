@@ -15,7 +15,7 @@
 
 import { describe, expect, test } from 'vitest';
 
-import type { ModelMessage, ModelToolCall } from '@kindgi/capabilities';
+import type { MessageFile, ModelMessage, ModelToolCall } from '@kindgi/capabilities';
 import type {
   CheckRegistry,
   Guardrail,
@@ -1037,6 +1037,28 @@ describe("the loop's messages", () => {
     };
     expect(toWireMessages([marked])).toEqual([
       { role: 'tool', content: 'note', toolCallId: 'call-1' },
+    ]);
+  });
+
+  test('a note keeps the files its message carries', () => {
+    const files: MessageFile[] = [
+      {
+        artifactId: 'art-1',
+        name: 'photo-1.jpg',
+        contentType: 'image/jpeg',
+        size: 1001,
+        sha256: '1'.padStart(64, '0'),
+      },
+    ];
+    const marked: LoopMessage = {
+      role: 'tool',
+      content: 'note',
+      toolCallId: 'call-1',
+      files,
+      guardrailNote: ['acme.no-big-refund'],
+    };
+    expect(toWireMessages([marked])).toEqual([
+      { role: 'tool', content: 'note', toolCallId: 'call-1', files },
     ]);
   });
 });
