@@ -14731,8 +14731,20 @@ export const ImproveScheduleTargetSchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "Required to register one: the schedule's own project. Absent from older servers, and on a schedule registered for a tenant or an org before Improve schedules worked in a project: its fires are refused until its target is saved with the schedule's project.",
+        "The schedule's own project. Absent from older servers, and on a schedule registered for a tenant or an org before Improve schedules worked in a project: its fires are refused until its target is saved with the schedule's project.",
     },
+  },
+};
+
+export const ImproveScheduleTargetInputSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['agentId', 'projectId'],
+  description:
+    "What an improve schedule works on, as registering or changing one names it: the agent, and the project its Improve runs work in (the schedule's own).",
+  properties: {
+    agentId: { type: 'string', minLength: 1 },
+    projectId: { type: 'string', format: 'uuid', description: "The schedule's own project." },
   },
 };
 
@@ -14888,7 +14900,7 @@ export const RegisterScheduleBodySchema: JsonSchema = {
     },
     agentVersion: { type: 'string', minLength: 1 },
     improve: {
-      $ref: '#/components/schemas/ImproveScheduleTarget',
+      $ref: '#/components/schemas/ImproveScheduleTargetInput',
       description:
         'Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `write` on the project and `publish` on the agent. An agent and project have one improve schedule at most (`409 schedule-exists`).',
     },
@@ -14952,7 +14964,7 @@ export const PatchScheduleBodySchema: JsonSchema = {
     },
     agentVersion: { type: 'string', minLength: 1 },
     improve: {
-      $ref: '#/components/schemas/ImproveScheduleTarget',
+      $ref: '#/components/schemas/ImproveScheduleTargetInput',
       description:
         'Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `write` on the project and `publish` on the agent.',
     },
@@ -17785,6 +17797,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ApprovalRequestedEventData', ApprovalRequestedEventDataSchema],
   ['ApprovalRequestedEvent', ApprovalRequestedEventSchema],
   ['ImproveScheduleTarget', ImproveScheduleTargetSchema],
+  ['ImproveScheduleTargetInput', ImproveScheduleTargetInputSchema],
   ['ImproveScheduleInput', ImproveScheduleInputSchema],
   ['WebhookTestEvent', WebhookTestEventSchema],
   ['WebhookEvent', WebhookEventSchema],
