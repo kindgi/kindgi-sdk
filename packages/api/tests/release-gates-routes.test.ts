@@ -28,6 +28,7 @@ import type { Authorizer } from '../src/middleware/authorize.js';
 import { parseReleaseGateSpec } from '../src/routes/release-gate-spec.js';
 import { releaseGatesRouter } from '../src/routes/release-gates.js';
 import type { AppEnv } from '../src/types.js';
+import { noLatest } from './support/latest.js';
 
 const tenantId = randomUUID() as TenantId;
 const userId = randomUUID() as UserId;
@@ -116,6 +117,7 @@ function fakeBinding() {
 function appWith(binding: ReleaseGateBinding) {
   const pinStore: AgentPinBindings = {
     pinned: { resolve: async () => null, list: async () => [] },
+    latest: noLatest,
     changes: {
       pin: async () => ({ kind: 'err', error: { code: 'not-pinned', message: 'unused' } }),
       unpin: async () => ({ kind: 'err', error: { code: 'not-pinned', message: 'unused' } }),

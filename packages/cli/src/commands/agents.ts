@@ -11,8 +11,6 @@ import type {
   PinPage,
 } from '@kindgi/client';
 
-import type { AgentId } from '@kindgi/types';
-
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
 import { type OutputFormat, type Rendered, renderJson, successNote } from '../output.js';
@@ -34,7 +32,6 @@ import {
   ANSWER_NO_EXIT_CODE,
   type TableSpec,
   integerFlag,
-  listFlag,
   projectIdFlag,
   readJsonInput,
   requiredPositional,
@@ -151,76 +148,6 @@ const publish: LeafCommand = {
         ctx.client().agents.define(spec, { projectId }),
       );
       return { agentId };
-    }),
-};
-
-/** `--prompt` / `--setting` values (`<block-id>=<version>`), as a pin map. */
-function pinSwaps(values: readonly string[], flag: string): Record<string, string> {
-  const pins: Record<string, string> = {};
-  for (const value of values) {
-    const at = value.indexOf('=');
-    if (at <= 0 || at === value.length - 1) {
-      throw new UsageError(`--${flag} takes <block-id>=<version>, got '${value}'`);
-    }
-    pins[value.slice(0, at)] = value.slice(at + 1);
-  }
-  return pins;
-}
-
-const derive: LeafCommand = {
-  kind: 'leaf',
-  name: 'derive',
-  description:
-    'Publish a new agent version from a pinned one with some pins of its instructions or settings swapped (no code change).',
-  usage:
-    'kindgi agents derive <agent-id> --from=<semver> [--prompt=<block-id>=<version>]... [--setting=<block-id>=<version>]... [--label=<text>] [--project=<project-id>]',
-  optionSpec: {
-    from: {
-      type: 'string',
-      description: 'The agent version to derive from; it must be pinned. Required.',
-    },
-    prompt: {
-      type: 'string',
-      multiple: true,
-      description:
-        "Pin the agent's instructions (a prompt block the version already uses) to this version (`<block-id>=<version>`). Repeat for several.",
-    },
-    setting: {
-      type: 'string',
-      multiple: true,
-      description:
-        'Pin a settings block the version already uses to this version (`<block-id>=<version>`). Repeat for several.',
-    },
-    label: { type: 'string', description: 'A short label for the new version.' },
-    project: {
-      type: 'string',
-      description:
-        "The agent's project, by id; only needed when the runtime doesn't record it on the version.",
-    },
-  },
-  run: (ctx) =>
-    runSdk(ctx, 'agents derive', async () => {
-      const agentId = requiredPositional(ctx, 0, 'agent-id');
-      const from = stringFlag(ctx, 'from');
-      if (from === undefined) throw new UsageError('--from=<semver> is required');
-      const prompts = pinSwaps(listFlag(ctx, 'prompt'), 'prompt');
-      const settings = pinSwaps(listFlag(ctx, 'setting'), 'setting');
-      if (Object.keys(prompts).length + Object.keys(settings).length === 0) {
-        throw new UsageError(
-          'Name at least one pin to swap: --prompt=<id>=<version> or --setting=<id>=<version>',
-        );
-      }
-      const label = stringFlag(ctx, 'label');
-      const projectId = stringFlag(ctx, 'project');
-      return await ctx.client().agents.versions.derive(agentId as AgentId, {
-        from,
-        pins: {
-          ...(Object.keys(prompts).length > 0 && { prompts }),
-          ...(Object.keys(settings).length > 0 && { settings }),
-        },
-        ...(label !== undefined && { label }),
-        ...(projectId !== undefined && { projectId }),
-      });
     }),
 };
 
@@ -597,7 +524,6 @@ export const agentsCommand: Command = {
     list,
     get,
     publish,
-    derive,
     unregister,
     versions,
     pinned,

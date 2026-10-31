@@ -18,25 +18,32 @@ import { describe, expect, test } from 'vitest';
 import type { AuditEvent } from '@kindgi/audit-events';
 import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
-import type { ProjectId, TenantId, UserId } from '@kindgi/types';
+import type { ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
 
 import { createInMemoryTriggerRegistry, createStubAppBindings } from '../src/testing/index.js';
 import { validateAgainst } from './support/openapi-schema.js';
 
 import { createApp } from '../src/index.js';
 import type {
+  AgentPinBindings,
   AgentRegistryBinding,
   FlowRegistryBinding,
   RunHandlerBinding,
   ServiceAccountBinding,
   TokenResolver,
 } from '../src/index.js';
-import { toolsTargetCanCall } from '../src/routes/trigger-tools.js';
+import {
+  toolsAllowedUnattendedProblem,
+  toolsTargetCanCall,
+  triggerScope,
+} from '../src/routes/trigger-tools.js';
 
 const tenantId = randomUUID() as TenantId;
 const ADA = randomUUID() as UserId;
 const WRITER = randomUUID() as UserId;
 const PROJECT = randomUUID() as ProjectId;
+/** A project where no version of `acme.digest` runs. */
+const ELSEWHERE = randomUUID() as ProjectId;
 const ADMIN_TOKEN = 'tools-admin';
 const WRITER_TOKEN = 'tools-writer';
 // A shared schedule runs as it; a writer may change anything but what it runs.
@@ -66,7 +73,12 @@ function decision(principal: unknown, action: Action, resource: ResourceRef): De
 
 // What each target calls. `acme.orders@1.0.0`: a tool step, a pinned agent,
 // a loop body's tool, a fan-out branch and a subflow's tool; at 2.0.0 only
-// `acme.refund`. `acme.helper`'s latest calls a tool its pinned version doesn't.
+// `acme.refund`. `acme.helper`'s highest calls a tool its pinned version
+// doesn't. `acme.digest`'s highest calls `acme.archive`; its 1.0.0, which is
+// Latest in PROJECT (`agentPins`), doesn't. `acme.daily@1.0.0` runs
+// `acme.digest` at no version: no step names one, and it pins none.
+// `acme.daily@2.0.0` runs it too, and `acme.weekly` (Latest nowhere) inside
+// the subflow `acme.weekly-sub`, neither at a version.
 const tool = (id: string) => ({ id });
 const AGENTS: Record<string, Record<string, { tools: { id: string }[] }>> = {
   'acme.weekly': { latest: { tools: [tool('acme.send')] } },
@@ -92,6 +104,21 @@ const FLOWS: Record<string, Record<string, unknown>> = {
     ],
   },
   'acme.orders@2.0.0': { nodes: [leaf('refund', 'tool', 'acme.refund')] },
+  'acme.daily@1.0.0': {
+    pins: { tools: {}, agents: {} },
+    nodes: [leaf('refund', 'tool', 'acme.refund'), leaf('digest', 'agent', 'acme.digest')],
+  },
+  'acme.daily@2.0.0': {
+    pins: { tools: {}, agents: {} },
+    nodes: [
+      leaf('digest', 'agent', 'acme.digest'),
+      { id: 'week', kind: 'subgraph', flowRef: { flowId: 'acme.weekly-sub', version: '1.0.0' } },
+    ],
+  },
+  'acme.weekly-sub@1.0.0': {
+    pins: { tools: {}, agents: {} },
+    nodes: [leaf('weekly', 'agent', 'acme.weekly')],
+  },
   'acme.sub@1.0.0': {
     nodes: [
       leaf('subtool', 'tool', 'acme.sub-tool'),
@@ -121,6 +148,16 @@ const flowRegistry = {
   },
 } as unknown as FlowRegistryBinding;
 
+/** No pins; `acme.digest`'s Latest is 1.0.0 in PROJECT, and nothing elsewhere. */
+const agentPins = {
+  pinned: { resolve: async () => null, list: async () => [] },
+  latest: {
+    latest: async ({ agentId, projectId }: { agentId: string; projectId?: ProjectId }) =>
+      agentId === 'acme.digest' && projectId === PROJECT ? { version: '1.0.0' as Semver } : null,
+    byProject: async () => [],
+  },
+} as unknown as AgentPinBindings;
+
 const serviceAccountBinding = {
   get: async ({ serviceAccountId }: { serviceAccountId: string }) =>
     serviceAccountId === BOT
@@ -128,7 +165,7 @@ const serviceAccountBinding = {
       : null,
 } as unknown as ServiceAccountBinding;
 
-function harness(opts: { registries?: boolean } = {}) {
+function harness(opts: { registries?: boolean; agentPins?: boolean } = {}) {
   // Every event, in the order written (a query orders same-millisecond
   // events by their random ids).
   const written: AuditEvent[] = [];
@@ -146,6 +183,7 @@ function harness(opts: { registries?: boolean } = {}) {
     runHandler: {} as RunHandlerBinding,
     triggerRegistry: createInMemoryTriggerRegistry({ defaultProjectId: PROJECT }),
     ...(opts.registries !== false && { agentRegistry, flowRegistry }),
+    ...(opts.agentPins === true && { agentPins }),
     auditEvents,
     serviceAccountBinding,
     authz: {
@@ -203,14 +241,15 @@ describe('which tools a target calls', () => {
   test("a flow: its tool steps, loop bodies, fan-out branches, its agents' tools at the pin, its subflows' (a cycle followed once)", async () => {
     const tools = await toolsTargetCanCall(
       { agents: agentRegistry, flows: flowRegistry },
-      tenantId,
+      { tenantId },
       {
         kind: 'flow',
         flowId: 'acme.orders',
         flowVersion: '1.0.0',
       } as never,
     );
-    expect([...(tools ?? [])].sort()).toEqual([
+    expect(tools?.nothingRuns.size).toBe(0);
+    expect([...(tools?.tools ?? [])].sort()).toEqual([
       'acme.fan',
       'acme.lookup',
       'acme.notify',
@@ -219,11 +258,11 @@ describe('which tools a target calls', () => {
     ]);
   });
 
-  test('an agent: at its version, else its latest; an Improve run: none; unreadable: undefined', async () => {
+  test('an agent: at its version, else its highest with no pins or Latest wired; an Improve run: none; unreadable: undefined', async () => {
     const deps = { agents: agentRegistry, flows: flowRegistry };
     const at = (target: Record<string, unknown>) =>
-      toolsTargetCanCall(deps, tenantId, target as never).then((s) =>
-        s === undefined ? undefined : [...s].sort(),
+      toolsTargetCanCall(deps, { tenantId }, target as never).then((s) =>
+        s === undefined ? undefined : [...s.tools].sort(),
       );
     expect(await at({ kind: 'agent', agentId: 'acme.digest', agentVersion: '1.0.0' })).toEqual([
       'acme.send',
@@ -232,15 +271,91 @@ describe('which tools a target calls', () => {
       'acme.archive',
       'acme.send',
     ]);
-    expect(await at({ kind: 'improve', agentId: 'acme.digest' })).toEqual([]);
+    expect(await at({ kind: 'improve', agentId: 'acme.digest', projectId: PROJECT })).toEqual([]);
     expect(await at({ kind: 'agent', agentId: 'acme.nobody' })).toBeUndefined();
     expect(
-      await toolsTargetCanCall(undefined, tenantId, {
+      await toolsTargetCanCall(undefined, { tenantId }, {
         kind: 'flow',
         flowId: 'acme.orders',
         flowVersion: '1.0.0',
       } as never),
     ).toBeUndefined();
+  });
+
+  test("with pins and Latest wired, an agent that names no version: what runs in the trigger's project, not its highest", async () => {
+    const deps = { agents: agentRegistry, flows: flowRegistry, agentPins };
+    const at = (projectId: ProjectId | undefined, target: Record<string, unknown>) =>
+      toolsTargetCanCall(deps, triggerScope(tenantId, projectId), target as never).then((s) =>
+        s === undefined
+          ? undefined
+          : { tools: [...s.tools].sort(), nothingRuns: [...s.nothingRuns] },
+      );
+    const daily = { kind: 'flow', flowId: 'acme.daily', flowVersion: '1.0.0' };
+    expect(await at(PROJECT, { kind: 'agent', agentId: 'acme.digest' })).toEqual({
+      tools: ['acme.send'],
+      nothingRuns: [],
+    });
+    // A named version is read as named.
+    expect(
+      await at(PROJECT, { kind: 'agent', agentId: 'acme.digest', agentVersion: '1.0.0' }),
+    ).toEqual({ tools: ['acme.send'], nothingRuns: [] });
+    // A flow's agent step at no version, the same way.
+    expect(await at(PROJECT, daily)).toEqual({
+      tools: ['acme.refund', 'acme.send'],
+      nothingRuns: [],
+    });
+    // No version runs there (no pin, no Latest), so the agent's tools can't be counted.
+    expect(await at(ELSEWHERE, { kind: 'agent', agentId: 'acme.digest' })).toEqual({
+      tools: [],
+      nothingRuns: ['acme.digest'],
+    });
+    expect(await at(ELSEWHERE, daily)).toEqual({
+      tools: ['acme.refund'],
+      nothingRuns: ['acme.digest'],
+    });
+  });
+
+  test("a flow whose agent at no version has none running: a tool it calls by itself passes, another can't be checked and says why", async () => {
+    const deps = { agents: agentRegistry, flows: flowRegistry, agentPins };
+    const daily = { kind: 'flow', flowId: 'acme.daily', flowVersion: '1.0.0' } as never;
+    const problem = (projectId: ProjectId, tools: string[]) =>
+      toolsAllowedUnattendedProblem(deps, triggerScope(tenantId, projectId), daily, tools);
+    expect(await problem(ELSEWHERE, ['acme.refund'])).toBeUndefined();
+    const why = await problem(ELSEWHERE, ['acme.refund', 'acme.send']);
+    expect(why).toContain(
+      `can't check "acme.send": flow "acme.daily" at 1.0.0 runs agent "acme.digest" at no version`,
+    );
+    expect(why).toContain('its step names none, and the flow versions pin none');
+    expect(why).toContain("none runs in this trigger's project yet");
+    expect(why).toContain("Publish a flow version that names the step's version");
+    expect(why).toContain('into a later environment, promote a build that ships one)');
+    expect(why).not.toContain("doesn't call");
+    // Where its Latest runs, its tools count.
+    expect(await problem(PROJECT, ['acme.refund', 'acme.send'])).toBeUndefined();
+    expect(await problem(PROJECT, ['acme.archive'])).toContain(
+      `flow "acme.daily" at 1.0.0 doesn't call "acme.archive"`,
+    );
+  });
+
+  test('a flow with several agents at no version, one in a subflow: the 400 names each', async () => {
+    const deps = { agents: agentRegistry, flows: flowRegistry, agentPins };
+    const daily = { kind: 'flow', flowId: 'acme.daily', flowVersion: '2.0.0' } as never;
+    const why = await toolsAllowedUnattendedProblem(
+      deps,
+      triggerScope(tenantId, ELSEWHERE),
+      daily,
+      ['acme.send'],
+    );
+    expect(why).toContain(`can't check "acme.send": flow "acme.daily" at 2.0.0 runs agents `);
+    expect(why).toContain('"acme.digest"');
+    expect(why).toContain('"acme.weekly"');
+    expect(why).toContain('their steps name none, and the flow versions pin none');
+    expect(why).toContain(
+      "none is their Latest. Publish a flow version that names the steps' versions",
+    );
+    expect(why).toContain(
+      'deploy or publish a version of each into the project first (into a later environment, promote a build that ships one of each)',
+    );
   });
 });
 
@@ -333,7 +448,7 @@ describe('a schedule', () => {
     expect([res.status, res.body.error.code]).toEqual([400, 'bad-input']);
     expect(res.body.error.message).toContain('"acme.refnud"');
     expect(res.body.error.message).not.toContain('"acme.refund"');
-    // An agent's latest calls `acme.archive`; its 1.0.0 doesn't.
+    // An agent's highest calls `acme.archive`; its 1.0.0 doesn't.
     const pinned = await h.call(
       'POST',
       '/v1/schedules',
@@ -346,6 +461,38 @@ describe('a schedule', () => {
       agentSchedule({ toolsAllowedUnattended: ['acme.archive'] }),
     );
     expect(latest.status).toBe(201);
+  });
+
+  test("with pins and Latest wired: an agent's list is checked against what runs in the schedule's project", async () => {
+    const h = harness({ agentPins: true });
+    // 1.0.0 is Latest in PROJECT: the highest's `acme.archive` isn't called there.
+    const res = await h.call(
+      'POST',
+      '/v1/schedules',
+      agentSchedule({ toolsAllowedUnattended: ['acme.archive'] }),
+    );
+    expect([res.status, res.body.error.code]).toEqual([400, 'bad-input']);
+    expect(res.body.error.message).toContain(`doesn't call "acme.archive"`);
+    const sent = await h.call(
+      'POST',
+      '/v1/schedules',
+      agentSchedule({ toolsAllowedUnattended: ['acme.send'] }),
+    );
+    expect(sent.status).toBe(201);
+    // Where no version runs yet, the list can't be checked: said so, with what to do.
+    const nowhere = await h.call(
+      'POST',
+      '/v1/schedules',
+      agentSchedule({ projectId: ELSEWHERE, toolsAllowedUnattended: ['acme.send'] }),
+    );
+    expect([nowhere.status, nowhere.body.error.code]).toEqual([400, 'bad-input']);
+    expect(nowhere.body.error.message).toContain(
+      `no version of agent "acme.digest" runs in this trigger's project yet`,
+    );
+    expect(nowhere.body.error.message).toContain('Name `agentVersion`');
+    expect(nowhere.body.error.message).toContain(
+      'into a later environment, promote a build that ships one',
+    );
   });
 
   test("with no registry to read the target: a list is refused, `[]` isn't", async () => {
@@ -365,7 +512,7 @@ describe('a schedule', () => {
   test('an Improve run calls no tools: only `[]`', async () => {
     const h = harness();
     const improve = {
-      improve: { agentId: 'acme.digest', scope: { kind: 'project', projectId: PROJECT } },
+      improve: { agentId: 'acme.digest', projectId: PROJECT },
       config: { cronExpression: '0 3 * * *' },
     };
     const listed = await h.call('POST', '/v1/schedules', {

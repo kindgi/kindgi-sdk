@@ -20,7 +20,6 @@ export type {
   AgentUnpinInput,
   AgentsClient,
   DefineAgentOptions,
-  DeriveAgentVersionInput,
   ListPinHistoryFilter,
   AgentPinnedWhere,
   AgentPinInput,
@@ -57,6 +56,7 @@ export type {
 export type { SupervisorClient } from './resources/supervisor.js';
 export type {
   CheckImproveRunInput,
+  ImproveReadinessItem,
   ImproveRun,
   ImproveRunCheck,
   ImproveRunsClient,
@@ -65,7 +65,6 @@ export type {
 } from './resources/improve-runs.js';
 export type {
   CreateSuggestedChangeInput,
-  EvaluateSuggestedChangeInput,
   SuggestedChangeReasonInput,
   SuggestedChangesClient,
   SuggestedChangesListInput,
@@ -295,8 +294,11 @@ export type {
 export { followRun, subscribeToRun } from './run-follow.js';
 export { comparisonOf } from './resources/test-runs.js';
 export type {
+  AgentHighestVersion,
   AgentProject,
   AgentProjectList,
+  AgentProjectRuns,
+  AgentProjectSegmentPin,
   AgentPinnedVersion,
   AgentPinnedVersionList,
   AgentPinScope,
@@ -518,8 +520,6 @@ export type {
   SyncSecretsResult,
 } from './resources/deployments.js';
 export type {
-  BuildFromCorrectionsInput,
-  BuildFromCorrectionsResult,
   TestSetsClient,
   ListTestSetCasesQuery,
   TestSetCase,
@@ -695,7 +695,9 @@ export type {
   SuggestedChangeStatus,
   SuggestedChangeContent,
   SuggestedChangeObjective,
-  SuggestedChangeTier,
+  SuggestedChangeActor,
+  SuggestedChangeCheckSide,
+  SuggestedChangeMadeBy,
   Flow,
   FlowEdge,
   FlowId,

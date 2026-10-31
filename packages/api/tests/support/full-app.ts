@@ -35,9 +35,9 @@ import type {
   DeploymentBinding,
   EnvBinding,
   EnvironmentOrderBinding,
-  EvalCaseStoreBinding,
   ExpertQueueBinding,
   FlowRegistryBinding,
+  FrozenCaseStoreBinding,
   GuardrailRegistryBinding,
   HitlBinding,
   IdentityDirectoryBinding,
@@ -61,6 +61,7 @@ import type {
   SigningKeyBinding as SigningKeyRegistryBinding,
   SupervisorBinding,
   TestRunBinding,
+  TestSetFreezeBinding,
   TestSetRegistryBinding,
   TokenAdmin,
   TokenResolver,
@@ -69,6 +70,7 @@ import type {
   WebhookEndpointBinding,
 } from '../../src/index.js';
 import { createStubAppBindings, createStubBinding } from '../../src/testing/index.js';
+import { highestAsLatest } from './latest.js';
 
 // Compliance routes mount when a classifier + generator are wired. The drift
 // test only needs them mounted, so the classifier is a minimal literal and the
@@ -146,6 +148,7 @@ const noopAgentRegistry: AgentRegistryBinding = {
   listVersions: async () => ({ data: [] }),
   publish: async ({ agent }) => ({ kind: 'ok', agentId: agent.id, version: agent.version }),
   unregister: async () => ({ unregistered: false }),
+  markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
   reinstateVersion: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
 };
 const noopFlowRegistry: FlowRegistryBinding = {
@@ -339,6 +342,10 @@ const noopPolicyRegistry: PolicyRegistryBinding = {
   reinstateVersion: async ({ policyId, version }) => ({ kind: 'not-found', policyId, version }),
 };
 
+const noopTestSetFreeze: TestSetFreezeBinding = {
+  freezeTestSet: async () => ({ testSetId: 'noop', testSetVersion: '1.0.0', cases: [] }),
+};
+
 const noopTestSetRegistry: TestSetRegistryBinding = {
   list: async () => ({ data: [] }),
   get: async () => null,
@@ -360,7 +367,7 @@ const noopBlockRegistry: BlockRegistryBinding = {
   reinstateVersion: async ({ blockId, version }) => ({ kind: 'not-found', blockId, version }),
 };
 
-const noopEvalCaseStore: EvalCaseStoreBinding = {
+const noopFrozenCaseStore: FrozenCaseStoreBinding = {
   putCases: async () => undefined,
   listCases: async () => ({ data: [], hasMore: false }),
 };
@@ -380,6 +387,14 @@ const noopCorrectionRegistry: CorrectionRegistryBinding = {
   update: async () => ({ kind: 'not-found' }),
   counts: async () => ({ open: 0, beingFixed: 0, withOwner: 0, fixed: 0, wontFix: 0, removed: 0 }),
   correctionsByIds: async () => [],
+  testSet: async () => ({ active: 0, retired: 0 }),
+  listCases: async () => ({ data: [], hasMore: false }),
+  getCase: async () => null,
+  runCopies: async () => [],
+  addCase: async () => {
+    throw new Error('noop');
+  },
+  retireCase: async () => ({ kind: 'not-found' }),
 };
 
 const noopExpertQueue: ExpertQueueBinding = {
@@ -449,6 +464,7 @@ const noopPinnedVersions: PinnedVersionBinding = {
 
 const noopAgentPins: AgentPinBindings = {
   pinned: { resolve: async () => null, list: async () => [] },
+  latest: highestAsLatest(noopAgentRegistry),
   changes: {
     pin: async () => ({
       kind: 'err',
@@ -700,11 +716,12 @@ export function fullAppInput(): CreateAppInput {
     policyRegistry: noopPolicyRegistry,
     retention: noopRetention,
     testSetRegistry: noopTestSetRegistry,
+    testSetFreeze: noopTestSetFreeze,
     blockRegistry: noopBlockRegistry,
     testRunBinding: noopTestRunBinding,
     correctionRegistry: noopCorrectionRegistry,
     expertQueue: noopExpertQueue,
-    evalCaseStore: noopEvalCaseStore,
+    frozenCaseStore: noopFrozenCaseStore,
     sessionStore: noopSessionStore,
     session: { cookie: { allowedOrigins: ['https://console.example.com'] }, tokenSignIn: true },
     identityProvider: noopIdentityProvider,

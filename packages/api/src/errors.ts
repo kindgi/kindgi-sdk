@@ -212,11 +212,24 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'suggested-change-not-found': 404,
   'suggested-change-invalid-state-transition': 409,
   // Evaluating would make a version that serves every unpinned scope.
-  'suggested-change-needs-pin': 409,
+  // Made before suggested changes were for one project: withdraw only.
+  'suggested-change-not-for-a-project': 409,
+  // The runtime freezes no test set, so nothing can be checked.
+  'suggested-change-check-unsupported': 501,
+  'suggested-change-nothing-to-check': 409,
+  // A pin for a project that runs Latest.
+  'suggested-change-project-on-latest': 409,
+  // An add as Latest for a project that runs a pin.
+  'suggested-change-project-pinned': 409,
+  'suggested-change-out-of-date': 409,
   // Improve runs.
   'improve-unsupported': 501,
   'improve-run-not-found': 404,
   'improve-run-finished': 409,
+  /** Something an Improve run needs is missing (`details.items`, as `POST /check` lists them). */
+  'improve-not-ready': 409,
+  /** The agent has a running Improve run in the project (`details.improveRunId`): one at a time. */
+  'improve-run-running': 409,
   'version-already-exists': 409,
   'supervisor-header-missing': 400,
   // Artifacts.
@@ -255,6 +268,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'correction-not-found': 404,
   'correction-status-change-not-allowed': 409,
   'corrector-group-not-found': 404,
+  /** The agent's test set has no case by that id (`/v1/agents/:agentId/test-set/cases/:caseId`). */
+  'test-case-not-found': 404,
+  /** Retiring a case that's retired already: there's no un-retire. */
+  'test-case-retired': 409,
   /** A queue rule that isn't in the project (`/v1/projects/:projectId/queue-rules/:ruleId`). */
   'queue-rule-not-found': 404,
   /** A run that isn't in the project's expert queue. */
@@ -268,6 +285,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // Pinned versions of agents and their pin history.
   'agent-version-not-found': 404,
   'pin-not-found': 404,
+  /** A pin into a scope where no version of the agent runs yet: no pin, and no Latest. */
+  'nothing-runs-in-scope': 409,
   'not-pinned': 409,
   // The release gate.
   'gate-failed': 422,
@@ -422,8 +441,6 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'unsupported-media-type': 415,
   'run-not-finished': 409,
   'item-not-found': 400,
-  // The correction binding can't list corrected runs, so no test sets from corrections.
-  'test-sets-not-supported': 501,
   'run-failures-not-supported': 501,
   'memory-operation-unsupported': 501,
   // The conversation binding can't unregister (a runtime built before it).
@@ -640,6 +657,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'trigger-lifecycle-failed': 500,
   /** The deployment's trigger registry can't do this yet (fire history, run-now, a new owner). */
   'trigger-operation-unsupported': 501,
+  /** The agent and project have an Improve schedule already (`details.scheduleId`). */
+  'schedule-exists': 409,
   // The inbound receiver (`POST /v1/hooks/…`): one answer for any request
   // that doesn't prove its sender, whatever the reason (recorded, not said).
   'webhook-refused': 401,

@@ -5,6 +5,17 @@ import { REVIEWER_ROLE_RANK, type ReviewerRole } from '@kindgi/authz';
 import type { Cursor, ListScope, ProjectId, ScopeSegment, TenantId } from '@kindgi/types';
 
 import type { ExpectedCall } from './expected-decisions.js';
+import type {
+  TestCase,
+  TestCaseAddInput,
+  TestCaseGetInput,
+  TestCaseListInput,
+  TestCasePage,
+  TestCaseRetireInput,
+  TestCaseRetireOutcome,
+  TestSetCounts,
+  TestSetOfInput,
+} from './test-case-binding.js';
 
 /**
  * Caller-plugged surface for corrections: a person says whether a run's
@@ -75,14 +86,27 @@ export interface CorrectionRegistryBinding {
    * ids are left out; removed ones come back as `removed`.
    */
   correctionsByIds(input: CorrectionsByIdsInput): Promise<readonly CorrectionStanding[]>;
+  /** A project's test set of an agent: how many cases it has (see `TEST_CASE_KINDS`). */
+  testSet(input: TestSetOfInput): Promise<TestSetCounts>;
+  /** A project's cases of an agent's test set, newest added first. */
+  listCases(input: TestCaseListInput): Promise<TestCasePage>;
+  /** One case of the agent's test set, retired or not, or `null` when it has none by that id. */
+  getCase(input: TestCaseGetInput): Promise<TestCase | null>;
   /**
-   * Corrected runs with their copies and live corrections, newest first:
-   * what a test set is built from. Optional (a binding without it can't
-   * build test sets from corrections). A comparison's replay is never one of
-   * them (`isReplayCopy`): correcting a replay's answer is evidence for that
-   * comparison, not a case of its own.
+   * The stored copies of these runs, each as a correction's `get` answers
+   * its `run`: what a frozen test set's cases are built from, a hand case's
+   * included. A run with no copy in the tenant is left out, and so is an
+   * erased run's: its case is frozen `erased`. At most `RUN_COPIES_MAX` ids;
+   * more is the caller's mistake, and throws a `RangeError`.
    */
-  listCorrectedRuns?(input: CorrectedRunListInput): Promise<CorrectedRunPage>;
+  runCopies(input: RunCopiesInput): Promise<readonly CorrectedRunCopy[]>;
+  /**
+   * Add a case by hand. It's stored as a correction is, but it has no
+   * status, is never sorted, and nothing that counts corrections counts it.
+   */
+  addCase(input: TestCaseAddInput): Promise<TestCase>;
+  /** Retire a case: it stays listed, and no test run checks it again. */
+  retireCase(input: TestCaseRetireInput): Promise<TestCaseRetireOutcome>;
 }
 
 // ---------- corrector groups ----------
@@ -619,6 +643,15 @@ export interface CorrectionCounts {
   readonly removed: number;
 }
 
+/** The most run ids one `runCopies` call takes: one page of `listCases`. */
+export const RUN_COPIES_MAX = 100;
+
+/** At most `RUN_COPIES_MAX` ids. */
+export interface RunCopiesInput {
+  readonly tenantId: TenantId;
+  readonly runIds: readonly string[];
+}
+
 /** At most 500 ids. */
 export interface CorrectionsByIdsInput {
   readonly tenantId: TenantId;
@@ -630,37 +663,4 @@ export interface CorrectionStanding {
   readonly id: string;
   readonly status: CorrectionStatus;
   readonly sortedTo: CorrectionSortedTo | null;
-}
-
-export interface CorrectedRunListInput {
-  readonly tenantId: TenantId;
-  readonly projectId?: ProjectId;
-  readonly agentId?: string;
-  readonly agentVersion?: string;
-  readonly flowId?: string;
-  /** Runs first corrected at or after this time (ISO 8601). */
-  readonly since?: string;
-  /** Runs first corrected before this time (ISO 8601). */
-  readonly until?: string;
-  /**
-   * Runs started in this segment path or below it (their captured
-   * `segments` start with it). A run corrected before segments were captured
-   * is in none.
-   */
-  readonly segments?: readonly ScopeSegment[];
-  readonly cursor?: Cursor;
-  readonly limit: number;
-}
-
-export interface CorrectedRunWithCorrections {
-  readonly projectId: ProjectId;
-  readonly run: CorrectedRunCopy;
-  /** The run's live corrections. */
-  readonly corrections: readonly Correction[];
-}
-
-export interface CorrectedRunPage {
-  readonly data: readonly CorrectedRunWithCorrections[];
-  readonly hasMore: boolean;
-  readonly nextCursor?: Cursor;
 }

@@ -20,6 +20,7 @@ import type {
   ProjectId,
   RunId,
   Semver,
+  SuggestedChangeId,
   TenantId,
   Timestamp,
   UserId,
@@ -32,8 +33,12 @@ import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
 import { type BlockEdit, blockEditDefinition, publishBlockEdit } from './block-publish.js';
 import { sameUserId } from './caller.js';
 import { deriveAgentVersion } from './derive-agent-version.js';
+import {
+  type LaterEnvironment,
+  environmentTakesPromotionsMessage,
+  laterEnvironment,
+} from './environment-entry.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
-import { rescoreRefusal, rescoreStart } from './eval-rescore.js';
 import type { GateApproval } from './gate.js';
 import {
   type ReferenceScopeBinding,
@@ -43,22 +48,29 @@ import {
 import { refusesCandidates, refusesScope } from './registry-read-only.js';
 import type { ReviewerRegistryBinding } from './reviewer-binding.js';
 import { agentPinScopeToWire } from './routes/agent-pin-scope-wire.js';
-import { type PinRequestOutcome, requestPin } from './routes/agent-pins.js';
+import { type AgentPinGateDeps, type PinRequestOutcome, requestPin } from './routes/agent-pins.js';
 import {
   SUGGESTED_CHANGE_ACTIONS,
   type SuggestedChangeAction,
   type SuggestedChangeEvaluationOutcome,
+  type SuggestedChangeNote,
   type SuggestedChangeStatus,
+  blockChangeOf,
   evaluationOutcome,
   suggestedChangeActionAllowed,
+  suggestedChangeMaker,
+  suggestedChangeNote,
   suggestedChangeStatus,
 } from './suggested-change-status.js';
 import type {
+  CodeChange,
+  CreateSuggestedChangeOutcome,
   ProposedChange,
   StoredSuggestedChange,
   SuggestedChangeDrafter,
   SuggestedChangeEvaluationRef,
   SuggestedChangeEvidence,
+  SuggestedChangeMaker,
   SuggestedChangeObjective,
   SuggestedChangeRule,
   SuggestedChangeStep,
@@ -71,6 +83,13 @@ import type {
   TestRunComparison,
   TestRunStartOutcome,
 } from './test-run-binding.js';
+import { rescoreRefusal, rescoreStart } from './test-run-rescore.js';
+import {
+  type FrozenTestSet,
+  type TestSetFreezeBinding,
+  nothingToCheck,
+} from './test-set-binding.js';
+import { type WhatRuns, whatRuns } from './what-runs.js';
 
 /**
  * The suggested-change lifecycle, from the bindings it runs on: what
@@ -94,6 +113,8 @@ export interface SuggestedChangeServiceDeps {
   readonly projects?: ProjectBinding;
   /** What the agent's project may reach (`reference-scope.ts`); absent → as named. */
   readonly referenceScope?: ReferenceScopeBinding;
+  /** Whether a project is suspended, for a pin's gate (`AgentPinGateDeps`). Absent: no check. */
+  readonly projectSuspended?: AgentPinGateDeps['projectSuspended'];
   /**
    * The tenant's environment orders: a candidate (its block version and
    * agent version) is made in the first environment of the agent's
@@ -115,6 +136,12 @@ export interface SuggestedChangeServiceDeps {
    * (no authorizer): every roster reviewer may read, as `mayRead` allows.
    */
   readonly authz?: AuthzCheckBinding;
+  /**
+   * The project's test set, frozen for a check: a suggested change is
+   * checked on it, its project's version against its own. Absent: a
+   * suggested change can't be made or checked (`create`, `check`).
+   */
+  readonly testSets?: TestSetFreezeBinding;
 }
 
 /** An error with the code the API answers it with (`statusFor`), and its details. */
@@ -134,6 +161,8 @@ export interface SuggestedChangeFacts {
   readonly pin?: Pin | null;
   /** For a pinned suggested change: whether its version still serves the scope. */
   readonly pinnedNow?: boolean;
+  /** For a `ready` one asked to be pinned: why its pin didn't go through. */
+  readonly note?: SuggestedChangeNote;
 }
 
 export interface DraftSuggestedChangeInput {
@@ -147,6 +176,63 @@ export interface DraftSuggestedChangeInput {
   readonly why: string;
   readonly evidence?: SuggestedChangeEvidence;
   readonly drafter: SuggestedChangeDrafter;
+  /** Who or what made it. Absent: read from `drafter` (`suggestedChangeMaker`). */
+  readonly madeBy?: SuggestedChangeMaker;
+}
+
+/** Who makes a suggested change through `create`: a person, a service account, or a deploy. */
+export type SuggestedChangeCreator = Extract<
+  SuggestedChangeMaker,
+  { readonly kind: 'person' | 'service' | 'deploy' }
+>;
+
+/** A suggested change for one project: one block changed in what the project runs. */
+/** A deploy's agent versions, for the cards it makes in the project they reached (`fromDeploy`). */
+export interface DeployCardsInput {
+  readonly tenantId: TenantId;
+  /** The project the versions reached: the deploy's own, or the one it's promoted into. */
+  readonly projectId: ProjectId;
+  readonly deploymentId: string;
+  /** The deploy's image, when it named one by digest. */
+  readonly imageDigest?: string;
+  /** Who deployed or promoted it. */
+  readonly by: PinActor;
+  /** Each agent version the deploy registered. */
+  readonly agents: readonly { readonly agentId: AgentId; readonly version: Semver }[];
+}
+
+/** The cards a deploy made, and the agents whose card couldn't be made, with why. */
+export interface DeployCardsOutcome {
+  readonly made: readonly StoredSuggestedChange[];
+  readonly failed: readonly { readonly agentId: string; readonly message: string }[];
+}
+
+/** A deploy card's why: it has no author's. */
+const DEPLOY_WHY = 'New code from a deploy';
+
+/** How many of an agent's newest finished runs a deploy card's check looks through for the version it's built on. */
+const NEWEST_RUNS = 100;
+
+export interface NewSuggestedChangeInput {
+  readonly tenantId: TenantId;
+  readonly agentId: string;
+  readonly projectId: ProjectId;
+  readonly blockId: string;
+  /** New values for a settings block, or a new template for a prompt block. */
+  readonly content: ProposedChange['change']['content'];
+  readonly why: string;
+  /** The corrections it fixes, by id. */
+  readonly fixes?: readonly string[];
+  readonly madeBy: SuggestedChangeCreator;
+  /** Who it's done for: the publisher its block and agent versions record. */
+  readonly actor: PinActor;
+}
+
+export interface CheckSuggestedChangeInput {
+  readonly tenantId: TenantId;
+  readonly suggestedChange: StoredSuggestedChange;
+  /** Who it's done for: the publisher its versions record, when it has none yet. */
+  readonly actor: PinActor;
 }
 
 export interface EvaluateSuggestedChangeInput {
@@ -304,11 +390,13 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         const all = await pinsOf(p.agentId as unknown as string);
         pinnedNow = all.some((pin) => pin.changeId === change.id);
       }
+      const note = noteOf(status, change, p);
       return {
         status,
         ...(evaluation !== undefined && { evaluation }),
         ...(change !== undefined && { pin: change }),
         ...(pinnedNow !== undefined && { pinnedNow }),
+        ...(note !== undefined && { note }),
       };
     };
   }
@@ -444,19 +532,34 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       : (version.madeInProjectId ?? version.projectId);
   }
 
-  /** Publish the block version and derive the agent version a suggested change is evaluated as. */
+  /**
+   * Publish the block version and derive the agent version a suggested
+   * change is checked as: in `projectId`, its project, when the agent
+   * store records none on its versions.
+   */
   async function makeCandidate(
     suggestedChange: StoredSuggestedChange,
     actor: PinActor,
+    projectId?: ProjectId,
   ): Promise<SuggestedChangeOutcome<NonNullable<StoredSuggestedChange['candidate']>>> {
     const { tenantId } = suggestedChange;
-    const { blockId, fromVersion } = suggestedChange.change;
+    const block = blockChangeOf(suggestedChange);
+    if (block === undefined) {
+      return err(
+        validationFailed(
+          "A deploy's suggested change is checked as the version the deploy registered, never a new one",
+          [],
+        ),
+      );
+    }
+    const { blockId, fromVersion } = block.change;
+    const base = builtOn(suggestedChange);
     // A new version of the block is written only for a block in the
     // agent's project's reach (a suggested change drafted before that was checked).
     const agentVersion = await deps.agents.getVersion({
       tenantId,
       agentId: suggestedChange.agentId,
-      version: suggestedChange.fromVersion as Semver,
+      version: base as Semver,
     });
     if (agentVersion?.projectId !== undefined) {
       const outOfScope = await referencesOutOfScope(
@@ -471,7 +574,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
     if (from === null) {
       return err(validationFailed(`Block "${blockId}" version ${fromVersion} is gone`, []));
     }
-    const edit = editOf(suggestedChange.tier, suggestedChange.change.content);
+    const edit = editOf(block.tier, block.change.content);
     // Deriving the agent version checks model settings, after the block
     // version is written: checked here first, so a refusal leaves
     // nothing stored.
@@ -479,7 +582,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       const agent = await deps.agents.getVersion({
         tenantId,
         agentId: suggestedChange.agentId,
-        version: suggestedChange.fromVersion as Semver,
+        version: base as Semver,
       });
       const refused =
         agent !== null && agent.modelSettings?.id === blockId
@@ -493,6 +596,8 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       from,
       edit,
       ...(deps.orders !== undefined && { orders: deps.orders }),
+      publishedBy: actor,
+      source: { kind: 'suggested-change', id: suggestedChange.id },
     });
     if (published.kind === 'invalid') {
       return err(
@@ -509,21 +614,25 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       blocks: deps.blocks,
       tenantId,
       agentId: suggestedChange.agentId,
-      from: suggestedChange.fromVersion,
+      from: base,
       swaps: { [pinKind]: { [blockId]: published.version } },
       label: `suggested change ${suggestedChange.id as unknown as string}`,
       by: `${actor.kind}:${actor.id}`,
       suggestedChangeId: suggestedChange.id as unknown as string,
+      ...(projectId !== undefined && { projectId }),
       ...(deps.orders !== undefined && { orders: deps.orders }),
-      tuplesFor: (projectId) => (id) =>
-        tuplesForCreate({ kind: 'agent', id: id as AgentId, tenantId, projectId }, userId),
+      tuplesFor: (landsIn) => (id) =>
+        tuplesForCreate({ kind: 'agent', id: id as AgentId, tenantId, projectId: landsIn }, userId),
     });
+    if (derived.kind === 'environment-takes-promotions') {
+      return err(environmentTakesPromotions(derived.later));
+    }
     if (derived.kind !== 'ok' && derived.kind !== 'reused') {
       return err(
         validationFailed(
           derived.kind === 'invalid'
-            ? `Can't derive a version from ${suggestedChange.fromVersion}`
-            : `Can't derive a version from ${suggestedChange.fromVersion} (${derived.kind})`,
+            ? `Can't derive a version from ${base}`
+            : `Can't derive a version from ${base} (${derived.kind})`,
           derived.kind === 'invalid' ? derived.issues : [],
         ),
       );
@@ -540,7 +649,402 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
     };
   }
 
-  return {
+  /**
+   * A registry that takes no writes makes no suggested change, nor checks
+   * one: under `kindgi dev`, the pack's files serve every project, and a
+   * suggested change is for one. Even one that takes Improve's candidates.
+   */
+  function cardReadOnly(): SuggestedChangeServiceError | undefined {
+    const readOnly = deps.agents.readOnly;
+    return readOnly === undefined
+      ? undefined
+      : { code: 'registry-read-only', message: readOnly.reason };
+  }
+
+  /** Why the registry takes no candidate for the suggested change; `undefined` when it does. */
+  function readOnlyRefusal(scope: AgentPinScope): SuggestedChangeServiceError | undefined {
+    // Checking derives an agent version: not into a registry that takes
+    // no writes, unless it takes Improve's candidates.
+    if (deps.agents.readOnly !== undefined && refusesCandidates(deps.agents.readOnly)) {
+      return { code: 'registry-read-only', message: deps.agents.readOnly.reason };
+    }
+    const narrower = refusesScope(deps.agents.readOnly, scope);
+    return narrower === undefined ? undefined : { code: 'registry-read-only', message: narrower };
+  }
+
+  /** The project's test set, frozen for a check; the 409 when it has no cases. */
+  async function frozenSet(
+    testSets: TestSetFreezeBinding,
+    tenantId: TenantId,
+    agentId: AgentId,
+    projectId: ProjectId,
+  ): Promise<SuggestedChangeOutcome<FrozenTestSet>> {
+    const frozen = await testSets.freezeTestSet({ tenantId, agentId, projectId });
+    if (frozen.cases.length > 0) return { kind: 'ok', value: frozen };
+    return err(nothingToCheck(agentId, projectId));
+  }
+
+  /**
+   * Check a suggested change on a frozen test set: its candidate (made
+   * first, when it has none) and what it's built on run the same cases in
+   * its project. The candidate's run is its evaluation, held to the other
+   * (`reference`). Not half a check: when the second run can't start, the
+   * first is cancelled.
+   */
+  async function checkOn(
+    stored: StoredSuggestedChange,
+    actor: PinActor,
+    projectId: ProjectId,
+    frozen: FrozenTestSet,
+  ): Promise<SuggestedChangeOutcome<StoredSuggestedChange>> {
+    const { tenantId } = stored;
+    let suggestedChange = stored;
+    if (suggestedChange.candidate === undefined) {
+      const made = await makeCandidate(suggestedChange, actor, projectId);
+      if (made.kind === 'err') return made;
+      const recorded = await record(suggestedChange, { kind: 'candidate', candidate: made.value });
+      if (recorded.kind === 'err') return recorded;
+      suggestedChange = recorded.value;
+    }
+    const candidate = suggestedChange.candidate;
+    if (candidate === undefined) throw new Error('a recorded candidate is on the suggested change');
+    if ((await candidateProject(suggestedChange)) === undefined) {
+      return err({
+        code: 'agent-version-not-found',
+        message: `The candidate ${suggestedChange.agentId as unknown as string} ${candidate.agentVersion} is unregistered: withdraw this suggested change and suggest it again`,
+      });
+    }
+    const correlationId = `suggested-change:${suggestedChange.id as unknown as string}`;
+    const start = (version: string) =>
+      deps.testRuns.start({
+        tenantId,
+        projectId,
+        testSetId: frozen.testSetId,
+        testSetVersion: frozen.testSetVersion,
+        agentRef: { agentId: suggestedChange.agentId, version: version as Semver },
+        correlationId,
+      });
+    const withIt = await start(candidate.agentVersion);
+    if (withIt.kind !== 'ok') return err(startError(withIt));
+    if (blockChangeOf(suggestedChange) === undefined) {
+      // A deploy's image runs only its own code, so what the project runs
+      // can't run now: it's held to that version's newest finished run on
+      // the same frozen cases, when there is one.
+      const reused = await newestRunOn(suggestedChange, projectId, frozen);
+      return record(suggestedChange, {
+        kind: 'evaluation',
+        evaluation: {
+          testRunId: withIt.testRunId as unknown as string,
+          testSetId: frozen.testSetId,
+          objective: 'passRate',
+          startedAt: new Date().toISOString() as Timestamp,
+          rule: 'better',
+          ...(reused !== undefined && { reference: { testRunId: reused } }),
+        },
+      });
+    }
+    const now = await start(builtOn(suggestedChange));
+    if (now.kind !== 'ok') {
+      await deps.testRuns.cancel({ tenantId, testRunId: withIt.testRunId });
+      return err(startError(now));
+    }
+    return record(suggestedChange, {
+      kind: 'evaluation',
+      evaluation: {
+        testRunId: withIt.testRunId as unknown as string,
+        testSetId: frozen.testSetId,
+        objective: 'passRate',
+        startedAt: new Date().toISOString() as Timestamp,
+        rule: 'better',
+        reference: { testRunId: now.testRunId as unknown as string },
+      },
+    });
+  }
+
+  /**
+   * Its block change carried onto `base`, the version its project runs
+   * now: the block version `base` pins, and the content. A prompt's
+   * wording is the change itself. A settings change keeps the values it
+   * changed, and takes every other value from the version `base` pins.
+   * The 409 when `base` doesn't use the block, or already has the change.
+   */
+  async function carriedOnto(
+    suggestedChange: StoredSuggestedChange,
+    base: AgentVersionRecord,
+  ): Promise<SuggestedChangeOutcome<ProposedChange['change']>> {
+    const { tenantId } = suggestedChange;
+    const runs = base.version as unknown as string;
+    const block = blockChangeOf(suggestedChange);
+    if (block === undefined) {
+      return err(
+        outOfDate(suggestedChange, runs, "a deploy's version is never rebuilt on another"),
+      );
+    }
+    const { change, tier } = block;
+    const { blockId } = change;
+    const pins = tier === 'settings-block' ? base.pins?.settings : base.pins?.prompts;
+    const pinned = pins?.[blockId];
+    if (pinned === undefined) {
+      return err(outOfDate(suggestedChange, runs, `${runs} doesn't use block "${blockId}"`));
+    }
+    const now = await deps.blocks.getVersion({ tenantId, blockId, version: pinned });
+    if (now === null) {
+      return err(validationFailed(`Block "${blockId}" version ${pinned} is gone`, []));
+    }
+    const content = await contentOn(tenantId, change, now, pinned);
+    if (content.kind === 'err') return content;
+    if (sameContent(now, editOf(tier, content.value))) {
+      return err(outOfDate(suggestedChange, runs, `${runs} already has this change`));
+    }
+    const carried = {
+      ...change,
+      fromVersion: pinned,
+      content: content.value,
+    } as ProposedChange['change'];
+    return { kind: 'ok', value: carried };
+  }
+
+  /**
+   * A change's content on the block version `pinned` (`now`): a settings
+   * change keeps the values it changed from its old `from`, set or
+   * removed, and takes every other value from `now`. A prompt's wording,
+   * or a block that didn't move, is as it is.
+   */
+  async function contentOn(
+    tenantId: TenantId,
+    change: ProposedChange['change'],
+    now: BlockRecord,
+    pinned: string,
+  ): Promise<SuggestedChangeOutcome<ProposedChange['change']['content']>> {
+    const { blockId, content } = change;
+    if (now.kind !== 'settings' || pinned === change.fromVersion) {
+      return { kind: 'ok', value: content };
+    }
+    const was = await deps.blocks.getVersion({ tenantId, blockId, version: change.fromVersion });
+    if (was?.kind !== 'settings') {
+      return err(validationFailed(`Block "${blockId}" version ${change.fromVersion} is gone`, []));
+    }
+    const values = (content as { values: Record<string, unknown> }).values;
+    return {
+      kind: 'ok',
+      value: {
+        ...content,
+        values: carrySettings(was.content.values, values, now.content.values),
+      } as ProposedChange['change']['content'],
+    };
+  }
+
+  /**
+   * Rebuild it on what its project runs now (`runs`), when that moved
+   * since it was built: its block change carried onto that version
+   * (`carriedOnto`), a new candidate, and a new check on the project's
+   * test set, frozen now. `undefined` when it's built on what runs, or
+   * its project runs its own version.
+   */
+  async function rebuildIfMoved(
+    suggestedChange: StoredSuggestedChange,
+    actor: PinActor,
+    projectId: ProjectId,
+    runs: WhatRuns | null,
+  ): Promise<SuggestedChangeOutcome<StoredSuggestedChange> | undefined> {
+    if (runs === null || !moved(suggestedChange, runs)) return undefined;
+    const now = runs.version as unknown as string;
+    const readOnly = cardReadOnly();
+    if (readOnly !== undefined) return err(readOnly);
+    if (deps.testSets === undefined) return err(checkUnsupported());
+    const { tenantId, agentId } = suggestedChange;
+    const base = await activeVersion(tenantId, agentId, runs.version, projectId);
+    if (base.kind === 'err') return base;
+    const change = await carriedOnto(suggestedChange, base.value);
+    if (change.kind === 'err') return change;
+    // Frozen first: a project with nothing to check leaves it as it was.
+    const frozen = await frozenSet(deps.testSets, tenantId, agentId, projectId);
+    if (frozen.kind === 'err') return frozen;
+    const rebuilt = await record(suggestedChange, {
+      kind: 'rebuilt',
+      builtOnVersion: now,
+      rebuiltAt: new Date().toISOString() as Timestamp,
+      change: change.value,
+    });
+    if (rebuilt.kind === 'err') return rebuilt;
+    return checkOn(rebuilt.value, actor, projectId, frozen.value);
+  }
+
+  /** The version its project runs (`version`), when it's active; else the 404. */
+  async function activeVersion(
+    tenantId: TenantId,
+    agentId: AgentId,
+    version: Semver,
+    projectId: ProjectId,
+  ): Promise<SuggestedChangeOutcome<AgentVersionRecord>> {
+    const found = await deps.agents.getVersion({ tenantId, agentId, version });
+    if (found !== null && found.unregisteredAt === undefined) return { kind: 'ok', value: found };
+    return err({
+      code: 'agent-version-not-found',
+      message: `${agentId as unknown as string} has no active version ${version as unknown as string}, which project ${projectId as unknown as string} runs`,
+    });
+  }
+
+  /**
+   * Rebuild one of the project's suggested changes in `rebuildOthers`:
+   * `true` when it was rebuilt, `false` when it needn't be, or why it
+   * couldn't be.
+   */
+  async function rebuildOne(
+    card: StoredSuggestedChange,
+    actor: PinActor,
+    projectId: ProjectId,
+    runs: WhatRuns,
+  ): Promise<boolean | string> {
+    if (card.withdrawn !== undefined || card.addedAsLatest !== undefined) return false;
+    try {
+      const { status } = await facts(card.tenantId)(card);
+      if (!suggestedChangeActionAllowed('check', status)) return false;
+      const outcome = await rebuildIfMoved(card, actor, projectId, runs);
+      if (outcome === undefined) return false;
+      return outcome.kind === 'ok' ? true : outcome.error.message;
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  /**
+   * `undefined` when it's built on what its project runs (`runs`); else
+   * the 409 a pin or an add as Latest answers, once its rebuild started,
+   * or why it couldn't be rebuilt.
+   */
+  async function refuseMoved(
+    suggestedChange: StoredSuggestedChange,
+    actor: PinActor,
+    projectId: ProjectId,
+    runs: WhatRuns | null,
+  ): Promise<SuggestedChangeServiceError | undefined> {
+    const moved = await rebuildIfMoved(suggestedChange, actor, projectId, runs);
+    if (moved === undefined || runs === null) return undefined;
+    if (moved.kind === 'err') {
+      if (moved.error.code === 'suggested-change-out-of-date') return moved.error;
+      return {
+        ...moved.error,
+        message: `Project ${projectId as unknown as string} now runs ${runs.version as unknown as string}, and rebuilding suggested change ${suggestedChange.id as unknown as string} on it failed: ${moved.error.message}`,
+      };
+    }
+    return outOfDate(suggestedChange, runs.version as unknown as string);
+  }
+
+  /**
+   * The newest finished run, in its project, of the version a suggested
+   * change is built on, on the same frozen version of the test set: among
+   * the newest `NEWEST_RUNS` finished runs of the agent there. `undefined`
+   * when there's none.
+   */
+  async function newestRunOn(
+    suggestedChange: StoredSuggestedChange,
+    projectId: ProjectId,
+    frozen: FrozenTestSet,
+  ): Promise<string | undefined> {
+    const page = await deps.testRuns.list({
+      tenantId: suggestedChange.tenantId,
+      limit: NEWEST_RUNS,
+      filter: {
+        testSetId: frozen.testSetId,
+        status: 'completed',
+        agentId: suggestedChange.agentId,
+      },
+      scope: { kind: 'project', tenantId: suggestedChange.tenantId, projectId },
+    });
+    const version = builtOn(suggestedChange);
+    const run = page.data.find(
+      (r) => r.testSetVersion === frozen.testSetVersion && r.agentRef?.version === version,
+    );
+    return run?.testRunId as unknown as string | undefined;
+  }
+
+  /**
+   * The card a deploy makes for one agent version it registered, in the
+   * project it reached, when a pin decides what the project runs there and
+   * it's another version. `undefined` when it makes none: the project
+   * follows Latest (it runs the new version at once) or runs it already.
+   * Checked at once, unless the project's test set has no cases yet.
+   */
+  async function deployCard(
+    input: DeployCardsInput,
+    agent: DeployCardsInput['agents'][number],
+  ): Promise<SuggestedChangeOutcome<StoredSuggestedChange> | undefined> {
+    const { tenantId, projectId } = input;
+    const { agentId } = agent;
+    const runs = await whatRuns(deps.agentPins, { tenantId, agentId, projectId });
+    if (runs === null || runs.follows !== 'pin' || runs.version === agent.version) return undefined;
+    const version = await deps.agents.getVersion({ tenantId, agentId, version: agent.version });
+    if (version === null || version.unregisteredAt !== undefined) {
+      return err({
+        code: 'agent-version-not-found',
+        message: `${agentId as unknown as string} has no active version ${agent.version as unknown as string}`,
+      });
+    }
+    const created = await storeDeployCard(input, agent, runs.version);
+    if (created.kind === 'dedup') return { kind: 'ok', value: created.suggestedChange };
+    const withVersion = await record(created.suggestedChange, {
+      kind: 'candidate',
+      candidate: {
+        agentVersion: agent.version as unknown as string,
+        pinsDigest: version.pinsDigest ?? '',
+      },
+    });
+    if (withVersion.kind === 'err' || deps.testSets === undefined) return withVersion;
+    const frozen = await deps.testSets.freezeTestSet({ tenantId, agentId, projectId });
+    if (frozen.cases.length === 0) return withVersion;
+    return checkOn(withVersion.value, input.by, projectId, frozen);
+  }
+
+  /** Store a deploy card built on `fromVersion`, what its project runs; or find the same one open. */
+  async function storeDeployCard(
+    input: DeployCardsInput,
+    agent: DeployCardsInput['agents'][number],
+    fromVersion: Semver,
+  ): Promise<CreateSuggestedChangeOutcome> {
+    const { tenantId, projectId } = input;
+    const { agentId } = agent;
+    const from = await deps.agents.getVersion({ tenantId, agentId, version: fromVersion });
+    const madeBy: SuggestedChangeMaker = {
+      kind: 'deploy',
+      deploymentId: input.deploymentId,
+      by: input.by,
+    };
+    const change: CodeChange = {
+      deploymentId: input.deploymentId,
+      ...(input.imageDigest !== undefined && { imageDigest: input.imageDigest }),
+    };
+    const built = fromVersion as unknown as string;
+    return deps.store.createSuggestedChange({
+      tenantId,
+      ...(from?.projectId !== undefined && { projectId: from.projectId }),
+      agentId,
+      fromVersion: built,
+      scope: { kind: 'project', projectId },
+      tier: 'code',
+      change,
+      why: DEPLOY_WHY,
+      drafter: drafterOf(madeBy),
+      madeBy,
+      fingerprint: codeFingerprint(agentId, built, projectId, agent.version),
+    });
+  }
+
+  /** One agent's deploy card (`deployCard`), or why it wasn't made; neither when it makes none. */
+  async function deployCardOf(
+    input: DeployCardsInput,
+    agent: DeployCardsInput['agents'][number],
+  ): Promise<{ readonly made?: StoredSuggestedChange; readonly failed?: string }> {
+    try {
+      const outcome = await deployCard(input, agent);
+      if (outcome === undefined) return {};
+      return outcome.kind === 'ok' ? { made: outcome.value } : { failed: outcome.error.message };
+    } catch (cause) {
+      return { failed: cause instanceof Error ? cause.message : String(cause) };
+    }
+  }
+
+  const service = {
     facts,
 
     /**
@@ -608,6 +1112,12 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
           ]),
         );
       }
+      // New values for the version's model-settings block are model
+      // settings, and don't name its model twice: checked before it's stored.
+      if (edit.kind === 'settings' && from.modelSettings?.id === input.blockId) {
+        const refused = modelSettingsRefusal(from, input.blockId, edit.values);
+        if (refused !== undefined) return err(refused);
+      }
       const change = {
         blockId: input.blockId,
         fromVersion: pinned.block.version,
@@ -624,6 +1134,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         why: input.why,
         ...(input.evidence !== undefined && { evidence: input.evidence }),
         drafter: input.drafter,
+        madeBy: input.madeBy ?? suggestedChangeMaker({ drafter: input.drafter }),
         fingerprint: fingerprintOf(input, change),
       });
       return {
@@ -633,9 +1144,105 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
     },
 
     /**
+     * A suggested change for a project, built on what the project runs (its
+     * pin, or Latest), then checked on the project's test set. Everything
+     * that can refuse it is asked before anything is stored. `deduped`
+     * when the same change on the same version is open already: that one,
+     * unchecked again.
+     */
+    async create(
+      input: NewSuggestedChangeInput,
+    ): Promise<
+      SuggestedChangeOutcome<{ suggestedChange: StoredSuggestedChange; deduped: boolean }>
+    > {
+      const { tenantId, projectId } = input;
+      const agentId = input.agentId as AgentId;
+      const scope: AgentPinScope = { kind: 'project', projectId };
+      const readOnly = cardReadOnly();
+      if (readOnly !== undefined) return err(readOnly);
+      if (deps.testSets === undefined) return err(checkUnsupported());
+      const later = await laterEnvironment(deps.orders, tenantId, projectId);
+      if (later !== undefined) return err(environmentTakesPromotions(later));
+      const runs = await whatRuns(deps.agentPins, { tenantId, agentId: input.agentId, projectId });
+      if (runs === null) {
+        return err({
+          code: 'nothing-runs-in-scope',
+          message: `${input.agentId} runs nothing in project ${projectId as unknown as string}: a suggested change is built on what the project runs, so publish a version of the agent first`,
+          agentId: input.agentId,
+        });
+      }
+      const fromVersion = runs.version as unknown as string;
+      const from = await deps.agents.getVersion({ tenantId, agentId, version: runs.version });
+      if (from === null || from.unregisteredAt !== undefined) {
+        return err({
+          code: 'agent-version-not-found',
+          message: `${input.agentId} has no active version ${fromVersion}, which project ${projectId as unknown as string} runs`,
+        });
+      }
+      const tier = tierFor(from, input.blockId, input.content);
+      if (typeof tier !== 'string') return err(tier);
+      const frozen = await frozenSet(deps.testSets, tenantId, agentId, projectId);
+      if (frozen.kind === 'err') return frozen;
+      const drafted = await service.draft({
+        tenantId,
+        agentId: input.agentId,
+        fromVersion,
+        scope,
+        tier,
+        blockId: input.blockId,
+        content: input.content,
+        why: input.why,
+        ...(input.fixes !== undefined && { evidence: { fixes: input.fixes } }),
+        drafter: drafterOf(input.madeBy),
+        madeBy: input.madeBy,
+      });
+      if (drafted.kind === 'err' || drafted.value.deduped) return drafted;
+      const made = drafted.value.suggestedChange;
+      const checked = await checkOn(made, input.actor, projectId, frozen.value);
+      if (checked.kind === 'ok')
+        return { kind: 'ok', value: { suggestedChange: checked.value, deduped: false } };
+      const id = made.id as unknown as string;
+      return err({
+        ...checked.error,
+        message: `Suggested change ${id} was made, but its check didn't start: ${checked.error.message}. Check it again with POST /v1/suggested-changes/${id}/check.`,
+        suggestedChangeId: id,
+      });
+    },
+
+    /**
+     * Check a suggested change again on its project's test set, frozen now:
+     * after its check failed, or for new scores. One made before
+     * suggested changes were for a project can't be checked.
+     */
+    async check(
+      input: CheckSuggestedChangeInput,
+    ): Promise<SuggestedChangeOutcome<StoredSuggestedChange>> {
+      const { tenantId, suggestedChange } = input;
+      const refused = await refuseStatus('check', suggestedChange);
+      if (refused !== undefined) return err(refused);
+      const projectId = projectOfCard(suggestedChange);
+      if (projectId === undefined) return err(notForAProject(suggestedChange, 'check'));
+      const readOnly = cardReadOnly();
+      if (readOnly !== undefined) return err(readOnly);
+      if (deps.testSets === undefined) return err(checkUnsupported());
+      // Its project moved first: checked again means rebuilt on what runs.
+      const runs = await whatRuns(deps.agentPins, {
+        tenantId,
+        agentId: suggestedChange.agentId as unknown as string,
+        projectId,
+      });
+      const moved = await rebuildIfMoved(suggestedChange, input.actor, projectId, runs);
+      if (moved !== undefined) return moved;
+      const frozen = await frozenSet(deps.testSets, tenantId, suggestedChange.agentId, projectId);
+      if (frozen.kind === 'err') return frozen;
+      return checkOn(suggestedChange, input.actor, projectId, frozen.value);
+    },
+
+    /**
      * Publish the suggested change's block version and derive its agent version
      * (once: an evaluation again reuses them), then start the comparison.
-     * Needs a writable agent registry and a tenant-wide pinned version.
+     * Needs a writable agent registry. The version it makes is made for its
+     * project, and is Latest nowhere until someone adds it.
      */
     async evaluate(
       input: EvaluateSuggestedChangeInput,
@@ -643,23 +1250,10 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       const { tenantId } = input;
       let suggestedChange = input.suggestedChange;
       const agentId = suggestedChange.agentId as unknown as string;
-      const refused = await refuseStatus('evaluate', suggestedChange);
+      const refused = await refuseStatus('check', suggestedChange);
       if (refused !== undefined) return err(refused);
-      // Evaluating derives an agent version: not into a registry that takes
-      // no writes, unless it takes Improve's candidates.
-      if (deps.agents.readOnly !== undefined && refusesCandidates(deps.agents.readOnly)) {
-        return err({ code: 'registry-read-only', message: deps.agents.readOnly.reason });
-      }
-      const narrower = refusesScope(deps.agents.readOnly, suggestedChange.scope);
-      if (narrower !== undefined) return err({ code: 'registry-read-only', message: narrower });
-      // A version pinned nowhere is still the agent's latest, and the
-      // latest serves every scope nothing is pinned for.
-      if ((await deps.agentPins.pinned.resolve({ tenantId, agentId })) === null) {
-        return err({
-          code: 'suggested-change-needs-pin',
-          message: `${agentId} has no pinned version for the whole tenant, so a new version of it would serve every scope nothing is pinned for. Pin its current version for the tenant first (scope { "kind": "tenant" }), then evaluate.`,
-        });
-      }
+      const readOnly = readOnlyRefusal(suggestedChange.scope);
+      if (readOnly !== undefined) return err(readOnly);
       if (suggestedChange.candidate === undefined) {
         const made = await makeCandidate(suggestedChange, input.actor);
         if (made.kind === 'err') return made;
@@ -729,10 +1323,18 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       input: RescoreSuggestedChangeInput,
     ): Promise<SuggestedChangeOutcome<StoredSuggestedChange>> {
       const { tenantId, suggestedChange } = input;
-      const refused = await refuseStatus('rescore', suggestedChange);
+      const refused = await refuseStatus('check', suggestedChange);
       if (refused !== undefined) return err(refused);
       const latest = suggestedChange.evaluation;
-      if (latest === undefined) throw new Error('an evaluated suggested change has an evaluation');
+      if (latest === undefined) {
+        return err(
+          invalidTransition(
+            suggestedChange,
+            'check-failed',
+            'it has no check to score again: check it instead.',
+          ),
+        );
+      }
       const runs = await rescorable(tenantId, latest);
       if (runs.kind === 'err') return runs;
       // As evaluate: not for a candidate unregistered since.
@@ -784,6 +1386,23 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       const { tenantId, suggestedChange } = input;
       const refused = await refuseStatus('pin', suggestedChange);
       if (refused !== undefined) return err(refused);
+      const projectId = projectOfCard(suggestedChange);
+      if (projectId === undefined) return err(notForAProject(suggestedChange, 'pin'));
+      // A project on Latest takes a change as its Latest (`add-as-latest`).
+      const runs = await whatRuns(deps.agentPins, {
+        tenantId,
+        agentId: suggestedChange.agentId as unknown as string,
+        projectId,
+      });
+      if (runs?.follows !== 'pin') {
+        return err({
+          code: 'suggested-change-project-on-latest',
+          message: `Project ${projectId as unknown as string} runs ${suggestedChange.agentId as unknown as string}'s Latest, not a pin: add the change as its Latest instead`,
+          suggestedChangeId: suggestedChange.id as unknown as string,
+        });
+      }
+      const moved = await refuseMoved(suggestedChange, input.actor, projectId, runs);
+      if (moved !== undefined) return err(moved);
       const { candidate, evaluation } = suggestedChange;
       if (candidate === undefined || evaluation === undefined) {
         throw new Error('an evaluated suggested change has a candidate and an evaluation');
@@ -808,6 +1427,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
           testRuns: deps.testRuns,
           ...(deps.projects !== undefined && { projects: deps.projects }),
           ...(deps.referenceScope !== undefined && { referenceScope: deps.referenceScope }),
+          ...(deps.projectSuspended !== undefined && { projectSuspended: deps.projectSuspended }),
         },
         {
           tenantId,
@@ -829,6 +1449,137 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       return { kind: 'ok', value: { suggestedChange: recorded.value, pin: outcome } };
     },
 
+    /**
+     * Add its version as its project's Latest, for a project on Latest:
+     * the version is marked Latest in the project it was made in (the
+     * card's), now, by the caller (`markLatest`). No gate: a project on
+     * Latest takes each new Latest as it comes. A pinned project takes a
+     * pin instead (`409 suggested-change-project-pinned`).
+     */
+    async addAsLatest(input: {
+      readonly tenantId: TenantId;
+      readonly suggestedChange: StoredSuggestedChange;
+      readonly actor: PinActor;
+      readonly reason?: string;
+    }): Promise<SuggestedChangeOutcome<StoredSuggestedChange>> {
+      const { tenantId, suggestedChange } = input;
+      const refused = await refuseStatus('add-as-latest', suggestedChange);
+      if (refused !== undefined) return err(refused);
+      const projectId = projectOfCard(suggestedChange);
+      if (projectId === undefined) return err(notForAProject(suggestedChange, 'add-as-latest'));
+      const readOnly = cardReadOnly();
+      if (readOnly !== undefined) return err(readOnly);
+      const id = suggestedChange.id as unknown as string;
+      const agentId = suggestedChange.agentId as unknown as string;
+      const runs = await whatRuns(deps.agentPins, { tenantId, agentId, projectId });
+      if (runs?.follows === 'pin') {
+        return err({
+          code: 'suggested-change-project-pinned',
+          message: `Project ${projectId as unknown as string} runs a pin of ${agentId}, not its Latest: pin the change instead`,
+          suggestedChangeId: id,
+        });
+      }
+      const moved = await refuseMoved(suggestedChange, input.actor, projectId, runs);
+      if (moved !== undefined) return err(moved);
+      const version = suggestedChange.candidate?.agentVersion;
+      if (version === undefined) throw new Error('a ready suggested change has its version');
+      const marked = await deps.agents.markLatest({
+        tenantId,
+        agentId: suggestedChange.agentId,
+        version: version as Semver,
+        by: input.actor,
+      });
+      if (marked.kind === 'not-found') {
+        return err({
+          code: 'agent-version-not-found',
+          message: `${agentId} has no active version ${version}, which suggested change ${id} made`,
+        });
+      }
+      return record(suggestedChange, {
+        kind: 'added-as-latest',
+        addedAsLatest: {
+          at: marked.latestAt as Timestamp,
+          by: `${input.actor.kind}:${input.actor.id}`,
+          ...(input.reason !== undefined && { reason: input.reason }),
+        },
+      });
+    },
+
+    /**
+     * After its project's version moved (a pin, or an added Latest),
+     * rebuild every suggested change for the agent and project that's
+     * ready or whose check failed, other than `except`, on what the
+     * project runs now. Each one on its own: one that can't be rebuilt
+     * stays as it was, and is rebuilt when it's checked again, pinned or
+     * added as Latest.
+     */
+    async rebuildOthers(input: {
+      readonly tenantId: TenantId;
+      readonly agentId: AgentId;
+      readonly projectId: ProjectId;
+      readonly actor: PinActor;
+      readonly except: SuggestedChangeId;
+    }): Promise<{
+      readonly rebuilt: readonly SuggestedChangeId[];
+      readonly failed: readonly {
+        readonly suggestedChangeId: SuggestedChangeId;
+        readonly message: string;
+      }[];
+    }> {
+      const { tenantId, agentId, projectId } = input;
+      const rebuilt: SuggestedChangeId[] = [];
+      const failed: { suggestedChangeId: SuggestedChangeId; message: string }[] = [];
+      const runs = await whatRuns(deps.agentPins, {
+        tenantId,
+        agentId: agentId as unknown as string,
+        projectId,
+      });
+      if (runs === null) return { rebuilt, failed };
+      let cursor: Cursor | undefined;
+      do {
+        const page = await deps.store.listSuggestedChanges({
+          tenantId,
+          limit: 100,
+          agentId,
+          pinnedScope: { kind: 'project', projectId },
+          ...(cursor !== undefined && { cursor }),
+        });
+        for (const card of page.data) {
+          if (card.id === input.except) continue;
+          const done = await rebuildOne(card, input.actor, projectId, runs);
+          if (done === true) rebuilt.push(card.id);
+          if (typeof done === 'string') failed.push({ suggestedChangeId: card.id, message: done });
+        }
+        cursor = page.nextCursor;
+      } while (cursor !== undefined);
+      return { rebuilt, failed };
+    },
+
+    /**
+     * The cards a deploy makes in the project its versions reached: the
+     * deploy's own, or the one it's promoted into. One for each agent
+     * version it registered whose project runs a pinned other version
+     * (`madeBy: deploy`). A project on Latest runs the new version at once,
+     * and gets none. Each is made on its own: one that can't be made is in
+     * `failed`, and never refuses the deploy. None where cards can't be
+     * checked (no test set freeze) or made (a read-only registry).
+     */
+    async fromDeploy(input: DeployCardsInput): Promise<DeployCardsOutcome> {
+      if (deps.testSets === undefined || cardReadOnly() !== undefined) {
+        return { made: [], failed: [] };
+      }
+      const made: StoredSuggestedChange[] = [];
+      const failed: { agentId: string; message: string }[] = [];
+      for (const agent of input.agents) {
+        const card = await deployCardOf(input, agent);
+        if (card.made !== undefined) made.push(card.made);
+        if (card.failed !== undefined) {
+          failed.push({ agentId: agent.agentId as unknown as string, message: card.failed });
+        }
+      }
+      return { made, failed };
+    },
+
     async withdraw(input: {
       readonly tenantId: TenantId;
       readonly suggestedChange: StoredSuggestedChange;
@@ -847,11 +1598,156 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       });
     },
   };
+  return service;
 }
 
 export type SuggestedChangeService = ReturnType<typeof createSuggestedChangeService>;
 
 // ---------- helpers ----------
+
+/** The version a suggested change is built on: where a rebuild moved it, else where it was made. */
+function builtOn(suggestedChange: StoredSuggestedChange): string {
+  return suggestedChange.builtOnVersion ?? suggestedChange.fromVersion;
+}
+
+/**
+ * A settings change carried onto newer values: each value it changed
+ * from `was` (set, or removed) as it has it; every other value as `now`
+ * has it.
+ */
+function carrySettings(
+  was: Readonly<Record<string, unknown>>,
+  changed: Readonly<Record<string, unknown>>,
+  now: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...now };
+  for (const key of new Set([...Object.keys(was), ...Object.keys(changed)])) {
+    const inWas = Object.hasOwn(was, key);
+    const inChanged = Object.hasOwn(changed, key);
+    const same =
+      inWas === inChanged && (!inChanged || canonicalize(was[key]) === canonicalize(changed[key]));
+    if (same) continue;
+    if (inChanged) out[key] = changed[key];
+    else delete out[key];
+  }
+  return out;
+}
+
+/**
+ * The 409 for one built on a version its project no longer runs: being
+ * rebuilt on what it runs, or, with `why`, one that can't be.
+ */
+function outOfDate(
+  suggestedChange: StoredSuggestedChange,
+  runs: string,
+  why?: string,
+): SuggestedChangeServiceError {
+  const id = suggestedChange.id as unknown as string;
+  const built = builtOn(suggestedChange);
+  return {
+    code: 'suggested-change-out-of-date',
+    message:
+      why === undefined
+        ? `Suggested change ${id} is built on ${built}, and its project now runs ${runs}: it's being rebuilt on ${runs} and checked again. Try again once its check is ready`
+        : `Suggested change ${id} is built on ${built}, and its project now runs ${runs}, which it can't be rebuilt on: ${why}. Withdraw it`,
+    suggestedChangeId: id,
+    builtOn: built,
+    runs,
+    rebuilding: why === undefined,
+  };
+}
+
+/**
+ * Whether its project's version (`runs`) moved since it was built: it runs
+ * neither the version it's built on nor its own.
+ */
+function moved(suggestedChange: StoredSuggestedChange, runs: WhatRuns): boolean {
+  const now = runs.version as unknown as string;
+  return now !== builtOn(suggestedChange) && now !== suggestedChange.candidate?.agentVersion;
+}
+
+/** The project a suggested change is for; `undefined` for one made for a wider scope. */
+function projectOfCard(suggestedChange: StoredSuggestedChange): ProjectId | undefined {
+  return suggestedChange.scope.kind === 'project' ? suggestedChange.scope.projectId : undefined;
+}
+
+/** The 409 for one made before suggested changes were for a project. */
+function notForAProject(
+  suggestedChange: StoredSuggestedChange,
+  action: SuggestedChangeAction,
+): SuggestedChangeServiceError {
+  const id = suggestedChange.id as unknown as string;
+  return {
+    code: 'suggested-change-not-for-a-project',
+    message: `Suggested change ${id} is for a ${suggestedChange.scope.kind}, not a project, so it can't ${action}: withdraw it, and suggest the change for a project`,
+    suggestedChangeId: id,
+  };
+}
+
+function checkUnsupported(): SuggestedChangeServiceError {
+  return {
+    code: 'suggested-change-check-unsupported',
+    message: "This runtime can't check a suggested change: it doesn't freeze a project's test set",
+  };
+}
+
+/** The 409 for a project that's a later environment of its order. */
+function environmentTakesPromotions(later: LaterEnvironment): SuggestedChangeServiceError {
+  return {
+    code: 'environment-takes-promotions',
+    message: environmentTakesPromotionsMessage({ kind: 'suggested-change' }, later),
+    firstProjectId: later.firstProjectId as unknown as string,
+    position: later.position,
+  };
+}
+
+/** What a suggested change made through `create` records as its drafter: who asked. */
+function drafterOf(madeBy: SuggestedChangeCreator): SuggestedChangeDrafter {
+  switch (madeBy.kind) {
+    case 'person':
+      return { kind: 'person', by: `user:${madeBy.userId}` };
+    case 'service':
+      return { kind: 'person', by: `service:${madeBy.id}` };
+    case 'deploy':
+      return { kind: 'person', by: `${madeBy.by.kind}:${madeBy.by.id}` };
+  }
+}
+
+/**
+ * The tier of the block the version pins as `blockId`, when the content
+ * fits it: values for a settings block, a template for a prompt block.
+ * Else the 400.
+ */
+function tierFor(
+  from: AgentVersionRecord,
+  blockId: string,
+  content: ProposedChange['change']['content'],
+): SuggestedChangeTier | SuggestedChangeServiceError {
+  const named = `${from.id as unknown as string} ${from.version as unknown as string}`;
+  const settings = from.pins?.settings[blockId] !== undefined;
+  const prompt = from.pins?.prompts[blockId] !== undefined;
+  if (!settings && !prompt) {
+    return validationFailed(`${named} doesn't use block "${blockId}"`, [
+      {
+        path: '/block',
+        message: 'not a block this version pins; adding a block is a code change',
+      },
+    ]);
+  }
+  const values = 'values' in content;
+  if (settings === values) return settings ? 'settings-block' : 'prompt-block';
+  return validationFailed(
+    settings
+      ? `Block "${blockId}" is a settings block: send \`values\``
+      : `Block "${blockId}" is a prompt block: send \`template\``,
+    [
+      {
+        path: values ? '/values' : '/template',
+        message: `not for a ${settings ? 'settings' : 'prompt'} block`,
+      },
+    ],
+  );
+}
 
 export function suggestedChangeNotFound(suggestedChangeId: string): SuggestedChangeServiceError {
   return {
@@ -1000,6 +1896,38 @@ async function pinnedBlock(
     };
   }
   return { kind: 'ok', block };
+}
+
+/** Its note: why a `ready` one's pin didn't go through, else a deploy card's `not-running`. */
+function noteOf(
+  status: SuggestedChangeStatus,
+  pin: Pin | null | undefined,
+  suggestedChange: StoredSuggestedChange,
+): SuggestedChangeNote | undefined {
+  return (status === 'ready' ? suggestedChangeNote(pin) : undefined) ?? notRunning(suggestedChange);
+}
+
+/**
+ * The note on a deploy's suggested change checked with no `now`: the
+ * version its project runs wasn't running, and had no finished run on the
+ * same cases.
+ */
+function notRunning(suggestedChange: StoredSuggestedChange): SuggestedChangeNote | undefined {
+  const { evaluation } = suggestedChange;
+  if (blockChangeOf(suggestedChange) !== undefined || evaluation === undefined) return undefined;
+  if (evaluation.reference !== undefined) return undefined;
+  return { kind: 'not-running', version: builtOn(suggestedChange) };
+}
+
+/** A deploy card's fingerprint: the same deploy of the same version onto the same one is one card. */
+function codeFingerprint(
+  agentId: AgentId,
+  fromVersion: string,
+  projectId: ProjectId,
+  version: Semver,
+): string {
+  const canonical = canonicalize({ agentId, fromVersion, projectId, tier: 'code', version });
+  return `sha256:${createHash('sha256').update(canonical, 'utf8').digest('hex')}`;
 }
 
 /** The same change, from the same version, for the same scope, is one suggested change. */

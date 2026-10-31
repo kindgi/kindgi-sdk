@@ -17,6 +17,7 @@ import type {
   AgentPinResolution,
   AgentPinResolveInput,
   AgentRegistryBinding,
+  LatestBinding,
   Pin,
   PinError,
   RunHandlerBinding,
@@ -26,6 +27,7 @@ import type { Authorizer } from '../src/middleware/authorize.js';
 import type { RegistryReadOnly } from '../src/registry-read-only.js';
 import { agentsRouter } from '../src/routes/agents.js';
 import type { AppEnv } from '../src/types.js';
+import { highestAsLatest, noLatest } from './support/latest.js';
 
 /**
  * Agent pin routes. The bindings are
@@ -106,6 +108,7 @@ function fakePins() {
         ];
       },
     },
+    latest: noLatest,
     changes: {
       pin: async (input) => {
         record('pin', input);
@@ -161,18 +164,25 @@ function registryWith(versions: readonly string[]): AgentRegistryBinding {
     listVersions: unused,
     publish: unused,
     unregister: async () => ({ unregistered: false }),
+    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
     reinstateVersion: unused,
   };
 }
 
-function makeApp(versions: readonly string[] = ['1.0.0', '1.1.0'], readOnly?: RegistryReadOnly) {
+function makeApp(
+  versions: readonly string[] = ['1.0.0', '1.1.0'],
+  readOnly?: RegistryReadOnly,
+  /** Latest; absent: the highest version. */
+  latest?: LatestBinding,
+) {
   const fake = fakePins();
+  const registry = registryWith(versions);
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
     runHandler,
-    agentRegistry: { ...registryWith(versions), ...(readOnly !== undefined && { readOnly }) },
-    agentPins: fake.bindings,
+    agentRegistry: { ...registry, ...(readOnly !== undefined && { readOnly }) },
+    agentPins: { ...fake.bindings, latest: latest ?? highestAsLatest(registry) },
   });
   return { app, ...fake };
 }
@@ -215,11 +225,41 @@ describe('GET /v1/agents/:agentId/pinned', () => {
     ]);
   });
 
-  test('nothing pinned → the latest registered version, via latest', async () => {
+  test('nothing pinned → Latest (here the highest), via latest', async () => {
     const { app } = makeApp();
     const res = await app.request(`/v1/agents/${AGENT}/pinned`, { headers: auth });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ agentId: AGENT, version: '1.1.0', via: 'latest' });
+  });
+
+  // 1.1.0 is the highest; a deploy into PROJECT shipped 1.0.0 after it, so
+  // 1.0.0 is Latest there. Another project has no Latest.
+  const deployedOlder: LatestBinding = {
+    latest: async ({ projectId }) =>
+      projectId === PROJECT
+        ? { version: '1.0.0' as Semver, since: '2026-10-20T09:00:00.000Z', deploymentId: 'dep-1' }
+        : null,
+    byProject: async () => [],
+  };
+
+  test("nothing pinned → the project's Latest, not the highest version", async () => {
+    const { app } = makeApp(['1.0.0', '1.1.0'], undefined, deployedOlder);
+    const res = await app.request(`/v1/agents/${AGENT}/pinned?projectId=${PROJECT}`, {
+      headers: auth,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ agentId: AGENT, version: '1.0.0', via: 'latest' });
+  });
+
+  test('nothing pinned and no Latest in the project → 404, saying no version runs there', async () => {
+    const { app } = makeApp(['1.0.0', '1.1.0'], undefined, deployedOlder);
+    const res = await app.request(`/v1/agents/${AGENT}/pinned?projectId=${randomUUID()}`, {
+      headers: auth,
+    });
+    expect(res.status).toBe(404);
+    const { error } = (await res.json()) as { error: { code: string; message: string } };
+    expect(error.code).toBe('agent-not-found');
+    expect(error.message).toContain('runs in this scope');
   });
 
   test('nothing pinned and no such agent → 404', async () => {
@@ -633,7 +673,6 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
 
   test.each([
     '/v1/agents',
-    `/v1/agents/${AGENT}/versions`,
     `/v1/agents/${AGENT}/versions/1.0.0/unregister`,
     `/v1/agents/${AGENT}/versions/1.0.0/reinstate`,
   ])('POST %s is still refused with the registry reason', async (path) => {

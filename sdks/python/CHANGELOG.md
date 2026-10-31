@@ -18,8 +18,47 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   (`sortEndUserCorrections`), off by default, and
   `projects.update(project_id, sort_end_user_corrections=True)` turns it on (admin on
   the project). While it's on, an end user's correction saved after that is sorted
-  like the others, and a schedule counting every correction counts end users'
-  corrections: at its next check, every one since its last run, older ones included.
+  like the others, and a schedule counting everyone's corrections
+  (`from_="everyone"`) counts end users' corrections: at its next check, every one
+  since its last run, older ones included. Once it's off, none of them counts, even
+  one sorted while it was on or by a person.
+- `kindgi`: **An Improve run works in a project, checks it's ready first, and
+  keeps a change only when it passes more of the cases and fails none that
+  passed. An Improve schedule runs on new corrections, within a run cap and a
+  month cap.** This is a breaking change, and no old name is kept.
+  `StartImproveRunBody` needs `project_id`, and its `scope`, `test_set_id` and
+  `from_version` are gone. `improve_runs.start` refuses a start that isn't
+  ready with a `ConflictError` whose `server_code` is `improve-not-ready`
+  (`details["items"]`, the missing ones) or `improve-run-running`
+  (`details["improveRunId"]`). `improve_runs.check` answers an
+  `ImproveRunCheck` with `ready`, `starts_from` (an `ImproveRunStart`), `items`
+  (each an `ImproveReadinessItem`, a missing one with its `fix`), `estimate`
+  and `month`; its `estimated_cost_usd`, `max_cost_usd` and `basis` are
+  `estimate.cost_usd`, `estimate.max_cost_usd` and `estimate.basis`.
+  `estimate.basis` gains `proof_replays`, the proof's share of `replays`, and
+  `estimate.cost_usd` caps only the search's share at `max_cost_usd`.
+  `improve_runs.list` takes `project_id` and `status`. An `ImproveRun`'s
+  `candidates_evaluated` is `tried`, and it gains `project_id`, `starts_from`
+  (an `ImproveRunStart`), `test_set_version`, `set_aside` and `takes`; its
+  `from_version`, `scope` and `test_set_id` are gone, and its `group_weights`
+  is always set. Its `outcome` is a union
+  by `kind`: `ImproveRunOutcomeSuggested` (was `proposed`),
+  `ImproveRunOutcomeNothingBetter` (was `nothing-found`, with `reason` and
+  `hold_out`), `ImproveRunOutcomeCostCap` (`spent_usd`, new) and
+  `ImproveRunOutcomeFailed` (`message`), and `ImproveRunOutcomeUnrecognized`
+  for a kind a newer runtime adds; the `ImproveRunOutcome` model is gone. A
+  comparison's `part` can be `all`, for the proof. An improve schedule's
+  `ImproveScheduleTarget` has `project_id` in place of `scope`, one schedule
+  per agent and project (a `ConflictError` whose `server_code` is
+  `schedule-exists`, with `details["scheduleId"]` and `details["triggerId"]`).
+  Its input is `corrections` (how many new corrections start a run), `from_`
+  (`experts` or `everyone`), `run_cap_usd`, `month_cap_usd` (was
+  `monthly_cap_usd`), `tiers` and `model`. Its `threshold`, `budget`,
+  `objective`, `group_weights` and `candidates` are gone, and the models
+  `Threshold` and `Budget3` with them. A schedule at its month's cap says
+  until when (`paused_until`, with `paused_reason` `month-cap`), and one whose
+  owner lost `publish` on the agent is paused at its next fire, with
+  `status_reason` `owner-lost-publish`.
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
   judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
   judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator
@@ -86,6 +125,21 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   and `TestRunSample`). A test run's own id is
   `test_run_id` where it was `run_id`, `eval_run_id` is `test_run_id`, and the
   stream's `eval-run.*` events are `test-run.*`.
+- `kindgi`: **a promotion into a scope where nothing runs yet raises
+  `ConflictError` with `server_code` `nothing-runs-in-scope`.** With no pin
+  covering the scope and no Latest there, there's nothing to measure the
+  version against: deploy or publish a version into the project first, or,
+  into a later environment, promote a build that ships one.
+- `kindgi`: **`client.agents.projects(agent_id)` says what runs in each
+  project.** Each project gains `runs` (the version a run there that names no
+  version gets, since when, and the pin or deployment behind it), `follows`
+  (`pin` or `latest`) and `segments` (the pins on segments inside it), and the
+  answer gains `highest`, the agent's highest version. A run that names no
+  version, in a scope no pin covers, now gets the agent's Latest in its
+  project: it moves only when a deployment into the project ships a version,
+  or when a person publishes a full version, and a derived version is never
+  Latest by itself. `client.agents.get(agent_id)` still answers the highest
+  version.
 - `kindgi`: **Improvement passes are now Improve runs.** This is a breaking
   rename, and no old name is kept. `client.improvement_passes` and
   `client.proposals` are `client.improve_runs`, sync and async, with `start`,
@@ -98,6 +152,96 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `hypothesis` is `why`, and an Improve run's outcome `proposed` is
   `suggested`. The webhook event `improvement-pass.finished` is
   `improve-run.finished`, and its `data.pass_` is `data.improve_run`.
+- `kindgi`: **An agent's test set.** `client.agents.test_set` reads an agent's
+  test set one project at a time, sync and async: `get` (how many cases are
+  active and retired), `list_cases`, `add_case` (a case by hand, from a
+  correction's body on one of the agent's finished runs) and `retire_case`.
+  Its cases are the agent's corrections, except Won't fix and Removed ones,
+  and the cases added by hand. Once a test run has frozen the set, `get`
+  also answers `frozen_version`, the newest version frozen. The models are
+  `AgentTestSet`, `TestSetCaseCounts`, `TestSetFrozenVersion`, `TestCase*`
+  and `AddTestCaseBody`.
+- `kindgi`: **A frozen case says what it expects.** `CorrectedEvalCase` gains
+  `expect` (`TestCaseExpect`) and `segments` (its run's segment path), set on
+  a case of an agent's frozen test set.
+- `kindgi`: **Test sets built from corrections are gone.**
+  `client.test_sets.build_from_corrections` is removed, with
+  `BuildCorrectedTestSetBody`, `BuildCorrectedTestSetResult` and
+  `CorrectorGroupId`. A `corrections` test set built before is still read by
+  id, and `client.test_sets.list` lists it only with `kind="corrections"`,
+  as it does an agent's frozen versions.
+- `kindgi`: **A suggested change is made for one project, and checked on that
+  project's test set.** This is a breaking change.
+  - `client.suggested_changes.create` takes `agent_id`, `project_id`, `block`,
+    then `values` (a settings block) or `template` (a prompt block), `why` and
+    `fixes`. The change is built on the version the project runs, and its
+    check starts at once.
+  - In the check, its version (`with`) and the version it's built on (`now`)
+    run the same cases of the project's test set, frozen when the check
+    starts.
+  - `client.suggested_changes.check(suggested_change_id)` checks it again. It
+    replaces `evaluate` and `rescore`.
+  - `client.suggested_changes.add_as_latest(suggested_change_id)` makes its
+    version its project's Latest, for a project on Latest, with no gate. A
+    `reason` is kept on its `added_as_latest`.
+  - `list` filters by `agent_id`, `project_id`, `status` and `made_by`.
+  - `SuggestedChange` gains `project_id`, `title`, `built_on`, `version`,
+    `changes`, `fixes`, `check`, `note`, `pinned`, `approval_id`,
+    `added_as_latest` and `withdrawn`.
+  - Its `made_by` is now who or what made it: an Improve run, a person, a
+    service account, a deploy or an offer. It no longer says which drafter
+    wrote it.
+  - `from_version`, `scope`, `tier`, `change`, `evidence`, `candidate`,
+    `evaluation`, `pin` and `rolled_back` are gone.
+  - Its statuses are `checking`, `check-failed`, `ready`,
+    `waiting-for-second-person`, `pinned`, `added-as-latest` and `withdrawn`.
+  - A deploy makes one in each project that runs a pinned other version of
+    the agent (`made_by.kind` is `deploy`). Its one change is the code:
+    `kind` is `code`, with `deployment_id` and `image_digest`. When the
+    version its project runs has no finished run on the same cases, its
+    `note` is `not-running`, with that `version`, and its check has no `now`.
+  - Ids that start with `agent.` are agents' own test sets: publishing a
+    test set, or building a version from corrections, under one raises
+    `InvalidRequestError` (`400 bad-input`). A test set with such an id
+    published before keeps reading and running, but a new version of it is
+    refused: publish it under another id.
+  - `client.agents.derive_version` is removed, with
+    `POST /v1/agents/{agentId}/versions` and the `DeriveAgentVersionBody`
+    and `AgentPinSwaps` models. A suggested change makes an agent version
+    from a block's new content, and checks it.
+  - New models: `SuggestedChangeChange`, `SuggestedChangeCheck`,
+    `SuggestedChangeCheckSide`, `SuggestedChangeNote` and
+    `SuggestedChangeBlockContent`.
+  - Removed models: `SuggestedChangeBlockEdit`, `SuggestedChangeCandidate`,
+    `SuggestedChangeCost`, `SuggestedChangeDecisions`,
+    `SuggestedChangeEvaluation`, `SuggestedChangeEvidence`,
+    `SuggestedChangePin` and `EvaluateSuggestedChangeBody`.
+  - The numbered models `Model` to `Model4` are named after their owners:
+    - `ImproveRunModel` (an Improve run's model);
+    - `StartImproveRunBodyModel` (the start body's);
+    - `CorrectedComparisonSummarySamplingModel` (a corrected comparison's
+      sampling models);
+    - `ImproveScheduleInputModel` (an improve schedule's).
+  - New `server_code` values:
+    - `suggested-change-not-for-a-project` (`ConflictError`): one made for a
+      tenant, an org or a segment can only be withdrawn;
+    - `suggested-change-nothing-to-check` (`ConflictError`): the project's
+      test set has no cases;
+    - `suggested-change-project-on-latest` (`ConflictError`): a pin, for a
+      project that runs Latest;
+    - `suggested-change-project-pinned` (`ConflictError`): an add as Latest,
+      for a project that runs a pin;
+    - `suggested-change-check-unsupported` (`ServerError`, a 501): the
+      server freezes no test set, so nothing can be checked;
+    - `suggested-change-out-of-date` (`ConflictError`): a pin or an add as
+      Latest of one built on a version its project no longer runs. It's
+      being rebuilt on the version the project runs now when
+      `details["rebuilding"]` is true.
+  - A suggested change built on a version its project no longer runs is
+    rebuilt there, and checked again: `built_on.rebuilt_at` says when.
+  - An audit event's `kind` can be `suggested-change-created`,
+    `suggested-change-pinned`, `suggested-change-added-as-latest` or
+    `suggested-change-withdrawn`.
 - `kindgi`: **An agent's promotion is now a pin, as for flows and tools.** This
   is a breaking rename, and no old name is kept. The models follow: `Promotion`,
   `PromotionPage`, `PromotionCheck` and `SuggestedChangePromotion` are `Pin`,

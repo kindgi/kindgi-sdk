@@ -32,17 +32,16 @@ import {
 } from './corrected-items.js';
 import { groupWeightReader, summarizeByItem } from './corrected-summary.js';
 import type { Correction, CorrectionRegistryBinding } from './correction-binding.js';
-import type {
-  CorrectedTestCase,
-  EvalCaseStoreBinding,
-  TestCaseExpectedDecisions,
-} from './eval-case-binding.js';
-import { sampleCases } from './eval-sample.js';
 import {
   type CallDifference,
   type CandidateCall,
   gradeExpectedDecisions,
 } from './expected-decisions.js';
+import type {
+  CorrectedTestCase,
+  FrozenCaseStoreBinding,
+  TestCaseExpectedDecisions,
+} from './frozen-case-binding.js';
 import type {
   AgentRef,
   FlowRef,
@@ -57,6 +56,7 @@ import type {
   TestRunDispatcher,
   TestRunSubjectInvokeOutcome,
 } from './test-run-dispatcher.js';
+import { sampleCases } from './test-run-sample.js';
 
 export const DEFAULT_COMPARISON: TestRunComparison = {
   baseline: 'recorded',
@@ -293,7 +293,7 @@ export interface ReplayRunReader {
 }
 
 export interface CorrectedDispatcherOptions {
-  readonly cases: EvalCaseStoreBinding;
+  readonly cases: FrozenCaseStoreBinding;
   /** Where the candidate's `pinsDigest` is read, for the summary. */
   readonly agents?: Pick<AgentRegistryBinding, 'getVersion'>;
   /**
@@ -425,11 +425,11 @@ async function replayAll(
 }
 
 async function allCases(
-  store: EvalCaseStoreBinding,
+  store: FrozenCaseStoreBinding,
   ctx: DispatchContext,
 ): Promise<readonly CorrectedTestCase[]> {
   const out: CorrectedTestCase[] = [];
-  let cursor: Parameters<EvalCaseStoreBinding['listCases']>[0]['cursor'];
+  let cursor: Parameters<FrozenCaseStoreBinding['listCases']>[0]['cursor'];
   for (;;) {
     const page = await store.listCases({
       tenantId: ctx.tenantId,
@@ -801,7 +801,8 @@ async function invokeCase(
       abortSignal: ctx.abortSignal,
       ...(ctx.projectId !== undefined && { projectId: ctx.projectId }),
       replay: {
-        of: correctedCase.caseId as unknown as RunId,
+        of: correctedCase.runId as unknown as RunId,
+        caseId: correctedCase.caseId,
         testRunId: ctx.testRunId as unknown as string,
       },
       ...(correctedCase.subject.kind === 'agent' && {

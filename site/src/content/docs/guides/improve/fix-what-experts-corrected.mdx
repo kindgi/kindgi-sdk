@@ -23,7 +23,7 @@ its `kindgi-fix-corrections` skill, which walks it through these same steps.
 - **an agent whose settings and instructions are [data blocks](../change-a-prompt-or-setting/),** so a setting or a wording changes without a code deploy;
 - **corrections to work from:** runs the experts [marked wrong, with a reason](../correct-a-runs-output/);
 - **a coding agent,** or someone who runs the CLI, to make the changes and add the tests;
-- **permission to change things:** `publish` on the agent to derive a version, `pin` to pin one, and `write` on the project to publish a settings block.
+- **permission to change things:** `publish` on the agent to suggest a change to a settings block, and `pin` to pin a version.
 
 ## The loop
 
@@ -106,7 +106,7 @@ names — never a customer's words or details.
 | The expert wrote | Where it belongs | Who changes it |
 |---|---|---|
 | "Never refund shipping", "final sale: no refund", "over 50 on a first order, ask a person" | a rule in **code** — the refund tool checks it every time; a cap sends the case to a tool that always asks | the coding agent, reviewed as a code change |
-| "Our return window is 14 days, not 30" | a **setting** | the owner (in the console: Edit as a new version, then Derive a version), or the coding agent publishes the block |
+| "Our return window is 14 days, not 30" | a **setting** | the owner (in the console), or the coding agent suggests a change to the block |
 | "Always have a person approve a refund" | an [**approval rule**](../../approvals/approval-rules-for-every-agent/) — a policy that makes a tool always ask; it keys on the tool, not its arguments | the owner or the approver |
 | "Store credit before cash", "too stiff", "say when the money arrives" | the agent's **instructions** | [Improve](../improve-an-agent/), run on the test cases |
 
@@ -125,8 +125,8 @@ back:
   Scala pack runs its own test runner.
 - **A setting:** decide the key, its limits and its default, and publish the
   settings block. Add a test that the tool reads the setting and acts on it.
-- **Instructions:** make sure the corrected cases are in the
-  [test cases](../build-a-test-set/), then let
+- **Instructions:** the corrections are cases of the agent's
+  [test set](../build-a-test-set/), so let
   [an Improve run](../improve-an-agent/) try wordings on them. The Improve run
   writes a suggested change only when a wording does better on those cases,
   and a person decides whether to take it. You don't write the instructions,
@@ -138,24 +138,22 @@ and don't make the change for them.
 
 ## Publish, and ask to pin it
 
-For a **setting**, publish the block, then derive a new agent version that
-pins it — no code change:
+For a **setting**, suggest a change for the project the corrections came
+from — no code change:
 
 ```sh
-pnpm exec kindgi blocks publish acme.store-policy \
-  --block-version=1.0.1 --project=<project-id> \
-  --settings=@store-policy.json --schema=@store-policy.schema.json
-pnpm exec kindgi agents derive acme-store.refunds \
-  --from=1.0.3 --setting=acme.store-policy=1.0.1 --label="return window 14 days"
+pnpm exec kindgi suggested-changes create --agent=acme-store.refunds --project=<project-id> \
+  --block=acme.store-policy --values=@store-policy.json \
+  --why="Our return window is 14 days" --fixes=<correction-id>
 ```
 
-`blocks publish` takes `--block-version` (a semver) and a required
-`--project`; `--settings` is the block's values and `--schema` constrains
-them. `agents derive --setting=<block-id>=<version>` re-pins a block the
-version *already* references to its new version. It makes the first free patch
-after the agent's highest version and prints it — read that version from the
-output; if it answers `reused`, an identical version already exists, so use
-that one.
+`--block` names a block the version the project runs *already* pins, and
+`--values` is its new values, checked against its schema. Each `--fixes`
+names a correction it fixes. It publishes the block version, makes the agent
+version that pins it, and tries both versions on the project's test cases:
+read the new version from the output's `version`.
+[Suggest a change, and test it](../suggest-a-change/) says how to read its
+check and pin it.
 
 For a **code** change, `kindgi deploy` publishes the new version with the
 changed tool.
@@ -194,10 +192,9 @@ An expert corrects a refund: "Shouldn't have refunded — delivered 20 days
 ago, our window is 14." You pull it, and see the window is a store policy,
 not a one-off.
 
-- **If the agent already reads a `returnWindowDays` setting,** publish the
-  block with `returnWindowDays: 14` and derive a version that pins it. Or tell
-  the owner to change it in the console — Edit as a new version, then Derive a
-  version.
+- **If the agent already reads a `returnWindowDays` setting,** suggest a
+  change to the block with `returnWindowDays: 14`. Or tell the owner to change
+  it in the console.
 - **If it doesn't read one yet,** this is a code change, in two parts. First
   publish the settings block with `returnWindowDays` in its schema and `14` in
   its values, because a deploy that references a block with no published
@@ -205,8 +202,9 @@ not a one-off.
   the refund tool read `returnWindowDays` and refuse an order delivered more
   than that many days ago (offering a person), adds the block to what the agent
   references, and adds a test: an order delivered 20 days ago is refused.
-  `kindgi deploy` publishes the version with the new reference — `agents derive`
-  only re-pins a block already referenced, so it can't introduce this one. The
+  `kindgi deploy` publishes the version with the new reference — a suggested
+  change only changes a block the version already pins, so it can't introduce
+  this one. The
   schema and value live outside the pack and outside code review, so show them
   to the person and name them in the `--reason` you pin it with.
 

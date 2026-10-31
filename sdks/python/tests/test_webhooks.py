@@ -10,6 +10,7 @@ import json
 import time
 from collections.abc import Iterator, Mapping
 from datetime import UTC, datetime
+from typing import Any
 
 import pydantic
 import pytest
@@ -241,45 +242,77 @@ def test_parse_event_reads_the_test_event() -> None:
     assert event.data.endpoint_id == "ep-1"
 
 
+IMPROVE_RUN = {
+    "id": "8a1e9c4a-0000-4000-8000-000000000004",
+    "agentId": "acme.scorer",
+    "projectId": "3b5e9c4a-0000-4000-8000-000000000003",
+    "startsFrom": {"version": "1.0.0", "follows": "pin"},
+    "testSetVersion": "1.0.7",
+    "setAside": {"cases": 5, "of": 27},
+    "tiers": ["prompt", "settings"],
+    "objective": "passRate",
+    "groupWeights": "experts-only",
+    "budget": {"maxCostUsd": 5, "maxCandidates": 30},
+    "requestedBy": "service:schedule",
+    "status": "completed",
+    "tried": 7,
+    "costUsd": "0.12",
+    "outcome": {
+        "kind": "suggested",
+        "suggestedChangeId": "9b2e9c4a-0000-4000-8000-000000000005",
+    },
+    "takes": ["c-312", "c-301"],
+    "trigger": {
+        "triggerId": "1c3e9c4a-0000-4000-8000-000000000006",
+        "fireId": "2d4e9c4a-0000-4000-8000-000000000007",
+    },
+    "createdAt": "2026-10-07T11:00:00.000Z",
+    "updatedAt": "2026-10-07T12:00:00.000Z",
+    "finishedAt": "2026-10-07T12:00:00.000Z",
+}
+
+
+def improve_run_finished(improve_run: dict[str, Any]) -> str:
+    return json.dumps(
+        {
+            "id": "evt-improve-run",
+            "type": "improve-run.finished",
+            "createdAt": "2026-10-07T12:00:00.000Z",
+            "data": {"improveRun": improve_run},
+        }
+    )
+
+
 def test_parse_event_reads_an_improve_run_finished() -> None:
-    body = {
-        "id": "evt-improve-run",
-        "type": "improve-run.finished",
-        "createdAt": "2026-10-07T12:00:00.000Z",
-        "data": {
-            "improveRun": {
-                "id": "8a1e9c4a-0000-4000-8000-000000000004",
-                "agentId": "acme.scorer",
-                "fromVersion": "1.0.0",
-                "scope": {"kind": "tenant"},
-                "testSetId": "acme.scorer.improve",
-                "tiers": ["settings"],
-                "objective": "passRate",
-                "groupWeights": "experts-only",
-                "budget": {"maxCostUsd": 5, "maxCandidates": 30},
-                "requestedBy": "service:schedule",
-                "status": "completed",
-                "candidatesEvaluated": 7,
-                "costUsd": "0.12",
-                "outcome": {
-                    "kind": "suggested",
-                    "suggestedChangeId": "9b2e9c4a-0000-4000-8000-000000000005",
-                },
-                "trigger": {
-                    "triggerId": "1c3e9c4a-0000-4000-8000-000000000006",
-                    "fireId": "2d4e9c4a-0000-4000-8000-000000000007",
-                },
-                "createdAt": "2026-10-07T11:00:00.000Z",
-                "updatedAt": "2026-10-07T12:00:00.000Z",
-                "finishedAt": "2026-10-07T12:00:00.000Z",
-            }
-        },
-    }
-    event = webhooks.parse_event(json.dumps(body))
+    event = webhooks.parse_event(improve_run_finished(IMPROVE_RUN))
     assert isinstance(event, models.ImproveRunFinishedEvent)
-    assert event.data.improve_run.agent_id == "acme.scorer"
-    assert event.data.improve_run.trigger is not None
-    assert event.data.improve_run.trigger.trigger_id == "1c3e9c4a-0000-4000-8000-000000000006"
+    run = event.data.improve_run
+    assert run.agent_id == "acme.scorer"
+    assert run.starts_from.version == "1.0.0"
+    assert run.tried == 7
+    assert run.takes == ["c-312", "c-301"]
+    assert isinstance(run.outcome, models.ImproveRunOutcomeSuggested)
+    assert run.trigger is not None
+    assert run.trigger.trigger_id == "1c3e9c4a-0000-4000-8000-000000000006"
+
+
+@pytest.mark.parametrize(
+    ("outcome", "kind"),
+    [
+        (
+            {"kind": "nothing-better", "reason": "No change passed more cases."},
+            models.ImproveRunOutcomeNothingBetter,
+        ),
+        ({"kind": "cost-cap", "spentUsd": "3.02"}, models.ImproveRunOutcomeCostCap),
+        ({"kind": "failed", "message": "The test set is empty."}, models.ImproveRunOutcomeFailed),
+        ({"kind": "kindgi-test-kind", "later": True}, models.ImproveRunOutcomeUnrecognized),
+    ],
+)
+def test_an_improve_runs_outcome_is_read_by_its_kind(outcome: dict[str, Any], kind: type) -> None:
+    event = webhooks.parse_event(improve_run_finished({**IMPROVE_RUN, "outcome": outcome}))
+    assert isinstance(event, models.ImproveRunFinishedEvent)
+    assert isinstance(event.data.improve_run.outcome, kind)
+    assert event.data.improve_run.outcome.kind == outcome["kind"]
 
 
 def test_parse_event_reads_an_approval_requested() -> None:
