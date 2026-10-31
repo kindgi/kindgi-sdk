@@ -41,38 +41,38 @@ From the CLI, correct the run's answer:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi corrections add --run=<run-id> --item=answer --yes --reason="Echoes the message back"
+pnpm exec kindgi corrections add --run=<run-id> --answer=right --why="Echoes the message back"
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi corrections add --run=<run-id> --item=answer --yes --reason="Echoes the message back"
+uv run kindgi corrections add --run=<run-id> --answer=right --why="Echoes the message back"
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw corrections add --run=<run-id> --item=answer --yes --reason="Echoes the message back"
+./kindgiw corrections add --run=<run-id> --answer=right --why="Echoes the message back"
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw corrections add --run=<run-id> --item=answer --yes --reason="Echoes the message back"
+./kindgiw corrections add --run=<run-id> --answer=right --why="Echoes the message back"
 ```
 
 </TabItem>
 </Tabs>
 
 - `--run=<run-id>` is the run's id.
-- `--item=answer` says it's about the run's answer. For a flow run, it's
-  `--item=output`, the whole output.
-- `--yes` says it was right, or `--no` that it was wrong.
-- `--reason` says why. It's optional, but a wrong answer needs one.
+- `--answer=right` says the run's answer was right, or `--answer=wrong`
+  that it was wrong. For a flow run, the answer is its whole output.
+- `--why` says why. It's optional, but a wrong answer needs it, or
+  `--should-say` with what the answer should have said.
 
 It prints the correction:
 
@@ -217,7 +217,10 @@ object RecordCorrection {
   same caller and participant, replaces your earlier correction, and the
   earlier one stays in the history. From a client, send the whole
   correction each time. The CLI does that for you: each
-  `kindgi corrections add` adds to your correction of the run.
+  `kindgi corrections add` replaces the parts it gives and keeps the rest.
+  Saying a part was right drops what should have happened there, and an
+  empty `--why=` clears the why. A correction that was being fixed or with
+  the owner starts again, sorted afresh, and the CLI says which it replaced.
 
 The run now has the correction. Only a finished run can be corrected, and
 each item's pointer must find something.
@@ -238,58 +241,46 @@ the run's decisions, not its answer. When you
 [try a version](../compare-an-agent-version/#what-it-should-have-done) on
 test cases built from the run, it checks what that version does against it.
 
-Write what it should have done in a file, such as `refund-fix.json`:
-
-```json
-{
-  "calls": [
-    { "tool": "acme-store.offer-store-credit", "args": { "orderId": "A-1042" } }
-  ],
-  "notCalled": ["acme-store.refund"]
-}
-```
-
-- **`calls`** are the calls it should have made. `args` holds only the
-  top-level arguments that matter, each compared whole. Arguments left out
-  aren't compared, and `{}` asks only that the tool was called.
-- **`notCalled`** are the tools it shouldn't have called at all.
-
-Then record it with your mark:
+Record it with your mark:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi corrections add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
+pnpm exec kindgi corrections add --run=<run-id> --decisions=wrong --should-call='acme-store.offer-store-credit:{"orderId":"A-1042"}' --must-not-call=acme-store.refund --why="Final sale: store credit, never a refund"
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi corrections add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
+uv run kindgi corrections add --run=<run-id> --decisions=wrong --should-call='acme-store.offer-store-credit:{"orderId":"A-1042"}' --must-not-call=acme-store.refund --why="Final sale: store credit, never a refund"
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw corrections add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
+./kindgiw corrections add --run=<run-id> --decisions=wrong --should-call='acme-store.offer-store-credit:{"orderId":"A-1042"}' --must-not-call=acme-store.refund --why="Final sale: store credit, never a refund"
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw corrections add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
+./kindgiw corrections add --run=<run-id> --decisions=wrong --should-call='acme-store.offer-store-credit:{"orderId":"A-1042"}' --must-not-call=acme-store.refund --why="Final sale: store credit, never a refund"
 ```
 
 </TabItem>
 </Tabs>
 
-- `--correction` is what it should have done, as JSON or `@<file>`.
-- `--no` marks the run's decisions wrong.
-- It's about the run's decisions, so leave out `--item` and `--pointer`.
+- `--decisions=wrong` marks the run's decisions wrong.
+- `--should-call` is a call it should have made: the tool, then, after a
+  `:`, the top-level arguments that matter, as JSON. Each is compared whole.
+  Arguments left out aren't compared, and the tool alone asks only that it
+  was called. Repeat it for each call.
+- `--must-not-call` is a tool it shouldn't have called at all. Repeat it for
+  each tool.
 
 It prints the correction, with what it should have done as its `shouldCall`
 and `mustNotCall`:
@@ -448,7 +439,7 @@ Add a group, then correct as it:
 
 ```sh
 pnpm exec kindgi corrector-groups add --name=expert --weight=3 --project=<project-id>
-pnpm exec kindgi corrections add --run=<run-id> --item=answer --yes --group=<corrector-group-id>
+pnpm exec kindgi corrections add --run=<run-id> --answer=right --group=<corrector-group-id>
 ```
 
 </TabItem>
@@ -456,7 +447,7 @@ pnpm exec kindgi corrections add --run=<run-id> --item=answer --yes --group=<cor
 
 ```sh
 uv run kindgi corrector-groups add --name=expert --weight=3 --project=<project-id>
-uv run kindgi corrections add --run=<run-id> --item=answer --yes --group=<corrector-group-id>
+uv run kindgi corrections add --run=<run-id> --answer=right --group=<corrector-group-id>
 ```
 
 </TabItem>
@@ -464,7 +455,7 @@ uv run kindgi corrections add --run=<run-id> --item=answer --yes --group=<correc
 
 ```sh
 ./kindgiw corrector-groups add --name=expert --weight=3 --project=<project-id>
-./kindgiw corrections add --run=<run-id> --item=answer --yes --group=<corrector-group-id>
+./kindgiw corrections add --run=<run-id> --answer=right --group=<corrector-group-id>
 ```
 
 </TabItem>
@@ -472,7 +463,7 @@ uv run kindgi corrections add --run=<run-id> --item=answer --yes --group=<correc
 
 ```sh
 ./kindgiw corrector-groups add --name=expert --weight=3 --project=<project-id>
-./kindgiw corrections add --run=<run-id> --item=answer --yes --group=<corrector-group-id>
+./kindgiw corrections add --run=<run-id> --answer=right --group=<corrector-group-id>
 ```
 
 </TabItem>
