@@ -65,6 +65,8 @@ const MAKER_KINDS: readonly SuggestedChangeMaker['kind'][] = [
   'offer',
 ];
 const MAX_TEXT = 2000;
+/** At most this many ids in a new card's `fixes`: each is read before the card is made. */
+const FIXES_MAX = 100;
 /** How much of the first line of `why` a title keeps. */
 const TITLE_LENGTH = 60;
 
@@ -759,9 +761,8 @@ function parseCreateBody(b: Record<string, unknown>): CreateBody | string {
   }
   if (!nonEmpty(b.why)) return '`why` is required: what the change should fix, and why';
   const fixes = b.fixes;
-  if (fixes !== undefined && !(Array.isArray(fixes) && fixes.every((id) => nonEmpty(id)))) {
-    return '`fixes` is a list of correction ids';
-  }
+  const fixesWrong = fixesProblem(fixes);
+  if (fixesWrong !== undefined) return fixesWrong;
   return {
     agentId: b.agentId,
     projectId: b.projectId,
@@ -770,6 +771,16 @@ function parseCreateBody(b: Record<string, unknown>): CreateBody | string {
     why: b.why,
     ...(fixes !== undefined && { fixes: fixes as string[] }),
   };
+}
+
+/** Why a new card's `fixes` are refused as sent: not a list of ids, or too long. `undefined` when fine or absent. */
+function fixesProblem(fixes: unknown): string | undefined {
+  if (fixes === undefined) return undefined;
+  if (!(Array.isArray(fixes) && fixes.every((id) => nonEmpty(id)))) {
+    return '`fixes` is a list of correction ids';
+  }
+  if (fixes.length > FIXES_MAX) return `\`fixes\` names at most ${FIXES_MAX} corrections`;
+  return undefined;
 }
 
 /** A pin's body (`SuggestedChangePinBody`): `reason` and `stopFollowingLatest`, each optional. */

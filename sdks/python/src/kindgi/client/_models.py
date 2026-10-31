@@ -5296,9 +5296,9 @@ class CreateSuggestedChangeBody(BaseModel):
     For a prompt block: its new template.
     """
     why: Annotated[str, Field(max_length=2000, min_length=1)]
-    fixes: list[str] | None = None
+    fixes: Annotated[list[str] | None, Field(max_length=100)] = None
     """
-    The corrections it fixes, by id. Each must be a correction in the suggested change's project: an unknown id, or another project's, is refused (`400 validation-failed`, the ids in `details.fixes`).
+    The corrections it fixes, by id, at most 100. Each must be a correction in the suggested change's project: an unknown id, or another project's, is refused (`400 validation-failed`, the ids in `details.fixes`).
     """
 
 

@@ -1083,6 +1083,7 @@ describe('POST /v1/suggested-changes', () => {
     ['both values and a template', { template: 'x' }],
     ['neither values nor a template', { values: undefined }],
     ['fixes that are no correction ids', { fixes: [1] }],
+    ['more than 100 fixes', { fixes: Array.from({ length: 101 }, (_, i) => `c-${i}`) }],
     ['a tier, which the block decides', { tier: 'settings-block' }],
     ['a scope, which is the project', { scope: { kind: 'tenant' } }],
     ['a version to build on, which is what the project runs', { fromVersion: '1.0.0' }],
