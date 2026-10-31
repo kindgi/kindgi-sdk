@@ -1632,11 +1632,12 @@ export const ERROR_ENTRIES = {
   },
   'invalid-provider': {
     description:
-      "The provider's metadata is invalid, for example an empty id, an empty region or no models. The message says which.",
+      "The provider's metadata is invalid, for example an empty id, an empty region, no models, or a field the metadata or a model doesn't take (a misspelled one). The message says which.",
     details: [
       {
         key: 'reason',
-        meaning: 'short code for the problem, such as empty-id or empty-region',
+        meaning:
+          'short code for the problem, such as empty-id, empty-region or unknown-model-field',
       },
       {
         key: 'providerId',

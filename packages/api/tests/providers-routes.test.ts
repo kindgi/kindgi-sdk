@@ -8,6 +8,8 @@ import { describe, expect, test } from 'vitest';
 import type { ProviderMetadata } from '@kindgi/capabilities';
 import type { Cursor, TenantId } from '@kindgi/types';
 
+import { ModelInfoSchema, ProviderMetadataSchema } from '../src/openapi/schemas.js';
+import { METADATA_FIELDS, MODEL_FIELDS } from '../src/routes/providers.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
@@ -649,6 +651,67 @@ describe('API — providers register + get', () => {
     const body = (await res.json()) as { error: { code: string; details?: { reason?: string } } };
     expect(body.error.code).toBe('invalid-provider');
     expect(body.error.details?.reason).toBe('unknown-feature');
+  });
+
+  test('a model field no model takes (a misspelled `thinking`) → 400 unknown-model-field, naming it and the fields a model takes', async () => {
+    const { app } = makeApp();
+    const spec = providerSpec();
+    const register = (models: readonly Record<string, unknown>[]) =>
+      app.request('/v1/providers', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ metadata: { ...spec, models }, adapter_id: TEST_ADAPTER_ID }),
+      });
+    const thinking = { mode: 'adaptive', lowest: 'low' };
+    const one = await register(spec.models.map((m) => ({ ...m, thinkng: thinking })));
+    expect(one.status).toBe(400);
+    const body = (await one.json()) as {
+      error: { code: string; message: string; details?: { reason?: string } };
+    };
+    expect(body.error.code).toBe('invalid-provider');
+    expect(body.error.details?.reason).toBe('unknown-model-field');
+    expect(body.error.message).toBe(
+      `provider "anthropic:claude-opus-4-7" model "claude-opus-4-7" has "thinkng", which isn't a model field: a model takes ${MODEL_FIELDS.join(', ')}`,
+    );
+    const two = await register(
+      spec.models.map((m) => ({ ...m, maxTokens: 1024, thinkng: thinking })),
+    );
+    expect(two.status).toBe(400);
+    expect(((await two.json()) as { error: { message: string } }).error.message).toContain(
+      'has "maxTokens" and "thinkng", which aren\'t model fields: a model takes',
+    );
+  });
+
+  test("a metadata field provider metadata doesn't take (a misspelled `defaultModel`) → 400 unknown-metadata-field", async () => {
+    const { app } = makeApp();
+    const res = await app.request('/v1/providers', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        metadata: { ...providerSpec(), defaultModle: 'claude-opus-4-7' },
+        adapter_id: TEST_ADAPTER_ID,
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details?: { reason?: string } };
+    };
+    expect(body.error.code).toBe('invalid-provider');
+    expect(body.error.details?.reason).toBe('unknown-metadata-field');
+    expect(body.error.message).toBe(
+      `provider "anthropic:claude-opus-4-7" metadata has "defaultModle", which isn't a field of provider metadata: it takes ${METADATA_FIELDS.join(', ')}`,
+    );
+  });
+
+  test("the fields models and metadata take are the schema's, which allows no others", () => {
+    expect(ModelInfoSchema.additionalProperties).toBe(false);
+    expect(ProviderMetadataSchema.additionalProperties).toBe(false);
+    expect([...MODEL_FIELDS].sort()).toEqual(
+      Object.keys(ModelInfoSchema.properties as Record<string, unknown>).sort(),
+    );
+    expect([...METADATA_FIELDS].sort()).toEqual(
+      Object.keys(ProviderMetadataSchema.properties as Record<string, unknown>).sort(),
+    );
   });
 
   test('validation failure (missing id) → 400 invalid-provider', async () => {
