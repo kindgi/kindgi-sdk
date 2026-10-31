@@ -11,6 +11,8 @@ import type {
   PinPage,
 } from '@kindgi/client';
 
+import type { AgentId } from '@kindgi/types';
+
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
 import { type OutputFormat, type Rendered, renderJson, successNote } from '../output.js';
