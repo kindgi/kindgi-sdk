@@ -91,8 +91,9 @@ case "${1:-}" in
     # The plan file is the plan as `terraform show -json` gives it: the server
     # (and the pack, with STUB_PACK_BEFORE) at the image the var files set, a
     # later file over an earlier one and -var over both, as terraform reads
-    # them; STUB_PLAN_CHANGES adds resource changes; STUB_PLAN_KEEP_IMAGE
-    # leaves the server's image as it is.
+    # them; STUB_PLAN_CHANGES adds resource changes; STUB_SERVER_ENV
+    # ({before, after, after_unknown}) adds env entries to the server's own
+    # change; STUB_PLAN_KEEP_IMAGE leaves the server's image as it is.
     out="" prev="" img="" pack=""
     for a in "$@"; do
       case "$a" in
@@ -116,16 +117,17 @@ case "${1:-}" in
     if [[ -n $out ]]; then
       jq -n --arg old "$STUB_RUNNING_IMAGE" --arg new "${img:-$STUB_RUNNING_IMAGE}" \
         --arg pold "${STUB_PACK_BEFORE:-}" --arg pnew "${pack:-${STUB_PACK_BEFORE:-}}" \
-        --argjson extra "${STUB_PLAN_CHANGES:-[]}" '
-        def svc($n; $addr; $b; $a):
-          {address: $addr, mode: "managed", type: "google_cloud_run_v2_service", name: $n,
-           change: {actions: (if $b == $a then ["no-op"] else ["update"] end),
-             before: {name: ("kindgi-" + $n), template: [{containers: [{image: $b, env: [{name: "KINDGI_ENV", value: "dev", value_source: []}]}]}]},
-             after: {name: ("kindgi-" + $n), template: [{containers: [{image: $a, env: [{name: "KINDGI_ENV", value: "dev", value_source: []}]}]}]},
-             after_unknown: {template: [{containers: [{env: [{}]}]}]}}};
+        --argjson extra "${STUB_PLAN_CHANGES:-[]}" --argjson senv "${STUB_SERVER_ENV:-null}" '
+        def svc($n; $addr; $b; $a; $env):
+          {name: "KINDGI_ENV", value: "dev", value_source: []} as $base
+          | {address: $addr, mode: "managed", type: "google_cloud_run_v2_service", name: $n,
+           change: {actions: (if $b == $a and $env == null then ["no-op"] else ["update"] end),
+             before: {name: ("kindgi-" + $n), template: [{containers: [{image: $b, env: ([$base] + ($env.before // []))}]}]},
+             after: {name: ("kindgi-" + $n), template: [{containers: [{image: $a, env: ([$base] + ($env.after // []))}]}]},
+             after_unknown: {template: [{containers: [{env: ([{}] + ($env.after_unknown // []))}]}]}}};
         {format_version: "1.2",
-         resource_changes: ([svc("server"; "google_cloud_run_v2_service.server"; $old; $new)]
-           + (if $pold == "" then [] else [svc("pack"; "google_cloud_run_v2_service.pack[0]"; $pold; $pnew)] end)
+         resource_changes: ([svc("server"; "google_cloud_run_v2_service.server"; $old; $new; $senv)]
+           + (if $pold == "" then [] else [svc("pack"; "google_cloud_run_v2_service.pack[0]"; $pold; $pnew; null)] end)
            + $extra)}' >"$out"
     fi
     exit "${STUB_PLAN_RC:-0}" ;;
@@ -197,7 +199,7 @@ fail() { FAIL=$((FAIL + 1)); printf '  FAIL: %s\n' "$*"; }
 reset_env() {
   unset STUB_TAGS STUB_DB_VERSION STUB_DB_PUBLIC STUB_JOB_CREATE_RC STUB_CHECK_RC \
         STUB_EXPORT_RC STUB_EXPORT_412 STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC STUB_INSPECT_ERR STUB_SQL_SA \
-        STUB_DB_CA STUB_PACK_BEFORE STUB_PLAN_CHANGES STUB_PLAN_KEEP_IMAGE STUB_SHOW_RC \
+        STUB_DB_CA STUB_PACK_BEFORE STUB_PLAN_CHANGES STUB_SERVER_ENV STUB_PLAN_KEEP_IMAGE STUB_SHOW_RC \
         V_NET V_HOST V_TENANCY V_PACK V_AAD V_PREFIX V_DBI V_CONNECTOR V_DB_PRIVATE
   CASE_DIR="$(mktemp -d "$TMP/case.XXXXXX")"
   OUT="$CASE_DIR/out.txt"
@@ -542,12 +544,12 @@ assert_absent "$STUB_MARKER_APPLY" "apply"
 assert_varfile_unchanged
 
 # 24. Past the newest release this script knows: refused before anything is
-# read, mirrored or backed up, though 0.1.9 to 0.3.0 lie on the way.
+# read, mirrored or backed up, though 0.1.9 to 0.3.1 lie on the way.
 case_start "target past the newest known release"
 reset_env; export STUB_TAGS="0.1.8"
 run "yes" --to 0.4.0
 assert_rc 1 "a later target refused"
-assert_out "knows the steps up to 0.3.0"
+assert_out "knows the steps up to 0.3.1"
 assert_out "as of the @kindgi/sdk@0.4.0 tag"
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
@@ -559,7 +561,7 @@ case_start "rc of a later release"
 reset_env; export STUB_TAGS="0.1.9"
 run "yes" --to 0.4.0-rc.1
 assert_rc 1 "a later rc refused"
-assert_out "knows the steps up to 0.3.0"
+assert_out "knows the steps up to 0.3.1"
 assert_out "as of the @kindgi/sdk@0.4.0 tag or, before that release is out, its newest @kindgi/sdk@0.4.0-rc.N tag."
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
 
@@ -797,7 +799,7 @@ case_start "server fix past the newest known release"
 reset_env; export STUB_TAGS="0.2.0"
 run "yes" --to 0.4.0.1
 assert_rc 1 "a later server fix refused"
-assert_out "knows the steps up to 0.3.0. 0.4.0.1 is a server fix for 0.4.0, which comes out after its final: use this script as of the @kindgi/sdk@0.4.0 tag."
+assert_out "knows the steps up to 0.3.1. 0.4.0.1 is a server fix for 0.4.0, which comes out after its final: use this script as of the @kindgi/sdk@0.4.0 tag."
 if grep -q "@kindgi/sdk@0.4.0.1" "$OUT"; then fail "the refusal names an SDK tag a server-only release doesn't have"; else pass; fi
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_MIRROR" "mirror"
@@ -899,46 +901,67 @@ assert_out "If a release crossed needs the pack rebuilt (its steps to confirm by
 if grep -q "If 0.1.10 needs" "$OUT"; then fail "the warning names a release"; else pass; fi
 assert_out "0.1.10 -> 0.2.0 applied"
 
-# 48. With no --to, the target is the newest release the script knows, 0.3.0.
-# Its steps print, and its plan may turn on the instance's deletion
-# protection, in place, as they say.
+# 48. With no --to, the target is the newest release the script knows, 0.3.1.
+# From 0.2.0 it crosses 0.3.0 and 0.3.1: both their steps print, and the plan
+# may turn on the instance's deletion protection, in place, as 0.3.0's say.
 INSTANCE_PROTECTED="$(jq -cn '[{address: "google_sql_database_instance.kindgi[0]", mode: "managed",
   type: "google_sql_database_instance", name: "kindgi", index: 0,
   change: {actions: ["update"],
     before: {name: "kindgi", settings: [{tier: "db-custom-1-3840", deletion_protection_enabled: false}]},
     after: {name: "kindgi", settings: [{tier: "db-custom-1-3840", deletion_protection_enabled: true}]},
     after_unknown: {}}}]')"
-case_start "the default target, 0.3.0"
+case_start "the default target, 0.3.1"
 reset_env; export STUB_TAGS="0.2.0" STUB_PLAN_CHANGES="$INSTANCE_PROTECTED"
 ARGS=(--var-file "$VAR_FILE" --runtime-digest "$NEW_DIGEST" --backup-bucket "gs://backups/dev")
 run "yes"
-assert_rc 0 "0.2.0 -> 0.3.0 runs"
-assert_out "crossing: 0.3.0$"
+assert_rc 0 "0.2.0 -> 0.3.1 runs"
+assert_out "crossing: 0.3.0 0.3.1$"
 assert_out "turns on Google's deletion protection (deletion_protection_enabled)"
 assert_out "If a plan says the instance must be replaced, answer no: a"
 assert_out "First start runs six additive migrations"
-assert_out "If seed_user_id has an upper-case letter, 0.3.0 reads it in lower case"
+assert_out "If seed_user_id has an upper-case letter, 0.3.0 and later read it in"
 assert_out "kindgi-runtime tenants repair --tenant <id in lower case>"
 assert_out "keeps kernel_runs, kernel_triggers and kernel_trigger_fires locked while"
 assert_out "upgrade at a quiet time"
 assert_out "gcloud storage rm --recursive --all-versions"
-assert_out "With openfga_api_url set, once 0.3.0 serves all the traffic, run this"
-assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.3.0 " "0.3.0's tag is read"
+assert_out "With openfga_api_url set, once the new runtime serves all the traffic,"
+assert_out "run this once, with the new runtime's kindgi-runtime:"
+if grep -q "0.3.0's kindgi-runtime" "$OUT"; then fail "a run to 0.3.1 named 0.3.0's runtime"; else pass; fi
+assert_out "First start runs no migrations. The steps are the packs'"
+assert_out "kindgi guardrails unregister <id>"
+assert_out "0.3.1 doesn't change the module."
+if grep -q "the module here is this copy's" "$OUT"; then fail "the newest release warned of a module past it"; else pass; fi
+assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.3.1 " "0.3.1's tag is read"
 assert_out "plan check: it changes the image(s)"
-assert_out "0.2.0 -> 0.3.0 applied"
+assert_out "0.2.0 -> 0.3.1 applied"
+
+# 48b. 0.3.0 -> 0.3.1's candidate, as most deployments go: it crosses 0.3.1
+# alone, an rc counting as its release, and the plan changes only the image.
+case_start "0.3.0 to 0.3.1-rc.0"
+reset_env; export STUB_TAGS="0.3.0"
+run "yes" --to 0.3.1-rc.0
+assert_rc 0 "0.3.0 -> 0.3.1-rc.0 runs"
+assert_out "crossing: 0.3.1$"
+assert_out "First start runs no migrations. The steps are the packs'"
+assert_out "kindgi guardrails unregister <id>"
+if grep -q "six additive migrations" "$OUT"; then fail "0.3.0's steps printed for a run from 0.3.0"; else pass; fi
+assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.3.1-rc.0@$NEW_DIGEST" "the rc is copied from registry.kindgi.com"
+assert_out "plan check: it changes the image(s)"
+assert_out "0.3.0 -> 0.3.1-rc.0 applied"
 
 # 49. The same change on a server fix for 0.2.0 crosses no release, but the
-# module here is 0.3.0's, and the plan makes its change all the same: it's
+# module here has 0.3.0's, and the plan makes that change all the same: it's
 # allowed, listed as the module's, and the run says the module goes ahead of
 # the runtime.
 case_start "0.3.0's module change, on a server fix for 0.2.0"
 reset_env; export STUB_TAGS="0.2.0" STUB_PLAN_CHANGES="$INSTANCE_PROTECTED"
 run "yes" --to 0.2.0.1
 assert_rc 0 "the module's own change passes"
-assert_out "the module here is this copy's, as of 0.3.0: the plan also makes its changes for the releases after 0.2.0"
+assert_out "the module here is this copy's, as of 0.3.1: the plan also makes its changes for the releases after 0.2.0"
 assert_out "To keep the module at 0.2.0, use this script as of the @kindgi/sdk@0.2.0 tag or, before that release is out, its newest @kindgi/sdk@0.2.0-rc.N tag."
 assert_out "none: 0.2.0.1 is a server fix for 0.2.0."
 assert_out "0.3.0 (this module's changes only; the runtime goes to 0.2.0.1):"
+assert_out "0.3.1 (this module's changes only; the runtime goes to 0.2.0.1):"
 assert_out "turns on Google's deletion protection (deletion_protection_enabled)"
 if grep -q "six additive migrations" "$OUT"; then fail "0.3.0's steps printed for a run to 0.2.0.1"; else pass; fi
 assert_out "plan check: it changes the image(s)"
@@ -966,6 +989,76 @@ assert_present "$STUB_MARKER_EXPORT" "backup"
 assert_absent "$STUB_MARKER_APPLY" "apply"
 assert_varfile_unchanged
 if ls "$CASE_DIR"/dev.tfvars.upgrade-*.tfplan >/dev/null 2>&1; then fail "a stopped plan was kept"; else pass; fi
+
+# 49c. A private-IP database: with the instance changing, the module reads its
+# CAs during the apply, so the plan has the server's KINDGI_DATABASE_SERVER_CA
+# known only after it. 0.3.0's change allows that beside the instance's, and
+# the run goes ahead.
+SERVER_CA_AFTER_APPLY="$(jq -cn '{
+  before: [{name: "KINDGI_DATABASE_SERVER_CA", value: "CA-ONE\nCA-TWO", value_source: []}],
+  after: [{name: "KINDGI_DATABASE_SERVER_CA", value_source: []}],
+  after_unknown: [{value: true}]}')"
+private_ip() {
+  V_NET="connector"; V_CONNECTOR="projects/demo-proj/locations/northamerica-northeast2/connectors/acme"
+  V_DB_PRIVATE="projects/demo-proj/global/networks/acme"; export STUB_DB_PUBLIC=false
+}
+case_start "0.2.0 -> 0.3.0, a private-IP database: the server's CA known after the apply"
+reset_env; export STUB_TAGS="0.2.0" STUB_PLAN_CHANGES="$INSTANCE_PROTECTED" STUB_SERVER_ENV="$SERVER_CA_AFTER_APPLY"; private_ip
+run "yes" --to 0.3.0
+assert_rc 0 "the CA known after the apply passes"
+assert_out "on instance kindgi (private IP)"
+assert_out "the plan shows the server's KINDGI_DATABASE_SERVER_CA as known after"
+assert_out "plan check: it changes the image(s)"
+assert_present "$STUB_MARKER_APPLY" "apply"
+
+# 49d. The same plan with one more server env change, a name that starts with
+# the CA's: the check names it and stops, and doesn't name the CA.
+SERVER_CA_AND_PATH="$(jq -cn --argjson ca "$SERVER_CA_AFTER_APPLY" '{
+  before: $ca.before,
+  after: ($ca.after + [{name: "KINDGI_DATABASE_SERVER_CA_PATH", value_source: []}]),
+  after_unknown: ($ca.after_unknown + [{value: true}])}')"
+case_start "the same plan with another server env change"
+reset_env; export STUB_TAGS="0.2.0" STUB_PLAN_CHANGES="$INSTANCE_PROTECTED" STUB_SERVER_ENV="$SERVER_CA_AND_PATH"; private_ip
+run "yes" --to 0.3.0
+assert_rc 1 "another env change stops it"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.server: changes template.containers.env.KINDGI_DATABASE_SERVER_CA_PATH" "the other env var named"
+if grep -qx "    google_cloud_run_v2_service.server: changes template.containers.env.KINDGI_DATABASE_SERVER_CA" "$OUT"; then fail "the CA was named"; else pass; fi
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+
+# 49e. The CA known after the apply in a plan that doesn't change the
+# instance (database_deletion_protection = false, say): nothing explains it,
+# so the check names it and stops.
+case_start "the server's CA known after the apply, the instance unchanged"
+reset_env; export STUB_TAGS="0.2.0" STUB_SERVER_ENV="$SERVER_CA_AFTER_APPLY"; private_ip
+run "yes" --to 0.3.0
+assert_rc 1 "the CA on its own stops it"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.server: changes template.containers.env.KINDGI_DATABASE_SERVER_CA" "the CA named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+
+# 49f. Without a private IP, the module doesn't set the CA, and a plan that
+# changes it stops.
+case_start "the server's CA known after the apply, no private IP"
+reset_env; export STUB_TAGS="0.2.0" STUB_PLAN_CHANGES="$INSTANCE_PROTECTED" STUB_SERVER_ENV="$SERVER_CA_AFTER_APPLY"
+run "yes" --to 0.3.0
+assert_rc 1 "it stops"
+assert_file_has "$OUT" "    google_cloud_run_v2_service.server: changes template.containers.env.KINDGI_DATABASE_SERVER_CA" "the CA named"
+assert_absent "$STUB_MARKER_APPLY" "apply"
+
+# 49g. A private-IP deployment on 0.2.0 that goes straight to 0.3.1, in one
+# run: the plan makes 0.3.0's change on the way, and the CA comes with it.
+# Its candidate, 0.3.1-rc.0, goes the same way.
+for to in 0.3.1 0.3.1-rc.0; do
+  case_start "0.2.0 -> $to, a private-IP database: the server's CA known after the apply"
+  reset_env; export STUB_TAGS="0.2.0" STUB_PLAN_CHANGES="$INSTANCE_PROTECTED" STUB_SERVER_ENV="$SERVER_CA_AFTER_APPLY"; private_ip
+  run "yes" --to "$to"
+  assert_rc 0 "0.2.0 -> $to passes"
+  assert_out "crossing: 0.3.0 0.3.1$"
+  assert_out "the plan shows the server's KINDGI_DATABASE_SERVER_CA as known after"
+  assert_out "plan check: it changes the image(s)"
+  assert_present "$STUB_MARKER_APPLY" "apply"
+done
 
 # 50. A pack env left off the command: the plan drops the pack's env vars, and
 # the check names each one it drops, never a value. A var it keeps, moved in

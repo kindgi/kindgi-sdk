@@ -153,15 +153,18 @@ describe('createTestSetFreeze', () => {
     });
     const subject = { kind: 'agent', id: agentId, version: '1.2.0' };
     const run = { subject, input: { ask: 'refund order 41?' }, output: { text: 'Refunded.' } };
+    // Each case answers the run it was copied from: two people's corrections of one run are two cases with that run.
     expect(await h.stored('1.0.0')).toEqual([
       {
         caseId: first.id,
+        runId,
         ...run,
         items: [],
         expect: { answer: { verdict: 'wrong', shouldSay: 'Final sale: no refund.' } },
       },
       {
         caseId: second.id,
+        runId,
         ...run,
         items: [],
         corrections: [
@@ -180,6 +183,7 @@ describe('createTestSetFreeze', () => {
       },
       {
         caseId: ranked.id,
+        runId: ranked.runId,
         ...run,
         items: [
           {
@@ -214,6 +218,7 @@ describe('createTestSetFreeze', () => {
       },
       {
         caseId: hand.id,
+        runId: hand.runId,
         subject: { kind: 'agent', id: agentId, version: '1.1.0' },
         input: { ask: 'cancel?' },
         output: { text: 'Cancelled.' },
@@ -222,11 +227,6 @@ describe('createTestSetFreeze', () => {
         expect: { answer: { verdict: 'wrong', why: 'Ask which order first.' } },
       },
     ]);
-    // Two people's corrections of one run are two cases, each kept with its run.
-    expect(h.cases.runIdOf(testSetId, '1.0.0', first.id)).toBe(runId);
-    expect(h.cases.runIdOf(testSetId, '1.0.0', second.id)).toBe(runId);
-    expect(h.cases.runIdOf(testSetId, '1.0.0', hand.runId)).toBeUndefined();
-    expect(h.cases.runIdOf(testSetId, '1.0.0', hand.id)).toBe(hand.runId);
     // Reading it needs read on its project: the project is its parent, and it has no owner.
     expect(h.testSets.tuples).toEqual([
       {
@@ -280,6 +280,7 @@ describe('createTestSetFreeze', () => {
     expect(await h.stored('1.0.0')).toEqual([
       {
         caseId: c.id,
+        runId: c.runId,
         subject: { kind: 'agent', id: agentId, version: '1.2.0' },
         input: null,
         output: null,
@@ -319,6 +320,7 @@ describe('createTestSetFreeze', () => {
     expect(await h.stored('1.0.0')).toEqual([
       {
         caseId: gone.id,
+        runId: gone.runId,
         subject: { kind: 'agent', id: agentId, version: '1.2.0' },
         input: null,
         output: null,
@@ -327,6 +329,7 @@ describe('createTestSetFreeze', () => {
       },
       {
         caseId: hand.id,
+        runId: hand.runId,
         subject: { kind: 'agent', id: agentId, version: '1.2.0' },
         input: { ask: 'cancel?' },
         output: { text: 'Cancelled.' },
@@ -421,6 +424,7 @@ describe('createTestSetFreeze', () => {
     expect(await h.stored('1.0.0')).toEqual([
       {
         caseId: erased.id,
+        runId: erased.runId,
         subject: { kind: 'agent', id: agentId, version: '1.2.0' },
         input: null,
         output: null,

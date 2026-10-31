@@ -12,7 +12,7 @@
  * for experts to correct), the tool calls and what happened to each, and
  * whether the replay diverged (a read ran live under `reads: 'recorded'`,
  * other than a recomputed one). The summary (`CorrectedComparisonSummary`) is what a
- * promotion gate reads.
+ * release gate reads.
  */
 
 import type { ReplayTurnReport } from '@kindgi/agents';
@@ -33,7 +33,7 @@ import {
 import { groupWeightReader, summarizeByItem } from './corrected-summary.js';
 import type { Correction, CorrectionRegistryBinding } from './correction-binding.js';
 import type {
-  CorrectedEvalCase,
+  CorrectedTestCase,
   EvalCaseStoreBinding,
   TestCaseExpectedDecisions,
 } from './eval-case-binding.js';
@@ -45,11 +45,11 @@ import {
 } from './expected-decisions.js';
 import type {
   AgentRef,
-  EvalComparison,
-  EvalGroupWeights,
-  EvalSample,
   FlowRef,
   TestRunBinding,
+  TestRunComparison,
+  TestRunGroupWeights,
+  TestRunSample,
 } from './test-run-binding.js';
 import type {
   DispatchContext,
@@ -58,7 +58,7 @@ import type {
   TestRunSubjectInvokeOutcome,
 } from './test-run-dispatcher.js';
 
-export const DEFAULT_COMPARISON: EvalComparison = {
+export const DEFAULT_COMPARISON: TestRunComparison = {
   baseline: 'recorded',
   reads: 'recorded',
   repetitions: 1,
@@ -97,8 +97,8 @@ export type ComparisonBaselineSummary =
       readonly kind: 'version';
       readonly agentId: string;
       readonly version: string;
-      readonly via: 'explicit' | 'live';
-      readonly liveScope?: Readonly<Record<string, unknown>>;
+      readonly via: 'explicit' | 'pinned';
+      readonly pinnedScope?: Readonly<Record<string, unknown>>;
     };
 
 /** A version behind recorded runs: an agent's or a flow's. */
@@ -113,7 +113,7 @@ export type ComparisonCandidate =
       readonly agentId: string;
       readonly version: string;
       /**
-       * The version's `pinsDigest`: what it ran, as a promotion gate checks.
+       * The version's `pinsDigest`: what it ran, as a release gate checks.
        * Absent for a version published before pins, and from a dispatcher
        * without an agent registry.
        */
@@ -121,7 +121,7 @@ export type ComparisonCandidate =
       /**
        * The blocks whose content the replays replaced
        * (`comparison.overrides`): it ran no published version, so it
-       * can't gate a promotion.
+       * can't gate a pin.
        */
       readonly overrides?: {
         readonly settings?: readonly string[];
@@ -136,7 +136,7 @@ export type ComparisonCandidate =
       readonly versions?: FlowVersionOverrides;
     };
 
-/** What a comparison test run concluded: what a promotion gate reads. */
+/** What a comparison test run concluded: what a release gate reads. */
 export interface CorrectedComparisonSummary {
   readonly testRunId: string;
   readonly status: 'completed' | 'partial' | 'failed';
@@ -176,15 +176,15 @@ export interface CorrectedComparisonSummary {
   readonly rescoreOf?: string;
   /** A rescore: cases whose replays couldn't be read again, kept at their earlier scores. */
   readonly notRescored?: number;
-  readonly reads: EvalComparison['reads'];
+  readonly reads: TestRunComparison['reads'];
   /**
    * Which corrections counted: `experts-only` weighs a correction not
    * recorded under an expert group 0 (a gate can require it). Absent
    * from a summary recorded before T200: `as-recorded`.
    */
-  readonly groupWeights?: EvalGroupWeights;
+  readonly groupWeights?: TestRunGroupWeights;
   /** The part of the test set it ran (absent: every case). */
-  readonly sample?: EvalSample;
+  readonly sample?: TestRunSample;
   /** The models that answered the candidate's replays, and how many replays each. */
   readonly sampling: {
     readonly models: readonly {
@@ -195,12 +195,12 @@ export interface CorrectedComparisonSummary {
   };
   readonly repetitions: number;
   readonly metrics: {
-    readonly weightedYesShare: ComparisonMetric;
-    readonly judgedCoverage: ComparisonMetric;
+    readonly passRate: ComparisonMetric;
+    readonly caseCoverage: ComparisonMetric;
     readonly weightedPrecisionAtK: ComparisonMetric;
   };
   /**
-   * Corrections graded across the cases, shown for a promotion gate, not
+   * Corrections graded across the cases, shown for a release gate, not
    * enforced. Absent when the test set carries no corrections.
    */
   readonly corrections?: {
@@ -321,7 +321,7 @@ export const VERSIONS_NEED_A_FLOW =
 function validateComparison(
   testSet: { readonly spec: Readonly<Record<string, unknown>> },
   target: AgentRef | FlowRef,
-  comparison: EvalComparison | undefined,
+  comparison: TestRunComparison | undefined,
 ): { kind: 'ok' } | { kind: 'err'; message: string } {
   if (target.version === undefined) {
     return {
@@ -387,8 +387,8 @@ export function createCorrectedDispatcher(options: CorrectedDispatcherOptions): 
 async function replayAll(
   options: CorrectedDispatcherOptions,
   ctx: DispatchContext,
-  comparison: EvalComparison,
-  all: readonly CorrectedEvalCase[],
+  comparison: TestRunComparison,
+  all: readonly CorrectedTestCase[],
   erased: number,
 ): Promise<DispatchResult> {
   const results: CorrectedCaseResult[] = [];
@@ -427,8 +427,8 @@ async function replayAll(
 async function allCases(
   store: EvalCaseStoreBinding,
   ctx: DispatchContext,
-): Promise<readonly CorrectedEvalCase[]> {
-  const out: CorrectedEvalCase[] = [];
+): Promise<readonly CorrectedTestCase[]> {
+  const out: CorrectedTestCase[] = [];
   let cursor: Parameters<EvalCaseStoreBinding['listCases']>[0]['cursor'];
   for (;;) {
     const page = await store.listCases({
@@ -481,8 +481,8 @@ class CaseTally {
   private readonly costs: (number | undefined)[] = [];
 
   constructor(
-    private readonly correctedCase: CorrectedEvalCase,
-    private readonly comparison: EvalComparison,
+    private readonly correctedCase: CorrectedTestCase,
+    private readonly comparison: TestRunComparison,
     private readonly agentTurn: boolean,
   ) {
     this.correctionsCase = correctedCase.corrections ?? [];
@@ -608,8 +608,8 @@ class CaseTally {
 
 async function runCase(
   ctx: DispatchContext,
-  comparison: EvalComparison,
-  correctedCase: CorrectedEvalCase,
+  comparison: TestRunComparison,
+  correctedCase: CorrectedTestCase,
   models: Map<string, { providerId: string; model: string; runs: number }>,
 ): Promise<CorrectedCaseResult | 'erased' | { readonly halt: Halt }> {
   // An agent turn's items are its answer and typed result; a flow run's, its whole output.
@@ -643,8 +643,8 @@ async function runCase(
 async function rescore(
   options: CorrectedDispatcherOptions,
   ctx: DispatchContext,
-  comparison: EvalComparison,
-  all: readonly CorrectedEvalCase[],
+  comparison: TestRunComparison,
+  all: readonly CorrectedTestCase[],
   erased: number,
 ): Promise<DispatchResult> {
   const { testRuns, runs } = options;
@@ -693,8 +693,8 @@ async function rescore(
 
 async function rescoreCase(
   ctx: DispatchContext,
-  comparison: EvalComparison,
-  correctedCase: CorrectedEvalCase,
+  comparison: TestRunComparison,
+  correctedCase: CorrectedTestCase,
   earlier: CorrectedCaseResult,
   runs: ReplayRunReader,
   fresh: (runId: string) => Promise<readonly ItemCorrections[]>,
@@ -735,7 +735,7 @@ async function rescoreCase(
 function freshReader(
   corrections: CorrectedDispatcherOptions['corrections'],
   tenantId: TenantId,
-  comparison: EvalComparison,
+  comparison: TestRunComparison,
 ): (runId: string) => Promise<readonly ItemCorrections[]> {
   if (corrections === undefined) return async () => [];
   const weightOf = groupWeightReader(corrections, tenantId);
@@ -789,7 +789,7 @@ function replayOf(outcome: TestRunSubjectInvokeOutcome): { replay?: ReplayTurnRe
 
 async function invokeCase(
   ctx: DispatchContext,
-  correctedCase: CorrectedEvalCase,
+  correctedCase: CorrectedTestCase,
 ): Promise<TestRunSubjectInvokeOutcome> {
   try {
     return await ctx.subject.invoke({
@@ -801,7 +801,8 @@ async function invokeCase(
       abortSignal: ctx.abortSignal,
       ...(ctx.projectId !== undefined && { projectId: ctx.projectId }),
       replay: {
-        of: correctedCase.caseId as unknown as RunId,
+        of: correctedCase.runId as unknown as RunId,
+        caseId: correctedCase.caseId,
         testRunId: ctx.testRunId as unknown as string,
       },
       ...(correctedCase.subject.kind === 'agent' && {
@@ -913,8 +914,8 @@ function metric(
 
 function summarize(
   ctx: DispatchContext,
-  comparison: EvalComparison,
-  cases: readonly CorrectedEvalCase[],
+  comparison: TestRunComparison,
+  cases: readonly CorrectedTestCase[],
   results: readonly CorrectedCaseResult[],
   models: readonly { providerId: string; model: string; runs: number }[],
   pinsDigest: string | undefined,
@@ -973,10 +974,10 @@ function summarize(
     sampling: { models },
     repetitions: comparison.repetitions,
     metrics: {
-      weightedYesShare: metric(results, comparison.repetitions, yesShare, correctedWeight, {
+      passRate: metric(results, comparison.repetitions, yesShare, correctedWeight, {
         fresh: true,
       }),
-      judgedCoverage: metric(results, comparison.repetitions, coverage, correctedWeight, {
+      caseCoverage: metric(results, comparison.repetitions, coverage, correctedWeight, {
         fresh: true,
       }),
       weightedPrecisionAtK: metric(
@@ -1032,7 +1033,7 @@ function costOf(
  * recorded under an expert group are kept, so a correction from someone
  * outside the restriction isn't graded.
  */
-function expertsOnly(c: CorrectedEvalCase): CorrectedEvalCase {
+function expertsOnly(c: CorrectedTestCase): CorrectedTestCase {
   const { corrections, ...rest } = c;
   const kept = corrections?.filter((x) => x.expert === true);
   return {
@@ -1043,7 +1044,7 @@ function expertsOnly(c: CorrectedEvalCase): CorrectedEvalCase {
 }
 
 /** Only what the people a group was restricted to said: an item without it counts as uncorrected. */
-function expertItems<T extends CorrectedEvalCase['items'][number]>(items: readonly T[]): T[] {
+function expertItems<T extends CorrectedTestCase['items'][number]>(items: readonly T[]): T[] {
   return items.flatMap((item) =>
     item.expert !== undefined && item.expert.totalWeight > 0
       ? [
@@ -1075,7 +1076,7 @@ async function candidatePins(
 
 function candidateOf(
   target: AgentRef | FlowRef,
-  comparison: EvalComparison | undefined,
+  comparison: TestRunComparison | undefined,
   pinsDigest?: string,
 ): ComparisonCandidate {
   const versions = comparison?.versions;

@@ -435,7 +435,7 @@ export type SuggestedChangeContent =
   | { readonly template: string };
 
 /** The metric that says whether a candidate is better. */
-export type SuggestedChangeObjective = 'weightedYesShare' | 'weightedPrecisionAtK';
+export type SuggestedChangeObjective = 'passRate' | 'weightedPrecisionAtK';
 
 /** A user, or a service token. */
 export interface SuggestedChangeActor {
@@ -528,7 +528,8 @@ export interface SuggestedChange {
   readonly note?:
     | {
         readonly kind: 'gate-refused' | 'rejected' | 'expired' | 'superseded';
-        readonly promotionId: string;
+        /** That pin's change in the agent's pin history. */
+        readonly pinChangeId: string;
       }
     | { readonly kind: 'not-running'; readonly version: string };
   readonly pinned?: {

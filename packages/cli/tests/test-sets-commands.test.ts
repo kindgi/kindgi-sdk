@@ -4,7 +4,6 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { runCli } from '../src/main.js';
@@ -64,10 +63,13 @@ describe('kindgi test-sets', () => {
     expect(out.stderr).toContain('--kind must be one of');
   });
 
-  test("list doesn't take `corrections`: an agent's corrections are its test set", async () => {
-    const out = await run(['test-sets', 'list', '--kind=corrections'], { testSets: {} });
-    expect(out.exitCode).toBe(2);
-    expect(out.stderr).toContain('--kind must be one of');
+  test("list --kind=corrections lists agents' own test sets, which it leaves out otherwise", async () => {
+    const { calls, rec } = recorder();
+    const out = await run(['test-sets', 'list', '--kind=corrections'], {
+      testSets: { list: rec('list', { data: [], hasMore: false }) },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['list', { kind: 'corrections' }]]);
   });
 
   test('show gets the latest, or a version with --test-set-version', async () => {

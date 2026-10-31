@@ -77,7 +77,7 @@ export type DeriveAgentVersionOutcome =
   | { readonly kind: 'invalid'; readonly issues: readonly SwapIssue[] }
   | { readonly kind: 'no-project' }
   | { readonly kind: 'project-not-found'; readonly projectId: ProjectId }
-  /** The agent belongs to another project than the one given (`projectId`): nothing is written. */
+  /** The agent belongs to another project (`projectId`, its own) than the one given: nothing is written. */
   | { readonly kind: 'project-mismatch'; readonly projectId: ProjectId }
   /** The project given is a later environment of its order: nothing is written. */
   | { readonly kind: 'environment-takes-promotions'; readonly later: LaterEnvironment };

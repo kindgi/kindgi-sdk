@@ -44,8 +44,8 @@ const RUN_IN_FULL = {
     id: 'acme-shop.helpdesk',
     version: '0.3.0',
     conversationId: '5d2a1c7e-2b9f-4a51-8f0e-0c6d9b1a7e33',
-    via: 'live',
-    liveScope: { kind: 'project', projectId: PROJECT },
+    via: 'pinned',
+    pinnedScope: { kind: 'project', projectId: PROJECT },
   },
 };
 const IMPROVE_RUN = {
@@ -59,7 +59,7 @@ const IMPROVE_RUN = {
   },
   testSetId: 'acme-shop.helpdesk-testSet',
   tiers: ['prompt'],
-  objective: 'weightedYesShare',
+  objective: 'passRate',
   budget: { maxCostUsd: 2, maxCandidates: 3 },
   requestedBy: 'user_1',
   status: 'completed',
@@ -164,17 +164,17 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
   [
     "an optional field's enum",
     withRun({ ...RUN_IN_FULL, agent: { ...RUN_IN_FULL.agent, via: 'guess' } }),
-    '`data.run.agent.via` is not one of "explicit", "flow-pin", "conversation", "live", "latest".',
+    '`data.run.agent.via` is not one of "explicit", "flow-pin", "conversation", "pinned", "latest".',
   ],
   [
     "a union's variant",
-    withRun({ ...RUN_IN_FULL, agent: { ...RUN_IN_FULL.agent, liveScope: { kind: 'project' } } }),
-    '`data.run.agent.liveScope.projectId` is missing.',
+    withRun({ ...RUN_IN_FULL, agent: { ...RUN_IN_FULL.agent, pinnedScope: { kind: 'project' } } }),
+    '`data.run.agent.pinnedScope.projectId` is missing.',
   ],
   [
     "a union's tag",
-    withRun({ ...RUN_IN_FULL, agent: { ...RUN_IN_FULL.agent, liveScope: { kind: 'galaxy' } } }),
-    '`data.run.agent.liveScope.kind` is not one of "tenant", "org", "project", "segment".',
+    withRun({ ...RUN_IN_FULL, agent: { ...RUN_IN_FULL.agent, pinnedScope: { kind: 'galaxy' } } }),
+    '`data.run.agent.pinnedScope.kind` is not one of "tenant", "org", "project", "segment".',
   ],
   [
     "a failure's code",
@@ -192,7 +192,7 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
   [
     'an enum on an Improve run',
     withImproveRun({ ...IMPROVE_RUN, objective: 'accuracy' }),
-    '`data.improveRun.objective` is not one of "weightedYesShare", "weightedPrecisionAtK".',
+    '`data.improveRun.objective` is not one of "passRate", "weightedPrecisionAtK".',
   ],
   [
     'an exclusive minimum',
@@ -246,7 +246,7 @@ describe('parseEvent: real events', () => {
     expect(parseEvent(body(event))).toEqual({ kind: 'ok', event });
   });
 
-  test('a run with every optional part (failure, usage, agent, its live scope) is read', () => {
+  test('a run with every optional part (failure, usage, agent, its pinned scope) is read', () => {
     expect(problem(parseEvent(withRun(RUN_IN_FULL)))).toBe('ok');
   });
 

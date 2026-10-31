@@ -70,7 +70,7 @@ export interface VersionDerivation {
   readonly by?: string;
   /**
    * For an edit made to evaluate a suggested change: the suggested change.
-   * Such a version serves no scope until a promotion makes it live.
+   * Such a version serves no scope until a pin makes it serve.
    */
   readonly suggestedChangeId?: string;
 }

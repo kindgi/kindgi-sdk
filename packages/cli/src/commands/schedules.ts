@@ -92,7 +92,10 @@ const FIRES_TABLE: TableSpec<FirePage, Fire> = {
 };
 
 const TARGET_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
-  agent: { type: 'string', description: 'Run this agent (at its live version, else the latest).' },
+  agent: {
+    type: 'string',
+    description: 'Run this agent (at its pinned version, else the latest).',
+  },
   'agent-version': { type: 'string', description: 'With --agent: run this exact version.' },
   flow: { type: 'string', description: 'Run this flow (with --flow-version).' },
   'flow-version': { type: 'string', description: 'With --flow: the flow version to run.' },
@@ -179,7 +182,7 @@ function improveScope(ctx: CommandContext): NonNullable<RegisterInput['improve']
   const segments = segmentsFlag(ctx);
   if (project === undefined) {
     throw new Error(
-      '--improve needs its scope: --project=<id> [--segment=<key:value>]… (an Improve run learns from one project; make its suggested change live for the tenant by hand after review)',
+      '--improve needs its scope: --project=<id> [--segment=<key:value>]… (an Improve run learns from one project; pin its suggested change for the tenant by hand after review)',
     );
   }
   return segments.length > 0

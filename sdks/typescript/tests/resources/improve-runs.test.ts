@@ -14,7 +14,7 @@ const IMPROVE_RUN = {
   scope: { kind: 'tenant' },
   testSetId: 'acme.scoring-judged',
   tiers: ['settings'],
-  objective: 'weightedYesShare',
+  objective: 'passRate',
   budget: { maxCostUsd: 5, maxCandidates: 30 },
   requestedBy: 'user:u1',
   status: 'running',

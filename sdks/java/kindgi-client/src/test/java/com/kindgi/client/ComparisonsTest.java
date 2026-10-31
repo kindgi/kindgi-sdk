@@ -20,10 +20,10 @@ import org.junit.jupiter.api.Test;
  */
 class ComparisonsTest {
   /** A comparison test run, as the runtime returns it, with its result. */
-  private static final String JUDGED =
+  private static final String CORRECTIONS_RUN =
       """
       {
-        "runId": "00000000-0000-4000-8000-00000000e001",
+        "testRunId": "00000000-0000-4000-8000-00000000e001",
         "tenantId": "00000000-0000-4000-8000-000000000002",
         "testSetId": "acme.set",
         "testSetVersion": "1.0.0",
@@ -58,11 +58,11 @@ class ComparisonsTest {
             "sampling": { "models": [{ "providerId": "acme", "model": "m-1", "runs": 1 }] },
             "repetitions": 1,
             "metrics": {
-              "weightedYesShare": {
+              "passRate": {
                 "baseline": 0.5, "candidate": 0.75, "delta": 0.25,
                 "n": 2, "weight": 2, "baselineN": 2, "baselineWeight": 2, "direction": "higher"
               },
-              "judgedCoverage": {
+              "caseCoverage": {
                 "baseline": 1, "candidate": 1, "delta": 0,
                 "n": 2, "weight": 2, "baselineN": 2, "baselineWeight": 2, "direction": "higher"
               },
@@ -121,20 +121,20 @@ class ComparisonsTest {
   /** The run with its map edited, round-tripped back to an {@link TestRun}. */
   private static TestRun runWith(Consumer<Map<String, Object>> edit) {
     @SuppressWarnings("unchecked")
-    Map<String, Object> map = KindgiJson.read(JUDGED, Map.class);
+    Map<String, Object> map = KindgiJson.read(CORRECTIONS_RUN, Map.class);
     edit.accept(map);
     return KindgiJson.read(KindgiJson.write(map), TestRun.class);
   }
 
   @Test
   void readsAComparisonsResultTyped() {
-    TestRun judged = KindgiJson.read(JUDGED, TestRun.class);
+    TestRun run = KindgiJson.read(CORRECTIONS_RUN, TestRun.class);
 
-    Optional<CorrectedComparisonResult> result = Comparisons.comparisonOf(judged);
+    Optional<CorrectedComparisonResult> result = Comparisons.comparisonOf(run);
 
     assertThat(result).isPresent();
     CorrectedComparisonResult comparison = result.orElseThrow();
-    assertThat(comparison.summary().metrics().weightedYesShare().delta()).isEqualTo(0.25);
+    assertThat(comparison.summary().metrics().passRate().delta()).isEqualTo(0.25);
     assertThat(comparison.summary().stopped()).isEqualTo(1L);
     assertThat(comparison.perCase()).hasSize(2);
     assertThat(comparison.perCase().get(1).stopped()).isNotNull();
@@ -147,11 +147,11 @@ class ComparisonsTest {
     // single guard would make this test fail — a non-corrections kind, no result yet, a result with no
     // summary, and a result with no perCase list.
 
-    // Another kind of run, but with the judged result kept — only the kind guard makes it empty.
+    // Another kind of run, but with the corrections result kept — only the kind guard makes it empty.
     TestRun otherKind = runWith(run -> run.put("kind", "accuracy"));
     assertThat(Comparisons.comparisonOf(otherKind)).isEmpty();
 
-    // A judged run that hasn't finished — no result yet — only the result-present guard.
+    // A corrections run that hasn't finished — no result yet — only the result-present guard.
     TestRun unfinished =
         runWith(
             run -> {
@@ -160,7 +160,7 @@ class ComparisonsTest {
             });
     assertThat(Comparisons.comparisonOf(unfinished)).isEmpty();
 
-    // A judged run whose result has the perCase list but no summary — only the summary guard.
+    // A corrections run whose result has the perCase list but no summary — only the summary guard.
     // Without that guard this would throw (summary is required), not return empty.
     TestRun noSummary =
         runWith(
@@ -171,7 +171,7 @@ class ComparisonsTest {
             });
     assertThat(Comparisons.comparisonOf(noSummary)).isEmpty();
 
-    // A judged run whose result has a summary but no perCase list — only the perCase guard.
+    // A corrections run whose result has a summary but no perCase list — only the perCase guard.
     TestRun noPerCase =
         runWith(
             run -> {

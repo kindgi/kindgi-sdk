@@ -11,22 +11,14 @@ import {
   pinsDigest,
 } from '@kindgi/agents';
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
-import type { Cursor, LiveScope, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
+import type { AgentPinScope, Cursor, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
 
 import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
+import type { AgentPinBindings } from '../agent-pin-binding.js';
 import { resolveAgentPins, toolPinLookup } from '../agent-pins.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
-import {
-  type DeriveAgentVersionOutcome,
-  type PinSwaps,
-  deriveAgentVersion,
-  nextFreeAgentVersion,
-} from '../derive-agent-version.js';
-import {
-  environmentTakesPromotionsResponse,
-  firstEnvironmentOf,
-  laterEnvironment,
-} from '../environment-entry.js';
+import { nextFreeAgentVersion } from '../derive-agent-version.js';
+import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
@@ -34,14 +26,13 @@ import {
   type ItemCheck,
   type ItemRights,
   type ItemServing,
+  agentPinChangeRefusal,
   itemMiddleware,
   itemPathCheck,
-  liveChangeRefusal,
   readCheck,
   shownLatest,
   underItem,
 } from '../item-rights.js';
-import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
@@ -55,20 +46,20 @@ import { refuseReadOnly, refuseWritesWhenReadOnly } from '../registry-read-only.
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { type WhatRunsInProject, whatRunsByProject } from '../what-runs.js';
+import { agentPinScopeToWire, parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
 import {
-  type AgentReleaseGateDeps,
+  type AgentPinGateDeps,
   actorOf,
-  isLiveSet,
-  isLiveUndo,
-  isPromotionCheck,
-  isPromotionRequest,
-  isPromotionWrite,
-  mountAgentReleaseRoutes,
+  isAgentPinCheck,
+  isAgentPinRequest,
+  isAgentPinSet,
+  isAgentPinWrite,
+  isAgentUnpin,
+  mountAgentPinRoutes,
   seenVersions,
-} from './agent-releases.js';
+} from './agent-pins.js';
 import { isTestSetPath } from './agent-test-set.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
-import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
@@ -97,18 +88,18 @@ export function agentsRouter(
   authorizer?: Authorizer,
   toolRegistry?: ToolRegistryBinding,
   blockRegistry?: BlockRegistryBinding,
-  /** Live versions per scope and promotions (evals step 4); absent → those routes aren't mounted. */
-  releases?: AgentReleaseBindings,
-  /** What a promotion's gate reads besides the releases (evals step 4b). */
-  gateDeps?: AgentReleaseGateDeps,
+  /** Pinned versions per scope and their pin history; absent → those routes aren't mounted. */
+  agentPins?: AgentPinBindings,
+  /** What a pin's gate reads besides the pins. */
+  gateDeps?: AgentPinGateDeps,
   /** What the deployment can do for an agent's turns, for publish warnings. */
   capabilities: AgentPublishCapabilities = {},
   /** What an agent's project may reference (`reference-scope.ts`); absent → as named. */
   referenceScope?: ReferenceScopeBinding,
   /**
-   * The tenant's environment orders: a publish, or a derived version, aimed
-   * at a later environment is refused (`environment-entry.ts`). Absent: no
-   * project is a later environment.
+   * The tenant's environment orders: a publish aimed at a later
+   * environment is refused (`environment-entry.ts`). Absent: no project is
+   * a later environment.
    */
   environmentOrders?: Pick<EnvironmentOrderBinding, 'orderOf'>,
   /** Rights on an agent more than one project serves (`item-rights.ts`); absent → the agent's own. */
@@ -125,7 +116,7 @@ export function agentsRouter(
   const publishCompiles = publishCompilesMiddleware();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
   // every write before anything else runs. One that takes Improve's
-  // candidates lets a promotion through (it writes the candidate where
+  // candidates lets a pin through (it writes the candidate where
   // the definitions come from), and refuses an undo with its own reason.
   const refuseWrites = refuseWritesWhenReadOnly(() => binding.readOnly);
   r.use('*', async (c, next) => {
@@ -134,8 +125,8 @@ export function agentsRouter(
     const candidates = binding.readOnly?.takesCandidates;
     if (candidates !== undefined) {
       const { method, path } = c.req;
-      if (isPromotionRequest(method, path) || isPromotionCheck(method, path)) return next();
-      if (isLiveUndo(method, path)) return refuseReadOnly(c, { reason: candidates.undoReason });
+      if (isAgentPinRequest(method, path) || isAgentPinCheck(method, path)) return next();
+      if (isAgentUnpin(method, path)) return refuseReadOnly(c, { reason: candidates.undoReason });
     }
     return refuseWrites(c, next);
   });
@@ -147,13 +138,12 @@ export function agentsRouter(
   //
   //   POST /                                         → admin on body.projectId
   //   GET /:agentId, GET /:agentId/versions[/…]      → read on the agent
-  //   POST /:agentId/versions                        → publish on the agent (derive)
   //   POST /:agentId/versions/:version/unregister    → admin on the agent
   //   POST /:agentId/versions/:version/reinstate     → admin on the agent
   //   PUT /:agentId/owner                            → admin on the agent
-  //   POST /:agentId/promotions, /live/rollback, /live/unpin → promote on the agent
-  //   POST /:agentId/promotions/check                → read on the agent (changes nothing)
-  //   GET /:agentId/live, /live-versions, /promotions[/…]    → read on the agent
+  //   POST /:agentId/pinned/pin, /pinned/unpin       → pin on the agent
+  //   POST /:agentId/pinned/check                    → read on the agent (changes nothing)
+  //   GET /:agentId/pinned, /pinned-versions, /pin-history[/…] → read on the agent
   //   GET /:agentId/projects                         → read on the agent; names
   //                                                    the projects the caller reads
   //   GET / (list)                                   → tenant-scoped fetch;
@@ -191,17 +181,17 @@ export function agentsRouter(
       const mw = authorizer.authorize('read', () => ref('project', scopeProjectId));
       return mw(c, next);
     });
-    // Changing what's live is its own permission (`promote`, granted to the
-    // agent's admins), checked as a deployment's promotion that makes what
-    // it moved live checks it (`liveChangeRefusal`).
+    // Changing what's pinned is its own permission (`pin`, granted to the
+    // agent's admins), checked as a deployment's promotion that pins what
+    // it moves checks it (`agentPinChangeRefusal`).
     r.use('/:agentId/*', async (c, next) => {
-      if (!isPromotionWrite(c.req.method, c.req.path)) return next();
-      const refused = await liveChangeRefusal(c, {
+      if (!isAgentPinWrite(c.req.method, c.req.path)) return next();
+      const refused = await agentPinChangeRefusal(c, {
         authorizer,
         rights: itemRights,
         agentId: c.req.param('agentId') ?? '',
         scope: await bodyScope(c),
-        setsLive: isLiveSet(c.req.method, c.req.path),
+        setsPin: isAgentPinSet(c.req.method, c.req.path),
       });
       return refused ?? next();
     });
@@ -215,21 +205,18 @@ export function agentsRouter(
         rights: itemRights,
         kind: 'agent',
         id: (c) => c.req.param('agentId') ?? '',
-        // Deriving a version (POST …/versions) is `publish` on the agent;
-        // unregister and reinstate are `admin`. A change to what's live is
+        // Unregister and reinstate are `admin`. A change to what's pinned is
         // checked above, and the test set's routes check for themselves
         // (`agent-test-set.ts`).
         today: (c) =>
           isTestSetPath(c.req.path)
             ? undefined
-            : c.req.method === 'GET' || isPromotionCheck(c.req.method, c.req.path)
+            : c.req.method === 'GET' || isAgentPinCheck(c.req.method, c.req.path)
               ? 'read'
-              : isPromotionWrite(c.req.method, c.req.path)
+              : isAgentPinWrite(c.req.method, c.req.path)
                 ? undefined
-                : c.req.path.endsWith('/versions')
-                  ? 'publish'
-                  : 'admin',
-        check: (c, projects) => agentCheck(c, projects),
+                : 'admin',
+        check: (c) => agentCheck(c),
         versionNotFound: agentVersionNotFound,
       }),
     );
@@ -237,25 +224,15 @@ export function agentsRouter(
 
   /**
    * What a route under an agent more than one project serves asks
-   * (`item-rights.ts`). Reads are rules 1 and 2. A derived version is
-   * made in the first environment of the agent's order, so deriving is
-   * `write` there (`deriveAgentVersion`). Unregistering or reinstating a
-   * version is `admin` on each project it can run in; anything else, on
-   * each of the agent's. A change to what's live is `liveChangeRefusal`'s.
+   * (`item-rights.ts`). Reads are rules 1 and 2. Unregistering or
+   * reinstating a version is `admin` on each project it can run in;
+   * anything else, on each of the agent's. A change to what's pinned is
+   * `agentPinChangeRefusal`'s.
    */
-  async function agentCheck(
-    c: Context<AppEnv>,
-    projects: readonly ProjectId[],
-  ): Promise<ItemCheck> {
+  function agentCheck(c: Context<AppEnv>): ItemCheck {
     const under = underItem(c);
     if (c.req.method === 'GET') return readCheck(under);
-    if (isPromotionCheck(c.req.method, c.req.path)) return { rule: 'read' };
-    if (under.length === 1 && under[0] === 'versions') {
-      const home = projects[0] as ProjectId;
-      const tenantId = c.get('tenantId') as TenantId;
-      const madeIn = (await firstEnvironmentOf(environmentOrders, tenantId, home)) ?? home;
-      return { rule: 'on', action: 'write', projectId: madeIn as unknown as string };
-    }
+    if (isAgentPinCheck(c.req.method, c.req.path)) return { rule: 'read' };
     return itemPathCheck(c);
   }
 
@@ -436,7 +413,7 @@ export function agentsRouter(
   // pins and Latest wired, each says what runs there (`whatRunsByProject`),
   // and the answer gives the highest version, which numbers the next one.
   // A version the caller can't see is left out (`seenVersions`), as
-  // `GET …/live` leaves it out.
+  // `GET …/pinned` leaves it out.
   r.get('/:agentId/projects', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const agentId = c.req.param('agentId') as AgentId;
@@ -464,11 +441,11 @@ export function agentsRouter(
         : await authorizer.filterByCan(c, 'read', projects, (p) =>
             ref('project', p as unknown as string),
           );
-    if (releases === undefined) {
+    if (agentPins === undefined) {
       return c.json({ data: named.map((projectId) => ({ projectId })) });
     }
     const [rows, highest] = await Promise.all([
-      whatRunsByProject(releases, { tenantId, agentId }, named),
+      whatRunsByProject(agentPins, { tenantId, agentId }, named),
       binding.get({ tenantId, agentId }),
     ]);
     const visible = await seenVersions(
@@ -484,7 +461,7 @@ export function agentsRouter(
       ].map(String),
     );
     const shown = (version: Semver) => visible.has(version as unknown as string);
-    const data = await Promise.all(rows.map((row) => projectRow(tenantId, releases, row, shown)));
+    const data = await Promise.all(rows.map((row) => projectRow(tenantId, agentPins, row, shown)));
     return c.json({
       data,
       ...(highest !== null && shown(highest.version) && { highest: { version: highest.version } }),
@@ -494,7 +471,7 @@ export function agentsRouter(
   /** One project's row: what runs there and why, and the segment pins inside it. */
   async function projectRow(
     tenantId: TenantId,
-    releases: AgentReleaseBindings,
+    agentPins: AgentPinBindings,
     { projectId, runs, pin, segments }: WhatRunsInProject,
     shown: (version: Semver) => boolean,
   ) {
@@ -523,17 +500,16 @@ export function agentsRouter(
         ...bySegment,
       };
     }
-    // A pin: when it was set, and who asked for the promotion that set it.
-    const promotion =
-      pin === undefined ? null : await releases.promotions.get(tenantId, pin.promotionId);
+    // A pin: when it was set, and who asked for the pin change that set it.
+    const change = pin === undefined ? null : await agentPins.changes.get(tenantId, pin.changeId);
     return {
       projectId,
       follows: 'pin',
       runs: {
         version: runs.version,
-        liveScope: liveScopeToWire(runs.liveScope),
-        ...(pin !== undefined && { since: pin.setAt, promotionId: pin.promotionId }),
-        ...(promotion !== null && { by: promotion.requestedBy }),
+        pinnedScope: agentPinScopeToWire(runs.pinnedScope),
+        ...(pin !== undefined && { since: pin.setAt, pinChangeId: pin.changeId }),
+        ...(change !== null && { by: change.requestedBy }),
       },
       ...bySegment,
     };
@@ -789,45 +765,6 @@ export function agentsRouter(
     });
   });
 
-  // ---------- POST /:agentId/versions (derive a version) ----------
-  r.post('/:agentId/versions', publishCompiles, async (c) => {
-    const requestId = c.get('requestId');
-    const tenantId = c.get('tenantId') as TenantId;
-    const agentId = c.req.param('agentId') as AgentId;
-    const body = await jsonObject(c);
-    if (body === undefined) {
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError(
-          { code: 'bad-input', message: 'Request body must be a JSON object' },
-          requestId,
-        ),
-      );
-    }
-    const parsed = deriveBody(body);
-    if (typeof parsed === 'string') {
-      c.status(statusFor('bad-input') as never);
-      return c.json(toWireError({ code: 'bad-input', message: parsed }, requestId));
-    }
-    const principal = c.get('principal') as Principal | undefined;
-    const userId = principal?.actor.kind === 'user' ? (principal.actor.id as UserId) : undefined;
-    const outcome = await deriveAgentVersion({
-      agents: binding,
-      blocks: blockRegistry,
-      tenantId,
-      agentId,
-      from: parsed.from,
-      swaps: parsed.pins,
-      ...(parsed.label !== undefined && { label: parsed.label }),
-      ...(userId !== undefined && { by: `user:${userId as unknown as string}` }),
-      ...(parsed.projectId !== undefined && { projectId: parsed.projectId }),
-      ...(environmentOrders !== undefined && { orders: environmentOrders }),
-      tuplesFor: (projectId) => (id) =>
-        tuplesForCreate({ kind: 'agent', id: id as AgentId, tenantId, projectId }, userId),
-    });
-    return derived(c, agentId, parsed.from, outcome, authorizer);
-  });
-
   // ---------- POST /:agentId/versions/:version/unregister ----------
   r.post('/:agentId/versions/:version/unregister', async (c) => {
     const requestId = c.get('requestId');
@@ -836,18 +773,18 @@ export function agentsRouter(
     const version = c.req.param('version') as Semver;
 
     const outcome = await binding.unregister({ tenantId, agentId, version });
-    if (!outcome.unregistered && outcome.live !== undefined && outcome.live.length > 0) {
-      c.status(statusFor('agent-version-live') as never);
+    if (!outcome.unregistered && outcome.pinned !== undefined && outcome.pinned.length > 0) {
+      c.status(statusFor('agent-version-pinned') as never);
       return c.json(
         toWireError(
           {
-            code: 'agent-version-live',
-            message: `${agentId as unknown as string} ${version as unknown as string} is live in ${
-              outcome.live.length === 1 ? 'a scope' : `${outcome.live.length} scopes`
-            }: roll back, unpin, or promote another version there first, then unregister it.`,
+            code: 'agent-version-pinned',
+            message: `${agentId as unknown as string} ${version as unknown as string} is pinned in ${
+              outcome.pinned.length === 1 ? 'a scope' : `${outcome.pinned.length} scopes`
+            }: unpin, or pin another version there first, then unregister it.`,
             agentId: agentId as unknown as string,
             version: version as unknown as string,
-            scopes: outcome.live.map(liveScopeToWire),
+            scopes: outcome.pinned.map(agentPinScopeToWire),
           },
           requestId,
         ),
@@ -997,8 +934,8 @@ export function agentsRouter(
     });
   });
 
-  if (releases !== undefined) {
-    mountAgentReleaseRoutes(r, binding, releases, gateDeps, referenceScope, itemRights);
+  if (agentPins !== undefined) {
+    mountAgentPinRoutes(r, binding, agentPins, gateDeps, referenceScope, itemRights);
   }
 
   return r;
@@ -1019,12 +956,12 @@ async function ownerBody(c: Context<AppEnv>): Promise<UserId | undefined> {
   return typeof userId === 'string' && userId.length > 0 ? (userId as UserId) : undefined;
 }
 
-/** The scope a promotion, rollback or unpin body names; `undefined` when it names none (the route's 400). */
-async function bodyScope(c: Context<AppEnv>): Promise<LiveScope | undefined> {
+/** The scope a pin or unpin body names; `undefined` when it names none (the route's 400). */
+async function bodyScope(c: Context<AppEnv>): Promise<AgentPinScope | undefined> {
   try {
     const body: unknown = await c.req.json();
     if (body === null || typeof body !== 'object') return undefined;
-    const scope = parseLiveScopeBody((body as Record<string, unknown>).scope);
+    const scope = parseAgentPinScopeBody((body as Record<string, unknown>).scope);
     return scope.kind === 'ok' ? scope.scope : undefined;
   } catch {
     return undefined;
@@ -1033,7 +970,7 @@ async function bodyScope(c: Context<AppEnv>): Promise<LiveScope | undefined> {
 
 /**
  * The 409 for a publish whose number is taken. Versions never change, so
- * it names the next free one (an expert's derived version may hold it).
+ * it names the next free one (a suggested change's version may hold it).
  */
 async function alreadyRegistered(
   c: Context<AppEnv>,
@@ -1057,127 +994,6 @@ async function alreadyRegistered(
       c.get('requestId'),
     ),
   );
-}
-
-/** The request body as an object; undefined when it isn't JSON or isn't an object. */
-async function jsonObject(c: Context<AppEnv>): Promise<Record<string, unknown> | undefined> {
-  try {
-    const body = await c.req.json();
-    return body !== null && typeof body === 'object' && !Array.isArray(body)
-      ? (body as Record<string, unknown>)
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-interface DeriveBody {
-  readonly from: string;
-  readonly pins: PinSwaps;
-  readonly label?: string;
-  readonly projectId?: ProjectId;
-}
-
-/** `{ from, pins: { prompts?, settings? }, label?, projectId? }`, or what's wrong with it. */
-function deriveBody(b: Record<string, unknown>): DeriveBody | string {
-  if (typeof b.from !== 'string' || b.from.length === 0) {
-    return '`from` (the version to derive from) is required';
-  }
-  const pins = pinSwapsOf(b.pins);
-  if (typeof pins === 'string') return pins;
-  for (const key of ['label', 'projectId'] as const) {
-    if (b[key] !== undefined && typeof b[key] !== 'string') return `\`${key}\` must be a string`;
-  }
-  return {
-    from: b.from,
-    pins,
-    ...(typeof b.label === 'string' && { label: b.label }),
-    ...(typeof b.projectId === 'string' && { projectId: b.projectId as ProjectId }),
-  };
-}
-
-/** `pins`: prompt and settings pins only, each block id → exact version; or what's wrong with it. */
-function pinSwapsOf(pins: unknown): PinSwaps | string {
-  if (pins === null || typeof pins !== 'object' || Array.isArray(pins)) {
-    return '`pins` must be { prompts?, settings? }';
-  }
-  for (const [kind, map] of Object.entries(pins)) {
-    if (kind !== 'prompts' && kind !== 'settings') {
-      return `\`pins.${kind}\` can't be swapped: only prompt and settings pins (tool pins come from code)`;
-    }
-    if (!isStringMap(map)) return `\`pins.${kind}\` must map block ids to exact versions`;
-  }
-  return pins as PinSwaps;
-}
-
-function isStringMap(value: unknown): boolean {
-  return (
-    value !== null &&
-    typeof value === 'object' &&
-    !Array.isArray(value) &&
-    Object.values(value).every((v) => typeof v === 'string')
-  );
-}
-
-/** The response to a derive. */
-function derived(
-  c: Context<AppEnv>,
-  agentId: AgentId,
-  from: string,
-  outcome: DeriveAgentVersionOutcome,
-  authorizer: Authorizer | undefined,
-) {
-  const requestId = c.get('requestId');
-  const fail = (
-    status: string,
-    error: { code: string; message: string } & Record<string, unknown>,
-  ) => {
-    c.status(statusFor(status) as never);
-    return c.json(toWireError(error, requestId));
-  };
-  switch (outcome.kind) {
-    case 'ok':
-      c.status(201);
-      return c.json(serializeAgent(outcome.agent));
-    case 'reused':
-      return c.json(serializeAgent(outcome.agent));
-    case 'not-found':
-      return fail('agent-not-found', {
-        code: 'agent-not-found',
-        message: `No agent "${agentId as unknown as string}" at version "${from}"`,
-      });
-    case 'unpinned':
-      return fail('validation-failed', {
-        code: 'validation-failed',
-        message: `Agent "${agentId as unknown as string}" version ${from} has no pins (it was published before pins); publish it again to pin it, then derive`,
-      });
-    case 'invalid':
-      return fail('validation-failed', {
-        code: 'validation-failed',
-        message: `Can't derive from version ${from} (${outcome.issues.length} issue${outcome.issues.length === 1 ? '' : 's'})`,
-        issues: outcome.issues as unknown as Record<string, unknown>[],
-      });
-    case 'no-project':
-      return fail('bad-input', {
-        code: 'bad-input',
-        message: "`projectId` is required: this runtime doesn't record the version's project",
-      });
-    case 'project-not-found':
-      return fail('bad-input', {
-        code: 'bad-input',
-        message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this tenant`,
-      });
-    case 'project-mismatch':
-      return projectMismatch(c, 'agent', agentId as unknown as string, outcome.projectId, 'derive');
-    case 'environment-takes-promotions':
-      return environmentTakesPromotionsResponse(
-        c,
-        requestId,
-        authorizer,
-        { kind: 'derive' },
-        outcome.later,
-      );
-  }
 }
 
 /** What the deployment can do for an agent's turns, for publish warnings. */

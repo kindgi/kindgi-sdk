@@ -32,7 +32,7 @@ public final class WireErrors {
           "suggested-change-not-found", "provenance-not-found", "observation-not-found", "blob-not-found",
           "audit-bundle-not-found", "signing-not-configured", "signing-key-not-found",
           "adapter-not-found", "fact-not-found", "identity-user-not-found", "provider-not-found",
-          "capability-not-found", "token-not-found", "agent-version-not-found", "promotion-not-found");
+          "capability-not-found", "token-not-found", "agent-version-not-found", "pin-not-found");
   static final Set<String> CONFLICT =
       Set.of(
           "conflict", "already-terminal", "run-already-terminal", "idempotency-key-body-mismatch",
@@ -41,13 +41,13 @@ public final class WireErrors {
           "provider-already-registered", "suggested-change-invalid-state-transition", "approval-not-decided",
           "slug-conflict", "project-default-already-exists", "registry-read-only",
           "policy-already-registered", "policy-scope-taken", "policy-scope-changed",
-          "nothing-to-roll-back", "nothing-runs-in-scope", "not-pinned", "agent-version-live",
+          "nothing-runs-in-scope", "not-pinned", "agent-version-pinned",
           "test-set-already-registered",
           "mcp-endpoint-already-registered", "identity-provider-already-registered",
           "version-already-exists", "test-run-already-terminal", "approval-already-decided",
-          "corrector-group-name-taken", "promotion-superseded", "gate-policy-already-registered",
-          "gate-policy-scope-taken", "gate-policy-scope-changed", "gate-policy-scope-unpinned",
-          "gate-policy-needs-pin", "gate-policy-descendant-unpinned");
+          "corrector-group-name-taken", "pin-superseded", "release-gate-already-registered",
+          "release-gate-scope-taken", "release-gate-scope-changed", "release-gate-scope-unpinned",
+          "release-gate-needs-pin", "release-gate-descendant-unpinned");
   static final Set<String> INVALID =
       Set.of(
           "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",

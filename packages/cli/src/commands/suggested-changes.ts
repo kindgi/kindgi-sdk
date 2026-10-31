@@ -3,15 +3,19 @@
 
 import { readFile } from 'node:fs/promises';
 
-import type {
-  ListPage,
-  SuggestedChange,
-  SuggestedChangeContent,
-  SuggestedChangeStatus,
+import {
+  type Correction,
+  KindgiApiError,
+  type KindgiClient,
+  type ListPage,
+  type SuggestedChange,
+  type SuggestedChangeContent,
+  type SuggestedChangeStatus,
 } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
+import { renderJson } from '../output.js';
 import {
   type TableSpec,
   integerFlag,
@@ -19,6 +23,7 @@ import {
   readJsonInput,
   requiredPositional,
   runSdk,
+  runSdkRendered,
   stringFlag,
 } from './helpers.js';
 import { followTestRun, oneOfFlag } from './test-runs.js';
@@ -40,7 +45,7 @@ const STATUSES: readonly SuggestedChangeStatus[] = [
   'added-as-latest',
   'withdrawn',
 ];
-export const OBJECTIVES = ['weightedYesShare', 'weightedPrecisionAtK'] as const;
+export const OBJECTIVES = ['passRate', 'weightedPrecisionAtK'] as const;
 
 /** The status `check --wait` waits through. */
 const CHECKING: ReadonlySet<string> = new Set(['checking']);
@@ -137,13 +142,84 @@ const get: LeafCommand = {
   kind: 'leaf',
   name: 'get',
   description:
-    "Show a suggested change: its change (the block's content before and after), status, version, and its check: how its version and the version it's built on did on the project's test cases.",
+    "Show a suggested change: its change (the block's content before and after), status, version, and its check: how its version and the version it's built on did on the project's test cases. A correction it fixes that its author has replaced since is named on stderr, with the live one that replaced it.",
   usage: 'kindgi suggested-changes get <suggested-change-id>',
   run: (ctx) =>
-    runSdk(ctx, 'suggested-changes get', async () =>
-      ctx.client().suggestedChanges.get(requiredPositional(ctx, 0, 'suggested-change-id')),
-    ),
+    runSdkRendered(ctx, 'suggested-changes get', async () => {
+      const client = ctx.client();
+      const suggested = await client.suggestedChanges.get(
+        requiredPositional(ctx, 0, 'suggested-change-id'),
+      );
+      const rendered = renderJson(suggested, ctx.globals.format);
+      if (ctx.globals.format === 'quiet') return rendered;
+      return { ...rendered, stderr: await replacedFixes(client.corrections, suggested.fixes) };
+    }),
 };
+
+/** How many of a suggested change's fixes are read at once. */
+const FIXES_READ_AT_ONCE = 4;
+/** The most replacements followed from a fixed correction to the live one. */
+const REPLACEMENTS_FOLLOWED = 10;
+
+/** A line for each fix that was replaced since, or couldn't be checked, in `fixes` order. */
+async function replacedFixes(
+  corrections: KindgiClient['corrections'],
+  fixes: readonly string[],
+): Promise<string> {
+  let out = '';
+  for (let start = 0; start < fixes.length; start += FIXES_READ_AT_ONCE) {
+    const batch = fixes.slice(start, start + FIXES_READ_AT_ONCE);
+    out += (await Promise.all(batch.map((id) => replacedFix(corrections, id)))).join('');
+  }
+  return out;
+}
+
+/**
+ * A line for a correction the suggested change fixes that its author has
+ * replaced since: `fixes` keeps the id it names, and this names the live
+ * one, by following `supersededBy`. Empty for one not replaced, or not
+ * found. When the runtime answers another error on the way, the line says
+ * it couldn't be checked, and why.
+ */
+async function replacedFix(
+  corrections: KindgiClient['corrections'],
+  fixedId: string,
+): Promise<string> {
+  try {
+    const fixed = await found(corrections, fixedId);
+    if (fixed?.supersededBy === undefined) return '';
+    let lastId = fixed.supersededBy;
+    let last = await found(corrections, lastId);
+    for (
+      let followed = 1;
+      last?.supersededBy !== undefined && followed < REPLACEMENTS_FOLLOWED;
+      followed++
+    ) {
+      lastId = last.supersededBy;
+      last = await found(corrections, lastId);
+    }
+    // Only a correction read and not replaced is named as the live one.
+    return last === null || last.supersededBy !== undefined
+      ? `${fixedId} (in fixes) was replaced by ${lastId}.\n`
+      : `${fixedId} (in fixes) was replaced by ${lastId}, now ${last.status}.\n`;
+  } catch (err) {
+    if (!(err instanceof KindgiApiError)) throw err;
+    return `${fixedId} (in fixes): couldn't check whether it was replaced: ${err.message}\n`;
+  }
+}
+
+/** The correction, or `null` when the runtime has none by that id. */
+async function found(
+  corrections: KindgiClient['corrections'],
+  correctionId: string,
+): Promise<Correction | null> {
+  try {
+    return await corrections.get(correctionId);
+  } catch (err) {
+    if (err instanceof KindgiApiError && err.error.code === 'not-found') return null;
+    throw err;
+  }
+}
 
 /** `--values` (JSON, a settings block) or `--template` (text, a prompt block): exactly one. */
 async function contentFrom(ctx: CommandContext): Promise<SuggestedChangeContent> {
@@ -250,7 +326,7 @@ const pin: LeafCommand = {
   kind: 'leaf',
   name: 'pin',
   description:
-    "Pin a suggested change's version for its project, through the project's release gate policy with its check. The suggested change is `pinned`, or `waiting-for-second-person` (a reviewer decides the approval: `kindgi approvals complete`); a refusal by the release gate policy lists every check, and leaves it `ready`. Allowed when `ready`, for a project that runs a pin. Needs `promote` on the agent.",
+    "Pin a suggested change's version for its project, through the project's release gate with its check. The suggested change is `pinned`, or `waiting-for-second-person` (a reviewer decides the approval: `kindgi approvals complete`); a refusal by the release gate lists every check, and leaves it `ready`. Allowed when `ready`, for a project that runs a pin. Needs `pin` on the agent.",
   usage: 'kindgi suggested-changes pin <suggested-change-id> [--reason=<text>]',
   optionSpec: {
     reason: { type: 'string', description: 'Why, kept on the request to pin it.' },
@@ -269,7 +345,7 @@ const addAsLatest: LeafCommand = {
   kind: 'leaf',
   name: 'add-as-latest',
   description:
-    "Add a suggested change's version as its project's Latest, for a project that runs its Latest: the project runs it from now on, with no release gate policy. The suggested change is `added-as-latest`. Allowed when `ready`. Needs `promote` on the agent.",
+    "Add a suggested change's version as its project's Latest, for a project that runs its Latest: the project runs it from now on, with no release gate. The suggested change is `added-as-latest`. Allowed when `ready`. Needs `pin` on the agent.",
   usage: 'kindgi suggested-changes add-as-latest <suggested-change-id> [--reason=<text>]',
   optionSpec: {
     reason: { type: 'string', description: 'Why, kept on its `addedAsLatest`.' },
@@ -307,6 +383,6 @@ export const suggestedChangesCommand: Command = {
   kind: 'group',
   name: 'suggested-changes',
   description:
-    "Suggested changes: new content for a data block in what a project runs; checked on the project's test cases, then pinned through the project's release gate policy, or added as the project's Latest (list / get / create / check / pin / add-as-latest / withdraw).",
+    "Suggested changes: new content for a data block in what a project runs; checked on the project's test cases, then pinned through the project's release gate, or added as the project's Latest (list / get / create / check / pin / add-as-latest / withdraw).",
   subcommands: [list, get, create, check, pin, addAsLatest, withdraw],
 };

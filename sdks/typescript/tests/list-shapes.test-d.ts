@@ -99,12 +99,12 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
   test('testSets.listCases', () => {
     expectTypeOf<Answer<KindgiClient['testSets']['listCases']>>().toMatchTypeOf<WirePage>();
   });
-  test('gatePolicies.list', () => {
-    expectTypeOf<Answer<KindgiClient['gatePolicies']['list']>>().toMatchTypeOf<WirePage>();
+  test('releaseGates.list', () => {
+    expectTypeOf<Answer<KindgiClient['releaseGates']['list']>>().toMatchTypeOf<WirePage>();
   });
-  test('gatePolicies.versions.list', () => {
+  test('releaseGates.versions.list', () => {
     expectTypeOf<
-      Answer<KindgiClient['gatePolicies']['versions']['list']>
+      Answer<KindgiClient['releaseGates']['versions']['list']>
     >().toMatchTypeOf<WirePage>();
   });
   test('testSets.versions.list', () => {

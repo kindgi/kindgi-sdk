@@ -39,8 +39,8 @@ class AppJacksonTest {
   @Test
   void readsRecordsTaggedUnionsAndEnums() throws Exception {
     assertThat(app.readValue("{\"prompt\":\"acme.tone\",\"version\":\"^1.0.0\"}", PromptRef.class)).isEqualTo(new PromptRef("acme.tone", "^1.0.0"));
-    assertThat(app.readValue("{\"kind\":\"tenant\"}", LiveScope.class)).isInstanceOf(LiveScopeTenant.class);
-    assertThat(app.readValue("{\"kind\":\"galaxy\",\"arm\":3}", LiveScope.class)).isInstanceOf(LiveScope.Unrecognized.class);
+    assertThat(app.readValue("{\"kind\":\"tenant\"}", AgentPinScope.class)).isInstanceOf(PinScopeTenant.class);
+    assertThat(app.readValue("{\"kind\":\"galaxy\",\"arm\":3}", AgentPinScope.class)).isInstanceOf(AgentPinScope.Unrecognized.class);
     assertThat(app.readValue("\"hibernating\"", Run.Status.class).value()).isEqualTo(Run.Status.Value.UNRECOGNIZED);
   }
 }

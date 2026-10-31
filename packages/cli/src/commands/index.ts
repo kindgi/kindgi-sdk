@@ -26,7 +26,6 @@ import { expertQueueCommand } from './expert-queue.js';
 import { exportsCommand } from './exports.js';
 import { feedbackCommand } from './feedback.js';
 import { flowsCommand } from './flows.js';
-import { gatePoliciesCommand } from './gate-policies.js';
 import { guardrailsCommand } from './guardrails.js';
 import { healthCommand } from './health.js';
 import { improveCommand } from './improve-runs.js';
@@ -43,6 +42,7 @@ import { promoteCommand } from './promote.js';
 import { provenanceCommand } from './provenance.js';
 import { providersCommand } from './providers.js';
 import { queueRulesCommand } from './queue-rules.js';
+import { releaseGatesCommand } from './release-gates.js';
 import { reviewersCommand } from './reviewers.js';
 import { runsCommand } from './runs.js';
 import { schedulesCommand } from './schedules.js';
@@ -115,7 +115,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   testRunsCommand,
   testSetsCommand,
   blocksCommand,
-  gatePoliciesCommand,
+  releaseGatesCommand,
   tokensCommand,
   serviceAccountsCommand,
   peopleCommand,

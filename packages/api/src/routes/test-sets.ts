@@ -17,12 +17,14 @@ import {
 } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
-  EVAL_KINDS,
-  type EvalKind,
-  LISTED_EVAL_KINDS,
+  LISTED_TEST_SET_KINDS,
+  TEST_SET_KINDS,
   type TestSet,
+  type TestSetKind,
   type TestSetRecord,
   type TestSetRegistryBinding,
+  agentTestSetIdReserved,
+  isAgentTestSetId,
 } from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
@@ -173,20 +175,14 @@ export function testSetsRouter(
     // items with an active version only (the default).
     const includeRetired = c.req.query('includeRetired') === 'true';
 
-    if (
-      kindRaw !== undefined &&
-      kindRaw.length > 0 &&
-      !(LISTED_EVAL_KINDS as readonly string[]).includes(kindRaw)
-    ) {
+    const askedKind = kindRaw !== undefined && kindRaw.length > 0 ? kindRaw : undefined;
+    if (askedKind !== undefined && !(TEST_SET_KINDS as readonly string[]).includes(askedKind)) {
       c.status(statusFor('bad-input') as never);
       return c.json(
         toWireError(
           {
             code: 'bad-input',
-            message:
-              kindRaw === 'corrections'
-                ? "Test sets built from corrections aren't listed: an agent's corrections are its test set, at `/v1/agents/{agentId}/test-set`."
-                : `Unknown eval kind "${kindRaw}". Expected one of: ${LISTED_EVAL_KINDS.join(', ')}.`,
+            message: `Unknown eval kind "${askedKind}". Expected one of: ${TEST_SET_KINDS.join(', ')}.`,
           },
           requestId,
         ),
@@ -205,16 +201,19 @@ export function testSetsRouter(
       tenantId,
       limit,
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
-      ...(kindRaw !== undefined && kindRaw.length > 0 && { evalKind: kindRaw as EvalKind }),
+      ...(askedKind !== undefined && { evalKind: askedKind as TestSetKind }),
       ...(nameRaw !== undefined && nameRaw.length > 0 && { nameFilter: nameRaw }),
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
       ...(includeRetired && { includeRetired: true }),
     });
+    // Asked by kind, the list holds that kind, `corrections` too.
     const visible = await readable(
       c,
       tenantId,
-      page.data.filter((s) => LISTED_EVAL_KINDS.includes(s.kind)),
+      askedKind !== undefined
+        ? page.data
+        : page.data.filter((s) => LISTED_TEST_SET_KINDS.includes(s.kind)),
     );
     return c.json({
       data: visible.map(serializeTestSet),
@@ -414,6 +413,16 @@ export function testSetsRouter(
       );
     }
 
+    if (isAgentTestSetId(validation.value.id)) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: agentTestSetIdReserved(validation.value.id) },
+          requestId,
+        ),
+      );
+    }
+
     const principal = c.get('principal') as Principal | undefined;
     const creatorUserId =
       principal?.actor.kind === 'user' ? (principal.actor.id as UserId) : undefined;
@@ -531,8 +540,8 @@ function serializeTestSet(s: TestSetRecord): Record<string, unknown> {
   };
 }
 
-function isEvalKind(value: string): value is EvalKind {
-  return (EVAL_KINDS as readonly string[]).includes(value);
+function isTestSetKind(value: string): value is TestSetKind {
+  return (TEST_SET_KINDS as readonly string[]).includes(value);
 }
 
 const SEMVER_RE = /^\d+\.\d+\.\d+$/;
@@ -564,10 +573,10 @@ function validateTestSet(
       message: 'testSet.version must be a semver string (e.g. "1.0.0")',
     });
   }
-  if (typeof b.kind !== 'string' || !isEvalKind(b.kind)) {
+  if (typeof b.kind !== 'string' || !isTestSetKind(b.kind)) {
     issues.push({
       path: 'kind',
-      message: `testSet.kind must be one of: ${EVAL_KINDS.join(', ')}`,
+      message: `testSet.kind must be one of: ${TEST_SET_KINDS.join(', ')}`,
     });
   }
   // tenantId is optional on the wire — when present, it must match the
@@ -607,7 +616,7 @@ function validateTestSet(
     id: b.id as string,
     tenantId,
     version: b.version as string,
-    kind: b.kind as EvalKind,
+    kind: b.kind as TestSetKind,
     ...(typeof b.description === 'string' && { description: b.description }),
     spec: b.spec as Readonly<Record<string, unknown>>,
   };
