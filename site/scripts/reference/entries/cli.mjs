@@ -77,7 +77,10 @@ export const CLI_DEFAULTS = {
     path: 'the current directory',
     project: "none: a tenant-wide deploy, into the tenant's Default project",
     'published-at': 'for an inline build: the build time',
+    reason: 'none; required with `--replace`, and only with it',
     'registry-push-creds': 'none',
+    replace:
+      'none: a block the deploy would put back to an older version than runs now stops it (repeatable; needs `--reason`)',
     'signer-key-id': "for an inline build: the env block's `signerKeyId`, else the key file's name",
     'signing-key': "for an inline build: the env block's `signingKey`",
     target: "for an inline build: the env block's `buildTarget`, else the env name",
@@ -145,7 +148,9 @@ export const CLI_DEFAULTS = {
     from: 'required',
     to: 'required',
     deployment: 'none (the one deployment serving in `--from`; in a pack, of this pack)',
-    reason: 'none',
+    reason: 'none; required with `--replace`',
+    replace:
+      'none: a block the pins would put back to an older version than runs in `--to` stops the promote (with `--pin` only, repeatable; needs `--reason`)',
     path: 'the current directory',
     wait: 'off; a bare `--wait` waits at most `1h`',
   },
