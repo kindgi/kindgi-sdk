@@ -1565,6 +1565,88 @@ describe("kindgi deploy's inline build, as it goes", () => {
     expect(streamed).toEqual([]);
   });
 
+  test("deploy's check against what runs stops the build once the pack is indexed, before anything is uploaded", async () => {
+    await rm(join(packDir, '.kindgi', 'build', 'deploy-envelope.json'), { force: true });
+    const index = {
+      ...SAMPLE_INDEX,
+      agents: [{ id: 'my-pack.agent' }],
+      blocks: [
+        {
+          id: 'my-pack.tone',
+          version: '3.0.0',
+          kind: 'prompt',
+          content: { template: 'Hi.' },
+          modulePath: 'blocks/tone.json',
+        },
+      ],
+    };
+    const fixtures = makeFixtures();
+    fixtures.runners = {
+      ...fixtures.runners,
+      runLocalIndexer: async (o) => {
+        await writeFile(o.outputPath, JSON.stringify(index));
+        return {
+          kind: 'ok',
+          packId: 'my-pack',
+          packVersion: '0.1.0',
+          counts: { tools: 1, guardrails: 0, agents: 1, flows: 0 },
+          fileErrors: [],
+          index,
+        } as LocalIndexResult;
+      },
+    };
+    const checks: unknown[] = [];
+    const fetchImpl = (async (url: unknown, init?: RequestInit) => {
+      if (!String(url).endsWith('/v1/deployments/check')) {
+        return new Response(
+          JSON.stringify({ error: { code: 'not-found', message: 'no', requestId: 'r' } }),
+          { status: 404 },
+        );
+      }
+      checks.push(JSON.parse(String(init?.body)));
+      const stop = { blockId: 'my-pack.tone', inFiles: '3.0.0', runs: { version: '4.0.0' } };
+      return new Response(
+        JSON.stringify({
+          error: {
+            code: 'deploy-would-put-back-older-blocks',
+            message: 'This deploy would put back older versions of blocks than run now.',
+            details: { blocks: [stop] },
+            requestId: 'r',
+          },
+        }),
+        { status: 409, headers: { 'content-type': 'application/json' } },
+      );
+    }) as typeof fetch;
+    let posts = 0;
+    const out = await runCli({
+      ...baseInputs(fixtures, {
+        env: { KINDGI_TENANT_ID: 'env-tenant', KINDGI_API_TOKEN: 'test-bearer-token' },
+        deployRunners: {
+          loadEnvelope: loadEnvelopeReal,
+          postDeployment: async () => {
+            posts += 1;
+            throw new Error('not reached');
+          },
+        },
+      }),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, ...fixed],
+      fetchImpl,
+    });
+    expect(out.exitCode).toBe(1);
+    expect(checks).toEqual([
+      { agents: ['my-pack.agent'], blocks: [{ id: 'my-pack.tone', version: '3.0.0' }] },
+    ]);
+    expect(out.stderr).toContain(
+      "  my-pack.tone   3.0.0           4.0.0  in a project you can't read\n",
+    );
+    expect(out.stderr).toContain('  Nothing was deployed.\n');
+    expect(out.stderr).not.toContain('Inline `kindgi build` failed');
+    expect(out.stderr).not.toContain('Uploading to build service');
+    expect(fixtures.state.postCalls).toBe(0);
+    expect(posts).toBe(0);
+    expect(existsSync(join(packDir, '.kindgi', 'build', 'deploy-envelope.json'))).toBe(false);
+  });
+
   test("an inline build that fails: its error comes after deploy's lines and the build's, streamed or kept", async () => {
     const kept = await deploy(failing());
     expect(kept.out.exitCode).toBe(1);

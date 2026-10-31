@@ -14,6 +14,7 @@ import type {
   AgentProjectList,
   AgentTestSet,
   Pin,
+  PinAnswer,
   PinCheck,
   PinPage,
   ReleaseGateResolution,
@@ -169,15 +170,29 @@ export interface AgentPinnedClient {
    * first; into a later environment, promote a build that ships one.
    *
    * With a release gate for the scope, the pin is checked first,
-   * against the comparison named by `testRunId`. The answer's `status`
-   * says what happened: `pinned`, or `pending-approval` (a reviewer
-   * must approve it; `approvalId`). A refusal throws a `KindgiApiError`
-   * whose `error.serverCode` is `gate-failed`, with `changeId`,
-   * `releaseGate` and every check in `error.fields`.
+   * against the comparison named by `testRunId`. The answer's
+   * `pin.status` says what happened: `pinned`, or `pending-approval` (a
+   * reviewer must approve it; `pin.approvalId`). A refusal throws a
+   * `KindgiApiError` whose `error.serverCode` is `gate-failed`, with
+   * `changeId`, `releaseGate` and every check in `error.fields`.
+   *
+   * `testRuns` are the test runs that check the version in each project
+   * whose running version it changes and that has active cases: the run
+   * `testRunId` names, reused, whose outcome is in `fixed` and
+   * `reopened`, or one started, whose outcome changes the corrections
+   * when it ends.
+   *
+   * A pin that would take a project that follows Latest now off it throws
+   * `pin-stops-latest` (409), with each such project in the details,
+   * unless `stopFollowingLatest` is set.
    *
    * @wire POST /v1/agents/:agentId/pinned/pin
    */
-  pin(agentId: AgentId | string, input: AgentPinInput, options?: MutationOptions): Promise<Pin>;
+  pin(
+    agentId: AgentId | string,
+    input: AgentPinInput,
+    options?: MutationOptions,
+  ): Promise<PinAnswer>;
   /**
    * What `pin` with the same input would do, recording nothing:
    * `would-pin`, `needs-approval` (with the approval it needs) or
@@ -188,11 +203,21 @@ export interface AgentPinnedClient {
   check(agentId: AgentId | string, input: AgentPinInput): Promise<PinCheck>;
   /**
    * Remove the scope's own pin: its runs use the next scope up.
-   * `409 not-pinned` when it has none.
+   * `409 not-pinned` when it has none. The answer's `pin` is the unpin
+   * change. An unpin never waits for an approval.
+   *
+   * `testRuns` are the test runs that check the version each project
+   * runs now, in each project whose running version the unpin changes
+   * and that has active cases. Their outcomes change the corrections
+   * when they end.
    *
    * @wire POST /v1/agents/:agentId/pinned/unpin
    */
-  unpin(agentId: AgentId | string, input: AgentUnpinInput, options?: MutationOptions): Promise<Pin>;
+  unpin(
+    agentId: AgentId | string,
+    input: AgentUnpinInput,
+    options?: MutationOptions,
+  ): Promise<PinAnswer>;
   /** @wire GET /v1/agents/:agentId/pin-history: newest first */
   history(agentId: AgentId | string, filter?: ListPinHistoryFilter): Promise<PinPage>;
   /** @wire GET /v1/agents/:agentId/pin-history/:changeId */
@@ -274,6 +299,13 @@ export interface AgentPinInput {
   readonly reason?: string;
   /** The test run behind the decision, kept on the record. */
   readonly testRunId?: string;
+  /**
+   * Pin even when it takes a project that follows Latest now off it: the
+   * project then runs the pinned version, not each new Latest, and the pin
+   * records `stoppedFollowingLatest`. Without it, such a pin throws
+   * `pin-stops-latest` (409). `check` ignores it.
+   */
+  readonly stopFollowingLatest?: boolean;
 }
 
 export interface AgentUnpinInput {
@@ -454,7 +486,7 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
         });
       },
       async pin(agentId, input, options) {
-        return transport.request<Pin>({
+        return transport.request<PinAnswer>({
           method: 'POST',
           path: `/v1/agents/${seg(agentId as string)}/pinned/pin`,
           body: input,
@@ -469,7 +501,7 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
         });
       },
       async unpin(agentId, input, options) {
-        return transport.request<Pin>({
+        return transport.request<PinAnswer>({
           method: 'POST',
           path: `/v1/agents/${seg(agentId as string)}/pinned/unpin`,
           body: input,

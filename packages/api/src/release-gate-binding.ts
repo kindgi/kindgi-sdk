@@ -31,7 +31,7 @@ export interface GateMetricSpec {
  * spec checks nothing (the pin is still recorded with the gate). A pin
  * must name a comparison (`testRunId`) exactly when the spec
  * checks anything one shows: `comparison`, `evidence`, `metrics`,
- * `replay` or `onlyExpertGroups`.
+ * `replay`, `cases` or `onlyExpertGroups`.
  */
 export interface ReleaseGateSpec {
   readonly comparison?: {
@@ -49,6 +49,20 @@ export interface ReleaseGateSpec {
     readonly maxErrors?: number;
     readonly maxRefusedWrites?: number;
     readonly maxStopped?: number;
+  };
+  /**
+   * The cases the comparison graded: each correction it checked is a
+   * case, and it passes when every repetition did.
+   */
+  readonly cases?: {
+    /** At least this many cases pass. */
+    readonly minPassing?: number;
+    /**
+     * No case that passed before fails: none of the comparison's
+     * corrections that are `fixed` now fails it. One the comparison
+     * didn't grade isn't counted.
+     */
+    readonly noNewFailures?: boolean;
   };
   /** A passing pin waits for a reviewer's approval. */
   readonly approvals?: {

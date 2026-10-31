@@ -16,7 +16,7 @@
 import { CORRECTION_ITEM, type TenantId } from '@kindgi/types';
 
 import type { Correction, CorrectionRegistryBinding, Verdict } from './correction-binding.js';
-import type { CorrectedItemSummary } from './eval-case-binding.js';
+import type { CorrectedItemSummary } from './frozen-case-binding.js';
 
 /** What one correction says about one item. */
 export interface ItemVerdict {

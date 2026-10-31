@@ -3048,6 +3048,21 @@ export interface CorrectionFixedIn {
   readonly at: import('@kindgi/types').Timestamp;
 }
 
+/**
+ * The version whose test run got a `fixed` correction wrong again. It holds
+ * no words: build the sentence from the project's and the person's current
+ * names.
+ */
+export interface CorrectionReopenedIn {
+  /** The version that gets it wrong. */
+  readonly version: string;
+  /** How the project came to run it: a pin, going back to an earlier version, an unpin, or Latest moving. */
+  readonly how: 'pin' | 'went-back' | 'unpin' | 'latest';
+  /** Who pinned, went back or unpinned; absent when Latest moved. */
+  readonly by?: CorrectionMadeBy;
+  readonly at: import('@kindgi/types').Timestamp;
+}
+
 /** Why a correction is `wont-fix`, or went back to `open`. */
 export interface CorrectionStatusNote {
   readonly text: string;
@@ -3203,8 +3218,14 @@ export interface Correction {
   readonly sorted?: CorrectionSorted;
   /** Present while it's `being-fixed`. */
   readonly link?: CorrectionLink;
-  /** Present while it's `fixed`. */
+  /** Present while it's `fixed`, and beside `reopenedIn` after a test run reopened it. */
   readonly fixedIn?: CorrectionFixedIn;
+  /**
+   * Present after a test run got a `fixed` correction wrong again: it's
+   * `open` (or `with-owner`), with the `fixedIn` it had beside it. A status
+   * set by hand clears both; a re-sort alone keeps them.
+   */
+  readonly reopenedIn?: CorrectionReopenedIn;
   readonly statusNote?: CorrectionStatusNote;
   /** Absent when the correction is unclassified (it counts with weight 1). */
   readonly correctorGroupId?: string;

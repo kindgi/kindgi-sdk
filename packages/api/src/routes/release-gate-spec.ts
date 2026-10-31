@@ -91,6 +91,17 @@ function block(raw: Raw, key: string, issues: SpecIssue[]): Raw | undefined {
   return v;
 }
 
+function parseCases(cases: Raw, issues: SpecIssue[]): NonNullable<ReleaseGateSpec['cases']> {
+  const at = '/spec/cases';
+  unknownKeys(cases, ['minPassing', 'noNewFailures'], at, issues);
+  const minPassing = num(cases, 'minPassing', at, issues, { min: 0, integer: true });
+  const noNewFailures = bool(cases, 'noNewFailures', at, issues);
+  return {
+    ...(minPassing !== undefined && { minPassing }),
+    ...(noNewFailures !== undefined && { noNewFailures }),
+  };
+}
+
 export function parseReleaseGateSpec(
   raw: unknown,
 ): { kind: 'ok'; spec: ReleaseGateSpec } | { kind: 'err'; issues: readonly SpecIssue[] } {
@@ -100,7 +111,7 @@ export function parseReleaseGateSpec(
   const issues: SpecIssue[] = [];
   unknownKeys(
     raw,
-    ['comparison', 'evidence', 'metrics', 'replay', 'approvals', 'onlyExpertGroups'],
+    ['comparison', 'evidence', 'metrics', 'replay', 'cases', 'approvals', 'onlyExpertGroups'],
     '/spec',
     issues,
   );
@@ -206,6 +217,9 @@ export function parseReleaseGateSpec(
     }
     spec.replay = out;
   }
+
+  const cases = block(raw, 'cases', issues);
+  if (cases !== undefined) spec.cases = parseCases(cases, issues);
 
   const approvals = block(raw, 'approvals', issues);
   if (approvals !== undefined) {

@@ -10,7 +10,6 @@ import type { Cursor, FlowId, ProjectId, RunId, Semver, TenantId, Timestamp } fr
 
 import { VERSIONS_NEED_A_FLOW } from '../corrected-dispatcher.js';
 import { statusFor, toWireError } from '../errors.js';
-import { rescoreRefusal, rescoreStart } from '../eval-rescore.js';
 import { type ItemRights, filterOwned, ownProject, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
@@ -29,6 +28,8 @@ import {
   type TestRunStartOutcome,
   type TestRunStatus,
 } from '../test-run-binding.js';
+import { RESERVED_CORRELATION_PREFIXES, isReservedCorrelation } from '../test-run-outcome.js';
+import { rescoreRefusal, rescoreStart } from '../test-run-rescore.js';
 import {
   type TestSetFreezeBinding,
   agentTestSetId,
@@ -37,12 +38,16 @@ import {
 } from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
-import { parseComparison } from './eval-comparison.js';
-import { type SettingsOverridesCheck, checkSettingsOverrides } from './eval-overrides.js';
-import { type FlowVersionsCheck, checkFlowVersions, versionsReferences } from './eval-versions.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
 import { formatSseFrame, pause, readingOf } from './sse.js';
+import { parseComparison } from './test-run-comparison.js';
+import { type SettingsOverridesCheck, checkSettingsOverrides } from './test-run-overrides.js';
+import {
+  type FlowVersionsCheck,
+  checkFlowVersions,
+  versionsReferences,
+} from './test-run-versions.js';
 import { parseTimeInput } from './time-input.js';
 
 /**
@@ -907,6 +912,22 @@ interface ParsedStartBody {
   readonly comparison?: TestRunComparison;
 }
 
+/**
+ * Why a start's `correlationId` is refused, when it is: not a non-empty
+ * string, or one of the prefixes of the runs Kindgi starts itself.
+ */
+function correlationIdRefusal(correlationId: unknown): string | undefined {
+  if (correlationId === undefined) return undefined;
+  if (typeof correlationId !== 'string' || correlationId.length === 0) {
+    return '`correlationId` must be a non-empty string when supplied';
+  }
+  if (isReservedCorrelation(correlationId)) {
+    const prefixes = RESERVED_CORRELATION_PREFIXES.map((p) => `\`${p}\``).join(' or ');
+    return `\`correlationId\` may not start with ${prefixes}: those are the test runs Kindgi starts itself, for a pin change or Latest moving`;
+  }
+  return undefined;
+}
+
 function parseStartBody(
   body: unknown,
 ):
@@ -1024,17 +1045,9 @@ function parseStartBody(
     };
   }
   const correlationId = b.correlationId;
-  if (
-    correlationId !== undefined &&
-    (typeof correlationId !== 'string' || correlationId.length === 0)
-  ) {
-    return {
-      kind: 'err',
-      error: {
-        code: 'bad-input',
-        message: '`correlationId` must be a non-empty string when supplied',
-      },
-    };
+  const correlationRefused = correlationIdRefusal(correlationId);
+  if (correlationRefused !== undefined) {
+    return { kind: 'err', error: { code: 'bad-input', message: correlationRefused } };
   }
 
   const comparison = parseComparison(b);

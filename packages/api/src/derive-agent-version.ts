@@ -16,7 +16,7 @@ import type { ProjectId, Semver, TenantId } from '@kindgi/types';
 import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.js';
 import { activeAgentVersions } from './agent-pins.js';
 import type { BlockRegistryBinding } from './block-binding.js';
-import { definitionKey } from './deploy-versions.js';
+import { definitionKey, withoutRecordFields } from './deploy-versions.js';
 import {
   type LaterEnvironment,
   firstEnvironmentOf,
@@ -134,13 +134,9 @@ export async function deriveAgentVersion(
   const home = from.projectId ?? input.projectId;
   if (home === undefined) return { kind: 'no-project' };
   const madeIn = (await firstEnvironmentOf(input.orders, tenantId, home)) ?? home;
-  const {
-    unregisteredAt: _u,
-    projectId: _p,
-    madeInProjectId: _m,
-    derivedFrom: _d,
-    ...definition
-  } = from;
+  // What the registry added to `from` (where it's kept, what it was made
+  // for, who made it Latest) is no part of the new version.
+  const { derivedFrom: _d, ...definition } = withoutRecordFields(from);
   return publishNextFree(
     input,
     { home, madeIn },

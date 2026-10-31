@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { ProjectBinding } from '@kindgi/platform';
 import type { AgentPinScope, ProjectId, ScopeSegment, Semver, TenantId } from '@kindgi/types';
 
 import type {
@@ -48,6 +49,8 @@ export interface WhatRunsInProject {
   readonly segments: readonly {
     readonly path: readonly ScopeSegment[];
     readonly version: Semver;
+    /** The segment's pin: when it was set, and by which pin change. */
+    readonly pin: AgentPinnedVersion;
   }[];
 }
 
@@ -82,12 +85,60 @@ export async function whatRunsByProject(
     const covering = pin === null ? undefined : pins.find((p) => samePinScope(p.scope, pin.scope));
     const segments = pins.flatMap((p) =>
       p.scope.kind === 'segment' && p.scope.projectId === projectId
-        ? [{ path: p.scope.path, version: p.version }]
+        ? [{ path: p.scope.path, version: p.version, pin: p }]
         : [],
     );
     rows.push({ projectId, runs, ...(covering !== undefined && { pin: covering }), segments });
   }
   return rows;
+}
+
+/** A project that follows Latest, and the version it runs there (`projectsPinTakesOffLatest`). */
+export interface ProjectOnLatest {
+  readonly projectId: ProjectId;
+  readonly version: Semver;
+}
+
+/**
+ * The projects a pin for `scope` would take off Latest: each one inside
+ * the scope that follows Latest now, by project id. A project pin's
+ * project and a segment pin's project, when no pin covers it (for a
+ * segment, its path); a tenant pin each project where the agent has a
+ * Latest that no pin covers, and an org pin those in the org (which needs
+ * `projects`: without it, none). Whether the pin changes the version, or
+ * the project has cases, doesn't matter: either way the project stops
+ * taking each new Latest.
+ */
+export async function projectsPinTakesOffLatest(
+  agentPins: Pick<AgentPinBindings, 'pinned' | 'latest'>,
+  projects: Pick<ProjectBinding, 'get'> | undefined,
+  q: { readonly tenantId: TenantId; readonly agentId: string; readonly scope: AgentPinScope },
+): Promise<readonly ProjectOnLatest[]> {
+  const { tenantId, agentId, scope } = q;
+  if (scope.kind === 'project' || scope.kind === 'segment') {
+    const runs = await whatRuns(agentPins, {
+      tenantId,
+      agentId,
+      projectId: scope.projectId,
+      ...(scope.kind === 'segment' && { segments: scope.path }),
+    });
+    return runs?.follows === 'latest'
+      ? [{ projectId: scope.projectId, version: runs.version }]
+      : [];
+  }
+  if (scope.kind === 'org' && projects === undefined) return [];
+  const onLatest: ProjectOnLatest[] = [];
+  for (const { projectId, version } of await agentPins.latest.byProject({ tenantId, agentId })) {
+    if (scope.kind === 'org' && (await projects?.get(tenantId, projectId))?.orgId !== scope.orgId) {
+      continue;
+    }
+    if ((await agentPins.pinned.resolve({ tenantId, agentId, projectId })) === null) {
+      onLatest.push({ projectId, version });
+    }
+  }
+  return onLatest.sort((a, b) =>
+    a.projectId < b.projectId ? -1 : a.projectId > b.projectId ? 1 : 0,
+  );
 }
 
 function samePinScope(a: AgentPinScope, b: AgentPinScope): boolean {

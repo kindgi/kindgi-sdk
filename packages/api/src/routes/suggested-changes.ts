@@ -9,7 +9,7 @@ import { type Action, ref } from '@kindgi/authz';
 import { emitAuditEvent } from '@kindgi/compliance';
 import type { AgentPinScope, Cursor, ProjectId, SuggestedChangeId, TenantId } from '@kindgi/types';
 
-import type { Pin, PinActor } from '../agent-pin-binding.js';
+import type { PinActor } from '../agent-pin-binding.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
 import { callerIdentity } from '../caller.js';
 import { environmentTakesPromotionsResponse } from '../environment-entry.js';
@@ -22,6 +22,7 @@ import {
 } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
+import { latestMoved } from '../pin-test-runs.js';
 import {
   type SuggestedChangeCreator,
   type SuggestedChangeFacts,
@@ -44,7 +45,7 @@ import type {
   SuggestedChangeMaker,
 } from '../supervisor-binding.js';
 import type { AppEnv } from '../types.js';
-import { actorOf, pinResponse } from './agent-pins.js';
+import { type PinRequestOutcome, actorOf, pinAnswer, pinResponse } from './agent-pins.js';
 import { clampLimit } from './pagination.js';
 
 /** What the suggested change lifecycle runs on besides its own store. */
@@ -64,6 +65,8 @@ const MAKER_KINDS: readonly SuggestedChangeMaker['kind'][] = [
   'offer',
 ];
 const MAX_TEXT = 2000;
+/** At most this many ids in a new card's `fixes`: each is read before the card is made. */
+const FIXES_MAX = 100;
 /** How much of the first line of `why` a title keeps. */
 const TITLE_LENGTH = 60;
 
@@ -375,41 +378,46 @@ export function suggestedChangesRouter(
       scope: ready.suggestedChange.scope,
     });
     if (spans !== undefined) return spans;
-    const reason = optionalText(ready.body, 'reason');
-    if (reason.kind === 'err') return badInput(c, reason.message);
+    const body = readPinBody(ready.body);
+    if (body.kind === 'err') return badInput(c, body.message);
     const outcome = await service.pin({
       tenantId: c.get('tenantId') as TenantId,
       suggestedChange: ready.suggestedChange,
       actor: actorOf(c),
-      ...(reason.value !== undefined && { reason: reason.value }),
+      ...body.value,
+      log: c.get('log'),
     });
     if (outcome.kind === 'err') return refuse(c, outcome.error);
     const { suggestedChange, pin } = outcome.value;
-    if (pin.kind !== 'ok') return pinResponse(c, pin);
+    if (pin.kind !== 'ok') return pinResponse(c, pin, refusedPinExtra(pin, suggestedChange));
     if (pin.pin.status === 'refused') {
       return pinResponse(c, pin, {
         suggestedChangeId: suggestedChange.id as unknown as string,
       });
     }
-    return pinned(c, suggestedChange, pin.pin);
+    return pinned(c, suggestedChange, pin);
   });
 
   /**
    * A pin the gate let through: recorded, and answered `201` pinned, or
-   * `202` while it waits for a second person.
+   * `202` while it waits for a second person, as the agent pin route
+   * answers it (`pinAnswer`), with the suggested change it pinned.
    */
   async function pinned(
     c: Ctx,
     suggestedChange: StoredSuggestedChange,
-    pin: Pin,
+    outcome: Extract<PinRequestOutcome, { kind: 'ok' }>,
   ): Promise<Response> {
+    const { pin } = outcome;
     const waits = pin.status === 'pending-approval';
     await audit(c, 'suggested-change-pinned', suggestedChange, {
       pinChangeId: pin.id,
       status: waits ? 'waiting-for-second-person' : 'pinned',
     });
     if (!waits) await rebuildOthers(c, suggestedChange);
-    return answer(c, suggestedChange, waits ? 202 : 201);
+    const f = await service.facts(c.get('tenantId') as TenantId)(suggestedChange);
+    c.status(waits ? 202 : 201);
+    return c.json({ ...pinAnswer(outcome), suggestedChange: serialize(suggestedChange, f) });
   }
 
   /**
@@ -441,6 +449,34 @@ export function suggestedChangesRouter(
     }
   }
 
+  /**
+   * An add moves Latest only in the card's project: check the new Latest
+   * there (`latestMoved`). Without a test set store or the corrections
+   * nothing is checked. The add stands either way: a check that can't
+   * start is logged, and the next move checks again.
+   */
+  async function checkLatest(c: Ctx, suggestedChange: StoredSuggestedChange): Promise<void> {
+    const { scope } = suggestedChange;
+    const { testSets, corrections } = deps;
+    if (scope.kind !== 'project' || testSets === undefined || corrections === undefined) return;
+    const log = c.get('log');
+    try {
+      await latestMoved(
+        { agentPins: deps.agentPins, testRuns: deps.testRuns, testSets, corrections },
+        {
+          tenantId: c.get('tenantId') as TenantId,
+          agentId: suggestedChange.agentId as unknown as string,
+          projects: [scope.projectId],
+          log,
+        },
+      );
+    } catch (e) {
+      log.warn(
+        `checking Latest in project ${scope.projectId as unknown as string} failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
   // ---------- POST /:suggestedChangeId/add-as-latest ----------
   r.post('/:suggestedChangeId/add-as-latest', async (c) => {
     const ready = await prepare(c, 'pin');
@@ -462,6 +498,7 @@ export function suggestedChangesRouter(
     if (outcome.kind === 'err') return failWith(c, outcome.error);
     await audit(c, 'suggested-change-added-as-latest', outcome.value);
     await rebuildOthers(c, outcome.value);
+    await checkLatest(c, outcome.value);
     return answer(c, outcome.value);
   });
 
@@ -724,9 +761,8 @@ function parseCreateBody(b: Record<string, unknown>): CreateBody | string {
   }
   if (!nonEmpty(b.why)) return '`why` is required: what the change should fix, and why';
   const fixes = b.fixes;
-  if (fixes !== undefined && !(Array.isArray(fixes) && fixes.every((id) => nonEmpty(id)))) {
-    return '`fixes` is a list of correction ids';
-  }
+  const fixesWrong = fixesProblem(fixes);
+  if (fixesWrong !== undefined) return fixesWrong;
   return {
     agentId: b.agentId,
     projectId: b.projectId,
@@ -735,6 +771,51 @@ function parseCreateBody(b: Record<string, unknown>): CreateBody | string {
     why: b.why,
     ...(fixes !== undefined && { fixes: fixes as string[] }),
   };
+}
+
+/** Why a new card's `fixes` are refused as sent: not a list of ids, or too long. `undefined` when fine or absent. */
+function fixesProblem(fixes: unknown): string | undefined {
+  if (fixes === undefined) return undefined;
+  if (!(Array.isArray(fixes) && fixes.every((id) => nonEmpty(id)))) {
+    return '`fixes` is a list of correction ids';
+  }
+  if (fixes.length > FIXES_MAX) return `\`fixes\` names at most ${FIXES_MAX} corrections`;
+  return undefined;
+}
+
+/** A pin's body (`SuggestedChangePinBody`): `reason` and `stopFollowingLatest`, each optional. */
+function readPinBody(
+  body: Record<string, unknown>,
+):
+  | { kind: 'ok'; value: { reason?: string; stopFollowingLatest?: true } }
+  | { kind: 'err'; message: string } {
+  const reason = optionalText(body, 'reason');
+  if (reason.kind === 'err') return reason;
+  const stop = body.stopFollowingLatest;
+  if (stop !== undefined && typeof stop !== 'boolean') {
+    return { kind: 'err', message: '`stopFollowingLatest` must be a boolean' };
+  }
+  return {
+    kind: 'ok',
+    value: {
+      ...(reason.value !== undefined && { reason: reason.value }),
+      ...(stop === true && { stopFollowingLatest: true }),
+    },
+  };
+}
+
+/**
+ * What a refused pin's error adds: `pin-stops-latest` names the suggested
+ * change, as the service's own refusal does (its project went onto Latest
+ * after the service asked); others answer as the agent pin route's.
+ */
+function refusedPinExtra(
+  pin: Exclude<PinRequestOutcome, { kind: 'ok' }>,
+  suggestedChange: StoredSuggestedChange,
+): Readonly<Record<string, unknown>> {
+  return pin.kind === 'err' && pin.error.code === 'pin-stops-latest'
+    ? { suggestedChangeId: suggestedChange.id as unknown as string }
+    : {};
 }
 
 function optionalText(

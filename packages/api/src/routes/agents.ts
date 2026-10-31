@@ -515,24 +515,8 @@ export function agentsRouter(
     };
   }
 
-  /**
-   * An agent's own project with no item-projects binding: every version
-   * reads the same one (`AgentVersionRecord.projectId`), a retired agent's
-   * too. `undefined`: no such agent; empty: the store records none.
-   */
-  async function ownProject(
-    tenantId: TenantId,
-    agentId: AgentId,
-  ): Promise<readonly ProjectId[] | undefined> {
-    if (!(await binding.headExists({ tenantId, agentId }))) return undefined;
-    const page = await binding.listVersions({
-      tenantId,
-      agentId,
-      limit: 1,
-      includeTombstoned: true,
-    });
-    const projectId = page.data[0]?.projectId;
-    return projectId !== undefined ? [projectId] : [];
+  function ownProject(tenantId: TenantId, agentId: AgentId) {
+    return agentOwnProject(binding, tenantId, agentId);
   }
 
   // ---------- GET /:agentId/versions (list versions) ----------
@@ -1103,6 +1087,27 @@ function semanticWarnings(agent: Agent): { readonly code: string; readonly messa
     }
     return [];
   });
+}
+
+/**
+ * An agent's own project with no item-projects binding: every version
+ * reads the same one (`AgentVersionRecord.projectId`), a retired agent's
+ * too. `undefined`: no such agent; empty: the store records none.
+ */
+export async function agentOwnProject(
+  binding: Pick<AgentRegistryBinding, 'headExists' | 'listVersions'>,
+  tenantId: TenantId,
+  agentId: AgentId,
+): Promise<readonly ProjectId[] | undefined> {
+  if (!(await binding.headExists({ tenantId, agentId }))) return undefined;
+  const page = await binding.listVersions({
+    tenantId,
+    agentId,
+    limit: 1,
+    includeTombstoned: true,
+  });
+  const projectId = page.data[0]?.projectId;
+  return projectId !== undefined ? [projectId] : [];
 }
 
 /**

@@ -56,6 +56,7 @@ export type {
 export type { SupervisorClient } from './resources/supervisor.js';
 export type {
   CheckImproveRunInput,
+  ImproveReadinessItem,
   ImproveRun,
   ImproveRunCheck,
   ImproveRunsClient,
@@ -64,16 +65,14 @@ export type {
 } from './resources/improve-runs.js';
 export type {
   CreateSuggestedChangeInput,
+  SuggestedChangePinAnswer,
+  SuggestedChangePinInput,
   SuggestedChangeReasonInput,
   SuggestedChangesClient,
   SuggestedChangesListInput,
   WithdrawInput,
 } from './resources/suggested-changes.js';
-export type {
-  ObservationFilter,
-  ObservationsClient,
-  PatternsInput,
-} from './resources/observations.js';
+export type { ObservationFilter, ObservationsClient } from './resources/observations.js';
 export type { Transport, TransportRequest } from './transport.js';
 export type {
   ApprovalFilter,
@@ -232,6 +231,7 @@ export type {
   ProjectTeamGrantsClient,
   ProjectPage,
   ProjectProductionShape,
+  ProjectRepoConnectionShape,
   ProjectRecordShape,
   ProjectRoleValue,
   TeamProjectGrantPage,
@@ -317,8 +317,10 @@ export type {
   PinnedVersionList,
   PinnedVersionResolution,
   Pin,
+  PinAnswer,
   PinCheck,
   PinPage,
+  PinTestRun,
   RunProgress,
   ScopeSegment,
 } from './generated/api.js';
@@ -328,7 +330,11 @@ export type {
   ServiceAccountFilter,
   ServiceAccountsClient,
 } from './resources/service-accounts.js';
-export type { CorrectionFilter, CorrectionsClient } from './resources/corrections.js';
+export type {
+  CorrectionExportFilter,
+  CorrectionFilter,
+  CorrectionsClient,
+} from './resources/corrections.js';
 export type {
   McpClient,
   McpEndpointFilter,
@@ -501,12 +507,16 @@ export type {
   ListEvidenceFilter,
 } from './resources/compliance.js';
 export type {
+  CheckDeploymentInput,
   CheckDeploymentPromotionInput,
+  DeployCheckResult,
+  DeployCheckStop,
   Deployment,
   DeploymentPage,
   DeploymentPromotion,
   DeploymentPromotionCheck,
   DeploymentsClient,
+  DeploymentSource,
   DeploymentValue,
   DeploymentValues,
   DeploymentValuesClient,
@@ -514,6 +524,7 @@ export type {
   PackEnvNameStatus,
   PackEnvNames,
   PromoteDeploymentInput,
+  PromotionBlockCheck,
   RegisterDeploymentInput,
   SyncSecretsInput,
   SyncSecretsResult,
@@ -538,6 +549,8 @@ export type {
   Block,
   BlockKind,
   BlockPage,
+  BlockRunsIn,
+  BlockRunsInList,
   BlocksClient,
   BlockVersionsClient,
   ListBlocksFilter,
@@ -725,6 +738,7 @@ export type {
   CorrectionCounts,
   CorrectionFixedIn,
   CorrectionLink,
+  CorrectionReopenedIn,
   CorrectionSorted,
   CorrectionSortedTo,
   CorrectionStatus,

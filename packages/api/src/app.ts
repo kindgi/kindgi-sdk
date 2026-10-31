@@ -29,6 +29,7 @@ import type { AdapterRegistryBinding } from './adapter-binding.js';
 import type { AgentRegistryBinding } from './agent-binding.js';
 import type { AgentPinBindings } from './agent-pin-binding.js';
 import type { BlockRegistryBinding, BlockUseBinding } from './block-binding.js';
+import type { BlockVersionPullRequestBinding } from './block-version-pr-binding.js';
 import type { CapabilityRegistryBinding } from './capability-binding.js';
 import type { ConnectionBinding } from './connection-binding.js';
 import type { CorrectionRegistryBinding } from './correction-binding.js';
@@ -39,10 +40,10 @@ import type { DeploymentValuesDeps } from './deployment-values.js';
 import type { EnvBinding } from './env-binding.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import type { WireErrorBody } from './errors.js';
-import type { EvalCaseStoreBinding } from './eval-case-binding.js';
 import type { EventBusBinding } from './event-bus-binding.js';
 import type { ExpertQueueBinding } from './expert-queue-binding.js';
 import type { FlowRegistryBinding } from './flow-binding.js';
+import type { FrozenCaseStoreBinding } from './frozen-case-binding.js';
 import type { GuardrailRegistryBinding } from './guardrail-binding.js';
 import type { RunHandlerBinding } from './handler-binding.js';
 import type { HitlBinding } from './hitl-binding.js';
@@ -120,7 +121,7 @@ import {
 } from './rotation-status-store.js';
 import { adaptersRouter } from './routes/adapters.js';
 import { agentTestSetRouter } from './routes/agent-test-set.js';
-import { agentsRouter } from './routes/agents.js';
+import { agentOwnProject, agentsRouter } from './routes/agents.js';
 import { approvalsRouter } from './routes/approvals.js';
 import {
   DEFAULT_ARTIFACT_MAX_BYTES,
@@ -129,7 +130,7 @@ import {
 } from './routes/artifacts.js';
 import { auditRouter } from './routes/audit.js';
 import { authRouter, logoutHandler } from './routes/auth.js';
-import { blocksRouter } from './routes/blocks.js';
+import { type BlockRunsInDeps, blocksRouter } from './routes/blocks.js';
 import { capabilitiesRouter } from './routes/capabilities.js';
 import { complianceRouter } from './routes/compliance.js';
 import {
@@ -168,6 +169,7 @@ import {
   type ProductionGateOptions,
   projectProductionRouter,
 } from './routes/project-production.js';
+import { projectRepoConnectionRouter } from './routes/project-repo-connection.js';
 import { projectsRouter } from './routes/projects.js';
 import { provenanceRouter } from './routes/provenance.js';
 import { providersRouter } from './routes/providers.js';
@@ -596,9 +598,9 @@ export interface CreateAppInput {
    */
   readonly supervisor?: SupervisorBinding;
   /**
-   * Optional. Improve runs (`/v1/improve-runs`): the runtime's search for better settings
-   * values, written as a suggested change. Without it, both answer
-   * `501 improve-unsupported`.
+   * Optional. Improve runs (`/v1/improve-runs`): the runtime's search, on a
+   * project's corrections, for better wording or settings values, written as a
+   * suggested change. Without it, both answer `501 improve-unsupported`.
    */
   readonly improveRuns?: ImproveRunBinding;
   /**
@@ -959,6 +961,13 @@ export interface CreateAppInput {
    */
   readonly blockUse?: BlockUseBinding;
   /**
+   * The pull requests opened to bring block versions back into a pack's
+   * files: `GET /v1/blocks/:blockId/runs-in` reads them for each row's
+   * `inYourFiles`. Absent: a row says only what the newest deployment of
+   * its agent's pack in the project lists.
+   */
+  readonly blockVersionPullRequests?: BlockVersionPullRequestBinding;
+  /**
    * Optional. When present alongside `testSetRegistry`, mounts the
    * evaluation-run data-plane surface: `POST /v1/test-sets/:testSetId/runs`
    * (start), `GET /v1/test-runs` (list, cursor-paginated),
@@ -991,7 +1000,7 @@ export interface CreateAppInput {
    * from corrections before an agent's corrections were its test set:
    * `GET /v1/test-sets/:testSetId/versions/:version/cases`.
    */
-  readonly evalCaseStore?: EvalCaseStoreBinding;
+  readonly frozenCaseStore?: FrozenCaseStoreBinding;
   /**
    * Optional. Pinned versions of agents per scope, each project's Latest
    * (`latest`), and their pin changes (`/v1/agents/{id}/pinned`,
@@ -1623,6 +1632,13 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // `?projectId=` answers on its single read.
   const itemServing =
     input.itemProjects !== undefined ? itemServingOf(input.itemProjects) : undefined;
+  // What a pin's test runs need besides test runs and projects (`AgentPinGateDeps`):
+  // the agent pin route, a promotion's pins and a card's pin all start them.
+  const pinTestRunDeps = {
+    ...(input.testSetFreeze !== undefined && { testSets: input.testSetFreeze }),
+    ...(input.correctionRegistry !== undefined && { corrections: input.correctionRegistry }),
+    ...(input.itemProjects !== undefined && { itemProjects: input.itemProjects }),
+  };
   // A system principal acts in no tenant: it reaches /v1/system/* (and the
   // deployment's license), nothing else, and each of its requests is recorded.
   v1.use(
@@ -1773,6 +1789,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.testRunBinding !== undefined && { testRuns: input.testRunBinding }),
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
           ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
+          ...pinTestRunDeps,
         },
         {
           ...(input.memory?.semanticSearch !== undefined && {
@@ -1932,12 +1949,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     const improveDeps = {
       ...(input.improveRuns !== undefined && { improveRuns: input.improveRuns }),
       agents: input.agentRegistry,
-      blocks: input.blockRegistry,
-      agentPins: input.agentPins,
-      ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
       ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
       ...(input.correctionRegistry !== undefined && { correctorGroups: input.correctionRegistry }),
-      ...(input.testSetRegistry !== undefined && { testSets: input.testSetRegistry }),
     };
     const cardDeps = {
       agents: input.agentRegistry,
@@ -1945,6 +1958,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       testRuns: input.testRunBinding,
       agentPins: input.agentPins,
       ...(input.testSetFreeze !== undefined && { testSets: input.testSetFreeze }),
+      ...(input.correctionRegistry !== undefined && { corrections: input.correctionRegistry }),
+      ...(input.itemProjects !== undefined && { itemProjects: input.itemProjects }),
       ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
       ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
       ...(input.projectSuspended !== undefined && {
@@ -2305,6 +2320,24 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   if (input.blockRegistry !== undefined) {
+    const agentRegistry = input.agentRegistry;
+    // Where a block runs reads what runs where (the pins and Latest) and,
+    // with no item-projects binding, each agent's own project; whether the
+    // pack's files have it, each project's deployments and the pull
+    // requests opened.
+    const runsIn: BlockRunsInDeps | undefined =
+      input.agentPins !== undefined && agentRegistry !== undefined
+        ? {
+            agentPins: input.agentPins,
+            ownProject: (tenantId, agentId) => agentOwnProject(agentRegistry, tenantId, agentId),
+            ...(input.deploymentRegistry !== undefined && {
+              deployments: input.deploymentRegistry,
+            }),
+            ...(input.blockVersionPullRequests !== undefined && {
+              pullRequests: input.blockVersionPullRequests,
+            }),
+          }
+        : undefined;
     v1.route(
       '/blocks',
       blocksRouter(
@@ -2315,6 +2348,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         itemServing,
         input.blockUse,
         input.auditEvents,
+        runsIn,
       ),
     );
   }
@@ -2330,6 +2364,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.reviewerBinding,
         input.agentRegistry,
         itemRights,
+        input.auditEvents,
       ),
     );
     v1.route('/corrector-groups', correctorGroupsRouter(input.correctionRegistry, authorizer));
@@ -2361,8 +2396,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       }),
     );
   }
-  if (input.testSetRegistry !== undefined && input.evalCaseStore !== undefined) {
-    v1.route('/test-sets', correctedTestSetsRouter(input.evalCaseStore, authorizer, itemRights));
+  if (input.testSetRegistry !== undefined && input.frozenCaseStore !== undefined) {
+    v1.route('/test-sets', correctedTestSetsRouter(input.frozenCaseStore, authorizer, itemRights));
   }
   // ---------- platform hierarchy ----------
   // Mounts are independent: `/v1/orgs`, `/v1/teams`, `/v1/projects`,
@@ -2404,6 +2439,14 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         tenantHierarchy: tenantHierarchyBinding,
         ...(authorizer !== undefined && { authorizer }),
         ...(input.production !== undefined && { production: input.production }),
+      }),
+    );
+    v1.route(
+      '/projects',
+      projectRepoConnectionRouter({
+        projects: input.projectBinding,
+        ...(input.connections !== undefined && { connections: input.connections }),
+        ...(authorizer !== undefined && { authorizer }),
       }),
     );
   }
@@ -2556,6 +2599,22 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
               ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
               ...(input.projectSuspended !== undefined && {
                 projectSuspended: input.projectSuspended,
+              }),
+              ...pinTestRunDeps,
+            },
+          }),
+          // A deploy is checked against what runs: the agent versions that
+          // pin each block, each agent's projects, people's names, and the
+          // pull requests opened for block versions.
+          ...(input.blockUse !== undefined && {
+            deployCheck: {
+              blockUse: input.blockUse,
+              ...(input.itemProjects !== undefined && { itemProjects: input.itemProjects }),
+              ...(input.identityDirectory !== undefined && {
+                identityDirectory: input.identityDirectory,
+              }),
+              ...(input.blockVersionPullRequests !== undefined && {
+                pullRequests: input.blockVersionPullRequests,
               }),
             },
           }),

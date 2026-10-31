@@ -108,7 +108,7 @@ class Operation:
     body: str | None  # model class name
     body_kind: str | None  # json | multipart
     response: str | None  # model class name
-    response_kind: str  # json | sse | binary | empty
+    response_kind: str  # json | sse | binary | byte-stream | empty
     status: int
     # When the 2xx answers carry different models: each status's model
     # class name (`secrets.rotate`: 201 sync, 202 async). Empty otherwise.
@@ -275,6 +275,9 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                     )
                 elif content:
                     response_kind = "binary"
+                    if op.get("x-kindgi-streamed"):
+                        # A body handed on as it arrives (`corrections.export`), not read whole.
+                        response_kind = "byte-stream"
                 break
             # The client picks the model by status when the 2xx answers differ,
             # as the Java client does; otherwise every 2xx is the first's model.
@@ -378,9 +381,12 @@ def signature(op: Operation, asynchronous: bool) -> str:
         else f"_models.{op.response}",
         "empty": "None",
         "binary": "bytes",
+        "byte-stream": f"{'AsyncIterator' if asynchronous else 'Iterator'}[bytes]",
         "sse": f"{'AsyncIterator' if asynchronous else 'Iterator'}[_models.{op.response}]",
     }[op.response_kind]
-    prefix = "async def" if asynchronous and op.response_kind != "sse" else "def"
+    prefix = (
+        "async def" if asynchronous and op.response_kind not in ("sse", "byte-stream") else "def"
+    )
     return f"    {prefix} {op.name}({', '.join(parts)}) -> {returns}:"
 
 
@@ -407,6 +413,8 @@ def call(op: Operation, asynchronous: bool) -> str:
         args.append(f"response=_models.{op.response}")
     args.append("timeout=timeout")
     inner = ", ".join(args)
+    if op.response_kind == "byte-stream":
+        return f"        return self._client._stream_bytes({inner})"
     if op.response_kind == "sse":
         return f"        return self._client._{'follow' if op.follow else 'stream'}({inner})"
     keyword_await = "await " if asynchronous else ""
@@ -818,7 +826,8 @@ def model_locations(
 ) -> dict[str, list[str]]:
     """Where each model sits. A component's own model sits at its name; any other at each chain
     of fields from one, a field by its wire name and, in a union, by its member
-    (`member_keys`): `CorrectedComparisonResult.cases.tool`, `CompleteApprovalResult.resume[kind=ok]`.
+    (`member_keys`): `CorrectedComparisonResult.cases.tool`,
+    `CompleteApprovalResult.resume[kind=ok]`.
     """
     models = model_fields(tree)
     components = doc["components"]["schemas"]

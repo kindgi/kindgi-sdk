@@ -40,6 +40,7 @@ export type {
   ProjectMembershipBinding,
   ProjectMembershipUpdateRoleOutcome,
   ProjectProductionOutcome,
+  ProjectRepoConnectionOutcome,
   ProjectUpdateOutcome,
 } from './project-binding.js';
 export type {

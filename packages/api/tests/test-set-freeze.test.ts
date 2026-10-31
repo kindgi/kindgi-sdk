@@ -225,6 +225,9 @@ describe('createTestSetFreeze', () => {
         segments: [{ key: 'company', value: 'acme-east' }],
         items: [],
         expect: { answer: { verdict: 'wrong', why: 'Ask which order first.' } },
+        // Adding a case is fixing, which needs publish on the agent (or write on its
+        // project when more than one project serves it): a hand case is an expert's.
+        expert: true,
       },
     ]);
     // Reading it needs read on its project: the project is its parent, and it has no owner.
@@ -335,8 +338,58 @@ describe('createTestSetFreeze', () => {
         output: { text: 'Cancelled.' },
         items: [],
         expect: { answer: { verdict: 'wrong', shouldSay: 'Which order?' } },
+        expert: true,
       },
     ]);
+  });
+
+  test("an expert's case freezes as an expert's: on the case, its corrections entry and its items; another's doesn't", async () => {
+    const h = harness();
+    const said = {
+      decisions: 'wrong',
+      shouldCall: [{ tool: 'acme.ask', args: {} }],
+      mustNotCall: ['acme.refund'],
+      answer: 'wrong',
+      shouldSay: 'Final sale: no refund.',
+      items: [
+        { key: 'a', rank: 0, verdict: 'right' },
+        { key: 'b', rank: 1, verdict: 'wrong' },
+      ],
+    } as const;
+    const expert = await h.corrected({ ...said, correctorGroupId: 'acme-experts', expert: true });
+    const other = await h.corrected(said);
+    await h.run();
+    const [byExpert, byOther] = await h.stored('1.0.0');
+    expect(byExpert).toMatchObject({
+      caseId: expert.id,
+      expert: true,
+      corrections: [
+        {
+          correctionId: expert.id,
+          expert: true,
+          calls: [{ tool: 'acme.ask', args: {} }],
+          notCalled: ['acme.refund'],
+        },
+      ],
+      items: [
+        {
+          key: 'a',
+          yesWeight: 1,
+          totalWeight: 1,
+          expert: { yesWeight: 1, totalWeight: 1, correctionIds: [expert.id] },
+        },
+        {
+          key: 'b',
+          yesWeight: 0,
+          totalWeight: 1,
+          expert: { yesWeight: 0, totalWeight: 1, correctionIds: [expert.id] },
+        },
+      ],
+    });
+    expect(byOther?.caseId).toBe(other.id);
+    expect(byOther).not.toHaveProperty('expert');
+    expect(byOther?.corrections?.[0]).not.toHaveProperty('expert');
+    for (const item of byOther?.items ?? []) expect(item).not.toHaveProperty('expert');
   });
 
   test(`asks for the runs' copies ${RUN_COPIES_MAX} at a time`, async () => {

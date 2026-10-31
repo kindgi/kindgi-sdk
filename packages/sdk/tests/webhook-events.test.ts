@@ -51,25 +51,23 @@ const RUN_IN_FULL = {
 const IMPROVE_RUN = {
   id: 'c3f1e9a0-7d4b-4e2a-9b6c-1f8e2d3a4b5c',
   agentId: 'acme-shop.helpdesk',
-  fromVersion: '0.3.0',
-  scope: {
-    kind: 'segment',
-    projectId: PROJECT,
-    path: [{ key: 'company', value: 'acme' }],
-  },
-  testSetId: 'acme-shop.helpdesk-testSet',
-  tiers: ['prompt'],
+  projectId: PROJECT,
+  startsFrom: { version: '0.3.0', follows: 'pin' },
+  testSetVersion: '1.0.7',
+  setAside: { cases: 5, of: 27 },
+  tiers: ['prompt', 'settings'],
   objective: 'passRate',
+  groupWeights: 'experts-only',
   budget: { maxCostUsd: 2, maxCandidates: 3 },
   requestedBy: 'user_1',
   status: 'completed',
-  candidatesEvaluated: 3,
+  tried: 3,
   costUsd: '0.0123',
   outcome: {
     kind: 'suggested',
     suggestedChangeId: '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d',
-    holdOut: { baseline: 0.5, candidate: 0.62, delta: null },
   },
+  takes: ['c-312', 'c-301'],
   comparisons: [{ role: 'candidate', part: 'search', score: null, changed: { anything: [1] } }],
   trigger: { triggerId: 'improve-nightly', fireId: 'fire_1' },
   createdAt: AT,
@@ -206,24 +204,40 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
   ],
   [
     'minItems',
-    withImproveRun({ ...IMPROVE_RUN, scope: { ...IMPROVE_RUN.scope, path: [] } }),
-    '`data.improveRun.scope.path` has fewer than 1 items.',
+    withRun({
+      ...RUN_IN_FULL,
+      agent: {
+        ...RUN_IN_FULL.agent,
+        pinnedScope: { kind: 'segment', projectId: PROJECT, path: [] },
+      },
+    }),
+    '`data.run.agent.pinnedScope.path` has fewer than 1 items.',
   ],
   [
     "an array item's pattern",
-    withImproveRun({
-      ...IMPROVE_RUN,
-      scope: { ...IMPROVE_RUN.scope, path: [{ key: 'Company', value: 'acme' }] },
+    withRun({
+      ...RUN_IN_FULL,
+      agent: {
+        ...RUN_IN_FULL.agent,
+        pinnedScope: {
+          kind: 'segment',
+          projectId: PROJECT,
+          path: [{ key: 'Company', value: 'acme' }],
+        },
+      },
     }),
-    "`data.improveRun.scope.path[0].key` doesn't match ^[a-z][a-z0-9_-]{0,63}$.",
+    "`data.run.agent.pinnedScope.path[0].key` doesn't match ^[a-z][a-z0-9_-]{0,63}$.",
   ],
   [
     'a minLength',
-    withImproveRun({
-      ...IMPROVE_RUN,
-      scope: { ...IMPROVE_RUN.scope, path: [{ key: 'company', value: '' }] },
+    withRun({
+      ...RUN_IN_FULL,
+      agent: {
+        ...RUN_IN_FULL.agent,
+        pinnedScope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: '' }] },
+      },
     }),
-    '`data.improveRun.scope.path[0].value` is shorter than 1 characters.',
+    '`data.run.agent.pinnedScope.path[0].value` is shorter than 1 characters.',
   ],
   [
     "an array item's enum",
@@ -231,12 +245,31 @@ const REFUSED: readonly (readonly [string, string, string])[] = [
     '`data.improveRun.comparisons[0].role` is not one of "reference", "candidate", "proof".',
   ],
   [
+    "an Improve run outcome's kind",
+    withImproveRun({ ...IMPROVE_RUN, outcome: { kind: 'nothing-found', reason: 'none' } }),
+    '`data.improveRun.outcome.kind` is not one of "suggested", "nothing-better", "cost-cap", "failed".',
+  ],
+  [
+    "an Improve run outcome's own field",
+    withImproveRun({ ...IMPROVE_RUN, outcome: { kind: 'cost-cap' } }),
+    '`data.improveRun.outcome.spentUsd` is missing.',
+  ],
+  [
     'a nullable number',
     withImproveRun({
       ...IMPROVE_RUN,
-      outcome: { kind: 'suggested', holdOut: { baseline: 'high', candidate: null, delta: null } },
+      outcome: {
+        kind: 'nothing-better',
+        reason: 'No change passed more cases.',
+        holdOut: { baseline: 'high', candidate: null, delta: null },
+      },
     }),
     '`data.improveRun.outcome.holdOut.baseline` is not a number.',
+  ],
+  [
+    'a renamed field',
+    withImproveRun({ ...IMPROVE_RUN, tried: undefined, candidatesEvaluated: 3 }),
+    '`data.improveRun.tried` is missing.',
   ],
 ];
 

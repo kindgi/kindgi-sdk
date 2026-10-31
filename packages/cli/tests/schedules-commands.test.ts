@@ -161,60 +161,64 @@ describe('kindgi schedules', () => {
     expect(missing.out.stderr).toContain('--cron=<expression> is required');
   });
 
-  test('create an improve schedule for a segment; its scope comes from --project and --segment', async () => {
+  test('create an improve schedule: in the project it improves, with its input', async () => {
     const { out, calls } = await schedules([
       'create',
       '--cron=0 * * * *',
       '--improve=acme.scorer',
       '--project=p-1',
-      '--segment=company:acme',
-      '--input={"threshold":{"corrections":10},"monthlyCapUsd":50}',
+      '--input={"corrections":10,"from":"everyone","runCapUsd":3,"monthCapUsd":50}',
     ]);
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
       [
         'register',
         {
-          improve: {
-            agentId: 'acme.scorer',
-            scope: { kind: 'segment', projectId: 'p-1', path: [{ key: 'company', value: 'acme' }] },
-          },
+          improve: { agentId: 'acme.scorer', projectId: 'p-1' },
           config: {
             cronExpression: '0 * * * *',
-            input: { threshold: { corrections: 10 }, monthlyCapUsd: 50 },
+            input: { corrections: 10, from: 'everyone', runCapUsd: 3, monthCapUsd: 50 },
           },
           projectId: 'p-1',
         },
       ],
     ]);
-    const project = await schedules([
-      'create',
-      '--cron=0 * * * *',
-      '--improve=acme.scorer',
-      '--project=p-1',
+    const updated = await schedules(['update', ID, '--improve=acme.scorer', '--project=p-1']);
+    expect(updated.calls).toEqual([
+      ['update', ID, { improve: { agentId: 'acme.scorer', projectId: 'p-1' } }],
     ]);
-    expect(project.calls[0]?.[1]).toMatchObject({
-      improve: { agentId: 'acme.scorer', scope: { kind: 'project', projectId: 'p-1' } },
-    });
+    const projectOnly = await schedules(['update', ID, '--project=p-2']);
+    expect(projectOnly.out.exitCode).toBe(2);
+    expect(projectOnly.out.stderr).toContain('--project goes with --improve');
+    expect(projectOnly.calls).toEqual([]);
     for (const [argv, message] of [
-      [['--improve=acme.scorer'], '--improve needs its scope'],
+      [['--improve=acme.scorer'], '--improve needs its project'],
       [
         ['--improve=acme.scorer', '--agent=acme.digest', '--project=p-1'],
         'not with --agent or --flow',
       ],
-      [['--improve=acme.scorer', '--segment=company:acme'], '--improve needs its scope'],
     ] as const) {
       const bad = await schedules(['create', '--cron=0 * * * *', ...argv]);
       expect(bad.out.exitCode).not.toBe(0);
       expect(bad.out.stderr).toContain(message);
     }
+    // A segment is no improve schedule's: the flag is gone.
+    const segment = await schedules([
+      'create',
+      '--cron=0 * * * *',
+      '--improve=acme.scorer',
+      '--project=p-1',
+      '--segment=company:acme',
+    ]);
+    expect(segment.out.exitCode).toBe(2);
+    expect(segment.calls).toEqual([]);
   });
 
-  test('an improve schedule in the table, and a fire that started an Improve run', async () => {
+  test('an improve schedule in the table, at its month cap or paused, and a fire that started an Improve run', async () => {
     const improving = {
       ...SCHEDULE,
       agentId: undefined,
-      improve: { agentId: 'acme.scorer', scope: { kind: 'project', projectId: 'p-1' } },
+      improve: { agentId: 'acme.scorer', projectId: 'p-1' },
     };
     const out = await runCli({
       argv: ['schedules', 'list', '--table', '--url=https://x', '--token=t'],
@@ -222,10 +226,35 @@ describe('kindgi schedules', () => {
       cwd,
       home,
       clientFactory: () =>
-        ({ schedules: { list: async () => ({ data: [improving], hasMore: false }) } }) as never,
+        ({
+          schedules: {
+            list: async () => ({
+              data: [
+                improving,
+                {
+                  ...improving,
+                  scheduleId: 'capped',
+                  pausedUntil: '2026-11-01T00:00:00.000Z',
+                  pausedReason: 'month-cap',
+                },
+                {
+                  ...improving,
+                  scheduleId: 'lost',
+                  status: 'paused',
+                  statusReason: 'owner-lost-publish',
+                },
+                { ...improving, scheduleId: 'old', improve: { agentId: 'acme.scorer' } },
+              ],
+              hasMore: false,
+            }),
+          },
+        }) as never,
     });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(out.stdout).toContain('improve acme.scorer (project p-1)');
+    expect(out.stdout).toContain('active, waits until 2026-11-01T00:00:00.000Z (month-cap)');
+    expect(out.stdout).toContain('paused (owner-lost-publish)');
+    expect(out.stdout).toContain('improve acme.scorer (no project)');
     const improveRunId = '33333333-3333-4333-8333-333333333333';
     const fires = await runCli({
       argv: ['schedules', 'fires', ID, '--table', '--url=https://x', '--token=t'],
@@ -245,7 +274,7 @@ describe('kindgi schedules', () => {
                   missedCount: undefined,
                   outcome: 'skipped',
                   detail:
-                    "Not enough new experts' corrections so far: 4 of 5 answers experts marked wrong (enough: 3 runs, 2 experts).",
+                    "Not enough new experts' corrections sorted to improve since this schedule's last Improve run (2026-10-08T03:00:00.000Z): 4 of 5.",
                 },
               ],
               hasMore: false,
@@ -256,7 +285,7 @@ describe('kindgi schedules', () => {
     expect(fires.exitCode, fires.stderr).toBe(0);
     expect(fires.stdout).toContain(`Improve run ${improveRunId}`);
     expect(fires.stdout).toMatch(
-      /skipped\s+Not enough new experts' corrections so far: 4 of 5 answers experts marked wrong/,
+      /skipped\s+Not enough new experts' corrections sorted to improve since this schedule's last Improve run \(2026-10-08T03:00:00\.000Z\): 4 of 5\./,
     );
   });
 
