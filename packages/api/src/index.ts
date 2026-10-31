@@ -562,6 +562,13 @@ export {
   reapplyTestRunOutcomes,
   testRunReason,
 } from './test-run-outcome.js';
+// The test runs a pin change starts, and what an approval that pins a waiting change applies.
+export {
+  type PinTestRun,
+  type PinTestRunDeps,
+  type PinTestRuns,
+  pinTookEffect,
+} from './pin-test-runs.js';
 export type { RegistryReadOnly } from './registry-read-only.js';
 // A pack agent's block pins where the pack's own versions are the only ones (`kindgi dev`).
 export { type BlockPins, type BlockVersionReads, resolveBlockPins } from './block-pins.js';

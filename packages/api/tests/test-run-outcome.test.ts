@@ -504,6 +504,18 @@ describe("a `pin:` run applies only as its change's own run", () => {
     expect(await h.get(id)).toMatchObject({ status: 'open' });
   });
 
+  test("one whose correlation names a recorded change of another agent's", async () => {
+    const h = harness();
+    const id = await h.corrected();
+    const v13 = h.project.pin('13.0.0', ana);
+    const other: Pin = { ...v13, id: 'pc-other', agentId: 'acme.billing' };
+    h.project.state.changes.push(other);
+    expect(
+      await h.apply(h.ran('13.0.0', pinRunCorrelation(other.id), { [id]: true })),
+    ).toBeUndefined();
+    expect(await h.get(id)).toMatchObject({ status: 'open' });
+  });
+
   test('one that started before its change was recorded', async () => {
     const h = harness();
     const id = await h.corrected();

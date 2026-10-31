@@ -158,13 +158,100 @@ async function applyOne(
   const run = await deps.testRuns.get(input);
   const check = run === null ? undefined : endedCheck(run);
   if (run === null || check === undefined) return undefined;
+  return applyCheck(deps, tenantId, run, check, decided, (now) =>
+    howItMoved(deps, tenantId, check, now, run),
+  );
+}
+
+/**
+ * Apply the run that a pin names (`Pin.testRunId`: the body's on the agent
+ * pin, the card's check on the card pin) as its change's own, in a project
+ * that the change made run its version: reused, it changes the statuses
+ * at pin time (DESIGN 10.1 step 1), as of when the change took effect.
+ * Changes nothing, and answers `undefined`, unless the change took effect,
+ * the run is reusable there at the project's current `testSetVersion`
+ * (`isReusableTestRun`), the project is inside the change's scope, and it
+ * still runs the version.
+ */
+export async function applyNamedTestRun(
+  deps: Pick<TestRunOutcomeDeps, 'agentPins' | 'corrections' | 'projects'>,
+  input: {
+    readonly tenantId: TenantId;
+    readonly change: Pin;
+    readonly run: TestRun;
+    readonly projectId: ProjectId;
+    readonly testSetVersion: string;
+  },
+): Promise<TestRunOutcome | undefined> {
+  const { tenantId, change, run, projectId } = input;
+  const version = change.toVersion as unknown as string | null;
+  if (change.action !== 'pin' || version === null || !tookEffect(change)) return undefined;
+  const reusable = { agentId: change.agentId, version, projectId };
+  if (!isReusableTestRun(run, { ...reusable, testSetVersion: input.testSetVersion })) {
+    return undefined;
+  }
+  if (!(await inScope(deps.projects, tenantId, change.scope, projectId))) return undefined;
+  const check: EndedCheck = {
+    reason: { kind: 'pin', changeId: change.id },
+    ...reusable,
+    endedAt: effectiveAt(change),
+  };
+  return applyCheck(deps, tenantId, run, check, new Set(), (now) =>
+    pinMoved(deps.agentPins, tenantId, change, check, now),
+  );
+}
+
+/**
+ * Whether a run can stand for a pin's check of `version` in a project, so
+ * none starts (DESIGN 10.1 step 1): completed, not a dry run, a
+ * `corrections` run that tried the version as published, of the agent and
+ * version, in the project, on its agent test set at `testSetVersion`.
+ */
+export function isReusableTestRun(
+  run: TestRun,
+  q: {
+    readonly agentId: string;
+    readonly version: string;
+    readonly projectId: ProjectId;
+    readonly testSetVersion: string;
+  },
+): boolean {
+  return (
+    run.status === 'completed' &&
+    !run.dryRun &&
+    run.kind === 'corrections' &&
+    (run.comparison === undefined || asPublished(run.comparison)) &&
+    (run.agentRef?.agentId as unknown as string | undefined) === q.agentId &&
+    (run.agentRef?.version as unknown as string | undefined) === q.version &&
+    run.projectId === q.projectId &&
+    run.testSetId === agentTestSetId(q.agentId as AgentId, q.projectId) &&
+    run.testSetVersion === q.testSetVersion
+  );
+}
+
+/**
+ * Apply a completed check's outcome while its project still runs its
+ * version, leaving out the corrections in `decided`, and adding to it the
+ * ones the run checked once it applies. `moved` says how the project came
+ * to run the version; `undefined` from it changes nothing.
+ */
+async function applyCheck(
+  deps: Pick<TestRunOutcomeDeps, 'agentPins' | 'corrections'>,
+  tenantId: TenantId,
+  run: TestRun,
+  check: EndedCheck,
+  decided: Set<string>,
+  howMoved: (
+    now: WhatRunsInProject & { readonly runs: WhatRuns },
+  ) => Promise<Pick<RunOutcomeInput, 'how' | 'by' | 'at'> | undefined>,
+): Promise<TestRunOutcome | undefined> {
   const { agentId, version, projectId } = check;
   const [now] = await whatRunsByProject(deps.agentPins, { tenantId, agentId }, [projectId]);
   const runs = now?.runs;
   if (now === undefined || runs == null || (runs.version as unknown as string) !== version) {
     return undefined;
   }
-  const moved = await howItMoved(deps, tenantId, check, { ...now, runs }, run);
+  const moved = await howMoved({ ...now, runs });
   if (moved === undefined) return undefined;
   const passed = new Map([...passedByCorrection(run)].filter(([id]) => !decided.has(id)));
   for (const id of passed.keys()) decided.add(id);
@@ -265,11 +352,21 @@ async function howItMoved(
     if (runs.follows !== 'latest') return undefined;
     return { how: 'latest', at: runs.since ?? (run.startedAt as unknown as string) };
   }
-  const { agentPins } = deps;
-  const started = await agentPins.changes.get(tenantId, reason.changeId);
+  const started = await deps.agentPins.changes.get(tenantId, reason.changeId);
   if (started === null || !(await startedThisRun(deps.projects, tenantId, started, check, run))) {
     return undefined;
   }
+  return pinMoved(deps.agentPins, tenantId, started, check, now);
+}
+
+/** How a pin change's check moved its project: from the project's newest pin change (`newestChange`). */
+async function pinMoved(
+  agentPins: Pick<AgentPinBindings, 'changes'>,
+  tenantId: TenantId,
+  started: Pin,
+  check: EndedCheck,
+  now: WhatRunsInProject,
+): Promise<Pick<RunOutcomeInput, 'how' | 'by' | 'at'> | undefined> {
   const change = await newestChange(agentPins, {
     tenantId,
     agentId: check.agentId,
@@ -343,9 +440,12 @@ async function startedThisRun(
   if (run.correlationId !== pinRunCorrelation(change.id) || change.agentId !== check.agentId) {
     return false;
   }
+  // Fails closed: a time that doesn't parse is NaN, never at or after another.
   if (
-    Date.parse(run.startedAt as unknown as string) <
-    Date.parse(change.createdAt as unknown as string)
+    !(
+      Date.parse(run.startedAt as unknown as string) >=
+      Date.parse(change.createdAt as unknown as string)
+    )
   ) {
     return false;
   }
@@ -356,7 +456,7 @@ async function startedThisRun(
 }
 
 /** Whether `projectId` is inside `scope`. A segment pin starts no run (DESIGN 10.1 step 4). */
-async function inScope(
+export async function inScope(
   projects: Pick<ProjectBinding, 'get'>,
   tenantId: TenantId,
   scope: AgentPinScope,
@@ -378,7 +478,7 @@ async function inScope(
 const OWN_CHANGES = 20;
 
 /** An unpin, or a pin that was pinned: not one refused or still waiting. */
-function tookEffect(change: Pin): boolean {
+export function tookEffect(change: Pin): boolean {
   return change.action === 'unpin' || change.status === undefined || change.status === 'pinned';
 }
 

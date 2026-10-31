@@ -138,6 +138,13 @@ export interface SuggestedChangeServiceDeps {
    * suggested change can't be made or checked (`create`, `check`).
    */
   readonly testSets?: TestSetFreezeBinding;
+  /**
+   * What a pin's test runs need besides the test sets (`AgentPinGateDeps`):
+   * the corrections the card's reused check changes, and the projects an
+   * agent runs in. Absent `corrections`: a pin starts no test run.
+   */
+  readonly corrections?: AgentPinGateDeps['corrections'];
+  readonly itemProjects?: AgentPinGateDeps['itemProjects'];
 }
 
 /** An error with the code the API answers it with (`statusFor`), and its details. */
@@ -1435,6 +1442,9 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
           ...(deps.projects !== undefined && { projects: deps.projects }),
           ...(deps.referenceScope !== undefined && { referenceScope: deps.referenceScope }),
           ...(deps.projectSuspended !== undefined && { projectSuspended: deps.projectSuspended }),
+          ...(deps.testSets !== undefined && { testSets: deps.testSets }),
+          ...(deps.corrections !== undefined && { corrections: deps.corrections }),
+          ...(deps.itemProjects !== undefined && { itemProjects: deps.itemProjects }),
         },
         {
           tenantId,

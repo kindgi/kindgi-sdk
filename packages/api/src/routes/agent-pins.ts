@@ -27,9 +27,18 @@ import type {
   PinActor,
 } from '../agent-pin-binding.js';
 import type { CorrectedComparisonSummary } from '../corrected-dispatcher.js';
+import type { CorrectionRegistryBinding } from '../correction-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type GateApproval, type GateCheck, type GateResult, evaluateGate } from '../gate.js';
+import type { ItemProjectsBinding } from '../item-projects-binding.js';
 import type { ItemRights } from '../item-rights.js';
+import {
+  NO_PIN_TEST_RUNS,
+  type PinTestRunDeps,
+  type PinTestRuns,
+  projectsPinMoves,
+  startPinTestRuns,
+} from '../pin-test-runs.js';
 import {
   type ReferenceScopeBinding,
   agentPinScopeOutOfScope,
@@ -37,6 +46,7 @@ import {
 } from '../reference-scope.js';
 import type { ReleaseGate } from '../release-gate-binding.js';
 import type { TestRun, TestRunBinding } from '../test-run-binding.js';
+import type { TestSetFreezeBinding } from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
 import { type WhatRuns, whatRuns } from '../what-runs.js';
 import { agentPinScopeToWire, parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
@@ -83,6 +93,15 @@ export interface AgentPinGateDeps {
    * runs says so, not that nothing runs. Absent: no check.
    */
   readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
+  /**
+   * What a pin's test runs need (`pin-test-runs.ts`), with `testRuns` and
+   * `projects`: the agent test sets to freeze, the corrections a reused
+   * run changes, and the projects an agent runs in, for a tenant or org
+   * pin. Absent: a pin starts no test run.
+   */
+  readonly testSets?: Pick<TestSetFreezeBinding, 'freezeTestSet'>;
+  readonly corrections?: Pick<CorrectionRegistryBinding, 'list' | 'applyRunOutcome'>;
+  readonly itemProjects?: Pick<ItemProjectsBinding, 'projectsOf'>;
 }
 
 /**
@@ -408,6 +427,8 @@ export type PinRequestOutcome =
       readonly pin: Pin;
       /** The gate's checks as they ran (a binding may not echo them on the row). */
       readonly checks?: readonly GateCheck[];
+      /** The test runs it checks its projects with, and what a reused one changed. */
+      readonly runs: PinTestRuns;
     }
   | { readonly kind: 'err'; readonly error: { code: string; message: string } }
   | { readonly kind: 'gate-unsupported'; readonly releaseGate: ReleaseGate };
@@ -459,14 +480,16 @@ export async function requestPin(
       };
     }
     // No gate, and a binding from before gates: pin as before.
+    const moves = await pinMoves(agentPins, deps, input);
     const outcome = await agentPins.changes.pin(input);
     return outcome.kind === 'err'
       ? { kind: 'err', error: outcome.error }
-      : { kind: 'ok', pin: outcome.value };
+      : { kind: 'ok', pin: outcome.value, runs: await moves.check(outcome.value) };
   }
   const gate = await runGate(registry, agentPins, deps, input, releaseGate);
   if (gate.kind === 'err') return gate;
   const approval = await resolveApproval(gate.result.approval, options);
+  const moves = await pinMoves(agentPins, deps, input);
   const outcome = await agentPins.changes.request({
     ...input,
     gate: {
@@ -481,7 +504,46 @@ export async function requestPin(
   });
   return outcome.kind === 'err'
     ? { kind: 'err', error: outcome.error }
-    : { kind: 'ok', pin: outcome.value, checks: gate.result.checks };
+    : {
+        kind: 'ok',
+        pin: outcome.value,
+        checks: gate.result.checks,
+        runs: await moves.check(outcome.value),
+      };
+}
+
+/**
+ * The projects a pin moves to its version, read before it's recorded
+ * (`projectsPinMoves`), and the check of the recorded change in them
+ * (`startPinTestRuns`). With no test runs wired, it checks none.
+ */
+async function pinMoves(
+  agentPins: AgentPinBindings,
+  deps: AgentPinGateDeps,
+  input: AgentPinInput,
+): Promise<{ check(change: Pin): Promise<PinTestRuns> }> {
+  const { testRuns, testSets, corrections, projects, itemProjects } = deps;
+  if (
+    testRuns === undefined ||
+    testSets === undefined ||
+    corrections === undefined ||
+    projects === undefined
+  ) {
+    return { check: async () => NO_PIN_TEST_RUNS };
+  }
+  const runDeps: PinTestRunDeps = {
+    testRuns,
+    testSets,
+    corrections,
+    projects,
+    agentPins,
+    ...(itemProjects !== undefined && { itemProjects }),
+  };
+  const { tenantId } = input;
+  const moved = await projectsPinMoves(runDeps, input);
+  return {
+    check: (change) => startPinTestRuns(runDeps, { tenantId, change, projects: moved }),
+  };
 }
 
 /**
