@@ -75,7 +75,13 @@ import { limitedCaller } from '../middleware/key-project.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
 import { deploymentSecretScope, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
 import type { AppEnv } from '../types.js';
-import { actorOf, policyFor, promotionResponse, requestPromotion } from './agent-releases.js';
+import {
+  type PromotionRequestOutcome,
+  actorOf,
+  policyFor,
+  promotionResponse,
+  requestPromotion,
+} from './agent-releases.js';
 import { deniedBy, refused } from './denied.js';
 import type { DeploymentsRouterBindings } from './deployments.js';
 import { pinWriteFailure } from './pinned-versions.js';
@@ -593,7 +599,11 @@ async function makeCarriedLive(
 ): Promise<Pick<PromotionResult, 'live' | 'pinnedFlows'> | Response> {
   const { agentReleases, agentRegistry, releaseGateDeps, pinnedVersions } = bindings;
   if (agentReleases === undefined || agentRegistry === undefined || releaseGateDeps === undefined) {
-    return unsupported(c);
+    // The move has committed: say so, not "nothing was promoted".
+    return refusal(c, 'promotions-unsupported', {
+      message:
+        "The build moved, but this runtime can't make versions live, so nothing was pinned in the target. Promote without `makeLive` here; the move is already done.",
+    });
   }
   const tenantId = plan.source.tenantId;
   const scope: LiveScope = { kind: 'project', projectId: plan.toProjectId };
@@ -619,7 +629,7 @@ async function makeCarriedLive(
     // What the pre-checks leave is answered with the pins already made, so
     // the caller sees what went live.
     if (outcome.kind !== 'ok') {
-      return promotionResponse(c, outcome, live.length > 0 ? { live } : {});
+      return promotionResponse(c, carriedRefusal(outcome, agent), live.length > 0 ? { live } : {});
     }
     live.push(livePinOf(agent, outcome.promotion, outcome.checks));
   }
@@ -634,6 +644,26 @@ async function makeCarriedLive(
     live,
   );
   return pinnedFlows instanceof Response ? pinnedFlows : { live, pinnedFlows };
+}
+
+/**
+ * A carried agent's pin refused because no version of it runs in the
+ * target yet (its first promotion there, carrying only a version made for
+ * a project, which isn't Latest by being carried): said for this move,
+ * which has committed. Any other refusal as the gate gave it.
+ */
+function carriedRefusal(
+  outcome: Exclude<PromotionRequestOutcome, { kind: 'ok' }>,
+  agent: MovedVersion & { version: string },
+): Exclude<PromotionRequestOutcome, { kind: 'ok' }> {
+  if (outcome.kind !== 'err' || outcome.error.code !== 'nothing-runs-in-scope') return outcome;
+  return {
+    ...outcome,
+    error: {
+      ...outcome.error,
+      message: `The build moved, but agent "${agent.id}" ${agent.version} wasn't made live: no version of it runs in the target project yet (no pin, and no Latest; a version made for a project isn't Latest by being carried). Promote a build that ships a version of it, then make it live. If this version came from a suggested change, and the project it was made in runs Latest, add it as Latest there from that change, then promote this build again: a promotion counts a carried version only when it was already Latest where it was made.`,
+    },
+  };
 }
 
 /** A carried agent's `live` entry from its promotion: pinned unless a gate holds it, with the gate's say when it does or ran checks. */

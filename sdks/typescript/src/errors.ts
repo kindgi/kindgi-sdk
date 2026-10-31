@@ -328,6 +328,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'policy-scope-taken':
     case 'policy-scope-changed':
     case 'nothing-to-roll-back':
+    case 'nothing-runs-in-scope':
     case 'not-pinned':
     case 'agent-version-live':
     case 'eval-suite-already-registered':

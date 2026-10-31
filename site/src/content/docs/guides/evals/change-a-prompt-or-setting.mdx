@@ -823,7 +823,9 @@ print(derived.version, derived.pins.settings if derived.pins else None, derived.
 </Tabs>
 
 - **The new version is the next free patch** after the highest one, and
-  `derivedFrom` says where it came from. Runs choose it like any other version.
+  `derivedFrom` says where it came from. A run that names it gets it. It isn't
+  [Latest](../live-versions-reference/#latest), so a run that names no version
+  gets it only where you make it live.
   The same swap again returns that version, with `200`, not a new one.
 - **Swap prompts with `--prompt=<block-id>=<version>`,** or `pins.prompts` in
   the clients, and settings with `--setting`. Repeat either for several.

@@ -13,7 +13,7 @@ import { type Flow, type FlowPins, flowPinsDigest } from '@kindgi/flow';
 import type { Guardrail } from '@kindgi/guardrails';
 import type { LogFields, Logger } from '@kindgi/log';
 import type { Project, ProjectBinding } from '@kindgi/platform';
-import { latestVersion } from '@kindgi/tools';
+import { highestVersion } from '@kindgi/tools';
 import type {
   Cursor,
   EnvName,
@@ -533,6 +533,7 @@ function makeInMemoryAgentRegistry(
       if (byId === undefined) return { unregistered: false };
       return { unregistered: byId.delete(version as unknown as string) };
     },
+    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
     async reinstateVersion({ agentId, version }) {
       return { kind: 'not-found', agentId, version };
     },
@@ -4612,7 +4613,7 @@ function makeVersionedAgentRegistry(
       return { data: [] };
     },
     async get() {
-      const latest = latestVersion([...rows.keys()]);
+      const latest = highestVersion([...rows.keys()]);
       return latest === undefined ? null : (rows.get(latest) ?? null);
     },
     async getVersion({ version }) {
@@ -4645,6 +4646,7 @@ function makeVersionedAgentRegistry(
     async unregister({ version }) {
       return { unregistered: rows.delete(version as unknown as string) };
     },
+    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
     async reinstateVersion({ agentId, version }) {
       return { kind: 'not-found', agentId, version };
     },
@@ -5731,6 +5733,7 @@ function makeRetiringAgentRegistry(versions: RetiringVersions): AgentRegistryBin
     async unregister({ agentId, version }) {
       return { unregistered: versions.unregister(agentId, version) };
     },
+    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
     async reinstateVersion({ agentId, version }) {
       const wasTombstoned = versions.reinstate(agentId, version);
       return wasTombstoned === undefined

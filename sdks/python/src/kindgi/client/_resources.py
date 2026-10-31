@@ -2897,7 +2897,7 @@ class AgentsLiveResource:
     ) -> _models.LiveVersionResolution:
         """The version a run would use. `GET /v1/agents/{agentId}/live`
 
-        Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
+        Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
         """
         return self._client._request(
             _OPERATIONS["agents.live.resolve"],
@@ -3173,9 +3173,9 @@ class AgentsResource:
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.Agent:
-        """Fetch the latest version of an agent. `GET /v1/agents/{agentId}`
+        """Fetch the highest version of an agent. `GET /v1/agents/{agentId}`
 
-        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version. For an agent, that is its highest version, which numbers the next one. It is not always what a project runs: `agents.projects` says what runs in each project.
         """
         return self._client._request(
             _OPERATIONS["agents.get"],
@@ -3189,9 +3189,9 @@ class AgentsResource:
     def projects(
         self, agent_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.AgentProjectList:
-        """List the projects an agent runs in. `GET /v1/agents/{agentId}/projects`
+        """List the projects an agent runs in, and what runs in each. `GET /v1/agents/{agentId}/projects`
 
-        The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty.
+        The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty. Each project says what a run there that names no version gets (`runs`) and why (`follows`): a pin that covers the project, else its Latest. Latest moves only when a deployment into the project ships a version, or when a person publishes a full version or adds one as the latest version; a pin never moves it. `segments` lists the pins on segments inside the project. `highest` is the agent's highest version, which numbers the next one. A version the caller can't see is left out.
         """
         return self._client._request(
             _OPERATIONS["agents.projects"],
@@ -3237,7 +3237,7 @@ class AgentsResource:
     ) -> _models.Agent:
         """Derive an agent version with data-block pins swapped. `POST /v1/agents/{agentId}/versions`
 
-        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent. In a tenant with environment orders, the new version is made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted; the agent's project doesn't change.
+        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent. In a tenant with environment orders, the new version is made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted; the agent's project doesn't change. It doesn't become the project's Latest by itself: a run that names no version gets it only where a pin names it.
         """
         return self._client._request(
             _OPERATIONS["agents.deriveVersion"],
@@ -3292,7 +3292,7 @@ class AgentsResource:
     ) -> _models.ReinstateAgentVersionResult:
         """Reinstate a specific tombstoned agent version. `POST /v1/agents/{agentId}/versions/{version}/reinstate`
 
-        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).
+        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the highest active version, which numbers the next one. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).
         """
         return self._client._request(
             _OPERATIONS["agents.reinstateVersion"],
@@ -7750,7 +7750,7 @@ class DeploymentsResource:
     ) -> _models.DeploymentPromotion:
         """Promote a deployment to the next environment. `POST /v1/deployments/{deploymentId}/promotions`
 
-        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since.
+        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `makeLive`, the move commits first; then each carried agent is made live through its target scope's gate, and each carried flow is pinned. A gate that refuses or holds an agent isn't an error: its `live` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.live` and `details.pinnedFlows`.
         """
         return self._client._request(
             _OPERATIONS["deployments.promote"],
@@ -12642,7 +12642,7 @@ class AsyncAgentsLiveResource:
     ) -> _models.LiveVersionResolution:
         """The version a run would use. `GET /v1/agents/{agentId}/live`
 
-        Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
+        Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
         """
         return await self._client._request(
             _OPERATIONS["agents.live.resolve"],
@@ -12920,9 +12920,9 @@ class AsyncAgentsResource:
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.Agent:
-        """Fetch the latest version of an agent. `GET /v1/agents/{agentId}`
+        """Fetch the highest version of an agent. `GET /v1/agents/{agentId}`
 
-        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version. For an agent, that is its highest version, which numbers the next one. It is not always what a project runs: `agents.projects` says what runs in each project.
         """
         return await self._client._request(
             _OPERATIONS["agents.get"],
@@ -12936,9 +12936,9 @@ class AsyncAgentsResource:
     async def projects(
         self, agent_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.AgentProjectList:
-        """List the projects an agent runs in. `GET /v1/agents/{agentId}/projects`
+        """List the projects an agent runs in, and what runs in each. `GET /v1/agents/{agentId}/projects`
 
-        The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty.
+        The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty. Each project says what a run there that names no version gets (`runs`) and why (`follows`): a pin that covers the project, else its Latest. Latest moves only when a deployment into the project ships a version, or when a person publishes a full version or adds one as the latest version; a pin never moves it. `segments` lists the pins on segments inside the project. `highest` is the agent's highest version, which numbers the next one. A version the caller can't see is left out.
         """
         return await self._client._request(
             _OPERATIONS["agents.projects"],
@@ -12984,7 +12984,7 @@ class AsyncAgentsResource:
     ) -> _models.Agent:
         """Derive an agent version with data-block pins swapped. `POST /v1/agents/{agentId}/versions`
 
-        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent. In a tenant with environment orders, the new version is made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted; the agent's project doesn't change.
+        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent. In a tenant with environment orders, the new version is made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted; the agent's project doesn't change. It doesn't become the project's Latest by itself: a run that names no version gets it only where a pin names it.
         """
         return await self._client._request(
             _OPERATIONS["agents.deriveVersion"],
@@ -13039,7 +13039,7 @@ class AsyncAgentsResource:
     ) -> _models.ReinstateAgentVersionResult:
         """Reinstate a specific tombstoned agent version. `POST /v1/agents/{agentId}/versions/{version}/reinstate`
 
-        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).
+        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the highest active version, which numbers the next one. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).
         """
         return await self._client._request(
             _OPERATIONS["agents.reinstateVersion"],
@@ -17511,7 +17511,7 @@ class AsyncDeploymentsResource:
     ) -> _models.DeploymentPromotion:
         """Promote a deployment to the next environment. `POST /v1/deployments/{deploymentId}/promotions`
 
-        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since.
+        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `makeLive`, the move commits first; then each carried agent is made live through its target scope's gate, and each carried flow is pinned. A gate that refuses or holds an agent isn't an error: its `live` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.live` and `details.pinnedFlows`.
         """
         return await self._client._request(
             _OPERATIONS["deployments.promote"],

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { type BlockDefinition, settingsSchemaIssues, validateBlock } from '@kindgi/agents';
-import { latestVersion, nextVersion } from '@kindgi/tools';
+import { highestVersion, nextVersion } from '@kindgi/tools';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
 import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
@@ -149,7 +149,7 @@ export async function publishBlockEdit(
   const projectId =
     (await firstEnvironmentOf(input.orders, tenantId, from.projectId)) ?? from.projectId;
   const versions = await allVersions(blocks, tenantId, from.id);
-  const highest = latestVersion(versions) ?? from.version;
+  const highest = highestVersion(versions) ?? from.version;
   let candidate = nextVersion(highest);
   for (let tries = 0; candidate !== undefined && tries < MAX_TRIES; tries++) {
     const checked = await blockEditDefinition(input, candidate);

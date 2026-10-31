@@ -89,7 +89,7 @@ import type { GuardrailRecord, GuardrailRegistryBinding } from '../guardrail-bin
 import { imageRefWithin, parseImagePrefix, parseImageRef } from '../image-ref.js';
 import type { ImageRegistryBinding, ImageRegistryError } from '../image-registry-binding.js';
 import type { ItemRights } from '../item-rights.js';
-import type { AgentReleaseBindings, LiveVersionBinding } from '../live-version-binding.js';
+import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { packEnvCheck } from '../pack-env.js';
@@ -264,11 +264,6 @@ export interface DeploymentsRouterBindings {
   readonly guardrailRegistry?: GuardrailRegistryBinding;
   readonly agentRegistry?: AgentRegistryBinding;
   readonly flowRegistry?: FlowRegistryBinding;
-  /**
-   * The agents' live versions: a deployed flow's agent step that names no
-   * version pins the one live for the deploy's project, else the latest.
-   */
-  readonly liveVersions?: LiveVersionBinding;
   /**
    * The flows' and tools' pinned versions: each tool a deployed agent or
    * flow runs pins the version pinned for the deploy's project (an
@@ -1283,7 +1278,7 @@ export function deploymentsRouter(
               flows: bindings.flowRegistry,
               tools: bindings.toolRegistry,
               agents: bindings.agentRegistry,
-              ...(bindings.liveVersions !== undefined && { live: bindings.liveVersions }),
+              ...(bindings.agentReleases !== undefined && { releases: bindings.agentReleases }),
               toolPins,
               tenantId,
               projectId: targetProjectId,
@@ -2837,7 +2832,13 @@ async function registerAgents(input: {
 
   if (tools === undefined || blockPins === undefined) {
     for (const [index, agent] of input.defined.entries()) {
-      const outcome = await agents.publish({ tenantId, projectId, agent, enqueueTuples });
+      const outcome = await agents.publish({
+        tenantId,
+        projectId,
+        agent,
+        madeFor: 'latest',
+        enqueueTuples,
+      });
       if (outcome.kind === 'ok') written(outcome.agentId, outcome.version);
       else if (outcome.kind === 'already-registered') {
         const agentId = agent.id;
@@ -2900,7 +2901,8 @@ async function registerFlows(input: {
   readonly flows: FlowRegistryBinding;
   readonly tools: ToolRegistryBinding | undefined;
   readonly agents: AgentRegistryBinding | undefined;
-  readonly live?: LiveVersionBinding;
+  /** The agents' pins and Latest: an agent step with no version pins what runs in the flow's project. */
+  readonly releases?: Pick<AgentReleaseBindings, 'live' | 'latest'>;
   /** The tools' pins for the deploy's project, shared with its agents. */
   readonly toolPins: ToolPinLookup | undefined;
   readonly tenantId: TenantId;
@@ -2910,7 +2912,7 @@ async function registerFlows(input: {
   readonly referenceScope: ReferenceScopeBinding | undefined;
   readonly rolled: RollbackAction[];
 }): Promise<DeployedFlow[]> {
-  const { flows, tools, agents, live, toolPins, tenantId, projectId, rolled } = input;
+  const { flows, tools, agents, releases, toolPins, tenantId, projectId, rolled } = input;
   const enqueueTuples = (flowId: string) =>
     tuplesForCreate({ kind: 'flow', id: flowId as FlowId, tenantId, projectId });
   const written = (flowId: FlowId, version: string) =>
@@ -2954,7 +2956,7 @@ async function registerFlows(input: {
     agents,
     tenantId,
     input.defined,
-    live !== undefined ? { binding: live, projectId } : undefined,
+    releases !== undefined ? { releases, projectId } : undefined,
     toolPins,
   );
   const deployed: DeployedFlow[] = [];

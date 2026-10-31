@@ -3634,8 +3634,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/agents/:agentId',
     openapiPath: '/v1/agents/{agentId}',
     operationId: 'agents.get',
-    summary: 'Fetch the latest version of an agent',
-    description: NEWEST_VISIBLE_DESCRIPTION,
+    summary: 'Fetch the highest version of an agent',
+    description: `${NEWEST_VISIBLE_DESCRIPTION} For an agent, that is its highest version, which numbers the next one. It is not always what a project runs: \`agents.projects\` says what runs in each project.`,
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, ItemProjectQueryParam],
@@ -3651,9 +3651,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/agents/:agentId/projects',
     openapiPath: '/v1/agents/{agentId}/projects',
     operationId: 'agents.projects',
-    summary: 'List the projects an agent runs in',
+    summary: 'List the projects an agent runs in, and what runs in each',
     description:
-      'The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty.',
+      "The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty. Each project says what a run there that names no version gets (`runs`) and why (`follows`): a pin that covers the project, else its Latest. Latest moves only when a deployment into the project ships a version, or when a person publishes a full version or adds one as the latest version; a pin never moves it. `segments` lists the pins on segments inside the project. `highest` is the agent's highest version, which numbers the next one. A version the caller can't see is left out.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam],
@@ -3688,7 +3688,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.deriveVersion',
     summary: 'Derive an agent version with data-block pins swapped',
     description:
-      "An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent. In a tenant with environment orders, the new version is made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted; the agent's project doesn't change.",
+      "An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent. In a tenant with environment orders, the new version is made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted; the agent's project doesn't change. It doesn't become the project's Latest by itself: a run that names no version gets it only where a pin names it.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, IdempotencyKeyParam],
@@ -3780,7 +3780,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.reinstateVersion',
     summary: 'Reinstate a specific tombstoned agent version',
     description:
-      'Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).',
+      'Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the highest active version, which numbers the next one. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).',
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, AgentVersionPathParam, IdempotencyKeyParam],
@@ -3803,7 +3803,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.live.resolve',
     summary: 'The version a run would use',
     description:
-      "Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.",
+      "Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, LiveProjectQueryParam, SegmentQueryParam],
@@ -3811,7 +3811,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The resolved version.', schema: ref('LiveVersionResolution') },
       ...CommonAuthErrors,
       '400': ErrorResponse('A malformed project id or segment, or a segment without a project.'),
-      '404': ErrorResponse('No agent with that id.'),
+      '404': ErrorResponse(
+        'No version of the agent runs in this scope: none is pinned there, and none is its Latest.',
+      ),
     },
   },
   {
@@ -3855,7 +3857,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The version is not registered, or was unregistered; or the eval run is not found.',
       ),
       '409': ErrorResponse(
-        "`promotion-superseded`: the scope's live version changed while the gate ran; check again. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `live-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `promotion-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
+        "`nothing-runs-in-scope`: no version of the agent runs in the scope yet (no pin covers it, and it has no Latest), so there's nothing to measure the version against; deploy or publish a version into the project first (into a later environment, promote a build that ships one). `project-suspended`: nothing runs there because the scope's project is suspended. `promotion-superseded`: the scope's live version changed while the gate ran; check again. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `live-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `promotion-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
       ),
       '422': ErrorResponse(
         '`gate-failed`: the gate refused it. `details.checks` has every check; the refusal is recorded (`details.promotionId`).',
@@ -3887,6 +3889,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed body, or the eval run is not a finished comparison. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
       '404': ErrorResponse('The version, the agent or the eval run is not found.'),
+      '409': ErrorResponse(
+        '`nothing-runs-in-scope` or `project-suspended`, as `POST …/promotions` answers: no version of the agent runs in the scope yet.',
+      ),
     },
   },
   {
@@ -8008,7 +8013,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.promote',
     summary: 'Promote a deployment to the next environment',
     description:
-      "Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since.",
+      "Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `makeLive`, the move commits first; then each carried agent is made live through its target scope's gate, and each carried flow is pinned. A gate that refuses or holds an agent isn't an error: its `live` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.live` and `details.pinnedFlows`.",
     tags: ['deployments'],
     security: 'bearer',
     parameters: [
@@ -8036,17 +8041,20 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed body (`bad-input`). Or `signature-invalid`: the deployment's signature doesn't verify over the fields it keeps.",
       ),
       '403': ErrorResponse(
-        "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the tenant's trust list (`details.signerKeyId`).",
+        "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the tenant's trust list (`details.signerKeyId`). With `makeLive`, after the move: no right to make a carried agent live, or to pin a carried flow, in the target; nothing is pinned.",
       ),
       '404': ErrorResponse(
         "`deployment-not-found`: no deployment with that id in this tenant, or one in a project you don't read.",
       ),
       '409': ErrorResponse(
-        "`promotion-not-next-environment`: the target isn't the next environment of the deployment's order, or the deployment's environment is last or in no order (`details.position`, the next environment's place; `details.nextProjectId`, when you can read it). `promotion-values-not-ready`: values the build needs aren't ready in the target, each in `details.values` (`DeploymentValue`). `deployment-superseded`: the deployment no longer serves its environment, or the target's copy no longer serves there: newer deployments serve every tool version it ships (`details.environment`, `source` or `target`; `details.newerDeploymentId`). `project-suspended`, `pack-suspended`, `tenant-suspended` or `tenant-closing`: a suspension of the source or the target (`details.environment`). Nothing is written.",
+        "`promotion-not-next-environment`: the target isn't the next environment of the deployment's order, or the deployment's environment is last or in no order (`details.position`, the next environment's place; `details.nextProjectId`, when you can read it). `promotion-values-not-ready`: values the build needs aren't ready in the target, each in `details.values` (`DeploymentValue`). `deployment-superseded`: the deployment no longer serves its environment, or the target's copy no longer serves there: newer deployments serve every tool version it ships (`details.environment`, `source` or `target`; `details.newerDeploymentId`). `project-suspended`, `pack-suspended`, `tenant-suspended` or `tenant-closing`: a suspension of the source or the target (`details.environment`). Nothing is written for any of these. With `makeLive`, after the move has committed: `nothing-runs-in-scope`, a carried agent has no version running in the target yet (the message names it); or `promotion-superseded` or `gate-policy-descendant-unpinned`, as `POST /v1/agents/{agentId}/promotions` answers them. The carried agents pinned before it are in `details.live`; it, the ones after it and the carried flows aren't pinned.",
+      ),
+      '429': ErrorResponse(
+        "`approvals-pending-limit`, with `makeLive`, after the move has committed: a carried agent's gate wants an approval, and the tenant's approvals waiting for a decision are at its limit. The carried agents pinned before it are in `details.live`; it, the ones after it and the carried flows aren't pinned.",
       ),
       '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
       '501': ErrorResponse(
-        "`promotions-unsupported`: this runtime's deployment ledger can't promote.",
+        "`promotions-unsupported`: this runtime's deployment ledger can't promote. With `makeLive`, after the move: `promotions-unsupported` when this runtime can't make versions live, or `promotion-gate-unsupported` when a gate policy applies to a carried agent's scope and the runtime can't record a gated promotion; nothing is pinned.",
       ),
     },
   },

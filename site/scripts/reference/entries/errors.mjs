@@ -791,7 +791,7 @@ export const ERROR_ENTRIES = {
   },
   'promotions-unsupported': {
     description:
-      "This runtime can't promote deployments: it has nowhere to write a promotion. The promotion check still answers. Nothing is written.",
+      "This runtime can't promote deployments: it has nowhere to write a promotion. The promotion check still answers. Nothing is written. From a deployment promotion with `makeLive` on a runtime that can't make versions live, the build has already moved and nothing is pinned in the target: promote without `makeLive` there.",
     details: [],
     seeAlso: ['POST /v1/deployments/{deploymentId}/promotions'],
   },
@@ -1236,6 +1236,11 @@ export const ERROR_ENTRIES = {
         key: 'approvalsPending',
         meaning:
           "the tenant's limit on approvals waiting for a decision; absent when the server doesn't name it",
+      },
+      {
+        key: 'live',
+        meaning:
+          "from a deployment promotion with `makeLive`, when some were: the carried agents pinned before this one, in the answer's `live` shape",
       },
     ],
   },
@@ -1956,6 +1961,23 @@ export const ERROR_ENTRIES = {
       "The scope has no pin of its own (for an agent, no live version of its own), so there's nothing to roll back or unpin. Pin a version for the scope first.",
     details: [],
   },
+  'nothing-runs-in-scope': {
+    description:
+      "No version of the agent runs in the scope yet: no pin covers it, and the agent has no Latest there (a tenant or org scope takes Latest over every project), so there's nothing to measure the version against. Nothing is promoted. Deploy or publish a version into the project first; into a later environment of an order, which takes builds only by promotion, promote a build that ships a version of the agent. From a deployment promotion with `makeLive`, the move has already committed: the carried agents pinned before this one stay pinned (`details.live`), and this agent, the carried agents after it and the carried flows aren't pinned. The message names the agent. When the scope's project is suspended, the refusal is `project-suspended` instead.",
+    details: [
+      {
+        key: 'live',
+        meaning:
+          "from a deployment promotion with `makeLive`, when some were: the carried agents pinned before this one, in the answer's `live` shape",
+      },
+    ],
+    seeAlso: [
+      'POST /v1/agents/{agentId}/promotions',
+      'POST /v1/agents/{agentId}/promotions/check',
+      'POST /v1/deployments/{deploymentId}/promotions',
+      'guides/evals/live-versions-reference',
+    ],
+  },
   'gate-failed': {
     description:
       'A release gate policy refused making the version live because one or more of its checks failed. The refusal is recorded; read the failing checks and fix what they name.',
@@ -1981,11 +2003,17 @@ export const ERROR_ENTRIES = {
   'promotion-superseded': {
     description:
       "The scope's live version changed while the release gate policy was being checked, so the check no longer applies. Check the go-live again against the new live version.",
-    details: [],
+    details: [
+      {
+        key: 'live',
+        meaning:
+          "from a deployment promotion with `makeLive`, when some were: the carried agents pinned before this one, in the answer's `live` shape",
+      },
+    ],
   },
   'promotion-gate-unsupported': {
     description:
-      "A release gate policy applies to this go-live, and the deployment can't record a gated go-live, so the go-live is refused.",
+      "A release gate policy applies to this go-live, and the deployment can't record a gated go-live, so the go-live is refused. From a deployment promotion with `makeLive`, the build has already moved and nothing is pinned in the target.",
     details: [],
   },
   'separate-approver-required': {
@@ -2054,7 +2082,13 @@ export const ERROR_ENTRIES = {
   'gate-policy-descendant-unpinned': {
     description:
       'The change would also move a narrower scope that a release gate policy applies to and that has no live version of its own, bypassing that policy. Pin that scope at its current version first.',
-    details: [],
+    details: [
+      {
+        key: 'live',
+        meaning:
+          "from a deployment promotion with `makeLive`, when some were: the carried agents pinned before this one, in the answer's `live` shape",
+      },
+    ],
   },
   'principal-not-found': {
     description:
@@ -3032,7 +3066,7 @@ export const ERROR_ENTRIES = {
   },
   'project-suspended': {
     description:
-      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an answer to one of its runs' waits (through the wait token's link or `POST /v1/runs/{runId}/resume`; a suspension cancels its runs, paused ones included), an eval run started in it, an Improve run for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. An eval run or an Improve run already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or Improve run: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project. A promotion from it or into it is refused too: `details.environment` says which.",
+      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an answer to one of its runs' waits (through the wait token's link or `POST /v1/runs/{runId}/resume`; a suspension cancels its runs, paused ones included), an eval run started in it, an Improve run for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. An eval run or an Improve run already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or Improve run: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project. A promotion from it or into it is refused too: `details.environment` says which. So is making an agent version live in one of its scopes where nothing runs (its deployments are retired), with no `details`.",
     details: [
       {
         key: 'environment',
@@ -3046,6 +3080,7 @@ export const ERROR_ENTRIES = {
       'POST /v1/proposals/improve',
       'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
       'POST /v1/deployments/{deploymentId}/promotions',
+      'POST /v1/agents/{agentId}/promotions',
     ],
   },
   'pack-suspended': {

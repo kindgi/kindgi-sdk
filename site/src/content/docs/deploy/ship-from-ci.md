@@ -77,13 +77,28 @@ A person does these, with a key of their own:
   CI never holds a key that trusts signing keys.
 - **Register the providers** each environment's agents call
   ([`kindgi providers`](../../reference/cli/providers/)).
-- **In prod, pin a version of each agent, and publish its release gate
-  policy** ([Gate a release](../../guides/evals/release-an-agent-version/#gate-a-release)).
-  A scope with a release gate policy needs a Pinned version of its own.
-  Without one, prod's runs take each agent's latest version.
+- **In prod, once the first build has reached it, pin a version of each
+  agent, and publish its release gate policy**
+  ([Gate a release](../../guides/evals/release-an-agent-version/#gate-a-release)).
+  Until `kindgi promote` has moved a build to prod, no version runs there, so
+  a pin is refused with `409 nothing-runs-in-scope`. After it, each agent's
+  Latest in prod is the version the build ships, so pinning that version is a
+  [pin in place](../../guides/evals/live-versions-reference/#a-scope-with-a-release-gate-policy-needs-a-live-version-of-its-own):
+  no test run and no approval. A version the build only carries counts as
+  Latest there when it was published in full, made Latest in staging, or
+  published before the runtime recorded Latest. So an agent the build
+  carries only as a version derived in staging, and never made Latest, has
+  no Latest in prod until a build ships a version of it. A scope with a
+  release gate policy needs a Pinned version of its own.
+  Without one, prod's runs take each agent's
+  [Latest](../../guides/evals/live-versions-reference/#latest) in prod: the
+  version the newest build promoted there shipped.
 - **Build the test cases** that prod's test run uses, in prod's project
   ([Build test cases from corrections](../../guides/evals/build-a-test-set/)).
-- **Create the triggers:** schedules, webhooks and mail triggers.
+- **Create the triggers:** schedules, webhooks and mail triggers. A
+  trigger's `toolsAllowedUnattended` is checked against what runs in its
+  project, so in prod, create one that lists an agent's tools once the first
+  build has reached it.
 
 Registering a provider again under its id, publishing a release gate
 policy's version again, or making a suite of test cases again under its id

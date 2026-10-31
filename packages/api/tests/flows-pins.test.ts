@@ -28,6 +28,7 @@ import type {
   AgentRegistryBinding,
   AgentReleaseBindings,
   FlowRegistryBinding,
+  LatestQuestion,
   LiveResolveInput,
   PinnedResolveInput,
   PinnedVersionBinding,
@@ -99,6 +100,8 @@ function registries(tools: Record<string, readonly string[]>, agents: Record<str
 function liveReleases(
   live: Record<string, string>,
   asked: LiveResolveInput[],
+  latest: Record<string, string> = {},
+  latestAsked: LatestQuestion[] = [],
 ): AgentReleaseBindings {
   return {
     live: {
@@ -110,6 +113,14 @@ function liveReleases(
           : { version: version as Semver, scope: { kind: 'tenant' as const } };
       },
       list: unused,
+    },
+    latest: {
+      async latest(q: LatestQuestion) {
+        latestAsked.push(q);
+        const version = latest[q.agentId];
+        return version === undefined ? null : { version: version as Semver };
+      },
+      byProject: unused,
     },
     promotions: {},
   } as unknown as AgentReleaseBindings;
@@ -237,16 +248,19 @@ describe('POST /v1/flows pins the version', () => {
     expect(asked).toEqual([{ tenantId, agentId: 'acme.matcher', projectId }]);
   });
 
-  test('with live versions but none pinned on the way up, the agent pins to its latest', async () => {
+  test("with live versions but none pinned on the way up, the agent pins to its Latest in the flow's project", async () => {
+    const latestAsked: LatestQuestion[] = [];
     const { app } = makeApp(
       registries(
         { 'acme.score': ['1.1.0'], 'acme.lookup': ['0.2.0'] },
         { 'acme.matcher': '1.4.1', 'acme.auditor': '1.0.0' },
       ),
-      liveReleases({}, []),
+      liveReleases({}, [], { 'acme.matcher': '1.4.1' }, latestAsked),
     );
     expect((await publish(app)).status).toBe(201);
     expect((await pinsOf(app))?.agents).toEqual({ 'acme.matcher': '1.4.1' });
+    expect(latestAsked.map((q) => q.agentId)).toEqual(['acme.matcher']);
+    expect(latestAsked[0]?.projectId).toEqual(expect.any(String));
   });
 
   test('without the tool and agent registries, nothing is pinned', async () => {

@@ -13,6 +13,21 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a promotion into a scope where nothing runs yet raises
+  `ConflictError` with `server_code` `nothing-runs-in-scope`.** With no pin
+  covering the scope and no Latest there, there's nothing to measure the
+  version against: deploy or publish a version into the project first, or,
+  into a later environment, promote a build that ships one.
+- `kindgi`: **`client.agents.projects(agent_id)` says what runs in each
+  project.** Each project gains `runs` (the version a run there that names no
+  version gets, since when, and the pin or deployment behind it), `follows`
+  (`pin` or `latest`) and `segments` (the pins on segments inside it), and the
+  answer gains `highest`, the agent's highest version. A run that names no
+  version, in a scope no pin covers, now gets the agent's Latest in its
+  project: it moves only when a deployment into the project ships a version,
+  or when a person publishes a full version, and a derived version is never
+  Latest by itself. `client.agents.get(agent_id)` still answers the highest
+  version.
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
   judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
   judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator

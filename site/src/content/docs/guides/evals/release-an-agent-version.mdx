@@ -10,8 +10,11 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 This guide makes an agent version live where you choose, checks which
 version a run gets, rolls back, and gates a release behind your test cases.
 
-A run that names no version gets the agent's latest version. Once a new
-version has done better on your test cases, as
+A run that names no version gets the agent's **Latest** in its project: the
+version the newest deployment into the project shipped, or the one a person
+published there in full, whichever came last. A version derived from an edit
+to its prompts or settings isn't Latest by itself, and neither is a higher
+number. Once a new version has done better on your test cases, as
 [Try a version on the test cases](../compare-an-agent-version/) shows, you
 can make it **live** where you choose: the whole tenant, an org, a project, or
 a segment of a project's runs, such as one company's. Runs there use it from
@@ -140,7 +143,7 @@ version doesn't change what a scope with a live version runs.
 
 A narrower scope tries a version with some runs first. The most specific
 live version wins: a **segment** path in a project, then the **project**, the
-project's **org**, the **tenant**, and then the latest version. A segment
+project's **org**, the **tenant**, and then the project's Latest. A segment
 path is one or more `key:value` steps, coarse to fine, that a run is started
 with: `company:acme`, or `company:acme` then `role:counsel`.
 
@@ -430,7 +433,7 @@ rollback:
 ```
 
 `kindgi agents unpin` removes a scope's own live version. Its runs then use
-the scope above, or the latest version when nothing above is live:
+the scope above, or the project's Latest when nothing above is live:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
