@@ -1,5 +1,5 @@
 ---
-"@kindgi/connections": minor
+"@kindgi/connections": patch
 ---
 
 **The mail tools can show an agent a mail's attachments.**
