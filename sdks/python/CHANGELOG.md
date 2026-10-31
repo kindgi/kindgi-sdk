@@ -18,6 +18,124 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator
   refuses an `llm-judge` guardrail without it. Before, `@guardrail` had no way to name it,
   and the runtime refused such a guardrail on every turn.
+- `kindgi`: **A judgment is now a correction.** This is a breaking rename, and
+  no old name is kept. `client.judgments` is `client.corrections`, and
+  `unregister` is `remove`, sync and async. The models follow: `Judgment` is
+  `Correction`, `Judged*` models are `Corrected*`, and the
+  `{ calls, not_called }` value that was `Correction` is `ExpectedDecisions`.
+  Fields named for judgments are named for corrections (`correction_id`,
+  `correction_ids`, `correction_count`), and a proposal's
+  `evidence.judgment_ids` is `evidence.fixes`, in a new proposal's body too. The
+  improve schedule's `threshold.judges` and `threshold.judgments` are
+  `threshold.correctors` and `threshold.corrections`, and a comparison summary's
+  `corrections.judgments` is `corrections.results` (its model
+  `JudgedComparisonSummaryCorrectionsJudgment` is `Result`). A comparison
+  case's `judged_items`, on its `baseline` and each `candidate`, is
+  `corrected_items`, and a `changes.new` entry's `judged` is `corrected`. The
+  retention domain `judgment` is `correction`.
+- `kindgi`: **Judge classes are now corrector groups, the judging queue is the
+  expert queue, and judging rules are queue rules.** This is a breaking rename,
+  and no old name is kept. `client.judge_classes` is `client.corrector_groups`,
+  `client.projects.judging_queue` is `client.projects.expert_queue`, and
+  `client.projects.judging_rules` is `client.projects.queue_rules`, sync and
+  async. The models follow (`JudgeClass*` models are `CorrectorGroup*`,
+  `JudgingRule*` models and a rule's results are `QueueRule*`, `JudgingQueue*`
+  models are `ExpertQueue*`, the other `Judging*` models put `ExpertQueue` in
+  place of `Judging`, and `Class` in a name is `Group`), `judge_class_id` is
+  `corrector_group_id`, `class_weights` is `group_weights` (its value
+  `restricted-only` is `experts-only`), and a correction's or a case item's
+  `restricted` is `expert` (its model `Restricted` is `Expert`). A release
+  gate's `only_restricted_classes` is `only_expert_groups`, and its check
+  `classWeights.restrictedOnly` is named `groupWeights.expertsOnly`. The expert
+  queue's state `judged` is `corrected`, as is a rule result's `judged` count;
+  `by_class` is `by_group`, in progress and in a rule's results, and
+  `wanted_class_ids` is `wanted_group_ids`. The retention domain `judge_class`
+  is `corrector_group`.
+- `kindgi`: **Eval suites are now test sets.** This is a breaking rename, and no
+  old name is kept. `client.eval_suites` is `client.test_sets`, sync and async.
+  The models follow (`EvalSuite*` models are `TestSet*`, and
+  `CorrectedEvalCase*` models are `CorrectedTestCase*`), `suite_id` is
+  `test_set_id` and `suite_version` is `test_set_version`, and a test set's or
+  an eval run's kind `judged` is `corrections`. The retention domain
+  `eval_suite` is `test_set`, and so is the authorization resource type
+  (`RoleActions.eval_suite` is `test_set`). A release gate's `comparison.suite`
+  is `comparison.test_set`, and a comparison's summary says `test_set`; their
+  models are `ReleaseGateSpecComparisonTestSet` and
+  `CorrectedComparisonSummaryTestSet` (were `Suite` and `Suite1`).
+- `kindgi`: **Proposals are now suggested changes.** This is a breaking rename,
+  and no old name is kept. `client.suggested_changes` holds suggested changes,
+  sync and async, and its `request` is `pin`; `rollback` is removed, since going
+  back is putting the agent's earlier version back in use. The
+  `client.proposals` methods `draft`, `dry_run`, `submit_review` and `apply`,
+  which only raised an error since 0.1.5, are removed. The models follow (`Proposal*` and `FixProposal*` models are
+  `SuggestedChange*`, and the block edit a suggested change carries is
+  `SuggestedChangeBlockEdit`), `proposal_id` is `suggested_change_id`, and a
+  suggested change's status `promoted` is `pinned`.
+- `kindgi`: **Eval runs are now test runs.** This is a breaking rename, and no
+  old name is kept. `client.eval_runs` is `client.test_runs`, sync and async.
+  The models follow (`EvalRun*` models are `TestRun*`, and `EvalComparison`,
+  `EvalBaseline1`, `EvalBaseline2`, `EvalOverrides` and `EvalSample` are
+  `TestRunComparison`, `TestRunBaseline1`, `TestRunBaseline2`, `TestRunOverrides`
+  and `TestRunSample`). A test run's own id is
+  `test_run_id` where it was `run_id`, `eval_run_id` is `test_run_id`, and the
+  stream's `eval-run.*` events are `test-run.*`.
+- `kindgi`: **Improvement passes are now Improve runs.** This is a breaking
+  rename, and no old name is kept. `client.improvement_passes` and
+  `client.proposals` are `client.improve_runs`, sync and async, with `start`,
+  `check`, `list`, `get` and `cancel` (`start` and `check` were
+  `client.proposals.improve` and `improve_estimate`). The models follow
+  (`ImprovementPass*` models are `ImproveRun*`, `ImproveBody` is
+  `StartImproveRunBody`, `ImprovementPassEstimate` is `ImproveRunCheck`, and
+  `SuggestedChangeDrafter` is `SuggestedChangeMadeBy`). `pass_id` is
+  `improve_run_id`, a suggested change's `drafter` is `made_by` and its
+  `hypothesis` is `why`, and an Improve run's outcome `proposed` is
+  `suggested`. The webhook event `improvement-pass.finished` is
+  `improve-run.finished`, and its `data.pass_` is `data.improve_run`.
+- `kindgi`: **An agent's promotion is now a pin, as for flows and tools.** This
+  is a breaking rename, and no old name is kept. The models follow: `Promotion`,
+  `PromotionPage`, `PromotionCheck` and `SuggestedChangePromotion` are `Pin`,
+  `PinPage`, `PinCheck` and `SuggestedChangePin`; `PromoteBody` is
+  `AgentPinBody`, `UnpinBody` is `AgentUnpinBody`, and `LivePin`, `LivePinList`
+  and `LiveVersionResolution` are `AgentPinnedVersion`, `AgentPinnedVersionList`
+  and `AgentPinnedVersionResolution`. An agent pin's scope takes the flow and
+  tool pins' models: `LiveScopeOrg`, `LiveScopeProject`, `LiveScopeSegment` and
+  `LiveScopeTenant` are `PinScopeOrg`, `PinScopeProject`, `PinScopeSegment` and
+  `PinScopeTenant`, and `LiveScopeUnrecognized` is `AgentPinScopeUnrecognized`.
+  `RollbackBody` is removed, since going back is a pin of an earlier version.
+  `promotion_id` is `change_id`, a suggested change's `promotion` is `pin` and
+  its `live_now` is `pinned_now`, a pin's status `promoted` is `pinned`, and the
+  `via` value `live` is `pinned`, as is a queue rule's `when.versions` value. A
+  pin check's outcome `would-promote` is `would-pin`, and a pin's action is
+  `pin` or `unpin` (`promote` and `rollback` are gone). The approval subject
+  `agent-promotion` is `agent-pin`, and the permission `promote` on an agent is
+  `pin`. A test run's comparison baseline `live` is `pinned` (its model `Live`
+  is `Pinned`). The errors follow: `promotion-not-found` and
+  `promotion-superseded` are `pin-not-found` and `pin-superseded`,
+  `agent-version-live` is `agent-version-pinned`, and `nothing-to-roll-back` is
+  removed.
+- `kindgi`: **A gate policy is now a release gate.** This is a breaking rename,
+  and no old name is kept. `client.gate_policies` is `client.release_gates`, and
+  `client.agents.gate_policy` is `client.agents.release_gate`, sync and async;
+  `policy_id` is `release_gate_id`. The models follow: `GatePolicy`,
+  `GatePolicyPage`, `GatePolicyRef`, `GatePolicyResolution`, `GatePolicySpec`,
+  `GatePolicySpecComparisonTestSet` and `PublishGatePolicyBody` are
+  `ReleaseGate`, `ReleaseGatePage`, `ReleaseGateRef`, `ReleaseGateResolution`,
+  `ReleaseGateSpec`, `ReleaseGateSpecComparisonTestSet` and
+  `PublishReleaseGateBody`. A pin's, a pin check's, a release gate resolution's
+  and a deployment promotion's pin gate's `policy` is `release_gate`. The
+  metrics follow: a comparison's `weighted_yes_share` is `pass_rate` and its
+  `judged_coverage` is `case_coverage`, as are the metric names in a release
+  gate's spec and the `objective` value of a suggested change, an Improve run, a
+  schedule's Improve run and the Improve run webhook event (`passRate`). The
+  gate's check `baselineIsLive` is `baselineIsPinned`, and the `gate-policy-*`
+  errors are `release-gate-*`.
+- `kindgi`: **A deployment promotion's make-live is now a pin.** This is a
+  breaking rename, and no old name is kept. `client.deployments.promote`
+  takes `pin` where it took `make_live`, and its answer lists the carried
+  agents in `pinned` where it said `live` (`pinned_flows` stays), as does an
+  error's `details` after some were pinned. The models follow:
+  `DeploymentLivePin` and `DeploymentLivePinGate` are `DeploymentPinnedAgent`
+  and `DeploymentPinGate`.
 
 ## 0.3.0
 

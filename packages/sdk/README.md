@@ -89,7 +89,7 @@ Exports:
 
 - `createClient` (above), `KindgiClient`.
 - Every resource client type — `AgentsClient`, `RunsClient`, `ToolsClient`,
-  `ApprovalsClient`, `SupervisorClient`, `ProposalsClient`, `ObservationsClient`,
+  `ApprovalsClient`, `SupervisorClient`, `ImproveRunsClient`, `ObservationsClient`,
   `FlowsClient`, `GuardrailsClient`, `ConversationsClient`, `MemoryClient`,
   `ProvenanceClient`, `TenantClient`, `CostClient`, `CapabilitiesClient`,
   `AdaptersClient`, `PoliciesClient`, `UsersClient`, `TeamsClient`, `OrgsClient`,

@@ -35,7 +35,7 @@ Java client.
 | [A side effect done once](../../guides/tools/write-a-tool/#make-a-side-effect-happen-once) (the idempotency key) | Yes | Yes | Yes | Yes |
 | Cancellation | Yes | Yes | Yes | Yes |
 | [A tool's secrets](../../guides/tools/give-a-tool-a-secret/) and [per-project values](../../guides/tools/give-a-tool-env-values/) | Yes | Yes | Yes | Yes |
-| [Settings blocks](../../guides/evals/change-a-prompt-or-setting/) a tool reads | Yes | Yes | Yes | Yes |
+| [Settings blocks](../../guides/improve/change-a-prompt-or-setting/) a tool reads | Yes | Yes | Yes | Yes |
 | [HTTP tools without code](../../guides/tools/http-tools/) | Yes | Yes | No | No |
 | [Guardrails](../../guides/guardrails/write-a-guardrail/) with your own check | Yes | Yes | Yes | Yes |
 | [Agents](../../guides/agents/write-an-agent/), with [typed answers](../../guides/agents/typed-answer/), [memory](../../guides/agents/give-an-agent-memory/) and [budgets](../../guides/agents/budgets/) | Yes | Yes | Yes | Yes |
@@ -55,7 +55,7 @@ in as data, as the API names them: `set("budget", …)`, `node(Map.of(…))`,
 | [Start a run](../../guides/runs/start-a-run/), and wait for it or not | Yes | Yes | Yes | Yes |
 | [Follow a run's events](../../guides/runs/follow-a-run/), reconnecting until it ends | Yes | Yes | Yes | Yes |
 | Typed errors, and retries a call can take | Yes | Yes | Yes | Yes |
-| [Trying an agent version on the test cases](../../guides/evals/compare-an-agent-version/): a helper that reads the result | Yes | Yes | Yes | Yes |
+| [Trying an agent version on the test cases](../../guides/improve/compare-an-agent-version/): a helper that reads the result | Yes | Yes | Yes | Yes |
 | [Verifying a webhook](../../guides/webhooks/verify-a-webhook/), reading its event, signing a test one | Yes | Yes | Yes | Yes |
 | [Checking a signed export](../../guides/observability/export-signed-evidence/#check-an-export) | Yes | Yes | Yes | Yes |
 

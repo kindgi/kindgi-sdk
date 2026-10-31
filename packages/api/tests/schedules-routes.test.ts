@@ -85,7 +85,7 @@ describe('registering a schedule', () => {
     expect(body).not.toHaveProperty('agentId');
   });
 
-  test('an agent schedule, at a version or live, with its own policies', async () => {
+  test('an agent schedule, at a version or the pinned one, with its own policies', async () => {
     const { built } = app();
     const res = await built.request(
       '/v1/schedules',
@@ -150,31 +150,31 @@ describe('an improve schedule', () => {
       projectId: PROJECT,
       input: {
         tiers: ['settings'],
-        objective: 'weightedYesShare',
+        objective: 'passRate',
         budget: { maxCostUsd: 5, maxCandidates: 30 },
-        threshold: { judgments: 5, runs: 3, judges: 2 },
+        threshold: { corrections: 5, runs: 3, correctors: 2 },
         monthlyCapUsd: 20,
       },
     });
-    // classWeights is not defaulted onto the schedule: it's resolved against
-    // the project each time the schedule fires, so naming a restricted judge class
+    // groupWeights is not defaulted onto the schedule: it's resolved against
+    // the project each time the schedule fires, so naming an expert group
     // later flips the default without editing the schedule.
-    expect(body.input).not.toHaveProperty('classWeights');
+    expect(body.input).not.toHaveProperty('groupWeights');
     expect(body).not.toHaveProperty('agentId');
     expect(body).not.toHaveProperty('flowId');
   });
 
-  test('a schedule keeps an explicit classWeights instead of resolving it later', async () => {
+  test('a schedule keeps an explicit groupWeights instead of resolving it later', async () => {
     const res = await app().built.request(
       '/v1/schedules',
       send('POST', {
         ...hourly,
-        config: { cronExpression: '0 * * * *', input: { classWeights: 'as-recorded' } },
+        config: { cronExpression: '0 * * * *', input: { groupWeights: 'as-recorded' } },
       }),
     );
     expect(res.status).toBe(201);
     expect(((await res.json()) as { input: unknown }).input).toMatchObject({
-      classWeights: 'as-recorded',
+      groupWeights: 'as-recorded',
     });
   });
 
@@ -188,7 +188,7 @@ describe('an improve schedule', () => {
           input: {
             tiers: ['prompt'],
             model: { providerId: 'acme-llm', model: 'm-1' },
-            threshold: { judgments: 10, runs: 4, judges: 3 },
+            threshold: { corrections: 10, runs: 4, correctors: 3 },
             monthlyCapUsd: 50,
           },
         },
@@ -199,7 +199,7 @@ describe('an improve schedule', () => {
       tiers: ['prompt'],
       model: { providerId: 'acme-llm', model: 'm-1' },
       candidates: 3,
-      threshold: { judgments: 10, runs: 4, judges: 3 },
+      threshold: { corrections: 10, runs: 4, correctors: 3 },
       monthlyCapUsd: 50,
     });
   });
@@ -214,13 +214,13 @@ describe('an improve schedule', () => {
     ],
     [
       { ...hourly, improve: { agentId: 'acme.scorer', scope: { kind: 'tenant' } } },
-      "a pass's evidence must cover the scope it changes",
+      "an Improve run's evidence must cover the scope it changes",
     ],
     [{ ...hourly, projectId: randomUUID() }, "in the schedule's project"],
     [
       {
         ...hourly,
-        config: { cronExpression: '0 * * * *', input: { threshold: { judgments: 2, runs: 3 } } },
+        config: { cronExpression: '0 * * * *', input: { threshold: { corrections: 2, runs: 3 } } },
       },
       '`threshold`',
     ],
@@ -233,8 +233,8 @@ describe('an improve schedule', () => {
       '`monthlyCapUsd`',
     ],
     [
-      { ...hourly, config: { cronExpression: '0 * * * *', input: { suiteId: 'x' } } },
-      "`suiteId` isn't an option",
+      { ...hourly, config: { cronExpression: '0 * * * *', input: { testSetId: 'x' } } },
+      "`testSetId` isn't an option",
     ],
   ])('a bad improve body is a 400: %j', async (body, message) => {
     const res = await app().built.request('/v1/schedules', send('POST', body));
@@ -249,7 +249,7 @@ describe('an improve schedule', () => {
         scheduleId: string;
       }
     ).scheduleId;
-    const passId = randomUUID();
+    const improveRunId = randomUUID();
     registry.recordFire({
       triggerId: id as TriggerId,
       kind: 'schedule',
@@ -265,7 +265,7 @@ describe('an improve schedule', () => {
       scheduledFor: '2026-10-07T11:00:00.000Z',
       firedAt: '2026-10-07T11:00:01.000Z',
       outcome: 'started',
-      passId,
+      improveRunId,
     });
     const fires = (await (
       await built.request(`/v1/schedules/${id}/fires`, send('GET'))
@@ -273,7 +273,7 @@ describe('an improve schedule', () => {
       data: Record<string, unknown>[];
     };
     expect(fires.data.map((f) => f.outcome).sort()).toEqual(['skipped', 'started']);
-    expect(fires.data.find((f) => f.outcome === 'started')).toMatchObject({ passId });
+    expect(fires.data.find((f) => f.outcome === 'started')).toMatchObject({ improveRunId });
     expect(fires.data.find((f) => f.outcome === 'skipped')?.detail).toContain('4 of 5');
   });
 
@@ -323,7 +323,7 @@ describe('an improve schedule', () => {
     expect(moved.status).toBe(200);
     expect(await moved.json()).toMatchObject({
       improve: { agentId: 'acme.scorer' },
-      input: { threshold: { judgments: 5, runs: 3, judges: 2 } },
+      input: { threshold: { corrections: 5, runs: 3, correctors: 2 } },
     });
   });
 });

@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.11"
+version: "0.4.12"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -143,7 +143,7 @@ export default defined.value;
   `kindgi-authoring-providers`); else no level, and the model thinks as its
   vendor sets. A level the model doesn't take goes as the next one up that
   it takes, or its highest, with a `thinking-level-adjusted` warning. A
-  guardrail's or an eval's model judge asks for `lowest`.
+  guardrail's model judge, or a test run's judging model, asks for `lowest`.
 - **`conversationPolicy`** — optional. Absent = each turn loads the
   conversation's full history and no HITL gates apply. `historyLimit`
   caps how many prior messages are loaded; `hitl` configures approval

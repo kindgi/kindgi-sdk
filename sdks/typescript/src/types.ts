@@ -28,7 +28,7 @@ export type {
   DatasetId,
   EventId,
   FactId,
-  FixProposalId,
+  SuggestedChangeId,
   FlowId,
   GuardrailId,
   ObservationId,
@@ -68,7 +68,7 @@ export type InstallationId = Brand<string, 'InstallationId'>;
 
 /**
  * Which version a single read answers: `agents.get`, `flows.get`,
- * `tools.get`, `evalSuites.get` and `blocks.get`. An item more than one
+ * `tools.get`, `testSets.get` and `blocks.get`. An item more than one
  * project serves (an environment order carries it to later environments)
  * answers its newest active version that can run in a project the caller
  * reads.
@@ -121,8 +121,7 @@ export interface Schedule {
  * memory writes and retrievals, guardrail evaluations against the
  * projected state, and a cost estimate. A dry run on the API is
  * `runs.start({ ..., options: { dryRun: true } })`, which returns a
- * `Run` marked `dryRun: true`. Distinct from
- * `client.supervisor.proposals.dryRun`, which is proposal-scoped.
+ * `Run` marked `dryRun: true`.
  */
 export interface DryRunResult {
   readonly plannedNodes: readonly PlannedNode[];
@@ -363,25 +362,24 @@ export interface TurnDetailEvent {
 }
 
 // ============================================================
-// Supervisor + fix-proposal shapes.
+// Supervisor + suggested change shapes.
 // ============================================================
 
 // (These are re-exported at the top of the file already; imported here
 // for internal use in the shape declarations below.)
 import type {
   AuditBundleId,
-  DatasetId,
   Filter,
-  FixProposalId,
   ObservationId,
   ReviewerId,
+  SuggestedChangeId,
   SupervisorId,
 } from '@kindgi/types';
 
 /**
  * @unwired SDK-defined supervisor shape; the API has no supervisor
- * definition routes (only `/v1/proposals` and `/v1/observations`). A
- * supervisor is an agent with fix-proposal tools; it observes guardrail
+ * definition routes (only `/v1/suggested-changes` and `/v1/observations`). A
+ * supervisor is an agent with suggested-change tools; it observes guardrail
  * violations + structured failure patterns on a subscribed set of
  * agents.
  *
@@ -396,11 +394,11 @@ export interface SupervisorSpec {
   readonly description?: string;
   /** Agent-ids this supervisor observes. Empty = observes all agents in tenant. */
   readonly subscribedAgents?: readonly string[];
-  /** Which guardrails trigger fix-proposal drafting. */
+  /** Which guardrails trigger suggested-change drafting. */
   readonly triggerGuardrails: readonly string[];
   /** Proposer tiers enabled (`prompt` | `retrieval` | `tool-config`). */
   readonly proposerTiers: readonly ('prompt' | 'retrieval' | 'tool-config')[];
-  /** Dry-run eval criterion applied to every proposal. */
+  /** Dry-run eval criterion applied to every suggested change. */
   readonly defaultCriterion?: DryRunCriterion;
 }
 
@@ -417,17 +415,17 @@ export interface Supervisor {
 }
 
 /**
- * Where an improvement proposal stands — `@kindgi/api/openapi.json#FixProposalStatus`.
- * Derived by the server from the proposal's comparison and promotion.
+ * Where a suggested change stands — `@kindgi/api/openapi.json#SuggestedChangeStatus`.
+ * Derived by the server from the suggested change's comparison and pin.
  */
-export type FixProposalStatus =
+export type SuggestedChangeStatus =
   | 'draft'
   | 'evaluating'
   | 'evaluated'
   | 'not-better'
   | 'evaluation-failed'
   | 'in-review'
-  | 'promoted'
+  | 'pinned'
   | 'refused'
   | 'rejected'
   | 'expired'
@@ -435,56 +433,56 @@ export type FixProposalStatus =
   | 'rolled-back'
   | 'withdrawn';
 
-/** What a proposal changes: a settings block (new values) or a prompt block (a new template). */
-export type ProposalTier = 'settings-block' | 'prompt-block';
+/** What a suggested change changes: a settings block (new values) or a prompt block (a new template). */
+export type SuggestedChangeTier = 'settings-block' | 'prompt-block';
 
 /** New content for a block: `{ values }` (settings) or `{ template }` (prompt). */
-export type ProposalContent =
+export type SuggestedChangeContent =
   | { readonly values: Readonly<Record<string, unknown>> }
   | { readonly template: string };
 
 /** The metric that says whether a candidate is better. */
-export type ProposalObjective = 'weightedYesShare' | 'weightedPrecisionAtK';
+export type SuggestedChangeObjective = 'passRate' | 'weightedPrecisionAtK';
 
 /**
- * An improvement proposal — `@kindgi/api/openapi.json#FixProposal`: a
- * change to one data block an agent version pins, for one live scope,
- * taken through the same comparison, gate and promotion as any version.
+ * A suggested change — `@kindgi/api/openapi.json#SuggestedChange`: a
+ * change to one data block an agent version pins, for one pinned scope,
+ * taken through the same comparison, gate and pin as any version.
  */
-export interface FixProposal {
-  readonly id: FixProposalId;
+export interface SuggestedChange {
+  readonly id: SuggestedChangeId;
   readonly agentId: import('@kindgi/types').AgentId;
   /** The agent version the change applies to. */
   readonly fromVersion: string;
-  /** The live scope it's for. */
-  readonly scope: import('./generated/api.js').LiveScope;
-  readonly tier: ProposalTier;
+  /** The pinned scope it's for. */
+  readonly scope: import('./generated/api.js').AgentPinScope;
+  readonly tier: SuggestedChangeTier;
   readonly change: {
     readonly blockId: string;
     /** The block version `fromVersion` pins. */
     readonly fromVersion: string;
-    readonly content: ProposalContent;
+    readonly content: SuggestedChangeContent;
   };
   /** What the change should improve, and why. */
-  readonly hypothesis: string;
+  readonly why: string;
   /**
-   * What it rests on. `judgmentCount` is how many judgments, when
-   * `judgmentIds` names only the first of them (an improvement pass names at
-   * most 100).
+   * What it rests on: `fixes` names the corrections it fixes, and
+   * `correctionCount` is how many there are when `fixes` names only the first
+   * of them (an Improve run names at most 100).
    */
   readonly evidence?: {
-    readonly judgmentIds?: readonly string[];
-    readonly judgmentCount?: number;
+    readonly fixes?: readonly string[];
+    readonly correctionCount?: number;
   };
-  readonly drafter:
+  readonly madeBy:
     | { readonly kind: 'person'; readonly by: string }
     | {
         readonly kind: 'settings-optimizer' | 'prompt-drafter';
         readonly version: string;
         readonly model?: { readonly providerId: string; readonly model: string };
       };
-  readonly status: FixProposalStatus;
-  /** The versions evaluating it published; they serve no scope until promoted. */
+  readonly status: SuggestedChangeStatus;
+  /** The versions evaluating it published; they serve no scope until pinned. */
   readonly candidate?: {
     readonly agentVersion: string;
     readonly blockVersion: string;
@@ -492,9 +490,9 @@ export interface FixProposal {
   };
   /** Its comparison, and what it found on the objective metric. */
   readonly evaluation?: {
-    readonly evalRunId: string;
-    readonly suiteId: string;
-    readonly objective: ProposalObjective;
+    readonly testRunId: string;
+    readonly testSetId: string;
+    readonly objective: SuggestedChangeObjective;
     readonly startedAt: import('@kindgi/types').Timestamp;
     readonly runStatus?: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
     readonly baseline?: number | null;
@@ -506,7 +504,7 @@ export interface FixProposal {
     /**
      * How the candidate is kept: `better` (it beats the recorded outputs) or
      * `cheaper` (no worse than the current version on the same cases, and
-     * costing less). A proposal kept as `cheaper` is `evaluated` with
+     * costing less). A suggested change kept as `cheaper` is `evaluated` with
      * `better` false. Absent: `better`.
      */
     readonly rule?: 'better' | 'cheaper';
@@ -524,23 +522,23 @@ export interface FixProposal {
       readonly stillWrong: number;
     };
   };
-  /** The promotion its request made. */
-  readonly promotion?: {
+  /** The pin it made. */
+  readonly pin?: {
     readonly id: string;
     readonly status:
-      | 'promoted'
+      | 'pinned'
       | 'pending-approval'
       | 'refused'
       | 'superseded'
       | 'rejected'
       | 'expired';
     readonly approvalId?: string;
-    /** For a promoted proposal: whether its version still serves the scope. */
-    readonly liveNow?: boolean;
+    /** For a pinned suggested change: whether its version still serves the scope. */
+    readonly pinnedNow?: boolean;
   };
   readonly rolledBack?: {
     readonly at: import('@kindgi/types').Timestamp;
-    readonly promotionId: string;
+    readonly changeId: string;
     readonly by: string;
     readonly reason?: string;
   };
@@ -553,33 +551,7 @@ export interface FixProposal {
   readonly updatedAt: import('@kindgi/types').Timestamp;
 }
 
-/**
- * @deprecated Per-example dry-run scores do not cross the wire:
- *   `supervisor.proposals.dryRun` returns `DryRunProposalResult
- *   { proposal, passed }`. This type is not returned by any SDK method.
- */
-export interface ProposalDryRunResult {
-  readonly outcome: 'pass' | 'fail';
-  readonly criterion: DryRunCriterion;
-  readonly datasetId: DatasetId;
-  readonly datasetVersion: string;
-  readonly scores: readonly ProposalDryRunScore[];
-  readonly summary: {
-    readonly baselineMean: number;
-    readonly candidateMean: number;
-    readonly delta: number;
-  };
-  readonly ranAt: import('@kindgi/types').Timestamp;
-}
-
-export interface ProposalDryRunScore {
-  readonly index: number;
-  readonly baseline: number;
-  readonly candidate: number;
-  readonly judgeRationale?: string;
-}
-
-/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
+/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (suggested changes now change data blocks: `client.suggestedChanges`); removed at 0.2. */
 export type DryRunCriterion =
   | { readonly kind: 'min-pass-rate'; readonly minPassRate: number }
   | {
@@ -587,47 +559,6 @@ export type DryRunCriterion =
       readonly baselinePassRate: number;
       readonly minDelta: number;
     };
-
-/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
-export interface DryRunProposalResult {
-  readonly proposal: FixProposal;
-  /** True when the candidate met the criterion (proposal moved to `dry-run-passed`). */
-  readonly passed: boolean;
-}
-
-/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
-export interface SubmitReviewProposalResult {
-  readonly proposal: FixProposal;
-  readonly approvalId: ApprovalId;
-  /** True when the proposal targets one of the supervisor's own agent ids. */
-  readonly metaFix: boolean;
-}
-
-/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
-export interface ApplyProposalResult {
-  readonly proposalId: FixProposalId;
-  readonly appliedVersion: string;
-  readonly appliedAt: import('@kindgi/types').Timestamp;
-}
-
-/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
-export interface RollbackProposalResult {
-  readonly proposalId: FixProposalId;
-  readonly rolledBackAt: import('@kindgi/types').Timestamp;
-}
-
-/**
- * @deprecated Wire does not surface a `ProposalReviewOutcome` sub-object
- *   on the proposal row. Review decisions live in the linked HITL
- *   approval — see `client.approvals.decide` + the returned
- *   `CompleteApprovalResult.decision`. Not returned by any SDK method.
- */
-export interface ProposalReviewOutcome {
-  readonly decision: 'approved' | 'rejected' | 'changes-requested';
-  readonly reviewer: ReviewerId;
-  readonly reviewedAt: import('@kindgi/types').Timestamp;
-  readonly comments?: string;
-}
 
 // ============================================================
 // Observation shapes.
@@ -705,7 +636,7 @@ export type ApprovalDecision = 'approve' | 'reject' | 'escalate' | 'withdraw';
  * envelope with a nested `provenanceRef.runId`, a raw `waitTokenId`
  * string, `context` (opaque record), `createdAt + updatedAt`
  * timestamps, and an optional `subjectRef` describing what the reviewer
- * is deciding about (a fix proposal, an agent turn, a tool-call intent,
+ * is deciding about (a suggested change, an agent turn, a tool-call intent,
  * ...).
  *
  * Decisions are not on the row — they live in a separate
@@ -718,7 +649,7 @@ export interface Approval {
   readonly id: ApprovalId;
   readonly tenantId: import('@kindgi/types').TenantId;
   readonly projectId?: string;
-  /** Discriminator for what the reviewer is deciding about (`agent-turn` / `fix-proposal` / `tool-call` / ...). */
+  /** Discriminator for what the reviewer is deciding about (`agent-turn` / `suggested-change` / `tool-call` / ...). */
   readonly subjectKind: string;
   /** Kind-specific subject envelope; shape depends on `subjectKind`. */
   readonly subjectRef: Readonly<Record<string, unknown>>;
@@ -1984,7 +1915,7 @@ export type RetentionDomain =
   | 'agent'
   | 'flow'
   | 'tool'
-  | 'eval_suite'
+  | 'test_set'
   | 'guardrail'
   | 'mcp_endpoint'
   | 'env'
@@ -1992,8 +1923,8 @@ export type RetentionDomain =
   | 'run'
   | 'artifact'
   | 'policy'
-  | 'judgment'
-  | 'judge_class'
+  | 'correction'
+  | 'corrector_group'
   | 'provider'
   | 'memory'
   | 'conversation'
@@ -3063,27 +2994,27 @@ export interface ClientOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Judgments: yes or no, with an optional reason, about one item of a run's
-// output, optionally recorded under a weighted judge class.
+// Corrections: yes or no, with an optional reason, about one item of a run's
+// output, optionally recorded under a weighted corrector group.
 // ---------------------------------------------------------------------------
 
-/** The verdict of a judgment. */
+/** The verdict of a correction. */
 export type Verdict = 'yes' | 'no';
 
 /**
- * Where a judge class applies: the whole tenant, one project, or one
- * agent in a project. Matches `@kindgi/api/openapi.json#JudgeClassScope`.
+ * Where a corrector group applies: the whole tenant, one project, or one
+ * agent in a project. Matches `@kindgi/api/openapi.json#CorrectorGroupScope`.
  */
-export type JudgeClassScope =
+export type CorrectorGroupScope =
   | { readonly kind: 'tenant' }
   | { readonly kind: 'project'; readonly projectId: string }
   | { readonly kind: 'agent'; readonly projectId: string; readonly agentId: string };
 
 /**
- * Who may assert a judge class. Each field narrows it; a caller must meet
- * all that are set. Matches `@kindgi/api/openapi.json#JudgeClassAssertableBy`.
+ * Who may assert a corrector group. Each field narrows it; a caller must meet
+ * all that are set. Matches `@kindgi/api/openapi.json#CorrectorGroupAssertableBy`.
  */
-export interface JudgeClassAssertableBy {
+export interface CorrectorGroupAssertableBy {
   /** The lowest reviewer role that may assert it: `standard`, `senior` or `admin`. */
   readonly minReviewerRole?: 'standard' | 'senior' | 'admin';
   /** People (`user`), service tokens (`service`), or both. */
@@ -3093,59 +3024,59 @@ export interface JudgeClassAssertableBy {
 }
 
 /**
- * Who may assert a judge class, as the caller sees it. `principalIds` comes
- * only to an admin on the class's scope; `principalCount` to every reader.
- * Matches `@kindgi/api/openapi.json#JudgeClassAssertableByView`.
+ * Who may assert a corrector group, as the caller sees it. `principalIds` comes
+ * only to an admin on the group's scope; `principalCount` to every reader.
+ * Matches `@kindgi/api/openapi.json#CorrectorGroupAssertableByView`.
  */
-export interface JudgeClassAssertableByView extends JudgeClassAssertableBy {
-  /** How many principals the class is restricted to; absent when it names none. */
+export interface CorrectorGroupAssertableByView extends CorrectorGroupAssertableBy {
+  /** How many principals the group is restricted to; absent when it names none. */
   readonly principalCount?: number;
 }
 
-/** Matches `@kindgi/api/openapi.json#JudgeClass`. */
-export interface JudgeClass {
+/** Matches `@kindgi/api/openapi.json#CorrectorGroup`. */
+export interface CorrectorGroup {
   readonly id: string;
   readonly tenantId: string;
-  readonly scope: JudgeClassScope;
-  /** The deployment's own word for the class: "expert", "user", "arbitrator". */
+  readonly scope: CorrectorGroupScope;
+  /** The deployment's own word for the group: "expert", "user", "arbitrator". */
   readonly name: string;
-  /** How much a judgment of this class counts, relative to the others (≥ 0). */
+  /** How much a correction of this group counts, relative to the others (≥ 0). */
   readonly weight: number;
   readonly description?: string;
-  /** Who may assert it; absent: anyone who may judge the run. */
-  readonly assertableBy?: JudgeClassAssertableByView;
+  /** Who may assert it; absent: anyone who may correct the run. */
+  readonly assertableBy?: CorrectorGroupAssertableByView;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt: import('@kindgi/types').Timestamp;
-  /** Set when the class was retired. */
+  /** Set when the group was retired. */
   readonly unregisteredAt?: import('@kindgi/types').Timestamp;
 }
 
-/** Input for `POST /v1/judge-classes` per `#CreateJudgeClassBody`. */
-export interface CreateJudgeClassInput {
-  readonly scope: JudgeClassScope;
+/** Input for `POST /v1/corrector-groups` per `#CreateCorrectorGroupBody`. */
+export interface CreateCorrectorGroupInput {
+  readonly scope: CorrectorGroupScope;
   readonly name: string;
   readonly weight: number;
   readonly description?: string;
-  readonly assertableBy?: JudgeClassAssertableBy;
+  readonly assertableBy?: CorrectorGroupAssertableBy;
 }
 
-/** Input for `PATCH /v1/judge-classes/{judgeClassId}` per `#UpdateJudgeClassBody`. */
-export interface UpdateJudgeClassInput {
+/** Input for `PATCH /v1/corrector-groups/{correctorGroupId}` per `#UpdateCorrectorGroupBody`. */
+export interface UpdateCorrectorGroupInput {
   readonly weight?: number;
   readonly description?: string;
   /** A new restriction; `null` lifts it. */
-  readonly assertableBy?: JudgeClassAssertableBy | null;
+  readonly assertableBy?: CorrectorGroupAssertableBy | null;
 }
 
-/** What a judged run ran: an agent at a version, or a flow at a version. */
-export interface JudgedSubject {
+/** What a corrected run ran: an agent at a version, or a flow at a version. */
+export interface CorrectedSubject {
   readonly kind: 'agent' | 'flow';
   readonly id: string;
   readonly version: string;
 }
 
-/** The judged item of a run's output. */
-export interface JudgedItem {
+/** The corrected item of a run's output. */
+export interface CorrectedItem {
   /** Your stable id for the item, e.g. a matched case's id. */
   readonly key: string;
   /** Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`. */
@@ -3154,8 +3085,8 @@ export interface JudgedItem {
   readonly rank?: number;
 }
 
-/** Who asserted a judgment: the authenticated caller, never a typed name. */
-export interface JudgmentAssertedBy {
+/** Who asserted a correction: the authenticated caller, never a typed name. */
+export interface CorrectionAssertedBy {
   readonly kind: 'user' | 'service';
   readonly id: string;
 }
@@ -3172,54 +3103,54 @@ export interface ExpectedCall {
 }
 
 /**
- * An expert's correction of a run's decisions: the calls the agent should
- * have made and the tools it should not have called at all. Graded
- * deterministically on a replay. A tool cannot be in both `calls` and
- * `notCalled`, and one of them must be non-empty.
+ * What the agent should have done: the calls it should have made and the
+ * tools it should not have called at all. Graded deterministically on a
+ * replay. A tool cannot be in both `calls` and `notCalled`, and one of them
+ * must be non-empty.
  *
- * Matches `@kindgi/api/openapi.json#Correction`.
+ * Matches `@kindgi/api/openapi.json#ExpectedDecisions`.
  */
-export interface Correction {
+export interface ExpectedDecisions {
   /** The calls the agent should have made. */
   readonly calls: readonly ExpectedCall[];
   /** Tools that should not have been called at all. */
   readonly notCalled: readonly string[];
 }
 
-/** Matches `@kindgi/api/openapi.json#Judgment`. */
-export interface Judgment {
+/** Matches `@kindgi/api/openapi.json#Correction`. */
+export interface Correction {
   readonly id: string;
   readonly tenantId: string;
   readonly projectId: string;
   readonly runId: string;
-  readonly subject: JudgedSubject;
-  readonly item: JudgedItem;
+  readonly subject: CorrectedSubject;
+  readonly item: CorrectedItem;
   readonly verdict: Verdict;
   readonly reason?: string;
   /** What the agent should have done, graded on a replay. Cleared by an erasure. */
-  readonly correction?: Correction;
-  /** Absent when the judgment is unclassified (it counts with weight 1). */
-  readonly judgeClassId?: string;
+  readonly correction?: ExpectedDecisions;
+  /** Absent when the correction is unclassified (it counts with weight 1). */
+  readonly correctorGroupId?: string;
   /**
-   * `true` when the class was restricted (`assertableBy`) when the judgment
-   * was recorded, so the judge was checked against it.
+   * `true` when the group was restricted (`assertableBy`) when the correction
+   * was recorded, so whoever made it was checked against it.
    */
-  readonly restricted?: true;
-  readonly assertedBy: JudgmentAssertedBy;
-  /** An app's opaque id for its end user who judged, when it judged on their behalf. */
+  readonly expert?: true;
+  readonly assertedBy: CorrectionAssertedBy;
+  /** An app's opaque id for its end user who made the correction, when the app made it on their behalf. */
   readonly participantId?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
-  /** Set when the judgment was removed or superseded. */
+  /** Set when the correction was removed or superseded. */
   readonly unregisteredAt?: import('@kindgi/types').Timestamp;
-  /** The judgment that replaced this one. */
+  /** The correction that replaced this one. */
   readonly supersededBy?: string;
 }
 
 /**
- * What a judged agent turn read besides its input, captured when it was
- * first judged: the conversation before it and what its retrievals returned.
+ * What a corrected agent turn read besides its input, captured when it was
+ * first corrected: the conversation before it and what its retrievals returned.
  */
-export interface JudgedRunContext {
+export interface CorrectedRunContext {
   /** The conversation's messages before the turn, oldest first (at most the last 200). */
   readonly history?: readonly unknown[];
   /** Whether older messages were left out of `history`. */
@@ -3228,35 +3159,35 @@ export interface JudgedRunContext {
   readonly retrieved?: unknown;
 }
 
-/** The stored copy of a judged run's input and output. */
-export interface JudgedRunCopy {
+/** The stored copy of a corrected run's input and output. */
+export interface CorrectedRunCopy {
   readonly runId: string;
-  readonly subject: JudgedSubject;
+  readonly subject: CorrectedSubject;
   readonly input: unknown;
-  /** Absent for runs judged before context was captured, and for flow runs. */
-  readonly context?: JudgedRunContext;
+  /** Absent for runs corrected before context was captured, and for flow runs. */
+  readonly context?: CorrectedRunContext;
   readonly output: unknown;
   readonly capturedAt: import('@kindgi/types').Timestamp;
 }
 
-/** Matches `@kindgi/api/openapi.json#JudgmentWithCopies`. */
-export interface JudgmentWithCopies extends Judgment {
-  /** The run's input and output as they were when it was first judged. */
-  readonly run: JudgedRunCopy;
-  /** The judged item's value, when the judgment pointed at it. */
+/** Matches `@kindgi/api/openapi.json#CorrectionWithCopies`. */
+export interface CorrectionWithCopies extends Correction {
+  /** The run's input and output as they were when it was first corrected. */
+  readonly run: CorrectedRunCopy;
+  /** The corrected item's value, when the correction pointed at it. */
   readonly itemValue?: unknown;
 }
 
-/** Input for `POST /v1/judgments` per `#CreateJudgmentBody`. */
-export interface CreateJudgmentInput {
+/** Input for `POST /v1/corrections` per `#CreateCorrectionBody`. */
+export interface CreateCorrectionInput {
   readonly runId: string;
-  readonly item: JudgedItem;
+  readonly item: CorrectedItem;
   readonly verdict: Verdict;
   readonly reason?: string;
   /** What the agent should have done: the calls it should have made and the tools it should not have. */
-  readonly correction?: Correction;
+  readonly correction?: ExpectedDecisions;
   /** Optional. When given it must exist and apply to the run. */
-  readonly judgeClassId?: string;
-  /** Your opaque id for the end user who judged, when judging on their behalf. */
+  readonly correctorGroupId?: string;
+  /** Your opaque id for the end user who made the correction, when you make it on their behalf. */
   readonly participantId?: string;
 }

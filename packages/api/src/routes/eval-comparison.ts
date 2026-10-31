@@ -5,13 +5,13 @@ import type { AgentId } from '@kindgi/agents';
 import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { ProjectId, Semver } from '@kindgi/types';
 
+import { DEFAULT_COMPARISON } from '../corrected-dispatcher.js';
 import type {
-  EvalBaseline,
-  EvalComparison,
-  EvalOverrides,
-  EvalSample,
-} from '../eval-run-binding.js';
-import { DEFAULT_COMPARISON } from '../judged-dispatcher.js';
+  TestRunBaseline,
+  TestRunComparison,
+  TestRunOverrides,
+  TestRunSample,
+} from '../test-run-binding.js';
 import { parseSegmentsBody } from './segments.js';
 
 const MAX_REPETITIONS = 10;
@@ -24,32 +24,32 @@ function obj(value: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function parseLive(raw: unknown): EvalBaseline | string {
-  const live = obj(raw);
-  if (live === undefined) return '`baseline.live` must be an object';
-  if (live.projectId !== undefined && typeof live.projectId !== 'string') {
-    return '`baseline.live.projectId` must be a string';
+function parsePinned(raw: unknown): TestRunBaseline | string {
+  const pinned = obj(raw);
+  if (pinned === undefined) return '`baseline.pinned` must be an object';
+  if (pinned.projectId !== undefined && typeof pinned.projectId !== 'string') {
+    return '`baseline.pinned.projectId` must be a string';
   }
-  const path = parseSegmentsBody(live.segments, 'baseline.live.segments');
+  const path = parseSegmentsBody(pinned.segments, 'baseline.pinned.segments');
   if (path.kind === 'err') return path.message;
-  if (path.segments !== undefined && live.projectId === undefined) {
-    return '`baseline.live.segments` is a segment path in a project: it needs `baseline.live.projectId`';
+  if (path.segments !== undefined && pinned.projectId === undefined) {
+    return '`baseline.pinned.segments` is a segment path in a project: it needs `baseline.pinned.projectId`';
   }
   return {
-    live: {
-      ...(typeof live.projectId === 'string' && { projectId: live.projectId as ProjectId }),
+    pinned: {
+      ...(typeof pinned.projectId === 'string' && { projectId: pinned.projectId as ProjectId }),
       ...(path.segments !== undefined && { segments: path.segments }),
     },
   };
 }
 
-function parseBaseline(raw: unknown): EvalBaseline | string {
+function parseBaseline(raw: unknown): TestRunBaseline | string {
   if (raw === 'recorded') return 'recorded';
   const o = obj(raw);
   if (o === undefined) {
-    return "`baseline` must be 'recorded', { agentId, version } or { live: { projectId?, segments? } }";
+    return "`baseline` must be 'recorded', { agentId, version } or { pinned: { projectId?, segments? } }";
   }
-  if (o.live !== undefined) return parseLive(o.live);
+  if (o.pinned !== undefined) return parsePinned(o.pinned);
   if (typeof o.agentId !== 'string' || o.agentId === '' || typeof o.version !== 'string') {
     return '`baseline` as a version needs `agentId` and `version`';
   }
@@ -91,7 +91,7 @@ function integerIn(raw: unknown, name: string, max: number): number | string {
 }
 
 /** `overrides: { settings?, prompts? }`; `undefined` when it names nothing. */
-function parseOverrides(raw: unknown): EvalOverrides | undefined | string {
+function parseOverrides(raw: unknown): TestRunOverrides | undefined | string {
   const o = obj(raw);
   if (o === undefined) return '`overrides` must be an object: { settings?, prompts? }';
   const extra = Object.keys(o).filter((key) => key !== 'settings' && key !== 'prompts');
@@ -136,7 +136,7 @@ function parseOverrides(raw: unknown): EvalOverrides | undefined | string {
 }
 
 /** `sample: { part, seed, holdOutShare }`, or an error message. */
-function parseSample(raw: unknown): EvalSample | string {
+function parseSample(raw: unknown): TestRunSample | string {
   const o = obj(raw);
   const share = o?.holdOutShare;
   if (
@@ -156,8 +156,8 @@ function parseSample(raw: unknown): EvalSample | string {
 }
 
 /**
- * A comparison eval run's settings from the start body: `baseline`,
- * `reads`, `repetitions`, `k`, `classWeights` and a flow candidate's
+ * A comparison test run's settings from the start body: `baseline`,
+ * `reads`, `repetitions`, `k`, `groupWeights` and a flow candidate's
  * `versions`.
  * `undefined` when none is given (the defaults apply); an error message
  * for a bad one.
@@ -165,9 +165,9 @@ function parseSample(raw: unknown): EvalSample | string {
 export function parseComparison(
   b: Readonly<Record<string, unknown>>,
 ):
-  | { readonly kind: 'ok'; readonly value?: EvalComparison }
+  | { readonly kind: 'ok'; readonly value?: TestRunComparison }
   | { readonly kind: 'err'; readonly message: string } {
-  const { baseline, reads, repetitions, k, classWeights } = b;
+  const { baseline, reads, repetitions, k, groupWeights } = b;
   const versions = b.versions === undefined ? undefined : parseVersions(b.versions);
   if (typeof versions === 'string') return { kind: 'err', message: versions };
   const overrides = b.overrides === undefined ? undefined : parseOverrides(b.overrides);
@@ -180,21 +180,21 @@ export function parseComparison(
     repetitions === undefined &&
     k === undefined &&
     versions === undefined &&
-    classWeights === undefined &&
+    groupWeights === undefined &&
     overrides === undefined &&
     sample === undefined
   ) {
     return { kind: 'ok' };
   }
   if (
-    classWeights !== undefined &&
-    classWeights !== 'as-recorded' &&
-    classWeights !== 'restricted-only'
+    groupWeights !== undefined &&
+    groupWeights !== 'as-recorded' &&
+    groupWeights !== 'experts-only'
   ) {
     return {
       kind: 'err',
       message:
-        "`classWeights` must be 'as-recorded' (every judgment at its class's weight) or 'restricted-only' (only judgments recorded under a restricted class)",
+        "`groupWeights` must be 'as-recorded' (every correction at its group's weight) or 'experts-only' (only corrections recorded under an expert group)",
     };
   }
   const parsedBaseline =
@@ -220,7 +220,7 @@ export function parseComparison(
       repetitions: reps,
       k: topK,
       ...(versions !== undefined && { versions }),
-      ...(classWeights !== undefined && { classWeights }),
+      ...(groupWeights !== undefined && { groupWeights }),
       ...(overrides !== undefined && { overrides }),
       ...(sample !== undefined && { sample }),
     },

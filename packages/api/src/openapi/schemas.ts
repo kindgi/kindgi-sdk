@@ -24,7 +24,7 @@
  *      shape. Includes request/response bodies, collection pages,
  *      pagination envelopes, discriminated error responses, patch
  *      bodies. Some entries are byte-equal MIRRORS of a `@kindgi/specs` shape
- *      (Agent, Flow, Guardrail, EvalSuite, ComplianceEvidence).
+ *      (Agent, Flow, Guardrail, TestSet, ComplianceEvidence).
  *      Others are LEGITIMATE WIRE-SIDE VARIANTS — e.g. ProvenanceRecord
  *      wraps the DAG in a `dag` field for future-extensibility; Policy
  *      uses a `kind + spec` discriminant broader than the original
@@ -46,7 +46,7 @@
  * HOW WE PREVENT SILENT DRIFT:
  *   For shapes that appear in BOTH sources, `packages/api/tests/
  *   schema-drift.test.ts` asserts `required[]` matches on aligned
- *   pairs (Agent, ComplianceEvidence, EvalSuite, Flow, Guardrail) and
+ *   pairs (Agent, ComplianceEvidence, TestSet, Flow, Guardrail) and
  *   documents legitimate divergences (Capability, Policy, Provenance,
  *   Tool). Wire-only shapes (Register bodies, CollectionPage, etc.)
  *   live only here and have no `@kindgi/specs` counterpart.
@@ -184,13 +184,13 @@ export const RunAgentSchema: JsonSchema = {
     conversationId: { type: 'string', format: 'uuid' },
     via: {
       type: 'string',
-      enum: ['explicit', 'flow-pin', 'conversation', 'live', 'latest'],
+      enum: ['explicit', 'flow-pin', 'conversation', 'pinned', 'latest'],
       description:
-        "Why this version ran: named by the caller (`explicit`); held by the flow version a flow's agent step runs in (`flow-pin`: the node's `config.version`, else the version the flow version pinned when it was published); the conversation's own (`conversation`); the version live for the run's scope (`live`); or the latest, nothing being live (`latest`). Absent on runs from before Kindgi 0.1.4.",
+        "Why this version ran: named by the caller (`explicit`); held by the flow version a flow's agent step runs in (`flow-pin`: the node's `config.version`, else the version the flow version pinned when it was published); the conversation's own (`conversation`); the version pinned for the run's scope (`pinned`); or the latest, nothing being pinned (`latest`). Absent on runs from before Kindgi 0.1.4.",
     },
-    liveScope: {
-      $ref: '#/components/schemas/LiveScope',
-      description: 'The pin that chose the version, when `via` is `live`.',
+    pinnedScope: {
+      $ref: '#/components/schemas/AgentPinScope',
+      description: 'The pin that chose the version, when `via` is `pinned`.',
     },
   },
 };
@@ -240,7 +240,7 @@ export const ScopeSegmentSchema: JsonSchema = {
   },
 };
 
-const liveScopeVariant = (
+const pinScopeVariant = (
   kind: string,
   description: string,
   properties: Record<string, JsonSchema>,
@@ -252,18 +252,7 @@ const liveScopeVariant = (
   properties: { kind: { type: 'string', enum: [kind] }, ...properties },
 });
 
-export const LiveScopeTenantSchema = liveScopeVariant(
-  'tenant',
-  "The agent's default for the whole tenant.",
-  {},
-);
-export const LiveScopeOrgSchema = liveScopeVariant('org', "An org's projects.", {
-  orgId: { type: 'string', format: 'uuid' },
-});
-export const LiveScopeProjectSchema = liveScopeVariant('project', 'One project.', {
-  projectId: { type: 'string', format: 'uuid' },
-});
-export const LiveScopeSegmentSchema = liveScopeVariant(
+export const PinScopeSegmentSchema = pinScopeVariant(
   'segment',
   'A segment path within a project: it covers every run whose path starts with it.',
   {
@@ -277,19 +266,19 @@ export const LiveScopeSegmentSchema = liveScopeVariant(
   },
 );
 
-export const LiveScopeSchema: JsonSchema = {
+export const AgentPinScopeSchema: JsonSchema = {
   description:
-    'Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.',
+    'Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.',
   oneOf: [
-    { $ref: '#/components/schemas/LiveScopeTenant' },
-    { $ref: '#/components/schemas/LiveScopeOrg' },
-    { $ref: '#/components/schemas/LiveScopeProject' },
-    { $ref: '#/components/schemas/LiveScopeSegment' },
+    { $ref: '#/components/schemas/PinScopeTenant' },
+    { $ref: '#/components/schemas/PinScopeOrg' },
+    { $ref: '#/components/schemas/PinScopeProject' },
+    { $ref: '#/components/schemas/PinScopeSegment' },
   ],
   discriminator: { propertyName: 'kind' },
 };
 
-export const LiveVersionResolutionSchema: JsonSchema = {
+export const AgentPinnedVersionResolutionSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['agentId', 'version', 'via'],
@@ -298,31 +287,33 @@ export const LiveVersionResolutionSchema: JsonSchema = {
     version: { type: 'string', description: 'The version a run would use (semver).' },
     via: {
       type: 'string',
-      enum: ['live', 'latest'],
-      description: 'A live pin chose it, or nothing is live on the way up and it is the latest.',
+      enum: ['pinned', 'latest'],
+      description: 'A pin chose it, or nothing is pinned on the way up and it is the latest.',
     },
-    liveScope: { $ref: '#/components/schemas/LiveScope' },
+    pinnedScope: { $ref: '#/components/schemas/AgentPinScope' },
   },
 };
 
-export const LivePinSchema: JsonSchema = {
+export const AgentPinnedVersionSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['agentId', 'scope', 'version', 'promotionId', 'setAt'],
+  required: ['agentId', 'scope', 'version', 'changeId', 'setAt'],
   properties: {
     agentId: { type: 'string' },
-    scope: { $ref: '#/components/schemas/LiveScope' },
+    scope: { $ref: '#/components/schemas/AgentPinScope' },
     version: { type: 'string' },
-    promotionId: { type: 'string', format: 'uuid', description: 'The promotion that set it.' },
+    changeId: { type: 'string', format: 'uuid', description: 'The pin change that set it.' },
     setAt: { type: 'string', format: 'date-time' },
   },
 };
 
-export const LivePinListSchema: JsonSchema = {
+export const AgentPinnedVersionListSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data'],
-  properties: { data: { type: 'array', items: { $ref: '#/components/schemas/LivePin' } } },
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/AgentPinnedVersion' } },
+  },
 };
 
 export const ProjectPinnedVersionPageSchema: JsonSchema = {
@@ -330,7 +321,7 @@ export const ProjectPinnedVersionPageSchema: JsonSchema = {
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/LivePin' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/AgentPinnedVersion' } },
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
   },
@@ -356,7 +347,7 @@ export const AgentProjectListSchema: JsonSchema = {
   },
 };
 
-export const PromotionSchema: JsonSchema = {
+export const PinSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: [
@@ -370,12 +361,12 @@ export const PromotionSchema: JsonSchema = {
     'createdAt',
   ],
   description:
-    "One change of a scope's live version, kept for good: what was live before, what is after, who asked and why.",
+    "One change of a scope's pinned version, kept for good: what was pinned before, what is after, who asked and why.",
   properties: {
     id: { type: 'string', format: 'uuid' },
     agentId: { type: 'string' },
-    scope: { $ref: '#/components/schemas/LiveScope' },
-    action: { type: 'string', enum: ['promote', 'rollback', 'unpin'] },
+    scope: { $ref: '#/components/schemas/AgentPinScope' },
+    action: { type: 'string', enum: ['pin', 'unpin'] },
     fromVersion: {
       type: ['string', 'null'],
       description: "The scope's own pin before; null when it had none.",
@@ -394,37 +385,37 @@ export const PromotionSchema: JsonSchema = {
       },
     },
     reason: { type: 'string' },
-    evalRunId: { type: 'string', description: 'The comparison the change was judged on.' },
+    testRunId: { type: 'string', description: 'The comparison behind the change.' },
     createdAt: { type: 'string', format: 'date-time' },
     status: {
       type: 'string',
-      enum: ['promoted', 'pending-approval', 'refused', 'superseded', 'rejected', 'expired'],
+      enum: ['pinned', 'pending-approval', 'refused', 'superseded', 'rejected', 'expired'],
       description:
-        "A `promote` row's state: it changes once, from `pending-approval` to its final state. Absent on rollback and unpin rows, and on promotions made before gates (`promoted`).",
+        "A `pin` row's state: it changes once, from `pending-approval` to its final state. Absent on unpin rows, and on pins made before gates (`pinned`).",
     },
-    policy: {
-      oneOf: [{ $ref: '#/components/schemas/GatePolicyRef' }, { type: 'null' }],
-      description: 'The gate policy that applied; null when none did. Absent before gates.',
+    releaseGate: {
+      oneOf: [{ $ref: '#/components/schemas/ReleaseGateRef' }, { type: 'null' }],
+      description: 'The release gate that applied; null when none did. Absent before gates.',
     },
     checks: { type: 'array', items: { $ref: '#/components/schemas/GateCheck' } },
     approvalId: {
       type: 'string',
-      description: 'The approval a `pending-approval` promotion waits on (kept once decided).',
+      description: 'The approval a `pending-approval` pin waits on (kept once decided).',
     },
     resolvedAt: {
       type: 'string',
       format: 'date-time',
-      description: 'When a `pending-approval` promotion reached its final state.',
+      description: 'When a `pending-approval` pin reached its final state.',
     },
   },
 };
 
-export const PromotionPageSchema: JsonSchema = {
+export const PinPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/Promotion' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/Pin' } },
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
   },
@@ -432,11 +423,11 @@ export const PromotionPageSchema: JsonSchema = {
 
 // ---------------- pinned versions of flows and tools ----------------
 
-export const PinScopeTenantSchema = liveScopeVariant('tenant', 'The whole tenant.', {});
-export const PinScopeOrgSchema = liveScopeVariant('org', "An org's projects.", {
+export const PinScopeTenantSchema = pinScopeVariant('tenant', 'The whole tenant.', {});
+export const PinScopeOrgSchema = pinScopeVariant('org', "An org's projects.", {
   orgId: { type: 'string', format: 'uuid' },
 });
-export const PinScopeProjectSchema = liveScopeVariant('project', 'One project.', {
+export const PinScopeProjectSchema = pinScopeVariant('project', 'One project.', {
   projectId: { type: 'string', format: 'uuid' },
 });
 
@@ -573,30 +564,30 @@ export const UnpinVersionBodySchema: JsonSchema = {
   },
 };
 
-// ---------------- the promotion gate (evals step 4b) ----------------
+// ---------------- the release gate ----------------
 
 export const GateCheckSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['name', 'passed', 'message'],
-  description: "One of a gate's checks, as the promotion records it.",
+  description: "One of a gate's checks, as the pin records it.",
   properties: {
     name: {
       type: 'string',
       description:
-        'Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.suite`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `classWeights.restrictedOnly`, and `approval.recheck`, which an approval adds to a promotion it supersedes, to say what changed since the check.',
+        'Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsPinned`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a pin it supersedes, to say what changed since the check.',
     },
     passed: { type: 'boolean' },
     message: {
       type: 'string',
-      description: 'A plain sentence: what was found against what the policy asks.',
+      description: 'A plain sentence: what was found against what the gate asks.',
     },
     value: { type: ['number', 'string'] },
     threshold: { type: ['number', 'string'] },
   },
 };
 
-export const GatePolicyRefSchema: JsonSchema = {
+export const ReleaseGateRefSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'version'],
@@ -607,13 +598,13 @@ export const GateApprovalSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['role', 'count', 'separateApprover'],
-  description: 'The approval a passing promotion waits for.',
+  description: 'The approval a passing pin waits for.',
   properties: {
     role: { type: 'string', enum: ['standard', 'senior', 'admin'] },
     count: { type: 'integer', minimum: 1 },
     separateApprover: {
       type: 'boolean',
-      description: 'Whoever asked for the promotion may not approve it.',
+      description: 'Whoever asked for the pin may not approve it.',
     },
   },
 };
@@ -623,7 +614,7 @@ const GateMetricSpecSchema: JsonSchema = {
   additionalProperties: false,
   required: ['name'],
   properties: {
-    name: { type: 'string', enum: ['weightedYesShare', 'judgedCoverage', 'weightedPrecisionAtK'] },
+    name: { type: 'string', enum: ['passRate', 'caseCoverage', 'weightedPrecisionAtK'] },
     k: {
       type: 'integer',
       minimum: 1,
@@ -635,23 +626,23 @@ const GateMetricSpecSchema: JsonSchema = {
       type: 'number',
       minimum: 0,
       maximum: 1,
-      description: 'How far the candidate may fall below the baseline (the live version).',
+      description: 'How far the candidate may fall below the baseline (the pinned version).',
     },
   },
 };
 
-export const GatePolicySpecSchema: JsonSchema = {
+export const ReleaseGateSpecSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`evalRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyRestrictedClasses`. Unknown keys are refused.',
+    'What a pin must show. Every part is optional; an empty spec checks nothing. A pin must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.',
   properties: {
     comparison: {
       type: 'object',
       additionalProperties: false,
       properties: {
         maxAgeHours: { type: 'number', exclusiveMinimum: 0 },
-        suite: {
+        testSet: {
           type: 'object',
           additionalProperties: false,
           required: ['id'],
@@ -663,7 +654,7 @@ export const GatePolicySpecSchema: JsonSchema = {
       type: 'object',
       additionalProperties: false,
       description:
-        "The judged evidence behind each gated metric; for a metric with `maxDrop`, the baseline's too.",
+        "The evidence from corrections behind each gated metric; for a metric with `maxDrop`, the baseline's too.",
       properties: {
         minCases: { type: 'integer', minimum: 0 },
         minWeight: { type: 'number', minimum: 0 },
@@ -689,7 +680,7 @@ export const GatePolicySpecSchema: JsonSchema = {
     approvals: {
       type: 'object',
       additionalProperties: false,
-      description: 'A passing promotion waits for a reviewer.',
+      description: 'A passing pin waits for a reviewer.',
       properties: {
         role: {
           type: 'string',
@@ -699,15 +690,15 @@ export const GatePolicySpecSchema: JsonSchema = {
         separateApprover: { type: 'boolean', description: 'Default `true`.' },
       },
     },
-    onlyRestrictedClasses: {
+    onlyExpertGroups: {
       type: 'boolean',
       description:
-        "Only restricted judge classes count: the comparison must be weighted `restricted-only`, so a class anyone may assert can't move the gate.",
+        "Only expert groups count: the comparison must be weighted `experts-only`, so a group anyone may assert can't move the gate.",
     },
   },
 };
 
-export const GatePolicySchema: JsonSchema = {
+export const ReleaseGateSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'version', 'agentId', 'scope', 'spec', 'createdAt'],
@@ -715,26 +706,26 @@ export const GatePolicySchema: JsonSchema = {
     id: { type: 'string' },
     version: { type: 'string' },
     agentId: { type: 'string' },
-    scope: { $ref: '#/components/schemas/LiveScope' },
-    spec: { $ref: '#/components/schemas/GatePolicySpec' },
+    scope: { $ref: '#/components/schemas/AgentPinScope' },
+    spec: { $ref: '#/components/schemas/ReleaseGateSpec' },
     description: { type: 'string' },
     createdAt: { type: 'string', format: 'date-time' },
     unregisteredAt: { type: 'string', format: 'date-time' },
   },
 };
 
-export const GatePolicyPageSchema: JsonSchema = {
+export const ReleaseGatePageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/GatePolicy' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/ReleaseGate' } },
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
   },
 };
 
-export const PublishGatePolicyBodySchema: JsonSchema = {
+export const PublishReleaseGateBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'version', 'agentId', 'scope', 'spec'],
@@ -746,75 +737,61 @@ export const PublishGatePolicyBodySchema: JsonSchema = {
     },
     version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
     agentId: { type: 'string' },
-    scope: { $ref: '#/components/schemas/LiveScope' },
-    spec: { $ref: '#/components/schemas/GatePolicySpec' },
+    scope: { $ref: '#/components/schemas/AgentPinScope' },
+    spec: { $ref: '#/components/schemas/ReleaseGateSpec' },
     description: { type: 'string' },
   },
 };
 
-export const GatePolicyResolutionSchema: JsonSchema = {
+export const ReleaseGateResolutionSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['policy'],
+  required: ['releaseGate'],
   properties: {
-    policy: {
-      oneOf: [{ $ref: '#/components/schemas/GatePolicy' }, { type: 'null' }],
-      description: 'The policy that gates a promotion for the scope; null when none does.',
+    releaseGate: {
+      oneOf: [{ $ref: '#/components/schemas/ReleaseGate' }, { type: 'null' }],
+      description: 'The release gate that checks a pin for the scope; null when none does.',
     },
   },
 };
 
-export const PromotionCheckSchema: JsonSchema = {
+export const PinCheckSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['outcome', 'policy', 'checks'],
-  description: 'What the gate would say about a promotion. Nothing is recorded.',
+  required: ['outcome', 'releaseGate', 'checks'],
+  description: 'What the gate would say about a pin. Nothing is recorded.',
   properties: {
-    outcome: { type: 'string', enum: ['would-promote', 'needs-approval', 'gate-failed'] },
-    policy: {
-      oneOf: [{ $ref: '#/components/schemas/GatePolicyRef' }, { type: 'null' }],
-      description: 'The policy that applies; null when none does.',
+    outcome: { type: 'string', enum: ['would-pin', 'needs-approval', 'gate-failed'] },
+    releaseGate: {
+      oneOf: [{ $ref: '#/components/schemas/ReleaseGateRef' }, { type: 'null' }],
+      description: 'The release gate that applies; null when none does.',
     },
     checks: { type: 'array', items: { $ref: '#/components/schemas/GateCheck' } },
     approval: { $ref: '#/components/schemas/GateApproval' },
   },
 };
 
-export const PromoteBodySchema: JsonSchema = {
+export const AgentPinBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['version', 'scope'],
   properties: {
     version: {
       type: 'string',
-      description: 'The agent version to make live (registered, active).',
+      description: 'The agent version to pin (registered, active).',
     },
-    scope: { $ref: '#/components/schemas/LiveScope' },
+    scope: { $ref: '#/components/schemas/AgentPinScope' },
     reason: { type: 'string', maxLength: 2000 },
-    evalRunId: { type: 'string', description: 'The comparison this promotion was judged on.' },
+    testRunId: { type: 'string', description: 'The comparison behind this pin.' },
   },
 };
 
-export const RollbackBodySchema: JsonSchema = {
+export const AgentUnpinBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['scope'],
   properties: {
-    scope: { $ref: '#/components/schemas/LiveScope' },
-    toVersion: {
-      type: 'string',
-      description: "An earlier version to go back to; omit → the scope's previous live version.",
-    },
-    reason: { type: 'string', maxLength: 2000 },
-  },
-};
-
-export const UnpinBodySchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['scope'],
-  properties: {
-    scope: { $ref: '#/components/schemas/LiveScope' },
+    scope: { $ref: '#/components/schemas/AgentPinScope' },
     reason: { type: 'string', maxLength: 2000 },
   },
 };
@@ -1114,7 +1091,7 @@ export const RunSchema: JsonSchema = {
     actsFor: {
       type: 'string',
       description:
-        "Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.",
+        "Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.",
     },
     toolsAllowedUnattended: {
       type: 'array',
@@ -1125,18 +1102,18 @@ export const RunSchema: JsonSchema = {
     replayOf: {
       type: 'string',
       format: 'uuid',
-      description: 'Set on a replay run (an eval run re-running a past run): the run it replays.',
+      description: 'Set on a replay run (a test run re-running a past run): the run it replays.',
     },
-    evalRunId: {
+    testRunId: {
       type: 'string',
-      description: 'Set on a replay run: the eval run that started it.',
+      description: 'Set on a replay run: the test run that started it.',
     },
     versions: { $ref: '#/components/schemas/FlowVersionOverrides' },
     segments: {
       type: 'array',
       items: { $ref: '#/components/schemas/ScopeSegment' },
       description:
-        "The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.",
+        "The segment path the run was started with (coarse to fine), which picks pinned agent versions. A child run has its parent's. Absent when there was none.",
     },
     traceId: {
       type: 'string',
@@ -1205,7 +1182,7 @@ export const StartRunBodySchema: JsonSchema = {
         agentVersion: {
           type: 'string',
           description:
-            "Semver. Omit → the conversation's own version for a follow-up turn, else the version live for the run's scope, else the latest.",
+            "Semver. Omit → the conversation's own version for a follow-up turn, else the version pinned for the run's scope, else the latest.",
         },
         projectId: {
           type: 'string',
@@ -1217,7 +1194,7 @@ export const StartRunBodySchema: JsonSchema = {
           maxItems: 8,
           items: { $ref: '#/components/schemas/ScopeSegment' },
           description:
-            "The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version live on a prefix of it serves the run.",
+            "The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version pinned on a prefix of it serves the run.",
         },
         input: {
           description: 'Opaque payload forwarded to the agent binding.',
@@ -1246,7 +1223,7 @@ export const StartRunBodySchema: JsonSchema = {
           maxItems: 8,
           items: { $ref: '#/components/schemas/ScopeSegment' },
           description:
-            "The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version live on a prefix of it serves the run.",
+            "The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version pinned on a prefix of it serves the run.",
         },
         input: {
           description: 'Opaque payload forwarded to the flow runtime.',
@@ -3093,7 +3070,7 @@ export const LicenseUsageSchema: JsonSchema = {
     runs: {
       type: 'integer',
       minimum: 0,
-      description: 'Runs started in the period: not dry runs, replays, evals or child runs.',
+      description: 'Runs started in the period: not dry runs, replays, test runs or child runs.',
     },
     people: {
       type: 'integer',
@@ -3484,10 +3461,10 @@ export const VersionDerivationSchema: JsonSchema = {
     },
     label: { type: 'string', description: 'For `edited`: a short label for the version.' },
     by: { type: 'string', description: 'For `edited`: who derived it (`user:<id>`).' },
-    proposalId: {
+    suggestedChangeId: {
       type: 'string',
       description:
-        'For `edited`: the improvement proposal it was derived for. Such a version serves no scope until a promotion makes it live.',
+        'For `edited`: the suggested change it was derived for. Such a version serves no scope until a pin makes it serve.',
     },
   },
 };
@@ -3775,7 +3752,7 @@ export const FlowSchema: JsonSchema = {
 
 export const FlowPinsSchema: JsonSchema = {
   description:
-    "The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the tenant), else to its latest version then; each agent it runs at no named version resolves once to its version live for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's gate policies set on a segment covers runs the agent's version live for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version live for the run, else its latest.",
+    "The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the tenant), else to its latest version then; each agent it runs at no named version resolves once to its version pinned for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's release gates set on a segment covers runs the agent's version pinned for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version pinned for the run, else its latest.",
   type: 'object',
   additionalProperties: false,
   required: ['tools', 'agents'],
@@ -4822,11 +4799,11 @@ export const ObservationCollectionPageSchema: JsonSchema = {
   },
 };
 
-// ---------------- judgments + judge classes ----------------
+// ---------------- corrections + corrector groups ----------------
 
-export const JudgeClassScopeSchema: JsonSchema = {
+export const CorrectorGroupScopeSchema: JsonSchema = {
   description:
-    'Where a judge class applies: the whole tenant, one project, or one agent in a project.',
+    'Where a corrector group applies: the whole tenant, one project, or one agent in a project.',
   oneOf: [
     {
       type: 'object',
@@ -4856,12 +4833,12 @@ export const JudgeClassScopeSchema: JsonSchema = {
   ],
 };
 
-export const JudgeClassAssertableBySchema: JsonSchema = {
+export const CorrectorGroupAssertableBySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   minProperties: 1,
   description:
-    'Who may assert the class: every part that is set must hold. A class with one is restricted: a judgment recorded while it is carries `restricted`, and a comparison weighted `restricted-only` counts only those.',
+    'Who may assert the group: every part that is set must hold. A group with one is expert: a correction recorded while it is carries `expert`, and a comparison weighted `experts-only` counts only those.',
   properties: {
     minReviewerRole: {
       type: 'string',
@@ -4886,14 +4863,14 @@ export const JudgeClassAssertableBySchema: JsonSchema = {
 
 /**
  * `assertableBy` as a reader sees it. `principalIds` names people and
- * tokens, so only the class's admins get it; everyone gets their count.
+ * tokens, so only the group's admins get it; everyone gets their count.
  */
-export const JudgeClassAssertableByViewSchema: JsonSchema = {
+export const CorrectorGroupAssertableByViewSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   minProperties: 1,
   description:
-    "Who may assert the class, as the caller sees it: every part that is set must hold. `principalIds` is sent only to an admin on the class's scope; `principalCount` to everyone who reads it.",
+    "Who may assert the group, as the caller sees it: every part that is set must hold. `principalIds` is sent only to an admin on the group's scope; `principalCount` to everyone who reads it.",
   properties: {
     minReviewerRole: {
       type: 'string',
@@ -4912,71 +4889,71 @@ export const JudgeClassAssertableByViewSchema: JsonSchema = {
       maxItems: 100,
       items: { type: 'string', minLength: 1 },
       description:
-        "Only these principals: user ids, or service token ids. Sent only to an admin on the class's scope.",
+        "Only these principals: user ids, or service token ids. Sent only to an admin on the group's scope.",
     },
     principalCount: {
       type: 'integer',
       minimum: 1,
       description:
-        'How many principals the class is restricted to (`principalIds`), for every reader. Absent when it names none.',
+        'How many principals the group is restricted to (`principalIds`), for every reader. Absent when it names none.',
     },
   },
 };
 
-export const JudgeClassSchema: JsonSchema = {
+export const CorrectorGroupSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'tenantId', 'scope', 'name', 'weight', 'createdAt', 'updatedAt'],
   properties: {
     id: { type: 'string' },
     tenantId: { type: 'string' },
-    scope: { $ref: '#/components/schemas/JudgeClassScope' },
+    scope: { $ref: '#/components/schemas/CorrectorGroupScope' },
     name: {
       type: 'string',
-      description: 'The deployment\'s own word for the class: "expert", "user", "arbitrator".',
+      description: 'The deployment\'s own word for the group: "expert", "user", "arbitrator".',
     },
     weight: {
       type: 'number',
       minimum: 0,
-      description: 'How much a judgment of this class counts, relative to the others.',
+      description: 'How much a correction of this group counts, relative to the others.',
     },
     description: { type: 'string' },
-    assertableBy: { $ref: '#/components/schemas/JudgeClassAssertableByView' },
+    assertableBy: { $ref: '#/components/schemas/CorrectorGroupAssertableByView' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
     unregisteredAt: {
       type: 'string',
       format: 'date-time',
-      description: 'Set when the class was retired.',
+      description: 'Set when the group was retired.',
     },
   },
 };
 
-export const JudgeClassCollectionPageSchema: JsonSchema = {
+export const CorrectorGroupCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/JudgeClass' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/CorrectorGroup' } },
     nextCursor: { type: 'string', description: 'Opaque cursor. Treat as opaque on the client.' },
     hasMore: { type: 'boolean' },
   },
 };
 
-export const CreateJudgeClassBodySchema: JsonSchema = {
+export const CreateCorrectorGroupBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['scope', 'name', 'weight'],
   properties: {
-    scope: { $ref: '#/components/schemas/JudgeClassScope' },
+    scope: { $ref: '#/components/schemas/CorrectorGroupScope' },
     name: { type: 'string', minLength: 1, maxLength: 100 },
     weight: { type: 'number', minimum: 0 },
     description: { type: 'string' },
-    assertableBy: { $ref: '#/components/schemas/JudgeClassAssertableBy' },
+    assertableBy: { $ref: '#/components/schemas/CorrectorGroupAssertableBy' },
   },
 };
 
-export const UpdateJudgeClassBodySchema: JsonSchema = {
+export const UpdateCorrectorGroupBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   minProperties: 1,
@@ -4984,27 +4961,27 @@ export const UpdateJudgeClassBodySchema: JsonSchema = {
     weight: { type: 'number', minimum: 0 },
     description: { type: 'string' },
     assertableBy: {
-      oneOf: [{ $ref: '#/components/schemas/JudgeClassAssertableBy' }, { type: 'null' }],
-      description: 'Who may assert the class; `null` lifts the restriction.',
+      oneOf: [{ $ref: '#/components/schemas/CorrectorGroupAssertableBy' }, { type: 'null' }],
+      description: 'Who may assert the group; `null` lifts the restriction.',
     },
   },
 };
 
-export const UnregisterJudgeClassResultSchema: JsonSchema = {
+export const UnregisterCorrectorGroupResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['judgeClassId', 'unregistered'],
+  required: ['correctorGroupId', 'unregistered'],
   properties: {
-    judgeClassId: { type: 'string' },
+    correctorGroupId: { type: 'string' },
     unregistered: { type: 'boolean', const: true },
   },
 };
 
-export const JudgedSubjectSchema: JsonSchema = {
+export const CorrectedSubjectSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['kind', 'id', 'version'],
-  description: 'What a judged run ran: an agent at a version, or a flow at a version.',
+  description: 'What a corrected run ran: an agent at a version, or a flow at a version.',
   properties: {
     kind: { type: 'string', enum: ['agent', 'flow'] },
     id: { type: 'string' },
@@ -5012,16 +4989,16 @@ export const JudgedSubjectSchema: JsonSchema = {
   },
 };
 
-export const JudgedItemSchema: JsonSchema = {
+export const CorrectedItemSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['key'],
-  description: "The judged item of a run's output.",
+  description: "The corrected item of a run's output.",
   properties: {
     key: {
       type: 'string',
       minLength: 1,
-      description: `The caller's stable id for the item. \`${CORRECTION_ITEM.key}\` is reserved: a judgment on it is accepted only when it carries a correction at pointer \`""\`.`,
+      description: `The caller's stable id for the item. \`${CORRECTION_ITEM.key}\` is reserved: a correction on it is accepted only when it carries expected decisions (\`correction\`) at pointer \`""\`.`,
     },
     pointer: {
       type: 'string',
@@ -5036,11 +5013,11 @@ export const JudgedItemSchema: JsonSchema = {
   },
 };
 
-export const JudgmentAssertedBySchema: JsonSchema = {
+export const CorrectionAssertedBySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['kind', 'id'],
-  description: 'Who asserted a judgment: the authenticated caller, never a typed name.',
+  description: 'Who asserted a correction: the authenticated caller, never a typed name.',
   properties: {
     kind: { type: 'string', enum: ['user', 'service'] },
     id: {
@@ -5080,22 +5057,23 @@ const correctionNotCalledProperty = {
   items: { type: 'string', minLength: 1, maxLength: 200 },
 } as const;
 
-/** A correction an expert records on a judgment. */
-export const CorrectionSchema: JsonSchema = {
+/** What the agent should have done, as an expert records it on a correction. */
+export const ExpectedDecisionsSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['calls', 'notCalled'],
   description:
-    "An expert's correction of a run's decisions: the tool calls the agent should have made, and the tools it should not have called at all. Graded deterministically on a replay. A tool can't be in both `calls` and `notCalled`, and one of them must be non-empty (both empty is a 400).",
+    "What the agent should have done, by an expert's correction of a run's decisions: the tool calls it should have made, and the tools it should not have called at all. Graded deterministically on a replay. A tool can't be in both `calls` and `notCalled`, and one of them must be non-empty (both empty is a 400).",
   properties: {
     calls: correctionCallsProperty,
     notCalled: correctionNotCalledProperty,
   },
 };
 
-/** One way a run's calls differed from a correction; it can quote argument values. */
+/** One way a run's calls differed from a correction's expected decisions; it can quote argument values. */
 export const CallDifferenceSchema: JsonSchema = {
-  description: "One way a run's calls differed from a correction; it can quote argument values.",
+  description:
+    "One way a run's calls differed from a correction's expected decisions; it can quote argument values.",
   oneOf: [
     {
       type: 'object',
@@ -5166,7 +5144,7 @@ export const CallDifferenceSchema: JsonSchema = {
   ],
 } as const;
 
-export const JudgmentSchema: JsonSchema = {
+export const CorrectionSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: [
@@ -5185,46 +5163,46 @@ export const JudgmentSchema: JsonSchema = {
     tenantId: { type: 'string' },
     projectId: { type: 'string' },
     runId: { type: 'string' },
-    subject: { $ref: '#/components/schemas/JudgedSubject' },
-    item: { $ref: '#/components/schemas/JudgedItem' },
+    subject: { $ref: '#/components/schemas/CorrectedSubject' },
+    item: { $ref: '#/components/schemas/CorrectedItem' },
     verdict: { type: 'string', enum: ['yes', 'no'] },
     reason: { type: 'string' },
     correction: {
-      $ref: '#/components/schemas/Correction',
+      $ref: '#/components/schemas/ExpectedDecisions',
       description: "The expert's correction of the run's decisions, when they gave one.",
     },
-    judgeClassId: {
+    correctorGroupId: {
       type: 'string',
       description:
-        'The judge class the judgment is recorded under. Absent when unclassified (counts with weight 1).',
+        'The corrector group the correction is recorded under. Absent when unclassified (counts with weight 1).',
     },
-    restricted: {
+    expert: {
       type: 'boolean',
       enum: [true],
       description:
-        "Present (true) when the judge class was restricted (`assertableBy`) when the judgment was recorded, so the judge was checked against it. A restriction added or lifted later doesn't change it.",
+        "Present (true) when the corrector group was restricted (`assertableBy`) when the correction was recorded, so whoever recorded it was checked against it. A restriction added or lifted later doesn't change it.",
     },
-    assertedBy: { $ref: '#/components/schemas/JudgmentAssertedBy' },
+    assertedBy: { $ref: '#/components/schemas/CorrectionAssertedBy' },
     participantId: {
       type: 'string',
       description:
-        "The app's opaque id for its end user who judged, when an app judged on their behalf.",
+        "The app's opaque id for its end user who corrected it, when an app corrected it on their behalf.",
     },
     createdAt: { type: 'string', format: 'date-time' },
     unregisteredAt: {
       type: 'string',
       format: 'date-time',
-      description: 'Set when the judgment was removed or superseded.',
+      description: 'Set when the correction was removed or superseded.',
     },
-    supersededBy: { type: 'string', description: 'The judgment that replaced this one.' },
+    supersededBy: { type: 'string', description: 'The correction that replaced this one.' },
   },
 };
 
-export const JudgedRunContextSchema: JsonSchema = {
+export const CorrectedRunContextSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results. For both: the env values its tools were sent.',
+    'What a corrected run needs besides its input to be replayed, captured when it was first corrected. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results. For both: the env values its tools were sent.',
   properties: {
     history: {
       type: 'array',
@@ -5257,7 +5235,7 @@ export const JudgedRunContextSchema: JsonSchema = {
       additionalProperties: false,
       required: ['calls', 'steps'],
       description:
-        "For a flow run: what it did, kept at its first judgment so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.",
+        "For a flow run: what it did, kept at its first correction so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.",
       properties: {
         calls: {
           type: 'array',
@@ -5283,7 +5261,7 @@ export const JudgedRunContextSchema: JsonSchema = {
                 type: 'boolean',
                 const: true,
                 description:
-                  "An agent step's turn kept the result as outside data: another system's answer to a paused call, or a result its tool says is outside data. A replay hands it to the model as data, as the turn did. Absent for a tool node's call, and for a run judged before the mark was kept.",
+                  "An agent step's turn kept the result as outside data: another system's answer to a paused call, or a result its tool says is outside data. A replay hands it to the model as data, as the turn did. Absent for a tool node's call, and for a run corrected before the mark was kept.",
               },
             },
           },
@@ -5319,73 +5297,73 @@ export const JudgedRunContextSchema: JsonSchema = {
     replayOf: {
       type: 'string',
       description:
-        "When the judged run is a comparison's replay: the run it re-ran, stamped at its first judgment. A test set built from judgments leaves replays out.",
+        "When the corrected run is a comparison's replay: the run it re-ran, stamped at its first correction. A test set built from corrections leaves replays out.",
     },
   },
 };
 
-export const JudgedRunCopySchema: JsonSchema = {
+export const CorrectedRunCopySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['runId', 'subject', 'input', 'output', 'capturedAt'],
   description:
-    "The stored copy of a judged run's input and output, taken when it was first judged.",
+    "The stored copy of a corrected run's input and output, taken when it was first corrected.",
   properties: {
     runId: { type: 'string' },
-    subject: { $ref: '#/components/schemas/JudgedSubject' },
+    subject: { $ref: '#/components/schemas/CorrectedSubject' },
     input: {},
     context: {
-      $ref: '#/components/schemas/JudgedRunContext',
+      $ref: '#/components/schemas/CorrectedRunContext',
     },
     output: {},
     segments: {
       type: 'array',
       items: { $ref: '#/components/schemas/ScopeSegment' },
       description:
-        'The segment path the run was started with (empty: none). Absent for runs judged before it was recorded.',
+        'The segment path the run was started with (empty: none). Absent for runs corrected before it was recorded.',
     },
     capturedAt: { type: 'string', format: 'date-time' },
   },
 };
 
-export const JudgmentWithCopiesSchema: JsonSchema = {
-  description: 'A judgment with the stored copies of what was judged.',
+export const CorrectionWithCopiesSchema: JsonSchema = {
+  description: 'A correction with the stored copies of what was corrected.',
   allOf: [
-    { $ref: '#/components/schemas/Judgment' },
+    { $ref: '#/components/schemas/Correction' },
     {
       type: 'object',
       required: ['run'],
       properties: {
-        run: { $ref: '#/components/schemas/JudgedRunCopy' },
+        run: { $ref: '#/components/schemas/CorrectedRunCopy' },
         itemValue: {
-          description: "The judged item's value, when the judgment pointed at it.",
+          description: "The corrected item's value, when the correction pointed at it.",
         },
       },
     },
   ],
 };
 
-export const JudgmentCollectionPageSchema: JsonSchema = {
+export const CorrectionCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/Judgment' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/Correction' } },
     nextCursor: { type: 'string', description: 'Opaque cursor. Treat as opaque on the client.' },
     hasMore: { type: 'boolean' },
   },
 };
 
-export const CreateJudgmentBodySchema: JsonSchema = {
+export const CreateCorrectionBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['runId', 'item', 'verdict'],
   properties: {
     runId: { type: 'string', minLength: 1 },
-    item: { $ref: '#/components/schemas/JudgedItem' },
+    item: { $ref: '#/components/schemas/CorrectedItem' },
     verdict: { type: 'string', enum: ['yes', 'no'] },
     reason: { type: 'string', maxLength: 4000 },
-    judgeClassId: {
+    correctorGroupId: {
       type: 'string',
       minLength: 1,
       description: 'Optional. When given it must exist and apply to the run.',
@@ -5393,63 +5371,63 @@ export const CreateJudgmentBodySchema: JsonSchema = {
     participantId: {
       type: 'string',
       minLength: 1,
-      description: "An app's opaque id for its end user, when judging on their behalf.",
+      description: "An app's opaque id for its end user, when correcting on their behalf.",
     },
     correction: {
-      $ref: '#/components/schemas/Correction',
-      description: `Optional. The tool calls the agent should have made, graded on a replay. A correction judges the run's whole output, so it is recorded under one reserved item (\`item.key\` \`"${CORRECTION_ITEM.key}"\`, \`item.pointer\` \`""\`): a correction on any other item is a 400, and a second correction of the run by the same expert replaces the first, so it counts once.`,
+      $ref: '#/components/schemas/ExpectedDecisions',
+      description: `Optional. The tool calls the agent should have made, graded on a replay. Expected decisions cover the run's whole output, so they are recorded under one reserved item (\`item.key\` \`"${CORRECTION_ITEM.key}"\`, \`item.pointer\` \`""\`): expected decisions on any other item are a 400, and a second set from the same expert on the run replaces the first, so it counts once.`,
     },
   },
 };
 
-export const UnregisterJudgmentResultSchema: JsonSchema = {
+export const RemoveCorrectionResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['judgmentId', 'unregistered'],
+  required: ['correctionId', 'unregistered'],
   properties: {
-    judgmentId: { type: 'string' },
+    correctionId: { type: 'string' },
     unregistered: { type: 'boolean', const: true },
   },
 };
 
-export const JudgedItemSummarySchema: JsonSchema = {
+export const CorrectedItemSummarySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['key', 'yes', 'no', 'yesWeight', 'totalWeight', 'reasons'],
-  description: "The judgments of one item of a case's output, summed up.",
+  description: "The corrections of one item of a case's output, summed up.",
   properties: {
     key: { type: 'string' },
     pointer: { type: 'string' },
     rank: { type: 'integer', minimum: 0 },
-    yes: { type: 'integer', minimum: 0, description: 'How many judgments said yes.' },
-    no: { type: 'integer', minimum: 0, description: 'How many judgments said no.' },
+    yes: { type: 'integer', minimum: 0, description: 'How many corrections said yes.' },
+    no: { type: 'integer', minimum: 0, description: 'How many corrections said no.' },
     yesWeight: {
       type: 'number',
-      description: 'The weight behind "yes" (an unclassified judgment counts 1).',
+      description: 'The weight behind "yes" (an unclassified correction counts 1).',
     },
-    totalWeight: { type: 'number', description: 'The weight behind all judgments of the item.' },
-    restricted: {
+    totalWeight: { type: 'number', description: 'The weight behind all corrections of the item.' },
+    expert: {
       type: 'object',
       additionalProperties: false,
       required: ['yesWeight', 'totalWeight'],
       description:
-        'The same weights, counting only judgments recorded while their class was restricted (`Judgment.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.',
+        'The same weights, counting only corrections recorded while their group was restricted (`Correction.expert`), for a comparison weighted `experts-only`. Absent from a test set built before restrictions.',
       properties: {
         yesWeight: { type: 'number' },
         totalWeight: { type: 'number' },
-        judgmentIds: {
+        correctionIds: {
           type: 'array',
           items: { type: 'string' },
           description:
-            'The judgments behind these two. Absent from a test set built before judgment ids.',
+            'The corrections behind these two. Absent from a test set built before correction ids.',
         },
       },
     },
-    judgmentIds: {
+    correctionIds: {
       type: 'array',
       items: { type: 'string' },
       description:
-        'The judgments summed into the item, by id: what a comparison on this case counts. Absent from a test set built before judgment ids.',
+        'The corrections summed into the item, by id: what a comparison on this case counts. Absent from a test set built before correction ids.',
     },
     reasons: {
       type: 'array',
@@ -5461,12 +5439,15 @@ export const JudgedItemSummarySchema: JsonSchema = {
         properties: {
           verdict: { type: 'string', enum: ['yes', 'no'] },
           reason: { type: 'string' },
-          judgeClassId: { type: 'string', description: "The judgment's class, when it had one." },
-          restricted: {
+          correctorGroupId: {
+            type: 'string',
+            description: "The correction's group, when it had one.",
+          },
+          expert: {
             type: 'boolean',
             enum: [true],
             description:
-              'Set when the judgment was recorded while its class was restricted (`Judgment.restricted`).',
+              'Set when the correction was recorded while its group was restricted (`Correction.expert`).',
           },
         },
       },
@@ -5474,38 +5455,41 @@ export const JudgedItemSummarySchema: JsonSchema = {
   },
 };
 
-export const JudgedEvalCaseSchema: JsonSchema = {
+export const CorrectedTestCaseSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['caseId', 'subject', 'input', 'output', 'items'],
   description:
-    "One case of a `judged` eval suite: a copy of a judged run with its items' judgments summed up.",
+    "One case of a `corrections` test set: a copy of a corrected run with its items' corrections summed up.",
   properties: {
-    caseId: { type: 'string', description: "The judged run's id." },
-    subject: { $ref: '#/components/schemas/JudgedSubject' },
+    caseId: { type: 'string', description: "The corrected run's id." },
+    subject: { $ref: '#/components/schemas/CorrectedSubject' },
     input: {},
-    context: { $ref: '#/components/schemas/JudgedRunContext' },
+    context: { $ref: '#/components/schemas/CorrectedRunContext' },
     output: {},
-    items: { type: 'array', items: { $ref: '#/components/schemas/JudgedItemSummary' } },
+    items: { type: 'array', items: { $ref: '#/components/schemas/CorrectedItemSummary' } },
     corrections: {
       type: 'array',
       description:
-        "Experts' corrections carried onto this case from its judgments, each graded on the replay. Empty or absent when none. `restricted-only` keeps only the entries whose judgment was restricted.",
+        "Experts' expected decisions carried onto this case from its corrections, each graded on the replay. Empty or absent when none. `experts-only` keeps only the entries whose correction was restricted.",
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['judgmentId', 'calls', 'notCalled'],
+        required: ['correctionId', 'calls', 'notCalled'],
         properties: {
-          judgmentId: {
+          correctionId: {
             type: 'string',
-            description: 'The judgment the correction was recorded on.',
+            description: 'The correction they were recorded on.',
           },
-          judgeClassId: { type: 'string', description: "The judgment's class, when it had one." },
-          restricted: {
+          correctorGroupId: {
+            type: 'string',
+            description: "The correction's group, when it had one.",
+          },
+          expert: {
             type: 'boolean',
             enum: [true],
             description:
-              'Set when the judgment was recorded while its class was restricted (`Judgment.restricted`).',
+              'Set when the correction was recorded while its group was restricted (`Correction.expert`).',
           },
           calls: correctionCallsProperty,
           notCalled: correctionNotCalledProperty,
@@ -5516,27 +5500,27 @@ export const JudgedEvalCaseSchema: JsonSchema = {
       type: 'boolean',
       const: true,
       description:
-        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and eval runs leave it out (counted as `erased`).",
+        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and test runs leave it out (counted as `erased`).",
     },
   },
 };
 
-export const JudgedEvalCaseCollectionPageSchema: JsonSchema = {
+export const CorrectedTestCaseCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/JudgedEvalCase' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/CorrectedTestCase' } },
     nextCursor: { type: 'string', description: 'Opaque cursor. Treat as opaque on the client.' },
     hasMore: { type: 'boolean' },
   },
 };
 
-export const BuildJudgedSuiteBodySchema: JsonSchema = {
+export const BuildCorrectedTestSetBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['version', 'projectId'],
-  description: 'Name the agent (`agentId`) or the flow (`flowId`) whose judged runs to use.',
+  description: 'Name the agent (`agentId`) or the flow (`flowId`) whose corrected runs to use.',
   properties: {
     version: { type: 'string', description: 'Semver version to publish, e.g. `1.0.0`.' },
     projectId: { type: 'string', minLength: 1 },
@@ -5546,45 +5530,45 @@ export const BuildJudgedSuiteBodySchema: JsonSchema = {
     since: {
       type: 'string',
       format: 'date-time',
-      description: 'Runs first judged at or after this time.',
+      description: 'Runs first corrected at or after this time.',
     },
     until: {
       type: 'string',
       format: 'date-time',
-      description: 'Runs first judged before this time.',
+      description: 'Runs first corrected before this time.',
     },
-    judgeClassIds: {
+    correctorGroupIds: {
       type: 'array',
       items: { type: 'string', minLength: 1 },
-      description: 'Count only judgments recorded under these judge classes.',
+      description: 'Count only corrections recorded under these corrector groups.',
     },
-    minJudgments: {
+    minCorrections: {
       type: 'integer',
       minimum: 1,
-      description: 'Leave out runs with fewer counted judgments. Default 1.',
+      description: 'Leave out runs with fewer counted corrections. Default 1.',
     },
     segments: {
       type: 'array',
       items: { $ref: '#/components/schemas/ScopeSegment' },
       description:
-        "Only runs started in this segment path or below it, coarse to fine (e.g. `company=acme`). A run judged before its segments were recorded with its judgments is in no segment, so it's left out.",
+        "Only runs started in this segment path or below it, coarse to fine (e.g. `company=acme`). A run corrected before its segments were recorded with its corrections is in no segment, so it's left out.",
     },
     description: { type: 'string' },
   },
 };
 
-export const BuildJudgedSuiteResultSchema: JsonSchema = {
+export const BuildCorrectedTestSetResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['suiteId', 'version', 'kind', 'caseCount', 'truncated'],
+  required: ['testSetId', 'version', 'kind', 'caseCount', 'truncated'],
   properties: {
-    suiteId: { type: 'string' },
+    testSetId: { type: 'string' },
     version: { type: 'string' },
-    kind: { type: 'string', enum: ['judged'] },
+    kind: { type: 'string', enum: ['corrections'] },
     caseCount: { type: 'integer', minimum: 0 },
     truncated: {
       type: 'boolean',
-      description: 'Whether more judged runs matched than the 1000 cases a set holds.',
+      description: 'Whether more corrected runs matched than the 1000 cases a set holds.',
     },
   },
 };
@@ -6257,16 +6241,16 @@ export const RevokeSigningKeyResultSchema: JsonSchema = {
   },
 };
 
-// ---------------- improvement proposals ----------------
+// ---------------- suggested changes ----------------
 
-export const ProposalTierSchema: JsonSchema = {
+export const SuggestedChangeTierSchema: JsonSchema = {
   type: 'string',
   enum: ['settings-block', 'prompt-block'],
   description:
-    'What a proposal changes: a settings block (new values) or a prompt block (a new template) the agent version pins.',
+    'What a suggested change changes: a settings block (new values) or a prompt block (a new template) the agent version pins.',
 };
 
-export const FixProposalStatusSchema: JsonSchema = {
+export const SuggestedChangeStatusSchema: JsonSchema = {
   type: 'string',
   enum: [
     'draft',
@@ -6275,7 +6259,7 @@ export const FixProposalStatusSchema: JsonSchema = {
     'not-better',
     'evaluation-failed',
     'in-review',
-    'promoted',
+    'pinned',
     'refused',
     'rejected',
     'expired',
@@ -6284,10 +6268,10 @@ export const FixProposalStatusSchema: JsonSchema = {
     'withdrawn',
   ],
   description:
-    "Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.",
+    "Where a suggested change stands, from its comparison and its pin (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `pinned`: pinned for the scope (`pin.pinnedNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's pinned version or policy changed. `rolled-back`: only on an older suggested change rolled back by its own `rollback`, which is removed; going back is a pin of an earlier version, through the agent's pin routes, and leaves it `pinned`. `withdrawn`: withdrawn.",
 };
 
-export const ProposalChangeSchema: JsonSchema = {
+export const SuggestedChangeBlockEditSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['blockId', 'fromVersion', 'content'],
@@ -6310,11 +6294,11 @@ export const ProposalChangeSchema: JsonSchema = {
   },
 };
 
-export const ProposalDrafterSchema: JsonSchema = {
+export const SuggestedChangeMadeBySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['kind'],
-  description: "Who wrote the proposal: a person, or one of the runtime's drafters.",
+  description: "Who wrote the suggested change: a person, or one of the runtime's drafters.",
   properties: {
     kind: { type: 'string', enum: ['person', 'settings-optimizer', 'prompt-drafter'] },
     by: { type: 'string', description: 'For a person: `user:<id>` (or `service:<id>`).' },
@@ -6326,72 +6310,73 @@ export const ProposalDrafterSchema: JsonSchema = {
       description: 'For a drafter that used a model: which.',
       properties: { providerId: { type: 'string' }, model: { type: 'string' } },
     },
-    passId: {
+    improveRunId: {
       type: 'string',
       description:
-        'For a drafter: the improvement pass that drafted it (`GET /v1/improvement-passes/{passId}`).',
+        'For a drafter: the Improve run that drafted it (`GET /v1/improve-runs/{improveRunId}`).',
     },
   },
 };
 
-export const ProposalEvidenceSchema: JsonSchema = {
+export const SuggestedChangeEvidenceSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  description: 'What a proposal rests on.',
+  description: 'What a suggested change rests on.',
   properties: {
-    judgmentIds: {
+    fixes: {
       type: 'array',
       items: { type: 'string' },
       description:
-        "The judgments that motivated it. An improvement pass's proposal names the judgments it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items judged wrong, then the rest.",
+        "The corrections it fixes, by id. An Improve run's suggested change names the corrections it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt Improve run, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items corrected as wrong, then the rest.",
     },
-    judgmentCount: {
+    correctionCount: {
       type: 'integer',
       minimum: 0,
       description:
-        'How many judgments it rests on, when `judgmentIds` names only the first of them. Absent when `judgmentIds` names them all.',
+        'How many corrections it rests on, when `fixes` names only the first of them. Absent when `fixes` names them all.',
     },
   },
 };
 
-export const ProposalCandidateSchema: JsonSchema = {
+export const SuggestedChangeCandidateSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['agentVersion', 'blockVersion', 'pinsDigest'],
   description:
-    'The versions evaluating the proposal published. They serve no scope until a promotion makes the agent version live.',
+    'The versions evaluating the suggested change published. They serve no scope until a pin makes the agent version serve.',
   properties: {
     agentVersion: {
       type: 'string',
-      description: 'The derived agent version (its `derivedFrom.proposalId` names the proposal).',
+      description:
+        'The derived agent version (its `derivedFrom.suggestedChangeId` names the suggested change).',
     },
     blockVersion: {
       type: 'string',
-      description: "The block version published from the proposal's content.",
+      description: "The block version published from the suggested change's content.",
     },
     pinsDigest: { type: 'string' },
   },
 };
 
-export const ProposalEvaluationSchema: JsonSchema = {
+export const SuggestedChangeEvaluationSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['evalRunId', 'suiteId', 'objective', 'startedAt'],
+  required: ['testRunId', 'testSetId', 'objective', 'startedAt'],
   description:
-    "The comparison the proposal was evaluated with, and what it found on the objective metric (the full summary is the eval run's).",
+    "The comparison the suggested change was evaluated with, and what it found on the objective metric (the full summary is the test run's).",
   properties: {
-    evalRunId: { type: 'string', format: 'uuid' },
-    suiteId: { type: 'string', description: 'The test set (a judged eval suite).' },
-    objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
+    testRunId: { type: 'string', format: 'uuid' },
+    testSetId: { type: 'string', description: 'The test set (a corrections test set).' },
+    objective: { type: 'string', enum: ['passRate', 'weightedPrecisionAtK'] },
     startedAt: { type: 'string', format: 'date-time' },
     runStatus: {
       type: 'string',
       enum: ['pending', 'running', 'completed', 'failed', 'cancelled'],
-      description: "The eval run's status. Absent when the run can't be read.",
+      description: "The test run's status. Absent when the run can't be read.",
     },
     baseline: {
       type: ['number', 'null'],
-      description: "The recorded outputs' score; `null` without judged evidence.",
+      description: "The recorded outputs' score; `null` without evidence from corrections.",
     },
     candidate: { type: ['number', 'null'], description: "The candidate's score." },
     delta: { type: ['number', 'null'] },
@@ -6408,12 +6393,12 @@ export const ProposalEvaluationSchema: JsonSchema = {
       description:
         "How the candidate is kept. `better`: it beats the recorded outputs by more than the noise. `cheaper`: it's no worse than the current version replayed on the same cases (beyond that run's spread) and costs less (beyond the cost's own spread), with no errored case; `better` may then be false while the status is `evaluated`. Absent: `better`.",
     },
-    costUsd: { $ref: '#/components/schemas/ProposalCost' },
-    decisions: { $ref: '#/components/schemas/ProposalDecisions' },
+    costUsd: { $ref: '#/components/schemas/SuggestedChangeCost' },
+    decisions: { $ref: '#/components/schemas/SuggestedChangeDecisions' },
   },
 };
 
-export const ProposalCostSchema: JsonSchema = {
+export const SuggestedChangeCostSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['current', 'candidate'],
@@ -6425,7 +6410,7 @@ export const ProposalCostSchema: JsonSchema = {
   },
 };
 
-export const ProposalDecisionsSchema: JsonSchema = {
+export const SuggestedChangeDecisionsSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['checked', 'held', 'broken', 'stillWrong'],
@@ -6451,30 +6436,30 @@ export const ProposalDecisionsSchema: JsonSchema = {
   },
 };
 
-export const ProposalPromotionSchema: JsonSchema = {
+export const SuggestedChangePinSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'status'],
-  description: "The promotion the proposal's request made.",
+  description: "The pin the suggested change's request made.",
   properties: {
     id: { type: 'string' },
     status: {
       type: 'string',
-      enum: ['promoted', 'pending-approval', 'refused', 'superseded', 'rejected', 'expired'],
+      enum: ['pinned', 'pending-approval', 'refused', 'superseded', 'rejected', 'expired'],
     },
     approvalId: { type: 'string', description: 'The approval a request in review waits on.' },
-    liveNow: {
+    pinnedNow: {
       type: 'boolean',
-      description: 'For a promoted proposal: whether its version still serves the scope.',
+      description: 'For a pinned suggested change: whether its version still serves the scope.',
     },
   },
 };
 
-export const FixProposalSchema: JsonSchema = {
+export const SuggestedChangeSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'An improvement proposal: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.',
+    'A suggested change: a change to one data block an agent version pins, for one pin scope, taken through the same comparison, gate and pin as any other version.',
   required: [
     'id',
     'agentId',
@@ -6482,8 +6467,8 @@ export const FixProposalSchema: JsonSchema = {
     'scope',
     'tier',
     'change',
-    'hypothesis',
-    'drafter',
+    'why',
+    'madeBy',
     'status',
     'createdAt',
     'updatedAt',
@@ -6492,23 +6477,23 @@ export const FixProposalSchema: JsonSchema = {
     id: { type: 'string', format: 'uuid' },
     agentId: { type: 'string' },
     fromVersion: { type: 'string', description: 'The agent version the change applies to.' },
-    scope: { $ref: '#/components/schemas/LiveScope' },
-    tier: { $ref: '#/components/schemas/ProposalTier' },
-    change: { $ref: '#/components/schemas/ProposalChange' },
-    hypothesis: { type: 'string', description: 'What the change should improve, and why.' },
-    evidence: { $ref: '#/components/schemas/ProposalEvidence' },
-    drafter: { $ref: '#/components/schemas/ProposalDrafter' },
-    status: { $ref: '#/components/schemas/FixProposalStatus' },
-    candidate: { $ref: '#/components/schemas/ProposalCandidate' },
-    evaluation: { $ref: '#/components/schemas/ProposalEvaluation' },
-    promotion: { $ref: '#/components/schemas/ProposalPromotion' },
+    scope: { $ref: '#/components/schemas/AgentPinScope' },
+    tier: { $ref: '#/components/schemas/SuggestedChangeTier' },
+    change: { $ref: '#/components/schemas/SuggestedChangeBlockEdit' },
+    why: { type: 'string', description: 'What the change should improve, and why.' },
+    evidence: { $ref: '#/components/schemas/SuggestedChangeEvidence' },
+    madeBy: { $ref: '#/components/schemas/SuggestedChangeMadeBy' },
+    status: { $ref: '#/components/schemas/SuggestedChangeStatus' },
+    candidate: { $ref: '#/components/schemas/SuggestedChangeCandidate' },
+    evaluation: { $ref: '#/components/schemas/SuggestedChangeEvaluation' },
+    pin: { $ref: '#/components/schemas/SuggestedChangePin' },
     rolledBack: {
       type: 'object',
       additionalProperties: false,
-      required: ['at', 'promotionId', 'by'],
+      required: ['at', 'changeId', 'by'],
       properties: {
         at: { type: 'string', format: 'date-time' },
-        promotionId: { type: 'string', description: "The rollback's own promotion row." },
+        changeId: { type: 'string', description: "The rollback's own pin change row." },
         by: { type: 'string' },
         reason: { type: 'string' },
       },
@@ -6528,12 +6513,12 @@ export const FixProposalSchema: JsonSchema = {
   },
 };
 
-export const FixProposalCollectionPageSchema: JsonSchema = {
+export const SuggestedChangeCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/FixProposal' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/SuggestedChange' } },
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
   },
@@ -6548,7 +6533,7 @@ export const ImprovementBudgetSchema: JsonSchema = {
       type: 'number',
       exclusiveMinimum: 0,
       maximum: 100,
-      description: "The most the pass's comparisons may cost, in US dollars.",
+      description: "The most the Improve run's comparisons may cost, in US dollars.",
     },
     maxCandidates: {
       type: 'integer',
@@ -6559,15 +6544,15 @@ export const ImprovementBudgetSchema: JsonSchema = {
   },
 };
 
-export const ImprovementPassOutcomeSchema: JsonSchema = {
+export const ImproveRunOutcomeSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['kind'],
   description:
-    "What a finished pass found. `proposed`: its best candidate beat the current values on the test set's hold-out part, so it wrote an improvement proposal (`proposalId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.",
+    "What a finished Improve run found. `suggested`: its best candidate beat the current values on the test set's hold-out part, so it wrote a suggested change (`suggestedChangeId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.",
   properties: {
-    kind: { type: 'string', enum: ['proposed', 'nothing-found', 'failed'] },
-    proposalId: { type: 'string', format: 'uuid' },
+    kind: { type: 'string', enum: ['suggested', 'nothing-found', 'failed'] },
+    suggestedChangeId: { type: 'string', format: 'uuid' },
     reason: { type: 'string' },
     holdOut: {
       type: 'object',
@@ -6584,17 +6569,17 @@ export const ImprovementPassOutcomeSchema: JsonSchema = {
   },
 };
 
-export const ImprovementPassSchema: JsonSchema = {
+export const ImproveRunSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes an improvement proposal.",
+    "An Improve run: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes a suggested change.",
   required: [
     'id',
     'agentId',
     'fromVersion',
     'scope',
-    'suiteId',
+    'testSetId',
     'tiers',
     'objective',
     'budget',
@@ -6609,50 +6594,50 @@ export const ImprovementPassSchema: JsonSchema = {
     id: { type: 'string', format: 'uuid' },
     agentId: { type: 'string' },
     fromVersion: { type: 'string', description: 'The version whose settings it tunes.' },
-    scope: { $ref: '#/components/schemas/LiveScope' },
-    suiteId: { type: 'string', description: 'The test set it searches and proves on.' },
+    scope: { $ref: '#/components/schemas/AgentPinScope' },
+    testSetId: { type: 'string', description: 'The test set it searches and proves on.' },
     tiers: { type: 'array', items: { type: 'string', enum: ['settings', 'prompt'] } },
-    objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
-    classWeights: {
+    objective: { type: 'string', enum: ['passRate', 'weightedPrecisionAtK'] },
+    groupWeights: {
       type: 'string',
-      enum: ['as-recorded', 'restricted-only'],
+      enum: ['as-recorded', 'experts-only'],
       description:
-        'Which judgments its comparisons count. Absent from older servers: `restricted-only`.',
+        'Which corrections its comparisons count. Absent from older servers: `experts-only`.',
     },
     model: {
       type: 'object',
       additionalProperties: false,
       required: ['providerId', 'model'],
-      description: 'For a prompt pass: the provider and model that drafts the templates.',
+      description: 'For a prompt Improve run: the provider and model that drafts the templates.',
       properties: { providerId: { type: 'string' }, model: { type: 'string' } },
     },
     candidates: {
       type: 'integer',
       minimum: 1,
       maximum: 5,
-      description: 'For a prompt pass: how many templates it drafts.',
+      description: 'For a prompt Improve run: how many templates it drafts.',
     },
     budget: { $ref: '#/components/schemas/ImprovementBudget' },
     requestedBy: { type: 'string' },
     status: { type: 'string', enum: ['running', 'completed', 'failed', 'cancelled'] },
     candidatesEvaluated: { type: 'integer', minimum: 0 },
     costUsd: { type: 'string', description: 'What its comparisons have cost so far (US dollars).' },
-    outcome: { $ref: '#/components/schemas/ImprovementPassOutcome' },
+    outcome: { $ref: '#/components/schemas/ImproveRunOutcome' },
     cancelReason: {
       type: 'string',
       description:
-        "Why a `cancelled` pass stopped when nobody cancelled it: a comparison's eval run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no proposal. Absent when it was cancelled.",
+        "Why a `cancelled` Improve run stopped when nobody cancelled it: a comparison's test run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no suggested change. Absent when it was cancelled.",
     },
     comparisons: {
       type: 'array',
       description:
-        'Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.',
+        'Its comparisons so far, each a test run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the suggested change, on the hold-out part). Absent from older servers.',
       items: {
         type: 'object',
         additionalProperties: false,
         required: ['role', 'part'],
         properties: {
-          evalRunId: { type: 'string', format: 'uuid' },
+          testRunId: { type: 'string', format: 'uuid' },
           role: { type: 'string', enum: ['reference', 'candidate', 'proof'] },
           part: { type: 'string', enum: ['search', 'hold-out'] },
           blockId: { type: 'string' },
@@ -6670,7 +6655,7 @@ export const ImprovementPassSchema: JsonSchema = {
               properties: { path: { type: 'string' }, message: { type: 'string' } },
             },
           },
-          hypothesis: {
+          why: {
             type: 'string',
             description: 'For a drafted template: what the drafter meant it to change.',
           },
@@ -6682,7 +6667,7 @@ export const ImprovementPassSchema: JsonSchema = {
       additionalProperties: false,
       required: ['triggerId', 'fireId'],
       description:
-        'The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for a pass a person started.',
+        'The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for an Improve run a person started.',
       properties: { triggerId: { type: 'string' }, fireId: { type: 'string' } },
     },
     createdAt: { type: 'string', format: 'date-time' },
@@ -6691,22 +6676,22 @@ export const ImprovementPassSchema: JsonSchema = {
   },
 };
 
-export const ImprovementPassCollectionPageSchema: JsonSchema = {
+export const ImproveRunCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/ImprovementPass' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/ImproveRun' } },
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
   },
 };
 
-export const ImproveBodySchema: JsonSchema = {
+export const StartImproveRunBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['agentId', 'scope', 'suiteId'],
-  description: 'Start an improvement pass.',
+  required: ['agentId', 'scope', 'testSetId'],
+  description: 'Start an Improve run.',
   properties: {
     agentId: { type: 'string' },
     fromVersion: {
@@ -6717,13 +6702,13 @@ export const ImproveBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The project the pass works in: `suiteId` must be a test set it reaches, the version must reach it, and the pass's eval runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.",
+        "The project the Improve run works in: `testSetId` must be a test set it reaches, the version must reach it, and the Improve run's test runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.",
     },
-    scope: { $ref: '#/components/schemas/LiveScope' },
-    suiteId: {
+    scope: { $ref: '#/components/schemas/AgentPinScope' },
+    testSetId: {
       type: 'string',
       description:
-        'The test set (a judged eval suite). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.',
+        'The test set (a corrections test set). The Improve run splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.',
     },
     tiers: {
       type: 'array',
@@ -6732,13 +6717,14 @@ export const ImproveBodySchema: JsonSchema = {
       maxItems: 1,
       default: ['settings'],
       description:
-        "`['settings']`: values for the tunable settings keys. `['prompt']`: a model drafts templates for the prompt block (needs `model`); a template that reads or names anything the agent doesn't have is refused, and a drafted proposal always waits for a reviewer.",
+        "`['settings']`: values for the tunable settings keys. `['prompt']`: a model drafts templates for the prompt block (needs `model`); a template that reads or names anything the agent doesn't have is refused, and a drafted suggested change always waits for a reviewer.",
     },
     model: {
       type: 'object',
       additionalProperties: false,
       required: ['providerId', 'model'],
-      description: "For a prompt pass: the tenant's provider and model that drafts the templates.",
+      description:
+        "For a prompt Improve run: the tenant's provider and model that drafts the templates.",
       properties: { providerId: { type: 'string' }, model: { type: 'string' } },
     },
     candidates: {
@@ -6746,18 +6732,18 @@ export const ImproveBodySchema: JsonSchema = {
       minimum: 1,
       maximum: 5,
       default: 3,
-      description: 'For a prompt pass: how many templates it drafts.',
+      description: 'For a prompt Improve run: how many templates it drafts.',
     },
-    classWeights: {
+    groupWeights: {
       type: 'string',
-      enum: ['as-recorded', 'restricted-only'],
+      enum: ['as-recorded', 'experts-only'],
       description:
-        "Which judgments the pass learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the pass reads its judgments from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has a restricted judge class, then only judgments recorded under one (`restricted-only`).",
+        "Which corrections the Improve run learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the Improve run reads its corrections from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has an expert group, then only corrections recorded under one (`experts-only`).",
     },
     objective: {
       type: 'string',
-      enum: ['weightedYesShare', 'weightedPrecisionAtK'],
-      default: 'weightedYesShare',
+      enum: ['passRate', 'weightedPrecisionAtK'],
+      default: 'passRate',
     },
     budget: {
       type: 'object',
@@ -6771,11 +6757,11 @@ export const ImproveBodySchema: JsonSchema = {
   },
 };
 
-export const ImprovementPassEstimateSchema: JsonSchema = {
+export const ImproveRunCheckSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "What a pass this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.",
+    "What an Improve run this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.",
   required: ['maxCostUsd', 'basis'],
   properties: {
     estimatedCostUsd: {
@@ -6796,7 +6782,7 @@ export const ImprovementPassEstimateSchema: JsonSchema = {
         replays: {
           type: 'integer',
           minimum: 0,
-          description: "How many replay runs the pass's comparisons would make.",
+          description: "How many replay runs the Improve run's comparisons would make.",
         },
         meanRunCostUsd: {
           type: 'string',
@@ -6808,17 +6794,17 @@ export const ImprovementPassEstimateSchema: JsonSchema = {
   },
 };
 
-export const CreateProposalBodySchema: JsonSchema = {
+export const CreateSuggestedChangeBodySchema: JsonSchema = {
   description:
-    'A hand-written proposal: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one proposal (answered with `X-Proposal-Deduped: true`).',
+    'A hand-written suggested change: new content for a data block that `fromVersion` pins, for a pin scope. The same change from the same version for the same scope is one suggested change (answered with `X-Suggested-Change-Deduped: true`).',
   type: 'object',
   additionalProperties: false,
-  required: ['agentId', 'fromVersion', 'scope', 'tier', 'change', 'hypothesis'],
+  required: ['agentId', 'fromVersion', 'scope', 'tier', 'change', 'why'],
   properties: {
     agentId: { type: 'string' },
     fromVersion: { type: 'string', description: 'The agent version the change applies to.' },
-    scope: { $ref: '#/components/schemas/LiveScope' },
-    tier: { $ref: '#/components/schemas/ProposalTier' },
+    scope: { $ref: '#/components/schemas/AgentPinScope' },
+    tier: { $ref: '#/components/schemas/SuggestedChangeTier' },
     change: {
       type: 'object',
       additionalProperties: false,
@@ -6837,38 +6823,38 @@ export const CreateProposalBodySchema: JsonSchema = {
         },
       },
     },
-    hypothesis: { type: 'string', minLength: 1, maxLength: 2000 },
+    why: { type: 'string', minLength: 1, maxLength: 2000 },
     evidence: {
       type: 'object',
       additionalProperties: false,
-      properties: { judgmentIds: { type: 'array', items: { type: 'string' } } },
+      properties: { fixes: { type: 'array', items: { type: 'string' } } },
     },
   },
 };
 
-export const EvaluateProposalBodySchema: JsonSchema = {
+export const EvaluateSuggestedChangeBodySchema: JsonSchema = {
   description:
-    "Compare the proposal's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).",
+    "Compare the suggested change's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until pinned).",
   type: 'object',
   additionalProperties: false,
-  required: ['suiteId'],
+  required: ['testSetId'],
   properties: {
-    suiteId: { type: 'string', description: 'The test set: a judged eval suite.' },
+    testSetId: { type: 'string', description: 'The test set: a corrections test set.' },
     objective: {
       type: 'string',
-      enum: ['weightedYesShare', 'weightedPrecisionAtK'],
-      default: 'weightedYesShare',
+      enum: ['passRate', 'weightedPrecisionAtK'],
+      default: 'passRate',
       description: 'The metric that says whether the candidate is better.',
     },
     reads: { type: 'string', enum: ['recorded', 'live'] },
     repetitions: { type: 'integer', minimum: 1, maximum: 10 },
     k: { type: 'integer', minimum: 1, maximum: 100 },
-    classWeights: { type: 'string', enum: ['as-recorded', 'restricted-only'] },
-    sample: { $ref: '#/components/schemas/EvalSample' },
+    groupWeights: { type: 'string', enum: ['as-recorded', 'experts-only'] },
+    sample: { $ref: '#/components/schemas/TestRunSample' },
   },
 };
 
-export const ProposalReasonBodySchema: JsonSchema = {
+export const SuggestedChangeReasonBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   properties: {
@@ -6876,7 +6862,7 @@ export const ProposalReasonBodySchema: JsonSchema = {
   },
 };
 
-export const WithdrawProposalBodySchema: JsonSchema = {
+export const WithdrawSuggestedChangeBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['reason'],
@@ -8750,20 +8736,28 @@ export const RetentionSweepResultSchema: JsonSchema = {
   },
 };
 
-// ---------------- eval suites (admin plane) ----------------
+// ---------------- test sets (admin plane) ----------------
 
 /**
  * Closed set of eval kinds the framework knows about. Extended
  * additively — new kinds require a spec + validator update in tandem so
  * the registry never accepts a kind no runtime consumer honors.
  */
-export const EvalKindSchema: JsonSchema = {
+export const TestSetKindSchema: JsonSchema = {
   type: 'string',
-  enum: ['accuracy', 'pairwise', 'regression', 'human-review', 'benchmark', 'custom', 'judged'],
+  enum: [
+    'accuracy',
+    'pairwise',
+    'regression',
+    'human-review',
+    'benchmark',
+    'custom',
+    'corrections',
+  ],
 };
 
 /**
- * Wire shape for a single evaluation suite. `spec` is a JSON object
+ * Wire shape for a single test set. `spec` is a JSON object
  * whose shape is dictated by `kind` — the registry treats it as opaque
  * JSON so new kinds can extend the catalog without breaking existing
  * readers. Runtime consumers deserialize `spec` against their own
@@ -8771,7 +8765,7 @@ export const EvalKindSchema: JsonSchema = {
  * `regression`, HITL bridge for `human-review`, sandbox handler for
  * `custom`).
  */
-export const EvalSuiteSchema: JsonSchema = {
+export const TestSetSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'tenantId', 'version', 'kind', 'spec'],
@@ -8784,40 +8778,40 @@ export const EvalSuiteSchema: JsonSchema = {
     version: {
       type: 'string',
       pattern: '^\\d+\\.\\d+\\.\\d+$',
-      description: 'Semver — publishing a modified suite produces a new version.',
+      description: 'Semver — publishing a modified test set produces a new version.',
     },
-    kind: { $ref: '#/components/schemas/EvalKind' },
+    kind: { $ref: '#/components/schemas/TestSetKind' },
     description: { type: 'string' },
     spec: {
       type: 'object',
       additionalProperties: true,
       description:
-        'Kind-specific suite body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`.',
+        'Kind-specific test set body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`.',
     },
     unregisteredAt: {
       type: 'string',
       format: 'date-time',
       description:
-        'Present only on an unregistered version: one `GET …/versions?includeTombstoned=true` lists, or a retired test set (every version unregistered) as `GET /v1/eval-suites?includeRetired=true` lists it.',
+        'Present only on an unregistered version: one `GET …/versions?includeTombstoned=true` lists, or a retired test set (every version unregistered) as `GET /v1/test-sets?includeRetired=true` lists it.',
     },
   },
 };
 
-export const EvalSuiteCollectionPageSchema: JsonSchema = {
+export const TestSetCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
     data: {
       type: 'array',
-      items: { $ref: '#/components/schemas/EvalSuite' },
+      items: { $ref: '#/components/schemas/TestSet' },
     },
     nextCursor: { type: 'string' },
     hasMore: { type: 'boolean' },
   },
 };
 
-export const PublishEvalSuiteBodySchema: JsonSchema = {
+export const PublishTestSetBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'version', 'kind', 'spec', 'projectId'],
@@ -8831,39 +8825,39 @@ export const PublishEvalSuiteBodySchema: JsonSchema = {
         'Optional. When present, must match the caller tenant (server-derived from the token). Cross-tenant publish is rejected.',
     },
     version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
-    kind: { $ref: '#/components/schemas/EvalKind' },
+    kind: { $ref: '#/components/schemas/TestSetKind' },
     description: { type: 'string' },
     spec: { type: 'object', additionalProperties: true },
   },
 };
 
-export const PublishEvalSuiteResultSchema: JsonSchema = {
+export const PublishTestSetResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['suiteId', 'version'],
+  required: ['testSetId', 'version'],
   properties: {
-    suiteId: { type: 'string' },
+    testSetId: { type: 'string' },
     version: { type: 'string' },
   },
 };
 
-export const UnregisterEvalSuiteResultSchema: JsonSchema = {
+export const UnregisterTestSetResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['suiteId', 'version', 'unregistered'],
+  required: ['testSetId', 'version', 'unregistered'],
   properties: {
-    suiteId: { type: 'string' },
+    testSetId: { type: 'string' },
     version: { type: 'string' },
     unregistered: { type: 'boolean', const: true },
   },
 };
 
-export const ReinstateEvalSuiteVersionResultSchema: JsonSchema = {
+export const ReinstateTestSetVersionResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['suiteId', 'version', 'wasTombstoned'],
+  required: ['testSetId', 'version', 'wasTombstoned'],
   properties: {
-    suiteId: { type: 'string' },
+    testSetId: { type: 'string' },
     version: { type: 'string' },
     wasTombstoned: { type: 'boolean' },
   },
@@ -9001,19 +8995,19 @@ export const ReinstateBlockResultSchema: JsonSchema = {
   },
 };
 
-// ---------------- eval runs (admin plane) ----------------
+// ---------------- test runs (admin plane) ----------------
 
 /**
- * Terminal + pre-terminal statuses for an eval run. Same vocabulary as
+ * Terminal + pre-terminal statuses for a test run. Same vocabulary as
  * runs, plus a `pending` state for dispatchers that queue before
  * executing.
  */
-export const EvalRunStatusSchema: JsonSchema = {
+export const TestRunStatusSchema: JsonSchema = {
   type: 'string',
   enum: ['pending', 'running', 'completed', 'failed', 'cancelled'],
 };
 
-export const EvalRunAgentRefSchema: JsonSchema = {
+export const TestRunAgentRefSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['agentId'],
@@ -9023,7 +9017,7 @@ export const EvalRunAgentRefSchema: JsonSchema = {
   },
 };
 
-export const EvalRunFlowRefSchema: JsonSchema = {
+export const TestRunFlowRefSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['flowId'],
@@ -9033,9 +9027,9 @@ export const EvalRunFlowRefSchema: JsonSchema = {
   },
 };
 
-export const EvalBaselineSchema: JsonSchema = {
+export const TestRunBaselineSchema: JsonSchema = {
   description:
-    "What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.",
+    "What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version pinned in a scope (`{ pinned: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.",
   oneOf: [
     { type: 'string', enum: ['recorded'] },
     {
@@ -9047,9 +9041,9 @@ export const EvalBaselineSchema: JsonSchema = {
     {
       type: 'object',
       additionalProperties: false,
-      required: ['live'],
+      required: ['pinned'],
       properties: {
-        live: {
+        pinned: {
           type: 'object',
           additionalProperties: false,
           properties: {
@@ -9059,7 +9053,7 @@ export const EvalBaselineSchema: JsonSchema = {
               items: { $ref: '#/components/schemas/ScopeSegment' },
               maxItems: 8,
               description:
-                'A segment path in `projectId`, coarse to fine, as live versions resolve it. Needs `projectId`.',
+                'A segment path in `projectId`, coarse to fine, as pinned versions resolve it. Needs `projectId`.',
             },
           },
         },
@@ -9068,11 +9062,11 @@ export const EvalBaselineSchema: JsonSchema = {
   ],
 };
 
-export const EvalOverridesSchema: JsonSchema = {
+export const TestRunOverridesSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "For an agent candidate: block content its replays run instead of the version's pinned content (an improvement pass's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a promotion.",
+    "For an agent candidate: block content its replays run instead of the version's pinned content (an Improve run's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a pin.",
   properties: {
     settings: {
       type: 'object',
@@ -9092,12 +9086,12 @@ export const EvalOverridesSchema: JsonSchema = {
   },
 };
 
-export const EvalSampleSchema: JsonSchema = {
+export const TestRunSampleSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['part', 'seed', 'holdOutShare'],
   description:
-    'Only part of the test set\'s cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a "no" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).',
+    'Only part of the test set\'s cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a "no" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A release gate refuses a comparison on the search part (`comparison.sample`).',
   properties: {
     part: { type: 'string', enum: ['search', 'hold-out'] },
     seed: { type: 'string', minLength: 1, maxLength: 200 },
@@ -9105,13 +9099,13 @@ export const EvalSampleSchema: JsonSchema = {
   },
 };
 
-export const EvalComparisonSchema: JsonSchema = {
+export const TestRunComparisonSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['baseline', 'reads', 'repetitions', 'k'],
-  description: "A comparison eval run's settings (a `judged` suite).",
+  description: "A comparison test run's settings (a `corrections` test set).",
   properties: {
-    baseline: { $ref: '#/components/schemas/EvalBaseline' },
+    baseline: { $ref: '#/components/schemas/TestRunBaseline' },
     reads: {
       type: 'string',
       enum: ['recorded', 'live'],
@@ -9121,29 +9115,29 @@ export const EvalComparisonSchema: JsonSchema = {
     repetitions: { type: 'integer', minimum: 1, maximum: 10 },
     k: { type: 'integer', minimum: 1, maximum: 100 },
     versions: { $ref: '#/components/schemas/FlowVersionOverrides' },
-    classWeights: {
+    groupWeights: {
       type: 'string',
-      enum: ['as-recorded', 'restricted-only'],
+      enum: ['as-recorded', 'experts-only'],
       description:
-        "Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).",
+        "Which corrections count: each at its group's weight (`as-recorded`, the default), or only those recorded while their group was restricted (`Correction.expert`), the others weighing 0 (`experts-only`).",
     },
-    overrides: { $ref: '#/components/schemas/EvalOverrides' },
-    sample: { $ref: '#/components/schemas/EvalSample' },
+    overrides: { $ref: '#/components/schemas/TestRunOverrides' },
+    sample: { $ref: '#/components/schemas/TestRunSample' },
     rescoreOf: {
       type: 'string',
       description:
-        "Rescore that comparison eval run instead of replaying: its replays' outputs are scored again, with the judgments recorded on them since (a changed answer judged on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/eval-runs/{runId}/rescore`.",
+        "Rescore that comparison test run instead of replaying: its replays' outputs are scored again, with the corrections recorded on them since (a changed answer corrected on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/test-runs/{testRunId}/rescore`.",
     },
   },
 };
 
-// ---------------- comparison results (a `judged` eval run's `result`) ----------------
+// ---------------- comparison results (a `corrections` test run's `result`) ----------------
 
 const nullableNumber = { type: ['number', 'null'] } as const;
 
 export const ComparisonMetricSchema: JsonSchema = {
   description:
-    "One metric, the recorded runs beside the candidate. `null` where a side had no judged evidence; `n` / `weight` are the candidate's evidence (cases with judged items, and the judgment weight behind them), `baselineN` / `baselineWeight` the recorded side's.",
+    "One metric, the recorded runs beside the candidate. `null` where a side had no evidence from corrections; `n` / `weight` are the candidate's evidence (cases with corrected items, and the correction weight behind them), `baselineN` / `baselineWeight` the recorded side's.",
   type: 'object',
   additionalProperties: false,
   required: [
@@ -9178,7 +9172,7 @@ export const ComparisonMetricSchema: JsonSchema = {
       type: 'number',
       minimum: 0,
       description:
-        "Of `weight`, the part judged on the candidate's replays themselves (a rescore, after people judged a changed answer there). Absent when none. Not on `weightedPrecisionAtK`.",
+        "Of `weight`, the part corrected on the candidate's replays themselves (a rescore, after people corrected a changed answer there). Absent when none. Not on `weightedPrecisionAtK`.",
     },
   },
 };
@@ -9198,13 +9192,13 @@ export const ComparisonCandidateSchema: JsonSchema = {
         pinsDigest: {
           type: 'string',
           description:
-            "The version's pinsDigest: what it ran, as a promotion gate checks. Absent for a version published before pins, and from a comparison recorded before it.",
+            "The version's pinsDigest: what it ran, as a release gate checks. Absent for a version published before pins, and from a comparison recorded before it.",
         },
         overrides: {
           type: 'object',
           additionalProperties: false,
           description:
-            "The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.",
+            "The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a pin. Absent otherwise.",
           properties: {
             settings: { type: 'array', items: { type: 'string' } },
             prompts: { type: 'array', items: { type: 'string' } },
@@ -9226,16 +9220,16 @@ export const ComparisonCandidateSchema: JsonSchema = {
   ],
 };
 
-export const JudgedComparisonSummarySchema: JsonSchema = {
+export const CorrectedComparisonSummarySchema: JsonSchema = {
   description:
-    'What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a promotion gate reads.',
+    'What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a release gate reads.',
   type: 'object',
   additionalProperties: false,
   required: [
-    'evalRunId',
+    'testRunId',
     'status',
     'completedAt',
-    'suite',
+    'testSet',
     'candidate',
     'baseline',
     'scope',
@@ -9250,10 +9244,10 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
     'metrics',
   ],
   properties: {
-    evalRunId: { type: 'string' },
+    testRunId: { type: 'string' },
     status: { type: 'string', enum: ['completed', 'partial', 'failed'] },
     completedAt: { type: 'string', format: 'date-time' },
-    suite: {
+    testSet: {
       type: 'object',
       additionalProperties: false,
       required: ['id', 'version'],
@@ -9294,8 +9288,8 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
             kind: { type: 'string', enum: ['version'] },
             agentId: { type: 'string' },
             version: { type: 'string' },
-            via: { type: 'string', enum: ['explicit', 'live'] },
-            liveScope: { type: 'object', additionalProperties: true },
+            via: { type: 'string', enum: ['explicit', 'pinned'] },
+            pinnedScope: { type: 'object', additionalProperties: true },
           },
         },
       ],
@@ -9303,7 +9297,7 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
     scope: {
       type: 'object',
       additionalProperties: false,
-      description: "Where the test set's judgments came from.",
+      description: "Where the test set's corrections came from.",
       properties: { projectId: { type: 'string' } },
     },
     cases: { type: 'integer', minimum: 0 },
@@ -9327,7 +9321,7 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
     },
     rescoreOf: {
       type: 'string',
-      description: 'A rescore: the comparison eval run whose replays it scored again.',
+      description: 'A rescore: the comparison test run whose replays it scored again.',
     },
     notRescored: {
       type: 'integer',
@@ -9342,14 +9336,14 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
         "Flow cases that stopped at a refused tool call: no output to score, so they're left out of the metrics.",
     },
     reads: { type: 'string', enum: ['recorded', 'live'] },
-    classWeights: {
+    groupWeights: {
       type: 'string',
-      enum: ['as-recorded', 'restricted-only'],
+      enum: ['as-recorded', 'experts-only'],
       description:
-        'Which judgments counted. Absent from a comparison recorded before restricted classes: `as-recorded`.',
+        'Which corrections counted. Absent from a comparison recorded before expert groups: `as-recorded`.',
     },
     sample: {
-      $ref: '#/components/schemas/EvalSample',
+      $ref: '#/components/schemas/TestRunSample',
       description: 'The part of the test set it ran. Absent: every case.',
     },
     sampling: {
@@ -9378,10 +9372,10 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
     metrics: {
       type: 'object',
       additionalProperties: false,
-      required: ['weightedYesShare', 'judgedCoverage', 'weightedPrecisionAtK'],
+      required: ['passRate', 'caseCoverage', 'weightedPrecisionAtK'],
       properties: {
-        weightedYesShare: { $ref: '#/components/schemas/ComparisonMetric' },
-        judgedCoverage: { $ref: '#/components/schemas/ComparisonMetric' },
+        passRate: { $ref: '#/components/schemas/ComparisonMetric' },
+        caseCoverage: { $ref: '#/components/schemas/ComparisonMetric' },
         weightedPrecisionAtK: { $ref: '#/components/schemas/ComparisonMetric' },
       },
     },
@@ -9390,7 +9384,7 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
       additionalProperties: false,
       required: ['checked', 'passed'],
       description:
-        'Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.',
+        'Corrections graded across the cases: shown for a release gate, not enforced. Absent when the test set carries no corrections.',
       properties: {
         checked: { type: 'integer', minimum: 0, description: 'How many corrections were graded.' },
         passed: {
@@ -9398,27 +9392,27 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
           minimum: 0,
           description: 'How many passed (every repetition passed).',
         },
-        judgments: {
+        results: {
           type: 'array',
           description:
-            'Each correction graded, by its judgment: whether it passed (every repetition did). What an improvement pass compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.',
+            'Each correction graded: whether it passed (every repetition did). What an Improve run compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.',
           items: {
             type: 'object',
             additionalProperties: false,
-            required: ['judgmentId', 'pass'],
+            required: ['correctionId', 'pass'],
             properties: {
-              judgmentId: { type: 'string' },
+              correctionId: { type: 'string' },
               pass: { type: 'boolean' },
             },
           },
         },
       },
     },
-    costUsd: { $ref: '#/components/schemas/JudgedComparisonCost' },
+    costUsd: { $ref: '#/components/schemas/CorrectedComparisonCost' },
   },
 };
 
-export const JudgedComparisonCostSchema: JsonSchema = {
+export const CorrectedComparisonCostSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['candidate', 'cases'],
@@ -9447,14 +9441,14 @@ export const JudgedComparisonCostSchema: JsonSchema = {
 const outputScore = {
   type: 'object',
   additionalProperties: false,
-  required: ['yesWeight', 'totalWeight', 'items', 'judgedItems', 'topK'],
+  required: ['yesWeight', 'totalWeight', 'items', 'correctedItems', 'topK'],
   description:
-    "An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.",
+    "An output's score: Σ yesWeight and Σ totalWeight over its corrected items, and over those among the first `k` ranked items.",
   properties: {
     yesWeight: { type: 'number' },
     totalWeight: { type: 'number' },
     items: { type: 'integer', minimum: 0 },
-    judgedItems: { type: 'integer', minimum: 0 },
+    correctedItems: { type: 'integer', minimum: 0 },
     topK: {
       type: 'object',
       additionalProperties: false,
@@ -9466,7 +9460,7 @@ const outputScore = {
       additionalProperties: false,
       required: ['yesWeight', 'totalWeight', 'items'],
       description:
-        'The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.',
+        'The part of these sums corrected on this output itself (a replay corrected after it ran). Absent when none was.',
       properties: {
         yesWeight: { type: 'number' },
         totalWeight: { type: 'number' },
@@ -9504,7 +9498,7 @@ export const ComparisonCaseResultSchema: JsonSchema = {
       type: 'object',
       additionalProperties: false,
       required: ['kept', 'dropped', 'new'],
-      description: "The first repetition's items against the judged ones.",
+      description: "The first repetition's items against the corrected ones.",
       properties: {
         kept: {
           type: 'array',
@@ -9538,12 +9532,12 @@ export const ComparisonCaseResultSchema: JsonSchema = {
               key: { type: 'string' },
               pointer: { type: 'string' },
               rank: { type: 'integer' },
-              judged: {
+              corrected: {
                 type: 'object',
                 additionalProperties: false,
                 required: ['yesWeight', 'totalWeight'],
                 description:
-                  'What people said about this item on the replay itself, once they judged it there.',
+                  'What people said about this item on the replay itself, once they corrected it there.',
                 properties: { yesWeight: { type: 'number' }, totalWeight: { type: 'number' } },
               },
             },
@@ -9581,9 +9575,9 @@ export const ComparisonCaseResultSchema: JsonSchema = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['judgmentId', 'pass', 'repetitionsPassed', 'repetitions'],
+        required: ['correctionId', 'pass', 'repetitionsPassed', 'repetitions'],
         properties: {
-          judgmentId: { type: 'string' },
+          correctionId: { type: 'string' },
           pass: { type: 'boolean', description: 'Passed only when every repetition passed.' },
           repetitionsPassed: { type: 'integer', minimum: 0, description: 'The `k` of "k of n".' },
           repetitions: { type: 'integer', minimum: 1, description: 'The `n` of "k of n".' },
@@ -9593,13 +9587,13 @@ export const ComparisonCaseResultSchema: JsonSchema = {
     correctionDifferences: {
       type: 'array',
       description:
-        "The ways each correction's calls differed, by judgment: the differences from the first repetition that failed it, and that repetition's number. Quotes argument values, so an erasure clears it (the verdicts and counts stay in `corrections`).",
+        "The ways each correction's calls differed, by correction: the differences from the first repetition that failed it, and that repetition's number. Quotes argument values, so an erasure clears it (the verdicts and counts stay in `corrections`).",
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['judgmentId', 'repetition', 'differences'],
+        required: ['correctionId', 'repetition', 'differences'],
         properties: {
-          judgmentId: { type: 'string' },
+          correctionId: { type: 'string' },
           repetition: {
             type: 'integer',
             minimum: 1,
@@ -9641,10 +9635,10 @@ export const ComparisonCaseResultSchema: JsonSchema = {
   },
 };
 
-export const RescoreEvalRunBodySchema: JsonSchema = {
+export const RescoreTestRunBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  description: 'Body of `POST /v1/eval-runs/{runId}/rescore`: optional.',
+  description: 'Body of `POST /v1/test-runs/{testRunId}/rescore`: optional.',
   properties: {
     projectId: {
       type: 'string',
@@ -9654,46 +9648,46 @@ export const RescoreEvalRunBodySchema: JsonSchema = {
   },
 };
 
-export const JudgedComparisonResultSchema: JsonSchema = {
+export const CorrectedComparisonResultSchema: JsonSchema = {
   description:
-    "A comparison's `result` (a `judged` eval run's): the summary and each case. `EvalRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).",
+    "A comparison's `result` (a `corrections` test run's): the summary and each case. `TestRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).",
   type: 'object',
   additionalProperties: false,
   required: ['summary', 'perCase'],
   properties: {
-    summary: { $ref: '#/components/schemas/JudgedComparisonSummary' },
+    summary: { $ref: '#/components/schemas/CorrectedComparisonSummary' },
     perCase: { type: 'array', items: { $ref: '#/components/schemas/ComparisonCaseResult' } },
   },
 };
 
-export const EvalRunSchema: JsonSchema = {
+export const TestRunSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: [
-    'runId',
+    'testRunId',
     'tenantId',
-    'suiteId',
-    'suiteVersion',
+    'testSetId',
+    'testSetVersion',
     'kind',
     'status',
     'dryRun',
     'startedAt',
   ],
   properties: {
-    runId: { type: 'string', format: 'uuid' },
+    testRunId: { type: 'string', format: 'uuid' },
     tenantId: { type: 'string', format: 'uuid' },
     projectId: {
       type: 'string',
       format: 'uuid',
       description:
-        'The project the eval run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6.',
+        'The project the test run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6.',
     },
-    suiteId: { type: 'string' },
-    suiteVersion: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
-    kind: { $ref: '#/components/schemas/EvalKind' },
-    agentRef: { $ref: '#/components/schemas/EvalRunAgentRef' },
-    flowRef: { $ref: '#/components/schemas/EvalRunFlowRef' },
-    status: EvalRunStatusSchema,
+    testSetId: { type: 'string' },
+    testSetVersion: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
+    kind: { $ref: '#/components/schemas/TestSetKind' },
+    agentRef: { $ref: '#/components/schemas/TestRunAgentRef' },
+    flowRef: { $ref: '#/components/schemas/TestRunFlowRef' },
+    status: TestRunStatusSchema,
     dryRun: { type: 'boolean' },
     startedAt: { type: 'string', format: 'date-time' },
     completedAt: { type: 'string', format: 'date-time' },
@@ -9701,7 +9695,7 @@ export const EvalRunSchema: JsonSchema = {
       type: 'object',
       additionalProperties: true,
       description:
-        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.',
+        'Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `corrections` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`passRate`, `caseCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.',
     },
     error: { type: 'string' },
     cancelReason: {
@@ -9710,55 +9704,55 @@ export const EvalRunSchema: JsonSchema = {
         "Why a `cancelled` run stopped when nobody cancelled it: its project or tenant took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.",
     },
     correlationId: { type: 'string' },
-    comparison: { $ref: '#/components/schemas/EvalComparison' },
+    comparison: { $ref: '#/components/schemas/TestRunComparison' },
   },
 };
 
-export const EvalRunCollectionPageSchema: JsonSchema = {
+export const TestRunCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/EvalRun' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/TestRun' } },
     nextCursor: { type: 'string' },
     hasMore: { type: 'boolean' },
   },
 };
 
-export const StartEvalRunBodySchema: JsonSchema = {
+export const StartTestRunBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['projectId'],
   properties: {
     projectId: ContentProjectIdProperty,
-    agentRef: { $ref: '#/components/schemas/EvalRunAgentRef' },
-    flowRef: { $ref: '#/components/schemas/EvalRunFlowRef' },
+    agentRef: { $ref: '#/components/schemas/TestRunAgentRef' },
+    flowRef: { $ref: '#/components/schemas/TestRunFlowRef' },
     dryRun: { type: 'boolean' },
     correlationId: { type: 'string' },
-    baseline: { $ref: '#/components/schemas/EvalBaseline' },
+    baseline: { $ref: '#/components/schemas/TestRunBaseline' },
     reads: { type: 'string', enum: ['recorded', 'live'] },
     repetitions: { type: 'integer', minimum: 1, maximum: 10 },
     k: { type: 'integer', minimum: 1, maximum: 100 },
     versions: { $ref: '#/components/schemas/FlowVersionOverrides' },
-    classWeights: {
+    groupWeights: {
       type: 'string',
-      enum: ['as-recorded', 'restricted-only'],
+      enum: ['as-recorded', 'experts-only'],
       description:
-        "Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).",
+        "Which corrections count: each at its group's weight (`as-recorded`, the default), or only those recorded while their group was restricted (`Correction.expert`), the others weighing 0 (`experts-only`).",
     },
-    overrides: { $ref: '#/components/schemas/EvalOverrides' },
-    sample: { $ref: '#/components/schemas/EvalSample' },
+    overrides: { $ref: '#/components/schemas/TestRunOverrides' },
+    sample: { $ref: '#/components/schemas/TestRunSample' },
   },
   description:
-    "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).",
+    "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `corrections` test set (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).",
 };
 
-export const StartEvalRunResultSchema: JsonSchema = {
+export const StartTestRunResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['runId'],
+  required: ['testRunId'],
   properties: {
-    runId: { type: 'string', format: 'uuid' },
+    testRunId: { type: 'string', format: 'uuid' },
     dryRunPreview: { type: 'object', additionalProperties: true },
   },
 };
@@ -10884,22 +10878,22 @@ export const MyPermissionsSchema: JsonSchema = {
   },
 };
 
-// ---------- judging rules and queue ----------
+// ---------- queue rules and queue ----------
 
-export const JudgingRunStatusSchema: JsonSchema = {
+export const ExpertQueueRunStatusSchema: JsonSchema = {
   type: 'string',
   enum: ['completed', 'failed', 'cancelled'],
   description: 'How a run ended.',
 };
 
-export const JudgingQueueStateSchema: JsonSchema = {
+export const ExpertQueueStateSchema: JsonSchema = {
   type: 'string',
-  enum: ['open', 'judged', 'dismissed', 'erased'],
+  enum: ['open', 'corrected', 'dismissed', 'erased'],
   description:
-    "Where a queued run stands. `judged`: every rule that queued it has the judgment it wants. `erased`: the run's content is gone (erased, or the run purged); the item shows nothing of it.",
+    "Where a queued run stands. `corrected`: every rule that queued it has the correction it wants. `erased`: the run's content is gone (erased, or the run purged); the item shows nothing of it.",
 };
 
-export const JudgingRuleWhenSchema: JsonSchema = {
+export const QueueRuleWhenSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
@@ -10913,22 +10907,22 @@ export const JudgingRuleWhenSchema: JsonSchema = {
       maxItems: 50,
       items: { type: 'string' },
       description:
-        "These versions exactly, or `live`: runs that got the agent's live version, not one the caller named. Runs from before the runtime recorded how their version was chosen never match `live`.",
+        "These versions exactly, or `pinned`: runs that got the agent's pinned version, not one the caller named. Runs from before the runtime recorded how their version was chosen never match `pinned`.",
     },
     status: {
       type: 'array',
       minItems: 1,
-      items: { $ref: '#/components/schemas/JudgingRunStatus' },
+      items: { $ref: '#/components/schemas/ExpertQueueRunStatus' },
       description:
-        'How the run ended. Only `completed` today: a judgment needs a completed run, so `failed` and `cancelled` are refused (400). Absent: `completed`.',
+        'How the run ended. Only `completed` today: a correction needs a completed run, so `failed` and `cancelled` are refused (400). Absent: `completed`.',
     },
     includeDryRuns: { type: 'boolean', description: 'Dry runs are left out unless `true`.' },
   },
 };
 
-const JUDGING_RULE_FIELDS: Record<string, JsonSchema> = {
+const QUEUE_RULE_FIELDS: Record<string, JsonSchema> = {
   name: { type: 'string', minLength: 1, maxLength: 200 },
-  when: { $ref: '#/components/schemas/JudgingRuleWhen' },
+  when: { $ref: '#/components/schemas/QueueRuleWhen' },
   sample: {
     type: 'number',
     exclusiveMinimum: 0,
@@ -10942,27 +10936,28 @@ const JUDGING_RULE_FIELDS: Record<string, JsonSchema> = {
     maximum: 10000,
     description: 'Queue nothing while this rule has this many open items. Absent: no cap.',
   },
-  judgeClassId: {
+  correctorGroupId: {
     type: 'string',
-    description: 'Whose judgment it wants: one of this class closes it. Absent: any judgment does.',
+    description:
+      'Whose correction it wants: one of this group closes it. Absent: any correction does.',
   },
   enabled: { type: 'boolean', description: 'Default `true`.' },
 };
 
-export const JudgingRuleSpecSchema: JsonSchema = {
+export const QueueRuleSpecSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['name', 'when'],
-  description: 'A judging rule as written. It only lists runs: nothing here starts a model.',
-  properties: JUDGING_RULE_FIELDS,
+  description: 'A queue rule as written. It only lists runs: nothing here starts a model.',
+  properties: QUEUE_RULE_FIELDS,
 };
 
-export const JudgingRulePatchSchema: JsonSchema = {
+export const QueueRulePatchSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description: 'The fields to change; `when` is replaced whole.',
   properties: {
-    ...JUDGING_RULE_FIELDS,
+    ...QUEUE_RULE_FIELDS,
     maxOpen: {
       type: ['integer', 'null'],
       minimum: 1,
@@ -10970,24 +10965,24 @@ export const JudgingRulePatchSchema: JsonSchema = {
       description:
         'Queue nothing while this rule has this many open items. `null` removes the cap.',
     },
-    judgeClassId: {
+    correctorGroupId: {
       type: ['string', 'null'],
       description:
-        'Whose judgment it wants: one of this class closes it. `null`: any judgment does.',
+        'Whose correction it wants: one of this group closes it. `null`: any correction does.',
     },
   },
 };
 
-export const JudgingRuleSchema: JsonSchema = {
+export const QueueRuleSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['ruleId', 'projectId', 'version', 'name', 'when', 'sample', 'enabled', 'createdAt'],
-  description: 'One version of a judging rule; the latest live one applies.',
+  description: 'One version of a queue rule; the latest live one applies.',
   properties: {
     ruleId: { type: 'string' },
     projectId: { type: 'string' },
     version: { type: 'integer', minimum: 1 },
-    ...JUDGING_RULE_FIELDS,
+    ...QUEUE_RULE_FIELDS,
     sample: { type: 'number', exclusiveMinimum: 0, maximum: 1 },
     enabled: { type: 'boolean' },
     createdBy: { type: 'string', description: 'Who wrote this version.' },
@@ -10996,62 +10991,62 @@ export const JudgingRuleSchema: JsonSchema = {
   },
 };
 
-export const JudgingRulePageSchema: JsonSchema = {
+export const QueueRulePageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/JudgingRule' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/QueueRule' } },
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
   },
 };
 
-export const JudgingRuleUnregisterResultSchema: JsonSchema = {
+export const QueueRuleUnregisterResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['ruleId', 'unregistered'],
   properties: { ruleId: { type: 'string' }, unregistered: { type: 'boolean' } },
 };
 
-export const JudgingClassCountSchema: JsonSchema = {
+export const ExpertQueueGroupCountSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['judgeClassId', 'count'],
+  required: ['correctorGroupId', 'count'],
   properties: {
-    judgeClassId: { type: ['string', 'null'], description: '`null`: unclassified.' },
+    correctorGroupId: { type: ['string', 'null'], description: '`null`: unclassified.' },
     count: { type: 'integer', minimum: 0 },
   },
 };
 
-export const JudgingProgressSchema: JsonSchema = {
+export const ExpertQueueProgressSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['total', 'byClass'],
-  description: 'The live judgments on the run so far, by class.',
+  required: ['total', 'byGroup'],
+  description: 'The live corrections on the run so far, by group.',
   properties: {
     total: { type: 'integer', minimum: 0 },
-    byClass: { type: 'array', items: { $ref: '#/components/schemas/JudgingClassCount' } },
+    byGroup: { type: 'array', items: { $ref: '#/components/schemas/ExpertQueueGroupCount' } },
   },
 };
 
-export const JudgingItemCanSchema: JsonSchema = {
+export const ExpertQueueItemCanSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['dismiss', 'reopen'],
   description:
-    'What the caller may do with the item, by the check the routes make (`write` on the project, as judging the run needs).',
+    'What the caller may do with the item, by the check the routes make (`write` on the project, as correcting the run needs).',
   properties: { dismiss: { type: 'boolean' }, reopen: { type: 'boolean' } },
 };
 
-export const JudgingItemRuleSchema: JsonSchema = {
+export const ExpertQueueItemRuleSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['ruleId', 'version'],
   properties: { ruleId: { type: 'string' }, version: { type: 'integer', minimum: 1 } },
 };
 
-export const JudgingQueueItemSchema: JsonSchema = {
+export const ExpertQueueItemSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: [
@@ -11061,8 +11056,8 @@ export const JudgingQueueItemSchema: JsonSchema = {
     'runStatus',
     'completedAt',
     'rules',
-    'wantedClassIds',
-    'anyJudgment',
+    'wantedGroupIds',
+    'anyCorrection',
     'progress',
     'addedAt',
     'state',
@@ -11075,35 +11070,35 @@ export const JudgingQueueItemSchema: JsonSchema = {
     agentId: { type: 'string' },
     agentVersion: { type: 'string' },
     flowId: { type: 'string' },
-    runStatus: { $ref: '#/components/schemas/JudgingRunStatus' },
+    runStatus: { $ref: '#/components/schemas/ExpertQueueRunStatus' },
     completedAt: { type: 'string', format: 'date-time' },
     rules: {
       type: 'array',
-      items: { $ref: '#/components/schemas/JudgingItemRule' },
+      items: { $ref: '#/components/schemas/ExpertQueueItemRule' },
       description: 'The rules that queued it, each at the version that did.',
     },
-    wantedClassIds: {
+    wantedGroupIds: {
       type: 'array',
       items: { type: 'string' },
-      description: 'The judge classes its rules want.',
+      description: 'The corrector groups its rules want.',
     },
-    anyJudgment: { type: 'boolean', description: 'One of its rules wants any judgment.' },
-    progress: { $ref: '#/components/schemas/JudgingProgress' },
+    anyCorrection: { type: 'boolean', description: 'One of its rules wants any correction.' },
+    progress: { $ref: '#/components/schemas/ExpertQueueProgress' },
     addedAt: { type: 'string', format: 'date-time' },
-    state: { $ref: '#/components/schemas/JudgingQueueState' },
+    state: { $ref: '#/components/schemas/ExpertQueueState' },
     closedAt: { type: 'string', format: 'date-time' },
     closedBy: { type: 'string', description: 'Who dismissed or reopened it last.' },
     reason: { type: 'string', description: 'Why it was dismissed, when they said.' },
-    can: { $ref: '#/components/schemas/JudgingItemCan' },
+    can: { $ref: '#/components/schemas/ExpertQueueItemCan' },
   },
 };
 
-export const JudgingQueuePageSchema: JsonSchema = {
+export const ExpertQueuePageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['data', 'hasMore', 'total'],
   properties: {
-    data: { type: 'array', items: { $ref: '#/components/schemas/JudgingQueueItem' } },
+    data: { type: 'array', items: { $ref: '#/components/schemas/ExpertQueueItem' } },
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
     total: {
@@ -11114,24 +11109,24 @@ export const JudgingQueuePageSchema: JsonSchema = {
   },
 };
 
-export const JudgingDismissBodySchema: JsonSchema = {
+export const ExpertQueueDismissBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   properties: { reason: { type: 'string', maxLength: 500 } },
 };
 
-export const JudgingClassResultSchema: JsonSchema = {
+export const QueueRuleGroupResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['judgeClassId', 'judgments', 'yes'],
+  required: ['correctorGroupId', 'corrections', 'yes'],
   properties: {
-    judgeClassId: { type: ['string', 'null'], description: '`null`: unclassified.' },
-    judgments: { type: 'integer', minimum: 0 },
+    correctorGroupId: { type: ['string', 'null'], description: '`null`: unclassified.' },
+    corrections: { type: 'integer', minimum: 0 },
     yes: { type: 'integer', minimum: 0 },
   },
 };
 
-export const JudgingResultGroupSchema: JsonSchema = {
+export const QueueRuleResultGroupSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: [
@@ -11139,16 +11134,16 @@ export const JudgingResultGroupSchema: JsonSchema = {
     'agentVersion',
     'added',
     'open',
-    'judged',
+    'corrected',
     'dismissed',
     'erased',
     'skippedByCap',
-    'judgments',
+    'corrections',
     'yesShare',
-    'byClass',
+    'byGroup',
   ],
   description:
-    "One rule version's runs of one agent version. `added` = `open` + `judged` + `dismissed` + `erased`.",
+    "One rule version's runs of one agent version. `added` = `open` + `corrected` + `dismissed` + `erased`.",
   properties: {
     ruleVersion: { type: 'integer', minimum: 1 },
     agentVersion: {
@@ -11157,7 +11152,7 @@ export const JudgingResultGroupSchema: JsonSchema = {
     },
     added: { type: 'integer', minimum: 0 },
     open: { type: 'integer', minimum: 0 },
-    judged: { type: 'integer', minimum: 0 },
+    corrected: { type: 'integer', minimum: 0 },
     dismissed: { type: 'integer', minimum: 0 },
     erased: { type: 'integer', minimum: 0 },
     skippedByCap: {
@@ -11166,32 +11161,32 @@ export const JudgingResultGroupSchema: JsonSchema = {
       description:
         "Runs the rule matched and sampled but didn't queue, because `maxOpen` were waiting, even when another rule queued them. Non-zero: the queued runs lean toward quiet times. `added` + `skippedByCap` = every run the rule matched and sampled.",
     },
-    judgments: {
+    corrections: {
       type: 'integer',
       minimum: 0,
       description:
-        "Live judgments on the queued runs: each is one person's verdict on one item of a run's output.",
+        "Live corrections on the queued runs: each is one person's verdict on one item of a run's output.",
     },
-    runsWithJudgments: {
+    runsWithCorrections: {
       type: 'integer',
       minimum: 0,
       description:
-        "The queued runs with at least one live judgment: the runs `judgments` and `yesShare` come from, whatever their item's state now (still `open`, closed as `judged`, or dismissed after someone judged it). Several people judging one run make several judgments but one run here. Absent from a runtime that doesn't count them.",
+        "The queued runs with at least one live correction: the runs `corrections` and `yesShare` come from, whatever their item's state now (still `open`, closed as `corrected`, or dismissed after someone corrected it). Several people correcting one run make several corrections but one run here. Absent from a runtime that doesn't count them.",
     },
     yesShare: {
       type: ['number', 'null'],
       description:
-        'The `yes` share of those judgments, each weighted by its class (unclassified: 1). `null` with none.',
+        'The `yes` share of those corrections, each weighted by its group (no group: 1). `null` with none.',
     },
-    byClass: {
+    byGroup: {
       type: 'array',
-      items: { $ref: '#/components/schemas/JudgingClassResult' },
-      description: 'The same judgments by class, unweighted.',
+      items: { $ref: '#/components/schemas/QueueRuleGroupResult' },
+      description: 'The same corrections by group, unweighted.',
     },
   },
 };
 
-export const JudgingRuleResultsSchema: JsonSchema = {
+export const QueueRuleResultsSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['ruleId', 'groups'],
@@ -11200,14 +11195,14 @@ export const JudgingRuleResultsSchema: JsonSchema = {
     since: { type: 'string', format: 'date-time' },
     groups: {
       type: 'array',
-      items: { $ref: '#/components/schemas/JudgingResultGroup' },
+      items: { $ref: '#/components/schemas/QueueRuleResultGroup' },
       description:
         "By the rule's version and the agent's, newest rule version first: two versions of a rule are two sampling designs, never pooled.",
     },
   },
 };
 
-export const JudgingRulePreviewSchema: JsonSchema = {
+export const QueueRulePreviewSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['considered', 'matched'],
@@ -11221,7 +11216,7 @@ export const JudgingRulePreviewSchema: JsonSchema = {
   },
 };
 
-export const JudgingQueueRecentInputSchema: JsonSchema = {
+export const ExpertQueueRecentInputSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   minProperties: 1,
@@ -11241,7 +11236,7 @@ export const JudgingQueueRecentInputSchema: JsonSchema = {
   },
 };
 
-export const JudgingRecentQueuedSchema: JsonSchema = {
+export const ExpertQueueRecentQueuedSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['queued', 'alreadyQueued', 'alreadyReviewed'],
@@ -11262,7 +11257,7 @@ export const JudgingRecentQueuedSchema: JsonSchema = {
       type: 'integer',
       minimum: 0,
       description:
-        'Matching recent runs whose run was already judged or dismissed: left as they are, not re-queued. An already-erased run is no longer a match and is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed` together are the matches.',
+        'Matching recent runs whose run was already corrected or dismissed: left as they are, not re-queued. An already-erased run is no longer a match and is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed` together are the matches.',
     },
   },
 };
@@ -11596,10 +11591,10 @@ export const DeploymentPromotionBodySchema: JsonSchema = {
       maxLength: 1000,
       description: 'Why, kept in the `deployment-promoted` audit record.',
     },
-    makeLive: {
+    pin: {
       type: 'boolean',
       description:
-        "Make every agent version the promotion carries live in the target project, each through its scope's gate, and pin every flow version it carries there (the project's pin), so a run there that names no version takes it. The answer's `live` reports each agent and `pinnedFlows` each flow. An error answered after some were already pinned lists those in `error.details.live` and `error.details.pinnedFlows`, in the answer's shapes.",
+        "Pin every agent version the promotion carries in the target project, each through its scope's release gate, and every flow version it carries (the project's pin), so a run there that names no version takes it. The answer's `pinned` reports each agent and `pinnedFlows` each flow. An error answered after some were already pinned lists those in `error.details.pinned` and `error.details.pinnedFlows`, in the answer's shapes.",
     },
   },
 };
@@ -11667,28 +11662,28 @@ export const LeftBehindVersionSchema: JsonSchema = {
   },
 };
 
-/** The gate's say on a carried version's pin, there when it isn't live yet or ran checks. */
-export const DeploymentLivePinGateSchema: JsonSchema = {
+/** The gate's say on a carried version's pin, there when it isn't pinned yet or ran checks. */
+export const DeploymentPinGateSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['status', 'promotionId'],
+  required: ['status', 'changeId'],
   properties: {
     status: {
       type: 'string',
-      enum: ['promoted', 'pending-approval', 'refused', 'superseded', 'rejected', 'expired'],
+      enum: ['pinned', 'pending-approval', 'refused', 'superseded', 'rejected', 'expired'],
     },
-    promotionId: { type: 'string', format: 'uuid' },
-    policy: {
-      oneOf: [{ $ref: '#/components/schemas/GatePolicyRef' }, { type: 'null' }],
-      description: 'The gate policy that applied; null when none did.',
+    changeId: { type: 'string', format: 'uuid' },
+    releaseGate: {
+      oneOf: [{ $ref: '#/components/schemas/ReleaseGateRef' }, { type: 'null' }],
+      description: 'The release gate that applied; null when none did.',
     },
     approvalId: { type: 'string', description: 'The approval a `pending-approval` pin waits on.' },
     checks: { type: 'array', items: { $ref: '#/components/schemas/GateCheck' } },
   },
 };
 
-/** A carried agent version a make-live pinned, or tried to, in the target project. */
-export const DeploymentLivePinSchema: JsonSchema = {
+/** A carried agent version a promotion pinned, or tried to, in the target project. */
+export const DeploymentPinnedAgentSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'version', 'pinned'],
@@ -11698,13 +11693,13 @@ export const DeploymentLivePinSchema: JsonSchema = {
     pinned: {
       type: 'boolean',
       description:
-        'Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).',
+        'Pinned now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).',
     },
-    gate: { $ref: '#/components/schemas/DeploymentLivePinGate' },
+    gate: { $ref: '#/components/schemas/DeploymentPinGate' },
   },
 };
 
-/** A carried flow version a make-live pinned in the target project. */
+/** A carried flow version a promotion pinned in the target project. */
 export const DeploymentPinnedFlowSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -11733,17 +11728,17 @@ export const DeploymentPromotionSchema: JsonSchema = {
       items: { $ref: '#/components/schemas/LeftBehindVersion' },
       description: "Edits of the build's agents and flows that stay behind; absent when none.",
     },
-    live: {
+    pinned: {
       type: 'array',
-      items: { $ref: '#/components/schemas/DeploymentLivePin' },
+      items: { $ref: '#/components/schemas/DeploymentPinnedAgent' },
       description:
-        'Each carried agent pinned live in the target; present only when `makeLive` was asked.',
+        "Each carried agent's pin in the target, done or held by its gate; present only when `pin` was asked.",
     },
     pinnedFlows: {
       type: 'array',
       items: { $ref: '#/components/schemas/DeploymentPinnedFlow' },
       description:
-        "Each carried flow version pinned in the target (the project's pin); present only when `makeLive` was asked of a runtime that pins flows.",
+        "Each carried flow version pinned in the target (the project's pin); present only when `pin` was asked of a runtime that pins flows.",
     },
   },
 };
@@ -13587,7 +13582,7 @@ export const ScheduleRecordSchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        "A schedule that runs an agent: the agent, at `agentVersion`, else its version live for the schedule's project (else the latest), as a run that names none.",
+        "A schedule that runs an agent: the agent, at `agentVersion`, else its version pinned for the schedule's project (else the latest), as a run that names none.",
     },
     agentVersion: { type: 'string', minLength: 1 },
     improve: {
@@ -13695,10 +13690,10 @@ export const ImproveScheduleTargetSchema: JsonSchema = {
   additionalProperties: false,
   required: ['agentId', 'scope'],
   description:
-    'What an improve schedule works on: the agent, and the live scope its passes propose for and count judgments in.',
+    'What an improve schedule works on: the agent, and the pinned scope its Improve runs suggest changes for and count corrections in.',
   properties: {
     agentId: { type: 'string', minLength: 1 },
-    scope: { $ref: '#/components/schemas/LiveScope' },
+    scope: { $ref: '#/components/schemas/AgentPinScope' },
   },
 };
 
@@ -13706,11 +13701,11 @@ export const ImproveScheduleInputSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `classWeights` counts them: by default everyone's corrections until a restricted (experts') judge class is named, then experts' only. When there are enough, across enough runs and judges, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.",
+    "An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `groupWeights` counts them: by default everyone's corrections until a restricted (experts') corrector group is named, then experts' only. When there are enough, across enough runs and correctors, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.",
   properties: {
     tiers: { type: 'array', items: { type: 'string', enum: ['settings', 'prompt'] } },
-    objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
-    classWeights: { type: 'string', enum: ['restricted-only', 'as-recorded'] },
+    objective: { type: 'string', enum: ['passRate', 'weightedPrecisionAtK'] },
+    groupWeights: { type: 'string', enum: ['experts-only', 'as-recorded'] },
     model: {
       type: 'object',
       additionalProperties: false,
@@ -13722,7 +13717,7 @@ export const ImproveScheduleInputSchema: JsonSchema = {
       type: 'object',
       additionalProperties: false,
       description:
-        "Each pass's budget (default $5 and 30 candidates), never more than what's left of the month's cap.",
+        "Each Improve run's budget (default $5 and 30 candidates), never more than what's left of the month's cap.",
       properties: {
         maxCostUsd: { type: 'number', exclusiveMinimum: 0, maximum: 100 },
         maxCandidates: { type: 'integer', minimum: 1, maximum: 200 },
@@ -13731,18 +13726,18 @@ export const ImproveScheduleInputSchema: JsonSchema = {
     threshold: {
       type: 'object',
       additionalProperties: false,
-      description: 'Default 5 judgments, across 3 runs, from 2 judges.',
+      description: 'Default 5 corrections, across 3 runs, from 2 correctors.',
       properties: {
-        judgments: { type: 'integer', minimum: 1, maximum: 1000 },
+        corrections: { type: 'integer', minimum: 1, maximum: 1000 },
         runs: { type: 'integer', minimum: 1, maximum: 1000 },
-        judges: { type: 'integer', minimum: 1, maximum: 1000 },
+        correctors: { type: 'integer', minimum: 1, maximum: 1000 },
       },
     },
     monthlyCapUsd: {
       type: 'number',
       exclusiveMinimum: 0,
       maximum: 1000,
-      description: 'The most its passes may cost in a calendar month (UTC). Default 20.',
+      description: 'The most its Improve runs may cost in a calendar month (UTC). Default 20.',
     },
   },
 };
@@ -13782,7 +13777,7 @@ export const ScheduleFireSchema: JsonSchema = {
         'failed',
       ],
       description:
-        "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or pass started; its run or pass hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.",
+        "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or Improve run started; its run or Improve run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
     version: {
@@ -13791,10 +13786,10 @@ export const ScheduleFireSchema: JsonSchema = {
       description:
         "The trigger's version its run started with: the newest when it started. Absent until the run starts.",
     },
-    passId: {
+    improveRunId: {
       type: 'string',
       format: 'uuid',
-      description: 'The improvement pass it started (an improve schedule).',
+      description: 'The Improve run it started (an improve schedule).',
     },
     detail: { type: 'string', description: 'Why it was refused, skipped or failed.' },
     countsTowardPause: COUNTS_TOWARD_PAUSE,
@@ -13833,7 +13828,7 @@ export const RegisterScheduleBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'Name what it runs: `flowId` with `flowVersion`, `agentId` (with an optional `agentVersion`), or `improve` (improvement passes). Registering needs `write` on the project and `execute` on what it runs (`publish` on the agent for `improve`); its runs act as the caller.',
+    'Name what it runs: `flowId` with `flowVersion`, `agentId` (with an optional `agentVersion`), or `improve` (Improve runs). Registering needs `write` on the project and `execute` on what it runs (`publish` on the agent for `improve`); its runs act as the caller.',
   required: ['config'],
   properties: {
     flowId: { type: 'string', minLength: 1, description: 'Run a flow (with `flowVersion`).' },
@@ -13841,13 +13836,13 @@ export const RegisterScheduleBodySchema: JsonSchema = {
     agentId: {
       type: 'string',
       minLength: 1,
-      description: 'Run an agent (instead of a flow): at `agentVersion`, else its live version.',
+      description: 'Run an agent (instead of a flow): at `agentVersion`, else its pinned version.',
     },
     agentVersion: { type: 'string', minLength: 1 },
     improve: {
       $ref: '#/components/schemas/ImproveScheduleTarget',
       description:
-        'Start an improvement pass instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the pass options; registering needs `publish` on the agent.',
+        'Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `publish` on the agent.',
     },
     projectId: {
       type: 'string',
@@ -13904,13 +13899,13 @@ export const PatchScheduleBodySchema: JsonSchema = {
     agentId: {
       type: 'string',
       minLength: 1,
-      description: 'Run an agent (instead of a flow): at `agentVersion`, else its live version.',
+      description: 'Run an agent (instead of a flow): at `agentVersion`, else its pinned version.',
     },
     agentVersion: { type: 'string', minLength: 1 },
     improve: {
       $ref: '#/components/schemas/ImproveScheduleTarget',
       description:
-        'Start an improvement pass instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the pass options; registering needs `publish` on the agent.',
+        'Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `publish` on the agent.',
     },
     config: {
       type: 'object',
@@ -14490,7 +14485,7 @@ const MAIL_TRIGGER_TARGET_PROPERTIES: Record<string, JsonSchema> = {
   agentId: {
     type: 'string',
     minLength: 1,
-    description: 'Run an agent (instead of a flow): at `agentVersion`, else its live version.',
+    description: 'Run an agent (instead of a flow): at `agentVersion`, else its pinned version.',
   },
   agentVersion: { type: 'string', minLength: 1 },
 };
@@ -14908,7 +14903,7 @@ export const MailTriggerVersionPageSchema: JsonSchema =
 
 export const WebhookEventTypeSchema: JsonSchema = {
   type: 'string',
-  enum: ['run.finished', 'improvement-pass.finished', 'approval.requested'],
+  enum: ['run.finished', 'improve-run.finished', 'approval.requested'],
   description: 'An event type an endpoint can subscribe to.',
 };
 
@@ -15722,27 +15717,27 @@ export const RunFinishedEventSchema: JsonSchema = {
   },
 };
 
-export const ImprovementPassFinishedEventSchema: JsonSchema = {
+export const ImproveRunFinishedEventSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['id', 'type', 'createdAt', 'data'],
   description:
-    'An improvement pass ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the proposal it wrote, if it wrote one.',
+    'An Improve run ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the suggested change it wrote, if it wrote one.',
   properties: {
     id: {
       type: 'string',
       description: 'Event id, also sent as the `webhook-id` header; the same on every retry.',
     },
-    type: { type: 'string', const: 'improvement-pass.finished' },
+    type: { type: 'string', const: 'improve-run.finished' },
     createdAt: { type: 'string', format: 'date-time' },
     data: {
       type: 'object',
       additionalProperties: false,
-      required: ['pass'],
+      required: ['improveRun'],
       properties: {
-        pass: {
-          $ref: '#/components/schemas/ImprovementPass',
-          description: 'The pass, as `GET /v1/improvement-passes/{passId}` shows it.',
+        improveRun: {
+          $ref: '#/components/schemas/ImproveRun',
+          description: 'The Improve run, as `GET /v1/improve-runs/{improveRunId}` shows it.',
         },
       },
     },
@@ -15818,7 +15813,7 @@ export const WebhookEventSchema: JsonSchema = {
   description: 'The JSON body of every webhook request.',
   oneOf: [
     { $ref: '#/components/schemas/RunFinishedEvent' },
-    { $ref: '#/components/schemas/ImprovementPassFinishedEvent' },
+    { $ref: '#/components/schemas/ImproveRunFinishedEvent' },
     { $ref: '#/components/schemas/ApprovalRequestedEvent' },
     { $ref: '#/components/schemas/WebhookTestEvent' },
   ],
@@ -15826,7 +15821,7 @@ export const WebhookEventSchema: JsonSchema = {
     propertyName: 'type',
     mapping: {
       'run.finished': '#/components/schemas/RunFinishedEvent',
-      'improvement-pass.finished': '#/components/schemas/ImprovementPassFinishedEvent',
+      'improve-run.finished': '#/components/schemas/ImproveRunFinishedEvent',
       'approval.requested': '#/components/schemas/ApprovalRequestedEvent',
       'webhook.test': '#/components/schemas/WebhookTestEvent',
     },
@@ -16002,19 +15997,16 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RunWaitingToken', RunWaitingTokenSchema],
   ['RunTrigger', RunTriggerSchema],
   ['ScopeSegment', ScopeSegmentSchema],
-  ['LiveScopeTenant', LiveScopeTenantSchema],
-  ['LiveScopeOrg', LiveScopeOrgSchema],
-  ['LiveScopeProject', LiveScopeProjectSchema],
-  ['LiveScopeSegment', LiveScopeSegmentSchema],
-  ['LiveScope', LiveScopeSchema],
-  ['LiveVersionResolution', LiveVersionResolutionSchema],
-  ['LivePin', LivePinSchema],
-  ['LivePinList', LivePinListSchema],
+  ['PinScopeSegment', PinScopeSegmentSchema],
+  ['AgentPinScope', AgentPinScopeSchema],
+  ['AgentPinnedVersionResolution', AgentPinnedVersionResolutionSchema],
+  ['AgentPinnedVersion', AgentPinnedVersionSchema],
+  ['AgentPinnedVersionList', AgentPinnedVersionListSchema],
   ['ProjectPinnedVersionPage', ProjectPinnedVersionPageSchema],
   ['AgentProject', AgentProjectSchema],
   ['AgentProjectList', AgentProjectListSchema],
-  ['Promotion', PromotionSchema],
-  ['PromotionPage', PromotionPageSchema],
+  ['Pin', PinSchema],
+  ['PinPage', PinPageSchema],
   ['PinScopeTenant', PinScopeTenantSchema],
   ['PinScopeOrg', PinScopeOrgSchema],
   ['PinScopeProject', PinScopeProjectSchema],
@@ -16028,17 +16020,16 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PinVersionBody', PinVersionBodySchema],
   ['UnpinVersionBody', UnpinVersionBodySchema],
   ['GateCheck', GateCheckSchema],
-  ['GatePolicyRef', GatePolicyRefSchema],
+  ['ReleaseGateRef', ReleaseGateRefSchema],
   ['GateApproval', GateApprovalSchema],
-  ['GatePolicySpec', GatePolicySpecSchema],
-  ['GatePolicy', GatePolicySchema],
-  ['GatePolicyPage', GatePolicyPageSchema],
-  ['PublishGatePolicyBody', PublishGatePolicyBodySchema],
-  ['GatePolicyResolution', GatePolicyResolutionSchema],
-  ['PromotionCheck', PromotionCheckSchema],
-  ['PromoteBody', PromoteBodySchema],
-  ['RollbackBody', RollbackBodySchema],
-  ['UnpinBody', UnpinBodySchema],
+  ['ReleaseGateSpec', ReleaseGateSpecSchema],
+  ['ReleaseGate', ReleaseGateSchema],
+  ['ReleaseGatePage', ReleaseGatePageSchema],
+  ['PublishReleaseGateBody', PublishReleaseGateBodySchema],
+  ['ReleaseGateResolution', ReleaseGateResolutionSchema],
+  ['PinCheck', PinCheckSchema],
+  ['AgentPinBody', AgentPinBodySchema],
+  ['AgentUnpinBody', AgentUnpinBodySchema],
   ['Run', RunSchema],
   ['RunFailure', RunFailureSchema],
   ['FailureSubject', FailureSubjectSchema],
@@ -16138,31 +16129,31 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ObservationStatus', ObservationStatusSchema],
   ['Observation', ObservationSchema],
   ['ObservationCollectionPage', ObservationCollectionPageSchema],
-  ['JudgeClassScope', JudgeClassScopeSchema],
-  ['JudgeClass', JudgeClassSchema],
-  ['JudgeClassCollectionPage', JudgeClassCollectionPageSchema],
-  ['CreateJudgeClassBody', CreateJudgeClassBodySchema],
-  ['UpdateJudgeClassBody', UpdateJudgeClassBodySchema],
-  ['UnregisterJudgeClassResult', UnregisterJudgeClassResultSchema],
-  ['JudgedSubject', JudgedSubjectSchema],
-  ['JudgedItem', JudgedItemSchema],
+  ['CorrectorGroupScope', CorrectorGroupScopeSchema],
+  ['CorrectorGroup', CorrectorGroupSchema],
+  ['CorrectorGroupCollectionPage', CorrectorGroupCollectionPageSchema],
+  ['CreateCorrectorGroupBody', CreateCorrectorGroupBodySchema],
+  ['UpdateCorrectorGroupBody', UpdateCorrectorGroupBodySchema],
+  ['UnregisterCorrectorGroupResult', UnregisterCorrectorGroupResultSchema],
+  ['CorrectedSubject', CorrectedSubjectSchema],
+  ['CorrectedItem', CorrectedItemSchema],
   ['ExpectedCall', ExpectedCallSchema],
+  ['ExpectedDecisions', ExpectedDecisionsSchema],
+  ['CorrectionAssertedBy', CorrectionAssertedBySchema],
   ['Correction', CorrectionSchema],
-  ['JudgmentAssertedBy', JudgmentAssertedBySchema],
-  ['Judgment', JudgmentSchema],
-  ['JudgedRunContext', JudgedRunContextSchema],
-  ['JudgedRunCopy', JudgedRunCopySchema],
-  ['JudgmentWithCopies', JudgmentWithCopiesSchema],
-  ['JudgmentCollectionPage', JudgmentCollectionPageSchema],
-  ['CreateJudgmentBody', CreateJudgmentBodySchema],
-  ['UnregisterJudgmentResult', UnregisterJudgmentResultSchema],
-  ['JudgedItemSummary', JudgedItemSummarySchema],
-  ['JudgeClassAssertableBy', JudgeClassAssertableBySchema],
-  ['JudgeClassAssertableByView', JudgeClassAssertableByViewSchema],
-  ['JudgedEvalCase', JudgedEvalCaseSchema],
-  ['JudgedEvalCaseCollectionPage', JudgedEvalCaseCollectionPageSchema],
-  ['BuildJudgedSuiteBody', BuildJudgedSuiteBodySchema],
-  ['BuildJudgedSuiteResult', BuildJudgedSuiteResultSchema],
+  ['CorrectedRunContext', CorrectedRunContextSchema],
+  ['CorrectedRunCopy', CorrectedRunCopySchema],
+  ['CorrectionWithCopies', CorrectionWithCopiesSchema],
+  ['CorrectionCollectionPage', CorrectionCollectionPageSchema],
+  ['CreateCorrectionBody', CreateCorrectionBodySchema],
+  ['RemoveCorrectionResult', RemoveCorrectionResultSchema],
+  ['CorrectedItemSummary', CorrectedItemSummarySchema],
+  ['CorrectorGroupAssertableBy', CorrectorGroupAssertableBySchema],
+  ['CorrectorGroupAssertableByView', CorrectorGroupAssertableByViewSchema],
+  ['CorrectedTestCase', CorrectedTestCaseSchema],
+  ['CorrectedTestCaseCollectionPage', CorrectedTestCaseCollectionPageSchema],
+  ['BuildCorrectedTestSetBody', BuildCorrectedTestSetBodySchema],
+  ['BuildCorrectedTestSetResult', BuildCorrectedTestSetResultSchema],
   ['PromptParameter', PromptParameterSchema],
   ['RetrievalIntent', RetrievalIntentSchema],
   ['AgentMemoryPolicy', AgentMemoryPolicySchema],
@@ -16266,28 +16257,28 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ReplayMemoryErasuresBody', ReplayMemoryErasuresBodySchema],
   ['ResumeMemoryErasureBody', ResumeMemoryErasureBodySchema],
   ['ReplayMemoryErasuresResult', ReplayMemoryErasuresResultSchema],
-  ['ProposalTier', ProposalTierSchema],
-  ['FixProposalStatus', FixProposalStatusSchema],
-  ['ProposalChange', ProposalChangeSchema],
-  ['ProposalDrafter', ProposalDrafterSchema],
-  ['ProposalEvidence', ProposalEvidenceSchema],
-  ['ProposalCandidate', ProposalCandidateSchema],
-  ['ProposalEvaluation', ProposalEvaluationSchema],
-  ['ProposalCost', ProposalCostSchema],
-  ['ProposalDecisions', ProposalDecisionsSchema],
-  ['ProposalPromotion', ProposalPromotionSchema],
-  ['FixProposal', FixProposalSchema],
-  ['FixProposalCollectionPage', FixProposalCollectionPageSchema],
+  ['SuggestedChangeTier', SuggestedChangeTierSchema],
+  ['SuggestedChangeStatus', SuggestedChangeStatusSchema],
+  ['SuggestedChangeBlockEdit', SuggestedChangeBlockEditSchema],
+  ['SuggestedChangeMadeBy', SuggestedChangeMadeBySchema],
+  ['SuggestedChangeEvidence', SuggestedChangeEvidenceSchema],
+  ['SuggestedChangeCandidate', SuggestedChangeCandidateSchema],
+  ['SuggestedChangeEvaluation', SuggestedChangeEvaluationSchema],
+  ['SuggestedChangeCost', SuggestedChangeCostSchema],
+  ['SuggestedChangeDecisions', SuggestedChangeDecisionsSchema],
+  ['SuggestedChangePin', SuggestedChangePinSchema],
+  ['SuggestedChange', SuggestedChangeSchema],
+  ['SuggestedChangeCollectionPage', SuggestedChangeCollectionPageSchema],
   ['ImprovementBudget', ImprovementBudgetSchema],
-  ['ImprovementPassOutcome', ImprovementPassOutcomeSchema],
-  ['ImprovementPass', ImprovementPassSchema],
-  ['ImprovementPassCollectionPage', ImprovementPassCollectionPageSchema],
-  ['ImproveBody', ImproveBodySchema],
-  ['ImprovementPassEstimate', ImprovementPassEstimateSchema],
-  ['CreateProposalBody', CreateProposalBodySchema],
-  ['EvaluateProposalBody', EvaluateProposalBodySchema],
-  ['ProposalReasonBody', ProposalReasonBodySchema],
-  ['WithdrawProposalBody', WithdrawProposalBodySchema],
+  ['ImproveRunOutcome', ImproveRunOutcomeSchema],
+  ['ImproveRun', ImproveRunSchema],
+  ['ImproveRunCollectionPage', ImproveRunCollectionPageSchema],
+  ['StartImproveRunBody', StartImproveRunBodySchema],
+  ['ImproveRunCheck', ImproveRunCheckSchema],
+  ['CreateSuggestedChangeBody', CreateSuggestedChangeBodySchema],
+  ['EvaluateSuggestedChangeBody', EvaluateSuggestedChangeBodySchema],
+  ['SuggestedChangeReasonBody', SuggestedChangeReasonBodySchema],
+  ['WithdrawSuggestedChangeBody', WithdrawSuggestedChangeBodySchema],
   ['ProvenanceNodeKind', ProvenanceNodeKindSchema],
   ['ProvenanceEdgeKind', ProvenanceEdgeKindSchema],
   ['ProvenanceNode', ProvenanceNodeSchema],
@@ -16371,13 +16362,13 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RetentionSweepBody', RetentionSweepBodySchema],
   ['RetentionSweepDomainBody', RetentionSweepDomainBodySchema],
   ['RetentionSweepResult', RetentionSweepResultSchema],
-  ['EvalKind', EvalKindSchema],
-  ['EvalSuite', EvalSuiteSchema],
-  ['EvalSuiteCollectionPage', EvalSuiteCollectionPageSchema],
-  ['PublishEvalSuiteBody', PublishEvalSuiteBodySchema],
-  ['PublishEvalSuiteResult', PublishEvalSuiteResultSchema],
-  ['UnregisterEvalSuiteResult', UnregisterEvalSuiteResultSchema],
-  ['ReinstateEvalSuiteVersionResult', ReinstateEvalSuiteVersionResultSchema],
+  ['TestSetKind', TestSetKindSchema],
+  ['TestSet', TestSetSchema],
+  ['TestSetCollectionPage', TestSetCollectionPageSchema],
+  ['PublishTestSetBody', PublishTestSetBodySchema],
+  ['PublishTestSetResult', PublishTestSetResultSchema],
+  ['UnregisterTestSetResult', UnregisterTestSetResultSchema],
+  ['ReinstateTestSetVersionResult', ReinstateTestSetVersionResultSchema],
   ['BlockKind', BlockKindSchema],
   ['PromptBlockContent', PromptBlockContentSchema],
   ['SettingsBlockContent', SettingsBlockContentSchema],
@@ -16387,25 +16378,25 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PublishBlockResult', PublishBlockResultSchema],
   ['UnregisterBlockResult', UnregisterBlockResultSchema],
   ['ReinstateBlockResult', ReinstateBlockResultSchema],
-  ['EvalRunStatus', EvalRunStatusSchema],
-  ['EvalRunAgentRef', EvalRunAgentRefSchema],
-  ['EvalRunFlowRef', EvalRunFlowRefSchema],
-  ['EvalBaseline', EvalBaselineSchema],
-  ['EvalOverrides', EvalOverridesSchema],
-  ['EvalSample', EvalSampleSchema],
-  ['EvalComparison', EvalComparisonSchema],
+  ['TestRunStatus', TestRunStatusSchema],
+  ['TestRunAgentRef', TestRunAgentRefSchema],
+  ['TestRunFlowRef', TestRunFlowRefSchema],
+  ['TestRunBaseline', TestRunBaselineSchema],
+  ['TestRunOverrides', TestRunOverridesSchema],
+  ['TestRunSample', TestRunSampleSchema],
+  ['TestRunComparison', TestRunComparisonSchema],
   ['ComparisonMetric', ComparisonMetricSchema],
   ['ComparisonCandidate', ComparisonCandidateSchema],
-  ['JudgedComparisonSummary', JudgedComparisonSummarySchema],
-  ['JudgedComparisonCost', JudgedComparisonCostSchema],
+  ['CorrectedComparisonSummary', CorrectedComparisonSummarySchema],
+  ['CorrectedComparisonCost', CorrectedComparisonCostSchema],
   ['CallDifference', CallDifferenceSchema],
   ['ComparisonCaseResult', ComparisonCaseResultSchema],
-  ['JudgedComparisonResult', JudgedComparisonResultSchema],
-  ['EvalRun', EvalRunSchema],
-  ['EvalRunCollectionPage', EvalRunCollectionPageSchema],
-  ['StartEvalRunBody', StartEvalRunBodySchema],
-  ['RescoreEvalRunBody', RescoreEvalRunBodySchema],
-  ['StartEvalRunResult', StartEvalRunResultSchema],
+  ['CorrectedComparisonResult', CorrectedComparisonResultSchema],
+  ['TestRun', TestRunSchema],
+  ['TestRunCollectionPage', TestRunCollectionPageSchema],
+  ['StartTestRunBody', StartTestRunBodySchema],
+  ['RescoreTestRunBody', RescoreTestRunBodySchema],
+  ['StartTestRunResult', StartTestRunResultSchema],
   ['IdentityProviderKind', IdentityProviderKindSchema],
   ['ClaimMappingScopesSpec', ClaimMappingScopesSpecSchema],
   ['ClaimMappingSpec', ClaimMappingSpecSchema],
@@ -16449,27 +16440,27 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PersonTeamRole', PersonTeamRoleSchema],
   ['PersonReviewerRole', PersonReviewerRoleSchema],
   ['PersonGrantBody', PersonGrantBodySchema],
-  ['JudgingRunStatus', JudgingRunStatusSchema],
-  ['JudgingQueueState', JudgingQueueStateSchema],
-  ['JudgingRuleWhen', JudgingRuleWhenSchema],
-  ['JudgingRuleSpec', JudgingRuleSpecSchema],
-  ['JudgingRulePatch', JudgingRulePatchSchema],
-  ['JudgingRule', JudgingRuleSchema],
-  ['JudgingRulePage', JudgingRulePageSchema],
-  ['JudgingRuleUnregisterResult', JudgingRuleUnregisterResultSchema],
-  ['JudgingClassCount', JudgingClassCountSchema],
-  ['JudgingProgress', JudgingProgressSchema],
-  ['JudgingItemCan', JudgingItemCanSchema],
-  ['JudgingItemRule', JudgingItemRuleSchema],
-  ['JudgingQueueItem', JudgingQueueItemSchema],
-  ['JudgingQueuePage', JudgingQueuePageSchema],
-  ['JudgingDismissBody', JudgingDismissBodySchema],
-  ['JudgingClassResult', JudgingClassResultSchema],
-  ['JudgingResultGroup', JudgingResultGroupSchema],
-  ['JudgingRuleResults', JudgingRuleResultsSchema],
-  ['JudgingRulePreview', JudgingRulePreviewSchema],
-  ['JudgingQueueRecentInput', JudgingQueueRecentInputSchema],
-  ['JudgingRecentQueued', JudgingRecentQueuedSchema],
+  ['ExpertQueueRunStatus', ExpertQueueRunStatusSchema],
+  ['ExpertQueueState', ExpertQueueStateSchema],
+  ['QueueRuleWhen', QueueRuleWhenSchema],
+  ['QueueRuleSpec', QueueRuleSpecSchema],
+  ['QueueRulePatch', QueueRulePatchSchema],
+  ['QueueRule', QueueRuleSchema],
+  ['QueueRulePage', QueueRulePageSchema],
+  ['QueueRuleUnregisterResult', QueueRuleUnregisterResultSchema],
+  ['ExpertQueueGroupCount', ExpertQueueGroupCountSchema],
+  ['ExpertQueueProgress', ExpertQueueProgressSchema],
+  ['ExpertQueueItemCan', ExpertQueueItemCanSchema],
+  ['ExpertQueueItemRule', ExpertQueueItemRuleSchema],
+  ['ExpertQueueItem', ExpertQueueItemSchema],
+  ['ExpertQueuePage', ExpertQueuePageSchema],
+  ['ExpertQueueDismissBody', ExpertQueueDismissBodySchema],
+  ['QueueRuleGroupResult', QueueRuleGroupResultSchema],
+  ['QueueRuleResultGroup', QueueRuleResultGroupSchema],
+  ['QueueRuleResults', QueueRuleResultsSchema],
+  ['QueueRulePreview', QueueRulePreviewSchema],
+  ['ExpertQueueRecentInput', ExpertQueueRecentInputSchema],
+  ['ExpertQueueRecentQueued', ExpertQueueRecentQueuedSchema],
   ['AccessRole', AccessRoleSchema],
   ['AccessPathDirect', AccessPathDirectSchema],
   ['AccessPathTeam', AccessPathTeamSchema],
@@ -16502,8 +16493,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PromotionMovedVersion', PromotionMovedVersionSchema],
   ['PromotionMoves', PromotionMovesSchema],
   ['LeftBehindVersion', LeftBehindVersionSchema],
-  ['DeploymentLivePinGate', DeploymentLivePinGateSchema],
-  ['DeploymentLivePin', DeploymentLivePinSchema],
+  ['DeploymentPinGate', DeploymentPinGateSchema],
+  ['DeploymentPinnedAgent', DeploymentPinnedAgentSchema],
   ['DeploymentPinnedFlow', DeploymentPinnedFlowSchema],
   ['DeploymentPromotion', DeploymentPromotionSchema],
   ['PromotionNextEnvironment', PromotionNextEnvironmentSchema],
@@ -16703,7 +16694,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RunTreeUsage', RunTreeUsageSchema],
   ['FinishedRun', FinishedRunSchema],
   ['RunFinishedEvent', RunFinishedEventSchema],
-  ['ImprovementPassFinishedEvent', ImprovementPassFinishedEventSchema],
+  ['ImproveRunFinishedEvent', ImproveRunFinishedEventSchema],
   ['RequestedApproval', RequestedApprovalSchema],
   ['ApprovalRequestedEventData', ApprovalRequestedEventDataSchema],
   ['ApprovalRequestedEvent', ApprovalRequestedEventSchema],

@@ -55,7 +55,7 @@ A subsystem no part of the runtime logs under only warns:
 `retention`, `audit`, `webhooks`, `mcp`, `providers`,
 `promotions`, `pinned-versions` (runtime 0.3.0 or later), `tools`,
 `guardrails`, `pack`, `ready`, `shutdown`,
-`schedules`, `references`, `secrets`, `license`, `aws-identity`, `judging`,
+`schedules`, `references`, `secrets`, `license`, `aws-identity`, `expert-queue`,
 `db`, `migrations`, `openfga`, `sso`, `tenants`, `improvement-passes`,
 `api-keys` and `connections` (runtime 0.2.0 or later), with these nested
 ones: `kernel.waitpoints`, `kernel.sweeper`,

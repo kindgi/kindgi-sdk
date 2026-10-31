@@ -142,9 +142,9 @@ export const WEBHOOK_EVENT_SHAPES = {
                 optional: {
                   via: {
                     kind: 'string',
-                    enum: ['explicit', 'flow-pin', 'conversation', 'live', 'latest'],
+                    enum: ['explicit', 'flow-pin', 'conversation', 'pinned', 'latest'],
                   },
-                  liveScope: {
+                  pinnedScope: {
                     kind: 'union',
                     discriminator: 'kind',
                     variants: {
@@ -225,7 +225,7 @@ export const WEBHOOK_EVENT_SHAPES = {
       },
     },
   },
-  'improvement-pass.finished': {
+  'improve-run.finished': {
     kind: 'object',
     required: {
       id: {
@@ -233,7 +233,7 @@ export const WEBHOOK_EVENT_SHAPES = {
       },
       type: {
         kind: 'string',
-        enum: ['improvement-pass.finished'],
+        enum: ['improve-run.finished'],
       },
       createdAt: {
         kind: 'string',
@@ -242,7 +242,7 @@ export const WEBHOOK_EVENT_SHAPES = {
       data: {
         kind: 'object',
         required: {
-          pass: {
+          improveRun: {
             kind: 'object',
             required: {
               id: {
@@ -328,7 +328,7 @@ export const WEBHOOK_EVENT_SHAPES = {
                   },
                 },
               },
-              suiteId: {
+              testSetId: {
                 kind: 'string',
               },
               tiers: {
@@ -340,7 +340,7 @@ export const WEBHOOK_EVENT_SHAPES = {
               },
               objective: {
                 kind: 'string',
-                enum: ['weightedYesShare', 'weightedPrecisionAtK'],
+                enum: ['passRate', 'weightedPrecisionAtK'],
               },
               budget: {
                 kind: 'object',
@@ -381,9 +381,9 @@ export const WEBHOOK_EVENT_SHAPES = {
               },
             },
             optional: {
-              classWeights: {
+              groupWeights: {
                 kind: 'string',
-                enum: ['as-recorded', 'restricted-only'],
+                enum: ['as-recorded', 'experts-only'],
               },
               model: {
                 kind: 'object',
@@ -406,11 +406,11 @@ export const WEBHOOK_EVENT_SHAPES = {
                 required: {
                   kind: {
                     kind: 'string',
-                    enum: ['proposed', 'nothing-found', 'failed'],
+                    enum: ['suggested', 'nothing-found', 'failed'],
                   },
                 },
                 optional: {
-                  proposalId: {
+                  suggestedChangeId: {
                     kind: 'string',
                     format: 'uuid',
                   },
@@ -462,7 +462,7 @@ export const WEBHOOK_EVENT_SHAPES = {
                     },
                   },
                   optional: {
-                    evalRunId: {
+                    testRunId: {
                       kind: 'string',
                       format: 'uuid',
                     },
@@ -493,7 +493,7 @@ export const WEBHOOK_EVENT_SHAPES = {
                         },
                       },
                     },
-                    hypothesis: {
+                    why: {
                       kind: 'string',
                     },
                   },

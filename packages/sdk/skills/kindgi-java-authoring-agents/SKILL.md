@@ -15,7 +15,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.6"
+version: "0.1.7"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -214,8 +214,8 @@ The block's `thinking` (`lowest`, `minimal`, `low`, `medium`, `high`,
 registration gives it (see `kindgi-authoring-providers`); else no level,
 and the model thinks as its vendor sets. A level the model doesn't take
 goes as the next one up that it takes, or its highest, with a
-`thinking-level-adjusted` warning. A guardrail's or an eval's model judge
-asks for `lowest`.
+`thinking-level-adjusted` warning. A guardrail's model judge, or a test run's
+judging model, asks for `lowest`.
 
 ## Iterating
 

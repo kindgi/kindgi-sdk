@@ -42,10 +42,10 @@ const result = spawnSync(
     '--jsdoc',
     '--include-descriptions',
     '--format',
-    // Unreferenced by any operation (`EvalRun.result` is kind-specific, so
+    // Unreferenced by any operation (`TestRun.result` is kind-specific, so
     // open), but the clients read a comparison's result as these.
     '--schema',
-    '^(JudgedComparison|ComparisonCandidate|ComparisonMetric|ComparisonCaseResult|FlowVersionOverrides)',
+    '^(CorrectedComparison|ComparisonCandidate|ComparisonMetric|ComparisonCaseResult|FlowVersionOverrides)',
   ],
   { stdio: 'inherit', cwd: PACKAGE_ROOT },
 );

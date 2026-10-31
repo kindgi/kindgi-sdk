@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * `kindgi dev`'s pack service writes a block version made live in the
+ * `kindgi dev`'s pack service writes a block version pinned in the
  * console into the pack's own file, through its front (`POST /v1/blocks`).
  */
 
@@ -73,7 +73,7 @@ async function front() {
   return { post, written };
 }
 
-describe('kindgi dev: a block made live is written into the pack', () => {
+describe('kindgi dev: a block pinned in the console is written into the pack', () => {
   test("the front writes the new version into the block's file and says so", async () => {
     await write({ 'blocks/reply.json': json(PROMPT) });
     const { post, written } = await front();
@@ -119,7 +119,7 @@ describe('showBlockWritten', () => {
   test('names the block, its version, its file and the version it replaced', () => {
     expect(
       showBlockWritten(change, { kind: 'ok', file: 'blocks/reply.json', replaced: '1.2.0' }),
-    ).toBe('✎ acme.reply-prompt 1.2.1 made live: written into blocks/reply.json (was 1.2.0)');
+    ).toBe('✎ acme.reply-prompt 1.2.1 pinned: written into blocks/reply.json (was 1.2.0)');
   });
 
   test('names the template file too when the prompt keeps one', () => {
@@ -131,7 +131,7 @@ describe('showBlockWritten', () => {
         replaced: '1.2.0',
       }),
     ).toBe(
-      '✎ acme.reply-prompt 1.2.1 made live: written into blocks/reply.json and blocks/reply.liquid (was 1.2.0)',
+      '✎ acme.reply-prompt 1.2.1 pinned: written into blocks/reply.json and blocks/reply.liquid (was 1.2.0)',
     );
   });
 });
