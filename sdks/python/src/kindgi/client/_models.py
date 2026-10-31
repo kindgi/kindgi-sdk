@@ -5487,7 +5487,7 @@ class ModelInfo(BaseModel):
     """
     max_output_tokens: Annotated[int | None, Field(alias="maxOutputTokens", ge=1)] = None
     """
-    Fallback cap on output tokens. Adapters that require `max_tokens` on every request (e.g. Anthropic) use this when `ModelCallInput.maxOutputTokens` is unset.
+    The default cap on a call's output tokens: what a call asks for when it sets none. A call's own `ModelCallInput.maxOutputTokens` (its agent's `maxOutputTokens`) replaces it. Not the model's own maximum, which its vendor sets.
     """
     sampling: bool | None = None
     """
