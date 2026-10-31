@@ -51,12 +51,15 @@ A subsystem no part of the runtime logs under only warns:
 
 ## The subsystems
 
-`boot`, `http`, `authz`, `runs`, `kernel`, `leases`, `approvals`,
-`retention`, `audit`, `webhooks`, `mcp`, `providers`,
-`promotions`, `pinned-versions` (runtime 0.3.0 or later), `tools`,
-`guardrails`, `pack`, `ready`, `shutdown`,
-`schedules`, `references`, `secrets`, `license`, `aws-identity`, `expert-queue`,
-`db`, `migrations`, `openfga`, `sso`, `tenants`, `improvement-passes`,
+`boot`, `http`, `authz`, `runs`, `provenance` (runtime 0.3.0 or later),
+`kernel`, `leases`, `approvals`, `retention`, `audit`, `webhooks`, `mcp`,
+`providers`, `promotions`, `pinned-versions` (runtime 0.3.0 or later),
+`block-version-prs` (runtime 0.4.0 or later), `tools`, `guardrails`,
+`pack`, `pack-orchestrator` (runtime 0.4.0 or later, for the
+[pack orchestrator](../pack-orchestrator/)), `ready`, `shutdown`,
+`schedules`, `references`, `secrets`, `license`, `aws-identity`,
+`expert-queue` (`judging` before runtime 0.4.0), `db`, `migrations`,
+`openfga`, `sso`, `tenants`, `improvement-passes`,
 `api-keys` and `connections` (runtime 0.2.0 or later), with these nested
 ones: `kernel.waitpoints`, `kernel.sweeper`,
 `webhooks.worker`, `authz.outbox`, `approvals.notifier`, `audit.retention`,
