@@ -1712,6 +1712,16 @@ unset TF_VAR_pack_image
 assert_rc 0 "without a rebuild it runs"
 assert_out "also set       TF_VAR_pack_image (in the environment)"
 
+# 65. Each variable the script reads with terraform console is one the module
+# declares: the real console refuses an undeclared one, and the stub doesn't.
+case_start "VARS_EXPR reads only variables the module declares"
+expr="$(sed -n "s/^VARS_EXPR='\(.*\)'\$/\1/p" "$HERE/../upgrade.sh")"
+names="$(grep -oE 'var\.[a-z_][a-z0-9_]*' <<<"$expr" | sed 's/^var\.//' | sort -u)"
+if grep -qx "subscription_id" <<<"$names" && grep -qx "resource_group_name" <<<"$names"; then pass; else fail "VARS_EXPR wasn't read: $expr"; fi
+for n in $names; do
+  if grep -qE "^variable \"$n\" " "$HERE"/../*.tf; then pass; else fail "VARS_EXPR reads var.$n, which the module doesn't declare"; fi
+done
+
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [[ $FAIL -eq 0 ]]

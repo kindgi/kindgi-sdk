@@ -1035,14 +1035,14 @@ to, so set it to the deployment's before any `gcloud` command for it
   a replace deletes the database.
 - **Or upgrade with the module's `upgrade.sh`:** a deployment of the
   module on runtime 0.1.8 or later, in any `network_mode`, can run it
-  instead, to 0.2.0 or later. Before the `@kindgi/sdk@0.3.0` tag it takes
+  instead, to 0.4.0 or later. Before the `@kindgi/sdk@0.3.0` tag it takes
   `network_mode = "none"` only. It copies the new image from
   `registry.kindgi.com`, so [log in there](../pull-the-runtime-image/)
   first. It runs the upgrade checks against the database, then backs the
   database up, and changes the running deployment only when you type
-  `yes`. Before it asks, it checks the plan: it stops if the plan creates,
-  deletes or replaces anything, or changes anything but the new image and
-  what the releases crossed change in place. So a var file left off the
+  `yes`. Before it asks, it checks the plan: it stops if the plan replaces
+  anything, or creates, deletes or changes anything but the new image and
+  what the releases crossed change. So a var file left off the
   command, whose variables the plan would empty, stops it: give it one
   `--var-file` for each file your variables are in, since Terraform loads
   only `terraform.tfvars` and `*.auto.tfvars` (and their `.json`) on its
@@ -1056,9 +1056,13 @@ to, so set it to the deployment's before any `gcloud` command for it
   the `upgrade.sh` as of the `@kindgi/sdk@<version>` tag of the release
   you're upgrading to, or, before that release is out, its newest
   `@kindgi/sdk@<version>-rc.N` tag: it knows the steps up to its own release,
-  and refuses a later `--to`. With an earlier `--to` it still plans its own
+  and refuses a later `--to`. The module needs runtime 0.4.0 or later, so
+  its `upgrade.sh` refuses a `--to` below that, and names the tag whose
+  script goes there. With an earlier `--to` it takes, it still plans its own
   module, whose changes past the target's release it lists and allows, and
-  it says so. A server-only release, such as 0.2.0.1, is a
+  it says so. With the one pack service, it makes the switch to a service
+  per deployment, and prints the steps that finish it after the apply
+  ([From the one pack service](#from-the-one-pack-service)). A server-only release, such as 0.2.0.1, is a
   server fix for 0.2.0 with no `@kindgi/sdk@` tag of its own: use the
   `upgrade.sh` as of the `@kindgi/sdk@0.2.0` tag, with `--to 0.2.0.1`. The
   module's README has the rest, under
@@ -1259,19 +1263,20 @@ repository from
 
    Writes made after the backup aren't in it.
 5. **Set the new image:** `server_image` in `prod.tfvars`, to
-   `$REPO/runtime@sha256:<new digest>`. If the release notes say to rebuild
-   the pack, rebuild it and set `pack_image` too. Keep a copy of the file as
-   it was: it's your way back.
+   `$REPO/runtime@sha256:<new digest>`. Keep a copy of the file as it was:
+   it's your way back. With the one pack service, read
+   [From the one pack service](#from-the-one-pack-service) first.
 6. **Plan, and save the plan:**
 
    ```sh
    (umask 077 && terraform plan -var-file=prod.tfvars -out=upgrade.tfplan)
    ```
 
-   Terraform also reads every `*.auto.tfvars.json` in the folder, your
-   pack's env among them. Read the plan: it should change the services'
-   images, and what the release notes say. A plan that removes the pack's
-   env was made without its file ([3. The secrets](#3-the-secrets)).
+   Terraform also reads every `*.auto.tfvars.json` in the folder. Read the
+   plan: it should change the server's image, the pack orchestrator Job's
+   too once it's made, and what the release notes say. A plan that removes
+   some of the server's own env (`server_env`, `server_secret_env`) was made
+   without the file it's in.
 
    The plan holds your variables' values, secret ones too: `umask 077`
    keeps it readable by you alone, and you delete it once it's applied.
@@ -1297,8 +1302,10 @@ database:
    It holds every erasure so far, those made after the backup too. If no
    server answers, the backup's own ledger is all there is.
 2. **Save the plan that goes back, before you bring the database back.**
-   Put `server_image`, and `pack_image`, back from the copy of
-   `prod.tfvars` you kept, then plan, and read it:
+   Put `server_image` back from the copy of `prod.tfvars` you kept, then
+   plan, and read it. After the switch from the one pack service, put the
+   earlier module back first
+   ([From the one pack service](#from-the-one-pack-service)):
 
    ```sh
    (umask 077 && terraform plan -var-file=prod.tfvars -out=back.tfplan)
@@ -1360,6 +1367,102 @@ database:
    `secrets_backend = "postgres"`, also run the old version's
    `check stored-secrets`, as a job like the checks in the upgrade's
    step 3, with the server's secrets settings as well as its database URL.
+
+### From the one pack service
+
+A deployment made with an earlier copy of the module runs its packs one of
+two ways: one pack service for all its deployments, set by `pack_image`,
+`pack_min_instances`, `pack_env` and `pack_secret_env`, or, with
+`tenancy = "multi"`, a service per deployment that your own orchestrator
+makes. This module's pack orchestrator makes each deployment's service
+([Turn on the pack orchestrator](#turn-on-the-pack-orchestrator)), and the
+module needs runtime 0.4.0 or later. It has none of those four variables:
+Terraform only warns about them in a var file. `upgrade.sh` makes this
+switch, and after the apply prints the steps that finish it, with your
+names in them and never a value. By hand, along with steps 5 to 8 above:
+
+- **Before the plan:** take out of `server_env` and `server_secret_env`
+  what the module sets itself: `KINDGI_PACK_ROUTING`,
+  `KINDGI_PACK_ENDPOINT_HOSTS`, `KINDGI_PACK_ENDPOINT_KMS_KEY` and
+  `KINDGI_ENV_CLOUD_SECRETS`. Its plan refuses them there. Leave the four
+  pack variables in the var file until the second apply (step 2 below).
+  With `"multi"`, stop your own orchestrator.
+- **The plan** deletes the pack service, its token's secret and their
+  grants. It makes the orchestrator's account, its grants and its key's
+  secret, the server's right to invoke the project's services, and, with
+  `secrets_backend = "none"`, the KMS key the pack services' tokens are
+  sealed under. In the server's env, the routing settings take the place
+  of `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and
+  `KINDGI_PACK_SERVICE_AUTH`.
+- **From the apply until each pack is deployed again,** calls to a
+  deployed pack's tools are refused: `pack-route-missing`, then, for about
+  a minute, `pack-endpoint-pending`. Pick a quiet hour.
+
+After the apply:
+
+1. **Mint the orchestrator's key** into `$N-orchestrator-key`, as step 1 of
+   [Turn on the pack orchestrator](#turn-on-the-pack-orchestrator) says.
+2. **Set `orchestrator_key_version`** to the version step 1 added, take the
+   four pack variables out of the var file, and add each secret
+   `pack_secret_env` names to `pack_secret_readers`
+   ([Read a secret of yours](#read-a-secret-of-yours)). Then plan, read the
+   plan, and apply it: it makes the Job and its schedule, and the pack
+   account's grants on those secrets.
+3. **Set the pack's env in Kindgi** ([Your pack's env](#your-packs-env)),
+   from the copy of the var file you kept: each `pack_env` value with
+   `kindgi env set`, and each `pack_secret_env` entry as a cloud secret, at
+   its version number. At the tenant's scope each deployment gets it, as
+   the one pack service did.
+4. **Deploy each pack again,** with the same image and a new
+   `--idempotency-key`
+   ([5. Trust your key, and deploy](#5-trust-your-key-and-deploy)). A pack
+   service keeps one instance warm while something in use calls it, and
+   scales to zero otherwise, whatever `pack_min_instances` was.
+5. **With `"multi"`,** each tenant deploys its packs again, with a key of
+   the tenant. An endpoint your orchestrator recorded stays as it is, and
+   its calls keep reaching your service while its host matches
+   `*-<project number>.<region>.run.app`. Each old deployment is then
+   retired: once `GET /v1/system/deployments?endpoint=retire` no longer
+   lists one, delete the service your orchestrator made for it, its token
+   and its secrets.
+
+**To go back** after the switch, put the earlier module back before step 2
+of going back, above: its `.tf` files as of the `@kindgi/sdk@<version>` tag
+of the release the deployment ran, in place of this module's (keep
+`.terraform/`, the state and your var files), and the var file you kept.
+Then, by the deployment's shape:
+
+- **With `secrets_backend = "none"`,** the earlier module has no KMS key,
+  and a key can't be destroyed: take it out of the state. It stays in the
+  project, unused. Remove each of these that `terraform state list` lists:
+
+  ```sh
+  terraform state rm google_kms_crypto_key_iam_member.server_wraps \
+    google_kms_crypto_key_iam_member.server_reads_key \
+    google_kms_crypto_key.secrets google_kms_key_ring.kindgi
+  ```
+
+- **With the one pack service,** if `terraform state list` lists no
+  `google_secret_manager_secret.shared`, the apply took its token's secret
+  away. Make it again, with a new value, and give it to the module, or the
+  pack service and the server can't start:
+
+  ```sh
+  gcloud secrets create $N-pack-service-token --replication-policy=user-managed --locations=<region>
+  openssl rand -hex 32 | tr -d '\n' | gcloud secrets versions add $N-pack-service-token --data-file=-
+  terraform import -var-file=prod.tfvars 'google_secret_manager_secret.shared["pack_service_token"]' \
+    projects/<project_id>/secrets/$N-pack-service-token
+  ```
+
+- **With `"multi"`,** give `server_env` back `KINDGI_PACK_ROUTING`
+  (`"per-deployment"`) and `KINDGI_PACK_ENDPOINT_HOSTS`, if the copy you
+  kept doesn't have them, and start your own orchestrator again.
+
+That plan takes away the orchestrator's Job, schedule, account, roles and
+key secret, and makes the one pack service again: from its apply until the
+service is up, calls to the pack's tools are refused again. The `kp-`
+services and secrets the orchestrator made aren't in the state. Nothing
+calls them after the way back, and they stay until you delete them.
 
 ## Tear it down
 

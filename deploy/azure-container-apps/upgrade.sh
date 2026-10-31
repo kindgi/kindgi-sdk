@@ -896,7 +896,7 @@ EOT
      signed in with an emailed link or an identity provider isn't one.
    - A pack built for 0.1.10 keeps working without a rebuild. To use 0.2.0's
      features in it (a tool that pauses, a connection, data blocks), move its
-     pins to 0.2.0 first: --pack-dir builds what they say. A Python pack made
+     pins to 0.2.0 first: its next build takes what they say. A Python pack made
      by a 0.1 CLI pins kindgi>=0.1,<0.2 and kindgi-cli>=0.1,<0.2:
        uv add "kindgi==0.2.0" && uv add --dev "kindgi-cli==0.2.0"
 EOT
