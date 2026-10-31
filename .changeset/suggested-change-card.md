@@ -8,7 +8,7 @@
 
 **A suggested change is made for one project, and checked on that project's test set.** This is a breaking change.
 
-- **Making one.** `POST /v1/suggested-changes` takes `agentId`, `projectId`, `block`, then `values` (a settings block) or `template` (a prompt block), `why` and `fixes`. `fromVersion`, `scope`, `tier`, `change` and `evidence` are gone from the body.
+- **Making one.** `POST /v1/suggested-changes` takes `agentId`, `projectId`, `block`, then `values` (a settings block) or `template` (a prompt block), `why` and `fixes` (at most 100 ids, each a correction in the project). `fromVersion`, `scope`, `tier`, `change` and `evidence` are gone from the body.
   - It's built on the version the project runs. Its block version and agent version are published, and serve nothing until it's pinned.
   - Its check starts at once: the answer is `201`, with status `checking`.
   - The same change on the same version for the same project returns the one made before, with `X-Suggested-Change-Deduped`.
