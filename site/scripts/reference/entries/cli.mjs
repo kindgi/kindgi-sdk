@@ -2496,7 +2496,7 @@ export const CLI_GROUP_SEE_ALSO = {
   'mcp-launch': ['guides/tools/mcp-servers'],
   deployments: ['hosted/deploy-your-agent', 'guides/secrets/pack-env'],
   projects: ['guides/projects/organize-by-org-and-project'],
-  'test-sets': ['guides/evals/build-a-test-set', 'guides/evals/compare-an-agent-version'],
+  'test-sets': ['guides/improve/build-a-test-set', 'guides/improve/compare-an-agent-version'],
   connections: ['deploy/people-and-keys'],
   'connection-apps': ['guides/secrets/store-a-secret', 'deploy/people-and-keys'],
   tenant: ['guides/projects/organize-by-org-and-project'],
