@@ -91,7 +91,7 @@ gcloud scheduler jobs create http kindgi-pack-orchestrator --location=<region> \
 | `KINDGI_ORCHESTRATOR_REGION` | Their region, such as `us-central1`. |
 | `KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT` | The account every pack service runs as. |
 | `KINDGI_ORCHESTRATOR_PACK_SERVICE` | How each runs, as JSON. Optional. |
-| `KINDGI_ORCHESTRATOR_RUNTIME_AUTH` | `google-id-token` for a runtime behind Cloud Run IAM: each call also carries the Job's Google ID token for the runtime's URL, in `X-Serverless-Authorization`, beside the system key. Optional: unset, the key alone. |
+| `KINDGI_ORCHESTRATOR_RUNTIME_AUTH` | `google-id-token` for a runtime behind Cloud Run IAM: each call also carries the orchestrator's own Google ID token (on Cloud Run, the Job's account's) for the runtime's URL, which must then be its `run.app` URL or one of its custom audiences, in `X-Serverless-Authorization`, beside the system key. Optional: unset, the key alone. |
 
 ```json
 {
@@ -120,7 +120,7 @@ before it calls anything, naming the setting but never its value.
 - **Acting as the pack service account:** `roles/iam.serviceAccountUser` on
   that account alone.
 - **A runtime behind Cloud Run IAM:** `roles/run.invoker` on the runtime's
-  service, so the Job's ID token gets its calls in
+  service, so its calls, with the Job's ID token, pass Cloud Run's check
   (`KINDGI_ORCHESTRATOR_RUNTIME_AUTH=google-id-token`).
 - **Secret Manager:** a custom role on the project with
   `secretmanager.secrets.create`, `.get`, `.list` and `.delete`, and
