@@ -1054,7 +1054,7 @@ run "the_orchestrator_names_the_connector_and_the_cloud_sql_instances" {
     condition = jsondecode(one([
       for e in google_cloud_run_v2_job.orchestrator[0].template[0].template[0].containers[0].env : e.value
       if e.name == "KINDGI_ORCHESTRATOR_PACK_SERVICE"
-    ])) == {
+      ])) == {
       ingress           = "all"
       egress            = { kind = "connector", connector = "projects/acme-app-dev/locations/northamerica-northeast2/connectors/acme" }
       timeoutSeconds    = 900
