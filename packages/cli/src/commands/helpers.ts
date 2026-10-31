@@ -12,8 +12,8 @@ import type { CommandResult } from './types.js';
 
 /**
  * The exit code of a command that ran, and whose answer is no: a release
- * gate policy refused a version or wants an approval, a version didn't go
- * live, an eval run failed. An error is 1, a usage error 2.
+ * gate refused a version or wants an approval, a version didn't go
+ * live, a test run failed. An error is 1, a usage error 2.
  */
 export const ANSWER_NO_EXIT_CODE = 3;
 

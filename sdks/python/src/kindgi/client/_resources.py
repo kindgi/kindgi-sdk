@@ -6,12 +6,12 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
-from typing import Any, Literal, NoReturn, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from . import _models
 from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments
-from ._errors import InvalidRequestError
+from ._thumbs import AsyncThumbs, Thumbs
 
 __all__ = ["OPERATIONS", "AsyncResources", "Resources"]
 
@@ -223,11 +223,27 @@ OPERATIONS: dict[str, Operation] = {
     "agents.listVersions": Operation(
         "agents.listVersions", "GET", "/v1/agents/{agentId}/versions", "json", False
     ),
-    "agents.deriveVersion": Operation(
-        "agents.deriveVersion", "POST", "/v1/agents/{agentId}/versions", "json", True
-    ),
     "agents.getVersion": Operation(
         "agents.getVersion", "GET", "/v1/agents/{agentId}/versions/{version}", "json", False
+    ),
+    "agents.setOwner": Operation(
+        "agents.setOwner", "PUT", "/v1/agents/{agentId}/owner", "json", False
+    ),
+    "agents.testSet.get": Operation(
+        "agents.testSet.get", "GET", "/v1/agents/{agentId}/test-set", "json", False
+    ),
+    "agents.testSet.listCases": Operation(
+        "agents.testSet.listCases", "GET", "/v1/agents/{agentId}/test-set/cases", "json", False
+    ),
+    "agents.testSet.addCase": Operation(
+        "agents.testSet.addCase", "POST", "/v1/agents/{agentId}/test-set/cases", "json", True
+    ),
+    "agents.testSet.retireCase": Operation(
+        "agents.testSet.retireCase",
+        "POST",
+        "/v1/agents/{agentId}/test-set/cases/{caseId}/retire",
+        "json",
+        True,
     ),
     "agents.unregister": Operation(
         "agents.unregister",
@@ -243,67 +259,68 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
-    "agents.live.resolve": Operation(
-        "agents.live.resolve", "GET", "/v1/agents/{agentId}/live", "json", False
+    "agents.pinned.resolve": Operation(
+        "agents.pinned.resolve", "GET", "/v1/agents/{agentId}/pinned", "json", False
     ),
-    "agents.live.list": Operation(
-        "agents.live.list", "GET", "/v1/agents/{agentId}/live-versions", "json", False
+    "agents.pinned.list": Operation(
+        "agents.pinned.list", "GET", "/v1/agents/{agentId}/pinned-versions", "json", False
     ),
-    "agents.promotions.list": Operation(
-        "agents.promotions.list", "GET", "/v1/agents/{agentId}/promotions", "json", False
+    "agents.pinned.pin": Operation(
+        "agents.pinned.pin", "POST", "/v1/agents/{agentId}/pinned/pin", "json", True
     ),
-    "agents.promotions.create": Operation(
-        "agents.promotions.create", "POST", "/v1/agents/{agentId}/promotions", "json", True
+    "agents.pinned.check": Operation(
+        "agents.pinned.check", "POST", "/v1/agents/{agentId}/pinned/check", "json", False
     ),
-    "agents.promotions.check": Operation(
-        "agents.promotions.check", "POST", "/v1/agents/{agentId}/promotions/check", "json", False
+    "agents.releaseGate.resolve": Operation(
+        "agents.releaseGate.resolve", "GET", "/v1/agents/{agentId}/release-gate", "json", False
     ),
-    "agents.gatePolicy.resolve": Operation(
-        "agents.gatePolicy.resolve", "GET", "/v1/agents/{agentId}/gate-policy", "json", False
+    "releaseGates.list": Operation("releaseGates.list", "GET", "/v1/release-gates", "json", False),
+    "releaseGates.publish": Operation(
+        "releaseGates.publish", "POST", "/v1/release-gates", "json", True
     ),
-    "gatePolicies.list": Operation("gatePolicies.list", "GET", "/v1/gate-policies", "json", False),
-    "gatePolicies.publish": Operation(
-        "gatePolicies.publish", "POST", "/v1/gate-policies", "json", True
+    "releaseGates.get": Operation(
+        "releaseGates.get", "GET", "/v1/release-gates/{releaseGateId}", "json", False
     ),
-    "gatePolicies.get": Operation(
-        "gatePolicies.get", "GET", "/v1/gate-policies/{policyId}", "json", False
-    ),
-    "gatePolicies.versions.list": Operation(
-        "gatePolicies.versions.list", "GET", "/v1/gate-policies/{policyId}/versions", "json", False
-    ),
-    "gatePolicies.versions.get": Operation(
-        "gatePolicies.versions.get",
+    "releaseGates.versions.list": Operation(
+        "releaseGates.versions.list",
         "GET",
-        "/v1/gate-policies/{policyId}/versions/{version}",
+        "/v1/release-gates/{releaseGateId}/versions",
         "json",
         False,
     ),
-    "gatePolicies.versions.unregister": Operation(
-        "gatePolicies.versions.unregister",
-        "POST",
-        "/v1/gate-policies/{policyId}/versions/{version}/unregister",
-        "json",
-        False,
-    ),
-    "gatePolicies.versions.reinstate": Operation(
-        "gatePolicies.versions.reinstate",
-        "POST",
-        "/v1/gate-policies/{policyId}/versions/{version}/reinstate",
-        "json",
-        False,
-    ),
-    "agents.promotions.get": Operation(
-        "agents.promotions.get",
+    "releaseGates.versions.get": Operation(
+        "releaseGates.versions.get",
         "GET",
-        "/v1/agents/{agentId}/promotions/{promotionId}",
+        "/v1/release-gates/{releaseGateId}/versions/{version}",
         "json",
         False,
     ),
-    "agents.live.rollback": Operation(
-        "agents.live.rollback", "POST", "/v1/agents/{agentId}/live/rollback", "json", True
+    "releaseGates.versions.unregister": Operation(
+        "releaseGates.versions.unregister",
+        "POST",
+        "/v1/release-gates/{releaseGateId}/versions/{version}/unregister",
+        "json",
+        False,
     ),
-    "agents.live.unpin": Operation(
-        "agents.live.unpin", "POST", "/v1/agents/{agentId}/live/unpin", "json", True
+    "releaseGates.versions.reinstate": Operation(
+        "releaseGates.versions.reinstate",
+        "POST",
+        "/v1/release-gates/{releaseGateId}/versions/{version}/reinstate",
+        "json",
+        False,
+    ),
+    "agents.pinned.history": Operation(
+        "agents.pinned.history", "GET", "/v1/agents/{agentId}/pin-history", "json", False
+    ),
+    "agents.pinned.getChange": Operation(
+        "agents.pinned.getChange",
+        "GET",
+        "/v1/agents/{agentId}/pin-history/{changeId}",
+        "json",
+        False,
+    ),
+    "agents.pinned.unpin": Operation(
+        "agents.pinned.unpin", "POST", "/v1/agents/{agentId}/pinned/unpin", "json", True
     ),
     "flows.list": Operation("flows.list", "GET", "/v1/flows", "json", False),
     "flows.publish": Operation("flows.publish", "POST", "/v1/flows", "json", True),
@@ -446,38 +463,53 @@ OPERATIONS: dict[str, Operation] = {
     "memory.getErasure": Operation(
         "memory.getErasure", "GET", "/v1/memory/erasures/{erasureId}", "json", False
     ),
-    "proposals.list": Operation("proposals.list", "GET", "/v1/proposals", "json", False),
-    "proposals.create": Operation("proposals.create", "POST", "/v1/proposals", "json", True),
-    "proposals.improve": Operation(
-        "proposals.improve", "POST", "/v1/proposals/improve", "json", True
+    "suggestedChanges.list": Operation(
+        "suggestedChanges.list", "GET", "/v1/suggested-changes", "json", False
     ),
-    "proposals.improveEstimate": Operation(
-        "proposals.improveEstimate", "POST", "/v1/proposals/improve/estimate", "json", False
+    "suggestedChanges.create": Operation(
+        "suggestedChanges.create", "POST", "/v1/suggested-changes", "json", True
     ),
-    "proposals.get": Operation("proposals.get", "GET", "/v1/proposals/{proposalId}", "json", False),
-    "proposals.evaluate": Operation(
-        "proposals.evaluate", "POST", "/v1/proposals/{proposalId}/evaluate", "json", True
+    "improveRuns.list": Operation("improveRuns.list", "GET", "/v1/improve-runs", "json", False),
+    "improveRuns.start": Operation("improveRuns.start", "POST", "/v1/improve-runs", "json", True),
+    "improveRuns.check": Operation(
+        "improveRuns.check", "POST", "/v1/improve-runs/check", "json", False
     ),
-    "proposals.rescore": Operation(
-        "proposals.rescore", "POST", "/v1/proposals/{proposalId}/rescore", "json", True
+    "suggestedChanges.get": Operation(
+        "suggestedChanges.get", "GET", "/v1/suggested-changes/{suggestedChangeId}", "json", False
     ),
-    "proposals.request": Operation(
-        "proposals.request", "POST", "/v1/proposals/{proposalId}/request", "json", True
+    "suggestedChanges.check": Operation(
+        "suggestedChanges.check",
+        "POST",
+        "/v1/suggested-changes/{suggestedChangeId}/check",
+        "json",
+        True,
     ),
-    "proposals.rollback": Operation(
-        "proposals.rollback", "POST", "/v1/proposals/{proposalId}/rollback", "json", True
+    "suggestedChanges.pin": Operation(
+        "suggestedChanges.pin",
+        "POST",
+        "/v1/suggested-changes/{suggestedChangeId}/pin",
+        "json",
+        True,
     ),
-    "proposals.withdraw": Operation(
-        "proposals.withdraw", "POST", "/v1/proposals/{proposalId}/withdraw", "json", True
+    "suggestedChanges.addAsLatest": Operation(
+        "suggestedChanges.addAsLatest",
+        "POST",
+        "/v1/suggested-changes/{suggestedChangeId}/add-as-latest",
+        "json",
+        True,
     ),
-    "improvementPasses.list": Operation(
-        "improvementPasses.list", "GET", "/v1/improvement-passes", "json", False
+    "suggestedChanges.withdraw": Operation(
+        "suggestedChanges.withdraw",
+        "POST",
+        "/v1/suggested-changes/{suggestedChangeId}/withdraw",
+        "json",
+        True,
     ),
-    "improvementPasses.get": Operation(
-        "improvementPasses.get", "GET", "/v1/improvement-passes/{passId}", "json", False
+    "improveRuns.get": Operation(
+        "improveRuns.get", "GET", "/v1/improve-runs/{improveRunId}", "json", False
     ),
-    "improvementPasses.cancel": Operation(
-        "improvementPasses.cancel", "POST", "/v1/improvement-passes/{passId}/cancel", "json", True
+    "improveRuns.cancel": Operation(
+        "improveRuns.cancel", "POST", "/v1/improve-runs/{improveRunId}/cancel", "json", True
     ),
     "provenance.list": Operation("provenance.list", "GET", "/v1/provenance", "json", False),
     "provenance.get": Operation("provenance.get", "GET", "/v1/provenance/{runId}", "json", False),
@@ -515,26 +547,39 @@ OPERATIONS: dict[str, Operation] = {
     "providers.unregister": Operation(
         "providers.unregister", "POST", "/v1/providers/{providerId}/unregister", "json", True
     ),
-    "judgments.list": Operation("judgments.list", "GET", "/v1/judgments", "json", False),
-    "judgments.create": Operation("judgments.create", "POST", "/v1/judgments", "json", True),
-    "judgments.get": Operation("judgments.get", "GET", "/v1/judgments/{judgmentId}", "json", False),
-    "judgments.unregister": Operation(
-        "judgments.unregister", "POST", "/v1/judgments/{judgmentId}/unregister", "json", True
+    "corrections.list": Operation("corrections.list", "GET", "/v1/corrections", "json", False),
+    "corrections.create": Operation("corrections.create", "POST", "/v1/corrections", "json", True),
+    "corrections.export": Operation(
+        "corrections.export", "GET", "/v1/corrections/export", "byte-stream", False
     ),
-    "judgeClasses.list": Operation("judgeClasses.list", "GET", "/v1/judge-classes", "json", False),
-    "judgeClasses.create": Operation(
-        "judgeClasses.create", "POST", "/v1/judge-classes", "json", True
+    "corrections.get": Operation(
+        "corrections.get", "GET", "/v1/corrections/{correctionId}", "json", False
     ),
-    "judgeClasses.get": Operation(
-        "judgeClasses.get", "GET", "/v1/judge-classes/{judgeClassId}", "json", False
+    "corrections.change": Operation(
+        "corrections.change", "PATCH", "/v1/corrections/{correctionId}", "json", True
     ),
-    "judgeClasses.update": Operation(
-        "judgeClasses.update", "PATCH", "/v1/judge-classes/{judgeClassId}", "json", True
+    "corrections.remove": Operation(
+        "corrections.remove", "POST", "/v1/corrections/{correctionId}/remove", "json", True
     ),
-    "judgeClasses.unregister": Operation(
-        "judgeClasses.unregister",
+    "corrections.counts": Operation(
+        "corrections.counts", "GET", "/v1/corrections/counts", "json", False
+    ),
+    "correctorGroups.list": Operation(
+        "correctorGroups.list", "GET", "/v1/corrector-groups", "json", False
+    ),
+    "correctorGroups.create": Operation(
+        "correctorGroups.create", "POST", "/v1/corrector-groups", "json", True
+    ),
+    "correctorGroups.get": Operation(
+        "correctorGroups.get", "GET", "/v1/corrector-groups/{correctorGroupId}", "json", False
+    ),
+    "correctorGroups.update": Operation(
+        "correctorGroups.update", "PATCH", "/v1/corrector-groups/{correctorGroupId}", "json", True
+    ),
+    "correctorGroups.unregister": Operation(
+        "correctorGroups.unregister",
         "POST",
-        "/v1/judge-classes/{judgeClassId}/unregister",
+        "/v1/corrector-groups/{correctorGroupId}/unregister",
         "json",
         True,
     ),
@@ -621,46 +666,37 @@ OPERATIONS: dict[str, Operation] = {
     "retention.sweepDomain": Operation(
         "retention.sweepDomain", "POST", "/v1/retention/sweep/{domain}", "json", False
     ),
-    "evalSuites.list": Operation("evalSuites.list", "GET", "/v1/eval-suites", "json", False),
-    "evalSuites.publish": Operation("evalSuites.publish", "POST", "/v1/eval-suites", "json", True),
-    "evalSuites.get": Operation(
-        "evalSuites.get", "GET", "/v1/eval-suites/{suiteId}", "json", False
+    "testSets.list": Operation("testSets.list", "GET", "/v1/test-sets", "json", False),
+    "testSets.publish": Operation("testSets.publish", "POST", "/v1/test-sets", "json", True),
+    "testSets.get": Operation("testSets.get", "GET", "/v1/test-sets/{testSetId}", "json", False),
+    "testSets.versions.list": Operation(
+        "testSets.versions.list", "GET", "/v1/test-sets/{testSetId}/versions", "json", False
     ),
-    "evalSuites.versions.list": Operation(
-        "evalSuites.versions.list", "GET", "/v1/eval-suites/{suiteId}/versions", "json", False
-    ),
-    "evalSuites.versions.get": Operation(
-        "evalSuites.versions.get",
+    "testSets.versions.get": Operation(
+        "testSets.versions.get",
         "GET",
-        "/v1/eval-suites/{suiteId}/versions/{version}",
+        "/v1/test-sets/{testSetId}/versions/{version}",
         "json",
         False,
     ),
-    "evalSuites.buildFromJudgments": Operation(
-        "evalSuites.buildFromJudgments",
-        "POST",
-        "/v1/eval-suites/{suiteId}/versions/from-judgments",
-        "json",
-        True,
-    ),
-    "evalSuites.listCases": Operation(
-        "evalSuites.listCases",
+    "testSets.listCases": Operation(
+        "testSets.listCases",
         "GET",
-        "/v1/eval-suites/{suiteId}/versions/{version}/cases",
+        "/v1/test-sets/{testSetId}/versions/{version}/cases",
         "json",
         False,
     ),
-    "evalSuites.versions.unregister": Operation(
-        "evalSuites.versions.unregister",
+    "testSets.versions.unregister": Operation(
+        "testSets.versions.unregister",
         "POST",
-        "/v1/eval-suites/{suiteId}/versions/{version}/unregister",
+        "/v1/test-sets/{testSetId}/versions/{version}/unregister",
         "json",
         True,
     ),
-    "evalSuites.reinstateVersion": Operation(
-        "evalSuites.reinstateVersion",
+    "testSets.reinstateVersion": Operation(
+        "testSets.reinstateVersion",
         "POST",
-        "/v1/eval-suites/{suiteId}/versions/{version}/reinstate",
+        "/v1/test-sets/{testSetId}/versions/{version}/reinstate",
         "json",
         True,
     ),
@@ -672,6 +708,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "blocks.versions.get": Operation(
         "blocks.versions.get", "GET", "/v1/blocks/{blockId}/versions/{version}", "json", False
+    ),
+    "blocks.runsIn": Operation(
+        "blocks.runsIn", "GET", "/v1/blocks/{blockId}/runs-in", "json", False
     ),
     "blocks.versions.unregister": Operation(
         "blocks.versions.unregister",
@@ -687,19 +726,19 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
-    "evalRuns.start": Operation(
-        "evalRuns.start", "POST", "/v1/eval-suites/{suiteId}/runs", "json", True
+    "testRuns.start": Operation(
+        "testRuns.start", "POST", "/v1/test-sets/{testSetId}/runs", "json", True
     ),
-    "evalRuns.list": Operation("evalRuns.list", "GET", "/v1/eval-runs", "json", False),
-    "evalRuns.get": Operation("evalRuns.get", "GET", "/v1/eval-runs/{runId}", "json", False),
-    "evalRuns.cancel": Operation(
-        "evalRuns.cancel", "POST", "/v1/eval-runs/{runId}/cancel", "json", False
+    "testRuns.list": Operation("testRuns.list", "GET", "/v1/test-runs", "json", False),
+    "testRuns.get": Operation("testRuns.get", "GET", "/v1/test-runs/{testRunId}", "json", False),
+    "testRuns.cancel": Operation(
+        "testRuns.cancel", "POST", "/v1/test-runs/{testRunId}/cancel", "json", False
     ),
-    "evalRuns.rescore": Operation(
-        "evalRuns.rescore", "POST", "/v1/eval-runs/{runId}/rescore", "json", False
+    "testRuns.rescore": Operation(
+        "testRuns.rescore", "POST", "/v1/test-runs/{testRunId}/rescore", "json", False
     ),
-    "evalRuns.events": Operation(
-        "evalRuns.events", "GET", "/v1/eval-runs/{runId}/events", "empty", False
+    "testRuns.events": Operation(
+        "testRuns.events", "GET", "/v1/test-runs/{testRunId}/events", "empty", False
     ),
     "auth.providers.list": Operation(
         "auth.providers.list", "GET", "/v1/auth/providers", "json", False
@@ -818,6 +857,9 @@ OPERATIONS: dict[str, Operation] = {
     "deployments.register": Operation(
         "deployments.register", "POST", "/v1/deployments", "json", True
     ),
+    "deployments.check": Operation(
+        "deployments.check", "POST", "/v1/deployments/check", "json", False
+    ),
     "deployments.get": Operation(
         "deployments.get", "GET", "/v1/deployments/{deploymentId}", "json", False
     ),
@@ -895,79 +937,75 @@ OPERATIONS: dict[str, Operation] = {
     "projects.delete": Operation(
         "projects.delete", "DELETE", "/v1/projects/{projectId}", "empty", True
     ),
-    "projects.judgingRules.list": Operation(
-        "projects.judgingRules.list", "GET", "/v1/projects/{projectId}/judging-rules", "json", False
+    "projects.queueRules.list": Operation(
+        "projects.queueRules.list", "GET", "/v1/projects/{projectId}/queue-rules", "json", False
     ),
-    "projects.judgingRules.create": Operation(
-        "projects.judgingRules.create",
-        "POST",
-        "/v1/projects/{projectId}/judging-rules",
-        "json",
-        True,
+    "projects.queueRules.create": Operation(
+        "projects.queueRules.create", "POST", "/v1/projects/{projectId}/queue-rules", "json", True
     ),
-    "projects.judgingRules.preview": Operation(
-        "projects.judgingRules.preview",
+    "projects.queueRules.preview": Operation(
+        "projects.queueRules.preview",
         "GET",
-        "/v1/projects/{projectId}/judging-rules/preview",
+        "/v1/projects/{projectId}/queue-rules/preview",
         "json",
         False,
     ),
-    "projects.judgingRules.get": Operation(
-        "projects.judgingRules.get",
+    "projects.queueRules.get": Operation(
+        "projects.queueRules.get",
         "GET",
-        "/v1/projects/{projectId}/judging-rules/{ruleId}",
+        "/v1/projects/{projectId}/queue-rules/{ruleId}",
         "json",
         False,
     ),
-    "projects.judgingRules.update": Operation(
-        "projects.judgingRules.update",
+    "projects.queueRules.update": Operation(
+        "projects.queueRules.update",
         "PATCH",
-        "/v1/projects/{projectId}/judging-rules/{ruleId}",
+        "/v1/projects/{projectId}/queue-rules/{ruleId}",
         "json",
         False,
     ),
-    "projects.judgingRules.unregister": Operation(
-        "projects.judgingRules.unregister",
+    "projects.queueRules.unregister": Operation(
+        "projects.queueRules.unregister",
         "POST",
-        "/v1/projects/{projectId}/judging-rules/{ruleId}/unregister",
+        "/v1/projects/{projectId}/queue-rules/{ruleId}/unregister",
         "json",
         False,
     ),
-    "projects.judgingRules.versions": Operation(
-        "projects.judgingRules.versions",
+    "projects.queueRules.versions": Operation(
+        "projects.queueRules.versions",
         "GET",
-        "/v1/projects/{projectId}/judging-rules/{ruleId}/versions",
+        "/v1/projects/{projectId}/queue-rules/{ruleId}/versions",
         "json",
         False,
     ),
-    "projects.judgingRules.results": Operation(
-        "projects.judgingRules.results",
+    "projects.queueRules.results": Operation(
+        "projects.queueRules.results",
         "GET",
-        "/v1/projects/{projectId}/judging-rules/{ruleId}/results",
+        "/v1/projects/{projectId}/queue-rules/{ruleId}/results",
         "json",
         False,
     ),
-    "projects.judgingRules.queueRecent": Operation(
-        "projects.judgingRules.queueRecent",
+    "projects.queueRules.queueRecent": Operation(
+        "projects.queueRules.queueRecent",
         "POST",
-        "/v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent",
+        "/v1/projects/{projectId}/queue-rules/{ruleId}/queue-recent",
         "json",
         False,
     ),
-    "projects.judgingQueue.list": Operation(
-        "projects.judgingQueue.list", "GET", "/v1/projects/{projectId}/judging-queue", "json", False
+    "projects.expertQueue.list": Operation(
+        "projects.expertQueue.list", "GET", "/v1/projects/{projectId}/expert-queue", "json", False
     ),
-    "projects.judgingQueue.dismiss": Operation(
-        "projects.judgingQueue.dismiss",
+    "projects.expertQueue.dismiss": Operation(
+        "projects.expertQueue.dismiss",
         "POST",
-        "/v1/projects/{projectId}/judging-queue/{runId}/dismiss",
+        "/v1/projects/{projectId}/expert-queue/{runId}/dismiss",
         "json",
         False,
     ),
-    "projects.judgingQueue.reopen": Operation(
-        "projects.judgingQueue.reopen",
+    "projects.expertQueue.reopen": Operation(
+        "projects.expertQueue.reopen",
         "POST",
-        "/v1/projects/{projectId}/judging-queue/{runId}/reopen",
+        "/v1/projects/{projectId}/expert-queue/{runId}/reopen",
         "json",
         False,
     ),
@@ -989,6 +1027,20 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "projects.production.set": Operation(
         "projects.production.set", "PUT", "/v1/projects/{projectId}/production", "json", True
+    ),
+    "projects.repoConnection.set": Operation(
+        "projects.repoConnection.set",
+        "PUT",
+        "/v1/projects/{projectId}/repo-connection",
+        "json",
+        True,
+    ),
+    "projects.repoConnection.clear": Operation(
+        "projects.repoConnection.clear",
+        "DELETE",
+        "/v1/projects/{projectId}/repo-connection",
+        "json",
+        True,
     ),
     "projects.teamGrants.list": Operation(
         "projects.teamGrants.list", "GET", "/v1/projects/{projectId}/team-grants", "json", False
@@ -1316,10 +1368,10 @@ OPERATIONS: dict[str, Operation] = {
         "auth.sites.enroll", "POST", "/v1/auth/sites/enroll", "json", False
     ),
     "auth.siteSignIn": Operation("auth.siteSignIn", "POST", "/v1/auth/site-sign-in", "json", False),
-    "evalSuites.unregister": Operation(
-        "evalSuites.unregister",
+    "testSets.unregister": Operation(
+        "testSets.unregister",
         "POST",
-        "/v1/eval-suites/{suiteId}/versions/{version}/unregister",
+        "/v1/test-sets/{testSetId}/versions/{version}/unregister",
         "json",
         True,
     ),
@@ -1384,7 +1436,7 @@ class RunsResource:
         top_level: bool | None = None,
         agent_id: str | UUID | None = None,
         replays: Literal["exclude", "include", "only"] | None = None,
-        eval_run_id: str | UUID | None = None,
+        test_run_id: str | UUID | None = None,
         trigger_id: str | UUID | None = None,
         include: Literal["output"] | None = None,
         status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
@@ -1413,7 +1465,7 @@ class RunsResource:
                 "topLevel": top_level,
                 "agentId": agent_id,
                 "replays": replays,
-                "evalRunId": eval_run_id,
+                "testRunId": test_run_id,
                 "triggerId": trigger_id,
                 "include": include,
                 "status": status,
@@ -1466,7 +1518,7 @@ class RunsResource:
     ) -> _models.RunFailureGroups:
         """A project's failed runs, grouped by cause and version. `GET /v1/runs/failures`
 
-        Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, eval runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.
+        Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, test runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.
         """
         return self._client._request(
             _OPERATIONS["runs.failures"],
@@ -2074,7 +2126,7 @@ class SystemTenantsResource:
     ) -> _models.SystemTenant:
         """Suspend a tenant, or restore it. `PUT /v1/system/tenants/{tenantId}/suspended`
 
-        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
+        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or Improve run hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
         """
         return self._client._request(
             _OPERATIONS["systemTenants.setSuspended"],
@@ -2931,8 +2983,111 @@ class ApprovalsResource:
         )
 
 
-class AgentsLiveResource:
-    """`client.agents.live` — the `agents.live` operations."""
+class AgentsTestSetResource:
+    """`client.agents.test_set` — the `agents.testSet` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def get(
+        self, agent_id: str | UUID, /, *, project_id: str | UUID, timeout: float | None = None
+    ) -> _models.AgentTestSet:
+        """A project's test set of an agent. `GET /v1/agents/{agentId}/test-set`
+
+        How many cases the agent's test set has in the project. Its cases are the agent's corrections there, except Won't fix and Removed ones (Fixed and With the owner included), and cases added by hand. It's computed when it's read. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.testSet.get"],
+            path={"agentId": agent_id},
+            query={"projectId": project_id},
+            headers={},
+            response=_models.AgentTestSet,
+            timeout=timeout,
+        )
+
+    def list_cases(
+        self,
+        agent_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID,
+        include: Literal["retired"] | None = None,
+        kind: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TestCaseCollectionPage:
+        """List a project's cases of an agent's test set. `GET /v1/agents/{agentId}/test-set/cases`
+
+        Cursor-paginated, newest added first. A retired case comes back only with `include=retired`. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.testSet.listCases"],
+            path={"agentId": agent_id},
+            query={
+                "projectId": project_id,
+                "include": include,
+                "kind": kind,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.TestCaseCollectionPage,
+            timeout=timeout,
+        )
+
+    def add_case(
+        self,
+        agent_id: str | UUID,
+        body: _models.AddTestCaseBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TestCase:
+        """Add a case to an agent's test set. `POST /v1/agents/{agentId}/test-set/cases`
+
+        A case by hand, from a correction's body on one of the agent's finished runs. It has no status, isn't sorted, and nothing that counts corrections counts it (Improve's trigger, the expert queue's progress, a rule's yes-rate). The run's first correction or case stores a copy of its input and output. A comparison's replay can't be a case. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.testSet.addCase"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AddTestCaseBody, body, fields),
+            response=_models.TestCase,
+            timeout=timeout,
+        )
+
+    def retire_case(
+        self,
+        agent_id: str | UUID,
+        case_id: str | UUID,
+        body: _models.RetireTestCaseBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TestCase:
+        """Retire a case of an agent's test set. `POST /v1/agents/{agentId}/test-set/cases/{caseId}/retire`
+
+        A retired case stays listed, and no test run checks it again. There's no un-retire, and retiring a correction's case doesn't change the correction's status. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.testSet.retireCase"],
+            path={"agentId": agent_id, "caseId": case_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RetireTestCaseBody, body, fields),
+            response=_models.TestCase,
+            timeout=timeout,
+        )
+
+
+class AgentsPinnedResource:
+    """`client.agents.pinned` — the `agents.pinned` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
@@ -2945,90 +3100,84 @@ class AgentsLiveResource:
         project_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.LiveVersionResolution:
-        """The version a run would use. `GET /v1/agents/{agentId}/live`
+    ) -> _models.AgentPinnedVersionResolution:
+        """The version a run would use. `GET /v1/agents/{agentId}/pinned`
 
-        Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
+        Resolves the version a run of this agent would use for a project and segment path: the most specific pinned version (segment path, project, org, tenant), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
         """
         return self._client._request(
-            _OPERATIONS["agents.live.resolve"],
+            _OPERATIONS["agents.pinned.resolve"],
             path={"agentId": agent_id},
             query={"projectId": project_id, "segment": _segments(segments)},
             headers={},
-            response=_models.LiveVersionResolution,
+            response=_models.AgentPinnedVersionResolution,
             timeout=timeout,
         )
 
-    def list(self, agent_id: str | UUID, /, *, timeout: float | None = None) -> _models.LivePinList:
-        """List an agent's live versions. `GET /v1/agents/{agentId}/live-versions`
+    def list(
+        self, agent_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.AgentPinnedVersionList:
+        """List an agent's pinned versions. `GET /v1/agents/{agentId}/pinned-versions`
 
-        Every scope with a live version pinned, and the promotion that set it.
+        Every scope with a pinned version, and the pin change that set it.
         """
         return self._client._request(
-            _OPERATIONS["agents.live.list"],
+            _OPERATIONS["agents.pinned.list"],
             path={"agentId": agent_id},
             query={},
             headers={},
-            response=_models.LivePinList,
+            response=_models.AgentPinnedVersionList,
             timeout=timeout,
         )
 
-    def rollback(
+    def pin(
         self,
         agent_id: str | UUID,
-        body: _models.RollbackBody | Mapping[str, Any] | None = None,
+        body: _models.AgentPinBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Promotion:
-        """Roll a scope back to its previous live version. `POST /v1/agents/{agentId}/live/rollback`
+    ) -> _models.PinAnswer:
+        """Pin a version for a scope. `POST /v1/agents/{agentId}/pinned/pin`
 
-        Back to the scope's previous live version, or `toVersion`. Recorded like a promotion. Needs `promote` on the agent.
+        Pins `version` for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every pin is recorded, with who asked and why. Needs `pin` on the agent.
         """
         return self._client._request(
-            _OPERATIONS["agents.live.rollback"],
+            _OPERATIONS["agents.pinned.pin"],
             path={"agentId": agent_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.RollbackBody, body, fields),
-            response=_models.Promotion,
+            body=_body(_models.AgentPinBody, body, fields),
+            response=_models.PinAnswer,
             timeout=timeout,
         )
 
-    def unpin(
+    def check(
         self,
         agent_id: str | UUID,
-        body: _models.UnpinBody | Mapping[str, Any] | None = None,
+        body: _models.AgentPinBody | Mapping[str, Any] | None = None,
         /,
         *,
-        idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Promotion:
-        """Remove a scope's live version. `POST /v1/agents/{agentId}/live/unpin`
+    ) -> _models.PinCheck:
+        """Check a pin against its gate. `POST /v1/agents/{agentId}/pinned/check`
 
-        Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a promotion. Needs `promote` on the agent.
+        What `POST …/pinned/pin` with the same body would do, with nothing recorded: `would-pin`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, pin. Needs `read` on the agent.
         """
         return self._client._request(
-            _OPERATIONS["agents.live.unpin"],
+            _OPERATIONS["agents.pinned.check"],
             path={"agentId": agent_id},
             query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.UnpinBody, body, fields),
-            response=_models.Promotion,
+            headers={},
+            body=_body(_models.AgentPinBody, body, fields),
+            response=_models.PinCheck,
             timeout=timeout,
         )
 
-
-class AgentsPromotionsResource:
-    """`client.agents.promotions` — the `agents.promotions` operations."""
-
-    def __init__(self, client: SyncClientBase) -> None:
-        self._client = client
-
-    def list(
+    def history(
         self,
         agent_id: str | UUID,
         /,
@@ -3039,13 +3188,13 @@ class AgentsPromotionsResource:
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.PromotionPage:
-        """List an agent's promotions. `GET /v1/agents/{agentId}/promotions`
+    ) -> _models.PinPage:
+        """List an agent's pin history. `GET /v1/agents/{agentId}/pin-history`
 
-        The history of live-version changes (promotions, rollbacks, unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.
+        The history of pinned-version changes (pins and unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.
         """
         return self._client._request(
-            _OPERATIONS["agents.promotions.list"],
+            _OPERATIONS["agents.pinned.history"],
             path={"agentId": agent_id},
             query={
                 "limit": limit,
@@ -3055,73 +3204,50 @@ class AgentsPromotionsResource:
                 "segment": _segments(segments),
             },
             headers={},
-            response=_models.PromotionPage,
+            response=_models.PinPage,
             timeout=timeout,
         )
 
-    def create(
+    def get_change(
+        self, agent_id: str | UUID, change_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Pin:
+        """Get a pin change. `GET /v1/agents/{agentId}/pin-history/{changeId}`"""
+        return self._client._request(
+            _OPERATIONS["agents.pinned.getChange"],
+            path={"agentId": agent_id, "changeId": change_id},
+            query={},
+            headers={},
+            response=_models.Pin,
+            timeout=timeout,
+        )
+
+    def unpin(
         self,
         agent_id: str | UUID,
-        body: _models.PromoteBody | Mapping[str, Any] | None = None,
+        body: _models.AgentUnpinBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Promotion:
-        """Make a version live for a scope. `POST /v1/agents/{agentId}/promotions`
+    ) -> _models.PinAnswer:
+        """Remove a scope's pinned version. `POST /v1/agents/{agentId}/pinned/unpin`
 
-        Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.
+        Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a pin. Needs `pin` on the agent.
         """
         return self._client._request(
-            _OPERATIONS["agents.promotions.create"],
+            _OPERATIONS["agents.pinned.unpin"],
             path={"agentId": agent_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PromoteBody, body, fields),
-            response=_models.Promotion,
-            timeout=timeout,
-        )
-
-    def check(
-        self,
-        agent_id: str | UUID,
-        body: _models.PromoteBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.PromotionCheck:
-        """Check a promotion against its gate. `POST /v1/agents/{agentId}/promotions/check`
-
-        What `POST …/promotions` with the same body would do, with nothing recorded: `would-promote`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, promote. Needs `read` on the agent.
-        """
-        return self._client._request(
-            _OPERATIONS["agents.promotions.check"],
-            path={"agentId": agent_id},
-            query={},
-            headers={},
-            body=_body(_models.PromoteBody, body, fields),
-            response=_models.PromotionCheck,
-            timeout=timeout,
-        )
-
-    def get(
-        self, agent_id: str | UUID, promotion_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.Promotion:
-        """Get a promotion. `GET /v1/agents/{agentId}/promotions/{promotionId}`"""
-        return self._client._request(
-            _OPERATIONS["agents.promotions.get"],
-            path={"agentId": agent_id, "promotionId": promotion_id},
-            query={},
-            headers={},
-            response=_models.Promotion,
+            body=_body(_models.AgentUnpinBody, body, fields),
+            response=_models.PinAnswer,
             timeout=timeout,
         )
 
 
-class AgentsGatePolicyResource:
-    """`client.agents.gate_policy` — the `agents.gatePolicy` operations."""
+class AgentsReleaseGateResource:
+    """`client.agents.release_gate` — the `agents.releaseGate` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
@@ -3135,17 +3261,17 @@ class AgentsGatePolicyResource:
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.GatePolicyResolution:
-        """The gate policy for a scope. `GET /v1/agents/{agentId}/gate-policy`
+    ) -> _models.ReleaseGateResolution:
+        """The release gate for a scope. `GET /v1/agents/{agentId}/release-gate`
 
-        The gate policy a promotion of the agent for the scope would be checked against: the most specific scope with an active policy (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `policy: null` when none applies.
+        The release gate a pin of the agent for the scope would be checked against: the most specific scope with an active gate (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `releaseGate: null` when none applies.
         """
         return self._client._request(
-            _OPERATIONS["agents.gatePolicy.resolve"],
+            _OPERATIONS["agents.releaseGate.resolve"],
             path={"agentId": agent_id},
             query={"scopeKind": scope_kind, "scopeId": scope_id, "segment": _segments(segments)},
             headers={},
-            response=_models.GatePolicyResolution,
+            response=_models.ReleaseGateResolution,
             timeout=timeout,
         )
 
@@ -3155,9 +3281,9 @@ class AgentsResource:
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
-        self.live = AgentsLiveResource(client)
-        self.promotions = AgentsPromotionsResource(client)
-        self.gate_policy = AgentsGatePolicyResource(client)
+        self.test_set = AgentsTestSetResource(client)
+        self.pinned = AgentsPinnedResource(client)
+        self.release_gate = AgentsReleaseGateResource(client)
 
     def list(
         self,
@@ -3224,9 +3350,9 @@ class AgentsResource:
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.Agent:
-        """Fetch the latest version of an agent. `GET /v1/agents/{agentId}`
+        """Fetch the highest version of an agent. `GET /v1/agents/{agentId}`
 
-        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version. For an agent, that is its highest version, which numbers the next one. It is not always what a project runs: `agents.projects` says what runs in each project.
         """
         return self._client._request(
             _OPERATIONS["agents.get"],
@@ -3240,9 +3366,9 @@ class AgentsResource:
     def projects(
         self, agent_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.AgentProjectList:
-        """List the projects an agent runs in. `GET /v1/agents/{agentId}/projects`
+        """List the projects an agent runs in, and what runs in each. `GET /v1/agents/{agentId}/projects`
 
-        The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty.
+        The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty. Each project says what a run there that names no version gets (`runs`) and why (`follows`): a pin that covers the project, else its Latest. Latest moves only when a deployment into the project ships a version, or when a person publishes a full version or adds one as the latest version; a pin never moves it. `segments` lists the pins on segments inside the project. `highest` is the agent's highest version, which numbers the next one. A version the caller can't see is left out.
         """
         return self._client._request(
             _OPERATIONS["agents.projects"],
@@ -3276,30 +3402,6 @@ class AgentsResource:
             timeout=timeout,
         )
 
-    def derive_version(
-        self,
-        agent_id: str | UUID,
-        body: _models.DeriveAgentVersionBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.Agent:
-        """Derive an agent version with data-block pins swapped. `POST /v1/agents/{agentId}/versions`
-
-        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent. In a tenant with environment orders, the new version is made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted; the agent's project doesn't change.
-        """
-        return self._client._request(
-            _OPERATIONS["agents.deriveVersion"],
-            path={"agentId": agent_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.DeriveAgentVersionBody, body, fields),
-            response=_models.Agent,
-            timeout=timeout,
-        )
-
     def get_version(
         self, agent_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.Agent:
@@ -3310,6 +3412,29 @@ class AgentsResource:
             query={},
             headers={},
             response=_models.Agent,
+            timeout=timeout,
+        )
+
+    def set_owner(
+        self,
+        agent_id: str | UUID,
+        body: _models.SetAgentOwnerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SetAgentOwnerResult:
+        """Set an agent's owner. `PUT /v1/agents/{agentId}/owner`
+
+        One owner per agent: the person its corrections go to when they need the owner. Setting it again replaces the one before. Needs `admin` on the agent (an admin of its project). With a directory of people, the owner must be one of the tenant's.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.setOwner"],
+            path={"agentId": agent_id},
+            query={},
+            headers={},
+            body=_body(_models.SetAgentOwnerBody, body, fields),
+            response=_models.SetAgentOwnerResult,
             timeout=timeout,
         )
 
@@ -3343,7 +3468,7 @@ class AgentsResource:
     ) -> _models.ReinstateAgentVersionResult:
         """Reinstate a specific tombstoned agent version. `POST /v1/agents/{agentId}/versions/{version}/reinstate`
 
-        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).
+        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the highest active version, which numbers the next one. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).
         """
         return self._client._request(
             _OPERATIONS["agents.reinstateVersion"],
@@ -3355,80 +3480,80 @@ class AgentsResource:
         )
 
 
-class GatePoliciesVersionsResource:
-    """`client.gate_policies.versions` — the `gatePolicies.versions` operations."""
+class ReleaseGatesVersionsResource:
+    """`client.release_gates.versions` — the `releaseGates.versions` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
 
     def list(
-        self, policy_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.GatePolicyPage:
-        """List a gate policy's versions. `GET /v1/gate-policies/{policyId}/versions`
+        self, release_gate_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGatePage:
+        """List a release gate's versions. `GET /v1/release-gates/{releaseGateId}/versions`
 
         Every version, oldest first, unregistered ones too (with `unregisteredAt`).
         """
         return self._client._request(
-            _OPERATIONS["gatePolicies.versions.list"],
-            path={"policyId": policy_id},
+            _OPERATIONS["releaseGates.versions.list"],
+            path={"releaseGateId": release_gate_id},
             query={},
             headers={},
-            response=_models.GatePolicyPage,
+            response=_models.ReleaseGatePage,
             timeout=timeout,
         )
 
     def get(
-        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.GatePolicy:
-        """Get a gate policy version. `GET /v1/gate-policies/{policyId}/versions/{version}`"""
+        self, release_gate_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGate:
+        """Get a release gate version. `GET /v1/release-gates/{releaseGateId}/versions/{version}`"""
         return self._client._request(
-            _OPERATIONS["gatePolicies.versions.get"],
-            path={"policyId": policy_id, "version": version},
+            _OPERATIONS["releaseGates.versions.get"],
+            path={"releaseGateId": release_gate_id, "version": version},
             query={},
             headers={},
-            response=_models.GatePolicy,
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
     def unregister(
-        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.GatePolicy:
-        """Unregister a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/unregister`
+        self, release_gate_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGate:
+        """Unregister a release gate version. `POST /v1/release-gates/{releaseGateId}/versions/{version}/unregister`
 
-        The version stops applying; the policy's latest remaining active version applies, or, with none, the scope above's policy. Promotions keep the version they were checked against. Needs `admin` on the tenant.
+        The version stops applying; the gate's latest remaining active version applies, or, with none, the scope above's gate. Pins keep the version they were checked against. Needs `admin` on the tenant.
         """
         return self._client._request(
-            _OPERATIONS["gatePolicies.versions.unregister"],
-            path={"policyId": policy_id, "version": version},
+            _OPERATIONS["releaseGates.versions.unregister"],
+            path={"releaseGateId": release_gate_id, "version": version},
             query={},
             headers={},
-            response=_models.GatePolicy,
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
     def reinstate(
-        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.GatePolicy:
-        """Reinstate a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/reinstate`
+        self, release_gate_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGate:
+        """Reinstate a release gate version. `POST /v1/release-gates/{releaseGateId}/versions/{version}/reinstate`
 
         Needs `admin` on the tenant.
         """
         return self._client._request(
-            _OPERATIONS["gatePolicies.versions.reinstate"],
-            path={"policyId": policy_id, "version": version},
+            _OPERATIONS["releaseGates.versions.reinstate"],
+            path={"releaseGateId": release_gate_id, "version": version},
             query={},
             headers={},
-            response=_models.GatePolicy,
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
 
-class GatePoliciesResource:
-    """`client.gate_policies` — the `gatePolicies` operations."""
+class ReleaseGatesResource:
+    """`client.release_gates` — the `releaseGates` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
-        self.versions = GatePoliciesVersionsResource(client)
+        self.versions = ReleaseGatesVersionsResource(client)
 
     def list(
         self,
@@ -3441,13 +3566,13 @@ class GatePoliciesResource:
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.GatePolicyPage:
-        """List gate policies. `GET /v1/gate-policies`
+    ) -> _models.ReleaseGatePage:
+        """List release gates. `GET /v1/release-gates`
 
-        Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.
+        Each release gate's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.
         """
         return self._client._request(
-            _OPERATIONS["gatePolicies.list"],
+            _OPERATIONS["releaseGates.list"],
             path={},
             query={
                 "limit": limit,
@@ -3458,44 +3583,46 @@ class GatePoliciesResource:
                 "segment": _segments(segments),
             },
             headers={},
-            response=_models.GatePolicyPage,
+            response=_models.ReleaseGatePage,
             timeout=timeout,
         )
 
     def publish(
         self,
-        body: _models.PublishGatePolicyBody | Mapping[str, Any] | None = None,
+        body: _models.PublishReleaseGateBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.GatePolicy:
-        """Publish a gate policy. `POST /v1/gate-policies`
+    ) -> _models.ReleaseGate:
+        """Publish a release gate. `POST /v1/release-gates`
 
-        Registers a gate policy, or a new version of one: what a promotion of `agentId` for `scope` must show. One policy per agent and scope: another policy id for a scope that has one is refused with `409 gate-policy-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 gate-policy-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may promote can't loosen their own gate.
+        Registers a release gate, or a new version of one: what a pin of `agentId` for `scope` must show. One gate per agent and scope: another gate id for a scope that has one is refused with `409 release-gate-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 release-gate-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may pin can't loosen their own gate.
         """
         return self._client._request(
-            _OPERATIONS["gatePolicies.publish"],
+            _OPERATIONS["releaseGates.publish"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PublishGatePolicyBody, body, fields),
-            response=_models.GatePolicy,
+            body=_body(_models.PublishReleaseGateBody, body, fields),
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
-    def get(self, policy_id: str | UUID, /, *, timeout: float | None = None) -> _models.GatePolicy:
-        """Get a gate policy. `GET /v1/gate-policies/{policyId}`
+    def get(
+        self, release_gate_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGate:
+        """Get a release gate. `GET /v1/release-gates/{releaseGateId}`
 
-        The policy's latest active version.
+        The release gate's latest active version.
         """
         return self._client._request(
-            _OPERATIONS["gatePolicies.get"],
-            path={"policyId": policy_id},
+            _OPERATIONS["releaseGates.get"],
+            path={"releaseGateId": release_gate_id},
             query={},
             headers={},
-            response=_models.GatePolicy,
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
@@ -4633,8 +4760,8 @@ class MemoryResource:
         )
 
 
-class ProposalsResource:
-    """`client.proposals` — the `proposals` operations."""
+class SuggestedChangesResource:
+    """`client.suggested_changes` — the `suggestedChanges` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
@@ -4646,278 +4773,175 @@ class ProposalsResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal[
-            "draft",
-            "evaluating",
-            "evaluated",
-            "not-better",
-            "evaluation-failed",
-            "in-review",
-            "promoted",
-            "refused",
-            "rejected",
-            "expired",
-            "superseded",
-            "rolled-back",
+            "checking",
+            "check-failed",
+            "ready",
+            "waiting-for-second-person",
+            "pinned",
+            "added-as-latest",
             "withdrawn",
         ]
         | None = None,
         agent_id: str | UUID | None = None,
-        tier: Literal["settings-block", "prompt-block"] | None = None,
-        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
-        scope_id: str | UUID | None = None,
-        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
+        project_id: str | UUID | None = None,
+        made_by: Literal["improve-run", "person", "service", "deploy", "offer"] | None = None,
         timeout: float | None = None,
-    ) -> _models.FixProposalCollectionPage:
-        """List improvement proposals. `GET /v1/proposals`
+    ) -> _models.SuggestedChangeCollectionPage:
+        """List suggested changes. `GET /v1/suggested-changes`
 
-        Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a proposal is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).
+        Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?projectId=` (the project a suggested change is for), `?status=` and `?madeBy=` (a kind of maker). Statuses and makers are derived, so a page filtered by either can hold fewer rows than `limit`.
         """
         return self._client._request(
-            _OPERATIONS["proposals.list"],
+            _OPERATIONS["suggestedChanges.list"],
             path={},
             query={
                 "limit": limit,
                 "cursor": cursor,
                 "status": status,
                 "agentId": agent_id,
-                "tier": tier,
-                "scopeKind": scope_kind,
-                "scopeId": scope_id,
-                "segment": _segments(segments),
+                "projectId": project_id,
+                "madeBy": made_by,
             },
             headers={},
-            response=_models.FixProposalCollectionPage,
+            response=_models.SuggestedChangeCollectionPage,
             timeout=timeout,
         )
 
     def create(
         self,
-        body: _models.CreateProposalBody | Mapping[str, Any] | None = None,
+        body: _models.CreateSuggestedChangeBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.FixProposal:
-        """Propose new content for a data block. `POST /v1/proposals`
+    ) -> _models.SuggestedChange:
+        """Suggest a change to a block, for a project. `POST /v1/suggested-changes`
 
-        A hand-written proposal: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one proposal: answered `200` with `X-Proposal-Deduped: true`. Needs `publish` on the agent.
+        New settings values or a new prompt template for one block, in what the project runs: its pin, or Latest. Checked as publishing that block version would be (its schema carries over; for the version's model-settings block, as model settings), and refused when it equals the content the version pins. Then the block version is published, an agent version is derived from what the project runs with that one block changed (it serves nothing until it's pinned or added as Latest), and the check starts on the project's test set, frozen now: the new version and what the project runs replay the same cases. The same change on the same version for the same project is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`, unchecked again. Needs `publish` on the agent.
         """
         return self._client._request(
-            _OPERATIONS["proposals.create"],
+            _OPERATIONS["suggestedChanges.create"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.CreateProposalBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    def improve(
-        self,
-        body: _models.ImproveBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.ImprovementPass:
-        """Start an improvement pass. `POST /v1/proposals/improve`
-
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
-        """
-        return self._client._request(
-            _OPERATIONS["proposals.improve"],
-            path={},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.ImproveBody, body, fields),
-            response=_models.ImprovementPass,
-            timeout=timeout,
-        )
-
-    def improve_estimate(
-        self,
-        body: _models.ImproveBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.ImprovementPassEstimate:
-        """Estimate an improvement pass. `POST /v1/proposals/improve/estimate`
-
-        What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the pass's project doesn't reach answers `400 reference-out-of-scope`, exactly as `improve` would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count times the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt pass's one-off drafting of its templates — a pass can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the pass is expected to spend its whole budget; the pass checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
-        """
-        return self._client._request(
-            _OPERATIONS["proposals.improveEstimate"],
-            path={},
-            query={},
-            headers={},
-            body=_body(_models.ImproveBody, body, fields),
-            response=_models.ImprovementPassEstimate,
+            body=_body(_models.CreateSuggestedChangeBody, body, fields),
+            response=_models.SuggestedChange,
             timeout=timeout,
         )
 
     def get(
-        self, proposal_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.FixProposal:
-        """Fetch an improvement proposal. `GET /v1/proposals/{proposalId}`
+        self, suggested_change_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.SuggestedChange:
+        """Fetch a suggested change. `GET /v1/suggested-changes/{suggestedChangeId}`
 
-        Needs `read` on its agent.
+        With its block's content before and after (`changes[].before`, `changes[].after`). Needs `read` on its agent.
         """
         return self._client._request(
-            _OPERATIONS["proposals.get"],
-            path={"proposalId": proposal_id},
+            _OPERATIONS["suggestedChanges.get"],
+            path={"suggestedChangeId": suggested_change_id},
             query={},
             headers={},
-            response=_models.FixProposal,
+            response=_models.SuggestedChange,
             timeout=timeout,
         )
 
-    def evaluate(
+    def check(
         self,
-        proposal_id: str | UUID,
-        body: _models.EvaluateProposalBody | Mapping[str, Any] | None = None,
+        suggested_change_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SuggestedChange:
+        """Check a suggested change again. `POST /v1/suggested-changes/{suggestedChangeId}/check`
+
+        Checks it again on its project's test set, frozen now: its version and the version it's built on replay the same cases, so new corrections count. Its version is made first if it has none. When its project runs another version than the one it's built on, it's rebuilt there first: its block change on that version, as a new version, and `builtOn.rebuiltAt` says when. Takes no body fields. Needs `publish` on the agent. Allowed from `check-failed` and `ready`.
+        """
+        return self._client._request(
+            _OPERATIONS["suggestedChanges.check"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    def pin(
+        self,
+        suggested_change_id: str | UUID,
+        body: _models.SuggestedChangePinBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.FixProposal:
-        """Compare a proposal on a test set. `POST /v1/proposals/{proposalId}/evaluate`
+    ) -> _models.SuggestedChangePinAnswer:
+        """Pin a suggested change's version for its project. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
 
-        The first evaluation publishes the block version and derives the agent version (`derivedFrom.proposalId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 proposal-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
+        A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. A project on Latest takes the change as its Latest (`add-as-latest`); a pin there is refused with `409 pin-stops-latest`, before any rebuild, unless the body has `stopFollowingLatest: true`, which takes the project off Latest. Needs `pin` on the agent. Allowed from `ready`.
         """
         return self._client._request(
-            _OPERATIONS["proposals.evaluate"],
-            path={"proposalId": proposal_id},
+            _OPERATIONS["suggestedChanges.pin"],
+            path={"suggestedChangeId": suggested_change_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.EvaluateProposalBody, body, fields),
-            response=_models.FixProposal,
+            body=_body(_models.SuggestedChangePinBody, body, fields),
+            response=_models.SuggestedChangePinAnswer,
             timeout=timeout,
         )
 
-    def rescore(
+    def add_as_latest(
         self,
-        proposal_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.FixProposal:
-        """Rescore a proposal's latest evaluation. `POST /v1/proposals/{proposalId}/rescore`
-
-        After people judge a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those judgments, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
-        """
-        return self._client._request(
-            _OPERATIONS["proposals.rescore"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    def request(
-        self,
-        proposal_id: str | UUID,
-        body: _models.ProposalReasonBody | Mapping[str, Any] | None = None,
+        suggested_change_id: str | UUID,
+        body: _models.SuggestedChangeReasonBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.FixProposal:
-        """Request a proposal's promotion for its scope. `POST /v1/proposals/{proposalId}/request`
+    ) -> _models.SuggestedChange:
+        """Add a suggested change's version as its project's Latest. `POST /v1/suggested-changes/{suggestedChangeId}/add-as-latest`
 
-        A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.
+        Makes its version Latest in its project, now, so the project runs it. Only for a project on Latest, which takes each new Latest without a gate; a pinned project takes a pin of the change instead. `reason` is kept on its `addedAsLatest`. Needs `pin` on the agent. Allowed from `ready`.
         """
         return self._client._request(
-            _OPERATIONS["proposals.request"],
-            path={"proposalId": proposal_id},
+            _OPERATIONS["suggestedChanges.addAsLatest"],
+            path={"suggestedChangeId": suggested_change_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.ProposalReasonBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    def rollback(
-        self,
-        proposal_id: str | UUID,
-        body: _models.ProposalReasonBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.FixProposal:
-        """Roll back a promoted proposal. `POST /v1/proposals/{proposalId}/rollback`
-
-        The scope goes back to the version its own pin held before the proposal's promotion (or, with none, falls back to the scope above). Only while the proposal's version still serves the scope. Needs `promote` on the agent.
-        """
-        return self._client._request(
-            _OPERATIONS["proposals.rollback"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.ProposalReasonBody, body, fields),
-            response=_models.FixProposal,
+            body=_body(_models.SuggestedChangeReasonBody, body, fields),
+            response=_models.SuggestedChange,
             timeout=timeout,
         )
 
     def withdraw(
         self,
-        proposal_id: str | UUID,
-        body: _models.WithdrawProposalBody | Mapping[str, Any] | None = None,
+        suggested_change_id: str | UUID,
+        body: _models.WithdrawSuggestedChangeBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.FixProposal:
-        """Withdraw a proposal. `POST /v1/proposals/{proposalId}/withdraw`
+    ) -> _models.SuggestedChange:
+        """Withdraw a suggested change. `POST /v1/suggested-changes/{suggestedChangeId}/withdraw`
 
-        Closes it. Not while it's in review (decide its approval instead), nor once promoted, rejected or rolled back. Needs `publish` on the agent.
+        Closes it. Allowed from `checking`, `check-failed` and `ready`: not while it waits for a second person (they reject it instead), nor once pinned or added as Latest. Needs `publish` on the agent.
         """
         return self._client._request(
-            _OPERATIONS["proposals.withdraw"],
-            path={"proposalId": proposal_id},
+            _OPERATIONS["suggestedChanges.withdraw"],
+            path={"suggestedChangeId": suggested_change_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.WithdrawProposalBody, body, fields),
-            response=_models.FixProposal,
+            body=_body(_models.WithdrawSuggestedChangeBody, body, fields),
+            response=_models.SuggestedChange,
             timeout=timeout,
         )
 
-    def draft(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.create`."""
-        raise InvalidRequestError(
-            "proposals.draft was removed in 0.1.5: use client.proposals.create", issues=[]
-        )
 
-    def dry_run(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.evaluate`."""
-        raise InvalidRequestError(
-            "proposals.dry_run was removed in 0.1.5: use client.proposals.evaluate", issues=[]
-        )
-
-    def submit_review(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.request`."""
-        raise InvalidRequestError(
-            "proposals.submit_review was removed in 0.1.5: use client.proposals.request", issues=[]
-        )
-
-    def apply(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.request`."""
-        raise InvalidRequestError(
-            "proposals.apply was removed in 0.1.5: use client.proposals.request", issues=[]
-        )
-
-
-class ImprovementPassesResource:
-    """`client.improvement_passes` — the `improvementPasses` operations."""
+class ImproveRunsResource:
+    """`client.improve_runs` — the `improveRuns` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
@@ -4929,55 +4953,108 @@ class ImprovementPassesResource:
         limit: int | None = None,
         cursor: str | None = None,
         agent_id: str | UUID | None = None,
+        project_id: str | UUID | None = None,
+        status: Literal["running", "completed", "failed", "cancelled"] | None = None,
         timeout: float | None = None,
-    ) -> _models.ImprovementPassCollectionPage:
-        """List improvement passes. `GET /v1/improvement-passes`
+    ) -> _models.ImproveRunCollectionPage:
+        """List Improve runs. `GET /v1/improve-runs`
 
-        Newest first, only the passes of agents the caller can read. `?agentId=` narrows them.
+        Newest first, only the Improve runs of agents the caller can read. `?agentId=`, `?projectId=` and `?status=` narrow them.
         """
         return self._client._request(
-            _OPERATIONS["improvementPasses.list"],
+            _OPERATIONS["improveRuns.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "agentId": agent_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "agentId": agent_id,
+                "projectId": project_id,
+                "status": status,
+            },
             headers={},
-            response=_models.ImprovementPassCollectionPage,
+            response=_models.ImproveRunCollectionPage,
+            timeout=timeout,
+        )
+
+    def start(
+        self,
+        body: _models.StartImproveRunBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ImproveRun:
+        """Start an Improve run. `POST /v1/improve-runs`
+
+        Starts an Improve run for an agent in a project. From the version the project runs (pinned there, else its Latest), it looks for better wording (the prompt tier) or settings values (the settings tier) on the project's test set, learning from the project's open corrections sorted to improve, within the budget. Its best change is proven on every case of the test set, at the reference's repetitions: when it passes more cases than that version and fails none that passed, it becomes a suggested change for a reviewer. It answers at once with the Improve run, `running`. The readiness check (`POST /v1/improve-runs/check`) runs first: when something the Improve run needs is missing, it's refused with `409 improve-not-ready`, listing every missing item at once (`details.items`, each with its fix); while the agent has a running Improve run in the project, with `409 improve-run-running` (`details.improveRunId`). An Improve run going when its project is suspended ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.
+        """
+        return self._client._request(
+            _OPERATIONS["improveRuns.start"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.StartImproveRunBody, body, fields),
+            response=_models.ImproveRun,
+            timeout=timeout,
+        )
+
+    def check(
+        self,
+        body: _models.StartImproveRunBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ImproveRunCheck:
+        """Check an Improve run. `POST /v1/improve-runs/check`
+
+        Whether the Improve run this input would start is ready, and what it's estimated to cost, before you start it. The body is the start body of `POST /v1/improve-runs`. `items` lists everything an Improve run needs, in a fixed order, missing or not; each missing one says where it's fixed (`repo`: in the agent's code, then a deploy; `kindgi`: in Kindgi) and how. `estimate.costUsd` prices each replay at the version's mean cost over its recent completed runs: the search's replays at most `budget.maxCostUsd`, plus the proof's (`estimate.basis.proofReplays`), which the budget doesn't cap. It's absent when the version has no cost history; `estimate.basis` gives the inputs. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and it leaves out a prompt Improve run's one-off drafting of its templates: an Improve run can cost more than the estimate. The Improve run checks its cost before each comparison, so the one already running can take it a little over, and its search starts no more once the cost reaches `budget.maxCostUsd`. It proves its best change after that, uncapped. With an Improve schedule on the agent and project, `month` is this UTC month's spend on their Improve runs against the schedule's monthly cap; only the schedule stops at the cap. It changes nothing (no Improve run starts) and takes no Idempotency-Key. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.
+        """
+        return self._client._request(
+            _OPERATIONS["improveRuns.check"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.StartImproveRunBody, body, fields),
+            response=_models.ImproveRunCheck,
             timeout=timeout,
         )
 
     def get(
-        self, pass_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.ImprovementPass:
-        """Fetch an improvement pass. `GET /v1/improvement-passes/{passId}`
+        self, improve_run_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ImproveRun:
+        """Fetch an Improve run. `GET /v1/improve-runs/{improveRunId}`
 
         Its status, the candidates it compared and what they cost, and once it ends, what it found. Needs `read` on its agent.
         """
         return self._client._request(
-            _OPERATIONS["improvementPasses.get"],
-            path={"passId": pass_id},
+            _OPERATIONS["improveRuns.get"],
+            path={"improveRunId": improve_run_id},
             query={},
             headers={},
-            response=_models.ImprovementPass,
+            response=_models.ImproveRun,
             timeout=timeout,
         )
 
     def cancel(
         self,
-        pass_id: str | UUID,
+        improve_run_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.ImprovementPass:
-        """Cancel an improvement pass. `POST /v1/improvement-passes/{passId}/cancel`
+    ) -> _models.ImproveRun:
+        """Cancel an Improve run. `POST /v1/improve-runs/{improveRunId}/cancel`
 
-        A running pass stops and ends `cancelled`, writing no proposal. Needs `publish` on its agent.
+        A running Improve run stops and ends `cancelled`, writing no suggested change. Needs `publish` on its agent.
         """
         return self._client._request(
-            _OPERATIONS["improvementPasses.cancel"],
-            path={"passId": pass_id},
+            _OPERATIONS["improveRuns.cancel"],
+            path={"improveRunId": improve_run_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.ImprovementPass,
+            response=_models.ImproveRun,
             timeout=timeout,
         )
 
@@ -5088,7 +5165,7 @@ class LicenseResource:
     def usage(self, /, *, since: str, timeout: float | None = None) -> _models.LicenseUsage:
         """How much the deployment was used since a time. `GET /v1/license/usage`
 
-        What a free license key's renewal carries (`kindgi license renew --runtime`): the runs started since `since` (not dry runs, replays, evals or child runs), the distinct people who started runs or decided approvals (counted in each tenant and summed, so a person in two tenants counts twice), the projects in production when the runtime can put projects in production (`PUT /v1/projects/{projectId}/production`), and the runtime's version. Counts only: no content, names or ids. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, reads it; anyone else is refused (`license-operator-only`), and the refusal recorded, before `since` is read. A deployment that doesn't report it answers 404.
+        What a free license key's renewal carries (`kindgi license renew --runtime`): the runs started since `since` (not dry runs, replays, test runs or child runs), the distinct people who started runs or decided approvals (counted in each tenant and summed, so a person in two tenants counts twice), the projects in production when the runtime can put projects in production (`PUT /v1/projects/{projectId}/production`), and the runtime's version. Counts only: no content, names or ids. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, reads it; anyone else is refused (`license-operator-only`), and the refusal recorded, before `since` is read. A deployment that doesn't report it answers 404.
         """
         return self._client._request(
             _OPERATIONS["license.usage"],
@@ -5455,8 +5532,8 @@ class ProvidersResource:
         )
 
 
-class JudgmentsResource:
-    """`client.judgments` — the `judgments` operations."""
+class CorrectionsResource(Thumbs):
+    """`client.corrections` — the `corrections` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
@@ -5471,19 +5548,34 @@ class JudgmentsResource:
         agent_id: str | UUID | None = None,
         agent_version: str | None = None,
         flow_id: str | UUID | None = None,
-        verdict: Literal["yes", "no"] | None = None,
-        judge_class_id: str | UUID | None = None,
+        status: Literal[
+            "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+        ]
+        | list[
+            Literal[
+                "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+            ]
+        ]
+        | None = None,
+        sorted_to: Literal["none", "improve", "developer", "owner"]
+        | list[Literal["none", "improve", "developer", "owner"]]
+        | None = None,
+        from_: Literal["experts", "end-users", "all"] | None = None,
+        made_by: Literal["me"] | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        corrector_group_id: str | UUID | None = None,
         participant_id: str | UUID | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgmentCollectionPage:
-        """List judgments. `GET /v1/judgments`
+    ) -> _models.CorrectionCollectionPage:
+        """List corrections. `GET /v1/corrections`
 
-        Live judgments (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.
+        Corrections (not superseded, and not removed unless `status` asks for `removed`), newest first, cursor-paginated. Filter by run, agent (and version), flow, status, sorting, who made them, when, corrector group or participant; `?scopeKind + ?scopeId` narrow to a project. Each one comes back only when the caller may read its project.
         """
         return self._client._request(
-            _OPERATIONS["judgments.list"],
+            _OPERATIONS["corrections.list"],
             path={},
             query={
                 "limit": limit,
@@ -5492,80 +5584,190 @@ class JudgmentsResource:
                 "agentId": agent_id,
                 "agentVersion": agent_version,
                 "flowId": flow_id,
-                "verdict": verdict,
-                "judgeClassId": judge_class_id,
+                "status": status,
+                "sortedTo": sorted_to,
+                "from": from_,
+                "madeBy": made_by,
+                "since": since,
+                "until": until,
+                "correctorGroupId": corrector_group_id,
                 "participantId": participant_id,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
             },
             headers={},
-            response=_models.JudgmentCollectionPage,
+            response=_models.CorrectionCollectionPage,
             timeout=timeout,
         )
 
     def create(
         self,
-        body: _models.CreateJudgmentBody | Mapping[str, Any] | None = None,
+        body: _models.CreateCorrectionBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Judgment:
-        """Judge an item of a run's output. `POST /v1/judgments`
+    ) -> _models.Correction:
+        """Correct a run. `POST /v1/corrections`
 
-        Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified judgments count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first judgment of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. Judging again as the same caller for the same run, item key and `participantId` supersedes the earlier judgment. Needs `judge` on the run.
+        Records whether a finished run's decisions and answer were right, and what was right instead, optionally under a corrector group that applies to the run's project or agent (unclassified corrections count with weight 1). Each item's `pointer` (a JSON Pointer) must resolve in the run's output. It's sorted at save: an end user's correction stays open and unsorted; `decisions: "wrong"` goes to the agent's owner (`with-owner`); a wrong answer goes to Improve (`open`); nothing wrong is `fixed` as `recorded-right`. The first correction of a run also stores a copy of the run's input and output. `madeBy` is the authenticated caller, never the body. A second correction by the same caller for the same run and `participantId` supersedes the earlier one. Needs `write` on the run's project.
         """
         return self._client._request(
-            _OPERATIONS["judgments.create"],
+            _OPERATIONS["corrections.create"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.CreateJudgmentBody, body, fields),
-            response=_models.Judgment,
+            body=_body(_models.CreateCorrectionBody, body, fields),
+            response=_models.Correction,
+            timeout=timeout,
+        )
+
+    def export(
+        self,
+        /,
+        *,
+        format: Literal["csv", "jsonl"] | None = None,
+        run_id: str | UUID | None = None,
+        agent_id: str | UUID,
+        agent_version: str | None = None,
+        flow_id: str | UUID | None = None,
+        status: Literal[
+            "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+        ]
+        | list[
+            Literal[
+                "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+            ]
+        ]
+        | None = None,
+        sorted_to: Literal["none", "improve", "developer", "owner"]
+        | list[Literal["none", "improve", "developer", "owner"]]
+        | None = None,
+        from_: Literal["experts", "end-users", "all"] | None = None,
+        made_by: Literal["me"] | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        corrector_group_id: str | UUID | None = None,
+        participant_id: str | UUID | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> Iterator[bytes]:
+        """Export corrections. `GET /v1/corrections/export`
+
+        Every correction of an agent the list's filters match, streamed as CSV (`format=csv`, the default: RFC 4180, UTF-8, a header row) or JSON lines (`format=jsonl`: one correction per line, as the list sends it). Each comes only when the caller may read its project, and a project scope the caller can't read is a 403 before anything is sent. The run's own text isn't exported, only its id. A CSV field that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, so a spreadsheet doesn't run it. Recorded in the audit log: `corrections-export-started` before the first row (when it can't be written, a 500 and nothing is sent), and `corrections-exported` when the stream ends, with the rows sent and `succeeded` or `failed`.
+        """
+        return self._client._stream_bytes(
+            _OPERATIONS["corrections.export"],
+            path={},
+            query={
+                "format": format,
+                "runId": run_id,
+                "agentId": agent_id,
+                "agentVersion": agent_version,
+                "flowId": flow_id,
+                "status": status,
+                "sortedTo": sorted_to,
+                "from": from_,
+                "madeBy": made_by,
+                "since": since,
+                "until": until,
+                "correctorGroupId": corrector_group_id,
+                "participantId": participant_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+            },
+            headers={},
             timeout=timeout,
         )
 
     def get(
-        self, judgment_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgmentWithCopies:
-        """Fetch a judgment with its copies. `GET /v1/judgments/{judgmentId}`
+        self, correction_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.CorrectionWithCopies:
+        """Fetch a correction with its copies. `GET /v1/corrections/{correctionId}`
 
-        Returns the judgment (live or not) with the stored copy of the run's input and output and, when the judgment pointed at an item, its value.
+        Returns the correction (live or not) with the stored copy of the run's input and output.
         """
         return self._client._request(
-            _OPERATIONS["judgments.get"],
-            path={"judgmentId": judgment_id},
+            _OPERATIONS["corrections.get"],
+            path={"correctionId": correction_id},
             query={},
             headers={},
-            response=_models.JudgmentWithCopies,
+            response=_models.CorrectionWithCopies,
             timeout=timeout,
         )
 
-    def unregister(
+    def change(
         self,
-        judgment_id: str | UUID,
+        correction_id: str | UUID,
+        body: _models.ChangeCorrectionBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterJudgmentResult:
-        """Remove a judgment. `POST /v1/judgments/{judgmentId}/unregister`
+        **fields: Any,
+    ) -> _models.Correction:
+        """Re-sort a correction or change its status. `PATCH /v1/corrections/{correctionId}`
 
-        Soft delete: the judgment stops listing; retention policy decides when it is purged.
+        A re-sort, a status, or both (the re-sort first), by the change table: re-sorting from `open`, `being-fixed` or `with-owner` (to `owner` sets `with-owner`; away from `owner`, `open`); `being-fixed` from `open` or `with-owner`, with `link`; `open` from `being-fixed` or `wont-fix` (`with-owner` for one sorted to the owner); `wont-fix` from anything but `removed`, with `reason`, and it drops `fixedIn`. `fixed` is set only by a pin or a deploy. Anything else is `409 correction-status-change-not-allowed`. Needs `publish` on the correction's agent (or flow), or, for one more than one project serves, `write` on the correction's project.
         """
         return self._client._request(
-            _OPERATIONS["judgments.unregister"],
-            path={"judgmentId": judgment_id},
+            _OPERATIONS["corrections.change"],
+            path={"correctionId": correction_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterJudgmentResult,
+            body=_body(_models.ChangeCorrectionBody, body, fields),
+            response=_models.Correction,
+            timeout=timeout,
+        )
+
+    def remove(
+        self,
+        correction_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.RemoveCorrectionResult:
+        """Remove a correction. `POST /v1/corrections/{correctionId}/remove`
+
+        Its status becomes `removed`, and it can't come back. It lists only when `status=removed` is asked for; retention policy decides when it is purged. Needs to be its author, or `admin` on its project.
+        """
+        return self._client._request(
+            _OPERATIONS["corrections.remove"],
+            path={"correctionId": correction_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.RemoveCorrectionResult,
+            timeout=timeout,
+        )
+
+    def counts(
+        self,
+        /,
+        *,
+        agent_id: str | UUID | None = None,
+        scope_kind: Literal["project"],
+        scope_id: str | UUID,
+        timeout: float | None = None,
+    ) -> _models.CorrectionCounts:
+        """Count corrections by status. `GET /v1/corrections/counts`
+
+        How many of a project's corrections (or one agent's in it) are in each status. Needs `?scopeKind=project&scopeId=<project>` and `read` on the project. Only a project scope is taken: the list filters each row by what the caller reads, and a count can't.
+        """
+        return self._client._request(
+            _OPERATIONS["corrections.counts"],
+            path={},
+            query={"agentId": agent_id, "scopeKind": scope_kind, "scopeId": scope_id},
+            headers={},
+            response=_models.CorrectionCounts,
             timeout=timeout,
         )
 
 
-class JudgeClassesResource:
-    """`client.judge_classes` — the `judgeClasses` operations."""
+class CorrectorGroupsResource:
+    """`client.corrector_groups` — the `correctorGroups` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
@@ -5580,13 +5782,13 @@ class JudgeClassesResource:
         project_id: str | UUID | None = None,
         agent_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgeClassCollectionPage:
-        """List judge classes. `GET /v1/judge-classes`
+    ) -> _models.CorrectorGroupCollectionPage:
+        """List corrector groups. `GET /v1/corrector-groups`
 
-        Live classes, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.
+        Live groups, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.
         """
         return self._client._request(
-            _OPERATIONS["judgeClasses.list"],
+            _OPERATIONS["correctorGroups.list"],
             path={},
             query={
                 "limit": limit,
@@ -5596,88 +5798,88 @@ class JudgeClassesResource:
                 "agentId": agent_id,
             },
             headers={},
-            response=_models.JudgeClassCollectionPage,
+            response=_models.CorrectorGroupCollectionPage,
             timeout=timeout,
         )
 
     def create(
         self,
-        body: _models.CreateJudgeClassBody | Mapping[str, Any] | None = None,
+        body: _models.CreateCorrectorGroupBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgeClass:
-        """Create a judge class. `POST /v1/judge-classes`
+    ) -> _models.CorrectorGroup:
+        """Create a corrector group. `POST /v1/corrector-groups`
 
-        A named kind of judge with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live classes of a scope. Needs `admin` on the tenant (tenant scope) or the project.
+        A named kind of person who corrects with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live groups of a scope. Needs `admin` on the tenant (tenant scope) or the project.
         """
         return self._client._request(
-            _OPERATIONS["judgeClasses.create"],
+            _OPERATIONS["correctorGroups.create"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.CreateJudgeClassBody, body, fields),
-            response=_models.JudgeClass,
+            body=_body(_models.CreateCorrectorGroupBody, body, fields),
+            response=_models.CorrectorGroup,
             timeout=timeout,
         )
 
     def get(
-        self, judge_class_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgeClass:
-        """Fetch a judge class. `GET /v1/judge-classes/{judgeClassId}`
+        self, corrector_group_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.CorrectorGroup:
+        """Fetch a corrector group. `GET /v1/corrector-groups/{correctorGroupId}`
 
-        Also returns a retired class (`unregisteredAt` set): judgments keep naming theirs.
+        Also returns a retired group (`unregisteredAt` set): corrections keep naming theirs.
         """
         return self._client._request(
-            _OPERATIONS["judgeClasses.get"],
-            path={"judgeClassId": judge_class_id},
+            _OPERATIONS["correctorGroups.get"],
+            path={"correctorGroupId": corrector_group_id},
             query={},
             headers={},
-            response=_models.JudgeClass,
+            response=_models.CorrectorGroup,
             timeout=timeout,
         )
 
     def update(
         self,
-        judge_class_id: str | UUID,
-        body: _models.UpdateJudgeClassBody | Mapping[str, Any] | None = None,
+        corrector_group_id: str | UUID,
+        body: _models.UpdateCorrectorGroupBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgeClass:
-        """Change a judge class's weight or description. `PATCH /v1/judge-classes/{judgeClassId}`"""
+    ) -> _models.CorrectorGroup:
+        """Change a corrector group's weight or description. `PATCH /v1/corrector-groups/{correctorGroupId}`"""
         return self._client._request(
-            _OPERATIONS["judgeClasses.update"],
-            path={"judgeClassId": judge_class_id},
+            _OPERATIONS["correctorGroups.update"],
+            path={"correctorGroupId": corrector_group_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.UpdateJudgeClassBody, body, fields),
-            response=_models.JudgeClass,
+            body=_body(_models.UpdateCorrectorGroupBody, body, fields),
+            response=_models.CorrectorGroup,
             timeout=timeout,
         )
 
     def unregister(
         self,
-        judge_class_id: str | UUID,
+        corrector_group_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterJudgeClassResult:
-        """Retire a judge class. `POST /v1/judge-classes/{judgeClassId}/unregister`
+    ) -> _models.UnregisterCorrectorGroupResult:
+        """Retire a corrector group. `POST /v1/corrector-groups/{correctorGroupId}/unregister`
 
-        No new judgments may name it; existing judgments keep it.
+        No new corrections may name it; existing corrections keep it.
         """
         return self._client._request(
-            _OPERATIONS["judgeClasses.unregister"],
-            path={"judgeClassId": judge_class_id},
+            _OPERATIONS["correctorGroups.unregister"],
+            path={"correctorGroupId": corrector_group_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterJudgeClassResult,
+            response=_models.UnregisterCorrectorGroupResult,
             timeout=timeout,
         )
 
@@ -6287,7 +6489,7 @@ class RetentionResource:
             "agent",
             "flow",
             "tool",
-            "eval_suite",
+            "test_set",
             "guardrail",
             "mcp_endpoint",
             "env",
@@ -6295,8 +6497,8 @@ class RetentionResource:
             "run",
             "artifact",
             "policy",
-            "judgment",
-            "judge_class",
+            "correction",
+            "corrector_group",
             "provider",
             "memory",
             "conversation",
@@ -6357,7 +6559,7 @@ class RetentionResource:
             "agent",
             "flow",
             "tool",
-            "eval_suite",
+            "test_set",
             "guardrail",
             "mcp_endpoint",
             "env",
@@ -6365,8 +6567,8 @@ class RetentionResource:
             "run",
             "artifact",
             "policy",
-            "judgment",
-            "judge_class",
+            "correction",
+            "corrector_group",
             "provider",
             "memory",
             "conversation",
@@ -6395,74 +6597,74 @@ class RetentionResource:
         )
 
 
-class EvalSuitesVersionsResource:
-    """`client.eval_suites.versions` — the `evalSuites.versions` operations."""
+class TestSetsVersionsResource:
+    """`client.test_sets.versions` — the `testSets.versions` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
 
     def list(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         /,
         *,
         limit: int | None = None,
         cursor: str | None = None,
         include_tombstoned: bool | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalSuiteCollectionPage:
-        """List versions of an eval suite. `GET /v1/eval-suites/{suiteId}/versions`
+    ) -> _models.TestSetCollectionPage:
+        """List versions of a test set. `GET /v1/test-sets/{testSetId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired suite (every version unregistered) answers too, with its versions to reinstate.
+        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired test set (every version unregistered) answers too, with its versions to reinstate.
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.versions.list"],
-            path={"suiteId": suite_id},
+            _OPERATIONS["testSets.versions.list"],
+            path={"testSetId": test_set_id},
             query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
-            response=_models.EvalSuiteCollectionPage,
+            response=_models.TestSetCollectionPage,
             timeout=timeout,
         )
 
     def get(
-        self, suite_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.EvalSuite:
-        """Fetch a specific eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}`"""
+        self, test_set_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.TestSet:
+        """Fetch a specific test set version. `GET /v1/test-sets/{testSetId}/versions/{version}`"""
         return self._client._request(
-            _OPERATIONS["evalSuites.versions.get"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.versions.get"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={},
-            response=_models.EvalSuite,
+            response=_models.TestSet,
             timeout=timeout,
         )
 
     def unregister(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterEvalSuiteResult:
-        """Unregister an eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/unregister`"""
+    ) -> _models.UnregisterTestSetResult:
+        """Unregister a test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
         return self._client._request(
-            _OPERATIONS["evalSuites.versions.unregister"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.versions.unregister"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterEvalSuiteResult,
+            response=_models.UnregisterTestSetResult,
             timeout=timeout,
         )
 
 
-class EvalSuitesResource:
-    """`client.eval_suites` — the `evalSuites` operations."""
+class TestSetsResource:
+    """`client.test_sets` — the `testSets` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
-        self.versions = EvalSuitesVersionsResource(client)
+        self.versions = TestSetsVersionsResource(client)
 
     def list(
         self,
@@ -6471,7 +6673,13 @@ class EvalSuitesResource:
         limit: int | None = None,
         cursor: str | None = None,
         kind: Literal[
-            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+            "accuracy",
+            "pairwise",
+            "regression",
+            "human-review",
+            "benchmark",
+            "custom",
+            "corrections",
         ]
         | None = None,
         name: str | None = None,
@@ -6480,13 +6688,13 @@ class EvalSuitesResource:
         inherit: bool | None = None,
         include_retired: bool | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalSuiteCollectionPage:
-        """List tenant eval suites. `GET /v1/eval-suites`
+    ) -> _models.TestSetCollectionPage:
+        """List tenant test sets. `GET /v1/test-sets`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id. A retired suite (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated. A `corrections` test set (an agent's frozen versions, and those built from corrections before) is listed only with `?kind=corrections`: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.list"],
+            _OPERATIONS["testSets.list"],
             path={},
             query={
                 "limit": limit,
@@ -6499,139 +6707,115 @@ class EvalSuitesResource:
                 "includeRetired": include_retired,
             },
             headers={},
-            response=_models.EvalSuiteCollectionPage,
+            response=_models.TestSetCollectionPage,
             timeout=timeout,
         )
 
     def publish(
         self,
-        body: _models.PublishEvalSuiteBody | Mapping[str, Any] | None = None,
+        body: _models.PublishTestSetBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.PublishEvalSuiteResult:
-        """Publish an eval suite. `POST /v1/eval-suites`
+    ) -> _models.PublishTestSetResult:
+        """Publish a test set. `POST /v1/test-sets`
 
-        Body is a full `EvalSuite` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(suiteId, version)` returns `409 eval-suite-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201). An id that starts with `agent.` is refused with `400 bad-input`: those are agents' own test sets, whose versions only a check or a test run makes.
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.publish"],
+            _OPERATIONS["testSets.publish"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PublishEvalSuiteBody, body, fields),
-            response=_models.PublishEvalSuiteResult,
+            body=_body(_models.PublishTestSetBody, body, fields),
+            response=_models.PublishTestSetResult,
             timeout=timeout,
         )
 
     def get(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         /,
         *,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalSuite:
-        """Fetch an eval suite (latest version). `GET /v1/eval-suites/{suiteId}`
+    ) -> _models.TestSet:
+        """Fetch a test set (latest version). `GET /v1/test-sets/{testSetId}`
 
         An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.get"],
-            path={"suiteId": suite_id},
+            _OPERATIONS["testSets.get"],
+            path={"testSetId": test_set_id},
             query={"projectId": project_id},
             headers={},
-            response=_models.EvalSuite,
-            timeout=timeout,
-        )
-
-    def build_from_judgments(
-        self,
-        suite_id: str | UUID,
-        body: _models.BuildJudgedSuiteBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.BuildJudgedSuiteResult:
-        """Build a test set from judgments. `POST /v1/eval-suites/{suiteId}/versions/from-judgments`
-
-        Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
-        """
-        return self._client._request(
-            _OPERATIONS["evalSuites.buildFromJudgments"],
-            path={"suiteId": suite_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.BuildJudgedSuiteBody, body, fields),
-            response=_models.BuildJudgedSuiteResult,
+            response=_models.TestSet,
             timeout=timeout,
         )
 
     def list_cases(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgedEvalCaseCollectionPage:
-        """List the cases of a judged eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}/cases`
+    ) -> _models.CorrectedTestCaseCollectionPage:
+        """List the cases of a corrections test set version. `GET /v1/test-sets/{testSetId}/versions/{version}/cases`
 
-        Cursor-paginated, in the order the cases were stored (newest judged run first).
+        Cursor-paginated, in the order the cases were stored (newest corrected run first).
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.listCases"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.listCases"],
+            path={"testSetId": test_set_id, "version": version},
             query={"limit": limit, "cursor": cursor},
             headers={},
-            response=_models.JudgedEvalCaseCollectionPage,
+            response=_models.CorrectedTestCaseCollectionPage,
             timeout=timeout,
         )
 
     def reinstate_version(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.ReinstateEvalSuiteVersionResult:
-        """Reinstate a specific tombstoned eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/reinstate`
+    ) -> _models.ReinstateTestSetVersionResult:
+        """Reinstate a specific tombstoned test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/reinstate`
 
-        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (refreshes `suiteKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Publish is always allowed regardless of retirement state.
+        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (refreshes `testSetKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Publish is always allowed regardless of retirement state.
         """
         return self._client._request(
-            _OPERATIONS["evalSuites.reinstateVersion"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.reinstateVersion"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.ReinstateEvalSuiteVersionResult,
+            response=_models.ReinstateTestSetVersionResult,
             timeout=timeout,
         )
 
     def unregister(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterEvalSuiteResult:
-        """Unregister an eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/unregister`"""
+    ) -> _models.UnregisterTestSetResult:
+        """Unregister a test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
         return self._client._request(
-            _OPERATIONS["evalSuites.unregister"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.unregister"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterEvalSuiteResult,
+            response=_models.UnregisterTestSetResult,
             timeout=timeout,
         )
 
@@ -6776,7 +6960,7 @@ class BlocksResource:
     ) -> _models.PublishBlockResult:
         """Publish a data block version. `POST /v1/blocks`
 
-        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.
+        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A settings block an agent version uses as its model settings takes only model settings, which never name the model that agent version names too. The version records the caller as `publishedBy`, and `source: { kind: "api" }`. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.
         """
         return self._client._request(
             _OPERATIONS["blocks.publish"],
@@ -6809,34 +6993,50 @@ class BlocksResource:
             timeout=timeout,
         )
 
+    def runs_in(
+        self, block_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.BlockRunsInList:
+        """List where a data block's versions run. `GET /v1/blocks/{blockId}/runs-in`
 
-class EvalRunsResource:
-    """`client.eval_runs` — the `evalRuns` operations."""
+        Where the block's versions run now: one row for each project, and each segment pin inside one, whose running version of an agent pins a version of the block (as a prompt, a settings block or its model settings). Each agent's projects are the ones `agents.projects` lists, and what runs in each is what it says: a pin that covers the project, else its Latest. Only the projects the caller can read are named, and an agent version the caller can't see is left out. A block no running version pins answers an empty list. Without the agents' pins and Latest in this runtime, `501 runs-in-unsupported`.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.runsIn"],
+            path={"blockId": block_id},
+            query={},
+            headers={},
+            response=_models.BlockRunsInList,
+            timeout=timeout,
+        )
+
+
+class TestRunsResource:
+    """`client.test_runs` — the `testRuns` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
 
     def start(
         self,
-        suite_id: str | UUID,
-        body: _models.StartEvalRunBody | Mapping[str, Any] | None = None,
+        test_set_id: str | UUID,
+        body: _models.StartTestRunBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.StartEvalRunResult:
-        """Start an eval run against a suite. `POST /v1/eval-suites/{suiteId}/runs`
+    ) -> _models.StartTestRunResult:
+        """Start a test run against a test set. `POST /v1/test-sets/{testSetId}/runs`
 
-        Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
+        Dispatches a test run against the latest version of the test set. An agent's own test set (`agent.<agentId>.<projectId>`, read at `GET /v1/agents/{agentId}/test-set`) is frozen first, as a suggested change's check freezes it, and the run records the frozen version as `testSetVersion`; a dry run freezes it too; it runs only its agent, in its project. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
         """
         return self._client._request(
-            _OPERATIONS["evalRuns.start"],
-            path={"suiteId": suite_id},
+            _OPERATIONS["testRuns.start"],
+            path={"testSetId": test_set_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.StartEvalRunBody, body, fields),
-            response=_models.StartEvalRunResult,
+            body=_body(_models.StartTestRunBody, body, fields),
+            response=_models.StartTestRunResult,
             timeout=timeout,
         )
 
@@ -6846,7 +7046,7 @@ class EvalRunsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        suite_id: str | UUID | None = None,
+        test_set_id: str | UUID | None = None,
         status: Literal["pending", "running", "completed", "failed", "cancelled"] | None = None,
         agent_id: str | UUID | None = None,
         flow_id: str | UUID | None = None,
@@ -6856,18 +7056,18 @@ class EvalRunsResource:
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalRunCollectionPage:
-        """List eval runs. `GET /v1/eval-runs`
+    ) -> _models.TestRunCollectionPage:
+        """List test runs. `GET /v1/test-runs`
 
-        Cursor-paginated. Filters: `?suiteId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.
+        Cursor-paginated. Filters: `?testSetId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.
         """
         return self._client._request(
-            _OPERATIONS["evalRuns.list"],
+            _OPERATIONS["testRuns.list"],
             path={},
             query={
                 "limit": limit,
                 "cursor": cursor,
-                "suiteId": suite_id,
+                "testSetId": test_set_id,
                 "status": status,
                 "agentId": agent_id,
                 "flowId": flow_id,
@@ -6878,73 +7078,75 @@ class EvalRunsResource:
                 "inherit": inherit,
             },
             headers={},
-            response=_models.EvalRunCollectionPage,
+            response=_models.TestRunCollectionPage,
             timeout=timeout,
         )
 
-    def get(self, run_id: str | UUID, /, *, timeout: float | None = None) -> _models.EvalRun:
-        """Fetch an eval run. `GET /v1/eval-runs/{runId}`"""
+    def get(self, test_run_id: str | UUID, /, *, timeout: float | None = None) -> _models.TestRun:
+        """Fetch a test run. `GET /v1/test-runs/{testRunId}`"""
         return self._client._request(
-            _OPERATIONS["evalRuns.get"],
-            path={"runId": run_id},
+            _OPERATIONS["testRuns.get"],
+            path={"testRunId": test_run_id},
             query={},
             headers={},
-            response=_models.EvalRun,
+            response=_models.TestRun,
             timeout=timeout,
         )
 
-    def cancel(self, run_id: str | UUID, /, *, timeout: float | None = None) -> _models.EvalRun:
-        """Cancel an eval run. `POST /v1/eval-runs/{runId}/cancel`
+    def cancel(
+        self, test_run_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.TestRun:
+        """Cancel a test run. `POST /v1/test-runs/{testRunId}/cancel`
 
         Best-effort cancel. Returns 409 when the run is already terminal.
         """
         return self._client._request(
-            _OPERATIONS["evalRuns.cancel"],
-            path={"runId": run_id},
+            _OPERATIONS["testRuns.cancel"],
+            path={"testRunId": test_run_id},
             query={},
             headers={},
-            response=_models.EvalRun,
+            response=_models.TestRun,
             timeout=timeout,
         )
 
     def rescore(
         self,
-        run_id: str | UUID,
-        body: _models.RescoreEvalRunBody | Mapping[str, Any] | None = None,
+        test_run_id: str | UUID,
+        body: _models.RescoreTestRunBody | Mapping[str, Any] | None = None,
         /,
         *,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.StartEvalRunResult:
-        """Rescore a comparison eval run. `POST /v1/eval-runs/{runId}/rescore`
+    ) -> _models.StartTestRunResult:
+        """Rescore a comparison test run. `POST /v1/test-runs/{testRunId}/rescore`
 
-        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the judgments recorded on them since (a changed answer judged on the replay itself; `changes.new` lists the items to judge). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.
+        Starts a new comparison test run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's test set and `write` on its project.
         """
         return self._client._request(
-            _OPERATIONS["evalRuns.rescore"],
-            path={"runId": run_id},
+            _OPERATIONS["testRuns.rescore"],
+            path={"testRunId": test_run_id},
             query={},
             headers={},
-            body=_body(_models.RescoreEvalRunBody, body, fields),
-            response=_models.StartEvalRunResult,
+            body=_body(_models.RescoreTestRunBody, body, fields),
+            response=_models.StartTestRunResult,
             timeout=timeout,
         )
 
     def events(
         self,
-        run_id: str | UUID,
+        test_run_id: str | UUID,
         /,
         *,
         last_event_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> None:
-        """Stream eval-run events (SSE). `GET /v1/eval-runs/{runId}/events`
+        """Stream test-run events (SSE). `GET /v1/test-runs/{testRunId}/events`
 
-        Server-Sent Events. Per-case progress events (`eval-run.case-completed` / `eval-run.case-failed`) followed by a terminal event (`eval-run.completed` / `eval-run.failed` / `eval-run.cancelled`) carrying the aggregate result. Mirrors `/v1/runs/:runId/stream` structurally.
+        Server-Sent Events. Per-case progress events (`test-run.case-completed` / `test-run.case-failed`) followed by a terminal event (`test-run.completed` / `test-run.failed` / `test-run.cancelled`) carrying the aggregate result. Mirrors `/v1/runs/:runId/stream` structurally.
         """
         return self._client._request(
-            _OPERATIONS["evalRuns.events"],
-            path={"runId": run_id},
+            _OPERATIONS["testRuns.events"],
+            path={"testRunId": test_run_id},
             query={},
             headers={"Last-Event-Id": last_event_id},
             timeout=timeout,
@@ -7737,6 +7939,28 @@ class DeploymentsResource:
             timeout=timeout,
         )
 
+    def check(
+        self,
+        body: _models.DeployCheckBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeployCheckResult:
+        """Check a deploy's blocks against what runs. `POST /v1/deployments/check`
+
+        What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. It takes the deploy's own right: admin on `projectId`, else on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["deployments.check"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.DeployCheckBody, body, fields),
+            response=_models.DeployCheckResult,
+            timeout=timeout,
+        )
+
     def get(
         self, deployment_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.DeploymentRecord:
@@ -7801,7 +8025,7 @@ class DeploymentsResource:
     ) -> _models.DeploymentPromotion:
         """Promote a deployment to the next environment. `POST /v1/deployments/{deploymentId}/promotions`
 
-        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since.
+        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `pin`, the build's blocks (`contents.blocks`) are checked first against what runs in the target, as a deploy's are against what runs: a newer version of one running there stops the promotion with nothing written, unless `replace` names the block, and `blockCheck` answers what the check found. Then the move commits; then each carried agent is pinned through its target scope's release gate, and each carried flow is pinned. `pin` is the ask to take a target project that follows Latest off it: such a pin gets no `409 pin-stops-latest`, and records `stoppedFollowingLatest`. A release gate that refuses or holds an agent isn't an error: its `pinned` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.pinned` and `details.pinnedFlows`.
         """
         return self._client._request(
             _OPERATIONS["deployments.promote"],
@@ -8364,8 +8588,8 @@ class TeamsResource:
         )
 
 
-class ProjectsJudgingRulesResource:
-    """`client.projects.judging_rules` — the `projects.judgingRules` operations."""
+class ProjectsQueueRulesResource:
+    """`client.projects.queue_rules` — the `projects.queueRules` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
@@ -8378,41 +8602,41 @@ class ProjectsJudgingRulesResource:
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingRulePage:
-        """List a project's judging rules. `GET /v1/projects/{projectId}/judging-rules`
+    ) -> _models.QueueRulePage:
+        """List a project's queue rules. `GET /v1/projects/{projectId}/queue-rules`
 
-        The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's judgment when they end. Needs `read` on the project.
+        The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's correction when they end. Needs `read` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingRules.list"],
+            _OPERATIONS["projects.queueRules.list"],
             path={"projectId": project_id},
             query={"limit": limit, "cursor": cursor},
             headers={},
-            response=_models.JudgingRulePage,
+            response=_models.QueueRulePage,
             timeout=timeout,
         )
 
     def create(
         self,
         project_id: str | UUID,
-        body: _models.JudgingRuleSpec | Mapping[str, Any] | None = None,
+        body: _models.QueueRuleSpec | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgingRule:
-        """Create a judging rule. `POST /v1/projects/{projectId}/judging-rules`
+    ) -> _models.QueueRule:
+        """Create a queue rule. `POST /v1/projects/{projectId}/queue-rules`
 
-        Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's judgment; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.
+        Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's correction; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingRules.create"],
+            _OPERATIONS["projects.queueRules.create"],
             path={"projectId": project_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.JudgingRuleSpec, body, fields),
-            response=_models.JudgingRule,
+            body=_body(_models.QueueRuleSpec, body, fields),
+            response=_models.QueueRule,
             timeout=timeout,
         )
 
@@ -8430,13 +8654,13 @@ class ProjectsJudgingRulesResource:
         last: int | None = None,
         rule_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingRulePreview:
-        """What a rule would have queued. `GET /v1/projects/{projectId}/judging-rules/preview`
+    ) -> _models.QueueRulePreview:
+        """What a rule would have queued. `GET /v1/projects/{projectId}/queue-rules/preview`
 
         Among the project's last `last` top-level runs (not replays), how many a rule with these fields (and its `sample`) would have queued. The rule editor's "would have added N of the last 100". Lists are comma-separated. Needs `read` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingRules.preview"],
+            _OPERATIONS["projects.queueRules.preview"],
             path={"projectId": project_id},
             query={
                 "agentIds": agent_ids,
@@ -8449,23 +8673,23 @@ class ProjectsJudgingRulesResource:
                 "ruleId": rule_id,
             },
             headers={},
-            response=_models.JudgingRulePreview,
+            response=_models.QueueRulePreview,
             timeout=timeout,
         )
 
     def get(
         self, project_id: str | UUID, rule_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgingRule:
-        """Fetch a judging rule. `GET /v1/projects/{projectId}/judging-rules/{ruleId}`
+    ) -> _models.QueueRule:
+        """Fetch a queue rule. `GET /v1/projects/{projectId}/queue-rules/{ruleId}`
 
         Its latest version. Needs `read` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingRules.get"],
+            _OPERATIONS["projects.queueRules.get"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={},
             headers={},
-            response=_models.JudgingRule,
+            response=_models.QueueRule,
             timeout=timeout,
         )
 
@@ -8473,39 +8697,39 @@ class ProjectsJudgingRulesResource:
         self,
         project_id: str | UUID,
         rule_id: str | UUID,
-        body: _models.JudgingRulePatch | Mapping[str, Any] | None = None,
+        body: _models.QueueRulePatch | Mapping[str, Any] | None = None,
         /,
         *,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgingRule:
-        """Change a judging rule. `PATCH /v1/projects/{projectId}/judging-rules/{ruleId}`
+    ) -> _models.QueueRule:
+        """Change a queue rule. `PATCH /v1/projects/{projectId}/queue-rules/{ruleId}`
 
         A new version with these fields changed (`when` is replaced whole). Earlier versions are kept: `…/versions` shows who changed what, when. Needs `write` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingRules.update"],
+            _OPERATIONS["projects.queueRules.update"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={},
             headers={},
-            body=_body(_models.JudgingRulePatch, body, fields),
-            response=_models.JudgingRule,
+            body=_body(_models.QueueRulePatch, body, fields),
+            response=_models.QueueRule,
             timeout=timeout,
         )
 
     def unregister(
         self, project_id: str | UUID, rule_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgingRuleUnregisterResult:
-        """Stop a judging rule. `POST /v1/projects/{projectId}/judging-rules/{ruleId}/unregister`
+    ) -> _models.QueueRuleUnregisterResult:
+        """Stop a queue rule. `POST /v1/projects/{projectId}/queue-rules/{ruleId}/unregister`
 
         It queues nothing more; its versions and the items it queued stay. `unregistered: false` when it was already stopped. Needs `write` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingRules.unregister"],
+            _OPERATIONS["projects.queueRules.unregister"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={},
             headers={},
-            response=_models.JudgingRuleUnregisterResult,
+            response=_models.QueueRuleUnregisterResult,
             timeout=timeout,
         )
 
@@ -8518,17 +8742,17 @@ class ProjectsJudgingRulesResource:
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingRulePage:
-        """A judging rule's versions. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/versions`
+    ) -> _models.QueueRulePage:
+        """A queue rule's versions. `GET /v1/projects/{projectId}/queue-rules/{ruleId}/versions`
 
         Every version, newest first: who wrote it, when, and what it said. Needs `read` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingRules.versions"],
+            _OPERATIONS["projects.queueRules.versions"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={"limit": limit, "cursor": cursor},
             headers={},
-            response=_models.JudgingRulePage,
+            response=_models.QueueRulePage,
             timeout=timeout,
         )
 
@@ -8540,17 +8764,17 @@ class ProjectsJudgingRulesResource:
         *,
         since: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingRuleResults:
-        """A judging rule's results. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/results`
+    ) -> _models.QueueRuleResults:
+        """A queue rule's results. `GET /v1/projects/{projectId}/queue-rules/{ruleId}/results`
 
-        By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live judgments on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.
+        By the rule's version and the agent's: the runs it queued (open, corrected, dismissed, erased), the ones its `maxOpen` skipped, and the live corrections on them, with their group-weighted `yes` share and a count by group. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingRules.results"],
+            _OPERATIONS["projects.queueRules.results"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={"since": since},
             headers={},
-            response=_models.JudgingRuleResults,
+            response=_models.QueueRuleResults,
             timeout=timeout,
         )
 
@@ -8558,29 +8782,29 @@ class ProjectsJudgingRulesResource:
         self,
         project_id: str | UUID,
         rule_id: str | UUID,
-        body: _models.JudgingQueueRecentInput | Mapping[str, Any] | None = None,
+        body: _models.ExpertQueueRecentInput | Mapping[str, Any] | None = None,
         /,
         *,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgingRecentQueued:
-        """Queue a rule's recent matches. `POST /v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent`
+    ) -> _models.ExpertQueueRecentQueued:
+        """Queue a rule's recent matches. `POST /v1/projects/{projectId}/queue-rules/{ruleId}/queue-recent`
 
-        Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already judged or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.
+        Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already corrected or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingRules.queueRecent"],
+            _OPERATIONS["projects.queueRules.queueRecent"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={},
             headers={},
-            body=_body(_models.JudgingQueueRecentInput, body, fields),
-            response=_models.JudgingRecentQueued,
+            body=_body(_models.ExpertQueueRecentInput, body, fields),
+            response=_models.ExpertQueueRecentQueued,
             timeout=timeout,
         )
 
 
-class ProjectsJudgingQueueResource:
-    """`client.projects.judging_queue` — the `projects.judgingQueue` operations."""
+class ProjectsExpertQueueResource:
+    """`client.projects.expert_queue` — the `projects.expertQueue` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
@@ -8590,29 +8814,29 @@ class ProjectsJudgingQueueResource:
         project_id: str | UUID,
         /,
         *,
-        state: Literal["open", "judged", "dismissed", "erased"] | None = None,
+        state: Literal["open", "corrected", "dismissed", "erased"] | None = None,
         agent_id: str | UUID | None = None,
         rule_id: str | UUID | None = None,
-        judge_class_id: str | UUID | None = None,
+        corrector_group_id: str | UUID | None = None,
         for_me: bool | None = None,
         added_after: str | None = None,
         closed_after: str | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingQueuePage:
-        """The project's judging queue. `GET /v1/projects/{projectId}/judging-queue`
+    ) -> _models.ExpertQueuePage:
+        """The project's expert queue. `GET /v1/projects/{projectId}/expert-queue`
 
-        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose judgment they want and the judgments so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the judgment it wants. `forMe=true`: the items any judgment closes, or that want a class the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
+        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `corrections` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a group the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingQueue.list"],
+            _OPERATIONS["projects.expertQueue.list"],
             path={"projectId": project_id},
             query={
                 "state": state,
                 "agentId": agent_id,
                 "ruleId": rule_id,
-                "judgeClassId": judge_class_id,
+                "correctorGroupId": corrector_group_id,
                 "forMe": for_me,
                 "addedAfter": added_after,
                 "closedAfter": closed_after,
@@ -8620,7 +8844,7 @@ class ProjectsJudgingQueueResource:
                 "cursor": cursor,
             },
             headers={},
-            response=_models.JudgingQueuePage,
+            response=_models.ExpertQueuePage,
             timeout=timeout,
         )
 
@@ -8628,39 +8852,39 @@ class ProjectsJudgingQueueResource:
         self,
         project_id: str | UUID,
         run_id: str | UUID,
-        body: _models.JudgingDismissBody | Mapping[str, Any] | None = None,
+        body: _models.ExpertQueueDismissBody | Mapping[str, Any] | None = None,
         /,
         *,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgingQueueItem:
-        """Dismiss a queued run. `POST /v1/projects/{projectId}/judging-queue/{runId}/dismiss`
+    ) -> _models.ExpertQueueItem:
+        """Dismiss a queued run. `POST /v1/projects/{projectId}/expert-queue/{runId}/dismiss`
 
-        Not worth judging: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as judging the run does.
+        Not worth correcting: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as correcting the run does.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingQueue.dismiss"],
+            _OPERATIONS["projects.expertQueue.dismiss"],
             path={"projectId": project_id, "runId": run_id},
             query={},
             headers={},
-            body=_body(_models.JudgingDismissBody, body, fields),
-            response=_models.JudgingQueueItem,
+            body=_body(_models.ExpertQueueDismissBody, body, fields),
+            response=_models.ExpertQueueItem,
             timeout=timeout,
         )
 
     def reopen(
         self, project_id: str | UUID, run_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgingQueueItem:
-        """Reopen a dismissed run. `POST /v1/projects/{projectId}/judging-queue/{runId}/reopen`
+    ) -> _models.ExpertQueueItem:
+        """Reopen a dismissed run. `POST /v1/projects/{projectId}/expert-queue/{runId}/reopen`
 
-        Back in the open queue. Only a dismissed item reopens: a judged one was closed by its judgments. Needs `write` on the project.
+        Back in the open queue. Only a dismissed item reopens: a corrected one was closed by its corrections. Needs `write` on the project.
         """
         return self._client._request(
-            _OPERATIONS["projects.judgingQueue.reopen"],
+            _OPERATIONS["projects.expertQueue.reopen"],
             path={"projectId": project_id, "runId": run_id},
             query={},
             headers={},
-            response=_models.JudgingQueueItem,
+            response=_models.ExpertQueueItem,
             timeout=timeout,
         )
 
@@ -8803,7 +9027,7 @@ class ProjectsPinnedVersionsResource:
     ) -> _models.ProjectPinnedVersionPage:
         """List the pinned versions that cover a project. `GET /v1/projects/{projectId}/pinned-versions`
 
-        Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/live-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.
+        Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/pinned-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.
         """
         return self._client._request(
             _OPERATIONS["projects.pinnedVersions.list"],
@@ -8842,6 +9066,58 @@ class ProjectsProductionResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ProjectProductionBody, body, fields),
             response=_models.ProjectProduction,
+            timeout=timeout,
+        )
+
+
+class ProjectsRepoConnectionResource:
+    """`client.projects.repo_connection` — the `projects.repoConnection` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def set(
+        self,
+        project_id: str | UUID,
+        body: _models.ProjectRepoConnectionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ProjectRepoConnection:
+        """Set a project's repo connection. `PUT /v1/projects/{projectId}/repo-connection`
+
+        The company-wide GitHub connection the project opens its block changes' pull requests through. For the project's admins (`admin` on it). It replaces any connection set before; setting the one already set answers 200 unchanged. The connection must be the tenant's, made through the GitHub app entry, and owned by the company: 404 `connection-not-found` for one that isn't there or was removed, and 400 `repo-connection-not-company-github` for any other. The project keeps only the id: a connection removed later reads as none. 501 `repo-connection-unsupported` from a runtime that can't keep one, or has no connections.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.repoConnection.set"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProjectRepoConnectionBody, body, fields),
+            response=_models.ProjectRepoConnection,
+            timeout=timeout,
+        )
+
+    def clear(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ProjectRepoConnection:
+        """Clear a project's repo connection. `DELETE /v1/projects/{projectId}/repo-connection`
+
+        After this, a block change pinned in the project, or added as its latest version, opens no pull request. For the project's admins (`admin` on it). Clearing a project with none answers 200 unchanged. 501 `repo-connection-unsupported` from a runtime that can't keep one.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.repoConnection.clear"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ProjectRepoConnection,
             timeout=timeout,
         )
 
@@ -9172,12 +9448,13 @@ class ProjectsResource:
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
-        self.judging_rules = ProjectsJudgingRulesResource(client)
-        self.judging_queue = ProjectsJudgingQueueResource(client)
+        self.queue_rules = ProjectsQueueRulesResource(client)
+        self.expert_queue = ProjectsExpertQueueResource(client)
         self.memberships = ProjectsMembershipsResource(client)
         self.access = ProjectsAccessResource(client)
         self.pinned_versions = ProjectsPinnedVersionsResource(client)
         self.production = ProjectsProductionResource(client)
+        self.repo_connection = ProjectsRepoConnectionResource(client)
         self.team_grants = ProjectsTeamGrantsResource(client)
         self.sites = ProjectsSitesResource(client)
 
@@ -9937,7 +10214,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Register a cron schedule. `POST /v1/schedules`
 
-        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. An `improve` schedule is in the project it improves, one per agent and project (a second is `409 schedule-exists`), and needs `publish` on the agent as well as `write` on the project. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return self._client._request(
             _OPERATIONS["schedules.register"],
@@ -9979,7 +10256,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Update a cron schedule. `PATCH /v1/schedules/{triggerId}`
 
-        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve pass) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.
+        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve run) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.
         """
         return self._client._request(
             _OPERATIONS["schedules.update"],
@@ -10001,7 +10278,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Pause a cron schedule. `POST /v1/schedules/{triggerId}/pause`
 
-        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner or a project admin pauses it; a shared one, any writer of its project.
+        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner or a project admin pauses it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may pause it without `publish`.
         """
         return self._client._request(
             _OPERATIONS["schedules.pause"],
@@ -10022,7 +10299,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Resume a cron schedule. `POST /v1/schedules/{triggerId}/resume`
 
-        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner or a project admin resumes it; a shared one, any writer of its project.
+        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner or a project admin resumes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent.
         """
         return self._client._request(
             _OPERATIONS["schedules.resume"],
@@ -10043,7 +10320,7 @@ class SchedulesResource:
     ) -> _models.ScheduleUnregisterResult:
         """Soft-delete a cron schedule (tombstone). `POST /v1/schedules/{triggerId}/unregister`
 
-        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project.
+        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
         """
         return self._client._request(
             _OPERATIONS["schedules.unregister"],
@@ -11168,7 +11445,7 @@ class AsyncRunsResource:
         top_level: bool | None = None,
         agent_id: str | UUID | None = None,
         replays: Literal["exclude", "include", "only"] | None = None,
-        eval_run_id: str | UUID | None = None,
+        test_run_id: str | UUID | None = None,
         trigger_id: str | UUID | None = None,
         include: Literal["output"] | None = None,
         status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
@@ -11197,7 +11474,7 @@ class AsyncRunsResource:
                 "topLevel": top_level,
                 "agentId": agent_id,
                 "replays": replays,
-                "evalRunId": eval_run_id,
+                "testRunId": test_run_id,
                 "triggerId": trigger_id,
                 "include": include,
                 "status": status,
@@ -11250,7 +11527,7 @@ class AsyncRunsResource:
     ) -> _models.RunFailureGroups:
         """A project's failed runs, grouped by cause and version. `GET /v1/runs/failures`
 
-        Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, eval runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.
+        Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, test runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.
         """
         return await self._client._request(
             _OPERATIONS["runs.failures"],
@@ -11860,7 +12137,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.SystemTenant:
         """Suspend a tenant, or restore it. `PUT /v1/system/tenants/{tenantId}/suspended`
 
-        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or pass hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
+        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its unfinished runs, waiting ones included, are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Nothing that came due meanwhile runs late: at the restore, a fire whose run or Improve run hadn't started is recorded `skipped` (`tenant-suspended`), and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A second suspend keeps the first one's time and reason; restoring clears both. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.setSuspended"],
@@ -12721,8 +12998,111 @@ class AsyncApprovalsResource:
         )
 
 
-class AsyncAgentsLiveResource:
-    """`client.agents.live` — the `agents.live` operations."""
+class AsyncAgentsTestSetResource:
+    """`client.agents.test_set` — the `agents.testSet` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def get(
+        self, agent_id: str | UUID, /, *, project_id: str | UUID, timeout: float | None = None
+    ) -> _models.AgentTestSet:
+        """A project's test set of an agent. `GET /v1/agents/{agentId}/test-set`
+
+        How many cases the agent's test set has in the project. Its cases are the agent's corrections there, except Won't fix and Removed ones (Fixed and With the owner included), and cases added by hand. It's computed when it's read. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.testSet.get"],
+            path={"agentId": agent_id},
+            query={"projectId": project_id},
+            headers={},
+            response=_models.AgentTestSet,
+            timeout=timeout,
+        )
+
+    async def list_cases(
+        self,
+        agent_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID,
+        include: Literal["retired"] | None = None,
+        kind: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TestCaseCollectionPage:
+        """List a project's cases of an agent's test set. `GET /v1/agents/{agentId}/test-set/cases`
+
+        Cursor-paginated, newest added first. A retired case comes back only with `include=retired`. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.testSet.listCases"],
+            path={"agentId": agent_id},
+            query={
+                "projectId": project_id,
+                "include": include,
+                "kind": kind,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.TestCaseCollectionPage,
+            timeout=timeout,
+        )
+
+    async def add_case(
+        self,
+        agent_id: str | UUID,
+        body: _models.AddTestCaseBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TestCase:
+        """Add a case to an agent's test set. `POST /v1/agents/{agentId}/test-set/cases`
+
+        A case by hand, from a correction's body on one of the agent's finished runs. It has no status, isn't sorted, and nothing that counts corrections counts it (Improve's trigger, the expert queue's progress, a rule's yes-rate). The run's first correction or case stores a copy of its input and output. A comparison's replay can't be a case. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.testSet.addCase"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AddTestCaseBody, body, fields),
+            response=_models.TestCase,
+            timeout=timeout,
+        )
+
+    async def retire_case(
+        self,
+        agent_id: str | UUID,
+        case_id: str | UUID,
+        body: _models.RetireTestCaseBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TestCase:
+        """Retire a case of an agent's test set. `POST /v1/agents/{agentId}/test-set/cases/{caseId}/retire`
+
+        A retired case stays listed, and no test run checks it again. There's no un-retire, and retiring a correction's case doesn't change the correction's status. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.testSet.retireCase"],
+            path={"agentId": agent_id, "caseId": case_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RetireTestCaseBody, body, fields),
+            response=_models.TestCase,
+            timeout=timeout,
+        )
+
+
+class AsyncAgentsPinnedResource:
+    """`client.agents.pinned` — the `agents.pinned` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
@@ -12735,92 +13115,84 @@ class AsyncAgentsLiveResource:
         project_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.LiveVersionResolution:
-        """The version a run would use. `GET /v1/agents/{agentId}/live`
+    ) -> _models.AgentPinnedVersionResolution:
+        """The version a run would use. `GET /v1/agents/{agentId}/pinned`
 
-        Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
+        Resolves the version a run of this agent would use for a project and segment path: the most specific pinned version (segment path, project, org, tenant), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
         """
         return await self._client._request(
-            _OPERATIONS["agents.live.resolve"],
+            _OPERATIONS["agents.pinned.resolve"],
             path={"agentId": agent_id},
             query={"projectId": project_id, "segment": _segments(segments)},
             headers={},
-            response=_models.LiveVersionResolution,
+            response=_models.AgentPinnedVersionResolution,
             timeout=timeout,
         )
 
     async def list(
         self, agent_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.LivePinList:
-        """List an agent's live versions. `GET /v1/agents/{agentId}/live-versions`
+    ) -> _models.AgentPinnedVersionList:
+        """List an agent's pinned versions. `GET /v1/agents/{agentId}/pinned-versions`
 
-        Every scope with a live version pinned, and the promotion that set it.
+        Every scope with a pinned version, and the pin change that set it.
         """
         return await self._client._request(
-            _OPERATIONS["agents.live.list"],
+            _OPERATIONS["agents.pinned.list"],
             path={"agentId": agent_id},
             query={},
             headers={},
-            response=_models.LivePinList,
+            response=_models.AgentPinnedVersionList,
             timeout=timeout,
         )
 
-    async def rollback(
+    async def pin(
         self,
         agent_id: str | UUID,
-        body: _models.RollbackBody | Mapping[str, Any] | None = None,
+        body: _models.AgentPinBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Promotion:
-        """Roll a scope back to its previous live version. `POST /v1/agents/{agentId}/live/rollback`
+    ) -> _models.PinAnswer:
+        """Pin a version for a scope. `POST /v1/agents/{agentId}/pinned/pin`
 
-        Back to the scope's previous live version, or `toVersion`. Recorded like a promotion. Needs `promote` on the agent.
+        Pins `version` for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every pin is recorded, with who asked and why. Needs `pin` on the agent.
         """
         return await self._client._request(
-            _OPERATIONS["agents.live.rollback"],
+            _OPERATIONS["agents.pinned.pin"],
             path={"agentId": agent_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.RollbackBody, body, fields),
-            response=_models.Promotion,
+            body=_body(_models.AgentPinBody, body, fields),
+            response=_models.PinAnswer,
             timeout=timeout,
         )
 
-    async def unpin(
+    async def check(
         self,
         agent_id: str | UUID,
-        body: _models.UnpinBody | Mapping[str, Any] | None = None,
+        body: _models.AgentPinBody | Mapping[str, Any] | None = None,
         /,
         *,
-        idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Promotion:
-        """Remove a scope's live version. `POST /v1/agents/{agentId}/live/unpin`
+    ) -> _models.PinCheck:
+        """Check a pin against its gate. `POST /v1/agents/{agentId}/pinned/check`
 
-        Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a promotion. Needs `promote` on the agent.
+        What `POST …/pinned/pin` with the same body would do, with nothing recorded: `would-pin`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, pin. Needs `read` on the agent.
         """
         return await self._client._request(
-            _OPERATIONS["agents.live.unpin"],
+            _OPERATIONS["agents.pinned.check"],
             path={"agentId": agent_id},
             query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.UnpinBody, body, fields),
-            response=_models.Promotion,
+            headers={},
+            body=_body(_models.AgentPinBody, body, fields),
+            response=_models.PinCheck,
             timeout=timeout,
         )
 
-
-class AsyncAgentsPromotionsResource:
-    """`client.agents.promotions` — the `agents.promotions` operations."""
-
-    def __init__(self, client: AsyncClientBase) -> None:
-        self._client = client
-
-    async def list(
+    async def history(
         self,
         agent_id: str | UUID,
         /,
@@ -12831,13 +13203,13 @@ class AsyncAgentsPromotionsResource:
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.PromotionPage:
-        """List an agent's promotions. `GET /v1/agents/{agentId}/promotions`
+    ) -> _models.PinPage:
+        """List an agent's pin history. `GET /v1/agents/{agentId}/pin-history`
 
-        The history of live-version changes (promotions, rollbacks, unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.
+        The history of pinned-version changes (pins and unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.
         """
         return await self._client._request(
-            _OPERATIONS["agents.promotions.list"],
+            _OPERATIONS["agents.pinned.history"],
             path={"agentId": agent_id},
             query={
                 "limit": limit,
@@ -12847,73 +13219,50 @@ class AsyncAgentsPromotionsResource:
                 "segment": _segments(segments),
             },
             headers={},
-            response=_models.PromotionPage,
+            response=_models.PinPage,
             timeout=timeout,
         )
 
-    async def create(
+    async def get_change(
+        self, agent_id: str | UUID, change_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.Pin:
+        """Get a pin change. `GET /v1/agents/{agentId}/pin-history/{changeId}`"""
+        return await self._client._request(
+            _OPERATIONS["agents.pinned.getChange"],
+            path={"agentId": agent_id, "changeId": change_id},
+            query={},
+            headers={},
+            response=_models.Pin,
+            timeout=timeout,
+        )
+
+    async def unpin(
         self,
         agent_id: str | UUID,
-        body: _models.PromoteBody | Mapping[str, Any] | None = None,
+        body: _models.AgentUnpinBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Promotion:
-        """Make a version live for a scope. `POST /v1/agents/{agentId}/promotions`
+    ) -> _models.PinAnswer:
+        """Remove a scope's pinned version. `POST /v1/agents/{agentId}/pinned/unpin`
 
-        Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.
+        Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a pin. Needs `pin` on the agent.
         """
         return await self._client._request(
-            _OPERATIONS["agents.promotions.create"],
+            _OPERATIONS["agents.pinned.unpin"],
             path={"agentId": agent_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PromoteBody, body, fields),
-            response=_models.Promotion,
-            timeout=timeout,
-        )
-
-    async def check(
-        self,
-        agent_id: str | UUID,
-        body: _models.PromoteBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.PromotionCheck:
-        """Check a promotion against its gate. `POST /v1/agents/{agentId}/promotions/check`
-
-        What `POST …/promotions` with the same body would do, with nothing recorded: `would-promote`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, promote. Needs `read` on the agent.
-        """
-        return await self._client._request(
-            _OPERATIONS["agents.promotions.check"],
-            path={"agentId": agent_id},
-            query={},
-            headers={},
-            body=_body(_models.PromoteBody, body, fields),
-            response=_models.PromotionCheck,
-            timeout=timeout,
-        )
-
-    async def get(
-        self, agent_id: str | UUID, promotion_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.Promotion:
-        """Get a promotion. `GET /v1/agents/{agentId}/promotions/{promotionId}`"""
-        return await self._client._request(
-            _OPERATIONS["agents.promotions.get"],
-            path={"agentId": agent_id, "promotionId": promotion_id},
-            query={},
-            headers={},
-            response=_models.Promotion,
+            body=_body(_models.AgentUnpinBody, body, fields),
+            response=_models.PinAnswer,
             timeout=timeout,
         )
 
 
-class AsyncAgentsGatePolicyResource:
-    """`client.agents.gate_policy` — the `agents.gatePolicy` operations."""
+class AsyncAgentsReleaseGateResource:
+    """`client.agents.release_gate` — the `agents.releaseGate` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
@@ -12927,17 +13276,17 @@ class AsyncAgentsGatePolicyResource:
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.GatePolicyResolution:
-        """The gate policy for a scope. `GET /v1/agents/{agentId}/gate-policy`
+    ) -> _models.ReleaseGateResolution:
+        """The release gate for a scope. `GET /v1/agents/{agentId}/release-gate`
 
-        The gate policy a promotion of the agent for the scope would be checked against: the most specific scope with an active policy (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `policy: null` when none applies.
+        The release gate a pin of the agent for the scope would be checked against: the most specific scope with an active gate (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `releaseGate: null` when none applies.
         """
         return await self._client._request(
-            _OPERATIONS["agents.gatePolicy.resolve"],
+            _OPERATIONS["agents.releaseGate.resolve"],
             path={"agentId": agent_id},
             query={"scopeKind": scope_kind, "scopeId": scope_id, "segment": _segments(segments)},
             headers={},
-            response=_models.GatePolicyResolution,
+            response=_models.ReleaseGateResolution,
             timeout=timeout,
         )
 
@@ -12947,9 +13296,9 @@ class AsyncAgentsResource:
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
-        self.live = AsyncAgentsLiveResource(client)
-        self.promotions = AsyncAgentsPromotionsResource(client)
-        self.gate_policy = AsyncAgentsGatePolicyResource(client)
+        self.test_set = AsyncAgentsTestSetResource(client)
+        self.pinned = AsyncAgentsPinnedResource(client)
+        self.release_gate = AsyncAgentsReleaseGateResource(client)
 
     async def list(
         self,
@@ -13016,9 +13365,9 @@ class AsyncAgentsResource:
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.Agent:
-        """Fetch the latest version of an agent. `GET /v1/agents/{agentId}`
+        """Fetch the highest version of an agent. `GET /v1/agents/{agentId}`
 
-        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version. For an agent, that is its highest version, which numbers the next one. It is not always what a project runs: `agents.projects` says what runs in each project.
         """
         return await self._client._request(
             _OPERATIONS["agents.get"],
@@ -13032,9 +13381,9 @@ class AsyncAgentsResource:
     async def projects(
         self, agent_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.AgentProjectList:
-        """List the projects an agent runs in. `GET /v1/agents/{agentId}/projects`
+        """List the projects an agent runs in, and what runs in each. `GET /v1/agents/{agentId}/projects`
 
-        The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty.
+        The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty. Each project says what a run there that names no version gets (`runs`) and why (`follows`): a pin that covers the project, else its Latest. Latest moves only when a deployment into the project ships a version, or when a person publishes a full version or adds one as the latest version; a pin never moves it. `segments` lists the pins on segments inside the project. `highest` is the agent's highest version, which numbers the next one. A version the caller can't see is left out.
         """
         return await self._client._request(
             _OPERATIONS["agents.projects"],
@@ -13068,30 +13417,6 @@ class AsyncAgentsResource:
             timeout=timeout,
         )
 
-    async def derive_version(
-        self,
-        agent_id: str | UUID,
-        body: _models.DeriveAgentVersionBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.Agent:
-        """Derive an agent version with data-block pins swapped. `POST /v1/agents/{agentId}/versions`
-
-        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent. In a tenant with environment orders, the new version is made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted; the agent's project doesn't change.
-        """
-        return await self._client._request(
-            _OPERATIONS["agents.deriveVersion"],
-            path={"agentId": agent_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.DeriveAgentVersionBody, body, fields),
-            response=_models.Agent,
-            timeout=timeout,
-        )
-
     async def get_version(
         self, agent_id: str | UUID, version: str, /, *, timeout: float | None = None
     ) -> _models.Agent:
@@ -13102,6 +13427,29 @@ class AsyncAgentsResource:
             query={},
             headers={},
             response=_models.Agent,
+            timeout=timeout,
+        )
+
+    async def set_owner(
+        self,
+        agent_id: str | UUID,
+        body: _models.SetAgentOwnerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SetAgentOwnerResult:
+        """Set an agent's owner. `PUT /v1/agents/{agentId}/owner`
+
+        One owner per agent: the person its corrections go to when they need the owner. Setting it again replaces the one before. Needs `admin` on the agent (an admin of its project). With a directory of people, the owner must be one of the tenant's.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.setOwner"],
+            path={"agentId": agent_id},
+            query={},
+            headers={},
+            body=_body(_models.SetAgentOwnerBody, body, fields),
+            response=_models.SetAgentOwnerResult,
             timeout=timeout,
         )
 
@@ -13135,7 +13483,7 @@ class AsyncAgentsResource:
     ) -> _models.ReinstateAgentVersionResult:
         """Reinstate a specific tombstoned agent version. `POST /v1/agents/{agentId}/versions/{version}/reinstate`
 
-        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).
+        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the highest active version, which numbers the next one. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).
         """
         return await self._client._request(
             _OPERATIONS["agents.reinstateVersion"],
@@ -13147,80 +13495,80 @@ class AsyncAgentsResource:
         )
 
 
-class AsyncGatePoliciesVersionsResource:
-    """`client.gate_policies.versions` — the `gatePolicies.versions` operations."""
+class AsyncReleaseGatesVersionsResource:
+    """`client.release_gates.versions` — the `releaseGates.versions` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
 
     async def list(
-        self, policy_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.GatePolicyPage:
-        """List a gate policy's versions. `GET /v1/gate-policies/{policyId}/versions`
+        self, release_gate_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGatePage:
+        """List a release gate's versions. `GET /v1/release-gates/{releaseGateId}/versions`
 
         Every version, oldest first, unregistered ones too (with `unregisteredAt`).
         """
         return await self._client._request(
-            _OPERATIONS["gatePolicies.versions.list"],
-            path={"policyId": policy_id},
+            _OPERATIONS["releaseGates.versions.list"],
+            path={"releaseGateId": release_gate_id},
             query={},
             headers={},
-            response=_models.GatePolicyPage,
+            response=_models.ReleaseGatePage,
             timeout=timeout,
         )
 
     async def get(
-        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.GatePolicy:
-        """Get a gate policy version. `GET /v1/gate-policies/{policyId}/versions/{version}`"""
+        self, release_gate_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGate:
+        """Get a release gate version. `GET /v1/release-gates/{releaseGateId}/versions/{version}`"""
         return await self._client._request(
-            _OPERATIONS["gatePolicies.versions.get"],
-            path={"policyId": policy_id, "version": version},
+            _OPERATIONS["releaseGates.versions.get"],
+            path={"releaseGateId": release_gate_id, "version": version},
             query={},
             headers={},
-            response=_models.GatePolicy,
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
     async def unregister(
-        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.GatePolicy:
-        """Unregister a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/unregister`
+        self, release_gate_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGate:
+        """Unregister a release gate version. `POST /v1/release-gates/{releaseGateId}/versions/{version}/unregister`
 
-        The version stops applying; the policy's latest remaining active version applies, or, with none, the scope above's policy. Promotions keep the version they were checked against. Needs `admin` on the tenant.
+        The version stops applying; the gate's latest remaining active version applies, or, with none, the scope above's gate. Pins keep the version they were checked against. Needs `admin` on the tenant.
         """
         return await self._client._request(
-            _OPERATIONS["gatePolicies.versions.unregister"],
-            path={"policyId": policy_id, "version": version},
+            _OPERATIONS["releaseGates.versions.unregister"],
+            path={"releaseGateId": release_gate_id, "version": version},
             query={},
             headers={},
-            response=_models.GatePolicy,
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
     async def reinstate(
-        self, policy_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.GatePolicy:
-        """Reinstate a gate policy version. `POST /v1/gate-policies/{policyId}/versions/{version}/reinstate`
+        self, release_gate_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGate:
+        """Reinstate a release gate version. `POST /v1/release-gates/{releaseGateId}/versions/{version}/reinstate`
 
         Needs `admin` on the tenant.
         """
         return await self._client._request(
-            _OPERATIONS["gatePolicies.versions.reinstate"],
-            path={"policyId": policy_id, "version": version},
+            _OPERATIONS["releaseGates.versions.reinstate"],
+            path={"releaseGateId": release_gate_id, "version": version},
             query={},
             headers={},
-            response=_models.GatePolicy,
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
 
-class AsyncGatePoliciesResource:
-    """`client.gate_policies` — the `gatePolicies` operations."""
+class AsyncReleaseGatesResource:
+    """`client.release_gates` — the `releaseGates` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
-        self.versions = AsyncGatePoliciesVersionsResource(client)
+        self.versions = AsyncReleaseGatesVersionsResource(client)
 
     async def list(
         self,
@@ -13233,13 +13581,13 @@ class AsyncGatePoliciesResource:
         scope_id: str | UUID | None = None,
         segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
         timeout: float | None = None,
-    ) -> _models.GatePolicyPage:
-        """List gate policies. `GET /v1/gate-policies`
+    ) -> _models.ReleaseGatePage:
+        """List release gates. `GET /v1/release-gates`
 
-        Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.
+        Each release gate's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.
         """
         return await self._client._request(
-            _OPERATIONS["gatePolicies.list"],
+            _OPERATIONS["releaseGates.list"],
             path={},
             query={
                 "limit": limit,
@@ -13250,46 +13598,46 @@ class AsyncGatePoliciesResource:
                 "segment": _segments(segments),
             },
             headers={},
-            response=_models.GatePolicyPage,
+            response=_models.ReleaseGatePage,
             timeout=timeout,
         )
 
     async def publish(
         self,
-        body: _models.PublishGatePolicyBody | Mapping[str, Any] | None = None,
+        body: _models.PublishReleaseGateBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.GatePolicy:
-        """Publish a gate policy. `POST /v1/gate-policies`
+    ) -> _models.ReleaseGate:
+        """Publish a release gate. `POST /v1/release-gates`
 
-        Registers a gate policy, or a new version of one: what a promotion of `agentId` for `scope` must show. One policy per agent and scope: another policy id for a scope that has one is refused with `409 gate-policy-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 gate-policy-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may promote can't loosen their own gate.
+        Registers a release gate, or a new version of one: what a pin of `agentId` for `scope` must show. One gate per agent and scope: another gate id for a scope that has one is refused with `409 release-gate-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 release-gate-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may pin can't loosen their own gate.
         """
         return await self._client._request(
-            _OPERATIONS["gatePolicies.publish"],
+            _OPERATIONS["releaseGates.publish"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PublishGatePolicyBody, body, fields),
-            response=_models.GatePolicy,
+            body=_body(_models.PublishReleaseGateBody, body, fields),
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
     async def get(
-        self, policy_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.GatePolicy:
-        """Get a gate policy. `GET /v1/gate-policies/{policyId}`
+        self, release_gate_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ReleaseGate:
+        """Get a release gate. `GET /v1/release-gates/{releaseGateId}`
 
-        The policy's latest active version.
+        The release gate's latest active version.
         """
         return await self._client._request(
-            _OPERATIONS["gatePolicies.get"],
-            path={"policyId": policy_id},
+            _OPERATIONS["releaseGates.get"],
+            path={"releaseGateId": release_gate_id},
             query={},
             headers={},
-            response=_models.GatePolicy,
+            response=_models.ReleaseGate,
             timeout=timeout,
         )
 
@@ -14429,8 +14777,8 @@ class AsyncMemoryResource:
         )
 
 
-class AsyncProposalsResource:
-    """`client.proposals` — the `proposals` operations."""
+class AsyncSuggestedChangesResource:
+    """`client.suggested_changes` — the `suggestedChanges` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
@@ -14442,278 +14790,175 @@ class AsyncProposalsResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal[
-            "draft",
-            "evaluating",
-            "evaluated",
-            "not-better",
-            "evaluation-failed",
-            "in-review",
-            "promoted",
-            "refused",
-            "rejected",
-            "expired",
-            "superseded",
-            "rolled-back",
+            "checking",
+            "check-failed",
+            "ready",
+            "waiting-for-second-person",
+            "pinned",
+            "added-as-latest",
             "withdrawn",
         ]
         | None = None,
         agent_id: str | UUID | None = None,
-        tier: Literal["settings-block", "prompt-block"] | None = None,
-        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
-        scope_id: str | UUID | None = None,
-        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
+        project_id: str | UUID | None = None,
+        made_by: Literal["improve-run", "person", "service", "deploy", "offer"] | None = None,
         timeout: float | None = None,
-    ) -> _models.FixProposalCollectionPage:
-        """List improvement proposals. `GET /v1/proposals`
+    ) -> _models.SuggestedChangeCollectionPage:
+        """List suggested changes. `GET /v1/suggested-changes`
 
-        Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a proposal is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).
+        Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?projectId=` (the project a suggested change is for), `?status=` and `?madeBy=` (a kind of maker). Statuses and makers are derived, so a page filtered by either can hold fewer rows than `limit`.
         """
         return await self._client._request(
-            _OPERATIONS["proposals.list"],
+            _OPERATIONS["suggestedChanges.list"],
             path={},
             query={
                 "limit": limit,
                 "cursor": cursor,
                 "status": status,
                 "agentId": agent_id,
-                "tier": tier,
-                "scopeKind": scope_kind,
-                "scopeId": scope_id,
-                "segment": _segments(segments),
+                "projectId": project_id,
+                "madeBy": made_by,
             },
             headers={},
-            response=_models.FixProposalCollectionPage,
+            response=_models.SuggestedChangeCollectionPage,
             timeout=timeout,
         )
 
     async def create(
         self,
-        body: _models.CreateProposalBody | Mapping[str, Any] | None = None,
+        body: _models.CreateSuggestedChangeBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.FixProposal:
-        """Propose new content for a data block. `POST /v1/proposals`
+    ) -> _models.SuggestedChange:
+        """Suggest a change to a block, for a project. `POST /v1/suggested-changes`
 
-        A hand-written proposal: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one proposal: answered `200` with `X-Proposal-Deduped: true`. Needs `publish` on the agent.
+        New settings values or a new prompt template for one block, in what the project runs: its pin, or Latest. Checked as publishing that block version would be (its schema carries over; for the version's model-settings block, as model settings), and refused when it equals the content the version pins. Then the block version is published, an agent version is derived from what the project runs with that one block changed (it serves nothing until it's pinned or added as Latest), and the check starts on the project's test set, frozen now: the new version and what the project runs replay the same cases. The same change on the same version for the same project is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`, unchecked again. Needs `publish` on the agent.
         """
         return await self._client._request(
-            _OPERATIONS["proposals.create"],
+            _OPERATIONS["suggestedChanges.create"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.CreateProposalBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    async def improve(
-        self,
-        body: _models.ImproveBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.ImprovementPass:
-        """Start an improvement pass. `POST /v1/proposals/improve`
-
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. The pass works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the pass's eval runs run there; its proposal's version is made where the agent's versions are. Checked first: the version is active and has something for the pass to work on (`400 validation-failed`, with `details.reason`): for a settings pass, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt pass, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions a pass makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). No pass starts in a suspended project (`409 project-suspended`), and a pass going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
-        """
-        return await self._client._request(
-            _OPERATIONS["proposals.improve"],
-            path={},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.ImproveBody, body, fields),
-            response=_models.ImprovementPass,
-            timeout=timeout,
-        )
-
-    async def improve_estimate(
-        self,
-        body: _models.ImproveBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.ImprovementPassEstimate:
-        """Estimate an improvement pass. `POST /v1/proposals/improve/estimate`
-
-        What a pass this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/proposals/improve`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the pass's project doesn't reach answers `400 reference-out-of-scope`, exactly as `improve` would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count times the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt pass's one-off drafting of its templates — a pass can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the pass is expected to spend its whole budget; the pass checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no pass starts) and takes no Idempotency-Key. Needs `publish` on the agent, and `write` on the pass's project when it isn't the version's. Without improvement passes in this runtime, `501 improve-unsupported`.
-        """
-        return await self._client._request(
-            _OPERATIONS["proposals.improveEstimate"],
-            path={},
-            query={},
-            headers={},
-            body=_body(_models.ImproveBody, body, fields),
-            response=_models.ImprovementPassEstimate,
+            body=_body(_models.CreateSuggestedChangeBody, body, fields),
+            response=_models.SuggestedChange,
             timeout=timeout,
         )
 
     async def get(
-        self, proposal_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.FixProposal:
-        """Fetch an improvement proposal. `GET /v1/proposals/{proposalId}`
+        self, suggested_change_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.SuggestedChange:
+        """Fetch a suggested change. `GET /v1/suggested-changes/{suggestedChangeId}`
 
-        Needs `read` on its agent.
+        With its block's content before and after (`changes[].before`, `changes[].after`). Needs `read` on its agent.
         """
         return await self._client._request(
-            _OPERATIONS["proposals.get"],
-            path={"proposalId": proposal_id},
+            _OPERATIONS["suggestedChanges.get"],
+            path={"suggestedChangeId": suggested_change_id},
             query={},
             headers={},
-            response=_models.FixProposal,
+            response=_models.SuggestedChange,
             timeout=timeout,
         )
 
-    async def evaluate(
+    async def check(
         self,
-        proposal_id: str | UUID,
-        body: _models.EvaluateProposalBody | Mapping[str, Any] | None = None,
+        suggested_change_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SuggestedChange:
+        """Check a suggested change again. `POST /v1/suggested-changes/{suggestedChangeId}/check`
+
+        Checks it again on its project's test set, frozen now: its version and the version it's built on replay the same cases, so new corrections count. Its version is made first if it has none. When its project runs another version than the one it's built on, it's rebuilt there first: its block change on that version, as a new version, and `builtOn.rebuiltAt` says when. Takes no body fields. Needs `publish` on the agent. Allowed from `check-failed` and `ready`.
+        """
+        return await self._client._request(
+            _OPERATIONS["suggestedChanges.check"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    async def pin(
+        self,
+        suggested_change_id: str | UUID,
+        body: _models.SuggestedChangePinBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.FixProposal:
-        """Compare a proposal on a test set. `POST /v1/proposals/{proposalId}/evaluate`
+    ) -> _models.SuggestedChangePinAnswer:
+        """Pin a suggested change's version for its project. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
 
-        The first evaluation publishes the block version and derives the agent version (`derivedFrom.proposalId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 proposal-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
+        A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. A project on Latest takes the change as its Latest (`add-as-latest`); a pin there is refused with `409 pin-stops-latest`, before any rebuild, unless the body has `stopFollowingLatest: true`, which takes the project off Latest. Needs `pin` on the agent. Allowed from `ready`.
         """
         return await self._client._request(
-            _OPERATIONS["proposals.evaluate"],
-            path={"proposalId": proposal_id},
+            _OPERATIONS["suggestedChanges.pin"],
+            path={"suggestedChangeId": suggested_change_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.EvaluateProposalBody, body, fields),
-            response=_models.FixProposal,
+            body=_body(_models.SuggestedChangePinBody, body, fields),
+            response=_models.SuggestedChangePinAnswer,
             timeout=timeout,
         )
 
-    async def rescore(
+    async def add_as_latest(
         self,
-        proposal_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.FixProposal:
-        """Rescore a proposal's latest evaluation. `POST /v1/proposals/{proposalId}/rescore`
-
-        After people judge a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those judgments, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
-        """
-        return await self._client._request(
-            _OPERATIONS["proposals.rescore"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    async def request(
-        self,
-        proposal_id: str | UUID,
-        body: _models.ProposalReasonBody | Mapping[str, Any] | None = None,
+        suggested_change_id: str | UUID,
+        body: _models.SuggestedChangeReasonBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.FixProposal:
-        """Request a proposal's promotion for its scope. `POST /v1/proposals/{proposalId}/request`
+    ) -> _models.SuggestedChange:
+        """Add a suggested change's version as its project's Latest. `POST /v1/suggested-changes/{suggestedChangeId}/add-as-latest`
 
-        A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.
+        Makes its version Latest in its project, now, so the project runs it. Only for a project on Latest, which takes each new Latest without a gate; a pinned project takes a pin of the change instead. `reason` is kept on its `addedAsLatest`. Needs `pin` on the agent. Allowed from `ready`.
         """
         return await self._client._request(
-            _OPERATIONS["proposals.request"],
-            path={"proposalId": proposal_id},
+            _OPERATIONS["suggestedChanges.addAsLatest"],
+            path={"suggestedChangeId": suggested_change_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.ProposalReasonBody, body, fields),
-            response=_models.FixProposal,
-            timeout=timeout,
-        )
-
-    async def rollback(
-        self,
-        proposal_id: str | UUID,
-        body: _models.ProposalReasonBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.FixProposal:
-        """Roll back a promoted proposal. `POST /v1/proposals/{proposalId}/rollback`
-
-        The scope goes back to the version its own pin held before the proposal's promotion (or, with none, falls back to the scope above). Only while the proposal's version still serves the scope. Needs `promote` on the agent.
-        """
-        return await self._client._request(
-            _OPERATIONS["proposals.rollback"],
-            path={"proposalId": proposal_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.ProposalReasonBody, body, fields),
-            response=_models.FixProposal,
+            body=_body(_models.SuggestedChangeReasonBody, body, fields),
+            response=_models.SuggestedChange,
             timeout=timeout,
         )
 
     async def withdraw(
         self,
-        proposal_id: str | UUID,
-        body: _models.WithdrawProposalBody | Mapping[str, Any] | None = None,
+        suggested_change_id: str | UUID,
+        body: _models.WithdrawSuggestedChangeBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.FixProposal:
-        """Withdraw a proposal. `POST /v1/proposals/{proposalId}/withdraw`
+    ) -> _models.SuggestedChange:
+        """Withdraw a suggested change. `POST /v1/suggested-changes/{suggestedChangeId}/withdraw`
 
-        Closes it. Not while it's in review (decide its approval instead), nor once promoted, rejected or rolled back. Needs `publish` on the agent.
+        Closes it. Allowed from `checking`, `check-failed` and `ready`: not while it waits for a second person (they reject it instead), nor once pinned or added as Latest. Needs `publish` on the agent.
         """
         return await self._client._request(
-            _OPERATIONS["proposals.withdraw"],
-            path={"proposalId": proposal_id},
+            _OPERATIONS["suggestedChanges.withdraw"],
+            path={"suggestedChangeId": suggested_change_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.WithdrawProposalBody, body, fields),
-            response=_models.FixProposal,
+            body=_body(_models.WithdrawSuggestedChangeBody, body, fields),
+            response=_models.SuggestedChange,
             timeout=timeout,
         )
 
-    async def draft(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.create`."""
-        raise InvalidRequestError(
-            "proposals.draft was removed in 0.1.5: use client.proposals.create", issues=[]
-        )
 
-    async def dry_run(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.evaluate`."""
-        raise InvalidRequestError(
-            "proposals.dry_run was removed in 0.1.5: use client.proposals.evaluate", issues=[]
-        )
-
-    async def submit_review(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.request`."""
-        raise InvalidRequestError(
-            "proposals.submit_review was removed in 0.1.5: use client.proposals.request", issues=[]
-        )
-
-    async def apply(self, *args: Any, **kwargs: Any) -> NoReturn:
-        """Removed in 0.1.5: use `client.proposals.request`."""
-        raise InvalidRequestError(
-            "proposals.apply was removed in 0.1.5: use client.proposals.request", issues=[]
-        )
-
-
-class AsyncImprovementPassesResource:
-    """`client.improvement_passes` — the `improvementPasses` operations."""
+class AsyncImproveRunsResource:
+    """`client.improve_runs` — the `improveRuns` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
@@ -14725,55 +14970,108 @@ class AsyncImprovementPassesResource:
         limit: int | None = None,
         cursor: str | None = None,
         agent_id: str | UUID | None = None,
+        project_id: str | UUID | None = None,
+        status: Literal["running", "completed", "failed", "cancelled"] | None = None,
         timeout: float | None = None,
-    ) -> _models.ImprovementPassCollectionPage:
-        """List improvement passes. `GET /v1/improvement-passes`
+    ) -> _models.ImproveRunCollectionPage:
+        """List Improve runs. `GET /v1/improve-runs`
 
-        Newest first, only the passes of agents the caller can read. `?agentId=` narrows them.
+        Newest first, only the Improve runs of agents the caller can read. `?agentId=`, `?projectId=` and `?status=` narrow them.
         """
         return await self._client._request(
-            _OPERATIONS["improvementPasses.list"],
+            _OPERATIONS["improveRuns.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "agentId": agent_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "agentId": agent_id,
+                "projectId": project_id,
+                "status": status,
+            },
             headers={},
-            response=_models.ImprovementPassCollectionPage,
+            response=_models.ImproveRunCollectionPage,
+            timeout=timeout,
+        )
+
+    async def start(
+        self,
+        body: _models.StartImproveRunBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ImproveRun:
+        """Start an Improve run. `POST /v1/improve-runs`
+
+        Starts an Improve run for an agent in a project. From the version the project runs (pinned there, else its Latest), it looks for better wording (the prompt tier) or settings values (the settings tier) on the project's test set, learning from the project's open corrections sorted to improve, within the budget. Its best change is proven on every case of the test set, at the reference's repetitions: when it passes more cases than that version and fails none that passed, it becomes a suggested change for a reviewer. It answers at once with the Improve run, `running`. The readiness check (`POST /v1/improve-runs/check`) runs first: when something the Improve run needs is missing, it's refused with `409 improve-not-ready`, listing every missing item at once (`details.items`, each with its fix); while the agent has a running Improve run in the project, with `409 improve-run-running` (`details.improveRunId`). An Improve run going when its project is suspended ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.
+        """
+        return await self._client._request(
+            _OPERATIONS["improveRuns.start"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.StartImproveRunBody, body, fields),
+            response=_models.ImproveRun,
+            timeout=timeout,
+        )
+
+    async def check(
+        self,
+        body: _models.StartImproveRunBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ImproveRunCheck:
+        """Check an Improve run. `POST /v1/improve-runs/check`
+
+        Whether the Improve run this input would start is ready, and what it's estimated to cost, before you start it. The body is the start body of `POST /v1/improve-runs`. `items` lists everything an Improve run needs, in a fixed order, missing or not; each missing one says where it's fixed (`repo`: in the agent's code, then a deploy; `kindgi`: in Kindgi) and how. `estimate.costUsd` prices each replay at the version's mean cost over its recent completed runs: the search's replays at most `budget.maxCostUsd`, plus the proof's (`estimate.basis.proofReplays`), which the budget doesn't cap. It's absent when the version has no cost history; `estimate.basis` gives the inputs. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and it leaves out a prompt Improve run's one-off drafting of its templates: an Improve run can cost more than the estimate. The Improve run checks its cost before each comparison, so the one already running can take it a little over, and its search starts no more once the cost reaches `budget.maxCostUsd`. It proves its best change after that, uncapped. With an Improve schedule on the agent and project, `month` is this UTC month's spend on their Improve runs against the schedule's monthly cap; only the schedule stops at the cap. It changes nothing (no Improve run starts) and takes no Idempotency-Key. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.
+        """
+        return await self._client._request(
+            _OPERATIONS["improveRuns.check"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.StartImproveRunBody, body, fields),
+            response=_models.ImproveRunCheck,
             timeout=timeout,
         )
 
     async def get(
-        self, pass_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.ImprovementPass:
-        """Fetch an improvement pass. `GET /v1/improvement-passes/{passId}`
+        self, improve_run_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.ImproveRun:
+        """Fetch an Improve run. `GET /v1/improve-runs/{improveRunId}`
 
         Its status, the candidates it compared and what they cost, and once it ends, what it found. Needs `read` on its agent.
         """
         return await self._client._request(
-            _OPERATIONS["improvementPasses.get"],
-            path={"passId": pass_id},
+            _OPERATIONS["improveRuns.get"],
+            path={"improveRunId": improve_run_id},
             query={},
             headers={},
-            response=_models.ImprovementPass,
+            response=_models.ImproveRun,
             timeout=timeout,
         )
 
     async def cancel(
         self,
-        pass_id: str | UUID,
+        improve_run_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.ImprovementPass:
-        """Cancel an improvement pass. `POST /v1/improvement-passes/{passId}/cancel`
+    ) -> _models.ImproveRun:
+        """Cancel an Improve run. `POST /v1/improve-runs/{improveRunId}/cancel`
 
-        A running pass stops and ends `cancelled`, writing no proposal. Needs `publish` on its agent.
+        A running Improve run stops and ends `cancelled`, writing no suggested change. Needs `publish` on its agent.
         """
         return await self._client._request(
-            _OPERATIONS["improvementPasses.cancel"],
-            path={"passId": pass_id},
+            _OPERATIONS["improveRuns.cancel"],
+            path={"improveRunId": improve_run_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.ImprovementPass,
+            response=_models.ImproveRun,
             timeout=timeout,
         )
 
@@ -14884,7 +15182,7 @@ class AsyncLicenseResource:
     async def usage(self, /, *, since: str, timeout: float | None = None) -> _models.LicenseUsage:
         """How much the deployment was used since a time. `GET /v1/license/usage`
 
-        What a free license key's renewal carries (`kindgi license renew --runtime`): the runs started since `since` (not dry runs, replays, evals or child runs), the distinct people who started runs or decided approvals (counted in each tenant and summed, so a person in two tenants counts twice), the projects in production when the runtime can put projects in production (`PUT /v1/projects/{projectId}/production`), and the runtime's version. Counts only: no content, names or ids. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, reads it; anyone else is refused (`license-operator-only`), and the refusal recorded, before `since` is read. A deployment that doesn't report it answers 404.
+        What a free license key's renewal carries (`kindgi license renew --runtime`): the runs started since `since` (not dry runs, replays, test runs or child runs), the distinct people who started runs or decided approvals (counted in each tenant and summed, so a person in two tenants counts twice), the projects in production when the runtime can put projects in production (`PUT /v1/projects/{projectId}/production`), and the runtime's version. Counts only: no content, names or ids. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, reads it; anyone else is refused (`license-operator-only`), and the refusal recorded, before `since` is read. A deployment that doesn't report it answers 404.
         """
         return await self._client._request(
             _OPERATIONS["license.usage"],
@@ -15251,8 +15549,8 @@ class AsyncProvidersResource:
         )
 
 
-class AsyncJudgmentsResource:
-    """`client.judgments` — the `judgments` operations."""
+class AsyncCorrectionsResource(AsyncThumbs):
+    """`client.corrections` — the `corrections` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
@@ -15267,19 +15565,34 @@ class AsyncJudgmentsResource:
         agent_id: str | UUID | None = None,
         agent_version: str | None = None,
         flow_id: str | UUID | None = None,
-        verdict: Literal["yes", "no"] | None = None,
-        judge_class_id: str | UUID | None = None,
+        status: Literal[
+            "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+        ]
+        | list[
+            Literal[
+                "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+            ]
+        ]
+        | None = None,
+        sorted_to: Literal["none", "improve", "developer", "owner"]
+        | list[Literal["none", "improve", "developer", "owner"]]
+        | None = None,
+        from_: Literal["experts", "end-users", "all"] | None = None,
+        made_by: Literal["me"] | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        corrector_group_id: str | UUID | None = None,
         participant_id: str | UUID | None = None,
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgmentCollectionPage:
-        """List judgments. `GET /v1/judgments`
+    ) -> _models.CorrectionCollectionPage:
+        """List corrections. `GET /v1/corrections`
 
-        Live judgments (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, judge class or participant; `?scopeKind + ?scopeId` narrow to a project.
+        Corrections (not superseded, and not removed unless `status` asks for `removed`), newest first, cursor-paginated. Filter by run, agent (and version), flow, status, sorting, who made them, when, corrector group or participant; `?scopeKind + ?scopeId` narrow to a project. Each one comes back only when the caller may read its project.
         """
         return await self._client._request(
-            _OPERATIONS["judgments.list"],
+            _OPERATIONS["corrections.list"],
             path={},
             query={
                 "limit": limit,
@@ -15288,80 +15601,190 @@ class AsyncJudgmentsResource:
                 "agentId": agent_id,
                 "agentVersion": agent_version,
                 "flowId": flow_id,
-                "verdict": verdict,
-                "judgeClassId": judge_class_id,
+                "status": status,
+                "sortedTo": sorted_to,
+                "from": from_,
+                "madeBy": made_by,
+                "since": since,
+                "until": until,
+                "correctorGroupId": corrector_group_id,
                 "participantId": participant_id,
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
             },
             headers={},
-            response=_models.JudgmentCollectionPage,
+            response=_models.CorrectionCollectionPage,
             timeout=timeout,
         )
 
     async def create(
         self,
-        body: _models.CreateJudgmentBody | Mapping[str, Any] | None = None,
+        body: _models.CreateCorrectionBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Judgment:
-        """Judge an item of a run's output. `POST /v1/judgments`
+    ) -> _models.Correction:
+        """Correct a run. `POST /v1/corrections`
 
-        Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a judge class that applies to the run's project or agent (unclassified judgments count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first judgment of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. Judging again as the same caller for the same run, item key and `participantId` supersedes the earlier judgment. Needs `judge` on the run.
+        Records whether a finished run's decisions and answer were right, and what was right instead, optionally under a corrector group that applies to the run's project or agent (unclassified corrections count with weight 1). Each item's `pointer` (a JSON Pointer) must resolve in the run's output. It's sorted at save: an end user's correction stays open and unsorted; `decisions: "wrong"` goes to the agent's owner (`with-owner`); a wrong answer goes to Improve (`open`); nothing wrong is `fixed` as `recorded-right`. The first correction of a run also stores a copy of the run's input and output. `madeBy` is the authenticated caller, never the body. A second correction by the same caller for the same run and `participantId` supersedes the earlier one. Needs `write` on the run's project.
         """
         return await self._client._request(
-            _OPERATIONS["judgments.create"],
+            _OPERATIONS["corrections.create"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.CreateJudgmentBody, body, fields),
-            response=_models.Judgment,
+            body=_body(_models.CreateCorrectionBody, body, fields),
+            response=_models.Correction,
+            timeout=timeout,
+        )
+
+    def export(
+        self,
+        /,
+        *,
+        format: Literal["csv", "jsonl"] | None = None,
+        run_id: str | UUID | None = None,
+        agent_id: str | UUID,
+        agent_version: str | None = None,
+        flow_id: str | UUID | None = None,
+        status: Literal[
+            "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+        ]
+        | list[
+            Literal[
+                "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+            ]
+        ]
+        | None = None,
+        sorted_to: Literal["none", "improve", "developer", "owner"]
+        | list[Literal["none", "improve", "developer", "owner"]]
+        | None = None,
+        from_: Literal["experts", "end-users", "all"] | None = None,
+        made_by: Literal["me"] | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        corrector_group_id: str | UUID | None = None,
+        participant_id: str | UUID | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> AsyncIterator[bytes]:
+        """Export corrections. `GET /v1/corrections/export`
+
+        Every correction of an agent the list's filters match, streamed as CSV (`format=csv`, the default: RFC 4180, UTF-8, a header row) or JSON lines (`format=jsonl`: one correction per line, as the list sends it). Each comes only when the caller may read its project, and a project scope the caller can't read is a 403 before anything is sent. The run's own text isn't exported, only its id. A CSV field that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, so a spreadsheet doesn't run it. Recorded in the audit log: `corrections-export-started` before the first row (when it can't be written, a 500 and nothing is sent), and `corrections-exported` when the stream ends, with the rows sent and `succeeded` or `failed`.
+        """
+        return self._client._stream_bytes(
+            _OPERATIONS["corrections.export"],
+            path={},
+            query={
+                "format": format,
+                "runId": run_id,
+                "agentId": agent_id,
+                "agentVersion": agent_version,
+                "flowId": flow_id,
+                "status": status,
+                "sortedTo": sorted_to,
+                "from": from_,
+                "madeBy": made_by,
+                "since": since,
+                "until": until,
+                "correctorGroupId": corrector_group_id,
+                "participantId": participant_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+            },
+            headers={},
             timeout=timeout,
         )
 
     async def get(
-        self, judgment_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgmentWithCopies:
-        """Fetch a judgment with its copies. `GET /v1/judgments/{judgmentId}`
+        self, correction_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.CorrectionWithCopies:
+        """Fetch a correction with its copies. `GET /v1/corrections/{correctionId}`
 
-        Returns the judgment (live or not) with the stored copy of the run's input and output and, when the judgment pointed at an item, its value.
+        Returns the correction (live or not) with the stored copy of the run's input and output.
         """
         return await self._client._request(
-            _OPERATIONS["judgments.get"],
-            path={"judgmentId": judgment_id},
+            _OPERATIONS["corrections.get"],
+            path={"correctionId": correction_id},
             query={},
             headers={},
-            response=_models.JudgmentWithCopies,
+            response=_models.CorrectionWithCopies,
             timeout=timeout,
         )
 
-    async def unregister(
+    async def change(
         self,
-        judgment_id: str | UUID,
+        correction_id: str | UUID,
+        body: _models.ChangeCorrectionBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterJudgmentResult:
-        """Remove a judgment. `POST /v1/judgments/{judgmentId}/unregister`
+        **fields: Any,
+    ) -> _models.Correction:
+        """Re-sort a correction or change its status. `PATCH /v1/corrections/{correctionId}`
 
-        Soft delete: the judgment stops listing; retention policy decides when it is purged.
+        A re-sort, a status, or both (the re-sort first), by the change table: re-sorting from `open`, `being-fixed` or `with-owner` (to `owner` sets `with-owner`; away from `owner`, `open`); `being-fixed` from `open` or `with-owner`, with `link`; `open` from `being-fixed` or `wont-fix` (`with-owner` for one sorted to the owner); `wont-fix` from anything but `removed`, with `reason`, and it drops `fixedIn`. `fixed` is set only by a pin or a deploy. Anything else is `409 correction-status-change-not-allowed`. Needs `publish` on the correction's agent (or flow), or, for one more than one project serves, `write` on the correction's project.
         """
         return await self._client._request(
-            _OPERATIONS["judgments.unregister"],
-            path={"judgmentId": judgment_id},
+            _OPERATIONS["corrections.change"],
+            path={"correctionId": correction_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterJudgmentResult,
+            body=_body(_models.ChangeCorrectionBody, body, fields),
+            response=_models.Correction,
+            timeout=timeout,
+        )
+
+    async def remove(
+        self,
+        correction_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.RemoveCorrectionResult:
+        """Remove a correction. `POST /v1/corrections/{correctionId}/remove`
+
+        Its status becomes `removed`, and it can't come back. It lists only when `status=removed` is asked for; retention policy decides when it is purged. Needs to be its author, or `admin` on its project.
+        """
+        return await self._client._request(
+            _OPERATIONS["corrections.remove"],
+            path={"correctionId": correction_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.RemoveCorrectionResult,
+            timeout=timeout,
+        )
+
+    async def counts(
+        self,
+        /,
+        *,
+        agent_id: str | UUID | None = None,
+        scope_kind: Literal["project"],
+        scope_id: str | UUID,
+        timeout: float | None = None,
+    ) -> _models.CorrectionCounts:
+        """Count corrections by status. `GET /v1/corrections/counts`
+
+        How many of a project's corrections (or one agent's in it) are in each status. Needs `?scopeKind=project&scopeId=<project>` and `read` on the project. Only a project scope is taken: the list filters each row by what the caller reads, and a count can't.
+        """
+        return await self._client._request(
+            _OPERATIONS["corrections.counts"],
+            path={},
+            query={"agentId": agent_id, "scopeKind": scope_kind, "scopeId": scope_id},
+            headers={},
+            response=_models.CorrectionCounts,
             timeout=timeout,
         )
 
 
-class AsyncJudgeClassesResource:
-    """`client.judge_classes` — the `judgeClasses` operations."""
+class AsyncCorrectorGroupsResource:
+    """`client.corrector_groups` — the `correctorGroups` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
@@ -15376,13 +15799,13 @@ class AsyncJudgeClassesResource:
         project_id: str | UUID | None = None,
         agent_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgeClassCollectionPage:
-        """List judge classes. `GET /v1/judge-classes`
+    ) -> _models.CorrectorGroupCollectionPage:
+        """List corrector groups. `GET /v1/corrector-groups`
 
-        Live classes, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.
+        Live groups, newest first, cursor-paginated. `?scopeKind=tenant|project|agent` (with `projectId` / `agentId`) narrows to one scope.
         """
         return await self._client._request(
-            _OPERATIONS["judgeClasses.list"],
+            _OPERATIONS["correctorGroups.list"],
             path={},
             query={
                 "limit": limit,
@@ -15392,88 +15815,88 @@ class AsyncJudgeClassesResource:
                 "agentId": agent_id,
             },
             headers={},
-            response=_models.JudgeClassCollectionPage,
+            response=_models.CorrectorGroupCollectionPage,
             timeout=timeout,
         )
 
     async def create(
         self,
-        body: _models.CreateJudgeClassBody | Mapping[str, Any] | None = None,
+        body: _models.CreateCorrectorGroupBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgeClass:
-        """Create a judge class. `POST /v1/judge-classes`
+    ) -> _models.CorrectorGroup:
+        """Create a corrector group. `POST /v1/corrector-groups`
 
-        A named kind of judge with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live classes of a scope. Needs `admin` on the tenant (tenant scope) or the project.
+        A named kind of person who corrects with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live groups of a scope. Needs `admin` on the tenant (tenant scope) or the project.
         """
         return await self._client._request(
-            _OPERATIONS["judgeClasses.create"],
+            _OPERATIONS["correctorGroups.create"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.CreateJudgeClassBody, body, fields),
-            response=_models.JudgeClass,
+            body=_body(_models.CreateCorrectorGroupBody, body, fields),
+            response=_models.CorrectorGroup,
             timeout=timeout,
         )
 
     async def get(
-        self, judge_class_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgeClass:
-        """Fetch a judge class. `GET /v1/judge-classes/{judgeClassId}`
+        self, corrector_group_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.CorrectorGroup:
+        """Fetch a corrector group. `GET /v1/corrector-groups/{correctorGroupId}`
 
-        Also returns a retired class (`unregisteredAt` set): judgments keep naming theirs.
+        Also returns a retired group (`unregisteredAt` set): corrections keep naming theirs.
         """
         return await self._client._request(
-            _OPERATIONS["judgeClasses.get"],
-            path={"judgeClassId": judge_class_id},
+            _OPERATIONS["correctorGroups.get"],
+            path={"correctorGroupId": corrector_group_id},
             query={},
             headers={},
-            response=_models.JudgeClass,
+            response=_models.CorrectorGroup,
             timeout=timeout,
         )
 
     async def update(
         self,
-        judge_class_id: str | UUID,
-        body: _models.UpdateJudgeClassBody | Mapping[str, Any] | None = None,
+        corrector_group_id: str | UUID,
+        body: _models.UpdateCorrectorGroupBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgeClass:
-        """Change a judge class's weight or description. `PATCH /v1/judge-classes/{judgeClassId}`"""
+    ) -> _models.CorrectorGroup:
+        """Change a corrector group's weight or description. `PATCH /v1/corrector-groups/{correctorGroupId}`"""
         return await self._client._request(
-            _OPERATIONS["judgeClasses.update"],
-            path={"judgeClassId": judge_class_id},
+            _OPERATIONS["correctorGroups.update"],
+            path={"correctorGroupId": corrector_group_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.UpdateJudgeClassBody, body, fields),
-            response=_models.JudgeClass,
+            body=_body(_models.UpdateCorrectorGroupBody, body, fields),
+            response=_models.CorrectorGroup,
             timeout=timeout,
         )
 
     async def unregister(
         self,
-        judge_class_id: str | UUID,
+        corrector_group_id: str | UUID,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterJudgeClassResult:
-        """Retire a judge class. `POST /v1/judge-classes/{judgeClassId}/unregister`
+    ) -> _models.UnregisterCorrectorGroupResult:
+        """Retire a corrector group. `POST /v1/corrector-groups/{correctorGroupId}/unregister`
 
-        No new judgments may name it; existing judgments keep it.
+        No new corrections may name it; existing corrections keep it.
         """
         return await self._client._request(
-            _OPERATIONS["judgeClasses.unregister"],
-            path={"judgeClassId": judge_class_id},
+            _OPERATIONS["correctorGroups.unregister"],
+            path={"correctorGroupId": corrector_group_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterJudgeClassResult,
+            response=_models.UnregisterCorrectorGroupResult,
             timeout=timeout,
         )
 
@@ -16087,7 +16510,7 @@ class AsyncRetentionResource:
             "agent",
             "flow",
             "tool",
-            "eval_suite",
+            "test_set",
             "guardrail",
             "mcp_endpoint",
             "env",
@@ -16095,8 +16518,8 @@ class AsyncRetentionResource:
             "run",
             "artifact",
             "policy",
-            "judgment",
-            "judge_class",
+            "correction",
+            "corrector_group",
             "provider",
             "memory",
             "conversation",
@@ -16157,7 +16580,7 @@ class AsyncRetentionResource:
             "agent",
             "flow",
             "tool",
-            "eval_suite",
+            "test_set",
             "guardrail",
             "mcp_endpoint",
             "env",
@@ -16165,8 +16588,8 @@ class AsyncRetentionResource:
             "run",
             "artifact",
             "policy",
-            "judgment",
-            "judge_class",
+            "correction",
+            "corrector_group",
             "provider",
             "memory",
             "conversation",
@@ -16195,74 +16618,74 @@ class AsyncRetentionResource:
         )
 
 
-class AsyncEvalSuitesVersionsResource:
-    """`client.eval_suites.versions` — the `evalSuites.versions` operations."""
+class AsyncTestSetsVersionsResource:
+    """`client.test_sets.versions` — the `testSets.versions` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
 
     async def list(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         /,
         *,
         limit: int | None = None,
         cursor: str | None = None,
         include_tombstoned: bool | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalSuiteCollectionPage:
-        """List versions of an eval suite. `GET /v1/eval-suites/{suiteId}/versions`
+    ) -> _models.TestSetCollectionPage:
+        """List versions of a test set. `GET /v1/test-sets/{testSetId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired suite (every version unregistered) answers too, with its versions to reinstate.
+        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired test set (every version unregistered) answers too, with its versions to reinstate.
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.versions.list"],
-            path={"suiteId": suite_id},
+            _OPERATIONS["testSets.versions.list"],
+            path={"testSetId": test_set_id},
             query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
-            response=_models.EvalSuiteCollectionPage,
+            response=_models.TestSetCollectionPage,
             timeout=timeout,
         )
 
     async def get(
-        self, suite_id: str | UUID, version: str, /, *, timeout: float | None = None
-    ) -> _models.EvalSuite:
-        """Fetch a specific eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}`"""
+        self, test_set_id: str | UUID, version: str, /, *, timeout: float | None = None
+    ) -> _models.TestSet:
+        """Fetch a specific test set version. `GET /v1/test-sets/{testSetId}/versions/{version}`"""
         return await self._client._request(
-            _OPERATIONS["evalSuites.versions.get"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.versions.get"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={},
-            response=_models.EvalSuite,
+            response=_models.TestSet,
             timeout=timeout,
         )
 
     async def unregister(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterEvalSuiteResult:
-        """Unregister an eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/unregister`"""
+    ) -> _models.UnregisterTestSetResult:
+        """Unregister a test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
         return await self._client._request(
-            _OPERATIONS["evalSuites.versions.unregister"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.versions.unregister"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterEvalSuiteResult,
+            response=_models.UnregisterTestSetResult,
             timeout=timeout,
         )
 
 
-class AsyncEvalSuitesResource:
-    """`client.eval_suites` — the `evalSuites` operations."""
+class AsyncTestSetsResource:
+    """`client.test_sets` — the `testSets` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
-        self.versions = AsyncEvalSuitesVersionsResource(client)
+        self.versions = AsyncTestSetsVersionsResource(client)
 
     async def list(
         self,
@@ -16271,7 +16694,13 @@ class AsyncEvalSuitesResource:
         limit: int | None = None,
         cursor: str | None = None,
         kind: Literal[
-            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+            "accuracy",
+            "pairwise",
+            "regression",
+            "human-review",
+            "benchmark",
+            "custom",
+            "corrections",
         ]
         | None = None,
         name: str | None = None,
@@ -16280,13 +16709,13 @@ class AsyncEvalSuitesResource:
         inherit: bool | None = None,
         include_retired: bool | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalSuiteCollectionPage:
-        """List tenant eval suites. `GET /v1/eval-suites`
+    ) -> _models.TestSetCollectionPage:
+        """List tenant test sets. `GET /v1/test-sets`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id. A retired suite (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated. A `corrections` test set (an agent's frozen versions, and those built from corrections before) is listed only with `?kind=corrections`: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.list"],
+            _OPERATIONS["testSets.list"],
             path={},
             query={
                 "limit": limit,
@@ -16299,139 +16728,115 @@ class AsyncEvalSuitesResource:
                 "includeRetired": include_retired,
             },
             headers={},
-            response=_models.EvalSuiteCollectionPage,
+            response=_models.TestSetCollectionPage,
             timeout=timeout,
         )
 
     async def publish(
         self,
-        body: _models.PublishEvalSuiteBody | Mapping[str, Any] | None = None,
+        body: _models.PublishTestSetBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.PublishEvalSuiteResult:
-        """Publish an eval suite. `POST /v1/eval-suites`
+    ) -> _models.PublishTestSetResult:
+        """Publish a test set. `POST /v1/test-sets`
 
-        Body is a full `EvalSuite` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(suiteId, version)` returns `409 eval-suite-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201). An id that starts with `agent.` is refused with `400 bad-input`: those are agents' own test sets, whose versions only a check or a test run makes.
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.publish"],
+            _OPERATIONS["testSets.publish"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PublishEvalSuiteBody, body, fields),
-            response=_models.PublishEvalSuiteResult,
+            body=_body(_models.PublishTestSetBody, body, fields),
+            response=_models.PublishTestSetResult,
             timeout=timeout,
         )
 
     async def get(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         /,
         *,
         project_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalSuite:
-        """Fetch an eval suite (latest version). `GET /v1/eval-suites/{suiteId}`
+    ) -> _models.TestSet:
+        """Fetch a test set (latest version). `GET /v1/test-sets/{testSetId}`
 
         An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.get"],
-            path={"suiteId": suite_id},
+            _OPERATIONS["testSets.get"],
+            path={"testSetId": test_set_id},
             query={"projectId": project_id},
             headers={},
-            response=_models.EvalSuite,
-            timeout=timeout,
-        )
-
-    async def build_from_judgments(
-        self,
-        suite_id: str | UUID,
-        body: _models.BuildJudgedSuiteBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.BuildJudgedSuiteResult:
-        """Build a test set from judgments. `POST /v1/eval-suites/{suiteId}/versions/from-judgments`
-
-        Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
-        """
-        return await self._client._request(
-            _OPERATIONS["evalSuites.buildFromJudgments"],
-            path={"suiteId": suite_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.BuildJudgedSuiteBody, body, fields),
-            response=_models.BuildJudgedSuiteResult,
+            response=_models.TestSet,
             timeout=timeout,
         )
 
     async def list_cases(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgedEvalCaseCollectionPage:
-        """List the cases of a judged eval suite version. `GET /v1/eval-suites/{suiteId}/versions/{version}/cases`
+    ) -> _models.CorrectedTestCaseCollectionPage:
+        """List the cases of a corrections test set version. `GET /v1/test-sets/{testSetId}/versions/{version}/cases`
 
-        Cursor-paginated, in the order the cases were stored (newest judged run first).
+        Cursor-paginated, in the order the cases were stored (newest corrected run first).
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.listCases"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.listCases"],
+            path={"testSetId": test_set_id, "version": version},
             query={"limit": limit, "cursor": cursor},
             headers={},
-            response=_models.JudgedEvalCaseCollectionPage,
+            response=_models.CorrectedTestCaseCollectionPage,
             timeout=timeout,
         )
 
     async def reinstate_version(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.ReinstateEvalSuiteVersionResult:
-        """Reinstate a specific tombstoned eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/reinstate`
+    ) -> _models.ReinstateTestSetVersionResult:
+        """Reinstate a specific tombstoned test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/reinstate`
 
-        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (refreshes `suiteKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Publish is always allowed regardless of retirement state.
+        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version (refreshes `testSetKind` to match). Restores manifest bytes verbatim (semver hygiene). Idempotent. Publish is always allowed regardless of retirement state.
         """
         return await self._client._request(
-            _OPERATIONS["evalSuites.reinstateVersion"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.reinstateVersion"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.ReinstateEvalSuiteVersionResult,
+            response=_models.ReinstateTestSetVersionResult,
             timeout=timeout,
         )
 
     async def unregister(
         self,
-        suite_id: str | UUID,
+        test_set_id: str | UUID,
         version: str,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.UnregisterEvalSuiteResult:
-        """Unregister an eval suite version. `POST /v1/eval-suites/{suiteId}/versions/{version}/unregister`"""
+    ) -> _models.UnregisterTestSetResult:
+        """Unregister a test set version. `POST /v1/test-sets/{testSetId}/versions/{version}/unregister`"""
         return await self._client._request(
-            _OPERATIONS["evalSuites.unregister"],
-            path={"suiteId": suite_id, "version": version},
+            _OPERATIONS["testSets.unregister"],
+            path={"testSetId": test_set_id, "version": version},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.UnregisterEvalSuiteResult,
+            response=_models.UnregisterTestSetResult,
             timeout=timeout,
         )
 
@@ -16576,7 +16981,7 @@ class AsyncBlocksResource:
     ) -> _models.PublishBlockResult:
         """Publish a data block version. `POST /v1/blocks`
 
-        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.
+        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A settings block an agent version uses as its model settings takes only model settings, which never name the model that agent version names too. The version records the caller as `publishedBy`, and `source: { kind: "api" }`. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.
         """
         return await self._client._request(
             _OPERATIONS["blocks.publish"],
@@ -16609,34 +17014,50 @@ class AsyncBlocksResource:
             timeout=timeout,
         )
 
+    async def runs_in(
+        self, block_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.BlockRunsInList:
+        """List where a data block's versions run. `GET /v1/blocks/{blockId}/runs-in`
 
-class AsyncEvalRunsResource:
-    """`client.eval_runs` — the `evalRuns` operations."""
+        Where the block's versions run now: one row for each project, and each segment pin inside one, whose running version of an agent pins a version of the block (as a prompt, a settings block or its model settings). Each agent's projects are the ones `agents.projects` lists, and what runs in each is what it says: a pin that covers the project, else its Latest. Only the projects the caller can read are named, and an agent version the caller can't see is left out. A block no running version pins answers an empty list. Without the agents' pins and Latest in this runtime, `501 runs-in-unsupported`.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.runsIn"],
+            path={"blockId": block_id},
+            query={},
+            headers={},
+            response=_models.BlockRunsInList,
+            timeout=timeout,
+        )
+
+
+class AsyncTestRunsResource:
+    """`client.test_runs` — the `testRuns` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
 
     async def start(
         self,
-        suite_id: str | UUID,
-        body: _models.StartEvalRunBody | Mapping[str, Any] | None = None,
+        test_set_id: str | UUID,
+        body: _models.StartTestRunBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.StartEvalRunResult:
-        """Start an eval run against a suite. `POST /v1/eval-suites/{suiteId}/runs`
+    ) -> _models.StartTestRunResult:
+        """Start a test run against a test set. `POST /v1/test-sets/{testSetId}/runs`
 
-        Dispatches an eval run against the latest version of the suite. Exactly one of `agentRef` / `flowRef` is required — the subject the suite evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
+        Dispatches a test run against the latest version of the test set. An agent's own test set (`agent.<agentId>.<projectId>`, read at `GET /v1/agents/{agentId}/test-set`) is frozen first, as a suggested change's check freezes it, and the run records the frozen version as `testSetVersion`; a dry run freezes it too; it runs only its agent, in its project. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
         """
         return await self._client._request(
-            _OPERATIONS["evalRuns.start"],
-            path={"suiteId": suite_id},
+            _OPERATIONS["testRuns.start"],
+            path={"testSetId": test_set_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.StartEvalRunBody, body, fields),
-            response=_models.StartEvalRunResult,
+            body=_body(_models.StartTestRunBody, body, fields),
+            response=_models.StartTestRunResult,
             timeout=timeout,
         )
 
@@ -16646,7 +17067,7 @@ class AsyncEvalRunsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
-        suite_id: str | UUID | None = None,
+        test_set_id: str | UUID | None = None,
         status: Literal["pending", "running", "completed", "failed", "cancelled"] | None = None,
         agent_id: str | UUID | None = None,
         flow_id: str | UUID | None = None,
@@ -16656,18 +17077,18 @@ class AsyncEvalRunsResource:
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
         timeout: float | None = None,
-    ) -> _models.EvalRunCollectionPage:
-        """List eval runs. `GET /v1/eval-runs`
+    ) -> _models.TestRunCollectionPage:
+        """List test runs. `GET /v1/test-runs`
 
-        Cursor-paginated. Filters: `?suiteId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.
+        Cursor-paginated. Filters: `?testSetId=` / `?status=` / `?agentId=` / `?flowId=` / `?from=` / `?to=`. Sort order: startedAt descending, runId descending as tie-breaker.
         """
         return await self._client._request(
-            _OPERATIONS["evalRuns.list"],
+            _OPERATIONS["testRuns.list"],
             path={},
             query={
                 "limit": limit,
                 "cursor": cursor,
-                "suiteId": suite_id,
+                "testSetId": test_set_id,
                 "status": status,
                 "agentId": agent_id,
                 "flowId": flow_id,
@@ -16678,75 +17099,77 @@ class AsyncEvalRunsResource:
                 "inherit": inherit,
             },
             headers={},
-            response=_models.EvalRunCollectionPage,
+            response=_models.TestRunCollectionPage,
             timeout=timeout,
         )
 
-    async def get(self, run_id: str | UUID, /, *, timeout: float | None = None) -> _models.EvalRun:
-        """Fetch an eval run. `GET /v1/eval-runs/{runId}`"""
+    async def get(
+        self, test_run_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.TestRun:
+        """Fetch a test run. `GET /v1/test-runs/{testRunId}`"""
         return await self._client._request(
-            _OPERATIONS["evalRuns.get"],
-            path={"runId": run_id},
+            _OPERATIONS["testRuns.get"],
+            path={"testRunId": test_run_id},
             query={},
             headers={},
-            response=_models.EvalRun,
+            response=_models.TestRun,
             timeout=timeout,
         )
 
     async def cancel(
-        self, run_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.EvalRun:
-        """Cancel an eval run. `POST /v1/eval-runs/{runId}/cancel`
+        self, test_run_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.TestRun:
+        """Cancel a test run. `POST /v1/test-runs/{testRunId}/cancel`
 
         Best-effort cancel. Returns 409 when the run is already terminal.
         """
         return await self._client._request(
-            _OPERATIONS["evalRuns.cancel"],
-            path={"runId": run_id},
+            _OPERATIONS["testRuns.cancel"],
+            path={"testRunId": test_run_id},
             query={},
             headers={},
-            response=_models.EvalRun,
+            response=_models.TestRun,
             timeout=timeout,
         )
 
     async def rescore(
         self,
-        run_id: str | UUID,
-        body: _models.RescoreEvalRunBody | Mapping[str, Any] | None = None,
+        test_run_id: str | UUID,
+        body: _models.RescoreTestRunBody | Mapping[str, Any] | None = None,
         /,
         *,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.StartEvalRunResult:
-        """Rescore a comparison eval run. `POST /v1/eval-runs/{runId}/rescore`
+    ) -> _models.StartTestRunResult:
+        """Rescore a comparison test run. `POST /v1/test-runs/{testRunId}/rescore`
 
-        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the judgments recorded on them since (a changed answer judged on the replay itself; `changes.new` lists the items to judge). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.
+        Starts a new comparison test run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the corrections recorded on them since (a changed answer corrected on the replay itself; `changes.new` lists the items to correct). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's test set and `write` on its project.
         """
         return await self._client._request(
-            _OPERATIONS["evalRuns.rescore"],
-            path={"runId": run_id},
+            _OPERATIONS["testRuns.rescore"],
+            path={"testRunId": test_run_id},
             query={},
             headers={},
-            body=_body(_models.RescoreEvalRunBody, body, fields),
-            response=_models.StartEvalRunResult,
+            body=_body(_models.RescoreTestRunBody, body, fields),
+            response=_models.StartTestRunResult,
             timeout=timeout,
         )
 
     async def events(
         self,
-        run_id: str | UUID,
+        test_run_id: str | UUID,
         /,
         *,
         last_event_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> None:
-        """Stream eval-run events (SSE). `GET /v1/eval-runs/{runId}/events`
+        """Stream test-run events (SSE). `GET /v1/test-runs/{testRunId}/events`
 
-        Server-Sent Events. Per-case progress events (`eval-run.case-completed` / `eval-run.case-failed`) followed by a terminal event (`eval-run.completed` / `eval-run.failed` / `eval-run.cancelled`) carrying the aggregate result. Mirrors `/v1/runs/:runId/stream` structurally.
+        Server-Sent Events. Per-case progress events (`test-run.case-completed` / `test-run.case-failed`) followed by a terminal event (`test-run.completed` / `test-run.failed` / `test-run.cancelled`) carrying the aggregate result. Mirrors `/v1/runs/:runId/stream` structurally.
         """
         return await self._client._request(
-            _OPERATIONS["evalRuns.events"],
-            path={"runId": run_id},
+            _OPERATIONS["testRuns.events"],
+            path={"testRunId": test_run_id},
             query={},
             headers={"Last-Event-Id": last_event_id},
             timeout=timeout,
@@ -17543,6 +17966,28 @@ class AsyncDeploymentsResource:
             timeout=timeout,
         )
 
+    async def check(
+        self,
+        body: _models.DeployCheckBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeployCheckResult:
+        """Check a deploy's blocks against what runs. `POST /v1/deployments/check`
+
+        What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. It takes the deploy's own right: admin on `projectId`, else on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["deployments.check"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.DeployCheckBody, body, fields),
+            response=_models.DeployCheckResult,
+            timeout=timeout,
+        )
+
     async def get(
         self, deployment_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.DeploymentRecord:
@@ -17607,7 +18052,7 @@ class AsyncDeploymentsResource:
     ) -> _models.DeploymentPromotion:
         """Promote a deployment to the next environment. `POST /v1/deployments/{deploymentId}/promotions`
 
-        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since.
+        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `pin`, the build's blocks (`contents.blocks`) are checked first against what runs in the target, as a deploy's are against what runs: a newer version of one running there stops the promotion with nothing written, unless `replace` names the block, and `blockCheck` answers what the check found. Then the move commits; then each carried agent is pinned through its target scope's release gate, and each carried flow is pinned. `pin` is the ask to take a target project that follows Latest off it: such a pin gets no `409 pin-stops-latest`, and records `stoppedFollowingLatest`. A release gate that refuses or holds an agent isn't an error: its `pinned` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.pinned` and `details.pinnedFlows`.
         """
         return await self._client._request(
             _OPERATIONS["deployments.promote"],
@@ -18170,8 +18615,8 @@ class AsyncTeamsResource:
         )
 
 
-class AsyncProjectsJudgingRulesResource:
-    """`client.projects.judging_rules` — the `projects.judgingRules` operations."""
+class AsyncProjectsQueueRulesResource:
+    """`client.projects.queue_rules` — the `projects.queueRules` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
@@ -18184,41 +18629,41 @@ class AsyncProjectsJudgingRulesResource:
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingRulePage:
-        """List a project's judging rules. `GET /v1/projects/{projectId}/judging-rules`
+    ) -> _models.QueueRulePage:
+        """List a project's queue rules. `GET /v1/projects/{projectId}/queue-rules`
 
-        The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's judgment when they end. Needs `read` on the project.
+        The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's correction when they end. Needs `read` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingRules.list"],
+            _OPERATIONS["projects.queueRules.list"],
             path={"projectId": project_id},
             query={"limit": limit, "cursor": cursor},
             headers={},
-            response=_models.JudgingRulePage,
+            response=_models.QueueRulePage,
             timeout=timeout,
         )
 
     async def create(
         self,
         project_id: str | UUID,
-        body: _models.JudgingRuleSpec | Mapping[str, Any] | None = None,
+        body: _models.QueueRuleSpec | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgingRule:
-        """Create a judging rule. `POST /v1/projects/{projectId}/judging-rules`
+    ) -> _models.QueueRule:
+        """Create a queue rule. `POST /v1/projects/{projectId}/queue-rules`
 
-        Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's judgment; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.
+        Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's correction; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingRules.create"],
+            _OPERATIONS["projects.queueRules.create"],
             path={"projectId": project_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.JudgingRuleSpec, body, fields),
-            response=_models.JudgingRule,
+            body=_body(_models.QueueRuleSpec, body, fields),
+            response=_models.QueueRule,
             timeout=timeout,
         )
 
@@ -18236,13 +18681,13 @@ class AsyncProjectsJudgingRulesResource:
         last: int | None = None,
         rule_id: str | UUID | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingRulePreview:
-        """What a rule would have queued. `GET /v1/projects/{projectId}/judging-rules/preview`
+    ) -> _models.QueueRulePreview:
+        """What a rule would have queued. `GET /v1/projects/{projectId}/queue-rules/preview`
 
         Among the project's last `last` top-level runs (not replays), how many a rule with these fields (and its `sample`) would have queued. The rule editor's "would have added N of the last 100". Lists are comma-separated. Needs `read` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingRules.preview"],
+            _OPERATIONS["projects.queueRules.preview"],
             path={"projectId": project_id},
             query={
                 "agentIds": agent_ids,
@@ -18255,23 +18700,23 @@ class AsyncProjectsJudgingRulesResource:
                 "ruleId": rule_id,
             },
             headers={},
-            response=_models.JudgingRulePreview,
+            response=_models.QueueRulePreview,
             timeout=timeout,
         )
 
     async def get(
         self, project_id: str | UUID, rule_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgingRule:
-        """Fetch a judging rule. `GET /v1/projects/{projectId}/judging-rules/{ruleId}`
+    ) -> _models.QueueRule:
+        """Fetch a queue rule. `GET /v1/projects/{projectId}/queue-rules/{ruleId}`
 
         Its latest version. Needs `read` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingRules.get"],
+            _OPERATIONS["projects.queueRules.get"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={},
             headers={},
-            response=_models.JudgingRule,
+            response=_models.QueueRule,
             timeout=timeout,
         )
 
@@ -18279,39 +18724,39 @@ class AsyncProjectsJudgingRulesResource:
         self,
         project_id: str | UUID,
         rule_id: str | UUID,
-        body: _models.JudgingRulePatch | Mapping[str, Any] | None = None,
+        body: _models.QueueRulePatch | Mapping[str, Any] | None = None,
         /,
         *,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgingRule:
-        """Change a judging rule. `PATCH /v1/projects/{projectId}/judging-rules/{ruleId}`
+    ) -> _models.QueueRule:
+        """Change a queue rule. `PATCH /v1/projects/{projectId}/queue-rules/{ruleId}`
 
         A new version with these fields changed (`when` is replaced whole). Earlier versions are kept: `…/versions` shows who changed what, when. Needs `write` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingRules.update"],
+            _OPERATIONS["projects.queueRules.update"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={},
             headers={},
-            body=_body(_models.JudgingRulePatch, body, fields),
-            response=_models.JudgingRule,
+            body=_body(_models.QueueRulePatch, body, fields),
+            response=_models.QueueRule,
             timeout=timeout,
         )
 
     async def unregister(
         self, project_id: str | UUID, rule_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgingRuleUnregisterResult:
-        """Stop a judging rule. `POST /v1/projects/{projectId}/judging-rules/{ruleId}/unregister`
+    ) -> _models.QueueRuleUnregisterResult:
+        """Stop a queue rule. `POST /v1/projects/{projectId}/queue-rules/{ruleId}/unregister`
 
         It queues nothing more; its versions and the items it queued stay. `unregistered: false` when it was already stopped. Needs `write` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingRules.unregister"],
+            _OPERATIONS["projects.queueRules.unregister"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={},
             headers={},
-            response=_models.JudgingRuleUnregisterResult,
+            response=_models.QueueRuleUnregisterResult,
             timeout=timeout,
         )
 
@@ -18324,17 +18769,17 @@ class AsyncProjectsJudgingRulesResource:
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingRulePage:
-        """A judging rule's versions. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/versions`
+    ) -> _models.QueueRulePage:
+        """A queue rule's versions. `GET /v1/projects/{projectId}/queue-rules/{ruleId}/versions`
 
         Every version, newest first: who wrote it, when, and what it said. Needs `read` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingRules.versions"],
+            _OPERATIONS["projects.queueRules.versions"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={"limit": limit, "cursor": cursor},
             headers={},
-            response=_models.JudgingRulePage,
+            response=_models.QueueRulePage,
             timeout=timeout,
         )
 
@@ -18346,17 +18791,17 @@ class AsyncProjectsJudgingRulesResource:
         *,
         since: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingRuleResults:
-        """A judging rule's results. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/results`
+    ) -> _models.QueueRuleResults:
+        """A queue rule's results. `GET /v1/projects/{projectId}/queue-rules/{ruleId}/results`
 
-        By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live judgments on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.
+        By the rule's version and the agent's: the runs it queued (open, corrected, dismissed, erased), the ones its `maxOpen` skipped, and the live corrections on them, with their group-weighted `yes` share and a count by group. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingRules.results"],
+            _OPERATIONS["projects.queueRules.results"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={"since": since},
             headers={},
-            response=_models.JudgingRuleResults,
+            response=_models.QueueRuleResults,
             timeout=timeout,
         )
 
@@ -18364,29 +18809,29 @@ class AsyncProjectsJudgingRulesResource:
         self,
         project_id: str | UUID,
         rule_id: str | UUID,
-        body: _models.JudgingQueueRecentInput | Mapping[str, Any] | None = None,
+        body: _models.ExpertQueueRecentInput | Mapping[str, Any] | None = None,
         /,
         *,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgingRecentQueued:
-        """Queue a rule's recent matches. `POST /v1/projects/{projectId}/judging-rules/{ruleId}/queue-recent`
+    ) -> _models.ExpertQueueRecentQueued:
+        """Queue a rule's recent matches. `POST /v1/projects/{projectId}/queue-rules/{ruleId}/queue-recent`
 
-        Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already judged or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.
+        Catch a rule up on runs that ended before it was there: among the project's recent runs — `last` of them (newest first) and/or those completed at or after `since` — queue the ones it matches, sampled as the rule samples, deduped per `(rule, run)` as run-end matching is. `maxOpen` isn't applied. The answer splits the matches into `queued` (newly added), `alreadyQueued` (this rule already had them) and `alreadyReviewed` (their run was already corrected or dismissed, so they're left as they are); an erased run is no longer a match. At least one of `last`, `since` is given. Needs `write` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingRules.queueRecent"],
+            _OPERATIONS["projects.queueRules.queueRecent"],
             path={"projectId": project_id, "ruleId": rule_id},
             query={},
             headers={},
-            body=_body(_models.JudgingQueueRecentInput, body, fields),
-            response=_models.JudgingRecentQueued,
+            body=_body(_models.ExpertQueueRecentInput, body, fields),
+            response=_models.ExpertQueueRecentQueued,
             timeout=timeout,
         )
 
 
-class AsyncProjectsJudgingQueueResource:
-    """`client.projects.judging_queue` — the `projects.judgingQueue` operations."""
+class AsyncProjectsExpertQueueResource:
+    """`client.projects.expert_queue` — the `projects.expertQueue` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
@@ -18396,29 +18841,29 @@ class AsyncProjectsJudgingQueueResource:
         project_id: str | UUID,
         /,
         *,
-        state: Literal["open", "judged", "dismissed", "erased"] | None = None,
+        state: Literal["open", "corrected", "dismissed", "erased"] | None = None,
         agent_id: str | UUID | None = None,
         rule_id: str | UUID | None = None,
-        judge_class_id: str | UUID | None = None,
+        corrector_group_id: str | UUID | None = None,
         for_me: bool | None = None,
         added_after: str | None = None,
         closed_after: str | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         timeout: float | None = None,
-    ) -> _models.JudgingQueuePage:
-        """The project's judging queue. `GET /v1/projects/{projectId}/judging-queue`
+    ) -> _models.ExpertQueuePage:
+        """The project's expert queue. `GET /v1/projects/{projectId}/expert-queue`
 
-        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose judgment they want and the judgments so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the judgment it wants. `forMe=true`: the items any judgment closes, or that want a class the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
+        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose correction they want and the corrections so far, and what the caller may do with it (`can`). An item closes as `corrections` once every rule that queued it has the correction it wants. `forMe=true`: the items any correction closes, or that want a group the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingQueue.list"],
+            _OPERATIONS["projects.expertQueue.list"],
             path={"projectId": project_id},
             query={
                 "state": state,
                 "agentId": agent_id,
                 "ruleId": rule_id,
-                "judgeClassId": judge_class_id,
+                "correctorGroupId": corrector_group_id,
                 "forMe": for_me,
                 "addedAfter": added_after,
                 "closedAfter": closed_after,
@@ -18426,7 +18871,7 @@ class AsyncProjectsJudgingQueueResource:
                 "cursor": cursor,
             },
             headers={},
-            response=_models.JudgingQueuePage,
+            response=_models.ExpertQueuePage,
             timeout=timeout,
         )
 
@@ -18434,39 +18879,39 @@ class AsyncProjectsJudgingQueueResource:
         self,
         project_id: str | UUID,
         run_id: str | UUID,
-        body: _models.JudgingDismissBody | Mapping[str, Any] | None = None,
+        body: _models.ExpertQueueDismissBody | Mapping[str, Any] | None = None,
         /,
         *,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.JudgingQueueItem:
-        """Dismiss a queued run. `POST /v1/projects/{projectId}/judging-queue/{runId}/dismiss`
+    ) -> _models.ExpertQueueItem:
+        """Dismiss a queued run. `POST /v1/projects/{projectId}/expert-queue/{runId}/dismiss`
 
-        Not worth judging: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as judging the run does.
+        Not worth correcting: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as correcting the run does.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingQueue.dismiss"],
+            _OPERATIONS["projects.expertQueue.dismiss"],
             path={"projectId": project_id, "runId": run_id},
             query={},
             headers={},
-            body=_body(_models.JudgingDismissBody, body, fields),
-            response=_models.JudgingQueueItem,
+            body=_body(_models.ExpertQueueDismissBody, body, fields),
+            response=_models.ExpertQueueItem,
             timeout=timeout,
         )
 
     async def reopen(
         self, project_id: str | UUID, run_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.JudgingQueueItem:
-        """Reopen a dismissed run. `POST /v1/projects/{projectId}/judging-queue/{runId}/reopen`
+    ) -> _models.ExpertQueueItem:
+        """Reopen a dismissed run. `POST /v1/projects/{projectId}/expert-queue/{runId}/reopen`
 
-        Back in the open queue. Only a dismissed item reopens: a judged one was closed by its judgments. Needs `write` on the project.
+        Back in the open queue. Only a dismissed item reopens: a corrected one was closed by its corrections. Needs `write` on the project.
         """
         return await self._client._request(
-            _OPERATIONS["projects.judgingQueue.reopen"],
+            _OPERATIONS["projects.expertQueue.reopen"],
             path={"projectId": project_id, "runId": run_id},
             query={},
             headers={},
-            response=_models.JudgingQueueItem,
+            response=_models.ExpertQueueItem,
             timeout=timeout,
         )
 
@@ -18609,7 +19054,7 @@ class AsyncProjectsPinnedVersionsResource:
     ) -> _models.ProjectPinnedVersionPage:
         """List the pinned versions that cover a project. `GET /v1/projects/{projectId}/pinned-versions`
 
-        Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/live-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.
+        Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/pinned-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.
         """
         return await self._client._request(
             _OPERATIONS["projects.pinnedVersions.list"],
@@ -18648,6 +19093,58 @@ class AsyncProjectsProductionResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ProjectProductionBody, body, fields),
             response=_models.ProjectProduction,
+            timeout=timeout,
+        )
+
+
+class AsyncProjectsRepoConnectionResource:
+    """`client.projects.repo_connection` — the `projects.repoConnection` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def set(
+        self,
+        project_id: str | UUID,
+        body: _models.ProjectRepoConnectionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ProjectRepoConnection:
+        """Set a project's repo connection. `PUT /v1/projects/{projectId}/repo-connection`
+
+        The company-wide GitHub connection the project opens its block changes' pull requests through. For the project's admins (`admin` on it). It replaces any connection set before; setting the one already set answers 200 unchanged. The connection must be the tenant's, made through the GitHub app entry, and owned by the company: 404 `connection-not-found` for one that isn't there or was removed, and 400 `repo-connection-not-company-github` for any other. The project keeps only the id: a connection removed later reads as none. 501 `repo-connection-unsupported` from a runtime that can't keep one, or has no connections.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.repoConnection.set"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProjectRepoConnectionBody, body, fields),
+            response=_models.ProjectRepoConnection,
+            timeout=timeout,
+        )
+
+    async def clear(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ProjectRepoConnection:
+        """Clear a project's repo connection. `DELETE /v1/projects/{projectId}/repo-connection`
+
+        After this, a block change pinned in the project, or added as its latest version, opens no pull request. For the project's admins (`admin` on it). Clearing a project with none answers 200 unchanged. 501 `repo-connection-unsupported` from a runtime that can't keep one.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.repoConnection.clear"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ProjectRepoConnection,
             timeout=timeout,
         )
 
@@ -18978,12 +19475,13 @@ class AsyncProjectsResource:
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
-        self.judging_rules = AsyncProjectsJudgingRulesResource(client)
-        self.judging_queue = AsyncProjectsJudgingQueueResource(client)
+        self.queue_rules = AsyncProjectsQueueRulesResource(client)
+        self.expert_queue = AsyncProjectsExpertQueueResource(client)
         self.memberships = AsyncProjectsMembershipsResource(client)
         self.access = AsyncProjectsAccessResource(client)
         self.pinned_versions = AsyncProjectsPinnedVersionsResource(client)
         self.production = AsyncProjectsProductionResource(client)
+        self.repo_connection = AsyncProjectsRepoConnectionResource(client)
         self.team_grants = AsyncProjectsTeamGrantsResource(client)
         self.sites = AsyncProjectsSitesResource(client)
 
@@ -19745,7 +20243,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Register a cron schedule. `POST /v1/schedules`
 
-        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. An `improve` schedule is in the project it improves, one per agent and project (a second is `409 schedule-exists`), and needs `publish` on the agent as well as `write` on the project. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return await self._client._request(
             _OPERATIONS["schedules.register"],
@@ -19787,7 +20285,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Update a cron schedule. `PATCH /v1/schedules/{triggerId}`
 
-        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve pass) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.
+        Partial merge on `config`. If `config.cronExpression` changes, `nextFireAt` is recomputed. `label: null` clears the label; omit to leave unchanged. Malformed cron expressions return 400 `trigger-invalid-config`. `toolsAllowedUnattended` replaces the list (`[]` clears it; absent keeps it): naming it takes `admin` on the schedule's project, and every change is audited. A new target (another flow or agent) while the list isn't empty must name it again, as it is or `[]`, else 400; a new version alone keeps it. A schedule is personal or shared, and no change moves its owner: only `POST /v1/schedules/{triggerId}/owner` does. So with an authorization store, a new target (another flow or agent, or an Improve run) must be one the owner can run, a person or a service account, else `409 trigger-owner-cannot-run-target`; that's not checked when the caller is the owner, nor for an owner that was unregistered or removed. A schedule a person owns is personal: only they (holding `write` on its project) or a project admin may change it. A schedule a service account owns is shared: changing its target or version, its input or `toolsAllowedUnattended` takes `admin` on its project, and the project's writers may change its label, cron line and policies. Without an authorization store, a project admin here is a tenant-admin key. A change by anyone but a personal schedule's owner is audited as `trigger-changed-for-owner`, naming the fields changed and the schedule's version after it, never their values.
         """
         return await self._client._request(
             _OPERATIONS["schedules.update"],
@@ -19809,7 +20307,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Pause a cron schedule. `POST /v1/schedules/{triggerId}/pause`
 
-        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner or a project admin pauses it; a shared one, any writer of its project.
+        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner or a project admin pauses it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may pause it without `publish`.
         """
         return await self._client._request(
             _OPERATIONS["schedules.pause"],
@@ -19830,7 +20328,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Resume a cron schedule. `POST /v1/schedules/{triggerId}/resume`
 
-        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner or a project admin resumes it; a shared one, any writer of its project.
+        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner or a project admin resumes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent.
         """
         return await self._client._request(
             _OPERATIONS["schedules.resume"],
@@ -19851,7 +20349,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleUnregisterResult:
         """Soft-delete a cron schedule (tombstone). `POST /v1/schedules/{triggerId}/unregister`
 
-        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project.
+        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
         """
         return await self._client._request(
             _OPERATIONS["schedules.unregister"],
@@ -20942,14 +21440,14 @@ class Resources:
     service_accounts: ServiceAccountsResource
     approvals: ApprovalsResource
     agents: AgentsResource
-    gate_policies: GatePoliciesResource
+    release_gates: ReleaseGatesResource
     flows: FlowsResource
     tools: ToolsResource
     guardrails: GuardrailsResource
     conversations: ConversationsResource
     memory: MemoryResource
-    proposals: ProposalsResource
-    improvement_passes: ImprovementPassesResource
+    suggested_changes: SuggestedChangesResource
+    improve_runs: ImproveRunsResource
     provenance: ProvenanceResource
     license: LicenseResource
     runtime: RuntimeResource
@@ -20958,16 +21456,16 @@ class Resources:
     observations: ObservationsResource
     capabilities: CapabilitiesResource
     providers: ProvidersResource
-    judgments: JudgmentsResource
-    judge_classes: JudgeClassesResource
+    corrections: CorrectionsResource
+    corrector_groups: CorrectorGroupsResource
     mcp: McpResource
     cost: CostResource
     adapters: AdaptersResource
     policies: PoliciesResource
     retention: RetentionResource
-    eval_suites: EvalSuitesResource
+    test_sets: TestSetsResource
     blocks: BlocksResource
-    eval_runs: EvalRunsResource
+    test_runs: TestRunsResource
     auth: AuthResource
     identity: IdentityResource
     deployments: DeploymentsResource
@@ -21003,14 +21501,14 @@ class Resources:
         self.service_accounts = ServiceAccountsResource(client)
         self.approvals = ApprovalsResource(client)
         self.agents = AgentsResource(client)
-        self.gate_policies = GatePoliciesResource(client)
+        self.release_gates = ReleaseGatesResource(client)
         self.flows = FlowsResource(client)
         self.tools = ToolsResource(client)
         self.guardrails = GuardrailsResource(client)
         self.conversations = ConversationsResource(client)
         self.memory = MemoryResource(client)
-        self.proposals = ProposalsResource(client)
-        self.improvement_passes = ImprovementPassesResource(client)
+        self.suggested_changes = SuggestedChangesResource(client)
+        self.improve_runs = ImproveRunsResource(client)
         self.provenance = ProvenanceResource(client)
         self.license = LicenseResource(client)
         self.runtime = RuntimeResource(client)
@@ -21019,16 +21517,16 @@ class Resources:
         self.observations = ObservationsResource(client)
         self.capabilities = CapabilitiesResource(client)
         self.providers = ProvidersResource(client)
-        self.judgments = JudgmentsResource(client)
-        self.judge_classes = JudgeClassesResource(client)
+        self.corrections = CorrectionsResource(client)
+        self.corrector_groups = CorrectorGroupsResource(client)
         self.mcp = McpResource(client)
         self.cost = CostResource(client)
         self.adapters = AdaptersResource(client)
         self.policies = PoliciesResource(client)
         self.retention = RetentionResource(client)
-        self.eval_suites = EvalSuitesResource(client)
+        self.test_sets = TestSetsResource(client)
         self.blocks = BlocksResource(client)
-        self.eval_runs = EvalRunsResource(client)
+        self.test_runs = TestRunsResource(client)
         self.auth = AuthResource(client)
         self.identity = IdentityResource(client)
         self.deployments = DeploymentsResource(client)
@@ -21066,14 +21564,14 @@ class AsyncResources:
     service_accounts: AsyncServiceAccountsResource
     approvals: AsyncApprovalsResource
     agents: AsyncAgentsResource
-    gate_policies: AsyncGatePoliciesResource
+    release_gates: AsyncReleaseGatesResource
     flows: AsyncFlowsResource
     tools: AsyncToolsResource
     guardrails: AsyncGuardrailsResource
     conversations: AsyncConversationsResource
     memory: AsyncMemoryResource
-    proposals: AsyncProposalsResource
-    improvement_passes: AsyncImprovementPassesResource
+    suggested_changes: AsyncSuggestedChangesResource
+    improve_runs: AsyncImproveRunsResource
     provenance: AsyncProvenanceResource
     license: AsyncLicenseResource
     runtime: AsyncRuntimeResource
@@ -21082,16 +21580,16 @@ class AsyncResources:
     observations: AsyncObservationsResource
     capabilities: AsyncCapabilitiesResource
     providers: AsyncProvidersResource
-    judgments: AsyncJudgmentsResource
-    judge_classes: AsyncJudgeClassesResource
+    corrections: AsyncCorrectionsResource
+    corrector_groups: AsyncCorrectorGroupsResource
     mcp: AsyncMcpResource
     cost: AsyncCostResource
     adapters: AsyncAdaptersResource
     policies: AsyncPoliciesResource
     retention: AsyncRetentionResource
-    eval_suites: AsyncEvalSuitesResource
+    test_sets: AsyncTestSetsResource
     blocks: AsyncBlocksResource
-    eval_runs: AsyncEvalRunsResource
+    test_runs: AsyncTestRunsResource
     auth: AsyncAuthResource
     identity: AsyncIdentityResource
     deployments: AsyncDeploymentsResource
@@ -21127,14 +21625,14 @@ class AsyncResources:
         self.service_accounts = AsyncServiceAccountsResource(client)
         self.approvals = AsyncApprovalsResource(client)
         self.agents = AsyncAgentsResource(client)
-        self.gate_policies = AsyncGatePoliciesResource(client)
+        self.release_gates = AsyncReleaseGatesResource(client)
         self.flows = AsyncFlowsResource(client)
         self.tools = AsyncToolsResource(client)
         self.guardrails = AsyncGuardrailsResource(client)
         self.conversations = AsyncConversationsResource(client)
         self.memory = AsyncMemoryResource(client)
-        self.proposals = AsyncProposalsResource(client)
-        self.improvement_passes = AsyncImprovementPassesResource(client)
+        self.suggested_changes = AsyncSuggestedChangesResource(client)
+        self.improve_runs = AsyncImproveRunsResource(client)
         self.provenance = AsyncProvenanceResource(client)
         self.license = AsyncLicenseResource(client)
         self.runtime = AsyncRuntimeResource(client)
@@ -21143,16 +21641,16 @@ class AsyncResources:
         self.observations = AsyncObservationsResource(client)
         self.capabilities = AsyncCapabilitiesResource(client)
         self.providers = AsyncProvidersResource(client)
-        self.judgments = AsyncJudgmentsResource(client)
-        self.judge_classes = AsyncJudgeClassesResource(client)
+        self.corrections = AsyncCorrectionsResource(client)
+        self.corrector_groups = AsyncCorrectorGroupsResource(client)
         self.mcp = AsyncMcpResource(client)
         self.cost = AsyncCostResource(client)
         self.adapters = AsyncAdaptersResource(client)
         self.policies = AsyncPoliciesResource(client)
         self.retention = AsyncRetentionResource(client)
-        self.eval_suites = AsyncEvalSuitesResource(client)
+        self.test_sets = AsyncTestSetsResource(client)
         self.blocks = AsyncBlocksResource(client)
-        self.eval_runs = AsyncEvalRunsResource(client)
+        self.test_runs = AsyncTestRunsResource(client)
         self.auth = AsyncAuthResource(client)
         self.identity = AsyncIdentityResource(client)
         self.deployments = AsyncDeploymentsResource(client)

@@ -55,7 +55,9 @@ import { parseAssignableProjectRole } from './project-roles.js';
  *                                          read on it, as `GET /:projectId`.
  *                                          MUST be mounted BEFORE `/:projectId`.
  *   - `GET    /:projectId`               — get; 200 or 404 `project-not-found`.
- *   - `PATCH  /:projectId`               — partial update; 204, 404
+ *   - `PATCH  /:projectId`               — partial update (`name`, `slug`,
+ *                                          `description`, `orgId`,
+ *                                          `sortEndUserCorrections`); 204, 404
  *                                          `project-not-found` or 409
  *                                          `slug-conflict` (a new slug, or a
  *                                          move to an org that has it).
@@ -740,6 +742,21 @@ export function projectsRouter(
         );
       }
     }
+    if (b.sortEndUserCorrections !== undefined) {
+      if (typeof b.sortEndUserCorrections !== 'boolean') {
+        c.status(statusFor('bad-input') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'bad-input',
+              message: '`sortEndUserCorrections` must be a boolean when present',
+            },
+            requestId,
+          ),
+        );
+      }
+      shaped.sortEndUserCorrections = b.sortEndUserCorrections;
+    }
     const outcome = await binding.update(tenantId, projectId, shaped);
     if (outcome.kind === 'project-not-found') {
       c.status(statusFor('project-not-found') as never);
@@ -858,6 +875,8 @@ function serializeProject(p: Project): Record<string, unknown> {
     ...(p.productionSince !== undefined && {
       productionSince: p.productionSince as unknown as string,
     }),
+    sortEndUserCorrections: p.sortEndUserCorrections === true,
+    ...(p.repoConnectionId !== undefined && { repoConnectionId: p.repoConnectionId }),
     createdAt: p.createdAt as unknown as string,
     updatedAt: p.updatedAt as unknown as string,
   };

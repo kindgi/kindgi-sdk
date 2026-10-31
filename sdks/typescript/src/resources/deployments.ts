@@ -20,6 +20,9 @@
  */
 
 import type {
+  DeployCheckBody,
+  DeployCheckResult,
+  DeployCheckStop,
   DeploymentCollectionPage,
   DeploymentPromotion,
   DeploymentPromotionBody,
@@ -29,9 +32,11 @@ import type {
   DeploymentRegistrationBody,
   DeploymentSecretsSyncRequest,
   DeploymentSecretsSyncResponse,
+  DeploymentSource,
   DeploymentValueList,
   PackEnvNameStatus,
   PackEnvNames,
+  PromotionBlockCheck,
   DeploymentValue as WireDeploymentValue,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
@@ -39,9 +44,11 @@ import type { Transport } from '../transport.js';
 export type Deployment = DeploymentRecord;
 export type DeploymentPage = DeploymentCollectionPage;
 export type RegisterDeploymentInput = DeploymentRegistrationBody;
+export type CheckDeploymentInput = DeployCheckBody;
+export type { DeployCheckResult, DeployCheckStop, PromotionBlockCheck };
 export type SyncSecretsInput = DeploymentSecretsSyncRequest;
 export type SyncSecretsResult = DeploymentSecretsSyncResponse;
-export type { PackEnvNameStatus, PackEnvNames };
+export type { DeploymentSource, PackEnvNameStatus, PackEnvNames };
 export type DeploymentValue = WireDeploymentValue;
 export type DeploymentValues = DeploymentValueList;
 
@@ -79,6 +86,14 @@ export interface DeploymentsClient {
     input: RegisterDeploymentInput,
     options?: { readonly idempotencyKey?: string },
   ): Promise<Deployment>;
+  /**
+   * A deploy's blocks against what runs, writing nothing: what `register`
+   * would answer about them. A stop is `409 deploy-would-put-back-older-blocks`,
+   * each block in `details.blocks` (`DeployCheckStop`).
+   *
+   * @wire POST /v1/deployments/check
+   */
+  check(input: CheckDeploymentInput): Promise<DeployCheckResult>;
   /** @wire GET /v1/deployments */
   list(filter?: ListDeploymentsFilter): Promise<DeploymentPage>;
   /** @wire GET /v1/deployments/:deploymentId */
@@ -108,7 +123,10 @@ export interface DeploymentsClient {
   /**
    * Promote a deployment to the next environment of its order: the target
    * gets a deployment of its own with the same build. A target that has
-   * the build already answers its deployment.
+   * the build already answers its deployment. With `pin`, a newer version
+   * of one of the build's blocks running in the target stops it first
+   * (`KindgiApiError` with `serverCode` `deploy-would-put-back-older-blocks`,
+   * each block in `details.blocks`), unless `replace` names the block.
    *
    * @wire POST /v1/deployments/:deploymentId/promotions
    */
@@ -133,6 +151,13 @@ export function makeDeploymentsClient(transport: Transport): DeploymentsClient {
         path: '/v1/deployments',
         body: input,
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+    async check(input) {
+      return transport.request<DeployCheckResult>({
+        method: 'POST',
+        path: '/v1/deployments/check',
+        body: input,
       });
     },
     async list(filter) {

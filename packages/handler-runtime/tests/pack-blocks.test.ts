@@ -19,7 +19,7 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { runIndexer } from '../src/kindgi-index.js';
-import { readPackBlocks, writePackBlock } from '../src/pack-blocks.js';
+import { blockFileText, readPackBlocks, writePackBlock } from '../src/pack-blocks.js';
 
 const addFormats = ((addFormatsModule as { default?: unknown }).default ??
   addFormatsModule) as unknown as (ajv: Ajv2020) => void;
@@ -619,5 +619,72 @@ describe('writePackBlock', () => {
       content: { template: 'Hi.' },
     });
     expect(out).toMatchObject({ kind: 'err', reason: 'invalid' });
+  });
+});
+
+describe('blockFileText: the same write, without the disk', () => {
+  test("a prompt's file text with the new version and content; other fields, order and layout kept", () => {
+    const text = JSON.stringify({ ...prompt(), owner: 'support' }, null, '\t');
+    const out = blockFileText(text, 'prompt', {
+      id: 'acme.reply-prompt',
+      version: '1.2.1',
+      content: { template: 'Reply to {{ customer_name }}, briefly.', parameters: [] },
+    });
+    expect(out).toEqual({
+      kind: 'ok',
+      text: JSON.stringify(
+        {
+          ...prompt(),
+          version: '1.2.1',
+          content: { template: 'Reply to {{ customer_name }}, briefly.', parameters: [] },
+          owner: 'support',
+        },
+        null,
+        '\t',
+      ),
+      replaced: '1.2.0',
+    });
+  });
+
+  test('a prompt that keeps its template apart: the file keeps templateFile, the template comes back for it', () => {
+    const out = blockFileText(
+      json(prompt({ content: { templateFile: 'reply.liquid' } })),
+      'prompt',
+      {
+        id: 'acme.reply-prompt',
+        version: '1.3.0',
+        content: { template: 'Reply to {{ customer_name }}, warmly.' },
+      },
+    );
+    expect(out).toEqual({
+      kind: 'ok',
+      text: json(prompt({ version: '1.3.0', content: { templateFile: 'reply.liquid' } })),
+      template: { file: 'reply.liquid', text: 'Reply to {{ customer_name }}, warmly.' },
+      replaced: '1.2.0',
+    });
+  });
+
+  test("refused: a version not past the file's, text that isn't the block's file, content that doesn't fit", () => {
+    const text = json(prompt());
+    const write = { id: 'acme.reply-prompt', version: '1.3.0', content: { template: 'Hi.' } };
+    expect(blockFileText(text, 'prompt', { ...write, version: '1.2.0' })).toMatchObject({
+      kind: 'err',
+      reason: 'not-newer',
+    });
+    for (const [other, kind] of [
+      ['not json', 'prompt'],
+      [json(prompt({ id: 'acme.other-prompt' })), 'prompt'],
+      [json(prompt({ version: 'v1' })), 'prompt'],
+      [text, 'settings'],
+    ] as const) {
+      expect(blockFileText(other, kind, write)).toMatchObject({ kind: 'err', reason: 'invalid' });
+    }
+    expect(
+      blockFileText(text, 'prompt', { ...write, content: { template: 'Hi.', values: {} } }),
+    ).toMatchObject({
+      kind: 'err',
+      reason: 'invalid',
+      message: '"content.values" doesn\'t fit a prompt block',
+    });
   });
 });

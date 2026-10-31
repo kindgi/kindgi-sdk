@@ -7,7 +7,7 @@
  * @wire /v1/blocks/*  (packages/api/src/routes/blocks.ts)
  * @generated Wire shapes from `../generated/api.js`.
  *
- * The versioned-registry shape of tools and eval suites: publish a new
+ * The versioned-registry shape of tools and test sets: publish a new
  * version (into a project), list, get the latest, list versions, and
  * unregister or reinstate a version. A version never changes.
  */
@@ -16,6 +16,8 @@ import type {
   Block,
   BlockCollectionPage,
   BlockKind,
+  BlockRunsIn,
+  BlockRunsInList,
   PublishBlockBody,
   PublishBlockResult,
   ReinstateBlockResult,
@@ -25,7 +27,7 @@ import { type ScopeRef, scopeToQuery } from '../scope-wire.js';
 import type { Transport } from '../transport.js';
 import type { GetLatestOptions } from '../types.js';
 
-export type { Block, BlockKind };
+export type { Block, BlockKind, BlockRunsIn, BlockRunsInList };
 export type BlockPage = BlockCollectionPage;
 /**
  * The block fields of `POST /v1/blocks`. The project travels as
@@ -68,6 +70,14 @@ export interface BlocksClient {
   list(filter?: ListBlocksFilter): Promise<BlockPage>;
   /** @wire GET /v1/blocks/:blockId — latest active version (`GetLatestOptions`) */
   get(blockId: string, options?: GetLatestOptions): Promise<Block>;
+  /**
+   * Where the block's versions run now: a row for each project, and each
+   * segment pin inside one, whose running agent version pins the block.
+   * Only the projects the caller reads.
+   *
+   * @wire GET /v1/blocks/:blockId/runs-in
+   */
+  runsIn(blockId: string): Promise<BlockRunsInList>;
   readonly versions: BlockVersionsClient;
 }
 
@@ -119,6 +129,12 @@ export function makeBlocksClient(transport: Transport): BlocksClient {
         method: 'GET',
         path: `/v1/blocks/${seg(blockId)}`,
         query: { ...(options?.projectId !== undefined && { projectId: options.projectId }) },
+      });
+    },
+    async runsIn(blockId) {
+      return transport.request<BlockRunsInList>({
+        method: 'GET',
+        path: `/v1/blocks/${seg(blockId)}/runs-in`,
       });
     },
     versions: {
