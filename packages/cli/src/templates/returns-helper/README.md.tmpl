@@ -79,7 +79,8 @@ the docs' **Self-host Kindgi** page sets one up. Correct a run there as in
 step 1. Then:
 
 5. **Run Improve.** Ask whether it's ready, naming the model that writes
-   new wording (the provider whose key is in `.env`; Anthropic's here):
+   new wording (the provider registered on that runtime; `anthropic` from
+   its preset here):
    `{{KINDGI}} improve runs start --agent={{PACK_ID}}.returns-helper --project=<project-id> --provider=anthropic --model=claude-sonnet-5-5 --check`,
    then run it without `--check`. It tries other wording for the `tone`
    block and the tunable `temperature`, on the test set. Without
