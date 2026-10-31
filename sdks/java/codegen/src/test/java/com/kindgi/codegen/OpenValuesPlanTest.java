@@ -205,6 +205,6 @@ class OpenValuesPlanTest {
         }
       }
     }
-    assertThat(untagged).containsExactly("BlockContent", "TestRunBaseline", "IdentityProviderSignIn", "MemoryErasureSelector");
+    assertThat(untagged).containsExactly("BlockContent", "IdentityProviderSignIn", "MemoryErasureSelector", "TestRunBaseline");
   }
 }
