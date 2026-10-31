@@ -27,6 +27,7 @@
 import type { DeployEnvelope } from '../build/envelope.js';
 import type { PackEnvNameRecord } from '../env/pack-env-hint.js';
 import type { ServedEnv } from '../value-target.js';
+import type { DeploySource } from './source.js';
 
 // ---------------------------------------------------------------------
 // Envelope loader
@@ -67,6 +68,10 @@ export interface PostDeploymentBody {
   readonly publishedAt: string;
   /** The project to deploy into (`--project`); absent: tenant-wide, the Default project. */
   readonly projectId?: string;
+  /** Where the pack lives in git, when it's in a work tree (`source.ts`). */
+  readonly source?: DeploySource;
+  /** `--replace` with `--reason`: the blocks the deploy puts back on purpose. */
+  readonly replace?: readonly { readonly blockId: string; readonly reason: string }[];
 }
 
 /**
@@ -467,4 +472,9 @@ export interface DeployRunners {
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   /** `--hosted`: the clock the wait is measured on, in milliseconds. Default: `Date.now()`. */
   readonly now?: () => number;
+  /**
+   * Where the pack at `packDir` lives in git, sent as the body's `source`
+   * (`readDeploySource`). Absent: the body has none.
+   */
+  readonly readSource?: (packDir: string) => Promise<DeploySource | undefined>;
 }

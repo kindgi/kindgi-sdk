@@ -49,7 +49,7 @@ const guideAreas = [
   ['Connections', 'connections'],
   ['Sign-in', 'sso'],
   ['Cost and provenance', 'observability'],
-  ['Evals', 'evals'],
+  ['Improve', 'improve'],
 ];
 
 // The HTTP API reference: every route and schema, from the API's own spec.

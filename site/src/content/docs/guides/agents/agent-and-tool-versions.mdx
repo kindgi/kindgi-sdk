@@ -103,7 +103,7 @@ To try a new tool version without putting it in use:
    1.1.0.
 3. **Try it** in an agent version whose range is the exact `1.2.0`, and run
    that version by name (`agentVersion`). With the agent's
-   [live version](../../evals/live-versions-reference/) pinned, runs that name
+   [pinned version](../../improve/pinned-versions-reference/) set, runs that name
    no version keep the one they had.
 4. **Move the pin** to 1.2.0. The next agent and flow versions made there lock
    it.
@@ -283,10 +283,12 @@ new version. A range that takes it (`^1.0.0` takes 1.1.0) picks it up in the
 agent's next version, as above. A new image of the same tool keeps its
 version: the deploy points the version at the new image.
 
-**Flows** are pinned the same way. A flow version pins its tool nodes, and
-its agent steps that don't name a version, to their latest at publish (a
-tool's [pinned version](#a-pin-holds-a-tool-at-a-version), where a pin covers
-the flow's project). A tool
+**Flows** are pinned the same way. A flow version pins its tool nodes to
+their latest at publish (a tool's
+[pinned version](#a-pin-holds-a-tool-at-a-version), where a pin covers the
+flow's project), and its agent steps that don't name a version to what a run
+in the flow's project gets then: the pinned version that covers it, else the
+project's [Latest](../../improve/pinned-versions-reference/#latest). A tool
 change reaches a flow through a new agent version and a new flow version, in
 one deploy, with a line for each.
 
@@ -297,7 +299,9 @@ So a change to the agent reaches each of them. `client.agents.projects(agentId)`
 (`GET /v1/agents/{agentId}/projects`) lists them, the agent's first project
 first, naming only the ones you can read. A project stays on the list after
 the versions shipped there are unregistered, because reinstating one would
-run there again.
+run there again. Each project says what a run there that names no version
+gets, and why: the pinned version that covers it, else its
+[Latest](../../improve/pinned-versions-reference/#latest).
 
 **An agent version published without pins,** such as by an older runtime,
 gets a pinned next version at the first deploy:
@@ -308,7 +312,8 @@ agent acme.matcher: registered new version 1.4.1 (1.4.0 was published before pin
 
 An app that runs an exact version keeps running the old, unpinned one until
 you change it: `agentVersion: '1.4.0'`, or `--agent-version=1.4.0` from the
-CLI. An app that runs the latest gets the pinned one.
+CLI. An app that names no version gets the pinned one, since the deploy
+made it Latest.
 
 ### A self-hosted runtime runs what your pack has
 
@@ -336,7 +341,7 @@ After a deploy that gives a tool a new version:
 - **Run the versions the deploy made.** It registered a new version of each
   agent and flow whose pins changed, with a line for each. A run that names
   no version takes the newest, unless a
-  [live version](../../evals/live-versions-reference/) or a
+  [pinned agent version](../../improve/pinned-versions-reference/) or a
   [pinned flow version](../../flows/pin-a-flow-version/) holds it at an older
   one: move it.
 - **Move the tool's pin too.** While a
@@ -482,7 +487,7 @@ unregister is refused:
 Under kindgi dev, the pack is the source of agents: change the agent in the pack's files and kindgi dev reloads it.
 ```
 
-- **No new run gets it:** not by a range, not as the latest, not by its
+- **No new run gets it:** not by a range, not as Latest, not by its
   exact number. A run that names it is refused with `404 agent-not-found`:
 
   ```text
@@ -495,17 +500,18 @@ Under kindgi dev, the pack is the source of agents: change the agent in the pack
   {"error":{"code":"flow-not-found","message":"Flow \"acme.refunds@1.0.0\" is unregistered; reinstate it or run another version.","requestId":"req-…"}}
   ```
 
-  A run that names no version gets the latest live one. A run already going,
+  A run that names no version gets the pinned version that covers it, or the
+  project's Latest among the versions still registered. A run already going,
   one waiting for an approval included, finishes on the version it started.
 
-- **A version live somewhere can't be unregistered.** First roll back, unpin
-  or make another version live everywhere this one is live, as
-  [Release an agent version](../../evals/release-an-agent-version/#roll-back-or-unpin)
-  shows. Until then, it's refused with `409 agent-version-live`, naming
-  where it's live in `details.scopes`:
+- **A version pinned somewhere can't be unregistered.** First unpin it or pin
+  another version everywhere this one is pinned, as
+  [Release an agent version](../../improve/release-an-agent-version/#unpin)
+  shows. Until then, it's refused with `409 agent-version-pinned`, naming
+  where it's pinned in `details.scopes`:
 
   ```text
-  acme.order-desk 1.0.0 is live in a scope: roll back, unpin, or promote another version there first, then unregister it.
+  acme.order-desk 1.0.0 is pinned in a scope: unpin, or pin another version there first, then unregister it.
   ```
 
 - **A pinned flow or tool version can't be unregistered** either (runtime
@@ -533,13 +539,13 @@ Under kindgi dev, the pack is the source of agents: change the agent in the pack
 - **One with every version unregistered is retired:** fetching it answers
   `410`, such as `agent-gone`. Its list leaves it out unless you ask with
   `?includeRetired=true`, or `kindgi agents list --include-retired`, and the
-  same for `flows`, `tools` and `eval-suites`. Then it's listed as its
+  same for `flows`, `tools` and `test-sets`. Then it's listed as its
   highest version, with `unregisteredAt`.
 - **A run waiting on an approval** resumes after its version is
   unregistered.
 
 ## Next
 
-- [Release an agent version](../../evals/release-an-agent-version/)
+- [Release an agent version](../../improve/release-an-agent-version/)
 - [Write an agent](../write-an-agent/)
 - [Choose the model an agent uses](../choose-a-model/)

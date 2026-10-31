@@ -194,7 +194,7 @@ export interface DevPackServiceOptions {
   /** A notice for the user from starting the pack service (the sandbox's). */
   readonly onNotice?: (line: string) => void;
   /**
-   * The pack's blocks (`discovery.blocks`). A version made live in the
+   * The pack's blocks (`discovery.blocks`). A version pinned in the
    * console is written into its file through the front (`POST
    * /v1/blocks`), and `onWritten` says so.
    */
@@ -204,7 +204,7 @@ export interface DevPackServiceOptions {
   };
 }
 
-/** What the front wrote for a block made live: its file, and its template file too. */
+/** What the front wrote for a block pinned in the console: its file, and its template file too. */
 export type PackBlockWritten = Extract<PackBlockWriteOutcome, { readonly kind: 'ok' }>;
 
 /**

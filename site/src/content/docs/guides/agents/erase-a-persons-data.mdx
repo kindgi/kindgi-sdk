@@ -199,7 +199,7 @@ Once it completes, new turns for the person start again.
 ## What it clears
 
 - **Their facts,** every revision, and their vectors. A fact written from an
-  erased one goes to review: a `memory-fact` approval, reason
+  erased one goes to review: a `fact` approval, reason
   `derived-from-erased`.
 - **Their conversations,** with their messages and what recall indexed. The
   conversation then answers `404`.
@@ -211,7 +211,7 @@ Once it completes, new turns for the person start again.
   a flow's record too, though it holds no text to clear.
 - **The reasons in its ratings:** a correction of such a run keeps its
   verdict, who corrected it and when, and loses its reason,
-  [what it says the run should have done](../../evals/judge-a-runs-output/#say-what-it-should-have-done)
+  [what it says the run should have done](../../improve/correct-a-runs-output/#say-what-it-should-have-done)
   and the corrected item's value. An item still waiting for a correction
   closes as `erased`, and a dismissal's reason is cleared.
 - **What else held their words:**
@@ -220,7 +220,7 @@ Once it completes, new turns for the person start again.
   - audit events' text, and monitoring observations;
   - a webhook delivery's error message, and a model call's error message
     (its cost stays);
-  - evals' copies. A test case copied from an erased run reads
+  - test sets' copies. A test case copied from an erased run reads
     `erased: true`, and runs on the test cases leave it out and count it, in
     `summary.erased`. For a case from such a run, or a replay of one, a run
     on the test cases loses what could quote them: the case's `changes`,
@@ -239,9 +239,14 @@ before it starts: `409 legal-hold`, with the held facts in `details.factIds`.
   explains.
 - **Signed exports already made**, such as an approval's audit bundle.
 - **A webhook receiver's copy** of a delivery that was already sent.
-- **An Improve run's drafted instructions and hypotheses.** A draft that
-  quotes eight or more words in a row of a test case is refused, and such
-  quotes are cut from a hypothesis, so they hold a paraphrase at most. The
+- **Kindgi's draft pull requests** already opened in your repository. When a
+  block version is pinned in a project, or added as the latest version, the
+  draft pull request Kindgi opens names who pinned or added it and who
+  approved it. An erasure doesn't edit them.
+- **An Improve run's drafted instructions and the `why` of each change it
+  suggests.** A draft that quotes eight or more words in a row of a test
+  case is refused, and such quotes are cut from a `why`, so they hold a
+  paraphrase at most. The
   reviewer who approves a suggested change is the check.
 
 ## Shared flows

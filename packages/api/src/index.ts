@@ -299,26 +299,26 @@ export type {
   ServiceAccountRef,
 } from './service-account-binding.js';
 export type {
-  JudgingClassResult,
-  JudgingError,
-  JudgingErrorCode,
-  JudgingItemRule,
-  JudgingQueueBinding,
-  JudgingQueueItem,
-  JudgingQueueListInput,
-  JudgingQueuePage,
-  JudgingQueueState,
-  JudgingRecentQueued,
-  JudgingRule,
-  JudgingRulePage,
-  JudgingRulePatch,
-  JudgingResultGroup,
-  JudgingRulePreview,
-  JudgingRuleResults,
-  JudgingRuleSpec,
-  JudgingRuleWhen,
-  JudgingRunStatus,
-} from './judging-queue-binding.js';
+  QueueRuleGroupResult,
+  ExpertQueueError,
+  ExpertQueueErrorCode,
+  ExpertQueueItemRule,
+  ExpertQueueBinding,
+  ExpertQueueItem,
+  ExpertQueueListInput,
+  ExpertQueuePage,
+  ExpertQueueState,
+  ExpertQueueRecentQueued,
+  QueueRule,
+  QueueRulePage,
+  QueueRulePatch,
+  QueueRuleResultGroup,
+  QueueRulePreview,
+  QueueRuleResults,
+  QueueRuleSpec,
+  QueueRuleWhen,
+  ExpertQueueRunStatus,
+} from './expert-queue-binding.js';
 export type {
   PersonGrant,
   PersonGrantChange,
@@ -458,7 +458,7 @@ export {
 export type {
   FinishedRun,
   ApprovalRequestedEvent,
-  ImprovementPassFinishedEvent,
+  ImproveRunFinishedEvent,
   RequestedApproval,
   RunFinishedEvent,
   WebhookDelivery,
@@ -523,6 +523,10 @@ export type {
   AgentGetVersionInput,
   AgentListInput,
   AgentListVersionsInput,
+  AgentMadeFor,
+  AgentMarkLatestInput,
+  AgentMarkLatestOutcome,
+  AgentOwner,
   AgentPage,
   AgentPublishInput,
   AgentPublishOutcome,
@@ -530,9 +534,59 @@ export type {
   AgentVersionRecord,
   AgentReinstateVersionInput,
   AgentReinstateVersionOutcome,
+  AgentSetOwnerInput,
+  AgentSetOwnerOutcome,
   AgentUnregisterInput,
   AgentUnregisterOutcome,
 } from './agent-binding.js';
+export type {
+  LatestAnswer,
+  LatestBinding,
+  LatestInProject,
+  LatestQuestion,
+} from './latest-binding.js';
+export {
+  type WhatRuns,
+  type WhatRunsInProject,
+  whatRuns,
+  whatRunsByProject,
+} from './what-runs.js';
+// A test run a pin, an unpin or Latest moving started, and what its end does to the project's corrections.
+export {
+  type TestRunOutcome,
+  type TestRunOutcomeDeps,
+  type TestRunReason,
+  applyTestRunOutcome,
+  latestRunCorrelation,
+  pinRunCorrelation,
+  reapplyTestRunOutcomes,
+  testRunReason,
+} from './test-run-outcome.js';
+// The test runs a pin change or Latest moving starts, and what an approval that pins a waiting change applies.
+export {
+  type PinTestRun,
+  type PinTestRunDeps,
+  type PinTestRuns,
+  latestMoved,
+  pinTookEffect,
+} from './pin-test-runs.js';
+export {
+  CHECK_LIST_MAX,
+  type DeployCheck,
+  type DeployCheckActor,
+  type DeployCheckBody,
+  type DeployCheckDeps,
+  type DeployCheckInput,
+  type DeployCheckStop,
+  REPLACE_REASON_MAX,
+  type ReplaceBlock,
+  type ReplacedBlock,
+  type RunsNewer,
+  checkAgainstRuns,
+  parseCheckBody,
+  parseReplace,
+} from './deploy-check.js';
+export type { DeployCheckBindings } from './routes/deploy-check-deps.js';
 export type { RegistryReadOnly } from './registry-read-only.js';
 // A pack agent's block pins where the pack's own versions are the only ones (`kindgi dev`).
 export { type BlockPins, type BlockVersionReads, resolveBlockPins } from './block-pins.js';
@@ -668,63 +722,119 @@ export type {
   PolicyVersionRow,
 } from '@kindgi/policy-contract';
 export {
-  JUDGE_CLASS_SCOPE_KINDS,
+  CORRECTION_FIXED_HOW,
+  CORRECTION_REOPENED_HOW,
+  CORRECTION_SORTED_TO,
+  CORRECTION_STATUSES,
+  CORRECTOR_GROUP_SCOPE_KINDS,
+  NOT_FIXED_STATUSES,
+  RUN_COPIES_MAX,
   VERDICTS,
   isReplayCopy,
-  judgeClassApplies,
+  correctorGroupApplies,
   whyNotAssertable,
-} from './judgment-binding.js';
+} from './correction-binding.js';
+export {
+  STATUSES_SET_BY_HAND,
+  parseCorrectionLink,
+  planChange,
+  planRunOutcome,
+  sortAtSave,
+} from './correction-sorting.js';
 export type {
-  EvalCaseListInput,
-  EvalCasePage,
-  EvalCasePutInput,
-  EvalCaseStoreBinding,
-  JudgedCaseCorrection,
-  JudgedEvalCase,
-  JudgedItemSummary,
-  JudgedReason,
-} from './eval-case-binding.js';
-export { MAX_JUDGED_CASES, buildJudgedSuite } from './routes/judged-suites.js';
+  CorrectionChange,
+  PlannedChange,
+  PlannedChangeOutcome,
+  RunOutcomeInput,
+  RunOutcomePlan,
+  SortedAtSave,
+  StatusSetByHand,
+} from './correction-sorting.js';
 export type {
-  BuildJudgedSuiteInput,
-  BuildJudgedSuiteOutcome,
-  JudgedSuiteQuery,
-} from './routes/judged-suites.js';
+  FrozenCaseListInput,
+  FrozenCasePage,
+  FrozenCasePutInput,
+  FrozenCaseStoreBinding,
+  TestCaseExpectedDecisions,
+  CorrectedTestCase,
+  CorrectedItemSummary,
+  CorrectedReason,
+} from './frozen-case-binding.js';
 export { segmentsStartWith } from './routes/segments.js';
-export { MAX_JUDGED_HISTORY } from './routes/judgment-context.js';
+export { MAX_CORRECTED_HISTORY } from './routes/correction-context.js';
 export type {
-  JudgeClass,
-  JudgeClassAssertableBy,
-  JudgeClassAsserter,
-  JudgeClassCreateInput,
-  JudgeClassCreateOutcome,
-  JudgeClassGetInput,
-  JudgeClassListInput,
-  JudgeClassPage,
-  JudgeClassScope,
-  JudgeClassScopeKind,
-  JudgeClassUpdateInput,
-  JudgedItem,
-  JudgedFlowContext,
-  JudgedFlowStep,
-  JudgedRunContext,
-  JudgedToolCall,
-  JudgedRunCopy,
-  JudgedRunListInput,
-  JudgedRunPage,
-  JudgedRunWithJudgments,
-  JudgedSubject,
-  Judgment,
-  JudgmentAssertedBy,
-  JudgmentGetInput,
-  JudgmentListInput,
-  JudgmentPage,
-  JudgmentRecordInput,
-  JudgmentRegistryBinding,
-  JudgmentWithCopies,
+  CorrectorGroup,
+  CorrectorGroupAssertableBy,
+  CorrectorGroupAsserter,
+  CorrectorGroupCreateInput,
+  CorrectorGroupCreateOutcome,
+  CorrectorGroupGetInput,
+  CorrectorGroupListInput,
+  CorrectorGroupPage,
+  CorrectorGroupScope,
+  CorrectorGroupScopeKind,
+  CorrectorGroupUpdateInput,
+  CorrectedItem,
+  CorrectedFlowContext,
+  CorrectedFlowStep,
+  CorrectedRunContext,
+  CorrectedToolCall,
+  CorrectedRunCopy,
+  CorrectedSubject,
+  CorrectedAnswerItem,
+  Correction,
+  CorrectionMadeBy,
+  CorrectionOutcomeChange,
+  CorrectionCounts,
+  CorrectionCountsInput,
+  CorrectionFixedHow,
+  CorrectionFixedIn,
+  CorrectionGetInput,
+  CorrectionLink,
+  CorrectionListInput,
+  CorrectionPage,
+  CorrectionRecordInput,
+  CorrectionRunOutcomeInput,
+  CorrectionRegistryBinding,
+  CorrectionReopenedHow,
+  CorrectionReopenedIn,
+  CorrectionSorted,
+  CorrectionSortedBy,
+  CorrectionSortedTo,
+  CorrectionStanding,
+  CorrectionStatus,
+  CorrectionStatusNote,
+  CorrectionUpdateInput,
+  CorrectionUpdateOutcome,
+  CorrectionWithCopies,
+  CorrectionsByIdsInput,
+  RunCopiesInput,
   Verdict,
-} from './judgment-binding.js';
-export { resolvePointer } from './routes/judgments.js';
+} from './correction-binding.js';
+export { TEST_CASE_KINDS, expectOf, isTestCase } from './test-case-binding.js';
+export type {
+  TestCase,
+  TestCaseAddInput,
+  TestCaseAnswer,
+  TestCaseDecisions,
+  TestCaseExpect,
+  TestCaseGetInput,
+  TestCaseKind,
+  TestCaseListInput,
+  TestCasePage,
+  TestCaseRetireInput,
+  TestCaseRetireOutcome,
+  TestCaseRetired,
+  TestSetCounts,
+  TestSetOfInput,
+} from './test-case-binding.js';
+export type {
+  AnswerCheck,
+  AnswerCheckBinding,
+  AnswerCheckInput,
+  TestRunJudging,
+} from './answer-check-binding.js';
+export { resolvePointer } from './routes/corrections.js';
 export type {
   BlockGetInput,
   BlockGetVersionInput,
@@ -736,31 +846,38 @@ export type {
   BlockRecord,
   BlockRegistryBinding,
   BlockReinstateOutcome,
+  BlockUse,
+  BlockUseBinding,
+  BlockUseInput,
   BlockVersionInput,
+  BlockVersionSource,
 } from './block-binding.js';
 export type {
-  AgentReleaseBindings,
+  BlockVersionPullRequest,
+  BlockVersionPullRequestBinding,
+  BlockVersionPullRequestInput,
+} from './block-version-pr-binding.js';
+export type {
+  AgentPinBindings,
+  AgentPinInput,
+  AgentPinResolution,
+  AgentPinResolveInput,
+  AgentPinnedVersion,
+  AgentPinnedVersionBinding,
+  AgentUnpinInput,
   ListCoveringPinsInput,
-  ListPromotionsInput,
-  LivePin,
-  LiveResolution,
-  LiveResolveInput,
-  LiveVersionBinding,
-  PromoteInput,
-  Promotion,
-  PromotionAction,
-  PromotionActor,
-  PromotionBinding,
-  PromotionError,
-  PromotionErrorCode,
-  PromotionRequestInput,
-  PromotionStatus,
-  RollbackInput,
-  UnpinInput,
-} from './live-version-binding.js';
+  ListPinHistoryInput,
+  Pin,
+  PinAction,
+  PinActor,
+  PinBinding,
+  PinError,
+  PinErrorCode,
+  PinRequestInput,
+  PinStatus,
+} from './agent-pin-binding.js';
 export type {
   ListPinnedVersionChangesInput,
-  PinActor,
   PinVersionInput,
   PinVersionOutcome,
   PinnedResolution,
@@ -776,64 +893,74 @@ export type {
 export type {
   GateMetricName,
   GateMetricSpec,
-  GatePolicy,
-  GatePolicyBinding,
-  GatePolicyError,
-  GatePolicyErrorCode,
-  GatePolicyListInput,
-  GatePolicyPublishInput,
-  GatePolicyRef,
-  GatePolicySpec,
-  GatePolicyVersionInput,
-} from './gate-policy-binding.js';
-export { GATE_METRICS } from './gate-policy-binding.js';
+  ReleaseGate,
+  ReleaseGateBinding,
+  ReleaseGateError,
+  ReleaseGateErrorCode,
+  ReleaseGateListInput,
+  ReleaseGatePublishInput,
+  ReleaseGateRef,
+  ReleaseGateSpec,
+  ReleaseGateVersionInput,
+} from './release-gate-binding.js';
+export { GATE_METRICS } from './release-gate-binding.js';
 export type { GateApproval, GateCheck, GateInput, GateResult } from './gate.js';
 export { evaluateGate, gateApproval } from './gate.js';
-export type { AgentReleaseGateDeps } from './routes/agent-releases.js';
-export { coordinatesOf as liveScopeCoordinates } from './routes/agent-releases.js';
+export type { AgentPinGateDeps } from './routes/agent-pins.js';
+export { coordinatesOf as agentPinScopeCoordinates } from './routes/agent-pins.js';
 export type { GuardrailConfigCheck } from './routes/guardrails.js';
-export { EVAL_KINDS } from './eval-suite-binding.js';
+export {
+  AGENT_TEST_SET_ID_PREFIX,
+  agentTestSetId,
+  isAgentTestSetId,
+  TEST_SET_KINDS,
+} from './test-set-binding.js';
+export { createTestSetFreeze } from './test-set-freeze.js';
+export type { CreateTestSetFreezeOptions } from './test-set-freeze.js';
 export type {
-  EvalKind,
-  EvalSuite,
-  EvalSuiteGetInput,
-  EvalSuiteGetVersionInput,
-  EvalSuiteListInput,
-  EvalSuiteListVersionsInput,
-  EvalSuitePage,
-  EvalSuitePublishInput,
-  EvalSuitePublishOutcome,
-  EvalSuiteRecord,
-  EvalSuiteRegistryBinding,
-  EvalSuiteReinstateVersionInput,
-  EvalSuiteReinstateVersionOutcome,
-  EvalSuiteUnregisterInput,
-  EvalSuiteUnregisterOutcome,
-} from './eval-suite-binding.js';
-export { EVAL_RUN_STATUSES } from './eval-run-binding.js';
+  TestSetKind,
+  TestSet,
+  TestSetGetInput,
+  TestSetGetVersionInput,
+  TestSetListInput,
+  TestSetListVersionsInput,
+  TestSetPage,
+  TestSetPublishInput,
+  TestSetPublishOutcome,
+  TestSetRecord,
+  TestSetRegistryBinding,
+  TestSetReinstateVersionInput,
+  TestSetReinstateVersionOutcome,
+  TestSetUnregisterInput,
+  TestSetUnregisterOutcome,
+  TestSetFreezeBinding,
+  FreezeTestSetInput,
+  FrozenTestSet,
+} from './test-set-binding.js';
+export { TEST_RUN_STATUSES } from './test-run-binding.js';
 export type {
   AgentRef,
-  EvalBaseline,
-  EvalClassWeights,
-  EvalComparison,
-  EvalReads,
-  EvalRun,
-  EvalRunBinding,
-  EvalRunCancelInput,
-  EvalRunCancelOutcome,
-  EvalRunFilter,
-  EvalRunGetInput,
-  EvalRunListInput,
-  EvalRunPage,
-  EvalRunStartInput,
-  EvalRunStartOutcome,
-  EvalRunStatus,
+  TestRunBaseline,
+  TestRunGroupWeights,
+  TestRunComparison,
+  TestRunReads,
+  TestRun,
+  TestRunBinding,
+  TestRunCancelInput,
+  TestRunCancelOutcome,
+  TestRunFilter,
+  TestRunGetInput,
+  TestRunListInput,
+  TestRunPage,
+  TestRunStartInput,
+  TestRunStartOutcome,
+  TestRunStatus,
   FlowRef,
-} from './eval-run-binding.js';
+} from './test-run-binding.js';
 export {
   createAccuracyDispatcher,
-  createInProcessEvalRunBinding,
-} from './eval-run-dispatcher.js';
+  createInProcessTestRunBinding,
+} from './test-run-dispatcher.js';
 export type {
   AccuracyDispatcherOptions,
   DispatchContext,
@@ -842,48 +969,49 @@ export type {
   EvalGrader,
   EvalGraderInput,
   EvalGraderOutcome,
-  EvalRunDispatcher,
-  EvalRunSubjectInvokeInput,
-  EvalRunSubjectInvokeOutcome,
-  EvalSubjectInvoker,
-  InProcessEvalRunBindingOptions,
-} from './eval-run-dispatcher.js';
+  TestRunDispatcher,
+  TestRunSubjectInvokeInput,
+  TestRunSubjectInvokeOutcome,
+  TestRunSubjectInvoker,
+  InProcessTestRunBindingOptions,
+} from './test-run-dispatcher.js';
 export {
   DEFAULT_COMPARISON,
   RESCORE_UNSUPPORTED,
-  createJudgedDispatcher,
-} from './judged-dispatcher.js';
+  createCorrectedDispatcher,
+} from './corrected-dispatcher.js';
 export type {
   ComparisonBaselineSummary,
   ComparisonMetric,
-  JudgedCaseResult,
-  JudgedComparisonSummary,
-  JudgedDispatcherOptions,
+  CorrectedCaseResult,
+  CorrectedComparisonSummary,
+  CorrectedDispatcherOptions,
+  CorrectionGraded,
   ReplayRunReader,
-} from './judged-dispatcher.js';
+} from './corrected-dispatcher.js';
 export {
   itemChanges,
-  matchJudged,
+  matchCorrected,
   outputItems,
   scoreItems,
   valueAt,
   withFresh,
-} from './judged-items.js';
+} from './corrected-items.js';
 export type {
   ItemChanges,
-  ItemJudgments,
+  ItemCorrections,
   MatchedItem,
   OutputItem,
   OutputScore,
-} from './judged-items.js';
-export { describeCallDifference, gradeCorrection } from './corrections.js';
+} from './corrected-items.js';
+export { describeCallDifference, gradeExpectedDecisions } from './expected-decisions.js';
 export type {
   CallDifference,
   CandidateCall,
-  Correction,
-  CorrectionResult,
   ExpectedCall,
-} from './corrections.js';
+  ExpectedDecisions,
+  ExpectedDecisionsResult,
+} from './expected-decisions.js';
 export {
   COST_AGGREGATE_DEFAULT_LIMIT,
   COST_AGGREGATE_MAX_LIMIT,
@@ -1003,86 +1131,93 @@ export type {
   ReplayMemoryErasuresResult,
 } from './memory-erasure-binding.js';
 export type {
-  CreateProposalInput,
-  CreateProposalOutcome,
-  GetProposalInput,
-  ListProposalsInput,
+  CodeChange,
+  CreateSuggestedChangeInput,
+  CreateSuggestedChangeOutcome,
+  GetSuggestedChangeInput,
+  ListSuggestedChangesInput,
   Observation,
   ObservationPosition,
   ObservationStatus,
   ObservedViolation,
-  ProposalCandidate,
-  ProposalDrafter,
-  ProposalEvaluationRef,
-  ProposalEvidence,
-  ProposalObjective,
-  ProposalRule,
-  ProposalStep,
-  ProposalTier,
+  SuggestedChangeCandidate,
+  SuggestedChangeDrafter,
+  SuggestedChangeEvaluationRef,
+  SuggestedChangeEvidence,
+  SuggestedChangeMaker,
+  SuggestedChangeObjective,
+  SuggestedChangeRule,
+  SuggestedChangeStep,
+  SuggestedChangeTier,
   ProposedChange,
-  RecordProposalInput,
-  RecordProposalOutcome,
-  StoredProposal,
-  StoredProposalPage,
+  RecordSuggestedChangeInput,
+  RecordSuggestedChangeOutcome,
+  StoredChange,
+  StoredSuggestedChange,
+  StoredSuggestedChangePage,
+  StoredSuggestedChangeTier,
   SupervisorBinding,
   SupervisorObservationPage,
   SupervisorQueryObservationsInput,
   SupervisorQueryObservationsOutcome,
 } from './supervisor-binding.js';
 export type {
-  EstimateImprovementPassInput,
+  CheckImproveRunInput,
   ImproveScheduleInput,
-  ImproveThreshold,
   ImprovementBudget,
   ImprovementModel,
-  ImprovementPass,
-  ImprovementPassBinding,
-  ImprovementPassComparison,
-  ImprovementPassEstimateBasis,
-  ImprovementPassOutcome,
-  ImprovementPassStatus,
+  ImproveRun,
+  ImproveRunBinding,
+  ImproveRunCheck,
+  ImproveRunComparison,
+  ImproveRunCheckBasis,
+  ImproveRunOutcome,
+  ImproveRunStart,
+  ImproveRunStatus,
   ImprovementTier,
-  ListImprovementPassesInput,
-  StartImprovementPassInput,
-} from './improvement-pass-binding.js';
-export { IMPROVE_SCHEDULE_DEFAULTS } from './improvement-pass-binding.js';
+  ListImproveRunsInput,
+  StartImproveRunInput,
+} from './improve-run-binding.js';
+export { IMPROVE_SCHEDULE_DEFAULTS } from './improve-run-binding.js';
 export {
   DEFAULT_BUDGET as DEFAULT_IMPROVEMENT_BUDGET,
   parseImproveScheduleInput,
   projectHasExpertClass,
-  serializePass,
-} from './routes/improvement-passes.js';
-export { sampleCases } from './eval-sample.js';
-export type { EvalOverrides, EvalSample } from './eval-run-binding.js';
+  serializeImproveRun,
+} from './routes/improve-runs.js';
+export { sampleCases } from './test-run-sample.js';
+export type { TestRunOverrides, TestRunSample } from './test-run-binding.js';
 export {
-  DRAFTED_PROPOSAL_APPROVAL,
-  createProposalService,
-  proposalNotFound,
-} from './proposal-service.js';
+  DRAFTED_SUGGESTED_CHANGE_APPROVAL,
+  createSuggestedChangeService,
+  suggestedChangeNotFound,
+} from './suggested-change-service.js';
 export type {
-  DraftProposalInput,
-  EvaluateProposalInput,
-  RescoreProposalInput,
-  ProposalFacts,
-  ProposalOutcome,
-  ProposalService,
-  ProposalServiceDeps,
-  ProposalServiceError,
-} from './proposal-service.js';
+  DeployCardsInput,
+  DeployCardsOutcome,
+  DraftSuggestedChangeInput,
+  EvaluateSuggestedChangeInput,
+  RescoreSuggestedChangeInput,
+  SuggestedChangeFacts,
+  SuggestedChangeOutcome,
+  SuggestedChangeService,
+  SuggestedChangeServiceDeps,
+  SuggestedChangeServiceError,
+} from './suggested-change-service.js';
 export {
-  FIX_PROPOSAL_STATUSES,
-  PROPOSAL_ACTIONS,
+  SUGGESTED_CHANGE_STATUSES,
+  SUGGESTED_CHANGE_ACTIONS,
   evaluationOutcome,
-  proposalActionAllowed,
-  proposalStatus,
-} from './proposal-status.js';
+  suggestedChangeActionAllowed,
+  suggestedChangeStatus,
+} from './suggested-change-status.js';
 export type {
-  FixProposalStatus,
-  ProposalAction,
-  ProposalDecisions,
-  ProposalEvaluationOutcome,
-  ProposalNotKept,
-} from './proposal-status.js';
+  SuggestedChangeStatus,
+  SuggestedChangeAction,
+  SuggestedChangeDecisions,
+  SuggestedChangeEvaluationOutcome,
+  SuggestedChangeNotKept,
+} from './suggested-change-status.js';
 export {
   PACK_SERVICE_NAME_PREFIX,
   hostNamesPackService,
@@ -1118,6 +1253,8 @@ export type {
   DeploymentPromoteOutcome,
   DeploymentRegisterInput,
   DeploymentRegisterOutcome,
+  DeploymentReplacedBlock,
+  DeploymentSource,
   PromotedToolSecretScopes,
   SystemDeploymentRetireReason,
 } from './deployment-binding.js';

@@ -26,6 +26,7 @@ import {
   syncSecretsReal,
 } from './post.js';
 import type { DeployRunners } from './runners.js';
+import { readDeploySource } from './source.js';
 
 /**
  * Production `DeployRunners`. `runBuild` is intentionally OMITTED here
@@ -55,6 +56,8 @@ export const REAL_DEPLOY_RUNNERS: DeployRunners = {
   getDeployment: getDeploymentReal,
   getPackEnv: getPackEnvReal,
   countKeptBuilds: countKeptBuildsReal,
+  // Where the pack lives in git: the body's `source`, inside a work tree.
+  readSource: readDeploySource,
   // runBuild deliberately omitted — the command composes it from
   // `ctx.buildRunners` + the exported `runBuild` from
   // `commands/build.ts`.

@@ -96,8 +96,8 @@ They're the prompt block `{{PACK_ID}}.store-agent-prompt`: its file is
 `blocks/store-agent-prompt.liquid`. The agent names it by range:
 `instructions: { prompt: '{{PACK_ID}}.store-agent-prompt', version: '^{{PACK_VERSION}}' }`.
 `{{KINDGI}} dev` reads it from these files, and `{{KINDGI}} deploy`
-publishes it before the agent. Since they're a block, an improvement pass
-can draft new instructions: `{{KINDGI}} proposals improve --tier=prompt`,
+publishes it before the agent. Since they're a block, an Improve run
+can draft new instructions: `{{KINDGI}} improve runs start --tier=prompt`,
 with a test set of the agent's cases and a model of yours to draft with
 (`--provider` and `--model`).
 

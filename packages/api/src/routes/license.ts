@@ -87,7 +87,7 @@ export interface LicenseUsage {
   readonly until: string;
   /** The runtime's version. */
   readonly runtimeVersion: string;
-  /** Runs started in the period: not dry runs, replays, evals or child runs. */
+  /** Runs started in the period: not dry runs, replays, test runs or child runs. */
   readonly runs: number;
   /**
    * Distinct people who started runs or decided approvals in the period,

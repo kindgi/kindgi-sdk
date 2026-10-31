@@ -303,6 +303,19 @@ describe('the remember tool in a turn', () => {
     });
   });
 
+  test('a text of only spaces is not remembered, and nothing is written', async () => {
+    const turn = await rememberTurn({
+      policy: { types: ['preference'], scope: 'same-user' },
+      args: { type: 'preference', content: '   ' },
+      participantId: 'end-7',
+    });
+    expect(turn.writes).toEqual([]);
+    expect(outputOf(turn)).toEqual({
+      status: 'not-remembered',
+      reason: 'Not remembered: the text must not be empty.',
+    });
+  });
+
   test("the write is in the turn's provenance: create_memory, by the agent version, produced by the call", async () => {
     const turn = await rememberTurn({
       policy: { types: ['preference'], scope: 'same-user' },

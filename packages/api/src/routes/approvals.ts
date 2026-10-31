@@ -13,6 +13,7 @@ import type { ConversationBinding, GateDecisionValue } from '@kindgi/agents';
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import { REVIEWER_ROLE_RANK, type ResourceRef, type ReviewerRole, ref } from '@kindgi/authz';
 import type { ExportSigningBinding } from '@kindgi/crypto';
+import { FACT_APPROVAL_SUBJECT, rememberedTextProblem } from '@kindgi/memory';
 import type { RunBinding } from '@kindgi/runtime';
 import type {
   ApprovalId,
@@ -662,20 +663,12 @@ export function approvalsRouter(
       );
     }
 
-    // An agent's tool-call and session gates resume on the decision alone
-    // (`readGateDecision` fails closed on anything else), so a `value`
-    // can't stand in for it: refused before anything is recorded.
-    if (parsed.value.value !== undefined && AGENT_GATE_SUBJECTS.has(approval.subjectKind)) {
+    // What the body carries must fit the approval's kind: refused before
+    // anything is recorded.
+    const refusal = bodyRefusal(parsed.value, approval.subjectKind);
+    if (refusal !== undefined) {
       c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'bad-input',
-            message: `An approval of an agent's ${approval.subjectKind === TOOL_CALL_GATE_SUBJECT ? 'tool call' : 'session'} takes a decision (approve or reject) and an optional rationale, not a \`value\`: the turn resumes on the decision alone.`,
-          },
-          requestId,
-        ),
-      );
+      return c.json(toWireError({ code: 'bad-input', message: refusal }, requestId));
     }
 
     const reviewerId = await reviewerBinding.resolveReviewer({
@@ -701,6 +694,7 @@ export function approvalsRouter(
       decision: parsed.value.decision,
       ...(parsed.value.rationale !== undefined && { rationale: parsed.value.rationale }),
       ...(sessionProvider !== undefined && { sessionProvider }),
+      ...(parsed.value.factText !== undefined && { factText: parsed.value.factText }),
     });
     if (submitted.kind === 'err') {
       c.status(statusFor(submitted.error.code) as never);
@@ -1004,6 +998,7 @@ function serializeApprovalDecision(d: ReviewDecisionRecord): Record<string, unkn
     ...(d.rationale !== undefined && { rationale: d.rationale }),
     ...(d.sessionProvider !== undefined && { sessionProvider: d.sessionProvider }),
     ...(d.deciderName !== undefined && { deciderName: d.deciderName }),
+    ...(d.factText !== undefined && { factText: d.factText }),
   };
 }
 
@@ -1015,6 +1010,7 @@ function serializeDecision(d: {
   readonly rationale?: string;
   readonly reviewerRoleAtDecision: string;
   readonly decidedAt: string;
+  readonly factText?: string;
 }): Record<string, unknown> {
   return {
     id: d.id,
@@ -1024,13 +1020,32 @@ function serializeDecision(d: {
     ...(d.rationale !== undefined && { rationale: d.rationale }),
     reviewerRoleAtDecision: d.reviewerRoleAtDecision,
     decidedAt: d.decidedAt,
+    ...(d.factText !== undefined && { factText: d.factText }),
   };
+}
+
+/**
+ * Why a decision's body doesn't fit its approval's kind, if it doesn't. An
+ * agent's tool-call and session gates resume on the decision alone
+ * (`readGateDecision` fails closed on anything else), so a `value` can't
+ * stand in for it. Only a fact an agent wants to remember takes an edit of
+ * its text.
+ */
+function bodyRefusal(body: ParsedComplete, subjectKind: string): string | undefined {
+  if (body.value !== undefined && AGENT_GATE_SUBJECTS.has(subjectKind)) {
+    return `An approval of an agent's ${subjectKind === TOOL_CALL_GATE_SUBJECT ? 'tool call' : 'session'} takes a decision (approve or reject) and an optional rationale, not a \`value\`: the turn resumes on the decision alone.`;
+  }
+  if (body.factText !== undefined && subjectKind !== FACT_APPROVAL_SUBJECT) {
+    return `Only the approval of a fact an agent wants to remember (\`subjectKind: ${FACT_APPROVAL_SUBJECT}\`) takes \`factText\`; this one is \`${subjectKind}\`.`;
+  }
+  return undefined;
 }
 
 type ParsedComplete = {
   readonly decision: ReviewDecisionKind;
   readonly rationale?: string;
   readonly value?: unknown;
+  readonly factText?: string;
 };
 
 function parseCompleteBody(
@@ -1062,10 +1077,28 @@ function parseCompleteBody(
       error: { code: 'bad-input', message: '`rationale` must be a string when supplied' },
     };
   }
+  const factText = b.factText;
+  if (factText !== undefined) {
+    const problem = rememberedTextProblem(factText);
+    if (problem !== undefined) {
+      return { kind: 'err', error: { code: 'bad-input', message: `\`factText\` ${problem}` } };
+    }
+    if (decision !== 'approve') {
+      return {
+        kind: 'err',
+        error: {
+          code: 'bad-input',
+          message:
+            "`factText` goes only with `decision: approve`: it's the text the approved fact holds.",
+        },
+      };
+    }
+  }
   const out: ParsedComplete = {
     decision: decision as ReviewDecisionKind,
     ...(rationale !== undefined && { rationale }),
     ...('value' in b && { value: b.value }),
+    ...(typeof factText === 'string' && { factText }),
   };
   return { kind: 'ok', value: out };
 }
