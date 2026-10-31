@@ -12,6 +12,7 @@ import {
   DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
   type DeploymentBinding,
   type DeploymentEndpoint,
+  type DeploymentEndpointProblem,
   type DeploymentEndpointProblemCode,
   type SystemDeploymentRetireReason,
   endpointToWire,
@@ -74,6 +75,19 @@ export interface SystemDeploymentToServe extends SystemDeploymentEntry {
    * zero. Absent from a binding that doesn't say: not warm.
    */
   readonly warm?: boolean;
+}
+
+/**
+ * A deployment that needs a pack service: whether to start it `warm`, and
+ * why it has none yet, if a problem was recorded.
+ */
+export interface SystemDeploymentMissing extends SystemDeploymentToServe {
+  /**
+   * The last problem recorded for it (`PUT …/endpoint/problem`), with when
+   * that code was first recorded, so the orchestrator can space its tries.
+   * Absent when none is.
+   */
+  readonly problem?: DeploymentEndpointProblem;
 }
 
 export interface SystemDeploymentToRetire extends SystemDeploymentEntry {
@@ -180,7 +194,7 @@ export interface SystemDeploymentsBinding {
   listNeedingEndpoint(input: {
     readonly cursor?: string;
     readonly limit: number;
-  }): Promise<SystemDeploymentPage<SystemDeploymentToServe>>;
+  }): Promise<SystemDeploymentPage<SystemDeploymentMissing>>;
   /**
    * Across tenants, oldest `activatedAt` first: deployments whose endpoint
    * is `ready` and whose pack service stays (no `listToRetire` reason
@@ -736,17 +750,25 @@ function listDeployments(
   binding: SystemDeploymentsBinding,
   want: 'missing' | 'ready' | 'retire',
   page: { readonly cursor?: string; readonly limit: number },
-): Promise<SystemDeploymentPage<SystemDeploymentToServe | SystemDeploymentToRetire>> {
+): Promise<
+  SystemDeploymentPage<SystemDeploymentMissing | SystemDeploymentToServe | SystemDeploymentToRetire>
+> {
   if (want === 'missing') return binding.listNeedingEndpoint(page);
   if (want === 'ready') return binding.listReady(page);
   return binding.listToRetire(page);
 }
 
-/** A listed entry: `warm` from the `missing` and `ready` lists, when given; `reason` from `retire`. */
-function listedToWire(entry: SystemDeploymentToServe | SystemDeploymentToRetire) {
+/**
+ * A listed entry: `warm` from the `missing` and `ready` lists, when given;
+ * `problem` from `missing`, when one was recorded; `reason` from `retire`.
+ */
+function listedToWire(
+  entry: SystemDeploymentMissing | SystemDeploymentToServe | SystemDeploymentToRetire,
+) {
   return {
     ...entryToWire(entry),
     ...('warm' in entry && entry.warm !== undefined && { warm: entry.warm }),
+    ...('problem' in entry && entry.problem !== undefined && { problem: entry.problem }),
     ...('reason' in entry && { reason: entry.reason }),
   };
 }

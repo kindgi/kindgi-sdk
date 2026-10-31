@@ -970,68 +970,6 @@ class RevokeSystemKeyResult(BaseModel):
     """
 
 
-class SystemDeploymentEntry(BaseModel):
-    """
-    A deployment as whatever runs its pack service needs it: ids and the image, nothing of the tenant beyond its id. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). In the `missing` and `ready` lists, `warm` says whether to keep an instance of its service running. In the `retire` list, `reason` says why the service should go.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    deployment_id: Annotated[str, Field(alias="deploymentId", min_length=1)]
-    pack_id: Annotated[str, Field(alias="packId", min_length=1)]
-    """
-    The pack it deploys (the image index's `packId`).
-    """
-    project_id: Annotated[str | None, Field(alias="projectId")] = None
-    """
-    The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project.
-    """
-    image_ref: Annotated[str, Field(alias="imageRef")]
-    """
-    Digest-pinned, as registered: the pack service is created from exactly this.
-    """
-    image_digest: Annotated[str, Field(alias="imageDigest", pattern="^sha256:[0-9a-f]{64}$")]
-    artifact_version: Annotated[str, Field(alias="artifactVersion")]
-    activated_at: Annotated[AwareDatetime, Field(alias="activatedAt")]
-    warm: bool | None = None
-    """
-    In the `missing` and `ready` lists. `true`: keep an instance of the deployment's pack service running, as calls route to it for something always on in its project: a tool version reached from a version a pin holds (an agent's, a flow's or a tool's) or from the Latest of each agent no pin covers there, or a pack check a registered guardrail runs there. `false`: its service can scale to zero. Absent from a runtime that doesn't say: not warm.
-    """
-    reason: (
-        Annotated[
-            Literal[
-                "superseded",
-                "tenant-closing",
-                "tenant-suspended",
-                "project-suspended",
-                "pack-suspended",
-            ]
-            | str,
-            _open.OPEN,
-        ]
-        | None
-    ) = None
-    """
-    In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does, so no new call reaches it. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.
-    """
-
-
-class SystemDeploymentPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[SystemDeploymentEntry]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor for the next page. Absent when `hasMore: false`.
-    """
-    has_more: Annotated[bool, Field(alias="hasMore")]
-
-
 class SetPackEndpointBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -1178,6 +1116,7 @@ class RecordPackEnvBody(BaseModel):
                 "pack-env-update-failed",
                 "pack-env-secrets-unaudited",
                 "pack-env-secret-too-large",
+                "pack-env-name-too-long",
                 "pack-env-secret-redeploy",
             ]
             | str,
@@ -1186,7 +1125,7 @@ class RecordPackEnvBody(BaseModel):
         | None
     ) = None
     """
-    Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it; `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. The orchestrator couldn't give it its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out, so it gives none; the platform fixes it), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-secret-redeploy` (a name is now set only as a secret, and this pack service was made where no secret can be given to it; a new deployment's can be, from a new build of the pack). A service held as `pack-env-secret-unreadable` or `pack-env-secrets-unaudited` is listed by `GET /v1/system/pack-env` every time, with its `held`, as the revision doesn't move when the platform fixes it. A later runtime may add codes, so treat an unknown one as a reason not yet named.
+    Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it; `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. The orchestrator couldn't give it its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out, so it gives none; the platform fixes it), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-name-too-long` (a name set as a secret is too long for the secret it's kept in, which is named after the pack service; shorten it in the pack), `pack-env-secret-redeploy` (a name is now set only as a secret, and this pack service was made where no secret can be given to it; a new deployment's can be, from a new build of the pack). A service held as `pack-env-secret-unreadable` or `pack-env-secrets-unaudited` is listed by `GET /v1/system/pack-env` every time, with its `held`, as the revision doesn't move when the platform fixes it. A later runtime may add codes, so treat an unknown one as a reason not yet named.
     """
     applied_revision: Annotated[
         str | None, Field(alias="appliedRevision", max_length=128, min_length=1)
@@ -1252,6 +1191,7 @@ class RecordDeploymentProblemBody(BaseModel):
         "pack-env-secret-unreadable",
         "pack-env-secrets-unaudited",
         "pack-env-secret-too-large",
+        "pack-env-name-too-long",
         "pack-env-secret-capacity",
     ]
     """
@@ -9286,7 +9226,7 @@ class DeploymentEndpointProblem(BaseModel):
     )
     code: str
     """
-    One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start). It can't be given its declared environment (`GET /v1/deployments/{deploymentId}/pack-env` names the names): `pack-env-ambiguous`, `pack-env-secret-not-yet`, `pack-env-missing`, `pack-env-secret-unreadable` (a name's secret can't be read for a reason the platform fixes, not the owner; it's tried again). It can't be given its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out; the platform fixes it, and it's tried again), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-secret-capacity` (a name is set only as a secret, and there's no room just now for a pack service that can be given one, apart from other projects'; it's tried again).
+    One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start). It can't be given its declared environment (`GET /v1/deployments/{deploymentId}/pack-env` names the names): `pack-env-ambiguous`, `pack-env-secret-not-yet`, `pack-env-missing`, `pack-env-secret-unreadable` (a name's secret can't be read for a reason the platform fixes, not the owner; it's tried again). It can't be given its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out; the platform fixes it, and it's tried again), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-name-too-long` (a name set as a secret is too long for the secret it's kept in, which is named after the pack service; shorten it in the pack), `pack-env-secret-capacity` (a name is set only as a secret, and there's no room just now for a pack service that can be given one, apart from other projects'; it's tried again).
     """
     since: AwareDatetime
     """
@@ -9312,13 +9252,14 @@ class PackEnvProblem(BaseModel):
             "pack-env-update-failed",
             "pack-env-secrets-unaudited",
             "pack-env-secret-too-large",
+            "pack-env-name-too-long",
             "pack-env-secret-redeploy",
         ]
         | str,
         _open.OPEN,
     ]
     """
-    Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it; `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. The orchestrator couldn't give it its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out, so it gives none; the platform fixes it), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-secret-redeploy` (a name is now set only as a secret, and this pack service was made where no secret can be given to it; a new deployment's can be, from a new build of the pack). A service held as `pack-env-secret-unreadable` or `pack-env-secrets-unaudited` is listed by `GET /v1/system/pack-env` every time, with its `held`, as the revision doesn't move when the platform fixes it. A later runtime may add codes, so treat an unknown one as a reason not yet named.
+    Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it; `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. The orchestrator couldn't give it its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out, so it gives none; the platform fixes it), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-name-too-long` (a name set as a secret is too long for the secret it's kept in, which is named after the pack service; shorten it in the pack), `pack-env-secret-redeploy` (a name is now set only as a secret, and this pack service was made where no secret can be given to it; a new deployment's can be, from a new build of the pack). A service held as `pack-env-secret-unreadable` or `pack-env-secrets-unaudited` is listed by `GET /v1/system/pack-env` every time, with its `held`, as the revision doesn't move when the platform fixes it. A later runtime may add codes, so treat an unknown one as a reason not yet named.
     """
     since: AwareDatetime
     """
@@ -14941,6 +14882,69 @@ class MintTokenResult(BaseModel):
     """
     Plaintext bearer token. Returned exactly once at mint time.
     """
+
+
+class SystemDeploymentEntry(BaseModel):
+    """
+    A deployment as whatever runs its pack service needs it: ids and the image, nothing of the tenant beyond its id. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). In the `missing` and `ready` lists, `warm` says whether to keep an instance of its service running. In the `missing` list, `problem` is the last problem recorded for it (`PUT …/endpoint/problem`), absent until one is; its `since` is when that code was first recorded, as recording the same code again keeps it, so a pass can space its tries by it. In the `retire` list, `reason` says why the service should go.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    deployment_id: Annotated[str, Field(alias="deploymentId", min_length=1)]
+    pack_id: Annotated[str, Field(alias="packId", min_length=1)]
+    """
+    The pack it deploys (the image index's `packId`).
+    """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project.
+    """
+    image_ref: Annotated[str, Field(alias="imageRef")]
+    """
+    Digest-pinned, as registered: the pack service is created from exactly this.
+    """
+    image_digest: Annotated[str, Field(alias="imageDigest", pattern="^sha256:[0-9a-f]{64}$")]
+    artifact_version: Annotated[str, Field(alias="artifactVersion")]
+    activated_at: Annotated[AwareDatetime, Field(alias="activatedAt")]
+    warm: bool | None = None
+    """
+    In the `missing` and `ready` lists. `true`: keep an instance of the deployment's pack service running, as calls route to it for something always on in its project: a tool version reached from a version a pin holds (an agent's, a flow's or a tool's) or from the Latest of each agent no pin covers there, or a pack check a registered guardrail runs there. `false`: its service can scale to zero. Absent from a runtime that doesn't say: not warm.
+    """
+    problem: DeploymentEndpointProblem | None = None
+    reason: (
+        Annotated[
+            Literal[
+                "superseded",
+                "tenant-closing",
+                "tenant-suspended",
+                "project-suspended",
+                "pack-suspended",
+            ]
+            | str,
+            _open.OPEN,
+        ]
+        | None
+    ) = None
+    """
+    In the `retire` list only. `superseded`: newer deployments ship every tool version and check it does, so no new call reaches it. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared. `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.
+    """
+
+
+class SystemDeploymentPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[SystemDeploymentEntry]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class SystemPackEnv(BaseModel):

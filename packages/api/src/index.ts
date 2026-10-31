@@ -105,6 +105,7 @@ export type {
   SystemDeploymentPage,
   SystemDeploymentsBinding,
   SystemDeploymentsOptions,
+  SystemDeploymentMissing,
   SystemDeploymentToRetire,
   SystemDeploymentToServe,
   SystemPackEnvOptions,

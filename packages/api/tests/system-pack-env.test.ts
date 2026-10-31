@@ -971,6 +971,7 @@ describe('GET /v1/system/pack-env: a hold the platform fixes', () => {
       ['d-unaudited', 'pack-env-secrets-unaudited', ago(61)],
       ['d-not-yet', 'pack-env-secret-not-yet', ago(1)],
       ['d-too-large', 'pack-env-secret-too-large', ago(1)],
+      ['d-name-too-long', 'pack-env-name-too-long', ago(1)],
       ['d-redeploy', 'pack-env-secret-redeploy', ago(1)],
       ['d-missing', 'pack-env-missing', ago(1)],
     ];
