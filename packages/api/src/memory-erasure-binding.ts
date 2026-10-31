@@ -67,8 +67,9 @@ export type MemoryErasureSelectorKind = 'fact' | 'participant' | 'external' | 'c
 
 /**
  * `waiting-on-run`: a turn of the person's sits in a flow that serves
- * other people; the erasure waits for it (`waitingOn`) until its
- * deadline, then cancels it. `resume` with `force` stops the wait.
+ * other people, or a test run still going has a case from their runs;
+ * the erasure waits for it (`waitingOn`) until its deadline, then
+ * cancels it. `resume` with `force` stops the wait.
  */
 export type MemoryErasureStatus = 'pending' | 'running' | 'waiting-on-run' | 'completed' | 'failed';
 
