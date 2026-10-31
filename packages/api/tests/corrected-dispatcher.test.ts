@@ -1187,6 +1187,7 @@ describe("a case's expect, graded", () => {
     extra: Partial<CorrectedTestCase> = {},
   ): CorrectedTestCase => ({
     caseId: 'j-1',
+    runId: 'j-1-run',
     subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
     input: 'refund order 7',
     output: calledTurn('Refunded $25.', ['acme.lookup', 'acme.refund']),
