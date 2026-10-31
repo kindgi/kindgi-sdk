@@ -83,6 +83,7 @@
   "Changes": ["ComparisonCaseResult.changes"],
   "ClaimMappingScopesSpec": ["ClaimMappingScopesSpec"],
   "ClaimMappingSpec": ["ClaimMappingSpec"],
+  "ClaimOrchestratorRoundBody": ["ClaimOrchestratorRoundBody"],
   "CodeArtifactRef1": [],
   "CodeArtifactRef2": [],
   "CodeArtifactRefFilesystem": ["CodeArtifactRefFilesystem"],
@@ -213,6 +214,7 @@
   "Edge": ["ProvenanceRecord.dag.edges"],
   "EgressAddresses": ["EgressAddresses"],
   "EmailLink": ["SignInOptions.methods.emailLink"],
+  "EndOrchestratorRoundBody": ["EndOrchestratorRoundBody"],
   "EnrollSiteBody": ["EnrollSiteBody"],
   "EnrollSiteResult": ["EnrollSiteResult"],
   "EnvCollectionPage": ["EnvCollectionPage"],
@@ -534,6 +536,7 @@
     "StartRunBody.root{agent,agentVersion,input,options,projectId,segments}.options",
     "StartRunBody.root{flow,flowVersion,input,options,projectId,segments}.options"
   ],
+  "OrchestratorRound": ["OrchestratorRound"],
   "Org": ["Org"],
   "OrgCollectionPage": ["OrgCollectionPage"],
   "OrgPatch": ["OrgPatch"],

@@ -184,6 +184,8 @@ export const ENV_DEFAULTS = {
   KINDGI_PACK_ROUTING: '`single`: one pack service, `KINDGI_PACK_SERVICE_URL`, for every call',
   KINDGI_PACK_ENDPOINT_HOSTS:
     'none: with `KINDGI_PACK_ROUTING=per-deployment`, the server refuses to start',
+  KINDGI_PACK_ENDPOINT_KMS_KEY:
+    "none: the secrets' own key, which `KINDGI_SECRETS_BACKEND=postgres` has; with any other backend, per-deployment routing refuses to start",
   KINDGI_IMAGE_REGISTRY_HOST: 'none: every registry is read anonymously',
   KINDGI_IMAGE_REGISTRY_USERNAME: 'none: no credentials (anonymous reads)',
   KINDGI_IMAGE_REGISTRY_PASSWORD: 'none: no credentials (anonymous reads)',
@@ -192,6 +194,8 @@ export const ENV_DEFAULTS = {
   KINDGI_PACK_DIR: 'none: packs come from signed deployments in Postgres',
   KINDGI_DEV_CONSOLE_LOGIN: '`false`',
   KINDGI_DEV_HOST_ALIAS: 'none: calls to loopback addresses connect as written',
+  KINDGI_ORCHESTRATOR_PACK_SERVICE:
+    "none: each field's default, and no network of its own (ingress from anywhere, the invoker check still on)",
 };
 
 /**
@@ -293,6 +297,9 @@ export const ENV_EXAMPLES = {
   KINDGI_IMAGE_REGISTRY_PASSWORD: {
     value: '<registry password or read-only access token>',
   },
+  KINDGI_ORCHESTRATOR_SYSTEM_KEY: {
+    value: '<system key with system:deployments and system:pack-env>',
+  },
 };
 
 /** "See also" for each group's variables that no guide names: page slugs. */
@@ -307,5 +314,6 @@ export const ENV_GROUP_SEE_ALSO = {
   'local-key': ['deploy/self-hosted/self-host'],
   'pack-service': ['deploy/self-hosted/self-host', 'concepts/architecture'],
   'image-registry': ['deploy/self-hosted/self-host', 'concepts/security'],
+  'pack-orchestrator': ['deploy/self-hosted/cloud-run', 'concepts/security'],
   dev: ['guides/secrets/dev-sandbox', 'deploy/self-hosted/self-host'],
 };
