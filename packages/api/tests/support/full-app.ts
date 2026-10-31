@@ -390,6 +390,7 @@ const noopCorrectionRegistry: CorrectionRegistryBinding = {
   testSet: async () => ({ active: 0, retired: 0 }),
   listCases: async () => ({ data: [], hasMore: false }),
   getCase: async () => null,
+  runCopies: async () => [],
   addCase: async () => {
     throw new Error('noop');
   },
