@@ -1,5 +1,16 @@
 # @kindgi/guardrails
 
+## 0.3.1-rc.0
+
+### Patch Changes
+
+- 4beb42c: **A deploy gives the guardrail registry each pack check's points.** A deploy checks a pack guardrail's `at` against the points its check's index entry lists (`checkPoints`), but it didn't keep them, so a runtime ran every deployed pack check at the final answer only: a pack guardrail deployed at a tool point or a model reply acted as a failed one there on every turn (`check-point-unsupported`). The deploy route now passes them to the registry beside the guardrail (`GuardrailRegisterInput.checkPoints`): the points the index lists that this release knows, once each, else the final answer only (`indexedCheckPoints`, `@kindgi/guardrails`). None for a guardrail naming a built-in check, whose points are the runtime's. The registry gives them back (`GuardrailRecord.checkPoints`). A deploy that keeps a registered guardrail refreshes them with its code pointer and config schema (`GuardrailRefreshInput.checkPoints`, also in `expected`; `null` for none), so a redeploy whose check now runs at other points gives the kept guardrail those, and a deploy rolled back puts the old ones back. `POST /v1/guardrails` never takes them (the guardrail spec has no `checkPoints`, so a body naming them is refused), so a guardrail registered over the API can't widen a pack check's points: a runtime gives it the points its check's deploy gave. A registry that implements `refreshDeployedFields` now takes `checkPoints` and compares it in `expected`. The runtime runs a pack check at these points from 0.3.1.
+- @kindgi/capabilities@0.3.1-rc.0
+  - @kindgi/compliance@0.3.1-rc.0
+  - @kindgi/schema@0.3.1-rc.0
+  - @kindgi/bounds@0.3.1-rc.0
+  - @kindgi/types@0.3.1-rc.0
+
 ## 0.3.0
 
 ### Patch Changes

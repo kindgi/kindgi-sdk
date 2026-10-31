@@ -1,5 +1,11 @@
 # @kindgi/crypto
 
+## 0.3.1-rc.0
+
+### Patch Changes
+
+- @kindgi/types@0.3.1-rc.0
+
 ## 0.3.0
 
 ### Patch Changes
