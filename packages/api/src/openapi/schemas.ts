@@ -10171,7 +10171,11 @@ export const TestRunSchema: JsonSchema = {
       description:
         "Why a `cancelled` run stopped when nobody cancelled it: its project or tenant took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.",
     },
-    correlationId: { type: 'string' },
+    correlationId: {
+      type: 'string',
+      description:
+        "The id the run was started with. `pin:<change id>` is a test run Kindgi started for a pin change, and `latest:<agent id>:<project id>` one it started for Latest moving in a project; a caller can't start a run with either.",
+    },
     comparison: { $ref: '#/components/schemas/TestRunComparison' },
   },
 };
@@ -10196,7 +10200,11 @@ export const StartTestRunBodySchema: JsonSchema = {
     agentRef: { $ref: '#/components/schemas/TestRunAgentRef' },
     flowRef: { $ref: '#/components/schemas/TestRunFlowRef' },
     dryRun: { type: 'boolean' },
-    correlationId: { type: 'string' },
+    correlationId: {
+      type: 'string',
+      description:
+        'An id of your own, kept on the run. It may not start with `pin:` or `latest:` (`bad-input`): those are the test runs Kindgi starts itself, for a pin change or Latest moving.',
+    },
     baseline: { $ref: '#/components/schemas/TestRunBaseline' },
     reads: { type: 'string', enum: ['recorded', 'live'] },
     repetitions: { type: 'integer', minimum: 1, maximum: 10 },

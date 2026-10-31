@@ -8,13 +8,15 @@
  * correction it checked becomes `fixed` or reopens (`planRunOutcome`).
  *
  * Such a run names why it started in its correlation id: `pin:<changeId>`
- * for a pin change, `latest:<agentId>:<projectId>` for Latest moving. An
+ * for a pin change, `latest:<agentId>:<projectId>` for Latest moving. A
+ * caller can't start a run with either (`isReservedCorrelation`). An
  * outcome applies only while the project still runs the run's version, so
  * a run that a newer change overtook changes nothing. A `pin:` run takes
  * how, who and when from the project's newest pin change as it applies,
  * not from the change that started it.
  */
 
+import { highestVersion } from '@kindgi/tools';
 import type { ProjectId, RunId, TenantId } from '@kindgi/types';
 
 import type { AgentPinBindings, Pin } from './agent-pin-binding.js';
@@ -27,17 +29,32 @@ import type {
   CorrectionStatus,
 } from './correction-binding.js';
 import { type RunOutcomeInput, planRunOutcome } from './correction-sorting.js';
-import type { TestRun, TestRunBinding } from './test-run-binding.js';
+import type { TestRun, TestRunBinding, TestRunComparison } from './test-run-binding.js';
 import { type WhatRuns, type WhatRunsInProject, whatRunsByProject } from './what-runs.js';
+
+const PIN = 'pin:';
+const LATEST = 'latest:';
+
+/**
+ * The correlation id prefixes of the test runs Kindgi starts itself, for a
+ * pin change and for Latest moving. A caller's start of a test run may not
+ * use them (`POST /v1/test-runs` answers `bad-input`).
+ */
+export const RESERVED_CORRELATION_PREFIXES: readonly string[] = [PIN, LATEST];
+
+/** Whether a correlation id starts with one of `RESERVED_CORRELATION_PREFIXES`. */
+export function isReservedCorrelation(correlationId: string): boolean {
+  return RESERVED_CORRELATION_PREFIXES.some((prefix) => correlationId.startsWith(prefix));
+}
 
 /** The correlation id of a test run a pin change started. */
 export function pinRunCorrelation(changeId: string): string {
-  return `pin:${changeId}`;
+  return `${PIN}${changeId}`;
 }
 
 /** The correlation id of a test run Latest moving in a project started. */
 export function latestRunCorrelation(agentId: string, projectId: ProjectId): string {
-  return `latest:${agentId}:${projectId as unknown as string}`;
+  return `${LATEST}${agentId}:${projectId as unknown as string}`;
 }
 
 /** Why a test run started, from its correlation id; `undefined` for any other run. */
@@ -47,12 +64,12 @@ export type TestRunReason =
 
 export function testRunReason(correlationId: string | undefined): TestRunReason | undefined {
   if (correlationId === undefined) return undefined;
-  if (correlationId.startsWith('pin:')) {
-    const changeId = correlationId.slice('pin:'.length);
+  if (correlationId.startsWith(PIN)) {
+    const changeId = correlationId.slice(PIN.length);
     return changeId.length === 0 ? undefined : { kind: 'pin', changeId };
   }
-  if (correlationId.startsWith('latest:')) {
-    const rest = correlationId.slice('latest:'.length);
+  if (correlationId.startsWith(LATEST)) {
+    const rest = correlationId.slice(LATEST.length);
     const at = rest.lastIndexOf(':');
     if (at <= 0 || at === rest.length - 1) return undefined;
     return {
@@ -89,8 +106,9 @@ const CORRECTION_PAGE = 200;
 /**
  * Apply an ended test run's outcome to its project's corrections. Changes
  * nothing, and answers `undefined`, unless the run completed, a pin change
- * or Latest moving started it, and the project still runs its version.
- * Applying it again changes nothing (`applyRunOutcome`'s compare-and-set).
+ * or Latest moving started it, it tried the version as published on its
+ * cases (`endedCheck`), and the project still runs its version. Applying
+ * it again changes nothing (`applyRunOutcome`'s compare-and-set).
  */
 export async function applyTestRunOutcome(
   deps: TestRunOutcomeDeps,
@@ -176,13 +194,19 @@ interface EndedCheck {
   readonly endedAt: string;
 }
 
-/** The check an ended run was; `undefined` for a run whose end changes no corrections. */
+/**
+ * The check an ended run was; `undefined` for a run whose end changes no
+ * corrections: one not completed, a dry run, not a `corrections` run, one
+ * that didn't try the version as published (`asPublished`), or a `latest:`
+ * run whose own agent or project isn't its correlation's.
+ */
 function endedCheck(run: TestRun): EndedCheck | undefined {
-  if (run.status !== 'completed' || run.kind !== 'corrections') return undefined;
+  if (run.status !== 'completed' || run.dryRun || run.kind !== 'corrections') return undefined;
+  if (run.comparison !== undefined && !asPublished(run.comparison)) return undefined;
   const reason = testRunReason(run.correlationId);
   const agentId = run.agentRef?.agentId as unknown as string | undefined;
   const version = run.agentRef?.version as unknown as string | undefined;
-  const projectId = reason?.kind === 'latest' ? reason.projectId : run.projectId;
+  const { projectId } = run;
   const endedAt = run.completedAt as unknown as string | undefined;
   if (
     reason === undefined ||
@@ -193,13 +217,32 @@ function endedCheck(run: TestRun): EndedCheck | undefined {
   ) {
     return undefined;
   }
+  if (reason.kind === 'latest' && (reason.agentId !== agentId || reason.projectId !== projectId)) {
+    return undefined;
+  }
   return { reason, agentId, version, projectId, endedAt };
+}
+
+/**
+ * Whether a comparison tried the version as published, on all its cases,
+ * scored by the run itself: not with other content (`overrides`), on a
+ * `sample`, or as a rescore of another run (`rescoreOf`). A release gate
+ * refuses the first two for the same reason (`gate.ts`).
+ */
+function asPublished(comparison: TestRunComparison): boolean {
+  return (
+    comparison.overrides === undefined &&
+    comparison.sample === undefined &&
+    comparison.rescoreOf === undefined
+  );
 }
 
 /**
  * How the project came to run the checked version, as it applies: a `pin:`
  * run's from the project's newest pin change (`undefined` when none is
- * found), a `latest:` run's from Latest.
+ * found), a `latest:` run's from Latest (`undefined` once a pin covers the
+ * project, even of the same version), at the time it became Latest or,
+ * where nothing records one, the run's start.
  */
 async function howItMoved(
   agentPins: Pick<AgentPinBindings, 'changes'>,
@@ -211,8 +254,8 @@ async function howItMoved(
   const { reason } = check;
   const { runs } = now;
   if (reason.kind === 'latest') {
-    const since = runs.follows === 'latest' ? runs.since : undefined;
-    return { how: 'latest', at: since ?? (run.startedAt as unknown as string) };
+    if (runs.follows !== 'latest') return undefined;
+    return { how: 'latest', at: runs.since ?? (run.startedAt as unknown as string) };
   }
   const change = await newestChange(agentPins, {
     tenantId,
@@ -227,10 +270,12 @@ async function howItMoved(
 }
 
 /**
- * The project's newest pin change that took effect: the change behind the
- * pin that now covers it, or an unpin made after it (the project then
- * follows a wider pin, or Latest): the one that started the run, or the
- * project's own newest. `undefined` when neither is found.
+ * The project's newest pin change that took effect, of: the change behind
+ * the pin that now covers it, the change that started the run (it brought
+ * the version), and the project's own newest when that is an unpin (the
+ * project then follows a wider pin, or Latest). A wider scope's unpin isn't
+ * read; the change that started the run stands for it. `undefined` when
+ * none of them is found.
  */
 async function newestChange(
   agentPins: Pick<AgentPinBindings, 'changes'>,
@@ -257,7 +302,7 @@ async function newestChange(
   const ownNewest = own.data.find(tookEffect);
   const candidates = [
     covering,
-    started?.action === 'unpin' ? started : null,
+    started !== null && tookEffect(started) ? started : null,
     ownNewest?.action === 'unpin' ? ownNewest : null,
   ].filter((c): c is Pin => c !== null);
   return candidates.reduce<Pin | undefined>(
@@ -275,14 +320,21 @@ function tookEffect(change: Pin): boolean {
 }
 
 /**
- * How a pin change moved the project: an unpin, a pin of an earlier
- * version than the scope's own pin before (going back), or a pin.
+ * How a pin change moved the project: an unpin; going back, a pin of an
+ * earlier version than what ran in the scope just before it (`ranBefore`,
+ * from a pin or from Latest; on a pin recorded before that was kept, the
+ * scope's own pin before); or a pin.
  */
 function changeHow(change: Pin): CorrectionReopenedHow {
   if (change.action === 'unpin') return 'unpin';
-  const from = change.fromVersion as unknown as string | null;
+  const before = (change.ranBefore ?? change.fromVersion) as unknown as string | null | undefined;
   const to = change.toVersion as unknown as string | null;
-  return from !== null && to !== null && compareVersions(to, from) < 0 ? 'went-back' : 'pin';
+  return before != null && to !== null && isEarlier(to, before) ? 'went-back' : 'pin';
+}
+
+/** Whether `a` is an earlier version than `b`, by the one version rule (`@kindgi/tools`). */
+function isEarlier(a: string, b: string): boolean {
+  return a !== b && highestVersion([a, b]) === b;
 }
 
 function madeBy(change: Pin): CorrectionMadeBy {
@@ -292,25 +344,6 @@ function madeBy(change: Pin): CorrectionMadeBy {
 /** When a change took effect: an approved pin when it was approved, any other when it was made. */
 function effectiveAt(change: Pin): string {
   return (change.resolvedAt ?? change.createdAt) as unknown as string;
-}
-
-/**
- * Semver order on `major.minor.patch[-pre]`: negative when `a` is earlier.
- * A pre-release is earlier than its release (semver.org 11).
- */
-function compareVersions(a: string, b: string): number {
-  const [aBase = '', aPre] = a.split('-', 2);
-  const [bBase = '', bPre] = b.split('-', 2);
-  const aParts = aBase.split('.').map(Number);
-  const bParts = bBase.split('.').map(Number);
-  for (let i = 0; i < 3; i++) {
-    const diff = (aParts[i] ?? 0) - (bParts[i] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  if (aPre === undefined || bPre === undefined) {
-    return aPre === bPre ? 0 : aPre === undefined ? 1 : -1;
-  }
-  return aPre.localeCompare(bPre);
 }
 
 /**

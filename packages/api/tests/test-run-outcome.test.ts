@@ -18,6 +18,7 @@ import {
   type Pin,
   type PinActor,
   type TestRun,
+  type TestRunComparison,
   applyTestRunOutcome,
   latestRunCorrelation,
   pinRunCorrelation,
@@ -33,11 +34,14 @@ const ana = { kind: 'user', id: 'u-ana' } as const;
 const ben = { kind: 'user', id: 'u-ben' } as const;
 const dana = { kind: 'user', id: 'u-dana' } as const;
 const projectScope: AgentPinScope = { kind: 'project', projectId };
+const tenantScope: AgentPinScope = { kind: 'tenant' };
 
-/** One project's pins and Latest, with its pin history newest first. */
+/** One project's pin (its own, or the tenant's) and Latest, with each scope's pin history newest first. */
 function pins() {
   const state: {
-    pinned?: { version: Semver; changeId: string; setAt: Timestamp } | undefined;
+    pinned?:
+      | { version: Semver; changeId: string; setAt: Timestamp; scope: AgentPinScope }
+      | undefined;
     latest?: { version: Semver; since: string };
     changes: Pin[];
   } = { changes: [] };
@@ -50,9 +54,10 @@ function pins() {
   const bindings: Pick<AgentPinBindings, 'pinned' | 'latest' | 'changes'> = {
     pinned: {
       resolve: async () =>
-        state.pinned === undefined ? null : { version: state.pinned.version, scope: projectScope },
-      list: async () =>
-        state.pinned === undefined ? [] : [{ agentId, scope: projectScope, ...state.pinned }],
+        state.pinned === undefined
+          ? null
+          : { version: state.pinned.version, scope: state.pinned.scope },
+      list: async () => (state.pinned === undefined ? [] : [{ agentId, ...state.pinned }]),
     },
     latest: {
       latest: async () => state.latest ?? null,
@@ -61,18 +66,28 @@ function pins() {
     changes: {
       pin: unused,
       unpin: unused,
-      list: async () => ({ data: [...state.changes].reverse() }),
+      list: async ({ scope }) => ({
+        data: state.changes.filter((c) => c.scope.kind === scope?.kind).reverse(),
+      }),
       get: async (_tenant, changeId) => state.changes.find((c) => c.id === changeId) ?? null,
     },
   };
-  const change = (action: Pin['action'], toVersion: string | null, by: PinActor): Pin => {
+  const change = (
+    action: Pin['action'],
+    toVersion: string | null,
+    by: PinActor,
+    scope: AgentPinScope,
+    keepsRanBefore: boolean,
+  ): Pin => {
+    const ranBefore = state.pinned?.version ?? state.latest?.version;
     const made: Pin = {
       id: `pc-${state.changes.length + 1}`,
       agentId,
-      scope: projectScope,
+      scope,
       action,
-      fromVersion: state.pinned?.version ?? null,
+      fromVersion: state.pinned?.scope.kind === scope.kind ? state.pinned.version : null,
       toVersion: toVersion as Semver | null,
+      ...(action === 'pin' && keepsRanBefore && ranBefore !== undefined && { ranBefore }),
       requestedBy: by,
       createdAt: at(),
       ...(action === 'pin' && { status: 'pinned' as const }),
@@ -83,13 +98,19 @@ function pins() {
   return {
     bindings,
     state,
-    pin(version: string, by: PinActor): Pin {
-      const made = change('pin', version, by);
-      state.pinned = { version: version as Semver, changeId: made.id, setAt: made.createdAt };
+    /** `keepsRanBefore: false` records the pin as a store from before `ranBefore` was kept. */
+    pin(version: string, by: PinActor, { scope = projectScope, keepsRanBefore = true } = {}): Pin {
+      const made = change('pin', version, by, scope, keepsRanBefore);
+      state.pinned = {
+        version: version as Semver,
+        changeId: made.id,
+        setAt: made.createdAt,
+        scope,
+      };
       return made;
     },
-    unpin(by: PinActor): Pin {
-      const made = change('unpin', null, by);
+    unpin(by: PinActor, scope: AgentPinScope = projectScope): Pin {
+      const made = change('unpin', null, by, scope, false);
       state.pinned = undefined;
       return made;
     },
@@ -134,6 +155,7 @@ function harness() {
     correlationId: string,
     found: Readonly<Record<string, boolean>>,
     status: TestRun['status'] = 'completed',
+    run: Partial<TestRun> = {},
   ): RunId => {
     const testRunId = randomUUID() as RunId;
     runs.set(testRunId, {
@@ -156,6 +178,7 @@ function harness() {
           corrections: [{ correctionId, pass, repetitionsPassed: pass ? 1 : 0, repetitions: 1 }],
         })),
       },
+      ...run,
     });
     return testRunId;
   };
@@ -275,6 +298,75 @@ describe("applying a pin's test run", () => {
   });
 });
 
+describe('going back', () => {
+  test('a pin of an earlier version than Latest is going back, where the project had no pin of its own', async () => {
+    const h = harness();
+    const id = await h.corrected();
+    h.project.moveLatest('14.0.0');
+    await h.apply(h.ran('14.0.0', latestRunCorrelation(agentId, projectId), { [id]: true }));
+    const back = h.project.pin('13.0.0', dana);
+    expect(back).toMatchObject({ fromVersion: null, ranBefore: '14.0.0' });
+    const outcome = await h.apply(h.ran('13.0.0', pinRunCorrelation(back.id), { [id]: false }));
+    expect(outcome).toEqual({ fixed: [], reopened: [id] });
+    expect(await h.get(id)).toMatchObject({
+      status: 'open',
+      fixedIn: { version: '14.0.0', how: 'latest' },
+      reopenedIn: { version: '13.0.0', how: 'went-back', by: dana, at: back.createdAt },
+    });
+  });
+
+  test("a pin recorded before what ran before it was kept goes back against the scope's own pin before", async () => {
+    const h = harness();
+    const id = await h.corrected();
+    const v14 = h.project.pin('14.0.0', ana);
+    await h.apply(h.ran('14.0.0', pinRunCorrelation(v14.id), { [id]: true }));
+    const back = h.project.pin('13.0.0', dana, { keepsRanBefore: false });
+    expect(back).not.toHaveProperty('ranBefore');
+    await h.apply(h.ran('13.0.0', pinRunCorrelation(back.id), { [id]: false }));
+    expect(await h.get(id)).toMatchObject({
+      reopenedIn: { version: '13.0.0', how: 'went-back', by: dana },
+    });
+  });
+
+  test('earlier is by semver: 1.0.0-rc.9 after 1.0.0-rc.10 is going back, and rc.10 after rc.9 is a pin', async () => {
+    const h = harness();
+    const id = await h.corrected();
+    const rc9 = h.project.pin('1.0.0-rc.9', ana);
+    await h.apply(h.ran('1.0.0-rc.9', pinRunCorrelation(rc9.id), { [id]: true }));
+    const rc10 = h.project.pin('1.0.0-rc.10', ben);
+    await h.apply(h.ran('1.0.0-rc.10', pinRunCorrelation(rc10.id), { [id]: false }));
+    expect(await h.get(id)).toMatchObject({
+      reopenedIn: { version: '1.0.0-rc.10', how: 'pin', by: ben },
+    });
+    await h.apply(h.ran('1.0.0-rc.10', pinRunCorrelation(rc10.id), { [id]: true }));
+    const back = h.project.pin('1.0.0-rc.9', dana);
+    await h.apply(h.ran('1.0.0-rc.9', pinRunCorrelation(back.id), { [id]: false }));
+    expect(await h.get(id)).toMatchObject({
+      reopenedIn: { version: '1.0.0-rc.9', how: 'went-back', by: dana },
+    });
+  });
+});
+
+describe('a wider scope', () => {
+  test("a tenant pin's run that ends after the tenant unpinned to Latest at that version applies, by whoever pinned it", async () => {
+    const h = harness();
+    const id = await h.corrected();
+    h.project.moveLatest('13.0.0');
+    // An old unpin of the project's own: older than the tenant's pin, so not the newest change.
+    h.project.pin('12.0.0', dana);
+    h.project.unpin(dana);
+    const v14 = h.project.pin('14.0.0', ana, { scope: tenantScope });
+    const run = h.ran('14.0.0', pinRunCorrelation(v14.id), { [id]: true });
+    h.project.moveLatest('14.0.0');
+    h.project.unpin(ben, tenantScope);
+    expect(await h.apply(run)).toEqual({ fixed: [id], reopened: [] });
+    expect(await h.get(id)).toMatchObject({
+      status: 'fixed',
+      fixedIn: { version: '14.0.0', how: 'latest', by: ana, at: v14.createdAt },
+    });
+  });
+});
+
 describe("applying a Latest check's test run", () => {
   test('a pass is fixed in Latest, by nobody, at when it became Latest', async () => {
     const h = harness();
@@ -302,6 +394,66 @@ describe("applying a Latest check's test run", () => {
 });
 
 describe('a run that changes nothing', () => {
+  test('a dry run, and a comparison with other content, on a sample or a rescore', async () => {
+    const h = harness();
+    const id = await h.corrected();
+    const v13 = h.project.pin('13.0.0', ana);
+    const correlation = pinRunCorrelation(v13.id);
+    const compared: TestRunComparison = {
+      baseline: 'recorded',
+      reads: 'recorded',
+      repetitions: 1,
+      k: 5,
+    };
+    const unpublished = [
+      { dryRun: true },
+      {
+        comparison: {
+          ...compared,
+          overrides: { prompts: { system: { template: 'Always refund.' } } },
+        },
+      },
+      { comparison: { ...compared, sample: { part: 'search', seed: 's-1', holdOutShare: 0.2 } } },
+      { comparison: { ...compared, rescoreOf: randomUUID() } },
+    ] satisfies Partial<TestRun>[];
+    for (const run of unpublished) {
+      expect(await h.apply(h.ran('13.0.0', correlation, { [id]: true }, 'completed', run))).toBe(
+        undefined,
+      );
+    }
+    expect(await h.get(id)).toMatchObject({ status: 'open' });
+    // The version as published, on all its cases, applies.
+    const published = h.ran('13.0.0', correlation, { [id]: true }, 'completed', {
+      comparison: compared,
+    });
+    expect(await h.apply(published)).toEqual({ fixed: [id], reopened: [] });
+  });
+
+  test("a `latest:` run whose own agent or project isn't the one its correlation names", async () => {
+    const h = harness();
+    const id = await h.corrected();
+    h.project.moveLatest('15.0.0');
+    const elsewhere = randomUUID() as ProjectId;
+    const forged = [
+      h.ran('15.0.0', latestRunCorrelation(agentId, projectId), { [id]: true }, 'completed', {
+        projectId: elsewhere,
+      }),
+      h.ran('15.0.0', latestRunCorrelation('acme.other', projectId), { [id]: true }),
+    ];
+    for (const run of forged) expect(await h.apply(run)).toBeUndefined();
+    expect(await h.get(id)).toMatchObject({ status: 'open' });
+  });
+
+  test('a `latest:` run that ends once a pin covers the project, even of the same version', async () => {
+    const h = harness();
+    const id = await h.corrected();
+    h.project.moveLatest('15.0.0');
+    const run = h.ran('15.0.0', latestRunCorrelation(agentId, projectId), { [id]: true });
+    h.project.pin('15.0.0', ana);
+    expect(await h.apply(run)).toBeUndefined();
+    expect(await h.get(id)).toMatchObject({ status: 'open' });
+  });
+
   test("one that didn't complete, or that neither a pin nor Latest started", async () => {
     const h = harness();
     const id = await h.corrected();

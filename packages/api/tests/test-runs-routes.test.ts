@@ -827,6 +827,26 @@ describe('API — test-runs start validation', () => {
     expect(body.error.code).toBe('bad-input');
   });
 
+  test("a `correlationId` starting `pin:` or `latest:` → 400 bad-input: they're the runs Kindgi starts itself", async () => {
+    const { app, registry } = makeApp();
+    await seedTestSet(registry, { id: 'acme.acc', kind: 'accuracy', spec: accuracySpec });
+    for (const correlationId of ['pin:pc-1', 'latest:acme.desk:p-1']) {
+      const res = await app.request('/v1/test-sets/acme.acc/runs', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          projectId: TEST_PROJECT_ID,
+          agentRef: { agentId: 'a' },
+          correlationId,
+        }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { code: string; message: string } };
+      expect(body.error.code).toBe('bad-input');
+      expect(body.error.message).toContain('may not start with `pin:` or `latest:`');
+    }
+  });
+
   test('malformed JSON body → 400 bad-input', async () => {
     const { app, registry } = makeApp();
     await seedTestSet(registry, { id: 'acme.acc', kind: 'accuracy', spec: accuracySpec });

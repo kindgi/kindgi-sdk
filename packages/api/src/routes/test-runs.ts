@@ -29,6 +29,7 @@ import {
   type TestRunStartOutcome,
   type TestRunStatus,
 } from '../test-run-binding.js';
+import { RESERVED_CORRELATION_PREFIXES, isReservedCorrelation } from '../test-run-outcome.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import { parseComparison } from './eval-comparison.js';
@@ -813,6 +814,22 @@ interface ParsedStartBody {
   readonly comparison?: TestRunComparison;
 }
 
+/**
+ * Why a start's `correlationId` is refused, when it is: not a non-empty
+ * string, or one of the prefixes of the runs Kindgi starts itself.
+ */
+function correlationIdRefusal(correlationId: unknown): string | undefined {
+  if (correlationId === undefined) return undefined;
+  if (typeof correlationId !== 'string' || correlationId.length === 0) {
+    return '`correlationId` must be a non-empty string when supplied';
+  }
+  if (isReservedCorrelation(correlationId)) {
+    const prefixes = RESERVED_CORRELATION_PREFIXES.map((p) => `\`${p}\``).join(' or ');
+    return `\`correlationId\` may not start with ${prefixes}: those are the test runs Kindgi starts itself, for a pin change or Latest moving`;
+  }
+  return undefined;
+}
+
 function parseStartBody(
   body: unknown,
 ):
@@ -930,17 +947,9 @@ function parseStartBody(
     };
   }
   const correlationId = b.correlationId;
-  if (
-    correlationId !== undefined &&
-    (typeof correlationId !== 'string' || correlationId.length === 0)
-  ) {
-    return {
-      kind: 'err',
-      error: {
-        code: 'bad-input',
-        message: '`correlationId` must be a non-empty string when supplied',
-      },
-    };
+  const correlationRefused = correlationIdRefusal(correlationId);
+  if (correlationRefused !== undefined) {
+    return { kind: 'err', error: { code: 'bad-input', message: correlationRefused } };
   }
 
   const comparison = parseComparison(b);
