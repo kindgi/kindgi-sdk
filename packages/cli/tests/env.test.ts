@@ -1062,7 +1062,7 @@ describe("kindgi env set/unset/list --cloud-secret — the operator's cloud secr
   test.each([
     [
       { code: 'server', serverCode: 'cloud-secrets-unsupported', message: 'x' },
-      "doesn't set env names to cloud secrets",
+      'its operator turns them on with KINDGI_ENV_CLOUD_SECRETS=on',
     ],
     [
       { code: 'auth', serverCode: 'system-scope-missing', message: 'x', reason: 'forbidden' },

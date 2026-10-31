@@ -385,7 +385,9 @@ Deployment <deployment-id> isn't in project "<project name>", or doesn't ship to
 A name a pack reads from its environment can be set, at a tenant's scope and
 under one env, to a version of a secret your cloud holds instead of to a
 value (runtime 0.4.0 or later): a Google Cloud Secret Manager version,
-`projects/<project>/secrets/<secret>/versions/<number>`. The runtime keeps
+`projects/<project>/secrets/<secret>/versions/<number>`. Turn it on with
+`KINDGI_ENV_CLOUD_SECRETS=on`, which needs
+`KINDGI_PACK_ROUTING=per-deployment`. The runtime keeps
 that path and never reads the value. The pack service is given the name, and
 Cloud Run reads the value as the pack service's own account, so that account
 needs `roles/secretmanager.secretAccessor` on the secret. Every deployment's
@@ -400,10 +402,12 @@ Only the operator sets one, with a system key holding `system:env-refs` as
 `KINDGI_API_TOKEN`:
 
 ```sh
-kindgi env set STRIPE_KEY --cloud-secret projects/acme-prod/secrets/stripe-key/versions/3 \
+npx --yes @kindgi/cli@0.4 env set STRIPE_KEY \
+  --cloud-secret projects/acme-prod/secrets/stripe-key/versions/3 \
   --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
-kindgi env list --cloud-secret --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
-kindgi env unset STRIPE_KEY --cloud-secret \
+npx --yes @kindgi/cli@0.4 env list --cloud-secret \
+  --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
+npx --yes @kindgi/cli@0.4 env unset STRIPE_KEY --cloud-secret \
   --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
 ```
 
@@ -423,8 +427,9 @@ The tenant sees which names are set this way, never the path:
 `kindgi env list --scope` shows each as `NAME (cloud secret)`, and
 `kindgi deployments get` names it set. A name set to a cloud secret and also
 as a value or a secret is `pack-env-ambiguous`: its pack service gets
-neither until one is removed. A runtime that keeps none answers
-`501 cloud-secrets-unsupported`, as Kindgi Cloud does. A runtime serving one
+neither until one is removed. With `KINDGI_ENV_CLOUD_SECRETS` off, the
+default, the runtime keeps none and answers `501 cloud-secrets-unsupported`,
+as Kindgi Cloud does. A runtime serving one
 tenant with a pack service per deployment mints `system:env-refs` keys too,
 from its own token, for that tenant alone.
 

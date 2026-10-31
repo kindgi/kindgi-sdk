@@ -80,7 +80,7 @@ function cloudSecretError(err: unknown, ctx: CommandContext, label: string): Com
   const code = wire !== null && 'serverCode' in wire ? wire.serverCode : undefined;
   const plain: Readonly<Record<string, string>> = {
     'cloud-secrets-unsupported':
-      "this runtime doesn't set env names to cloud secrets (Kindgi Cloud keeps none).",
+      'this runtime keeps no cloud secrets: its operator turns them on with KINDGI_ENV_CLOUD_SECRETS=on (Kindgi Cloud keeps none).',
     'system-principal-required':
       'a cloud secret is set with a system key holding system:env-refs: set KINDGI_API_TOKEN to one.',
     'system-scope-missing':

@@ -1539,6 +1539,16 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'pack-service',
   },
   {
+    name: 'KINDGI_ENV_CLOUD_SECRETS',
+    description:
+      "Used from runtime 0.4.0; earlier runtimes ignore it. Whether the operator may set a pack's env name to a cloud secret: a numbered version of a Google Cloud Secret Manager secret (`projects/<project>/secrets/<secret>/versions/<number>`). The runtime keeps that name and never a value, and the pack service is given it by name: Cloud Run reads the value as the pack service's own account, so turn it on only where that account can read the secrets you name (the Cloud Run module grants it on each secret listed in `pack_secret_readers`). `on`: a system key holding `system:env-refs` sets and removes them (`kindgi env set NAME --cloud-secret <path> --tenant=<tenantId>`, or `PUT /v1/system/tenants/<tenantId>/env/<name>`), and each deployment's pack env answer carries them. It needs `KINDGI_PACK_ROUTING=per-deployment`: on without it, the server refuses to start, naming both. Unset or `off`: none is kept, and those routes answer 501 (`cloud-secrets-unsupported`), as on Kindgi Cloud.",
+    example: 'on',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'pack-service',
+    allowedValues: ['on', 'off'],
+  },
+  {
     name: 'KINDGI_IMAGE_REGISTRY_HOST',
     description:
       'The registry host the credentials below are for, with its port when it has one (e.g. `registry.example`, `ghcr.io`). Other registries are read anonymously.',

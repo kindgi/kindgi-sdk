@@ -103,16 +103,20 @@ export const CLI_DEFAULTS = {
     env: '`staging`',
     path: 'the current directory',
     scope: 'none (reads the local env files)',
+    tenant: 'none: required with `--cloud-secret`',
   },
   'env set': {
     env: '`staging`',
     path: 'the current directory',
     scope: 'none (writes `.env.<env>`)',
+    'cloud-secret': 'none: sets a value',
+    tenant: 'none: required with `--cloud-secret`',
   },
   'env unset': {
     env: '`staging`',
     path: 'the current directory',
     scope: 'none (edits `.env.<env>`)',
+    tenant: 'none: required with `--cloud-secret`',
   },
   'env pull': {
     env: '`staging`',
