@@ -13,6 +13,12 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`system_deployments.list(endpoint="ready")` lists the
+  deployments whose pack service is ready and stays**, for whatever runs the
+  pack services. Entries in the `missing` and `ready` lists carry `warm`:
+  `True` to keep an instance of the service running (calls in its project go
+  to it for something always on), `False` when it can scale to zero. A
+  runtime that doesn't say leaves it out.
 - `kindgi`: **A project can sort its end users' corrections like the others.**
   `Project` and `ProjectPatch` carry `sort_end_user_corrections`
   (`sortEndUserCorrections`), off by default, and

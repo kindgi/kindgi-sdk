@@ -63,6 +63,19 @@ export interface SystemDeploymentEntry {
   readonly activatedAt: string;
 }
 
+/** A deployment whose pack service should run: one that needs a service, or one whose service is ready. */
+export interface SystemDeploymentToServe extends SystemDeploymentEntry {
+  /**
+   * Keep an instance of its service running: in its project, calls route to
+   * it for something that's always on there. That's a tool version reached
+   * from a version a pin holds (an agent's, a flow's or a tool's) or from
+   * the Latest of each agent no pin covers there, or a pack check a
+   * registered guardrail runs there. Otherwise its service can scale to
+   * zero. Absent from a binding that doesn't say: not warm.
+   */
+  readonly warm?: boolean;
+}
+
 export interface SystemDeploymentToRetire extends SystemDeploymentEntry {
   readonly reason: SystemDeploymentRetireReason;
 }
@@ -161,12 +174,23 @@ export interface SystemDeploymentsBinding {
    * Across tenants, oldest `activatedAt` first: deployments that need a
    * pack service. Each is routed (the newest deployment with routes for some
    * tool version or pack check), has no endpoint or a cleared one, and
-   * nothing about it is closing or suspended.
+   * nothing about it is closing or suspended. Each says whether its new
+   * service should start `warm`.
    */
   listNeedingEndpoint(input: {
     readonly cursor?: string;
     readonly limit: number;
-  }): Promise<SystemDeploymentPage<SystemDeploymentEntry>>;
+  }): Promise<SystemDeploymentPage<SystemDeploymentToServe>>;
+  /**
+   * Across tenants, oldest `activatedAt` first: deployments whose endpoint
+   * is `ready` and whose pack service stays (no `listToRetire` reason
+   * applies), each with `warm`, so the services kept warm are the ones
+   * calls are always routed to.
+   */
+  listReady(input: {
+    readonly cursor?: string;
+    readonly limit: number;
+  }): Promise<SystemDeploymentPage<SystemDeploymentToServe>>;
   /**
    * Across tenants, oldest `activatedAt` first: deployments with an
    * endpoint whose pack service should go, each with its `reason`.
@@ -315,13 +339,13 @@ export function systemDeploymentsRouter(
   const { binding, directory: tenants, authorizer, packEnv } = options;
   const r = new Hono<AppEnv>();
 
-  // ---------- GET /deployments?endpoint=missing|retire ----------
+  // ---------- GET /deployments?endpoint=missing|ready|retire ----------
   r.get('/deployments', async (c) => {
     const denied = systemReadAcrossTenants(c, DEPLOYMENTS, authorizer);
     if (denied !== undefined) return denied;
     const want = c.req.query('endpoint');
-    if (want !== 'missing' && want !== 'retire') {
-      return fail(c, badInput('`endpoint` must be `missing` or `retire`').error);
+    if (want !== 'missing' && want !== 'ready' && want !== 'retire') {
+      return fail(c, badInput('`endpoint` must be `missing`, `ready` or `retire`').error);
     }
     const limit = parseLimit(c.req.query('limit'));
     if (limit.kind === 'err') return fail(c, limit.error);
@@ -333,13 +357,16 @@ export function systemDeploymentsRouter(
     const result =
       want === 'missing'
         ? await binding.listNeedingEndpoint(page)
-        : await binding.listToRetire(page);
+        : want === 'ready'
+          ? await binding.listReady(page)
+          : await binding.listToRetire(page);
     if (result.kind === 'cursor-unreadable') {
       return fail(c, badInput('`cursor` is not one this route gave: start again without it').error);
     }
     return c.json({
       data: result.data.map((entry) => ({
         ...entryToWire(entry),
+        ...('warm' in entry && entry.warm !== undefined && { warm: entry.warm }),
         ...('reason' in entry && { reason: entry.reason }),
       })),
       ...(result.nextCursor !== undefined && { nextCursor: result.nextCursor }),

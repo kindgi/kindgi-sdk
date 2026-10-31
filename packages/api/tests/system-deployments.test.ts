@@ -18,6 +18,7 @@ import type {
   SystemAccessRecord,
   SystemDeploymentEntry,
   SystemDeploymentToRetire,
+  SystemDeploymentToServe,
   SystemDeploymentsBinding,
   SystemTenantState,
 } from '../src/index.js';
@@ -81,7 +82,8 @@ function makeBinding() {
     known.add(key(t, d));
     endpoints.set(key(t, d), { status: 'pending', since: NOW });
   };
-  const needing: SystemDeploymentEntry[] = [];
+  const needing: SystemDeploymentToServe[] = [];
+  const ready: SystemDeploymentToServe[] = [];
   const retiring: SystemDeploymentToRetire[] = [];
   const binding: SystemDeploymentsBinding = {
     async listNeedingEndpoint({ cursor, limit }) {
@@ -90,6 +92,9 @@ function makeBinding() {
       const data = needing.slice(start, start + limit);
       const next = start + limit < needing.length ? String(start + limit) : undefined;
       return { kind: 'ok', data, ...(next !== undefined && { nextCursor: next }) };
+    },
+    async listReady() {
+      return { kind: 'ok', data: ready };
     },
     async listToRetire() {
       return { kind: 'ok', data: retiring };
@@ -133,7 +138,7 @@ function makeBinding() {
       return { kind: 'ok', ...state };
     },
   };
-  return { binding, add, endpoints, set, outcomes, needing, retiring, suspendedPacks, key };
+  return { binding, add, endpoints, set, outcomes, needing, ready, retiring, suspendedPacks, key };
 }
 
 function makeApp(options: { readonly hostAllowed?: (host: string) => boolean } = {}) {
@@ -253,6 +258,19 @@ describe('GET /v1/system/deployments', () => {
     expect(r.status).toBe(400);
     expect(code(r)).toBe('bad-input');
     expect((r.body.error as { message: string }).message).toContain('start again without it');
+  });
+
+  test('missing and ready: each entry says whether its service is kept warm, when the binding says', async () => {
+    const { call, deployments } = makeApp();
+    deployments.needing.push({ ...entry(live, 'dep-w'), warm: true }, entry(live, 'dep-n'));
+    deployments.ready.push({ ...entry(live, 'dep-r'), warm: false });
+    const missing = await call(ORCHESTRATOR, 'GET', '/v1/system/deployments?endpoint=missing');
+    const data = missing.body.data as Record<string, unknown>[];
+    expect(data[0]).toEqual({ ...entry(live, 'dep-w'), warm: true });
+    expect('warm' in (data[1] as object)).toBe(false);
+    const r = await call(ORCHESTRATOR, 'GET', '/v1/system/deployments?endpoint=ready');
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ data: [{ ...entry(live, 'dep-r'), warm: false }], hasMore: false });
   });
 
   test('retire: each entry with its reason', async () => {

@@ -215,6 +215,9 @@ function makeApp(
     async listNeedingEndpoint() {
       return { kind: 'ok', data: [] };
     },
+    async listReady() {
+      return { kind: 'ok', data: [] };
+    },
     async listToRetire() {
       return { kind: 'ok', data: [] };
     },

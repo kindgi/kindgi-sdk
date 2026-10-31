@@ -972,7 +972,7 @@ class RevokeSystemKeyResult(BaseModel):
 
 class SystemDeploymentEntry(BaseModel):
     """
-    A deployment as whatever runs its pack service needs it: ids and the image, nothing of the tenant beyond its id. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). In the `retire` list, `reason` says why the service should go.
+    A deployment as whatever runs its pack service needs it: ids and the image, nothing of the tenant beyond its id. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). In the `missing` and `ready` lists, `warm` says whether to keep an instance of its service running. In the `retire` list, `reason` says why the service should go.
     """
 
     model_config = ConfigDict(
@@ -996,6 +996,10 @@ class SystemDeploymentEntry(BaseModel):
     image_digest: Annotated[str, Field(alias="imageDigest", pattern="^sha256:[0-9a-f]{64}$")]
     artifact_version: Annotated[str, Field(alias="artifactVersion")]
     activated_at: Annotated[AwareDatetime, Field(alias="activatedAt")]
+    warm: bool | None = None
+    """
+    In the `missing` and `ready` lists. `true`: keep an instance of the deployment's pack service running, as calls route to it for something always on in its project: a tool version reached from a version a pin holds (an agent's, a flow's or a tool's) or from the Latest of each agent no pin covers there, or a pack check a registered guardrail runs there. `false`: its service can scale to zero. Absent from a runtime that doesn't say: not warm.
+    """
     reason: (
         Annotated[
             Literal[

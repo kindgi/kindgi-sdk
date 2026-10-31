@@ -2386,14 +2386,14 @@ class SystemDeploymentsResource:
         self,
         /,
         *,
-        endpoint: Literal["missing", "retire"],
+        endpoint: Literal["missing", "ready", "retire"],
         cursor: str | None = None,
         limit: int | None = None,
         timeout: float | None = None,
     ) -> _models.SystemDeploymentPage:
-        """List deployments that need a pack service, or should lose theirs. `GET /v1/system/deployments`
+        """List deployments that need a pack service, have a ready one, or should lose theirs. `GET /v1/system/deployments`
 
-        Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.
+        Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=ready`: deployments whose endpoint is `ready` and whose pack service stays (no `retire` reason applies). Both lists say whether each service is `warm`: keep an instance running. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.
         """
         return self._client._request(
             _OPERATIONS["systemDeployments.list"],
@@ -12352,14 +12352,14 @@ class AsyncSystemDeploymentsResource:
         self,
         /,
         *,
-        endpoint: Literal["missing", "retire"],
+        endpoint: Literal["missing", "ready", "retire"],
         cursor: str | None = None,
         limit: int | None = None,
         timeout: float | None = None,
     ) -> _models.SystemDeploymentPage:
-        """List deployments that need a pack service, or should lose theirs. `GET /v1/system/deployments`
+        """List deployments that need a pack service, have a ready one, or should lose theirs. `GET /v1/system/deployments`
 
-        Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.
+        Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=ready`: deployments whose endpoint is `ready` and whose pack service stays (no `retire` reason applies). Both lists say whether each service is `warm`: keep an instance running. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.
         """
         return await self._client._request(
             _OPERATIONS["systemDeployments.list"],

@@ -106,6 +106,7 @@ export type {
   SystemDeploymentsBinding,
   SystemDeploymentsOptions,
   SystemDeploymentToRetire,
+  SystemDeploymentToServe,
   SystemPackEnvOptions,
   SystemPackEnvServed,
 } from './routes/system-deployments.js';

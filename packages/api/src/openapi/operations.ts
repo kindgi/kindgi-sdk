@@ -3128,9 +3128,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/system/deployments',
     openapiPath: '/v1/system/deployments',
     operationId: 'systemDeployments.list',
-    summary: 'List deployments that need a pack service, or should lose theirs',
+    summary: 'List deployments that need a pack service, have a ready one, or should lose theirs',
     description:
-      "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
+      "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=ready`: deployments whose endpoint is `ready` and whose pack service stays (no `retire` reason applies). Both lists say whether each service is `warm`: keep an instance running. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
     tags: ['system-deployments'],
     security: 'bearer',
     parameters: [
@@ -3139,8 +3139,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         in: 'query',
         required: true,
         description:
-          '`missing`: deployments that need a pack service. `retire`: deployments whose pack service should go.',
-        schema: { type: 'string', enum: ['missing', 'retire'] },
+          '`missing`: deployments that need a pack service. `ready`: deployments whose pack service is ready and stays. `retire`: deployments whose pack service should go.',
+        schema: { type: 'string', enum: ['missing', 'ready', 'retire'] },
       },
       CursorQueryParam,
       LimitQueryParam,
@@ -3149,7 +3149,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'One page of deployments.', schema: ref('SystemDeploymentPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse(
-        '`endpoint` missing or neither `missing` nor `retire`; a `limit` out of range; a cursor refused.',
+        '`endpoint` missing or not one of `missing`, `ready` and `retire`; a `limit` out of range; a cursor refused.',
       ),
       '403': ErrorResponse(
         "A tenant's key or session (`system-principal-required`), or a system key without `system:deployments` (`system-scope-missing`).",
