@@ -31,6 +31,8 @@ password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or tr
 - **Your pack's service** (`kindgi-pack`): your tools' code, for every
   project the runtime serves
   ([Your tools' code](../../../concepts/security/#your-tools-code)).
+  It runs only the tool versions in `pack_image`'s build
+  ([A self-hosted runtime runs what your pack has](../../../guides/agents/agent-and-tool-versions/#a-self-hosted-runtime-runs-what-your-pack-has)).
   Internal ingress, and IAM-protected: only the runtime's service account
   may call it, with a Google ID token on every call. Its CPU is allocated only while a call runs,
   so the instance `pack_min_instances` keeps up bills at Cloud Run's lower
@@ -141,8 +143,8 @@ digest, with every platform it was built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.2.0" \
-  registry.kindgi.com/kindgi/runtime:0.2.0@sha256:76251214ab450d96995af8d4fecefd747aef1dd6611518221e209e386443aed8
+docker buildx imagetools create --tag "$REPO/runtime:0.3.0" \
+  registry.kindgi.com/kindgi/runtime:0.3.0@sha256:1f5cfe0032bb82b467781949978719d6a3da4d500cd994471f2f2e009c9a1b9f
 ```
 
 - `REPO` is the repository's address, from the foundation's output.
@@ -645,7 +647,7 @@ It prints the deployment as JSON, then each step. The last steps:
 
   Deploy complete.
   Runs started from now use image sha256:bd7bfe4f7d9c8… (artifactVersion …).
-  Runs already in flight continue on their pinned image.
+  With one pack service, runs already in flight call that service's current build, as new runs do: a call naming a tool version that build doesn't have fails with tool-version-mismatch.
 ```
 
 To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
@@ -879,8 +881,12 @@ The two can go in two Google Cloud projects, or in one:
   it, `terraform plan` stops and asks for it. From a module copy that set
   only Terraform's deletion protection, the next apply also turns on
   Google's in the instance, in place, while `database_deletion_protection`
-  is on (the default). If the plan says the instance `must be replaced`,
-  stop: a replace deletes the database.
+  is on (the default). With a private-IP database
+  (`database_private_network`), that change makes the module read the
+  instance's CAs during the apply, so the plan shows the server's
+  `KINDGI_DATABASE_SERVER_CA` as `(known after apply)`: it's still the
+  instance's CAs. If the plan says the instance `must be replaced`, stop:
+  a replace deletes the database.
 - **Or upgrade with the module's `upgrade.sh`:** a deployment of the
   module on runtime 0.1.8 or later, in any `network_mode`, can run it
   instead, to 0.2.0 or later. Before the `@kindgi/sdk@0.3.0` tag it takes

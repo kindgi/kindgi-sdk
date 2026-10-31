@@ -133,7 +133,6 @@ export type {
   PackFilter,
   PacksClient,
   PageFilter,
-  PatternsInput,
   PoliciesClient,
   PolicyListFilter,
   PolicyVersionsFilter,

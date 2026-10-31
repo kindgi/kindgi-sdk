@@ -1316,6 +1316,7 @@ describe('making the carried agents live in the target (makeLive)', () => {
     expect(res.body.error.message).toContain(
       'Promote a build that ships a version of it, then make it live. If this version came from a suggested change',
     );
+    expect(res.body.error.message).toContain('then promote this build again');
     expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
     expect(h.pinned).toEqual([]);
   });

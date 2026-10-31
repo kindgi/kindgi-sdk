@@ -1,6 +1,6 @@
 ---
 title: Agent and tool versions
-description: How a range picks a tool version, how a published agent version locks its tools, how a pin holds a tool at a version, what a deploy does when they change, and what unregistering a version does.
+description: How a range picks a tool version, how a published agent version locks its tools, how a pin holds a tool at a version, what a deploy does when they change, what a self-hosted runtime runs, and what unregistering a version does.
 sidebar:
   order: 7
 ---
@@ -8,8 +8,8 @@ sidebar:
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 This page explains which tool version a run of an agent gets, how a published
-agent version locks it, how a pin holds a tool at a version, and what
-unregistering a version does.
+agent version locks it, how a pin holds a tool at a version, which versions a
+self-hosted runtime can run, and what unregistering a version does.
 
 Tools and agents are versioned, and several versions of each can be active at
 once. An agent names each tool by a range.
@@ -314,6 +314,52 @@ An app that runs an exact version keeps running the old, unpinned one until
 you change it: `agentVersion: '1.4.0'`, or `--agent-version=1.4.0` from the
 CLI. An app that names no version gets the pinned one, since the deploy
 made it Latest.
+
+### A self-hosted runtime runs what your pack has
+
+A self-hosted runtime with one pack service, as in the
+[Docker](../../../deploy/self-hosted/self-host/),
+[Cloud Run](../../../deploy/self-hosted/cloud-run/) and
+[Azure Container Apps](../../../deploy/self-hosted/azure-container-apps/)
+setups, sends every tool call to that service, whatever version the call
+names. A new build of your pack replaces the one the service runs. So a tool
+version runs only while the build the service runs has it, and so does each
+agent and flow version that locks it. What this page says about an older
+version still running holds there while its tools are in the pack.
+
+When the pack no longer has a tool version that an agent or flow version
+locked, a run of that version still starts. A flow version fails at that
+tool's step, after the steps before it have run, and an agent version's call
+to the tool fails:
+
+```text
+tool-version-mismatch: Tool "acme.score" is 1.1.0 in this pack; the caller asked for 1.0.0
+```
+
+After a deploy that gives a tool a new version:
+
+- **Run the versions the deploy made.** It registered a new version of each
+  agent and flow whose pins changed, with a line for each. A run that names
+  no version takes the newest, unless a
+  [live version](../../evals/live-versions-reference/) or a
+  [pinned flow version](../../flows/pin-a-flow-version/) holds it at an older
+  one: move it.
+- **Move the tool's pin too.** While a
+  [pin](#a-pin-holds-a-tool-at-a-version) holds the tool at its old version,
+  the agent and flow versions made under it lock the old version, and fail
+  the same way.
+- **To keep an older version running, keep its tools in the pack.** A pack
+  can hold several versions of a tool side by side
+  ([A range picks a version](#a-range-picks-a-version)), and the service
+  runs each.
+
+Until the service runs the new build, the versions the deploy made fail the
+same way, since the build before it doesn't have their new tool versions.
+
+The [many-tenants setup](../../../deploy/self-hosted/serve-many-tenants/)
+runs a pack service for each deployment, and sends each call to the newest
+one that shipped the version it names. There, a version keeps running after
+later deploys while that service is up.
 
 ## What unregistering a version does
 
