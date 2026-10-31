@@ -69,6 +69,8 @@ pnpm exec kindgi suggested-changes create --agent=acme.rank.scorer --project=<pr
 - **Why:** `--why` says what the change should fix, and why. Its first line
   starts the suggested change's `title`. Each `--fixes=<correction-id>`
   names a correction it fixes, kept in its `fixes`. Repeat it for several.
+  Each must be a correction in the project: an unknown id, or another
+  project's, is refused (`validation-failed`), and nothing is made.
 
 It publishes the block version, makes the agent version that pins it, and
 starts the check. It prints the suggested change, `checking`:

@@ -34,6 +34,7 @@ import { approvalResourceRef, projectOfScope } from './approval-resource.js';
 import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
 import { type BlockEdit, blockEditDefinition, publishBlockEdit } from './block-publish.js';
 import { sameUserId } from './caller.js';
+import type { CorrectionRegistryBinding } from './correction-binding.js';
 import { deriveAgentVersion } from './derive-agent-version.js';
 import {
   type LaterEnvironment,
@@ -152,9 +153,12 @@ export interface SuggestedChangeServiceDeps {
   /**
    * What a pin's test runs need besides the test sets (`AgentPinGateDeps`):
    * the corrections the card's reused check changes, and the projects an
-   * agent runs in. Absent `corrections`: a pin starts no test run.
+   * agent runs in. Absent `corrections`: a pin starts no test run. `get`
+   * reads the corrections a new card says it fixes; absent, there are none
+   * to name, so a card naming any is refused.
    */
-  readonly corrections?: AgentPinGateDeps['corrections'];
+  readonly corrections?: AgentPinGateDeps['corrections'] &
+    Partial<Pick<CorrectionRegistryBinding, 'get'>>;
   readonly itemProjects?: AgentPinGateDeps['itemProjects'];
 }
 
@@ -1205,6 +1209,8 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       }
       const tier = tierFor(from, input.blockId, input.content);
       if (typeof tier !== 'string') return err(tier);
+      const notHere = await fixesNotInProject(deps.corrections, tenantId, projectId, input.fixes);
+      if (notHere !== undefined) return err(notHere);
       const frozen = await frozenSet(deps.testSets, tenantId, agentId, projectId);
       if (frozen.kind === 'err') return frozen;
       const drafted = await service.draft({
@@ -1822,6 +1828,47 @@ function validationFailed(
     code: 'validation-failed',
     message,
     issues: issues as unknown as Record<string, unknown>[],
+  };
+}
+
+/**
+ * The refusal when a new card names, in `fixes`, an id that's no correction
+ * in its own project: unknown, or another project's or tenant's. A card
+ * says which of its project's corrections it fixes, so each must be one
+ * of them. `fixes` in the details lists the bad ids, and `issues` each
+ * one's place. `undefined` when every id is one, or it names none.
+ */
+async function fixesNotInProject(
+  corrections: Partial<Pick<CorrectionRegistryBinding, 'get'>> | undefined,
+  tenantId: TenantId,
+  projectId: ProjectId,
+  fixes: readonly string[] | undefined,
+): Promise<SuggestedChangeServiceError | undefined> {
+  if (fixes === undefined) return undefined;
+  const ids = [...new Set(fixes)];
+  const found = await Promise.all(
+    ids.map((correctionId) =>
+      corrections?.get === undefined
+        ? Promise.resolve(null)
+        : corrections.get({ tenantId, correctionId }),
+    ),
+  );
+  // The tenant too: the id is the caller's, and a store keyed by id alone mustn't let another tenant's through.
+  const bad = ids.filter(
+    (_, i) => found[i]?.tenantId !== tenantId || found[i]?.projectId !== projectId,
+  );
+  if (bad.length === 0) return undefined;
+  const project = projectId as unknown as string;
+  return {
+    ...validationFailed(
+      `\`fixes\` names ${bad.length === 1 ? 'an id that is' : 'ids that are'} no correction in project ${project}: ${bad.join(', ')}`,
+      fixes.flatMap((id, i) =>
+        bad.includes(id)
+          ? [{ path: `fixes[${i}]`, message: `No correction ${id} in project ${project}` }]
+          : [],
+      ),
+    ),
+    fixes: bad,
   };
 }
 

@@ -7559,7 +7559,8 @@ export const CreateSuggestedChangeBodySchema: JsonSchema = {
     fixes: {
       type: 'array',
       items: { type: 'string' },
-      description: 'The corrections it fixes, by id.',
+      description:
+        "The corrections it fixes, by id. Each must be a correction in the suggested change's project: an unknown id, or another project's, is refused (`400 validation-failed`, the ids in `details.fixes`).",
     },
   },
 };

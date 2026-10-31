@@ -5298,7 +5298,7 @@ class CreateSuggestedChangeBody(BaseModel):
     why: Annotated[str, Field(max_length=2000, min_length=1)]
     fixes: list[str] | None = None
     """
-    The corrections it fixes, by id.
+    The corrections it fixes, by id. Each must be a correction in the suggested change's project: an unknown id, or another project's, is refused (`400 validation-failed`, the ids in `details.fixes`).
     """
 
 

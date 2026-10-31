@@ -1095,6 +1095,79 @@ describe('POST /v1/suggested-changes', () => {
     expect(suggestedChanges.rows.size).toBe(0);
   });
 
+  /** A correction of the agent in `inProject` of `inTenant`, as a person records it. */
+  async function correctionIn(
+    corrections: CorrectionRegistryBinding,
+    inProject: ProjectId,
+    inTenant: TenantId = tenantId,
+  ) {
+    const { id } = await corrections.record({
+      tenantId: inTenant,
+      projectId: inProject,
+      runId: randomUUID(),
+      run: {
+        subject: { kind: 'agent', id: AGENT, version: '1.0.0' },
+        input: { ask: 'score the acme filing' },
+        output: { text: '0.4' },
+      },
+      madeBy: { kind: 'user', id: 'user-1' },
+      status: 'open',
+      answer: 'wrong',
+      shouldSay: '0.8',
+    });
+    return id;
+  }
+
+  test('its `fixes` are corrections in its own project, and the answer lists them (201)', async () => {
+    const corrections = inMemoryCorrections();
+    const { call, pinStore } = await harness({ correctionRegistry: corrections });
+    pinStore.pin(PROJECT, '1.0.0');
+    const one = await correctionIn(corrections, projectId);
+    const two = await correctionIn(corrections, projectId);
+    const res = await call('POST', '/v1/suggested-changes', { ...CARD, fixes: [one, two] });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.fixes).toEqual([one, two]);
+  });
+
+  test("an id in `fixes` that's no correction in its project is refused (400 validation-failed), naming each, and nothing is made", async () => {
+    const corrections = inMemoryCorrections();
+    const { call, pinStore, freeze, suggestedChanges, testRuns } = await harness({
+      correctionRegistry: corrections,
+    });
+    pinStore.pin(PROJECT, '1.0.0');
+    const here = await correctionIn(corrections, projectId);
+    const otherProject = await correctionIn(corrections, randomUUID() as ProjectId);
+    const otherTenant = await correctionIn(corrections, projectId, randomUUID() as TenantId);
+    const res = await call('POST', '/v1/suggested-changes', {
+      ...CARD,
+      fixes: [here, 'c-unknown', otherProject, otherTenant, 'c-unknown'],
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(400);
+    expect(res.body.error.code).toBe('validation-failed');
+    expect(res.body.error.message).toContain(`no correction in project ${projectId}`);
+    expect(res.body.error.details.fixes).toEqual(['c-unknown', otherProject, otherTenant]);
+    expect(res.body.error.details.issues.map((i: { path: string }) => i.path)).toEqual([
+      'fixes[1]',
+      'fixes[2]',
+      'fixes[3]',
+      'fixes[4]',
+    ]);
+    // Asked before the freeze: nothing frozen, stored or run.
+    expect(freeze.calls).toEqual([]);
+    expect(suggestedChanges.rows.size).toBe(0);
+    expect(testRuns.started).toEqual([]);
+  });
+
+  test('with no corrections at all, a card naming one is refused (400 validation-failed)', async () => {
+    const { call, pinStore, suggestedChanges } = await harness();
+    pinStore.pin(PROJECT, '1.0.0');
+    const res = await call('POST', '/v1/suggested-changes', { ...CARD, fixes: ['c-1'] });
+    expect(res.status, JSON.stringify(res.body)).toBe(400);
+    expect(res.body.error.code).toBe('validation-failed');
+    expect(res.body.error.details.fixes).toEqual(['c-1']);
+    expect(suggestedChanges.rows.size).toBe(0);
+  });
+
   test('an unknown field is named', async () => {
     const { call } = await harness();
     const res = await call('POST', '/v1/suggested-changes', { ...CARD, tier: 'settings-block' });

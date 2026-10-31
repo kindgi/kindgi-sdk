@@ -12751,7 +12751,7 @@
             "items": {
               "type": "string"
             },
-            "description": "The corrections it fixes, by id."
+            "description": "The corrections it fixes, by id. Each must be a correction in the suggested change's project: an unknown id, or another project's, is refused (`400 validation-failed`, the ids in `details.fixes`)."
           }
         }
       },
@@ -44694,7 +44694,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body, or the change fails validation: a block the project's version doesn't pin, `values` for a prompt block or `template` for a settings block (`details.issues`). Or `reference-out-of-scope`: the project doesn't reach the agent, or the agent's project doesn't reach the block (`details.issues`).",
+            "description": "Malformed request body, or the change fails validation: a block the project's version doesn't pin, `values` for a prompt block or `template` for a settings block (`details.issues`). Or `reference-out-of-scope`: the project doesn't reach the agent, or the agent's project doesn't reach the block (`details.issues`). Or `validation-failed` when an id in `fixes` is no correction in the project: `details.fixes` lists those ids, and `details.issues` their places.",
             "content": {
               "application/json": {
                 "schema": {
