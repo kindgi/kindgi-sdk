@@ -551,6 +551,23 @@ export {
   whatRuns,
   whatRunsByProject,
 } from './what-runs.js';
+export {
+  CHECK_LIST_MAX,
+  type DeployCheck,
+  type DeployCheckActor,
+  type DeployCheckBody,
+  type DeployCheckDeps,
+  type DeployCheckInput,
+  type DeployCheckStop,
+  REPLACE_REASON_MAX,
+  type ReplaceBlock,
+  type ReplacedBlock,
+  type RunsNewer,
+  checkAgainstRuns,
+  parseCheckBody,
+  parseReplace,
+} from './deploy-check.js';
+export type { DeployCheckBindings } from './routes/deploy-check-deps.js';
 export type { RegistryReadOnly } from './registry-read-only.js';
 // A pack agent's block pins where the pack's own versions are the only ones (`kindgi dev`).
 export { type BlockPins, type BlockVersionReads, resolveBlockPins } from './block-pins.js';
@@ -1184,6 +1201,7 @@ export type {
   DeploymentPromoteOutcome,
   DeploymentRegisterInput,
   DeploymentRegisterOutcome,
+  DeploymentReplacedBlock,
   DeploymentSource,
   PromotedToolSecretScopes,
   SystemDeploymentRetireReason,

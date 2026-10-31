@@ -70,6 +70,8 @@ export interface PostDeploymentBody {
   readonly projectId?: string;
   /** Where the pack lives in git, when it's in a work tree (`source.ts`). */
   readonly source?: DeploySource;
+  /** `--replace` with `--reason`: the blocks the deploy puts back on purpose. */
+  readonly replace?: readonly { readonly blockId: string; readonly reason: string }[];
 }
 
 /**
