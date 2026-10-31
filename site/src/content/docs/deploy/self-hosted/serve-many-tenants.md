@@ -261,8 +261,9 @@ service is, and checks it. It never creates or deletes one.
    cleared one, and nothing about it is closing or suspended. Each entry has
    the tenant's id, the deployment's id, its pack and project (the one it
    named, else the tenant's Default), and its image: the digest-pinned
-   `imageRef`, its digest, the artifact version and when it went live. It
-   has nothing else of the tenant.
+   `imageRef`, its digest, the artifact version and when it went live, and
+   whether to start its service `warm` (step 7). It has nothing else of the
+   tenant.
 
    A deployment that ships no tools and no guardrail checks of its own, such
    as one of agents and flows whose guardrails use only built-in checks, has
@@ -368,6 +369,15 @@ service is, and checks it. It never creates or deletes one.
    does). Registering one of its versions again lists it as needing a
    service again. A tenant sees what keeps each one in its endpoint's
    `keptFor`.
+7. **Keep the warm ones up:** `GET /v1/system/deployments?endpoint=ready`
+   lists deployments whose service is ready and stays, oldest first across
+   tenants. Here and in `endpoint=missing`, `warm: true` means calls in its
+   project route to it for something always on: a tool version reached from
+   a version a pin holds (an agent's, a flow's or a tool's) or from the
+   Latest of each agent no pin covers there, or a pack check a registered
+   guardrail runs there. Keep an instance of a warm service running, and let
+   the others scale to zero. A runtime that doesn't send `warm` keeps none
+   warm.
 
 A call to a deployment's tool never goes anywhere else. With no endpoint yet
 it fails with `pack-endpoint-pending`, and after a clear with

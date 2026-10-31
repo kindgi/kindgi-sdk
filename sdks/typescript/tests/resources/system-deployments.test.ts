@@ -34,6 +34,17 @@ describe('systemDeployments — wire round-trip', () => {
     );
   });
 
+  it('list ready: each entry with whether its service is kept warm', async () => {
+    const page = { data: [{ ...ENTRY, warm: true }], hasMore: false };
+    const stub = jsonFetch(page);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const listed = await client.systemDeployments.list('ready');
+    expect(listed.data[0]?.warm).toBe(true);
+    expect(`${stub.calls[0]!.method} ${stub.calls[0]!.url}`).toBe(
+      `GET ${API}/v1/system/deployments?endpoint=ready`,
+    );
+  });
+
   it('claimRound: POST …/round with the claimant and the hold', async () => {
     const round = { claimant: 'pass-1', heldUntil: '2026-10-31T00:10:00.000Z' };
     const stub = jsonFetch(round);

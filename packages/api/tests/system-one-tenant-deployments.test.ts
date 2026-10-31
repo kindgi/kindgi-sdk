@@ -64,6 +64,9 @@ function makeDeployments(options: { readonly round?: boolean } = {}) {
     async listNeedingEndpoint() {
       return { kind: 'ok', data: [entry('dep-1')] };
     },
+    async listReady() {
+      return { kind: 'ok', data: [] };
+    },
     async listToRetire() {
       return { kind: 'ok', data: [] };
     },
