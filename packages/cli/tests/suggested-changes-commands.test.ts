@@ -461,7 +461,6 @@ const CHECK = {
     { key: 'permission', missing: false },
     { key: 'one-at-a-time', missing: false },
     { key: 'project', missing: false },
-    { key: 'registry', missing: false },
   ],
   estimate: { costUsd: '1.90', maxCostUsd: '3', basis: { replays: 22, meanRunCostUsd: '0.086' } },
   month: { spentUsd: '12', capUsd: '50' },

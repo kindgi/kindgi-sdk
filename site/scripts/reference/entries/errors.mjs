@@ -1507,11 +1507,6 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'suggested-change-needs-pin': {
-    description:
-      'The agent has no pinned version for the whole tenant, so a new version would serve every scope nothing is pinned for. Pin its current version for the tenant first, then retry.',
-    details: [],
-  },
   'suggested-change-not-for-a-project': {
     description:
       "The suggested change was made for a tenant, an org or a segment, before suggested changes were for one project, so it can't be checked, pinned or added as Latest. Withdraw it, and suggest the change for a project.",

@@ -22,7 +22,7 @@ import {
 } from '../improve-run-binding.js';
 import { type ItemRights, writeWhereMade } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import { refusesCandidates } from '../registry-read-only.js';
+import { refuseReadOnly } from '../registry-read-only.js';
 import type { SuggestedChangeObjective } from '../supervisor-binding.js';
 import type { TestRunGroupWeights } from '../test-run-binding.js';
 import type { AppEnv } from '../types.js';
@@ -35,7 +35,7 @@ type Ctx = Context<AppEnv>;
 /** What `POST /v1/improve-runs` checks an Improve run against before it starts. */
 export interface ImproveDeps {
   readonly improveRuns?: ImproveRunBinding;
-  /** The agent registry: whether it takes the versions an Improve run makes (`readOnly`). */
+  /** The agent registry: read-only under `kindgi dev`, where no Improve run starts (`readOnly`). */
   readonly agents: AgentRegistryBinding;
   /** Whether a project is suspended: no Improve run starts in one. Absent: no check. */
   readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
@@ -139,24 +139,9 @@ function mountStartRoutes(
   itemRights?: ItemRights,
 ) {
   r.post('/', async (c) => {
-    const tenantId = c.get('tenantId') as TenantId;
-    const body = await readBody(c);
-    if (body === undefined) return badInput(c, 'Request body must be a JSON object');
-    const parsed = parseStartImproveRunBody(body);
-    if (typeof parsed === 'string') return badInput(c, parsed);
-    const denied = await deny(c, authorizer, 'publish', parsed.agentId, itemRights);
-    if (denied !== undefined) return denied;
-    const improveRuns = deps.improveRuns;
-    if (improveRuns === undefined) return unsupported(c);
-    const groupWeights = await resolveGroupWeights(
-      deps,
-      tenantId,
-      parsed.projectId,
-      parsed.agentId,
-      parsed.groupWeights,
-    );
-    const check = await improveRuns.check(checkInput(tenantId, parsed, groupWeights));
-    const readiness = await readinessOf(deps, tenantId, parsed, check);
+    const asked = await askCheck(c, deps, authorizer, itemRights);
+    if (asked instanceof Response) return asked;
+    const { tenantId, parsed, improveRuns, groupWeights, check, readiness } = asked;
     const missing = blocking(readiness.items, parsed.tiers);
     // The running run alone is `improve-run-running`, with its id; anything else
     // missing is `improve-not-ready`, listing every missing item at once.
@@ -189,24 +174,9 @@ function mountStartRoutes(
   });
 
   r.post('/check', async (c) => {
-    const tenantId = c.get('tenantId') as TenantId;
-    const body = await readBody(c);
-    if (body === undefined) return badInput(c, 'Request body must be a JSON object');
-    const parsed = parseStartImproveRunBody(body);
-    if (typeof parsed === 'string') return badInput(c, parsed);
-    const denied = await deny(c, authorizer, 'publish', parsed.agentId, itemRights);
-    if (denied !== undefined) return denied;
-    const improveRuns = deps.improveRuns;
-    if (improveRuns === undefined) return unsupported(c);
-    const groupWeights = await resolveGroupWeights(
-      deps,
-      tenantId,
-      parsed.projectId,
-      parsed.agentId,
-      parsed.groupWeights,
-    );
-    const check = await improveRuns.check(checkInput(tenantId, parsed, groupWeights));
-    const readiness = await readinessOf(deps, tenantId, parsed, check);
+    const asked = await askCheck(c, deps, authorizer, itemRights);
+    if (asked instanceof Response) return asked;
+    const { parsed, check, readiness } = asked;
     const { basis } = check;
     const costUsd =
       basis.meanRunCostUsd === undefined
@@ -255,16 +225,55 @@ function running(c: Ctx, parsed: StartImproveRunBody, improveRunId: string) {
   });
 }
 
+/**
+ * What a start and a check both do first: read the body, ask for `publish` on
+ * the agent and for Improve in this runtime, and refuse under `kindgi dev`,
+ * where an Improve run is refused as any suggested change is: its change is
+ * for one project, and the pack's files serve every one. Then the runtime's
+ * check, as the readiness list. The response to send, or what the route
+ * goes on with.
+ */
+async function askCheck(
+  c: Ctx,
+  deps: ImproveDeps,
+  authorizer: Authorizer | undefined,
+  itemRights: ItemRights | undefined,
+): Promise<
+  | Response
+  | {
+      readonly tenantId: TenantId;
+      readonly parsed: StartImproveRunBody;
+      readonly improveRuns: ImproveRunBinding;
+      readonly groupWeights: TestRunGroupWeights;
+      readonly check: ImproveRunCheck;
+      readonly readiness: Awaited<ReturnType<typeof readinessOf>>;
+    }
+> {
+  const tenantId = c.get('tenantId') as TenantId;
+  const body = await readBody(c);
+  if (body === undefined) return badInput(c, 'Request body must be a JSON object');
+  const parsed = parseStartImproveRunBody(body);
+  if (typeof parsed === 'string') return badInput(c, parsed);
+  const denied = await deny(c, authorizer, 'publish', parsed.agentId, itemRights);
+  if (denied !== undefined) return denied;
+  const improveRuns = deps.improveRuns;
+  if (improveRuns === undefined) return unsupported(c);
+  if (deps.agents.readOnly !== undefined) return refuseReadOnly(c, deps.agents.readOnly);
+  const groupWeights = await resolveGroupWeights(
+    deps,
+    tenantId,
+    parsed.projectId,
+    parsed.agentId,
+    parsed.groupWeights,
+  );
+  const check = await improveRuns.check(checkInput(tenantId, parsed, groupWeights));
+  const readiness = await readinessOf(deps, tenantId, parsed, check);
+  return { tenantId, parsed, improveRuns, groupWeights, check, readiness };
+}
+
 /** One line of the readiness list (`POST /v1/improve-runs/check`). */
 interface ReadinessItem {
-  readonly key:
-    | 'wording'
-    | 'settings'
-    | 'test-cases'
-    | 'permission'
-    | 'one-at-a-time'
-    | 'project'
-    | 'registry';
+  readonly key: 'wording' | 'settings' | 'test-cases' | 'permission' | 'one-at-a-time' | 'project';
   readonly missing: boolean;
   /** For `test-cases`: the project's active cases of the agent's test set. */
   readonly count?: number;
@@ -289,7 +298,6 @@ async function readinessOf(
   const suspended =
     deps.projectSuspended !== undefined &&
     (await deps.projectSuspended(tenantId, parsed.projectId));
-  const readOnly = deps.agents.readOnly;
   const items: ReadinessItem[] = [
     check.wording
       ? { key: 'wording', missing: false }
@@ -322,9 +330,6 @@ async function readinessOf(
       : check.startsFrom === undefined
         ? { key: 'project', missing: true, fix: { where: 'repo', text: FIX.notRunning } }
         : { key: 'project', missing: false },
-    readOnly !== undefined && refusesCandidates(readOnly)
-      ? { key: 'registry', missing: true, fix: { where: 'kindgi', text: readOnly.reason } }
-      : { key: 'registry', missing: false },
   ];
   return { ready: blocking(items, parsed.tiers).length === 0, items };
 }

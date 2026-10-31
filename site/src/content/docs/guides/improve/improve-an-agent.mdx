@@ -23,10 +23,11 @@ person still decides: the suggested change waits for a reviewer.
   with keys [Improve may change](#mark-what-improve-may-change);
 - **test cases in the project,** [built from corrections](../build-a-test-set/);
 - **a version of the agent running in the project,** pinned there or its
-  latest;
-- **a runtime: `kindgi dev`, or a deployed one,** with Kindgi 0.4's CLI.
-  Under `kindgi dev`, the suggested change an Improve run drafts is for the
-  whole tenant, as [Under `kindgi dev`](../suggest-a-change/#under-kindgi-dev) says;
+  Latest;
+- **a deployed runtime,** with Kindgi 0.4's CLI. Under `kindgi dev`, an
+  Improve run is refused with `409 registry-read-only`, as a suggested change
+  is: its change is for one project, and the pack's files serve every project
+  ([Under `kindgi dev`](../suggest-a-change/#under-kindgi-dev));
 - **`publish` on the agent.** For an agent more than one project serves, also
   `write` where its versions are made.
 
@@ -122,7 +123,6 @@ test-cases (25)  ok
 permission       ok
 one-at-a-time    ok
 project          ok
-registry         ok
 
 Ready: yes
 Starts from: 1.0.0 (pinned in the project)
@@ -134,9 +134,8 @@ This month: $3.10 of the Improve schedule's $20.00
   `settings` (settings marked Improve may tune), `test-cases` (the project's
   active cases for the agent, and how many), `permission` (`publish` on the
   agent), `one-at-a-time` (no Improve run of the agent already running in the
-  project), `project` (a version of the agent runs in the project, and the
-  project isn't suspended) and `registry` (the agent registry takes the
-  versions an Improve run makes). A missing one says where it's fixed, in the
+  project) and `project` (a version of the agent runs in the project, and the
+  project isn't suspended). A missing one says where it's fixed, in the
   agent's code (then a deploy) or in Kindgi, and how.
 - **Ready** when `wording` or `settings` is there, and every other item is.
   With `--tier`, each tier named needs its own: `--tier=prompt` needs

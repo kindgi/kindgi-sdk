@@ -2563,6 +2563,40 @@ describe('a suggested change a drafter wrote (not a person)', () => {
     return request.gate.approval;
   }
 
+  test("an Improve run's proof starts with no pin for the whole tenant: the version it makes is Latest nowhere", async () => {
+    const h = await harness();
+    h.pinStore.pin(PROJECT, '1.0.0');
+    const service = createSuggestedChangeService({
+      store: h.suggestedChanges,
+      agents: h.agents,
+      blocks: h.blocks,
+      testRuns: h.testRuns.binding,
+      agentPins: h.pinStore.bindings,
+    });
+    const drafted = await service.draft({
+      tenantId,
+      agentId: AGENT,
+      fromVersion: '1.0.0',
+      scope: PROJECT,
+      tier: 'settings-block',
+      blockId: WEIGHTS,
+      content: { values: { recency: 0.6, fit: 0.4 } },
+      why: 'The search found these weights',
+      drafter: { kind: 'settings-optimizer', version: '1' },
+    });
+    if (drafted.kind !== 'ok') throw new Error(JSON.stringify(drafted.error));
+    const evaluated = await service.evaluate({
+      tenantId,
+      suggestedChange: drafted.value.suggestedChange,
+      testSetId: 'acme.scoring-judged',
+      objective: 'passRate',
+      actor: { kind: 'service', id: 'improve-run' },
+    });
+    if (evaluated.kind !== 'ok') throw new Error(JSON.stringify(evaluated.error));
+    expect(evaluated.value.evaluation?.testRunId).toEqual(expect.any(String));
+    expect(h.testRuns.started).toHaveLength(1);
+  });
+
   test('a drafter must ask a separate approver when a second reviewer could approve', async () => {
     const approval = await draftedApprovalFor(
       roster({ userId: 'u-alice' }, { userId: 'u-bob', role: 'senior' }),
@@ -3758,7 +3792,6 @@ describe('POST /v1/improve-runs/check', () => {
         { key: 'permission', missing: false },
         { key: 'one-at-a-time', missing: false },
         { key: 'project', missing: false },
-        { key: 'registry', missing: false },
       ],
       estimate: { costUsd: '2', maxCostUsd: '5', basis: { replays: 10, meanRunCostUsd: '0.2' } },
       month: { spentUsd: '3.5', capUsd: '20' },
@@ -3809,7 +3842,7 @@ describe('POST /v1/improve-runs/check', () => {
       testCases: 0,
       runningId: 'improve-run-1',
     });
-    const h = await harness({ improveRuns: improveRuns.binding, readOnly: true });
+    const h = await harness({ improveRuns: improveRuns.binding });
     const res = await h.call('POST', CHECK, IMPROVE);
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(res.body.ready).toBe(false);
@@ -3822,7 +3855,6 @@ describe('POST /v1/improve-runs/check', () => {
       ['permission', false, undefined],
       ['one-at-a-time', true, 'kindgi'],
       ['project', true, 'repo'],
-      ['registry', true, 'kindgi'],
     ]);
     expect(items[2]?.count).toBe(0);
     expect(items[4]?.improveRunId).toBe('improve-run-1');
@@ -4031,32 +4063,30 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
     message: TAKES_CANDIDATES.takesCandidates.scopeReason,
   };
 
-  test('an Improve run starts (202)', async () => {
-    const improveRuns = inMemoryImproveRuns();
-    const h = await harness({
-      improveRuns: improveRuns.binding,
-      readOnly: 'takes-candidates',
-    });
-    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
-    expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(improveRuns.started).toHaveLength(1);
-  });
-
-  test('a read-only one refuses an Improve run (409 improve-not-ready, listing registry) and starts none', async () => {
-    const improveRuns = inMemoryImproveRuns();
-    const h = await harness({ improveRuns: improveRuns.binding, readOnly: true });
-    const res = await h.call('POST', '/v1/improve-runs', IMPROVE);
-    expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe('improve-not-ready');
-    expect(res.body.error.details.items).toEqual([
-      {
-        key: 'registry',
-        missing: true,
-        fix: { where: 'kindgi', text: TAKES_CANDIDATES.reason },
-      },
-    ]);
-    expect(improveRuns.started).toEqual([]);
-  });
+  test.each([
+    ['takes-candidates', '/v1/improve-runs'],
+    ['takes-candidates', '/v1/improve-runs/check'],
+    ['read-only', '/v1/improve-runs'],
+    ['read-only', '/v1/improve-runs/check'],
+  ] as const)(
+    "an Improve run is refused as a suggested change is, %s (%s: 409 registry-read-only, with the registry's reason): nothing checked or started",
+    async (registry, path) => {
+      const improveRuns = inMemoryImproveRuns();
+      const h = await harness({
+        improveRuns: improveRuns.binding,
+        readOnly: registry === 'read-only' ? true : 'takes-candidates',
+      });
+      const res = await h.call('POST', path, IMPROVE);
+      expect(res.status, JSON.stringify(res.body)).toBe(409);
+      expect(res.body.error).toMatchObject({
+        code: 'registry-read-only',
+        message: TAKES_CANDIDATES.reason,
+      });
+      expect(res.body.error.details).toBeUndefined();
+      expect(improveRuns.checked).toEqual([]);
+      expect(improveRuns.started).toEqual([]);
+    },
+  );
 
   test("a suggested change is refused with the registry's reason, not the scope's (409 registry-read-only), and none is kept", async () => {
     const h = await harness({ readOnly: 'takes-candidates', freezes: false });

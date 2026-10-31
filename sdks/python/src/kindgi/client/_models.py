@@ -5094,7 +5094,7 @@ class Fix(BaseModel):
 
 class ImproveReadinessItem(BaseModel):
     """
-    One thing an Improve run needs. In this order: `wording` (a prompt block to reword), `settings` (settings marked Improve may tune), `test-cases` (the project's active cases for the agent, `count`), `permission` (`publish` on the agent), `one-at-a-time` (no Improve run of the agent running in the project), `project` (a version of the agent runs in the project, and it isn't suspended) and `registry` (the agent registry takes the versions a run makes).
+    One thing an Improve run needs. In this order: `wording` (a prompt block to reword), `settings` (settings marked Improve may tune), `test-cases` (the project's active cases for the agent, `count`), `permission` (`publish` on the agent), `one-at-a-time` (no Improve run of the agent running in the project) and `project` (a version of the agent runs in the project, and it isn't suspended).
     """
 
     model_config = ConfigDict(
@@ -5102,15 +5102,7 @@ class ImproveReadinessItem(BaseModel):
         populate_by_name=True,
     )
     key: Annotated[
-        Literal[
-            "wording",
-            "settings",
-            "test-cases",
-            "permission",
-            "one-at-a-time",
-            "project",
-            "registry",
-        ]
+        Literal["wording", "settings", "test-cases", "permission", "one-at-a-time", "project"]
         | str,
         _open.OPEN,
     ]

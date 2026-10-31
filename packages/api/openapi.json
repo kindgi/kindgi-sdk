@@ -356,7 +356,6 @@
           "signing-key-store-error": 500,
           "suggested-change-not-found": 404,
           "suggested-change-invalid-state-transition": 409,
-          "suggested-change-needs-pin": 409,
           "suggested-change-not-for-a-project": 409,
           "suggested-change-check-unsupported": 501,
           "suggested-change-nothing-to-check": 409,
@@ -12397,7 +12396,7 @@
           "key",
           "missing"
         ],
-        "description": "One thing an Improve run needs. In this order: `wording` (a prompt block to reword), `settings` (settings marked Improve may tune), `test-cases` (the project's active cases for the agent, `count`), `permission` (`publish` on the agent), `one-at-a-time` (no Improve run of the agent running in the project), `project` (a version of the agent runs in the project, and it isn't suspended) and `registry` (the agent registry takes the versions a run makes).",
+        "description": "One thing an Improve run needs. In this order: `wording` (a prompt block to reword), `settings` (settings marked Improve may tune), `test-cases` (the project's active cases for the agent, `count`), `permission` (`publish` on the agent), `one-at-a-time` (no Improve run of the agent running in the project) and `project` (a version of the agent runs in the project, and it isn't suspended).",
         "properties": {
           "key": {
             "type": "string",
@@ -12407,8 +12406,7 @@
               "test-cases",
               "permission",
               "one-at-a-time",
-              "project",
-              "registry"
+              "project"
             ]
           },
           "missing": {
@@ -44070,7 +44068,7 @@
             }
           },
           "409": {
-            "description": "`improve-not-ready`: something the Improve run needs is missing (`details.items`, as `POST /v1/improve-runs/check` lists them). `improve-run-running`: the agent has a running Improve run in the project (`details.improveRunId`); one runs at a time. Or Idempotency-Key was reused with a different body.",
+            "description": "`improve-not-ready`: something the Improve run needs is missing (`details.items`, as `POST /v1/improve-runs/check` lists them). `improve-run-running`: the agent has a running Improve run in the project (`details.improveRunId`); one runs at a time. Or `registry-read-only`: under `kindgi dev`, an Improve run is refused, as any suggested change is: run Improve on a deployed runtime. Or Idempotency-Key was reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -44120,7 +44118,7 @@
             }
           }
         },
-        "description": "Starts an Improve run for an agent in a project. From the version the project runs (pinned there, else the agent's latest), it looks for better wording (the prompt tier) or settings values (the settings tier) on the project's test set, learning from the project's open corrections sorted to improve, within the budget. Its best change is proven on every case of the test set, at the reference's repetitions: when it passes more cases than that version and fails none that passed, it becomes a suggested change for a reviewer. It answers at once with the Improve run, `running`. The readiness check (`POST /v1/improve-runs/check`) runs first: when something the Improve run needs is missing, it's refused with `409 improve-not-ready`, listing every missing item at once (`details.items`, each with its fix); while the agent has a running Improve run in the project, with `409 improve-run-running` (`details.improveRunId`). An Improve run going when its project is suspended ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.",
+        "description": "Starts an Improve run for an agent in a project. From the version the project runs (pinned there, else its Latest), it looks for better wording (the prompt tier) or settings values (the settings tier) on the project's test set, learning from the project's open corrections sorted to improve, within the budget. Its best change is proven on every case of the test set, at the reference's repetitions: when it passes more cases than that version and fails none that passed, it becomes a suggested change for a reviewer. It answers at once with the Improve run, `running`. The readiness check (`POST /v1/improve-runs/check`) runs first: when something the Improve run needs is missing, it's refused with `409 improve-not-ready`, listing every missing item at once (`details.items`, each with its fix); while the agent has a running Improve run in the project, with `409 improve-run-running` (`details.improveRunId`). An Improve run going when its project is suspended ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -44311,6 +44309,16 @@
           },
           "404": {
             "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`registry-read-only`: under `kindgi dev`, an Improve run is refused, as any suggested change is: run Improve on a deployed runtime.",
             "content": {
               "application/json": {
                 "schema": {

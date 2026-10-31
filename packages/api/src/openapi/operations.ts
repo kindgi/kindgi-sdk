@@ -5220,7 +5220,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'improveRuns.start',
     summary: 'Start an Improve run',
     description:
-      "Starts an Improve run for an agent in a project. From the version the project runs (pinned there, else the agent's latest), it looks for better wording (the prompt tier) or settings values (the settings tier) on the project's test set, learning from the project's open corrections sorted to improve, within the budget. Its best change is proven on every case of the test set, at the reference's repetitions: when it passes more cases than that version and fails none that passed, it becomes a suggested change for a reviewer. It answers at once with the Improve run, `running`. The readiness check (`POST /v1/improve-runs/check`) runs first: when something the Improve run needs is missing, it's refused with `409 improve-not-ready`, listing every missing item at once (`details.items`, each with its fix); while the agent has a running Improve run in the project, with `409 improve-run-running` (`details.improveRunId`). An Improve run going when its project is suspended ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.",
+      "Starts an Improve run for an agent in a project. From the version the project runs (pinned there, else its Latest), it looks for better wording (the prompt tier) or settings values (the settings tier) on the project's test set, learning from the project's open corrections sorted to improve, within the budget. Its best change is proven on every case of the test set, at the reference's repetitions: when it passes more cases than that version and fails none that passed, it becomes a suggested change for a reviewer. It answers at once with the Improve run, `running`. The readiness check (`POST /v1/improve-runs/check`) runs first: when something the Improve run needs is missing, it's refused with `409 improve-not-ready`, listing every missing item at once (`details.items`, each with its fix); while the agent has a running Improve run in the project, with `409 improve-run-running` (`details.improveRunId`). An Improve run going when its project is suspended ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.",
     tags: ['improve-runs'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5235,7 +5235,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
       '409': ErrorResponse(
-        '`improve-not-ready`: something the Improve run needs is missing (`details.items`, as `POST /v1/improve-runs/check` lists them). `improve-run-running`: the agent has a running Improve run in the project (`details.improveRunId`); one runs at a time. Or Idempotency-Key was reused with a different body.',
+        '`improve-not-ready`: something the Improve run needs is missing (`details.items`, as `POST /v1/improve-runs/check` lists them). `improve-run-running`: the agent has a running Improve run in the project (`details.improveRunId`); one runs at a time. Or `registry-read-only`: under `kindgi dev`, an Improve run is refused, as any suggested change is: run Improve on a deployed runtime. Or Idempotency-Key was reused with a different body.',
       ),
       '501': ErrorResponse('`improve-unsupported`: this runtime runs no Improve runs.'),
     },
@@ -5259,6 +5259,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse(
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
+      ),
+      '409': ErrorResponse(
+        '`registry-read-only`: under `kindgi dev`, an Improve run is refused, as any suggested change is: run Improve on a deployed runtime.',
       ),
       '501': ErrorResponse('`improve-unsupported`: this runtime runs no Improve runs.'),
     },
