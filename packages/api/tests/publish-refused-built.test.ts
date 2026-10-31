@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/api/src/publish-refused.ts packages/api/tsconfig.build.json
 
 /**
  * `PublishRefused` as the package ships it. vitest compiles with esbuild,
