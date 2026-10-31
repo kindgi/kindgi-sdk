@@ -23,10 +23,12 @@ import {
   GUARDRAIL_SPEC_KEYS,
   type Guardrail,
   type GuardrailConfigProblem,
+  type GuardrailPoint,
   checkPoints,
   createCheckRegistry,
   guardrailCheckPointProblems,
   guardrailPoint,
+  indexedCheckPoints,
   isGuardrailPoint,
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
@@ -83,7 +85,7 @@ import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { type WireErrorBody, retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
 import { type FlowPinsLive, publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
-import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
+import type { GuardrailRecord, GuardrailRegistryBinding } from '../guardrail-binding.js';
 import { imageRefWithin, parseImagePrefix, parseImageRef } from '../image-ref.js';
 import type { ImageRegistryBinding, ImageRegistryError } from '../image-registry-binding.js';
 import type { ItemRights } from '../item-rights.js';
@@ -1203,10 +1205,12 @@ export function deploymentsRouter(
         if (bindings.guardrailRegistry !== undefined && targetProjectId !== undefined) {
           for (const guardrail of validated.guardrails) {
             const projectIdForGuardrail = targetProjectId;
+            const points = validated.guardrailCheckPoints.get(guardrail.id);
             const outcome = await bindings.guardrailRegistry.register({
               tenantId,
               projectId: projectIdForGuardrail,
               guardrail,
+              ...(points !== undefined && { checkPoints: points }),
               enqueueTuples: (guardrailId) =>
                 tuplesForCreate({
                   kind: 'guardrail',
@@ -1232,6 +1236,7 @@ export function deploymentsRouter(
                 tenantId,
                 projectIdForGuardrail,
                 guardrail,
+                points,
               );
               // Unregistered since the registry answered: registered afresh.
               if (kept.kind === 'registered') {
@@ -1249,6 +1254,7 @@ export function deploymentsRouter(
                   bindings.guardrailRegistry,
                   tenantId,
                   guardrail,
+                  points,
                   kept.existing,
                   rolled,
                 );
@@ -1934,6 +1940,11 @@ interface ValidationDetail {
 interface ValidatedPrimitives {
   readonly tools: readonly import('@kindgi/tools').ToolManifest[];
   readonly guardrails: readonly Guardrail[];
+  /**
+   * The points each guardrail's check runs at, by guardrail id, when the
+   * check is the pack's (`indexedCheckPoints`); none for a built-in check.
+   */
+  readonly guardrailCheckPoints: ReadonlyMap<GuardrailId, readonly GuardrailPoint[]>;
   readonly agents: readonly import('@kindgi/agents').Agent[];
   readonly flows: readonly import('@kindgi/flow').Flow[];
   /** The pack's data blocks (`blocks/`), each a valid block. */
@@ -1972,8 +1983,9 @@ async function keepRegisteredGuardrail(
   tenantId: TenantId,
   projectId: ProjectId,
   guardrail: Guardrail,
+  points: readonly GuardrailPoint[] | undefined,
 ): Promise<
-  { readonly kind: 'kept'; readonly existing: Guardrail } | { readonly kind: 'registered' }
+  { readonly kind: 'kept'; readonly existing: GuardrailRecord } | { readonly kind: 'registered' }
 > {
   for (let attempt = 0; attempt < 3; attempt++) {
     const existing = await registry.get({ tenantId, guardrailId: guardrail.id });
@@ -1996,6 +2008,7 @@ async function keepRegisteredGuardrail(
       tenantId,
       projectId,
       guardrail,
+      ...(points !== undefined && { checkPoints: points }),
       enqueueTuples: (guardrailId) =>
         tuplesForCreate({
           kind: 'guardrail',
@@ -2186,17 +2199,20 @@ async function reinstateRetiredVersion<
 
 /**
  * A guardrail a deploy keeps gets what this deploy derived for it: its
- * code pointer and its check's config schema, when its registry can take
- * them (`refreshDeployedFields`); rolling the deploy back restores the old
- * ones, unless another deploy has refreshed them since (compare-and-set on
- * what this deploy wrote). Without it, the guardrail keeps what its first
- * deploy derived.
+ * code pointer, its check's config schema and the points its check runs
+ * at, when its registry can take them (`refreshDeployedFields`); rolling
+ * the deploy back restores the old ones, unless another deploy has
+ * refreshed them since (compare-and-set on what this deploy wrote).
+ * Without it, the guardrail keeps what its first deploy derived. So a
+ * deploy whose check now runs at other points gives the kept guardrail
+ * those points.
  */
 async function refreshGuardrailFields(
   registry: GuardrailRegistryBinding,
   tenantId: TenantId,
   guardrail: Guardrail,
-  existing: Guardrail,
+  points: readonly GuardrailPoint[] | undefined,
+  existing: GuardrailRecord,
   rolled: RollbackAction[],
 ): Promise<void> {
   const refresh = registry.refreshDeployedFields?.bind(registry);
@@ -2204,10 +2220,12 @@ async function refreshGuardrailFields(
   const now = {
     codeArtifactRef: guardrail.codeArtifactRef ?? null,
     configSchema: guardrail.configSchema ?? null,
+    checkPoints: points ?? null,
   };
   const was = {
     codeArtifactRef: existing.codeArtifactRef ?? null,
     configSchema: existing.configSchema ?? null,
+    checkPoints: existing.checkPoints ?? null,
   };
   if (canonicalJson(now) === canonicalJson(was)) return;
   const done = await refresh({ tenantId, guardrailId: guardrail.id, ...now });
@@ -2216,7 +2234,7 @@ async function refreshGuardrailFields(
   rolled.push({
     primitive: 'guardrail',
     id: guardrail.id,
-    undo: 'put back the code pointer and config schema of',
+    undo: 'put back the code pointer, config schema and check points of',
     run: async () => {
       await refresh({ tenantId, guardrailId: guardrail.id, ...was, expected: now });
     },
@@ -2292,9 +2310,12 @@ const DECLARED_GUARDRAIL_FIELDS = [
 
 /**
  * The same guardrail definition: equal in what its author declares
- * (`DECLARED_GUARDRAIL_FIELDS`, and of where its code lives only the
- * module path), as JSON with keys in any order (a registry may store it as
- * JSONB) and an absent field the same as an `undefined` one.
+ * (`DECLARED_GUARDRAIL_FIELDS`, where it runs and what its check sees,
+ * and of where its code lives only the module path), as JSON with keys in
+ * any order (a registry may store it as JSONB) and an absent field the
+ * same as an `undefined` one. An absent `at` is the final answer and an
+ * absent `sees` is `'turn'`, as a runtime reads them, so a row stored
+ * before either existed matches a pack that names the default.
  */
 export function sameGuardrailDefinition(a: Guardrail, b: Guardrail): boolean {
   return canonicalJson(definitionOf(a)) === canonicalJson(definitionOf(b));
@@ -2305,6 +2326,8 @@ function definitionOf(guardrail: Guardrail): Record<string, unknown> {
   for (const field of DECLARED_GUARDRAIL_FIELDS) {
     declared[field] = (guardrail as unknown as Record<string, unknown>)[field];
   }
+  declared.at = guardrailPoint(guardrail);
+  declared.sees = guardrail.sees ?? 'turn';
   declared.modulePath = guardrail.codeArtifactRef?.modulePath;
   return declared;
 }
@@ -2393,6 +2416,7 @@ function validatePrimitives(
   });
 
   const validatedGuardrails: Guardrail[] = [];
+  const guardrailCheckPoints = new Map<GuardrailId, readonly GuardrailPoint[]>();
   guardrails.forEach((raw, i) => {
     if (raw === null || typeof raw !== 'object') {
       details.push({ primitive: 'guardrail', index: i, path: '', message: 'must be an object' });
@@ -2474,6 +2498,15 @@ function validatePrimitives(
       return;
     }
     validatedGuardrails.push(r.value);
+    // A check the pack ships: the registry keeps its points beside the
+    // guardrail, and the runtime runs the check at those.
+    if (
+      builtIn === undefined &&
+      r.value.checkBuiltIn !== true &&
+      r.value.codeArtifactRef !== undefined
+    ) {
+      guardrailCheckPoints.set(r.value.id, indexedCheckPoints(packCheckPoints));
+    }
   });
 
   const validatedAgents: import('@kindgi/agents').Agent[] = [];
@@ -2550,6 +2583,7 @@ function validatePrimitives(
     value: {
       tools: validatedTools,
       guardrails: validatedGuardrails,
+      guardrailCheckPoints,
       agents: validatedAgents,
       flows: validatedGraphs,
       blocks: validatedBlocks,

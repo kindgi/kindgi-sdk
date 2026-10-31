@@ -458,6 +458,8 @@ function serializeGuardrail(i: GuardrailRecord): Record<string, unknown> {
     ...(i.check !== undefined && { check: i.check }),
     ...(i.config !== undefined && { config: i.config }),
     action: i.action,
+    ...(i.at !== undefined && { at: i.at }),
+    ...(i.sees !== undefined && { sees: i.sees }),
     ...(i.severity !== undefined && { severity: i.severity }),
     ...(i.scope !== undefined && { scope: i.scope }),
     ...(i.budget !== undefined && { budget: i.budget }),

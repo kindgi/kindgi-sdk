@@ -83,7 +83,9 @@ for the flow's project when a pin covers it, else the tool's newest.
 
 - **A rollback** puts a scope back on the version that was live there
   before, or on `--to=<version>`, at once. No release gate policy checks
-  it.
+  it. On a self-hosted runtime with one pack service, that version runs
+  only while your pack still has the tool versions it locked
+  ([A self-hosted runtime runs what your pack has](../../agents/agent-and-tool-versions/#a-self-hosted-runtime-runs-what-your-pack-has)).
 - **An unpin** removes a scope's own live version. Its runs then use a
   wider scope's live version, or the latest version when none is live.
 

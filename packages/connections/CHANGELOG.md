@@ -1,5 +1,23 @@
 # @kindgi/connections
 
+## 0.3.0
+
+### Patch Changes
+
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+  - @kindgi/tools@0.3.0
+  - @kindgi/types@0.3.0
+
+## 0.3.0-rc.0
+
+### Patch Changes
+
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+  - @kindgi/tools@0.3.0-rc.0
+  - @kindgi/types@0.3.0-rc.0
+
 ## 0.2.0
 
 ### Patch Changes

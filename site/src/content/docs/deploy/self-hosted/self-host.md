@@ -56,7 +56,7 @@ license key, and pull it:
 
 ```sh
 docker login registry.kindgi.com --username kindgi
-docker pull registry.kindgi.com/kindgi/runtime:0.2.0
+docker pull registry.kindgi.com/kindgi/runtime:0.3.0
 ```
 
 `docker login` asks for the password: paste your key. It prints
@@ -238,6 +238,10 @@ This one service runs the tools' code of every project the runtime serves,
 in the same processes, with one environment.
 [Your tools' code](../../../concepts/security/#your-tools-code) says what
 that means, and how to keep projects apart.
+It runs only the tool versions in the build you started it with: after you
+start a newer one, an agent or flow version that locked a tool version the
+build no longer has fails when it calls that tool
+([A self-hosted runtime runs what your pack has](../../../guides/agents/agent-and-tool-versions/#a-self-hosted-runtime-runs-what-your-pack-has)).
 
 ## 5. Configure and start the runtime
 
@@ -268,7 +272,9 @@ KINDGI_CONSOLE_TOKEN_SIGN_IN=on
 
 - **`<DB_PASSWORD>`** is the password from step 2: `echo "$DB_PASSWORD"`
   prints it.
-- **`<your tenant id>`** is the id `uuidgen` printed.
+- **`<your tenant id>`** is the id `uuidgen` printed. The runtime takes it
+  in lower case. If an earlier runtime ran with it in upper case, the start
+  says what to do: [A tenant id given in upper case](../serve-many-tenants/#a-tenant-id-given-in-upper-case).
 - **`<the token>`** is the API token `printf` printed.
 - **`<the same token as in pack.env>`** is `pack.env`'s
   `KINDGI_PACK_SERVICE_TOKEN`.
@@ -295,7 +301,7 @@ Start the runtime:
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  registry.kindgi.com/kindgi/runtime:0.2.0
+  registry.kindgi.com/kindgi/runtime:0.3.0
 ```
 
 - **`--restart unless-stopped`** brings the runtime back by itself after a

@@ -66,6 +66,11 @@ kindgi secrets set GROQ_API_KEY --env=local --scope=tenant
 }
 ```
 
+A model that thinks takes `"thinking": { "mode": "adaptive", "lowest": "low",
+"default": "low" }` in its entry, `lowest` being its server's least
+reasoning effort. `default` is the level a call that asks none is sent
+(runtime 0.3.0 or later); an agent's model-settings `thinking` wins over it.
+
 **Steps 3 to 5 — register, verify, run:**
 ```sh
 kindgi providers register --spec=@provider.json

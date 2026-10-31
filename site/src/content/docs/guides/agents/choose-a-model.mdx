@@ -403,6 +403,17 @@ it. Compare its `capabilities` with the models' `features`, which
 `kindgi providers list` shows. `dev-echo` has only `tool-use`, so an agent
 that needs anything else fails with no model registered.
 
+## How much it thinks
+
+Which model answers and how much it thinks are set in different places. A
+model that thinks is sent the level `thinking` asks for in the agent's
+[model settings](../../evals/change-a-prompt-or-setting/#use-them-in-an-agent).
+When they ask none, it's sent the `thinking.default` its provider's
+registration gives it, and without one, no level, so it thinks as its vendor
+sets. A guardrail's or an eval's model judge asks for the least thinking.
+[Temperature and thinking](../../models/#temperature-and-thinking) lists the
+levels, and how one the model doesn't take is sent.
+
 ## See which model answered
 
 The turn's result names it in `output.provider`, such as
