@@ -362,7 +362,7 @@ export interface TurnDetailEvent {
 }
 
 // ============================================================
-// Supervisor + suggested change shapes.
+// Suggested change shapes.
 // ============================================================
 
 // (These are re-exported at the top of the file already; imported here
@@ -375,44 +375,6 @@ import type {
   SuggestedChangeId,
   SupervisorId,
 } from '@kindgi/types';
-
-/**
- * @unwired SDK-defined supervisor shape; the API has no supervisor
- * definition routes (only `/v1/suggested-changes` and `/v1/observations`). A
- * supervisor is an agent with suggested-change tools; it observes guardrail
- * violations + structured failure patterns on a subscribed set of
- * agents.
- *
- * A supervisor's own guardrails + eval criteria cannot be modified
- * after it is defined, so an update is a define-with-new-version
- * operation, not a mutation.
- */
-export interface SupervisorSpec {
-  readonly id: string;
-  readonly version: string;
-  readonly name: string;
-  readonly description?: string;
-  /** Agent-ids this supervisor observes. Empty = observes all agents in tenant. */
-  readonly subscribedAgents?: readonly string[];
-  /** Which guardrails trigger suggested-change drafting. */
-  readonly triggerGuardrails: readonly string[];
-  /** Proposer tiers enabled (`prompt` | `retrieval` | `tool-config`). */
-  readonly proposerTiers: readonly ('prompt' | 'retrieval' | 'tool-config')[];
-  /** Dry-run eval criterion applied to every suggested change. */
-  readonly defaultCriterion?: DryRunCriterion;
-}
-
-export interface Supervisor {
-  readonly id: SupervisorId;
-  readonly version: string;
-  readonly name: string;
-  readonly description?: string;
-  readonly subscribedAgents: readonly string[];
-  readonly triggerGuardrails: readonly string[];
-  readonly proposerTiers: readonly ('prompt' | 'retrieval' | 'tool-config')[];
-  readonly createdAt: import('@kindgi/types').Timestamp;
-  readonly deprecatedAt?: import('@kindgi/types').Timestamp;
-}
 
 /**
  * Where a suggested change stands — `@kindgi/api/openapi.json#SuggestedChangeStatus`.
@@ -554,15 +516,6 @@ export interface SuggestedChange {
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt: import('@kindgi/types').Timestamp;
 }
-
-/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (suggested changes now change data blocks: `client.suggestedChanges`); removed at 0.2. */
-export type DryRunCriterion =
-  | { readonly kind: 'min-pass-rate'; readonly minPassRate: number }
-  | {
-      readonly kind: 'strict-improvement';
-      readonly baselinePassRate: number;
-      readonly minDelta: number;
-    };
 
 // ============================================================
 // Observation shapes.
@@ -2305,6 +2258,14 @@ export interface Project {
    */
   readonly isDefault: boolean;
   readonly description?: string;
+  /**
+   * `true`: end users' corrections (an app's, with a `participantId`, and
+   * not an expert's) are sorted like the others, and a schedule counting
+   * everyone's counts them. `false`, or absent from an older server: they're
+   * listed and become test cases, but stay open and unsorted, and never
+   * start Improve.
+   */
+  readonly sortEndUserCorrections?: boolean;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt: import('@kindgi/types').Timestamp;
 }
@@ -2326,6 +2287,8 @@ export interface ProjectPatch {
   readonly slug?: string;
   readonly description?: string;
   readonly orgId?: import('@kindgi/types').OrgId | null;
+  /** `Project.sortEndUserCorrections`. Admin on the project. */
+  readonly sortEndUserCorrections?: boolean;
 }
 
 /**

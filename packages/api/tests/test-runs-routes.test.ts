@@ -12,6 +12,7 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
+  CorrectionRegistryBinding,
   EvalGrader,
   FreezeTestSetInput,
   FrozenTestSet,
@@ -402,7 +403,14 @@ describe("API — test-runs start: an agent's own test set is frozen first, and 
    * false`: none wired), and a run binding that records each start. A run
    * of the agent's own set answers at once; another runs as today.
    */
-  function ownSetApp(options: { cases?: number; freeze?: false; grants?: readonly string[] } = {}) {
+  function ownSetApp(
+    options: {
+      cases?: number;
+      freeze?: false;
+      grants?: readonly string[];
+      correctionRegistry?: CorrectionRegistryBinding;
+    } = {},
+  ) {
     const { registry, binding: inner } = makeApp();
     const freezes: FreezeTestSetInput[] = [];
     const starts: Parameters<TestRunBinding['start']>[0][] = [];
@@ -437,6 +445,9 @@ describe("API — test-runs start: an agent's own test set is frozen first, and 
       testRunBinding: binding,
       ...(options.freeze !== false && { testSetFreeze }),
       ...(options.grants !== undefined && { authz: grantsAuthz(options.grants) }),
+      ...(options.correctionRegistry !== undefined && {
+        correctionRegistry: options.correctionRegistry,
+      }),
     });
     return { app, registry, freezes, starts };
   }
@@ -521,6 +532,26 @@ describe("API — test-runs start: an agent's own test set is frozen first, and 
       message: `Project ${TEST_PROJECT_ID} has no corrections of ${AGENT} to check a change on: correct some of its conversations first`,
     });
     expect(starts).toEqual([]);
+  });
+
+  test('with corrections, their cases are read first: none freezes nothing (409), and one freezes and runs', async () => {
+    const cases = { data: [] as { id: string }[] };
+    const correctionRegistry = {
+      listCases: async () => ({ data: cases.data, hasMore: false }),
+    } as unknown as CorrectionRegistryBinding;
+    const { app, freezes, starts } = ownSetApp({ correctionRegistry });
+    const none = await start(app, OWN);
+    expect(none.status).toBe(409);
+    const body = (await none.json()) as { error: { code: string } };
+    expect(body.error.code).toBe('suggested-change-nothing-to-check');
+    expect(freezes).toEqual([]);
+    expect(starts).toEqual([]);
+
+    cases.data = [{ id: 'case-0' }];
+    const one = await start(app, OWN);
+    expect(one.status, await one.text()).toBe(201);
+    expect(freezes).toHaveLength(1);
+    expect(starts).toHaveLength(1);
   });
 
   test('another test set runs its latest version, as today, with nothing frozen', async () => {

@@ -13,6 +13,14 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **A project can sort its end users' corrections like the others.**
+  `Project` and `ProjectPatch` carry `sort_end_user_corrections`
+  (`sortEndUserCorrections`), off by default, and
+  `projects.update(project_id, sort_end_user_corrections=True)` turns it on (admin on
+  the project). While it's on, an end user's correction saved after that is sorted
+  like the others, and a schedule counting everyone's corrections
+  (`from_="everyone"`) counts the ones sorted to improve. Once it's off, none of
+  them counts, even one sorted while it was on or by a person.
 - `kindgi`: **`client.corrections.thumbs` records an end user's thumbs up or down from
   your app's server.** `thumbs(run_id=..., participant_id=..., up=..., why=...)` posts a
   correction of the run's answer, made for the end user: `answer="right"` for a thumbs

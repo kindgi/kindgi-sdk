@@ -53,7 +53,7 @@ public final class WireErrors {
           "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",
           "unresolved-guardrail", "schema-validation-failed", "invalid-agent", "invalid-tool-definition",
           "invalid-schema", "unknown-effect", "invalid-guardrail", "invalid-provider",
-          "provider-config-invalid", "supervisor-header-missing", "scope-invalid");
+          "provider-config-invalid", "scope-invalid");
   static final Map<String, AuthException.Reason> AUTH =
       Map.of(
           "auth-missing", AuthException.Reason.UNAUTHENTICATED,

@@ -260,6 +260,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         return { kind: 'slug-conflict', slug: nextSlug };
       }
       const nextDescription = patch.description ?? row.description;
+      const sortsEndUsers = patch.sortEndUserCorrections ?? row.sortEndUserCorrections === true;
       const next: Project = {
         id: row.id,
         tenantId: row.tenantId,
@@ -271,6 +272,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         ...(nextOrgId !== undefined ? { orgId: nextOrgId } : {}),
         ...(nextDescription !== undefined ? { description: nextDescription } : {}),
         ...(row.productionSince !== undefined ? { productionSince: row.productionSince } : {}),
+        ...(sortsEndUsers && { sortEndUserCorrections: true }),
         ...(row.repoConnectionId !== undefined ? { repoConnectionId: row.repoConnectionId } : {}),
       };
       projectRows.set(projectId, next);

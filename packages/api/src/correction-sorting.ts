@@ -34,7 +34,9 @@ export interface SortedAtSave {
 /**
  * The rule at save:
  * - an end user's correction (`participantId`, and not an expert's) stays
- *   open and unsorted until a person sorts it;
+ *   open and unsorted until a person sorts it, unless the project sorts end
+ *   users' corrections (`sortEndUserCorrections`): then the rules below
+ *   sort it like the others;
  * - `decisions: 'wrong'` goes to the agent's owner (`with-owner`): a change
  *   to what the agent does may loosen a limit, which only the owner decides;
  * - a wrong answer (or a wrong item of it) goes to Improve, open;
@@ -48,11 +50,14 @@ export function sortAtSave(
     readonly participantId?: string;
     /** It names a restricted group, and its author met it. */
     readonly expert: boolean;
+    /** The project's `sortEndUserCorrections`. */
+    readonly sortEndUserCorrections?: boolean;
   },
   by: CorrectionMadeBy,
   at: string,
 ): SortedAtSave {
-  if (correction.participantId !== undefined && !correction.expert) return { status: 'open' };
+  const endUser = correction.participantId !== undefined && !correction.expert;
+  if (endUser && correction.sortEndUserCorrections !== true) return { status: 'open' };
   const byRule: CorrectionSorted = { by: { kind: 'rule' }, at };
   if (correction.decisions === 'wrong') {
     return { status: 'with-owner', sortedTo: 'owner', sorted: byRule };

@@ -150,7 +150,6 @@ export type {
   SessionsClient,
   StartRunInput,
   SubscriptionsClient,
-  SupervisorClient,
   ListTeamsFilter,
   TeamsClient,
   TenantClient,

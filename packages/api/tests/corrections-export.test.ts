@@ -106,9 +106,9 @@ async function events(audit: AuditEventBinding): Promise<readonly AuditEvent[]> 
 }
 
 describe('csvRow', () => {
-  test('writes the columns in order, a flow subject with no agent version', () => {
+  test('writes the columns in order, a flow subject with no agent version, and the version that reopened one', () => {
     expect(csvHeader()).toBe(
-      'id,projectId,runId,agentVersion,madeBy,participantId,expert,decisions,shouldCall,mustNotCall,answer,shouldSay,why,sortedTo,status,fixedIn,createdAt\r\n',
+      'id,projectId,runId,agentVersion,madeBy,participantId,expert,decisions,shouldCall,mustNotCall,answer,shouldSay,why,sortedTo,status,fixedIn,reopenedIn,createdAt\r\n',
     );
     const row = csvRow(
       correction('c1', {
@@ -125,8 +125,20 @@ describe('csvRow', () => {
       }),
     );
     expect(row).toBe(
-      'c1,proj-1,run-c1,1.2.0,user:user-1,app-user-7,false,wrong,"[{""tool"":""lookup""}]","[""refund""]",wrong,Plain words,It said no,improve,fixed,1.3.0,2026-10-01T00:00:00.000Z\r\n',
+      'c1,proj-1,run-c1,1.2.0,user:user-1,app-user-7,false,wrong,"[{""tool"":""lookup""}]","[""refund""]",wrong,Plain words,It said no,improve,fixed,1.3.0,,2026-10-01T00:00:00.000Z\r\n',
     );
+    const reopened = csvRow(
+      correction('c3', {
+        fixedIn: { version: '1.3.0', how: 'improve-run', at: '2026-10-02T00:00:00.000Z' } as never,
+        reopenedIn: { version: '1.2.0', how: 'went-back', at: '2026-10-03T00:00:00.000Z' } as never,
+      }),
+    );
+    expect(reopened.split(',').slice(14)).toEqual([
+      'open',
+      '1.3.0',
+      '1.2.0',
+      '2026-10-01T00:00:00.000Z\r\n',
+    ]);
     const flow = csvRow(correction('c2', { subject: { kind: 'flow', id: 'f', version: '2.0.0' } }));
     expect(flow.split(',')[3]).toBe('');
   });

@@ -53,7 +53,6 @@ export type {
   StartRunInput,
   StartRunOptions,
 } from './resources/runs.js';
-export type { SupervisorClient } from './resources/supervisor.js';
 export type {
   CheckImproveRunInput,
   ImproveReadinessItem,
@@ -680,7 +679,6 @@ export type {
   Cursor,
   DatasetId,
   DownloadedArtifact,
-  DryRunCriterion,
   DryRunResult,
   DryRunWarning,
   EdgeEvaluatedEvent,
@@ -846,9 +844,7 @@ export type {
   Subscription,
   SubscriptionId,
   SubscriptionSpec,
-  Supervisor,
   SupervisorId,
-  SupervisorSpec,
   Team,
   TeamId,
   TeamMembership,

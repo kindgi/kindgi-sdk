@@ -585,16 +585,11 @@ export interface CreateAppInput {
    */
   readonly memoryErasures?: MemoryErasureBinding;
   /**
-   * Optional. When present, mounts the suggested-changes surface
-   * (`/v1/suggested-changes` list/get/draft, plus lifecycle actions
-   * evaluate / rescore / pin / withdraw). Every
-   * route requires an `X-Supervisor-Id` request header — the API
-   * package doesn't own the supervisor registry, so the binding
-   * receives that scope explicitly.
-   *
-   * The binding wraps the supervisor runtime primitives +
-   * the deployment's `AgentRegistry` + `HITL` wiring + eval dataset
-   * registry. See `supervisor-binding.ts` for the full contract.
+   * Optional. The store of suggested changes, and observation readback.
+   * With `agentRegistry`, `blockRegistry`, `testRunBinding` and
+   * `agentPins` too, it mounts `/v1/suggested-changes` and
+   * `/v1/improve-runs`; with `enableObservations`, `GET /v1/observations`.
+   * See `supervisor-binding.ts` for the contract.
    */
   readonly supervisor?: SupervisorBinding;
   /**
@@ -2365,6 +2360,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.agentRegistry,
         itemRights,
         input.auditEvents,
+        input.projectBinding,
       ),
     );
     v1.route('/corrector-groups', correctorGroupsRouter(input.correctionRegistry, authorizer));
@@ -2681,6 +2677,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       input.projectSuspended,
       itemRights,
       input.testSetFreeze,
+      input.correctionRegistry,
     );
     v1.route('/test-sets', testRuns.start);
     v1.route('/test-runs', testRuns.readback);

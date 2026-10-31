@@ -5,6 +5,8 @@ import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
 import type { AgentId, Cursor, ProjectId, TenantId } from '@kindgi/types';
 
+import type { CorrectionRegistryBinding } from './correction-binding.js';
+
 /**
  * Caller-plugged surface for the evaluation-harness test set catalog —
  * part of the admin control plane. Registry-only: publish + read; run
@@ -379,6 +381,24 @@ export function nothingToCheck(
     message: `Project ${projectId as unknown as string} has no corrections of ${agentId as unknown as string} to check a change on: correct some of its conversations first`,
     projectId: projectId as unknown as string,
   };
+}
+
+/**
+ * Whether a project has a case of the agent: one read of its cases
+ * (`listCases`, limit 1). Read before a freeze that only needs to know,
+ * since a freeze makes a version when the cases changed.
+ */
+export async function projectHasCases(
+  corrections: Pick<CorrectionRegistryBinding, 'listCases'>,
+  q: { readonly tenantId: TenantId; readonly agentId: AgentId; readonly projectId: ProjectId },
+): Promise<boolean> {
+  const some = await corrections.listCases({
+    tenantId: q.tenantId,
+    agentId: q.agentId as unknown as string,
+    projectId: q.projectId,
+    limit: 1,
+  });
+  return some.data.length > 0;
 }
 
 /** The answer when a caller publishes a test set under an agent's test set id. */

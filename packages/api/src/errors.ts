@@ -229,7 +229,6 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   /** The agent has a running Improve run in the project (`details.improveRunId`): one at a time. */
   'improve-run-running': 409,
   'version-already-exists': 409,
-  'supervisor-header-missing': 400,
   // Artifacts.
   'blob-not-found': 404,
   'blob-hash-mismatch': 400,

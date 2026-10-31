@@ -555,6 +555,26 @@ describe('a pin that would take a project off Latest (pin-stops-latest)', () => 
     expect(methods(calls)).toEqual(['resolve']);
   });
 
+  test.each([
+    ['not registered', '9.9.9'],
+    ['unregistered', '1.3.0'],
+  ])(
+    'a version that is %s is a 404 first, not the 409; nothing recorded',
+    async (_name, version) => {
+      const { app, calls } = setup();
+      const res = await app.request(
+        `/v1/agents/${AGENT}/pinned/pin`,
+        post({ version, scope: PROJECT_SCOPE }),
+      );
+      expect(res.status).toBe(404);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+        'agent-version-not-found',
+      );
+      // Only what the project runs is read: nothing is recorded.
+      expect(methods(calls)).toEqual(['resolve']);
+    },
+  );
+
   test('pinning the version it runs already takes it off Latest too: the same 409', async () => {
     const { app, calls } = setup();
     const res = await app.request(
