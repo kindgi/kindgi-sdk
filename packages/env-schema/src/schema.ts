@@ -1573,6 +1573,16 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'pack-orchestrator',
   },
   {
+    name: 'KINDGI_ORCHESTRATOR_RUNTIME_AUTH',
+    description:
+      "How the orchestrator's calls get past the server's own front door. Unset (default): the system key alone. `google-id-token`, for a server behind Cloud Run IAM: each call also carries the orchestrator's Google ID token for the server's URL, in `X-Serverless-Authorization`, beside the system key. The token is its own identity's (Application Default Credentials: on Cloud Run, the Job's service account), which needs `roles/run.invoker` on the server. Any other value stops the orchestrator, naming this setting.",
+    example: 'google-id-token',
+    required: false,
+    appliesTo: appliesToPackOrchestrator,
+    group: 'pack-orchestrator',
+    allowedValues: ['google-id-token'],
+  },
+  {
     name: 'KINDGI_ORCHESTRATOR_PROJECT',
     description:
       "The Google Cloud project the pack services run in, by id. The orchestrator's own identity (Application Default Credentials: on Cloud Run, the Job's service account) makes, updates and deletes them there, and keeps their tokens and secret env in its Secret Manager, as secrets named `kp-…`.",
