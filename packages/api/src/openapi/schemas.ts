@@ -5451,6 +5451,29 @@ export const CorrectionFixedInSchema: JsonSchema = {
   },
 };
 
+/** The version whose test run got a `fixed` correction wrong again. */
+export const CorrectionReopenedInSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['version', 'how', 'at'],
+  description:
+    "The version whose test run got a `fixed` correction wrong again. It holds no words: a client builds the sentence from the project's and the person's current names.",
+  properties: {
+    version: { type: 'string', description: 'The version that gets it wrong.' },
+    how: {
+      type: 'string',
+      enum: ['pin', 'went-back', 'unpin', 'latest'],
+      description:
+        'How the project came to run it. `pin`: a pin. `went-back`: a pin of a version earlier than the one it ran just before. `unpin`: an unpin. `latest`: a deploy or an add moved Latest in a project that follows it.',
+    },
+    by: {
+      ...correctionActorProperty,
+      description: 'Who pinned, went back or unpinned. Absent when Latest moved.',
+    },
+    at: { type: 'string', format: 'date-time' },
+  },
+};
+
 /** A person's note on a status: why Won't fix, or why it went back to Open. */
 export const CorrectionStatusNoteSchema: JsonSchema = {
   type: 'object',
@@ -5555,7 +5578,13 @@ export const CorrectionSchema: JsonSchema = {
     },
     fixedIn: {
       $ref: '#/components/schemas/CorrectionFixedIn',
-      description: 'Present while it is `fixed`.',
+      description:
+        "Present while it's `fixed`, and beside `reopenedIn` after a test run reopened it.",
+    },
+    reopenedIn: {
+      $ref: '#/components/schemas/CorrectionReopenedIn',
+      description:
+        "Present after a test run got a `fixed` correction wrong again: it's `open`, or `with-owner` when it's sorted to the owner, with the `fixedIn` it had beside it. A status set by hand clears both, and a re-sort alone keeps them. A test run that gets it right again makes it `fixed` with a new `fixedIn`.",
     },
     statusNote: { $ref: '#/components/schemas/CorrectionStatusNote' },
     createdAt: { type: 'string', format: 'date-time' },
@@ -16723,6 +16752,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CorrectionSorted', CorrectionSortedSchema],
   ['CorrectionLink', CorrectionLinkSchema],
   ['CorrectionFixedIn', CorrectionFixedInSchema],
+  ['CorrectionReopenedIn', CorrectionReopenedInSchema],
   ['CorrectionStatusNote', CorrectionStatusNoteSchema],
   ['ChangeCorrectionBody', ChangeCorrectionBodySchema],
   ['CorrectionCounts', CorrectionCountsSchema],

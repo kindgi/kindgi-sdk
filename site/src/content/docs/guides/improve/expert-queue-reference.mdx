@@ -104,6 +104,11 @@ Each correction moves on until it's fixed. Its `status` says where it is, and
 - **`fixedIn`**, while it's `fixed`, says how: `how` and `at`, with `by` and
   `version` when they apply. A correction that found nothing wrong is fixed
   as `recorded-right`.
+- **`reopenedIn`** is there after a test run got a `fixed` correction
+  wrong again: the `version` that gets it wrong, `how` the project came to
+  run it (`pin`, `went-back`, `unpin` or `latest`), `at`, and `by` unless
+  Latest moved. The correction is `open` again, or `with-owner`, and keeps
+  the `fixedIn` it had. A status you set clears both; a re-sort keeps them.
 - **`statusNote`** is why it's `wont-fix`, or why it went back to `open`,
   with `text`, `by` and `at`.
 

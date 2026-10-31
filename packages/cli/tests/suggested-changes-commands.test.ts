@@ -237,6 +237,28 @@ describe('kindgi suggested-changes pin / add-as-latest / withdraw', () => {
     ]);
   });
 
+  test('pin --stop-following-latest asks to take its project off Latest; refused without it, the CLI names the flag and add-as-latest', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(['suggested-changes', 'pin', 'prop-1', '--stop-following-latest'], {
+      suggestedChanges: { pin: rec('pin') },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['pin', 'prop-1', { stopFollowingLatest: true }]]);
+    const message =
+      'Project acme follows Latest, and this pin would take it off it: it would run the pinned version and no longer take each new Latest. Send `stopFollowingLatest: true` to pin anyway.';
+    const refused = await run(['suggested-changes', 'pin', 'prop-1'], {
+      suggestedChanges: {
+        pin: async () => {
+          throw new KindgiApiError(fromWire({ code: 'pin-stops-latest', message }, 409));
+        },
+      },
+    });
+    expect(refused.exitCode).toBe(1);
+    expect(refused.stderr).toBe(
+      `Error [pin-stops-latest]: ${message}\nRun it again with --stop-following-latest to pin anyway, or \`kindgi suggested-changes add-as-latest\` to add it as the Latest instead.\n`,
+    );
+  });
+
   test('add-as-latest takes an optional reason', async () => {
     const { calls, rec } = recorder();
     const client = { suggestedChanges: { addAsLatest: rec('addAsLatest') } };

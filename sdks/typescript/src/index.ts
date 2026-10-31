@@ -729,6 +729,7 @@ export type {
   CorrectionCounts,
   CorrectionFixedIn,
   CorrectionLink,
+  CorrectionReopenedIn,
   CorrectionSorted,
   CorrectionSortedTo,
   CorrectionStatus,

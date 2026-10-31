@@ -1324,6 +1324,7 @@ function serializeCorrection(j: Correction): Record<string, unknown> {
     ...(j.sorted !== undefined && { sorted: j.sorted }),
     ...(j.link !== undefined && { link: j.link }),
     ...(j.fixedIn !== undefined && { fixedIn: j.fixedIn }),
+    ...(j.reopenedIn !== undefined && { reopenedIn: j.reopenedIn }),
     ...(j.statusNote !== undefined && { statusNote: j.statusNote }),
     createdAt: j.createdAt,
     updatedAt: j.updatedAt,

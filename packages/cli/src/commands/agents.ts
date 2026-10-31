@@ -323,13 +323,18 @@ const pin: LeafCommand = {
   kind: 'leaf',
   name: 'pin',
   description:
-    "Pin a version for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version. With a release gate for the scope, the run on the test cases named by --test-run is checked first: the answer's `status` is `pinned`, or `pending-approval` (a reviewer approves it); a refusal lists every check. `--check` asks what would happen, changing nothing. Exits 3 when the answer is no: the gate refuses the version, or it waits for an approval (`--wait` waits for the decision).",
-  usage: `kindgi agents pin <agent-id> <version> ${SCOPE_USAGE} [--test-run=<test-run-id>] [--reason=<text>] [--check] [--wait[=<duration>]]`,
+    "Pin a version for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version. It prints the pin's answer: the pin under `pin`, the test runs that check it, and the corrections a reused run marked `fixed` or reopened. With a release gate for the scope, the run on the test cases named by --test-run is checked first: the pin's `status` is `pinned`, or `pending-approval` (a reviewer approves it); a refusal lists every check. A pin that would take a project that follows Latest off it is refused (`409 pin-stops-latest`) unless --stop-following-latest. `--check` asks what the release gate would say, changing nothing. Exits 3 when the answer is no: the gate refuses the version, or it waits for an approval (`--wait` waits for the decision).",
+  usage: `kindgi agents pin <agent-id> <version> ${SCOPE_USAGE} [--test-run=<test-run-id>] [--reason=<text>] [--stop-following-latest] [--check] [--wait[=<duration>]]`,
   optionSpec: {
     ...SCOPE_FLAGS,
     'test-run': {
       type: 'string',
       description: 'The run on the test cases the release gate checks, kept on the record.',
+    },
+    'stop-following-latest': {
+      type: 'boolean',
+      description:
+        'Pin even when it takes a project that follows Latest off it: that project then runs the pinned version, and no longer takes each new Latest. Without it, such a pin is refused (`409 pin-stops-latest`).',
     },
     check: {
       type: 'boolean',
@@ -359,6 +364,7 @@ async function pinAgent(ctx: CommandContext): Promise<Rendered & { readonly exit
     scope: scopeFrom(ctx, true),
     ...reasonFlag(ctx),
     ...(testRunId !== undefined && { testRunId }),
+    ...(ctx.options['stop-following-latest'] === true && { stopFollowingLatest: true }),
   };
   const format = ctx.globals.format;
   const pins = ctx.client().agents.pinned;

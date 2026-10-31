@@ -198,6 +198,7 @@
   "CorrectionLink2": ["Correction.link{kind,url}"],
   "CorrectionLinkUnrecognized": ["CorrectionLinkUnrecognized"],
   "CorrectionMadeBy": ["CorrectionMadeBy"],
+  "CorrectionReopenedIn": ["CorrectionReopenedIn"],
   "CorrectionSorted": ["CorrectionSorted"],
   "CorrectionSortedByUnrecognized": ["CorrectionSortedByUnrecognized"],
   "CorrectionStatusNote": ["CorrectionStatusNote"],

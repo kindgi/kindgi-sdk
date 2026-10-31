@@ -275,8 +275,9 @@ again.
 - **A project that runs its [Latest](../pinned-versions-reference/#latest)**
   takes no pin unless you ask to take it off Latest: the request is refused
   with `409 pin-stops-latest`. [Add it as Latest](#add-it-as-latest) instead,
-  or send `stopFollowingLatest: true` to pin it, and the project runs the
-  pinned version from then on.
+  or send `stopFollowingLatest: true` to pin it (`kindgi suggested-changes pin
+  --stop-following-latest`), and the project runs the pinned version from
+  then on.
 - **A project that runs another version** than the one the suggested change
   is built on takes no pin of it either: it's
   [rebuilt](#if-the-project-moves-first) first.

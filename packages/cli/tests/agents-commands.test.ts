@@ -171,6 +171,27 @@ describe('kindgi agents — pinned versions', () => {
     ]);
   });
 
+  test('--stop-following-latest asks to take a project that follows Latest off it', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      ['agents', 'pin', 'acme.drafter', '1.1.0', `--project=${PROJECT}`, '--stop-following-latest'],
+      { agents: { pinned: { pin: rec('pin', answer(pin())) } } },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      [
+        'pin',
+        'acme.drafter',
+        {
+          version: '1.1.0',
+          scope: { kind: 'project', projectId: PROJECT },
+          stopFollowingLatest: true,
+        },
+        {},
+      ],
+    ]);
+  });
+
   test.each([
     [['1.1.0'], 'Name the scope'],
     [['1.1.0', '--tenant', `--org=${ORG}`], 'one of --tenant, --org or --project'],
@@ -370,6 +391,24 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
     });
     expect(out.exitCode).toBe(3);
     expect(out.stderr).toContain(`Error [gate-failed]: ${message}`);
+  });
+
+  test('a pin that would take a project off Latest: exit 1, and the flag that pins anyway named', async () => {
+    const message =
+      'Project acme follows Latest, and this pin would take it off it: it would run the pinned version and no longer take each new Latest. Send `stopFollowingLatest: true` to pin anyway.';
+    const out = await run(['agents', 'pin', ...SCOPE], {
+      agents: {
+        pinned: {
+          pin: async () => {
+            throw new KindgiApiError(fromWire({ code: 'pin-stops-latest', message }, 409));
+          },
+        },
+      },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `Error [pin-stops-latest]: ${message}\nRun it again with --stop-following-latest to pin anyway.\n`,
+    );
   });
 
   test('any other error is still 1', async () => {

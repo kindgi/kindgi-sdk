@@ -1510,6 +1510,30 @@ describe('PATCH /v1/corrections/:id', () => {
     expect(reopened.body).not.toHaveProperty('fixedIn');
   });
 
+  test('a correction a test run reopened answers reopenedIn beside its fixedIn; a status set by hand clears both', async () => {
+    const run = row();
+    const h = harness([run]);
+    const id = await made(h, run, { answer: 'right' });
+    const fixed = (await h.call('GET', `/v1/corrections/${id}`)).body;
+    const reopenedIn = {
+      version: '1.3.0',
+      how: 'went-back',
+      by: { kind: 'user', id: 'user-2' },
+      at: '2026-11-06T10:00:00.000Z',
+    } as const;
+    await h.binding.applyRunOutcome({
+      tenantId,
+      endedAt: fixed.updatedAt as string,
+      changes: [{ correctionId: id, status: 'open', reopenedIn }],
+    });
+    const reopened = await h.call('GET', `/v1/corrections/${id}`);
+    expect(reopened.body).toMatchObject({ status: 'open', fixedIn: fixed.fixedIn, reopenedIn });
+    const wontFix = await patch(h, id, { status: 'wont-fix', reason: 'not ours to fix' });
+    expect(wontFix.status, JSON.stringify(wontFix.body)).toBe(200);
+    expect(wontFix.body).not.toHaveProperty('reopenedIn');
+    expect(wontFix.body).not.toHaveProperty('fixedIn');
+  });
+
   test('being-fixed takes a link; back to open clears it', async () => {
     const run = row();
     const h = harness([run]);

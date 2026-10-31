@@ -2397,6 +2397,30 @@ class CorrectionFixedIn(BaseModel):
     at: AwareDatetime
 
 
+class CorrectionReopenedIn(BaseModel):
+    """
+    The version whose test run got a `fixed` correction wrong again. It holds no words: a client builds the sentence from the project's and the person's current names.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    """
+    The version that gets it wrong.
+    """
+    how: Annotated[Literal["pin", "went-back", "unpin", "latest"] | str, _open.OPEN]
+    """
+    How the project came to run it. `pin`: a pin. `went-back`: a pin of a version earlier than the one it ran just before. `unpin`: an unpin. `latest`: a deploy or an add moved Latest in a project that follows it.
+    """
+    by: CorrectionMadeBy | None = None
+    """
+    Who pinned, went back or unpinned. Absent when Latest moved.
+    """
+    at: AwareDatetime
+
+
 class CorrectionStatusNote(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -17612,7 +17636,11 @@ class Correction(BaseModel):
     """
     fixed_in: Annotated[CorrectionFixedIn | None, Field(alias="fixedIn")] = None
     """
-    Present while it is `fixed`.
+    Present while it's `fixed`, and beside `reopenedIn` after a test run reopened it.
+    """
+    reopened_in: Annotated[CorrectionReopenedIn | None, Field(alias="reopenedIn")] = None
+    """
+    Present after a test run got a `fixed` correction wrong again: it's `open`, or `with-owner` when it's sorted to the owner, with the `fixedIn` it had beside it. A status set by hand clears both, and a re-sort alone keeps them. A test run that gets it right again makes it `fixed` with a new `fixedIn`.
     """
     status_note: Annotated[CorrectionStatusNote | None, Field(alias="statusNote")] = None
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]

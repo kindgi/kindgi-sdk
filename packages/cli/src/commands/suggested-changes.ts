@@ -326,16 +326,23 @@ const pin: LeafCommand = {
   kind: 'leaf',
   name: 'pin',
   description:
-    "Pin a suggested change's version for its project, through the project's release gate with its check. It prints the pin's answer: the pin, its test runs, and the suggested change under `suggestedChange`, `pinned` or `waiting-for-second-person` (a reviewer decides the approval: `kindgi approvals complete`). A refusal by the release gate lists every check, and leaves it `ready`. Allowed when `ready`, for a project that runs a pin. Needs `pin` on the agent.",
-  usage: 'kindgi suggested-changes pin <suggested-change-id> [--reason=<text>]',
+    "Pin a suggested change's version for its project, through the project's release gate with its check. It prints the pin's answer: the pin, its test runs, the corrections a reused run marked `fixed` or reopened, and the suggested change under `suggestedChange`, `pinned` or `waiting-for-second-person` (a reviewer decides the approval: `kindgi approvals complete`). A refusal by the release gate lists every check, and leaves it `ready`. A project that follows Latest is refused (`409 pin-stops-latest`) unless --stop-following-latest; `kindgi suggested-changes add-as-latest` adds it as the project's Latest instead. Allowed when `ready`. Needs `pin` on the agent.",
+  usage:
+    'kindgi suggested-changes pin <suggested-change-id> [--reason=<text>] [--stop-following-latest]',
   optionSpec: {
     reason: { type: 'string', description: 'Why, kept on the request to pin it.' },
+    'stop-following-latest': {
+      type: 'boolean',
+      description:
+        'Pin even when it takes a project that follows Latest off it: that project then runs the pinned version, and no longer takes each new Latest. Without it, such a pin is refused (`409 pin-stops-latest`).',
+    },
     ...IDEMPOTENCY_FLAG,
   },
   run: (ctx) =>
     runSdk(ctx, 'suggested-changes pin', async () =>
       ctx.client().suggestedChanges.pin(requiredPositional(ctx, 0, 'suggested-change-id'), {
         ...reasonFlag(ctx),
+        ...(ctx.options['stop-following-latest'] === true && { stopFollowingLatest: true }),
         ...idempotency(ctx),
       }),
     ),
