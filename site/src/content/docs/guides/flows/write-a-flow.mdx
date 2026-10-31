@@ -686,35 +686,60 @@ no restart. A run already in flight keeps the version it started on. Change
 
 ## In the console
 
-A project's **Flows** page lists its flows: "A flow runs agents and tools
-as its steps: in order, side by side or repeated, all in one run. Each flow
-is shown at its latest version; retired ones last." Each row has the flow's
-name and description, its latest version, what it runs ("3 steps: 2
-agents, 1 repeating step") and its agent and tool versions ("Locked when
-published"). A flow whose every version is retired is marked **retired**.
+A project's **Flows** page lists its flows: "A flow runs agents and tools as
+the steps of one run: in sequence, in a loop, or as tool calls in parallel.
+Each step can take the output of the steps before it. A step can't run
+another flow yet." Each row has:
+
+- **Flow:** its name, with its description under it.
+- **Latest version.** In a later environment, the column is **Newest you can
+  see**: the newest version you can see in any of the order's projects,
+  which may not be promoted here yet.
+- **Steps:** how many, and what they are, such as "3 (2 agents, 1 repeating
+  step)".
+- **Versions locked:** "Yes" when every run of that version uses the agent
+  and tool versions it was published with, "No, latest at each run" when
+  each run takes their latest, or "Nothing to lock".
+
 The list has a search box, sorts by a column's header, and **Columns**
-chooses which columns it shows.
+chooses which columns it shows. A flow whose every version is retired is
+hidden until **Show retired**, at the end of **Columns**, which counts
+them. Then it's listed after the flows in use, marked **retired**.
 
 ![The Flows page: "A flow runs agents and tools as its steps: in order, side by side or repeated, all in one run. Each flow is shown at its latest version; retired ones last.", a search box and the Columns menu, then Refunds ("Triage, check each item, then answer.") at 2.0.0 with 3 steps: 2 agents, 1 repeating step, and acme.single at 1.0.0 with 2 steps: 2 agents, each Locked when published.](../../../../assets/flows/flows-list.png)
 
-A flow's page has **Runs** and **Cost** at the top, and **Start run** while a
-version is in use, only to people who may run the flow. It says which version
-it shows: "2.0.0 (its latest): 3 steps: 2 agents, 1 repeating
-step." It draws that version as a graph, from Start to End: each step with
-what it runs, by name, and at which version, such as "locked at 1.0.0", and
-a repeating step in words ("For each item of the run's items, at most 50
-times: Dev-Echo Agent"). Below it:
-- **What 2.0.0 uses:** its agents and tools, each with what it does and its
-  version: "Locked when this version was published: every run of it uses
-  these versions."
-- **Versions:** "Runs use the latest unless they name a version." Every
-  version is listed, a retired one marked **retired**, each with what it
-  runs and **Runs →**, the runs list filtered to that version.
+A flow's page has its name and description at the top, with **Download its
+JSON** and, while a version is in use, **Start a run**, only to people who
+may run the flow. Both are icons, named on hover. Under them is the version
+the page shows: its **ID**, its **Version**, tagged **Latest** or
+**Retired** (with "Latest is 2.0.0" when it shows an older one), and
+**Versions locked**, as the Flows list says it. Then, in order:
+
+- **Steps:** that version as a graph, from Start to End: each step with what
+  it runs, by name, and at which version, such as "locked at 1.0.0", and a
+  repeating step in words ("For each item of the run's items, at most 50
+  times: Dev-Echo Agent").
+- **Agents and tools:** each agent and tool the version runs, with its
+  **Kind**, **What it does** and **Version**: the version it runs, or
+  "Latest at each run" when the flow version locks none.
 - **What triggers it:** the schedules, incoming webhooks and mail triggers
   that start it, each with the version it starts, such as "Schedule: Every
   day at 2:00 AM UTC · version 2.0.0" or "Mail trigger: new mail in the
-  company's Gmail, inbox · version 2.0.0". With none, it says "No schedule,
-  incoming webhook or mail trigger: people and apps start it."
+  company's Gmail, inbox · version 2.0.0". A trigger that names no version
+  starts "the latest version", and a paused one is marked **Paused**. With
+  none, it says "No schedule, incoming webhook or mail trigger: people and
+  apps start it."
+- **Recent runs:** its latest runs, with **Cost →** and **All runs →**.
+- **Versions:** each version with what it does, its steps, **Locked by**
+  (each trigger or flow version locked to it, by name), and **Runs →**, the
+  runs list filtered to that version. Retired versions are hidden until
+  **Show retired** in the table's **Columns**. The version on the page
+  always shows, and so does every version of a flow with none in use.
+- **Full spec:** the version's definition, as the runtime sent it.
+
+A version with a flow inside it says "A run of 1.0.0 is refused": "It has a
+flow inside it, which runs can't do yet. Put that flow's steps in this one
+instead."
 
 ![Refunds' page at 2.0.0, its latest: Runs, Cost and Start run; the graph Start, triage, a step repeating for each of the run's items, answer, End, each agent locked at 1.0.0; What 2.0.0 uses: Dev-Echo Agent, locked at 1.0.0; Versions: 2.0.0 (latest) and 1.1.0, each with Runs → and Retire's archive icon at the row's end, and 1.0.0 (retired) with Runs → and Bring back; and What triggers it: the nightly refunds schedule and the Refund requests incoming webhook, each starting version 2.0.0.](../../../../assets/flows/flow-page.png)
 
@@ -730,11 +755,12 @@ Runs that name 1.0.0 are refused, a schedule's included; runs already going fini
 ![Refunds' Retire 1.0.0? dialog: runs that name no version keep using 2.0.0, runs that name 1.0.0 are refused, a schedule's included, and it stays listed as retired, with Bring back; then Keep it and Retire.](../../../../assets/flows/flow-retire-dialog.png)
 
 Retiring the latest says which version runs that name none use instead,
-such as "Runs that name no version use 1.1.0 instead." While the dialog is
-still open, **Bring it back** undoes it. Later, the version's row has
-**Bring back**, and the version's own page says "1.0.0 is retired", since
-when, and "Runs that name it are refused, and runs that name no version
-don't use it.", with **Bring back**.
+such as "Runs that name no version use 1.1.0 instead." Once it's done, the
+dialog says "Retired.", and **Bring it back** undoes it while the dialog is
+still open. Later, with **Show retired** on, the version's row has **Bring
+back**, and the version's own page says "1.0.0 is retired", since when, and
+"Runs that name it are refused, and runs that name no version don't use
+it.", with **Bring back**.
 
 ![Version 1.0.0's page: "1.0.0 (retired): 2 steps: 2 agents.", then "1.0.0 is retired", since when, that runs naming it are refused and runs naming no version don't use it, and Bring back, above its graph; under Versions, 1.0.0 is marked retired and shown, with Bring back.](../../../../assets/flows/flow-retired-version.png)
 
