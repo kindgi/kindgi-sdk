@@ -349,7 +349,7 @@ check_job_name() {
 export_awaits_grant() {
   { grep -q 'HTTPError 412' "$1" && grep -q 'permissions for the bucket' "$1"; } \
     || { grep -q 'failed to initiate resumable upload' "$1" && grep -q 'Error 403' "$1" \
-      && grep -q 'storage.objects.create' "$1"; }
+      && grep -qF 'storage.objects.create' "$1"; }
 }
 # The export and the var-file's backup copy. $1 is the run's UTC stamp.
 export_uri() { printf '%s/%s-%s-%s-%s.sql.gz' "${BACKUP_BUCKET%/}" "$NAME_PREFIX" "$DATABASE_NAME" "$CURRENT" "$1"; }
