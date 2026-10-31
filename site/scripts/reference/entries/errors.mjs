@@ -1859,6 +1859,11 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'runs-in-unsupported': {
+    description:
+      "This runtime doesn't read the agents' pins and Latest, so it can't say where a block's versions run (`GET /v1/blocks/{blockId}/runs-in`).",
+    details: [],
+  },
   'block-already-registered': {
     description:
       "That block version is already published; versions never change, so publish a new version. On a deployment, the runtime holds a version of the pack's block with other content, or unregistered: give the block a new version in the pack, or reinstate the unregistered one (`kindgi blocks reinstate`). The message names each one.",
@@ -3387,6 +3392,22 @@ export const ERROR_ENTRIES = {
     description:
       "This server's projects can't be put in production: its project store has no production setting. Every run there is a staging run.",
     details: [],
+  },
+  'repo-connection-not-company-github': {
+    description:
+      "The connection named for the project's repo connection isn't a company-wide GitHub connection. Pull requests for a project's block changes are opened through the company's GitHub connection: connect GitHub for the company, then name that connection.",
+    details: [
+      { key: 'connectionId', meaning: 'the connection named' },
+      { key: 'app', meaning: 'the app entry it was made through' },
+      { key: 'owner', meaning: 'who owns it: `member` or `company`' },
+    ],
+    seeAlso: ['PUT /v1/projects/{projectId}/repo-connection', 'GET /v1/connections'],
+  },
+  'repo-connection-unsupported': {
+    description:
+      "This server can't connect a project to a repo: its project store keeps no repo connection, or, to set one, it has no connections. `kindgi blocks pull` still writes the versions that run into the pack's block files.",
+    details: [],
+    seeAlso: ['PUT /v1/projects/{projectId}/repo-connection'],
   },
   'team-membership-not-found': {
     description: "The user isn't a member of the team.",

@@ -793,6 +793,11 @@ export type {
   BlockVersionSource,
 } from './block-binding.js';
 export type {
+  BlockVersionPullRequest,
+  BlockVersionPullRequestBinding,
+  BlockVersionPullRequestInput,
+} from './block-version-pr-binding.js';
+export type {
   AgentPinBindings,
   AgentPinInput,
   AgentPinResolution,
@@ -1179,6 +1184,7 @@ export type {
   DeploymentPromoteOutcome,
   DeploymentRegisterInput,
   DeploymentRegisterOutcome,
+  DeploymentSource,
   PromotedToolSecretScopes,
   SystemDeploymentRetireReason,
 } from './deployment-binding.js';

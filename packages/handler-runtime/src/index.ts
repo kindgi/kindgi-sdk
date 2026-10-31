@@ -69,6 +69,7 @@ export {
   runIndexer,
 } from './kindgi-index.js';
 export type {
+  BlockFileText,
   IndexedBlock,
   PackBlockError,
   PackBlocks,
@@ -77,6 +78,7 @@ export type {
 } from './pack-blocks.js';
 export {
   DEPLOY_PUBLISHES_PACK_BLOCKS,
+  blockFileText,
   blocksFolder,
   readPackBlocks,
   writePackBlock,

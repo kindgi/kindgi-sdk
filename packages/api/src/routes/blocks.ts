@@ -4,6 +4,7 @@
 import { type Context, Hono } from 'hono';
 
 import {
+  type AgentId,
   BLOCK_KINDS,
   type BlockKind,
   type SettingsBlockContent,
@@ -14,8 +15,11 @@ import {
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import { ref } from '@kindgi/authz';
 import { emitAuditEvent } from '@kindgi/compliance';
+import type { Logger } from '@kindgi/log';
+import { highestVersion } from '@kindgi/tools';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
+import type { AgentPinBindings } from '../agent-pin-binding.js';
 import type {
   BlockPublishOutcome,
   BlockRecord,
@@ -23,7 +27,12 @@ import type {
   BlockUseBinding,
 } from '../block-binding.js';
 import { continuityIssues, withCarriedSchema } from '../block-publish.js';
+import type {
+  BlockVersionPullRequest,
+  BlockVersionPullRequestBinding,
+} from '../block-version-pr-binding.js';
 import { callerIdentity } from '../caller.js';
+import type { DeploymentBinding } from '../deployment-binding.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
@@ -32,7 +41,8 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { AppEnv } from '../types.js';
-import { actorOf } from './agent-pins.js';
+import { whatRunsByProject } from '../what-runs.js';
+import { actorOf, seenVersions } from './agent-pins.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
@@ -82,6 +92,11 @@ export function blocksRouter(
   blockUse?: BlockUseBinding,
   /** Where the audit events land. Absent: none is recorded. */
   auditEvents?: AuditEventBinding,
+  /**
+   * What runs where, for `GET /:blockId/runs-in`. Absent (or without
+   * `blockUse`): it answers `501 runs-in-unsupported`.
+   */
+  runsIn?: BlockRunsInDeps,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
@@ -253,6 +268,73 @@ export function blocksRouter(
       return notFound(c, blockId, version);
     }
     return c.json(serializeBlock(block));
+  });
+
+  // ---------- GET /:blockId/runs-in ----------
+  // Where the block's versions run now. For each agent with a version that
+  // pins the block (`BlockUseBinding.pinningBlock`), its projects are taken
+  // as `GET /v1/agents/:agentId/projects` takes them, so the two pages
+  // agree: its own project, then each one a version can run in, only those
+  // the caller reads. `whatRunsByProject` says what runs in each. A row is
+  // a project, or a segment pin inside one, whose running version pins the
+  // block, with the block version it pins. An agent version the caller
+  // can't see is left out (`seenVersions`). Each row says whether the
+  // pack's files have that version (`withInYourFiles`).
+  /** The projects an agent runs in that the caller reads, as `GET /v1/agents/:agentId/projects` lists them. */
+  async function agentProjectsRead(
+    c: Context<AppEnv>,
+    deps: BlockRunsInDeps,
+    agentId: string,
+  ): Promise<readonly ProjectId[]> {
+    const projectsOf = itemRights ?? itemServing;
+    const projects =
+      projectsOf !== undefined
+        ? await projectsOf.projects(c, 'agent', agentId)
+        : await deps.ownProject(c.get('tenantId') as TenantId, agentId as AgentId);
+    if (projects === undefined || projects.length === 0) return [];
+    return authorizer === undefined
+      ? projects
+      : authorizer.filterByCan(c, 'read', projects, (p) => ref('project', p as unknown as string));
+  }
+
+  r.get('/:blockId/runs-in', async (c) => {
+    const tenantId = c.get('tenantId') as TenantId;
+    const blockId = c.req.param('blockId');
+    const block = await binding.get({ tenantId, blockId });
+    if (block === null) return notFound(c, blockId);
+    const many = await served(c, blockId);
+    if (many === 'hidden') return notFound(c, blockId);
+    if (many === undefined && !(await canProject(c, 'read', block.projectId))) {
+      return notFound(c, blockId);
+    }
+    if (blockUse === undefined || runsIn === undefined) {
+      c.status(statusFor('runs-in-unsupported') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'runs-in-unsupported',
+            message: "This runtime can't say where a block runs: it doesn't read pins and Latest",
+          },
+          c.get('requestId'),
+        ),
+      );
+    }
+    const pinning = pinningVersions(await blockUse.pinningBlock({ tenantId, blockId }));
+    const data: BlockRunsInRow[] = [];
+    for (const [id, versions] of pinning) {
+      const named = await agentProjectsRead(c, runsIn, id);
+      if (named.length === 0) continue;
+      const [rows, visible] = await Promise.all([
+        whatRunsByProject(runsIn.agentPins, { tenantId, agentId: id as AgentId }, named),
+        seenVersions(itemRights, c, id, [...versions.keys()]),
+      ]);
+      data.push(
+        ...agentRunsInRows(id, rows, (version) =>
+          visible.has(version) ? versions.get(version) : undefined,
+        ),
+      );
+    }
+    return c.json({ data: await withInYourFiles(runsIn, tenantId, blockId, data, c.get('log')) });
   });
 
   // ---------- POST / (publish a version) ----------
@@ -498,6 +580,193 @@ async function modelSettingsRefusal(
   return twice.length === 0
     ? undefined
     : { message: `Block "${blockId}"'s new values name the model twice`, issues: twice };
+}
+
+/** What `GET /v1/blocks/:blockId/runs-in` reads besides the block registry. */
+export interface BlockRunsInDeps {
+  /** The agents' pins and Latest, which say what runs in each project. */
+  readonly agentPins: Pick<AgentPinBindings, 'pinned' | 'latest'>;
+  /**
+   * An agent's own project, when no item-projects binding names its
+   * projects (`agentOwnProject`). `undefined`: no such agent.
+   */
+  readonly ownProject: (
+    tenantId: TenantId,
+    agentId: AgentId,
+  ) => Promise<readonly ProjectId[] | undefined>;
+  /**
+   * Each project's deployments: whether the newest one of the row agent's
+   * pack lists the block's version.
+   */
+  readonly deployments?: Pick<DeploymentBinding, 'list'>;
+  /** The pull requests opened for block versions. */
+  readonly pullRequests?: BlockVersionPullRequestBinding;
+}
+
+/** One place a version of the block runs: a project, or a segment pin inside one. */
+interface BlockRunsInRow {
+  readonly projectId: ProjectId;
+  readonly agentId: string;
+  readonly agentVersion: string;
+  readonly blockVersion: string;
+  readonly follows: 'pin' | 'latest';
+  readonly segment?: readonly { readonly key: string; readonly value: string }[];
+  readonly inYourFiles?: {
+    readonly state: 'yes' | 'not-yet';
+    readonly pr?: BlockVersionPullRequest;
+  };
+}
+
+/** Each agent's versions that pin the block, and the block version each pins. */
+function pinningVersions(
+  uses: Awaited<ReturnType<BlockUseBinding['pinningBlock']>>,
+): ReadonlyMap<string, ReadonlyMap<string, string>> {
+  const pinning = new Map<string, Map<string, string>>();
+  for (const use of uses) {
+    const agentId = use.agentId as unknown as string;
+    const versions = pinning.get(agentId) ?? new Map<string, string>();
+    versions.set(use.version, use.blockVersion);
+    pinning.set(agentId, versions);
+  }
+  return pinning;
+}
+
+/**
+ * One agent's rows: each project, and each segment pin inside one, whose
+ * running version pins the block (`pinned` gives the block version it
+ * pins, `undefined` for none or a version the caller can't see).
+ */
+function agentRunsInRows(
+  agentId: string,
+  rows: Awaited<ReturnType<typeof whatRunsByProject>>,
+  pinned: (version: string) => string | undefined,
+): BlockRunsInRow[] {
+  const out: BlockRunsInRow[] = [];
+  for (const { projectId, runs, segments } of rows) {
+    const blockVersion = runs === null ? undefined : pinned(runs.version);
+    if (runs !== null && blockVersion !== undefined) {
+      out.push({
+        projectId,
+        agentId,
+        agentVersion: runs.version,
+        blockVersion,
+        follows: runs.follows,
+      });
+    }
+    for (const s of segments) {
+      const segmentBlockVersion = pinned(s.version);
+      if (segmentBlockVersion === undefined) continue;
+      out.push({
+        projectId,
+        agentId,
+        agentVersion: s.version,
+        blockVersion: segmentBlockVersion,
+        follows: 'pin',
+        segment: s.path.map(({ key, value }) => ({ key, value })),
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * How many deployments a page of a project's list holds when "In your
+ * files" looks for an agent's pack, and how many pages it reads before
+ * it takes the pack as not deployed there.
+ */
+const PACK_DEPLOYMENTS_PAGE = 50;
+const PACK_DEPLOYMENT_PAGES = 4;
+
+/**
+ * Each row with "In your files", when the runtime reads deployments or
+ * pull requests (neither: the rows as they are). `yes` when the pack's
+ * newest deployment in the row's project lists the block at its version
+ * or a newer one, or the pull request opened for it there was merged;
+ * else `not-yet`. The pack is the row agent's: a project can hold
+ * several, so it's the newest deployment there that ships the agent. The
+ * pull request comes with it when one was opened. A row whose pull
+ * request can't be read has none: it's logged, by the error's name only,
+ * and the page still answers.
+ */
+async function withInYourFiles(
+  deps: BlockRunsInDeps,
+  tenantId: TenantId,
+  blockId: string,
+  rows: readonly BlockRunsInRow[],
+  log: Logger,
+): Promise<readonly BlockRunsInRow[]> {
+  const { deployments, pullRequests } = deps;
+  if (deployments === undefined && pullRequests === undefined) return rows;
+  const once = <T>(cache: Map<string, Promise<T>>, key: string, read: () => Promise<T>) => {
+    let found = cache.get(key);
+    if (found === undefined) {
+      found = read();
+      cache.set(key, found);
+    }
+    return found;
+  };
+  const deployed = new Map<string, Promise<string | undefined>>();
+  const opened = new Map<string, Promise<BlockVersionPullRequest | null | 'unread'>>();
+  // Newest first, so the first deployment that ships the agent is its pack's newest.
+  const deployedIn = (projectId: ProjectId, agentId: string) =>
+    once(deployed, `${projectId as unknown as string}\u0000${agentId}`, async () => {
+      if (deployments === undefined) return undefined;
+      let cursor: Cursor | undefined;
+      for (let page = 0; page < PACK_DEPLOYMENT_PAGES; page++) {
+        const { data, nextCursor } = await deployments.list({
+          tenantId,
+          projectId,
+          limit: PACK_DEPLOYMENTS_PAGE,
+          ...(cursor !== undefined && { cursor }),
+        });
+        const newest = data.find((d) => d.contents.agents.some((a) => a.id === agentId));
+        if (newest !== undefined) {
+          return newest.contents.blocks?.find((b) => b.id === blockId)?.version;
+        }
+        if (nextCursor === undefined) return undefined;
+        cursor = nextCursor;
+      }
+      return undefined;
+    });
+  const openedFor = (projectId: ProjectId, version: string) =>
+    once(opened, `${projectId as unknown as string}\u0000${version}`, async () => {
+      if (pullRequests === undefined) return null;
+      try {
+        return await pullRequests.forVersion({ tenantId, projectId, blockId, version });
+      } catch (cause) {
+        log.warn('A block version pull request could not be read', {
+          blockId,
+          version,
+          projectId: projectId as unknown as string,
+          // The name only: a message can quote what the repository answered.
+          error: cause instanceof Error ? cause.name : typeof cause,
+        });
+        return 'unread';
+      }
+    });
+  return Promise.all(
+    rows.map(async (row): Promise<BlockRunsInRow> => {
+      const [inFiles, pr] = await Promise.all([
+        deployedIn(row.projectId, row.agentId),
+        openedFor(row.projectId, row.blockVersion),
+      ]);
+      if (pr === 'unread') return row;
+      const yes =
+        (inFiles !== undefined && atLeast(inFiles, row.blockVersion)) || pr?.state === 'merged';
+      return {
+        ...row,
+        inYourFiles: {
+          state: yes ? 'yes' : 'not-yet',
+          ...(pr !== null && { pr: { number: pr.number, url: pr.url, state: pr.state } }),
+        },
+      };
+    }),
+  );
+}
+
+/** `a` is `b` or a newer version, by the one version rule: a prerelease is older than its release. */
+function atLeast(a: string, b: string): boolean {
+  return a === b || highestVersion([a, b]) === a;
 }
 
 function isBlockKind(value: string): value is BlockKind {
