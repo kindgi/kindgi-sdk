@@ -1077,8 +1077,10 @@ that only reads), its **Version**, and **In use**: "Yes", with what uses it
 on hover, or "No". The list has a search box, and **Columns** chooses which
 columns it shows. A tool whose every version is retired is hidden until
 **Show retired** in **Columns**, and then it's marked **retired**. With no
-tools, it says "No tools yet. They come from your pack: deploy it to this
-project with `kindgi deploy`."
+tools, it says where they come from. Under `kindgi dev` that's "No tools yet.
+Under kindgi dev, they come from your pack's `tools` folder: add one there, and
+kindgi dev loads it." On any other runtime it's "No tools yet. They come from
+your pack: deploy it to this project with `kindgi deploy`."
 
 A tool's page has its name and description at the top, with **Download its
 JSON**. Under them are its facts: its **ID**, its **Version**, tagged
@@ -1090,8 +1092,8 @@ runs and what it declares it touches. Then:
   **Required**, and its **Description** when the tool gives one.
 - **Used by agents:** each agent that lists it, with what it does and
   whether a call **Needs approval**.
-- **Used in flows:** each flow that runs it, with the steps that do and the
-  version that runs.
+- **Used in flows:** each flow that runs it, with the steps that do and
+  **Locked at**: the version the flow is locked to, or "Not locked".
 - **Versions:** each version with what it does, whether it only reads, and
   **Locked by**: the agent and flow versions locked to it. Retired versions
   are hidden until **Show retired** in the table's **Columns**. Tool admins
