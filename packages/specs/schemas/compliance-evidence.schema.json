@@ -80,6 +80,7 @@
         "trigger-changed-for-owner",
         "environment-order-set",
         "deployment-promoted",
+        "deployment-replaced-block",
         "block-version-published",
         "block-version-unregistered",
         "block-version-reinstated",

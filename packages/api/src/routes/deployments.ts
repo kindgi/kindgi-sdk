@@ -69,6 +69,12 @@ import {
   publishPackBlocks,
   withPackVersions,
 } from '../deploy-blocks.js';
+import {
+  type ReplaceBlock,
+  checkAgainstRuns,
+  parseCheckBody,
+  parseReplace,
+} from '../deploy-check.js';
 import { type PlannedTool, keepPublishedTool, planPackTools } from '../deploy-tools.js';
 import type { DeployedVersionOutcome } from '../deploy-versions.js';
 import {
@@ -125,6 +131,11 @@ import type { ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { type AgentPinGateDeps, actorOf } from './agent-pins.js';
 import { capabilityRefusal, deniedBy } from './denied.js';
+import {
+  type DeployCheckBindings,
+  deployCheckDeps,
+  olderBlocksRefusal,
+} from './deploy-check-deps.js';
 import {
   carriedFor,
   isPromotionRoute,
@@ -350,6 +361,14 @@ export interface DeploymentsRouterBindings {
    * (`requestPin`). Absent: `pin` answers `501`.
    */
   readonly agentPins?: AgentPinBindings;
+  /**
+   * What a deploy's check against what runs reads besides `agentPins`
+   * (`deploy-check.ts`): a deploy that would put back an older version of
+   * a block than runs now in a project of one of its agents stops, unless
+   * it names the block in `replace`. Absent, or without `agentPins`:
+   * nothing is checked.
+   */
+  readonly deployCheck?: DeployCheckBindings;
   /** What a promotion's pin gate reads besides the pins (`requestPin`): comparisons, projects, the reference scope. */
   readonly agentPinGateDeps?: AgentPinGateDeps;
   /**
@@ -425,7 +444,9 @@ export function deploymentsRouter(
     if (isPromotionRoute(c.req.method, c.req.path)) return next();
     // A secrets sync asks admin where it writes them, as `/v1/secrets` does.
     if (c.req.method === 'POST' && SECRETS_PATH.test(c.req.path)) return next();
-    if (c.req.method !== 'POST' || !/\/deployments\/?$/.test(c.req.path)) {
+    // A deploy, and its check against what runs, need admin where it
+    // deploys: the body's project, else the tenant.
+    if (c.req.method !== 'POST' || !/\/deployments(?:\/check)?\/?$/.test(c.req.path)) {
       return tenantAccess(c, next);
     }
     return authorizer.authorize('admin', async (ctx) => {
@@ -657,6 +678,71 @@ export function deploymentsRouter(
       projectId,
     });
     return c.json({ data });
+  });
+
+  // ---------- POST /check (a deploy's check against what runs) ----------
+  //
+  // What `POST /` answers about the pack's blocks against what runs
+  // (`deploy-check.ts`), with nothing written: `kindgi deploy` asks it
+  // before it builds the image. Body `{ projectId?, agents: [agentId],
+  // blocks: [{ id, version }], replace? }`; it needs the deploy's own
+  // right. 200 `{ replaced, notNeeded }` when the deploy can go, `409
+  // deploy-would-put-back-older-blocks` when it would stop, and `501
+  // runs-in-unsupported` on a runtime that doesn't read pins and Latest.
+  r.post('/check', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError({ code: 'bad-input', message: 'Request body must be valid JSON' }, requestId),
+      );
+    }
+    const issues: { path: string; message: string }[] = [];
+    const parsed = parseCheckBody(body, issues);
+    if (parsed?.projectId !== undefined && !UUID_RE.test(parsed.projectId)) {
+      issues.push({ path: 'projectId', message: 'projectId must be a project id (a UUID)' });
+    }
+    if (parsed === undefined || issues.length > 0) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message: issues[0]?.message ?? 'body validation failed',
+            issues: issues as unknown as Record<string, unknown>[],
+          },
+          requestId,
+        ),
+      );
+    }
+    const check = await checkAgainstRuns(deployCheckDeps(c, bindings, authorizer), {
+      tenantId,
+      agents: parsed.agents,
+      blocks: parsed.blocks,
+      ...(parsed.replace !== undefined && { replace: parsed.replace }),
+    });
+    if (check.kind === 'skipped') {
+      c.status(statusFor('runs-in-unsupported') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'runs-in-unsupported',
+            message:
+              "This runtime can't check a deploy against what runs: it doesn't read pins and Latest",
+          },
+          requestId,
+        ),
+      );
+    }
+    if (check.stops.length > 0) return olderBlocksRefusal(c, check.stops, 'deploy');
+    return c.json({
+      replaced: check.replaced.map(({ blockId, from, to }) => ({ blockId, from, to })),
+      notNeeded: check.notNeeded,
+    });
   });
 
   // ---------- POST / (register a signed deployment) ----------
@@ -1118,6 +1204,21 @@ export function deploymentsRouter(
       packBlocks = plan.planned;
       blockReads = withPackVersions(bindings.blockRegistry, targetProjectId, packBlocks);
     }
+    // A newer version of one of the pack's blocks than its files' that runs
+    // now in a project of one of its agents stops the deploy, before
+    // anything is published, unless the body names the block in `replace`
+    // (`deploy-check.ts`).
+    const check = await checkAgainstRuns(deployCheckDeps(c, bindings, authorizer), {
+      tenantId,
+      agents: validated.agents.map((a) => a.id as unknown as string),
+      blocks: validated.blocks.map(({ id, version }) => ({ id, version })),
+      ...(wire.replace !== undefined && { replace: wire.replace }),
+    });
+    if (check.kind === 'checked' && check.stops.length > 0) {
+      return olderBlocksRefusal(c, check.stops, 'deploy');
+    }
+    const replaced =
+      check.kind === 'checked' ? check.replaced.map((b) => ({ ...b, by: actorOf(c) })) : [];
     // The pack's tools are checked against the registry here too: a
     // version it holds in this project is kept only with the pack's
     // definition, and refused with another (`deploy-tools.ts`).
@@ -1408,6 +1509,7 @@ export function deploymentsRouter(
         ...(wire.source !== undefined && {
           source: { ...wire.source, blockFiles: Object.fromEntries(validated.blockFiles) },
         }),
+        ...(replaced.length > 0 && { replaced }),
       });
     } catch (cause) {
       await rollback(rolled, c.get('log'));
@@ -1448,6 +1550,25 @@ export function deploymentsRouter(
           version: block.version,
           kind: block.kind,
           source: { kind: 'deploy', id: outcome.deployment.deploymentId },
+        },
+        log: c.get('log').child({ subsystem: 'audit' }),
+      });
+    }
+    for (const block of replaced) {
+      await emitAuditEvent({
+        auditEvents: bindings.auditEvents,
+        tenantId,
+        ...(targetProjectId !== undefined && { projectId: targetProjectId }),
+        kind: 'deployment-replaced-block',
+        actor: callerIdentity(c),
+        outcome: 'succeeded',
+        correlationId: requestId,
+        doc: {
+          deploymentId: outcome.deployment.deploymentId,
+          blockId: block.blockId,
+          from: block.from,
+          to: block.to,
+          reason: block.reason,
         },
         log: c.get('log').child({ subsystem: 'audit' }),
       });
@@ -1766,6 +1887,8 @@ interface WireBody {
   readonly projectId?: ProjectId;
   /** Where the pack lives in git, when the client said. */
   readonly source?: WireSource;
+  /** The blocks the deploy puts back on purpose, each with why (`deploy-check.ts`). */
+  readonly replace?: readonly ReplaceBlock[];
 }
 
 /**
@@ -1844,6 +1967,7 @@ function parseWireBody(body: unknown): ParseResult {
     issues.push({ path: 'projectId', message: 'projectId must be a project id (a UUID)' });
   }
   const source = parseSource(b.source, issues);
+  const replace = parseReplace(b.replace, issues);
 
   if (issues.length > 0) {
     return {
@@ -1864,6 +1988,7 @@ function parseWireBody(body: unknown): ParseResult {
       publishedAt: publishedAt as string,
       ...(typeof projectId === 'string' && { projectId: projectId as unknown as ProjectId }),
       ...(source !== undefined && { source }),
+      ...(replace !== undefined && { replace }),
     },
   };
 }

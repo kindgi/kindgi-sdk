@@ -3123,6 +3123,22 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'deploy-would-put-back-older-blocks': {
+    description:
+      "A newer version of one of the pack's data blocks than its files' runs now in a project of one of the pack's agents: a project's own version, added there from a suggested change or pinned, or a segment pin inside one. The deploy would put the older one back without anyone choosing to, so nothing was deployed. Bring the newer version into the files (`kindgi blocks pull <block>`, or merge the pull request opened for it) and deploy again, or deploy with `--replace=<block> --reason=<text>` to put the older one back on purpose: the deployment records it, and the audit log keeps one `deployment-replaced-block` event for each block. Every project counts, whoever deploys; one you can't read is named by the version only. `POST /v1/deployments/check` answers the same, writing nothing. A promotion with `pin` answers it too, against what runs in the target project only, with nothing moved: promote a build whose files have the newer versions, or name each block in its `replace` (`kindgi promote --pin --replace=<block> --reason=<text>`).",
+    details: [
+      {
+        key: 'blocks',
+        meaning:
+          "each block: its `blockId`, the files' version (`inFiles`), the newest that `runs` (its `version`, and in a project you read its `projectId`, `follows` `pin` or `latest`, the `segment` path, who made it run there `by` and when `at`), and the pull request opened for it (`pr.url`), when one was",
+      },
+    ],
+    seeAlso: [
+      'POST /v1/deployments',
+      'POST /v1/deployments/check',
+      'POST /v1/deployments/{deploymentId}/promotions',
+    ],
+  },
   'deployment-not-found': {
     description:
       "No deployment with that id exists under the tenant. A promotion of a deployment in a project you can't read is answered the same way.",
