@@ -10,7 +10,6 @@ import type {
   Pin,
   PinPage,
 } from '@kindgi/client';
-
 import type { AgentId } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';

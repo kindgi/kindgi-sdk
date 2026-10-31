@@ -22,7 +22,8 @@ kindgi corrections list --agent=acme-store.refunds --project=<project-id> \
   to `owner` is the owner's to pass on, and one sorted to `improve` waits
   for an Improve run.
 - `--from=experts` keeps the corrections from expert groups, and
-  `--from=end-users` the ones customers made.
+  `--from=end-users` the ones customers made. An end user's correction
+  nobody sorted has no `sortedTo`, so `--sorted-to` leaves it out.
 
 A correction that's `being-fixed` is someone's already: its `link` names the
 pull request, Improve run or suggested change. Leave it.

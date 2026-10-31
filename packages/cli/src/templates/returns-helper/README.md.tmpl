@@ -5,9 +5,10 @@ A returns helper — scaffolded by `kindgi init --template=returns-helper`.
 One agent answers a store's customers about returns and refunds an order
 within the store's rules. Its instructions, its return window and its
 model settings are blocks, so people change them without a deploy, and
-Improve can try other wording. Use it to try the whole loop on
-`kindgi dev`: correct a run, fix it, pin the fix, and watch the
-correction become Fixed.
+Improve can try other wording. Use it to try the correcting loop: on
+`kindgi dev`, correct a run and fix it in the pack; on a runtime the pack
+is deployed to, run Improve, pin its fix, and watch the correction become
+Fixed.
 
 ## Layout
 
@@ -46,6 +47,8 @@ one, `kindgi dev`'s fallback only echoes a tool's answer.
 
 ## Try the loop
 
+### On `kindgi dev`
+
 With `kindgi dev` running, sign in to the console it prints and open the
 dev project.
 
@@ -60,18 +63,33 @@ dev project.
    it `open`, with `sortedTo: "improve"`. Quality lists it too.
 3. **See it in the test set.** The agent's **Test set** page lists the
    correction as a case: every fix is checked against it from now on.
-4. **Run Improve.** Ask whether it's ready:
+4. **Fix it in the pack.** Say when in `blocks/tone.liquid`, and raise
+   the patch number of `version` in `blocks/tone.json`, which the agent's
+   `^` range takes. `kindgi dev` reloads the pack, and the next run reads
+   the new wording: start the same run again to see it.
+
+### On a deployed runtime
+
+Improve, its card and the pin change what one project runs. Under
+`kindgi dev` the pack's files serve every project, so there they answer
+409 `registry-read-only`. Deploy the pack without step 4's change, so
+the answer still needs a fix, to a runtime. One on your machine works:
+the docs' **Self-host Kindgi** page sets one up. Correct a run there as in
+step 1. Then:
+
+5. **Run Improve.** Ask whether it's ready:
    `{{KINDGI}} improve runs start --agent={{PACK_ID}}.returns-helper --project=<project-id> --check`,
    then run it without `--check`. It tries other wording for the `tone`
    block and the tunable `temperature`, on the test set.
-5. **Read its card and pin it.** The agent's **Suggested changes** page
+6. **Read its card and pin it.** The agent's **Suggested changes** page
    shows what it found and its check: the correction should pass on the
-   new version and nothing should newly fail. Pin it. Under `kindgi dev`,
-   the pin writes the block's new version into this pack's `blocks/`
-   folder: `git diff` shows it, ready to commit.
-6. **Watch it become Fixed.** The correction now reads Fixed, in the
+   new version and nothing should newly fail. Pin it. The project now runs
+   block versions that `blocks/` doesn't have yet:
+   `{{KINDGI}} suggested-changes get <suggested-change-id>` shows them, to
+   bring the files up to them.
+7. **Watch it become Fixed.** The correction now reads Fixed, in the
    version the pin made, and the pin's answer lists it under `fixed`.
-7. **Go back.** On the agent's **Pinned versions** page, pin the version
+8. **Go back.** On the agent's **Pinned versions** page, pin the version
    before it again. The correction reopens, and says which version
    reopened it.
 

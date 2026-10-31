@@ -88,4 +88,7 @@ One correction taken through the loop: [worked-example.md](worked-example.md).
 
 Kindgi sorts each correction as it's saved (`sortedTo`): one that says the
 decisions were wrong goes to the agent's owner, and one about the answer
-alone goes to Improve. Take it as a first guess; the table decides the layer.
+alone goes to Improve. An end user's correction is left unsorted, `open`
+with no `sortedTo`, unless its project sorts end users' corrections; a
+person sorts one with `kindgi corrections set <correction-id> --sorted-to=…`.
+Take it as a first guess; the table decides the layer.

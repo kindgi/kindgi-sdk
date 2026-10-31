@@ -75,7 +75,9 @@ take is withdrawn with `kindgi suggested-changes withdraw <id> --reason=…`.
 Once it's pinned or added, the project runs a block version your pack's
 `blocks/` folder doesn't have yet. Bring the block's file up to it, through
 the repo: its `version` and content as `get` shows them (`changes[].to` and
-`after`). Under `kindgi dev`, pinning it writes the file for you.
+`after`). Under `kindgi dev` there's no suggested change to pin: making or
+checking one answers 409 `registry-read-only`, since the pack's files serve
+every project. Change the block's file there, and `kindgi dev` reloads it.
 
 ## Wording, with Improve
 
@@ -90,4 +92,6 @@ kindgi improve runs start --agent=acme-store.refunds --project=<project-id>
 ```
 
 `--check` starts nothing: it lists what's missing before a run can start,
-and what it would cost. Its suggested change is pinned like yours.
+and what it would cost. Its suggested change is pinned like yours. Under
+`kindgi dev`, both answer 409 `registry-read-only`: run Improve on a
+deployed runtime.
