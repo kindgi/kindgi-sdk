@@ -449,18 +449,18 @@ export function suggestedChangesRouter(
 
   /**
    * An add moves Latest only in the card's project: check the new Latest
-   * there (`latestMoved`). Without a test set store nothing is checked.
-   * The add stands either way: a check that can't start is logged, and
-   * the next move checks again.
+   * there (`latestMoved`). Without a test set store or the corrections
+   * nothing is checked. The add stands either way: a check that can't
+   * start is logged, and the next move checks again.
    */
   async function checkLatest(c: Ctx, suggestedChange: StoredSuggestedChange): Promise<void> {
     const { scope } = suggestedChange;
-    const { testSets } = deps;
-    if (scope.kind !== 'project' || testSets === undefined) return;
+    const { testSets, corrections } = deps;
+    if (scope.kind !== 'project' || testSets === undefined || corrections === undefined) return;
     const log = c.get('log');
     try {
       await latestMoved(
-        { agentPins: deps.agentPins, testRuns: deps.testRuns, testSets },
+        { agentPins: deps.agentPins, testRuns: deps.testRuns, testSets, corrections },
         {
           tenantId: c.get('tenantId') as TenantId,
           agentId: suggestedChange.agentId as unknown as string,

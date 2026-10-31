@@ -111,11 +111,11 @@ export interface AgentPinGateDeps {
   /**
    * What a pin's test runs need (`pin-test-runs.ts`), with `testRuns` and
    * `projects`: the agent test sets to freeze, the corrections a reused
-   * run changes, and the projects an agent runs in, for a tenant or org
-   * pin. Absent: a pin starts no test run.
+   * run changes and the cases there are, and the projects an agent runs
+   * in, for a tenant or org pin. Absent: a pin starts no test run.
    */
   readonly testSets?: Pick<TestSetFreezeBinding, 'freezeTestSet'>;
-  readonly corrections?: Pick<CorrectionRegistryBinding, 'list' | 'applyRunOutcome'>;
+  readonly corrections?: Pick<CorrectionRegistryBinding, 'list' | 'applyRunOutcome' | 'listCases'>;
   readonly itemProjects?: Pick<ItemProjectsBinding, 'projectsOf'>;
 }
 

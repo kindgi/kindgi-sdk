@@ -84,6 +84,7 @@ function harness() {
   const testSetVersions = new Map<ProjectId, string>();
   const failing = new Set<ProjectId>();
   const refusing = new Set<ProjectId>();
+  const frozen: ProjectId[] = [];
   const warned: string[] = [];
   const log = { warn: (message: string) => void warned.push(message) };
   let second = 0;
@@ -148,6 +149,7 @@ function harness() {
     testSets: {
       freezeTestSet: async ({ projectId }) => {
         if (failing.has(projectId)) throw new Error('the test set store is down');
+        frozen.push(projectId);
         return {
           testSetId: agentTestSetId(agentId as AgentId, projectId),
           testSetVersion: testSetVersions.get(projectId) ?? '1',
@@ -203,6 +205,8 @@ function harness() {
     failing,
     /** Projects whose test runs the binding refuses to start. */
     refusing,
+    /** The projects whose test set was frozen, in order. */
+    frozen,
     /** What the pin flow logged. */
     warned,
     /** An open correction of the agent in `projectId`, a case on its test set. */
@@ -456,6 +460,8 @@ describe('a project pin', () => {
     await h.corrected(billing);
     expect(await h.pin('13.0.0', project(billing))).toMatchObject({ testRuns: [] });
     expect(h.started).toEqual([]);
+    // A project with no case has nothing frozen for it.
+    expect(h.frozen).not.toContain(support);
   });
 
   test('a segment pin checks nothing', async () => {
@@ -643,6 +649,14 @@ describe('an unpin', () => {
 });
 
 describe('Latest moving', () => {
+  test('a project that follows Latest with no case freezes nothing and starts nothing', async () => {
+    const h = harness();
+    h.onLatest(support, '13.0.0');
+    expect(await h.latestMoved([support])).toEqual([]);
+    expect(h.frozen).toEqual([]);
+    expect(h.started).toEqual([]);
+  });
+
   test('checks the new Latest in each project that follows it and has active cases; the run applies at its end', async () => {
     const h = harness();
     h.onLatest(support, '12.0.0');

@@ -21,6 +21,7 @@ import type { Logger } from '@kindgi/log';
 import type { AgentId, AgentPinScope, ProjectId, RunId, Semver, TenantId } from '@kindgi/types';
 
 import type { Pin } from './agent-pin-binding.js';
+import type { CorrectionRegistryBinding } from './correction-binding.js';
 import type { ItemProjectsBinding } from './item-projects-binding.js';
 import type { TestRun, TestRunBinding } from './test-run-binding.js';
 import {
@@ -40,8 +41,10 @@ import {
 } from './test-set-binding.js';
 import { type WhatRuns, whatRunsByProject } from './what-runs.js';
 
-export interface PinTestRunDeps extends Omit<TestRunOutcomeDeps, 'testRuns'> {
+export interface PinTestRunDeps extends Omit<TestRunOutcomeDeps, 'testRuns' | 'corrections'> {
   readonly testRuns: Pick<TestRunBinding, 'get' | 'start' | 'list'>;
+  /** `listCases`: whether a project has a case at all, before its test set is frozen. */
+  readonly corrections: Pick<CorrectionRegistryBinding, 'list' | 'applyRunOutcome' | 'listCases'>;
   readonly testSets: Pick<TestSetFreezeBinding, 'freezeTestSet'>;
   /** The projects an agent runs in, for a tenant or org pin. Absent: such a pin checks none. */
   readonly itemProjects?: Pick<ItemProjectsBinding, 'projectsOf'>;
@@ -238,7 +241,7 @@ export async function startUnpinTestRuns(
  * binding refuses, is left out and logged, and the others still go.
  */
 export async function latestMoved(
-  deps: Pick<PinTestRunDeps, 'agentPins' | 'testRuns' | 'testSets'>,
+  deps: Pick<PinTestRunDeps, 'agentPins' | 'testRuns' | 'testSets' | 'corrections'>,
   input: {
     readonly tenantId: TenantId;
     readonly agentId: string;
@@ -256,8 +259,8 @@ export async function latestMoved(
     await eachProject(input.log, `agent ${agentId}'s Latest`, projectId, async () => {
       const newest = await newestLatestRun(deps, tenantId, agentId, projectId);
       if (newest !== undefined && (!ended(newest) || newest.agentRef?.version === version)) return;
-      const frozen = await deps.testSets.freezeTestSet({ tenantId, agentId, projectId });
-      if (frozen.cases.length === 0) return;
+      const frozen = await frozenWithCases(deps, tenantId, agentId, projectId);
+      if (frozen === undefined) return;
       const started = await deps.testRuns.start({
         tenantId,
         projectId,
@@ -373,13 +376,35 @@ function covers(scope: AgentPinScope, runs: WhatRuns | null): boolean {
 }
 
 /** The project's agent test set frozen now, when it has cases; `undefined` when it has none. */
-async function activeCases(
-  deps: Pick<PinTestRunDeps, 'testSets'>,
+function activeCases(
+  deps: Pick<PinTestRunDeps, 'testSets' | 'corrections'>,
   tenantId: TenantId,
   change: Pin,
   projectId: ProjectId,
 ): Promise<FrozenTestSet | undefined> {
-  const agentId = change.agentId as AgentId;
+  return frozenWithCases(deps, tenantId, change.agentId as AgentId, projectId);
+}
+
+/**
+ * The project's agent test set frozen now, when it has cases. One read of
+ * its cases comes first, so a project with none freezes nothing: a freeze
+ * makes a version, and one with no case has no check behind it.
+ * `undefined` when it has none, at that read or at the freeze (a case
+ * removed between them).
+ */
+async function frozenWithCases(
+  deps: Pick<PinTestRunDeps, 'testSets' | 'corrections'>,
+  tenantId: TenantId,
+  agentId: AgentId,
+  projectId: ProjectId,
+): Promise<FrozenTestSet | undefined> {
+  const some = await deps.corrections.listCases({
+    tenantId,
+    agentId: agentId as unknown as string,
+    projectId,
+    limit: 1,
+  });
+  if (some.data.length === 0) return undefined;
   const frozen = await deps.testSets.freezeTestSet({ tenantId, agentId, projectId });
   return frozen.cases.length === 0 ? undefined : frozen;
 }

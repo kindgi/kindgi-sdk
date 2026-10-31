@@ -1712,8 +1712,13 @@ describe('POST /v1/suggested-changes/:id/add-as-latest', () => {
     };
   }
 
+  /** Corrections where the card's project has one case: a Latest check reads that first. */
+  const oneCase = {
+    listCases: async () => ({ data: [{ id: 'j1' }], hasMore: false }),
+  } as unknown as CorrectionRegistryBinding;
+
   test("it checks the new Latest in the card's project, with a latest: test run", async () => {
-    const h = await readyOnLatest();
+    const h = await readyOnLatest({ correctionRegistry: oneCase });
     latestByProject(h);
     h.testRuns.started.length = 0;
     const res = await h.call('POST', `/v1/suggested-changes/${h.id}/add-as-latest`, {});
@@ -1729,8 +1734,23 @@ describe('POST /v1/suggested-changes/:id/add-as-latest', () => {
     ]);
   });
 
+  test("with no case in the card's project, it freezes nothing and starts nothing", async () => {
+    const h = await readyOnLatest({
+      correctionRegistry: {
+        listCases: async () => ({ data: [], hasMore: false }),
+      } as unknown as CorrectionRegistryBinding,
+    });
+    latestByProject(h);
+    h.testRuns.started.length = 0;
+    const freezes = h.freeze.calls.length;
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/add-as-latest`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(h.freeze.calls).toHaveLength(freezes);
+    expect(h.testRuns.started).toEqual([]);
+  });
+
   test('a Latest check that does not start leaves the add as it is', async () => {
-    const h = await readyOnLatest();
+    const h = await readyOnLatest({ correctionRegistry: oneCase });
     latestByProject(h);
     h.testRuns.started.length = 0;
     h.testRuns.fail.start = 1;
