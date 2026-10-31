@@ -64,8 +64,24 @@ export interface SystemDeploymentEntry {
   readonly activatedAt: string;
 }
 
-/** A deployment that needs a pack service, and why it has none yet, if a problem was recorded. */
-export interface SystemDeploymentMissing extends SystemDeploymentEntry {
+/** A deployment whose pack service should run: one that needs a service, or one whose service is ready. */
+export interface SystemDeploymentToServe extends SystemDeploymentEntry {
+  /**
+   * Keep an instance of its service running: in its project, calls route to
+   * it for something that's always on there. That's a tool version reached
+   * from a version a pin holds (an agent's, a flow's or a tool's) or from
+   * the Latest of each agent no pin covers there, or a pack check a
+   * registered guardrail runs there. Otherwise its service can scale to
+   * zero. Absent from a binding that doesn't say: not warm.
+   */
+  readonly warm?: boolean;
+}
+
+/**
+ * A deployment that needs a pack service: whether to start it `warm`, and
+ * why it has none yet, if a problem was recorded.
+ */
+export interface SystemDeploymentMissing extends SystemDeploymentToServe {
   /**
    * The last problem recorded for it (`PUT …/endpoint/problem`), with when
    * that code was first recorded, so the orchestrator can space its tries.
@@ -172,12 +188,23 @@ export interface SystemDeploymentsBinding {
    * Across tenants, oldest `activatedAt` first: deployments that need a
    * pack service. Each is routed (the newest deployment with routes for some
    * tool version or pack check), has no endpoint or a cleared one, and
-   * nothing about it is closing or suspended.
+   * nothing about it is closing or suspended. Each says whether its new
+   * service should start `warm`.
    */
   listNeedingEndpoint(input: {
     readonly cursor?: string;
     readonly limit: number;
   }): Promise<SystemDeploymentPage<SystemDeploymentMissing>>;
+  /**
+   * Across tenants, oldest `activatedAt` first: deployments whose endpoint
+   * is `ready` and whose pack service stays (no `listToRetire` reason
+   * applies), each with `warm`, so the services kept warm are the ones
+   * calls are always routed to.
+   */
+  listReady(input: {
+    readonly cursor?: string;
+    readonly limit: number;
+  }): Promise<SystemDeploymentPage<SystemDeploymentToServe>>;
   /**
    * Across tenants, oldest `activatedAt` first: deployments with an
    * endpoint whose pack service should go, each with its `reason`.
@@ -348,13 +375,13 @@ export function systemDeploymentsRouter(
   const { binding, directory: tenants, authorizer, packEnv } = options;
   const r = new Hono<AppEnv>();
 
-  // ---------- GET /deployments?endpoint=missing|retire ----------
+  // ---------- GET /deployments?endpoint=missing|ready|retire ----------
   r.get('/deployments', async (c) => {
     const denied = systemReadAcrossTenants(c, DEPLOYMENTS, authorizer);
     if (denied !== undefined) return denied;
     const want = c.req.query('endpoint');
-    if (want !== 'missing' && want !== 'retire') {
-      return fail(c, badInput('`endpoint` must be `missing` or `retire`').error);
+    if (want !== 'missing' && want !== 'ready' && want !== 'retire') {
+      return fail(c, badInput('`endpoint` must be `missing`, `ready` or `retire`').error);
     }
     const limit = parseLimit(c.req.query('limit'));
     if (limit.kind === 'err') return fail(c, limit.error);
@@ -363,19 +390,12 @@ export function systemDeploymentsRouter(
       ...(cursor !== undefined && cursor !== '' && { cursor }),
       limit: limit.value,
     };
-    const result =
-      want === 'missing'
-        ? await binding.listNeedingEndpoint(page)
-        : await binding.listToRetire(page);
+    const result = await listDeployments(binding, want, page);
     if (result.kind === 'cursor-unreadable') {
       return fail(c, badInput('`cursor` is not one this route gave: start again without it').error);
     }
     return c.json({
-      data: result.data.map((entry) => ({
-        ...entryToWire(entry),
-        ...('reason' in entry && { reason: entry.reason }),
-        ...('problem' in entry && entry.problem !== undefined && { problem: entry.problem }),
-      })),
+      data: result.data.map(listedToWire),
       ...(result.nextCursor !== undefined && { nextCursor: result.nextCursor }),
       hasMore: result.nextCursor !== undefined,
     });
@@ -725,6 +745,34 @@ function checkEndpoint(
     };
   }
   return url;
+}
+
+/** The list `endpoint=` names. */
+function listDeployments(
+  binding: SystemDeploymentsBinding,
+  want: 'missing' | 'ready' | 'retire',
+  page: { readonly cursor?: string; readonly limit: number },
+): Promise<
+  SystemDeploymentPage<SystemDeploymentMissing | SystemDeploymentToServe | SystemDeploymentToRetire>
+> {
+  if (want === 'missing') return binding.listNeedingEndpoint(page);
+  if (want === 'ready') return binding.listReady(page);
+  return binding.listToRetire(page);
+}
+
+/**
+ * A listed entry: `warm` from the `missing` and `ready` lists, when given;
+ * `problem` from `missing`, when one was recorded; `reason` from `retire`.
+ */
+function listedToWire(
+  entry: SystemDeploymentMissing | SystemDeploymentToServe | SystemDeploymentToRetire,
+) {
+  return {
+    ...entryToWire(entry),
+    ...('warm' in entry && entry.warm !== undefined && { warm: entry.warm }),
+    ...('problem' in entry && entry.problem !== undefined && { problem: entry.problem }),
+    ...('reason' in entry && { reason: entry.reason }),
+  };
 }
 
 function entryToWire(entry: SystemDeploymentEntry) {

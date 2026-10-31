@@ -13,6 +13,12 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`system_deployments.list(endpoint="ready")` lists the
+  deployments whose pack service is ready and stays**, for whatever runs the
+  pack services. Entries in the `missing` and `ready` lists carry `warm`:
+  `True` to keep an instance of the service running (calls in its project go
+  to it for something always on), `False` when it can scale to zero. A
+  runtime that doesn't say leaves it out.
 - `kindgi`: **An operator can set a pack's env name to a cloud secret.**
   `client.system_env` has `set_cloud_secret`, `delete_cloud_secret` and
   `list_cloud_secrets` (`/v1/system/tenants/{tenantId}/env[/{name}]`, a system

@@ -2028,7 +2028,7 @@ export const SystemDeploymentEntrySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'A deployment as whatever runs its pack service needs it: ids and the image, nothing of the tenant beyond its id. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). In the `missing` list, `problem` is the last problem recorded for it (`PUT …/endpoint/problem`), absent until one is; its `since` is when that code was first recorded, as recording the same code again keeps it, so a pass can space its tries by it. In the `retire` list, `reason` says why the service should go.',
+    'A deployment as whatever runs its pack service needs it: ids and the image, nothing of the tenant beyond its id. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). In the `missing` and `ready` lists, `warm` says whether to keep an instance of its service running. In the `missing` list, `problem` is the last problem recorded for it (`PUT …/endpoint/problem`), absent until one is; its `since` is when that code was first recorded, as recording the same code again keeps it, so a pass can space its tries by it. In the `retire` list, `reason` says why the service should go.',
   required: [
     'tenantId',
     'deploymentId',
@@ -2040,6 +2040,11 @@ export const SystemDeploymentEntrySchema: JsonSchema = {
   ],
   properties: {
     ...SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES,
+    warm: {
+      type: 'boolean',
+      description:
+        "In the `missing` and `ready` lists. `true`: keep an instance of the deployment's pack service running, as calls route to it for something always on in its project: a tool version reached from a version a pin holds (an agent's, a flow's or a tool's) or from the Latest of each agent no pin covers there, or a pack check a registered guardrail runs there. `false`: its service can scale to zero. Absent from a runtime that doesn't say: not warm.",
+    },
     problem: { $ref: '#/components/schemas/DeploymentEndpointProblem' },
     reason: {
       type: 'string',

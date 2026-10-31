@@ -16,7 +16,10 @@ import type {
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 
-/** A deployment as whatever runs its pack service needs it; `reason` in the `retire` list only. */
+/**
+ * A deployment as whatever runs its pack service needs it; `warm` in the
+ * `missing` and `ready` lists, `reason` in the `retire` list only.
+ */
 export type SystemDeploymentEntry = SystemDeploymentPage['data'][number];
 export type { SystemDeploymentPage };
 /** A deployment whose pack service runs on changed values, with the revision it runs (`appliedRevision`). */
@@ -36,8 +39,11 @@ export type PackEnvRecordSpec = RecordPackEnvBody;
 export type OrchestratorRoundSpec = ClaimOrchestratorRoundBody;
 export type { OrchestratorRound };
 
-/** Which deployments to list: those that need a pack service, or those whose service should go. */
-export type SystemDeploymentsWanted = 'missing' | 'retire';
+/**
+ * Which deployments to list: those that need a pack service, those whose
+ * service is ready and stays, or those whose service should go.
+ */
+export type SystemDeploymentsWanted = 'missing' | 'ready' | 'retire';
 
 /**
  * Per-deployment routing (`KINDGI_PACK_ROUTING=per-deployment`), on a
@@ -51,7 +57,8 @@ export type SystemDeploymentsWanted = 'missing' | 'retire';
 export interface SystemDeploymentsClient {
   /**
    * One page across tenants, oldest first. Name each service
-   * `packServiceName(tenantId, deploymentId)` (`@kindgi/api`).
+   * `packServiceName(tenantId, deploymentId)` (`@kindgi/api`); keep an
+   * instance of each `warm` one running.
    *
    * @wire `GET /v1/system/deployments`
    */

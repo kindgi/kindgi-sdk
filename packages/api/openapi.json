@@ -3527,7 +3527,7 @@
       "SystemDeploymentEntry": {
         "type": "object",
         "additionalProperties": false,
-        "description": "A deployment as whatever runs its pack service needs it: ids and the image, nothing of the tenant beyond its id. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). In the `missing` list, `problem` is the last problem recorded for it (`PUT …/endpoint/problem`), absent until one is; its `since` is when that code was first recorded, as recording the same code again keeps it, so a pass can space its tries by it. In the `retire` list, `reason` says why the service should go.",
+        "description": "A deployment as whatever runs its pack service needs it: ids and the image, nothing of the tenant beyond its id. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). In the `missing` and `ready` lists, `warm` says whether to keep an instance of its service running. In the `missing` list, `problem` is the last problem recorded for it (`PUT …/endpoint/problem`), absent until one is; its `since` is when that code was first recorded, as recording the same code again keeps it, so a pass can space its tries by it. In the `retire` list, `reason` says why the service should go.",
         "required": [
           "tenantId",
           "deploymentId",
@@ -3569,6 +3569,10 @@
           "activatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "warm": {
+            "type": "boolean",
+            "description": "In the `missing` and `ready` lists. `true`: keep an instance of the deployment's pack service running, as calls route to it for something always on in its project: a tool version reached from a version a pin holds (an agent's, a flow's or a tool's) or from the Latest of each agent no pin covers there, or a pack check a registered guardrail runs there. `false`: its service can scale to zero. Absent from a runtime that doesn't say: not warm."
           },
           "problem": {
             "$ref": "#/components/schemas/DeploymentEndpointProblem"
@@ -34279,7 +34283,7 @@
     "/v1/system/deployments": {
       "get": {
         "operationId": "systemDeployments.list",
-        "summary": "List deployments that need a pack service, or should lose theirs",
+        "summary": "List deployments that need a pack service, have a ready one, or should lose theirs",
         "tags": [
           "system-deployments"
         ],
@@ -34295,7 +34299,7 @@
             }
           },
           "400": {
-            "description": "`endpoint` missing or neither `missing` nor `retire`; a `limit` out of range; a cursor refused.",
+            "description": "`endpoint` missing or not one of `missing`, `ready` and `retire`; a `limit` out of range; a cursor refused.",
             "content": {
               "application/json": {
                 "schema": {
@@ -34335,7 +34339,7 @@
             }
           }
         },
-        "description": "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
+        "description": "Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=ready`: deployments whose endpoint is `ready` and whose pack service stays (no `retire` reason applies). Both lists say whether each service is `warm`: keep an instance running. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.",
         "parameters": [
           {
             "name": "endpoint",
@@ -34344,11 +34348,12 @@
               "type": "string",
               "enum": [
                 "missing",
+                "ready",
                 "retire"
               ]
             },
             "required": true,
-            "description": "`missing`: deployments that need a pack service. `retire`: deployments whose pack service should go."
+            "description": "`missing`: deployments that need a pack service. `ready`: deployments whose pack service is ready and stays. `retire`: deployments whose pack service should go."
           },
           {
             "name": "cursor",
