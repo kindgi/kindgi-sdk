@@ -691,6 +691,7 @@ export {
   CORRECTION_STATUSES,
   CORRECTOR_GROUP_SCOPE_KINDS,
   NOT_FIXED_STATUSES,
+  RUN_COPIES_MAX,
   VERDICTS,
   isReplayCopy,
   correctorGroupApplies,
@@ -763,6 +764,7 @@ export type {
   CorrectionUpdateOutcome,
   CorrectionWithCopies,
   CorrectionsByIdsInput,
+  RunCopiesInput,
   Verdict,
 } from './correction-binding.js';
 export { TEST_CASE_KINDS, expectOf, isTestCase } from './test-case-binding.js';
@@ -858,6 +860,8 @@ export {
   isAgentTestSetId,
   TEST_SET_KINDS,
 } from './test-set-binding.js';
+export { createTestSetFreeze } from './test-set-freeze.js';
+export type { CreateTestSetFreezeOptions } from './test-set-freeze.js';
 export type {
   TestSetKind,
   TestSet,
