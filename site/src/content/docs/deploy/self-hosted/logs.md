@@ -58,7 +58,7 @@ A subsystem no part of the runtime logs under only warns:
 `pack`, `pack-orchestrator` (runtime 0.4.0 or later, for the
 [pack orchestrator](../pack-orchestrator/)), `ready`, `shutdown`,
 `schedules`, `references`, `secrets`, `license`, `aws-identity`,
-`expert-queue` (`judging` before runtime 0.4.0), `db`, `migrations`,
+`expert-queue` (runtime 0.4.0 or later), `db`, `migrations`,
 `openfga`, `sso`, `tenants`, `improvement-passes`,
 `api-keys`, and `connections` (runtime 0.2.0 or later), with these nested
 ones: `kernel.waitpoints`, `kernel.sweeper`,
