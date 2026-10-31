@@ -57,6 +57,13 @@ from `kindgi`'s read-only commands and give the console link beside it:
 see the `kindgi-using` skill. Deciding approvals, erasing, adding people
 and rating answers stay with the person.
 
+After the agents ship, people correct their answers, and each correction
+becomes a case in the agent's test set. To fix what they corrected, see the
+`kindgi-fix-corrections` skill: a setting or the wording becomes a
+suggested change, checked on that test set; a rule changes in code, with a
+pack test. Pinning stays with the person, and a correction that would
+loosen a rule goes to the agent's owner.
+
 ## Commands for the person's own terminal
 
 Two commands are always the person's to run, in their own terminal, since

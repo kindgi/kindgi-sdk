@@ -1,0 +1,29 @@
+{
+  "name": "{{PACK_NAME}}",
+  "version": "{{PACK_VERSION}}",
+  "private": true,
+  "description": "Kindgi pack — scaffolded by `kindgi init --template=returns-helper`. A returns helper with a prompt block, two settings blocks and two tools, to try correcting and fixing on `kindgi dev`.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@kindgi/sdk": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@kindgi/cli": "workspace:*",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.3",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
+  },
+  "allowScripts": {
+    "esbuild": false
+  }
+}

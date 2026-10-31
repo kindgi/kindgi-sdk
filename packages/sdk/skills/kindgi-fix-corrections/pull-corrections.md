@@ -1,33 +1,33 @@
-# Step 1 — Pull the corrections
+# Step 1 — Pull the open corrections
 
-The corrections are the agent's "no" corrections. Start from the version the
-agent is running now, so you don't re-fix something an earlier version already
-fixed:
+Start from what the project runs now, so you fix that version:
 
 ```sh
 kindgi agents pinned acme-store.refunds --project=<project-id>
 ```
 
-`agents pinned` shows the version a run would use for the project (and
-`agents pinned-versions` lists every scope with a pinned version). List that
-version's "no" corrections — and, as you work through them, newer versions':
+It answers the version a run in the project gets, and whether that's a pin
+or the project's Latest (`via`). List the project's open corrections that
+are sorted to a developer:
 
 ```sh
-kindgi corrections list --agent=acme-store.refunds --agent-version=1.0.3 --verdict=no
+kindgi corrections list --agent=acme-store.refunds --project=<project-id> \
+  --status=open --sorted-to=developer
 ```
 
-- `--agent-version` (it needs `--agent`) scopes to one version — the pinned one,
-  to start. Older versions' corrections may already be fixed; without a version
-  you get every version's.
-- `--verdict=no` keeps only the corrections. (Leave it off to see what the
-  experts confirmed as right, too.)
-- `--group=<corrector-group-id>` keeps only one corrector group — use it to take
-  only the experts' corrections once the project names its experts.
+- `--status` is `open`, `being-fixed`, `with-owner`, `fixed` or `wont-fix`,
+  and repeats.
+- `--sorted-to` is `developer`, `improve` or `owner`, and repeats. Take a
+  correction sorted elsewhere only when the person asks you to: one sorted
+  to `owner` is the owner's to pass on, and one sorted to `improve` waits
+  for an Improve run.
+- `--from=experts` keeps the corrections from expert groups, and
+  `--from=end-users` the ones customers made.
 
-Kindgi doesn't hand out corrections: two people's coding agents can pull the
-same "no" corrections, so agree outside Kindgi who takes which before you start.
+A correction that's `being-fixed` is someone's already: its `link` names the
+pull request, Improve run or suggested change. Leave it.
 
-Read each one in full for the reason the expert gave and the run it's on:
+Read each one in full, with its run:
 
 ```sh
 kindgi corrections show <correction-id>
@@ -35,14 +35,34 @@ kindgi runs get <run-id>
 kindgi runs journal <run-id>
 ```
 
-`runs get` is the run's snapshot; `runs journal` is its durable record,
-step by step, where the agent's tool calls and their arguments are. Between
-the correction's reason and the run, you have what the agent did and what it
-should have done.
+`runs get` is the run's snapshot; `runs journal` is its durable record, step
+by step, where the agent's tool calls and their arguments are.
 
-An expert can also have said exactly what the run should have done (runtime
-0.2.0 or later): the correction then has a `correction`, with `calls` (each
-`{ tool, args }`, with only the argument fields that matter) and `notCalled`
-(the tools it shouldn't have called). Take those as what the pack test
-asserts. It's the expert's: never record or change a correction yourself.
-Test cases built from the run check each new version against it.
+The correction says what was wrong, part by part:
+
+- **`decisions: "wrong"`**, with `shouldCall` (each `{ tool, args }`, with
+  only the argument fields that matter) and `mustNotCall` (the tools it
+  shouldn't have called). A test case checks these exactly, without a model.
+- **`answer: "wrong"`**, with `shouldSay` or `why`. A judging model checks a
+  new answer against them.
+- **`why`**: the person's reason, in their words.
+
+Take those as what your pack test asserts. They're the person's: never edit
+what a correction says.
+
+## Mark the ones you take
+
+When you start on one, set it `being-fixed` with where the fix is, so nobody
+else takes it:
+
+```sh
+kindgi corrections set <correction-id> --status=being-fixed \
+  --link=https://github.com/acme/store-agents/pull/219
+```
+
+- `--link` takes a pull request's URL, a suggested change as `sc-` and its
+  id (`--link=sc-<suggested-change-id>`), or an Improve run as `ir-` and its
+  id.
+- Changing a correction's status needs `publish` on the agent.
+- If you stop without a fix, set it back with `--status=open`.
+- Nobody sets `fixed` by hand: a pin does (Step 4).
