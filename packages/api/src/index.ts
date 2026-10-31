@@ -523,6 +523,10 @@ export type {
   AgentGetVersionInput,
   AgentListInput,
   AgentListVersionsInput,
+  AgentMadeFor,
+  AgentMarkLatestInput,
+  AgentMarkLatestOutcome,
+  AgentOwner,
   AgentPage,
   AgentPublishInput,
   AgentPublishOutcome,
@@ -530,9 +534,23 @@ export type {
   AgentVersionRecord,
   AgentReinstateVersionInput,
   AgentReinstateVersionOutcome,
+  AgentSetOwnerInput,
+  AgentSetOwnerOutcome,
   AgentUnregisterInput,
   AgentUnregisterOutcome,
 } from './agent-binding.js';
+export type {
+  LatestAnswer,
+  LatestBinding,
+  LatestInProject,
+  LatestQuestion,
+} from './latest-binding.js';
+export {
+  type WhatRuns,
+  type WhatRunsInProject,
+  whatRuns,
+  whatRunsByProject,
+} from './what-runs.js';
 export type { RegistryReadOnly } from './registry-read-only.js';
 // A pack agent's block pins where the pack's own versions are the only ones (`kindgi dev`).
 export { type BlockPins, type BlockVersionReads, resolveBlockPins } from './block-pins.js';
@@ -668,12 +686,30 @@ export type {
   PolicyVersionRow,
 } from '@kindgi/policy-contract';
 export {
+  CORRECTION_FIXED_HOW,
+  CORRECTION_SORTED_TO,
+  CORRECTION_STATUSES,
   CORRECTOR_GROUP_SCOPE_KINDS,
+  NOT_FIXED_STATUSES,
+  RUN_COPIES_MAX,
   VERDICTS,
   isReplayCopy,
   correctorGroupApplies,
   whyNotAssertable,
 } from './correction-binding.js';
+export {
+  STATUSES_SET_BY_HAND,
+  parseCorrectionLink,
+  planChange,
+  sortAtSave,
+} from './correction-sorting.js';
+export type {
+  CorrectionChange,
+  PlannedChange,
+  PlannedChangeOutcome,
+  SortedAtSave,
+  StatusSetByHand,
+} from './correction-sorting.js';
 export type {
   EvalCaseListInput,
   EvalCasePage,
@@ -684,12 +720,6 @@ export type {
   CorrectedItemSummary,
   CorrectedReason,
 } from './eval-case-binding.js';
-export { MAX_CORRECTED_CASES, buildCorrectedTestSet } from './routes/corrected-test-sets.js';
-export type {
-  BuildCorrectedTestSetInput,
-  BuildCorrectedTestSetOutcome,
-  CorrectedTestSetQuery,
-} from './routes/corrected-test-sets.js';
 export { segmentsStartWith } from './routes/segments.js';
 export { MAX_CORRECTED_HISTORY } from './routes/correction-context.js';
 export type {
@@ -710,20 +740,50 @@ export type {
   CorrectedRunContext,
   CorrectedToolCall,
   CorrectedRunCopy,
-  CorrectedRunListInput,
-  CorrectedRunPage,
-  CorrectedRunWithCorrections,
   CorrectedSubject,
+  CorrectedAnswerItem,
   Correction,
-  CorrectionAssertedBy,
+  CorrectionMadeBy,
+  CorrectionCounts,
+  CorrectionCountsInput,
+  CorrectionFixedHow,
+  CorrectionFixedIn,
   CorrectionGetInput,
+  CorrectionLink,
   CorrectionListInput,
   CorrectionPage,
   CorrectionRecordInput,
   CorrectionRegistryBinding,
+  CorrectionSorted,
+  CorrectionSortedBy,
+  CorrectionSortedTo,
+  CorrectionStanding,
+  CorrectionStatus,
+  CorrectionStatusNote,
+  CorrectionUpdateInput,
+  CorrectionUpdateOutcome,
   CorrectionWithCopies,
+  CorrectionsByIdsInput,
+  RunCopiesInput,
   Verdict,
 } from './correction-binding.js';
+export { TEST_CASE_KINDS, expectOf, isTestCase } from './test-case-binding.js';
+export type {
+  TestCase,
+  TestCaseAddInput,
+  TestCaseAnswer,
+  TestCaseDecisions,
+  TestCaseExpect,
+  TestCaseGetInput,
+  TestCaseKind,
+  TestCaseListInput,
+  TestCasePage,
+  TestCaseRetireInput,
+  TestCaseRetireOutcome,
+  TestCaseRetired,
+  TestSetCounts,
+  TestSetOfInput,
+} from './test-case-binding.js';
 export { resolvePointer } from './routes/corrections.js';
 export type {
   BlockGetInput,
@@ -736,7 +796,11 @@ export type {
   BlockRecord,
   BlockRegistryBinding,
   BlockReinstateOutcome,
+  BlockUse,
+  BlockUseBinding,
+  BlockUseInput,
   BlockVersionInput,
+  BlockVersionSource,
 } from './block-binding.js';
 export type {
   AgentPinBindings,
@@ -790,7 +854,14 @@ export { evaluateGate, gateApproval } from './gate.js';
 export type { AgentPinGateDeps } from './routes/agent-pins.js';
 export { coordinatesOf as agentPinScopeCoordinates } from './routes/agent-pins.js';
 export type { GuardrailConfigCheck } from './routes/guardrails.js';
-export { TEST_SET_KINDS } from './test-set-binding.js';
+export {
+  AGENT_TEST_SET_ID_PREFIX,
+  agentTestSetId,
+  isAgentTestSetId,
+  TEST_SET_KINDS,
+} from './test-set-binding.js';
+export { createTestSetFreeze } from './test-set-freeze.js';
+export type { CreateTestSetFreezeOptions } from './test-set-freeze.js';
 export type {
   TestSetKind,
   TestSet,
@@ -807,6 +878,9 @@ export type {
   TestSetReinstateVersionOutcome,
   TestSetUnregisterInput,
   TestSetUnregisterOutcome,
+  TestSetFreezeBinding,
+  FreezeTestSetInput,
+  FrozenTestSet,
 } from './test-set-binding.js';
 export { TEST_RUN_STATUSES } from './test-run-binding.js';
 export type {
@@ -1001,6 +1075,7 @@ export type {
   ReplayMemoryErasuresResult,
 } from './memory-erasure-binding.js';
 export type {
+  CodeChange,
   CreateSuggestedChangeInput,
   CreateSuggestedChangeOutcome,
   GetSuggestedChangeInput,
@@ -1013,6 +1088,7 @@ export type {
   SuggestedChangeDrafter,
   SuggestedChangeEvaluationRef,
   SuggestedChangeEvidence,
+  SuggestedChangeMaker,
   SuggestedChangeObjective,
   SuggestedChangeRule,
   SuggestedChangeStep,
@@ -1020,8 +1096,10 @@ export type {
   ProposedChange,
   RecordSuggestedChangeInput,
   RecordSuggestedChangeOutcome,
+  StoredChange,
   StoredSuggestedChange,
   StoredSuggestedChangePage,
+  StoredSuggestedChangeTier,
   SupervisorBinding,
   SupervisorObservationPage,
   SupervisorQueryObservationsInput,
@@ -1059,6 +1137,8 @@ export {
   suggestedChangeNotFound,
 } from './suggested-change-service.js';
 export type {
+  DeployCardsInput,
+  DeployCardsOutcome,
   DraftSuggestedChangeInput,
   EvaluateSuggestedChangeInput,
   RescoreSuggestedChangeInput,

@@ -327,6 +327,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'registry-read-only':
     case 'policy-scope-taken':
     case 'policy-scope-changed':
+    case 'nothing-runs-in-scope':
     case 'not-pinned':
     case 'agent-version-pinned':
     case 'test-set-already-registered':

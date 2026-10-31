@@ -6,6 +6,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import { type Agent, type AgentPins, pinsDigest } from '@kindgi/agents';
+import type { AuditEvent } from '@kindgi/audit-events';
+import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
 import { SELF_HOSTED_BOUNDS, currentTenant } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import { generateEd25519KeyPair, serializePublicKeyPem, signEd25519 } from '@kindgi/crypto';
@@ -13,7 +15,7 @@ import { type Flow, type FlowPins, flowPinsDigest } from '@kindgi/flow';
 import type { Guardrail } from '@kindgi/guardrails';
 import type { LogFields, Logger } from '@kindgi/log';
 import type { Project, ProjectBinding } from '@kindgi/platform';
-import { latestVersion } from '@kindgi/tools';
+import { highestVersion } from '@kindgi/tools';
 import type {
   Cursor,
   EnvName,
@@ -28,7 +30,7 @@ import type { Scope } from '@kindgi/platform';
 import { makeEnvName } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
+import { agentTestSetId, createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
 import type {
   AgentPinBindings,
   AgentPinResolveInput,
@@ -49,6 +51,8 @@ import type {
   SecretRecord,
   SecretVersionRecord,
   SigningKeyBinding as SigningKeyRegistryBinding,
+  TestRunBinding,
+  TestSetFreezeBinding,
   TokenResolver,
   ToolRegistryBinding,
 } from '../src/index.js';
@@ -56,6 +60,7 @@ import { sameGuardrailDefinition } from '../src/routes/deployments.js';
 import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
+import { inMemorySuggestedChanges } from './support/in-memory-suggested-changes.js';
 import { toolPinsBinding } from './support/tool-pins.js';
 
 /**
@@ -96,6 +101,9 @@ const runHandler: RunHandlerBinding = {
 function makeInMemoryDeploymentBinding(): DeploymentBinding {
   const byTenant = new Map<string, Deployment[]>();
   let seq = 0;
+  // Registration order, for ties on `activatedAt`: the route mints a
+  // random id, so the id alone no longer orders two deploys in one ms.
+  const registered = new Map<string, number>();
   return {
     async register(input) {
       const list = byTenant.get(input.tenantId as unknown as string) ?? [];
@@ -105,7 +113,7 @@ function makeInMemoryDeploymentBinding(): DeploymentBinding {
       }
       seq += 1;
       const deployment: Deployment = {
-        deploymentId: `dep-${seq.toString().padStart(4, '0')}`,
+        deploymentId: input.deploymentId ?? `dep-${seq.toString().padStart(4, '0')}`,
         tenantId: input.tenantId,
         imageRef: input.imageRef,
         imageDigest: input.imageDigest,
@@ -122,6 +130,7 @@ function makeInMemoryDeploymentBinding(): DeploymentBinding {
         contents: input.contents,
       };
       byTenant.set(input.tenantId as unknown as string, [...list, deployment]);
+      registered.set(deployment.deploymentId, seq);
       return { kind: 'ok', deployment };
     },
     async get({ tenantId, deploymentId }) {
@@ -145,7 +154,8 @@ function makeInMemoryDeploymentBinding(): DeploymentBinding {
       });
       const sorted = [...filtered].sort((a, b) =>
         a.activatedAt === b.activatedAt
-          ? b.deploymentId.localeCompare(a.deploymentId)
+          ? (registered.get(b.deploymentId) ?? 0) - (registered.get(a.deploymentId) ?? 0) ||
+            b.deploymentId.localeCompare(a.deploymentId)
           : b.activatedAt.localeCompare(a.activatedAt),
       );
       let startAt = 0;
@@ -533,6 +543,7 @@ function makeInMemoryAgentRegistry(
       if (byId === undefined) return { unregistered: false };
       return { unregistered: byId.delete(version as unknown as string) };
     },
+    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
     async reinstateVersion({ agentId, version }) {
       return { kind: 'not-found', agentId, version };
     },
@@ -1006,6 +1017,8 @@ describe("POST /v1/deployments — the image's index is what registers", () => {
     const order: string[] = [];
     const blocks = inMemoryBlocks();
     await blocks.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
       tenantId,
       projectId: DEFAULT_PROJECT_ID,
       block: {
@@ -1314,7 +1327,10 @@ describe('POST /v1/deployments — happy path', () => {
       activatedAt: string;
       primitives: DeploymentPrimitiveCounts;
     };
-    expect(body.deploymentId).toMatch(/^dep-/);
+    // The route mints it, a UUID, before the pack's blocks are published.
+    expect(body.deploymentId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
     expect(body.artifactVersion).toBe('20260920.1');
     expect(body.imageRef).toBe(fixture.imageRef);
     expect(body.primitives.tools).toBe(1);
@@ -4612,7 +4628,7 @@ function makeVersionedAgentRegistry(
       return { data: [] };
     },
     async get() {
-      const latest = latestVersion([...rows.keys()]);
+      const latest = highestVersion([...rows.keys()]);
       return latest === undefined ? null : (rows.get(latest) ?? null);
     },
     async getVersion({ version }) {
@@ -4645,6 +4661,7 @@ function makeVersionedAgentRegistry(
     async unregister({ version }) {
       return { unregistered: rows.delete(version as unknown as string) };
     },
+    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
     async reinstateVersion({ agentId, version }) {
       return { kind: 'not-found', agentId, version };
     },
@@ -5731,6 +5748,7 @@ function makeRetiringAgentRegistry(versions: RetiringVersions): AgentRegistryBin
     async unregister({ agentId, version }) {
       return { unregistered: versions.unregister(agentId, version) };
     },
+    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
     async reinstateVersion({ agentId, version }) {
       const wasTombstoned = versions.reinstate(agentId, version);
       return wasTombstoned === undefined
@@ -7920,6 +7938,8 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     const pinned: unknown[] = [];
     const written: string[] = [];
     const asked: string[] = [];
+    const audited: AuditEvent[] = [];
+    const store = createInMemoryAuditEventBinding();
     const deploy = async (f: SignedDeploy) => {
       const { app } = makeApp({
         fixture: f,
@@ -7952,6 +7972,13 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
               return true;
             },
           },
+          auditEvents: {
+            ...store,
+            append: async (events) => {
+              audited.push(...events);
+              return store.append(events);
+            },
+          },
         },
       });
       const res = await app.request('/v1/deployments', {
@@ -7963,7 +7990,8 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     };
     const held = (blockId: string, version: string) =>
       blocks.getVersion({ tenantId, blockId, version });
-    return { blocks, deploy, held, pinned, written, asked, failing };
+    const events = (kind: string) => audited.filter((e) => e.kind === kind);
+    return { blocks, deploy, held, pinned, written, asked, failing, events };
   }
 
   test('a read-only block registry refuses the deploy before anything is written', async () => {
@@ -8003,9 +8031,55 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     expect(asked.filter((a) => a.startsWith('block:'))).toEqual([]);
   });
 
+  test('each new block version names the deployment and its caller, audited once the deployment is recorded', async () => {
+    const { deploy, held, events } = setup();
+    const res = await deploy(pack([REPLY, STYLE]));
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const deploymentId = res.body.deploymentId as string;
+    for (const blockId of ['acme.reply', 'acme.style']) {
+      const record = await held(blockId, '1.0.0');
+      expect(record?.source).toEqual({ kind: 'deploy', id: deploymentId });
+      expect(record?.publishedBy).toEqual({ kind: expect.any(String), id: expect.any(String) });
+    }
+    expect(
+      events('block-version-published').map((e) => (e.payload as { doc: unknown }).doc),
+    ).toEqual([
+      {
+        blockId: 'acme.reply',
+        version: '1.0.0',
+        kind: 'prompt',
+        source: { kind: 'deploy', id: deploymentId },
+      },
+      {
+        blockId: 'acme.style',
+        version: '1.0.0',
+        kind: 'settings',
+        source: { kind: 'deploy', id: deploymentId },
+      },
+    ]);
+    // A later deploy that brings the same versions keeps them: they go on
+    // naming the deploy that published them, and nothing new is audited.
+    const later = await deploy(pack([REPLY, STYLE], '20261020.2'));
+    expect(later.status, JSON.stringify(later.body)).toBe(201);
+    expect((await held('acme.reply', '1.0.0'))?.source).toEqual({
+      kind: 'deploy',
+      id: deploymentId,
+    });
+    expect(events('block-version-published')).toHaveLength(2);
+  });
+
+  test('a deploy that rolls its blocks back records no block audit event', async () => {
+    const { deploy, held, events } = setup({ agentFails: true });
+    expect((await deploy(pack([REPLY, STYLE]))).status).toBe(500);
+    expect(await held('acme.reply', '1.0.0')).toHaveProperty('unregisteredAt');
+    expect(events('block-version-published')).toEqual([]);
+  });
+
   test('a version it holds with the same content is kept, a settings version keeping its schema included', async () => {
     const { blocks, deploy, held, written } = setup();
     await blocks.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
       tenantId,
       projectId: DEFAULT_PROJECT_ID,
       block: {
@@ -8032,6 +8106,8 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
   test('a version it holds with other content is refused before anything is written: give it a new version', async () => {
     const { blocks, deploy, written } = setup();
     await blocks.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
       tenantId,
       projectId: DEFAULT_PROJECT_ID,
       block: { id: 'acme.reply', version: '1.0.0', kind: 'prompt', content: { template: 'Hi.' } },
@@ -8051,6 +8127,8 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
   test('an unregistered version is refused, naming how to reinstate it', async () => {
     const { blocks, deploy, written } = setup();
     await blocks.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
       tenantId,
       projectId: DEFAULT_PROJECT_ID,
       block: { id: 'acme.style', version: '1.0.0', kind: 'settings', content: STYLE.content },
@@ -8068,6 +8146,8 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
   test("a block that doesn't hold up, or a version of another kind: deployment-validation-failed, at its place in blocks", async () => {
     const { blocks, deploy, written } = setup();
     await blocks.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
       tenantId,
       projectId: DEFAULT_PROJECT_ID,
       block: { id: 'acme.style', version: '0.9.0', kind: 'prompt', content: { template: 'x' } },
@@ -8096,6 +8176,8 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
   test('a block whose versions live in another project is refused, even unchanged; nothing stays published', async () => {
     const { blocks, deploy, written } = setup();
     await blocks.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
       tenantId,
       projectId: ELSEWHERE_PROJECT_ID,
       block: { id: 'acme.style', version: '1.0.0', kind: 'settings', content: STYLE.content },
@@ -8117,6 +8199,8 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
   test('a write that fails after them rolls its new blocks back', async () => {
     const { blocks, deploy, held } = setup({ agentFails: true });
     await blocks.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
       tenantId,
       projectId: DEFAULT_PROJECT_ID,
       block: { id: 'acme.style', version: '1.0.0', kind: 'settings', content: STYLE.content },
@@ -8168,6 +8252,8 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
   /** Publish a version of the prompt block straight to the runtime, as `kindgi blocks publish` does. */
   async function publishReply(blocks: ReturnType<typeof inMemoryBlocks>, version: string) {
     await blocks.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
       tenantId,
       projectId: DEFAULT_PROJECT_ID,
       block: { id: 'acme.reply', version, kind: 'prompt', content: { template: 'Hello.' } },
@@ -8262,5 +8348,113 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     };
     expect(doc.info['x-kindgi-capabilities']).toContain('deploy-publishes-pack-blocks');
     expect(doc.info.version).toBe('0.1.0');
+  });
+});
+
+// ---------------- the cards a deploy makes ----------------
+
+describe('POST /v1/deployments — a pinned project gets a suggested change for each agent version the deploy registered', () => {
+  /**
+   * An app with suggested changes, in which `acme.matcher` runs `pinned`
+   * in the deploy's project (Latest when `null`); its test set freezes to
+   * no cases yet, so a card is made unchecked. `freezeThrows`: making one
+   * fails.
+   */
+  function withCards(pack: SignedDeploy, pinned: string | null, freezeThrows = false) {
+    const supervisor = inMemorySuggestedChanges();
+    const agentPins = {
+      pinned: {
+        resolve: async ({ agentId, projectId }: AgentPinResolveInput) =>
+          pinned !== null && agentId === 'acme.matcher' && projectId === DEFAULT_PROJECT_ID
+            ? { version: pinned as Semver, scope: { kind: 'project' as const, projectId } }
+            : null,
+        list: async () => [],
+      },
+      // Latest is the version the deploy registered.
+      latest: {
+        latest: async () => ({ version: '1.4.0' as Semver, since: '2026-10-11T00:00:00.000Z' }),
+        byProject: async () => [],
+      },
+      changes: {},
+    } as unknown as AgentPinBindings;
+    const testSetFreeze: TestSetFreezeBinding = {
+      async freezeTestSet({ agentId, projectId }) {
+        if (freezeThrows) throw new Error('the test set store is down');
+        return {
+          testSetId: agentTestSetId(agentId, projectId),
+          testSetVersion: '1.0.0',
+          cases: [],
+        };
+      },
+    };
+    const { app } = makeApp({
+      toolRegistry: makeVersionedToolRegistry(),
+      agentRegistry: makeVersionedAgentRegistry(),
+      flowRegistry: makeVersionedFlowRegistry(),
+      extra: {
+        supervisor,
+        agentPins,
+        blockRegistry: inMemoryBlocks(),
+        testRunBinding: {} as TestRunBinding,
+        testSetFreeze,
+      },
+      extraTrust: [
+        { keyId: KEY_ID, tenantId, publicKey: Buffer.from(pack.publicKeyRaw).toString('base64') },
+      ],
+      extraImages: [{ imageRef: pack.imageRef, digest: pack.digest, indexBytes: pack.indexBytes }],
+    });
+    const deploy = async () => {
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(pack.wire),
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, any> };
+    };
+    return { supervisor, deploy };
+  }
+
+  const pack = () =>
+    pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.4.0', flowVersion: '2.0.0' });
+
+  test("a project pinned to another version: a card for the deploy's version, made by the deploy", async () => {
+    const p = pack();
+    const h = withCards(p, '1.3.0');
+    const res = await h.deploy();
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const cards = [...h.supervisor.rows.values()];
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({
+      agentId: 'acme.matcher',
+      fromVersion: '1.3.0',
+      scope: { kind: 'project', projectId: DEFAULT_PROJECT_ID },
+      tier: 'code',
+      change: { deploymentId: res.body.deploymentId, imageDigest: p.digest },
+      madeBy: { kind: 'deploy', deploymentId: res.body.deploymentId },
+      candidate: { agentVersion: '1.4.0' },
+    });
+  });
+
+  test('a project on Latest, or pinned to the version, gets none; nor does a redeploy that registered nothing', async () => {
+    for (const pinned of [null, '1.4.0']) {
+      const h = withCards(pack(), pinned);
+      const res = await h.deploy();
+      expect(res.status, `${pinned} ${JSON.stringify(res.body)}`).toBe(201);
+      expect(h.supervisor.rows.size).toBe(0);
+    }
+    const h = withCards(pack(), '1.3.0');
+    expect((await h.deploy()).status).toBe(201);
+    h.supervisor.rows.clear();
+    expect((await h.deploy()).status).toBe(200);
+    expect(h.supervisor.rows.size).toBe(0);
+  });
+
+  test("a card whose check can't start never fails the deploy: it's made unchecked", async () => {
+    const h = withCards(pack(), '1.3.0', true);
+    const res = await h.deploy();
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const cards = [...h.supervisor.rows.values()];
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.evaluation).toBeUndefined();
   });
 });

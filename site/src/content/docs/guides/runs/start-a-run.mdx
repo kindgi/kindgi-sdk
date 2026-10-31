@@ -100,8 +100,9 @@ uv run kindgi runs start --flow=acme.reserve-order --input='{"orderId":"A-300"}'
 `kindgi runs get <run-id>` shows it again, with its output once it's done.
 
 `--agent-version=<version>` (or `--flow-version`) runs that version instead of
-the one in use there: the agent's pinned version, or the flow's
-[pinned version](../../flows/pin-a-flow-version/), else the latest. And
+the one in use there: the agent's pinned version, else its project's
+[Latest](../../improve/pinned-versions-reference/#latest); or the flow's
+[pinned version](../../flows/pin-a-flow-version/), else its latest. And
 `--project=<project-id>` runs in that project instead of the
 agent's or flow's own, which is Default for what `kindgi deploy` registers
 (`kindgi projects list` lists the projects with their ids). With

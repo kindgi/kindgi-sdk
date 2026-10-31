@@ -21,6 +21,7 @@ import {
   DEFAULT_COMPARISON,
   RESCORE_UNSUPPORTED,
   createCorrectedDispatcher,
+  sortAtSave,
 } from '../src/index.js';
 import { inMemoryCaseStore } from './support/in-memory-cases.js';
 import { inMemoryCorrections } from './support/in-memory-corrections.js';
@@ -50,6 +51,7 @@ const item = (key: string, yesWeight: number, totalWeight: number, extra: object
 
 const caseA: CorrectedTestCase = {
   caseId: 'case-a',
+  runId: 'case-a',
   subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
   input: 'find acme',
   context: { history: [{ role: 'user', content: 'earlier' }] },
@@ -63,6 +65,7 @@ const caseA: CorrectedTestCase = {
 
 const caseB: CorrectedTestCase = {
   caseId: 'case-b',
+  runId: 'case-b',
   subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
   input: 'find b',
   output: turn('B.'),
@@ -175,13 +178,23 @@ describe('a comparison test run', () => {
     expect(invoked.map((i) => [i.input, i.replay, i.history, i.projectId])).toEqual([
       [
         'find acme',
-        { of: 'case-a', testRunId: 'eval-1' },
+        { of: 'case-a', caseId: 'case-a', testRunId: 'eval-1' },
         [{ role: 'user', content: 'earlier' }],
         'p-run',
       ],
-      ['find b', { of: 'case-b', testRunId: 'eval-1' }, [], 'p-run'],
+      ['find b', { of: 'case-b', caseId: 'case-b', testRunId: 'eval-1' }, [], 'p-run'],
     ]);
     expect(invoked[0]?.target).toEqual({ agentId: 'acme.agent', version: '2.0.0' });
+  });
+
+  test("a case named for its correction replays the case's run, and names the case", async () => {
+    const { invoked } = await compare({
+      cases: [{ ...caseA, caseId: 'corr-1', runId: 'run-7' }],
+      answer: () => answers['case-a'] as TestRunSubjectInvokeOutcome,
+    });
+    expect(invoked.map((i) => i.replay)).toEqual([
+      { of: 'run-7', caseId: 'corr-1', testRunId: 'eval-1' },
+    ]);
   });
 
   test('the summary: baseline beside candidate, with the evidence behind each', async () => {
@@ -366,6 +379,7 @@ describe('a comparison test run', () => {
 describe('an erased case (T273 M-5)', () => {
   const erasedB: CorrectedTestCase = {
     caseId: 'case-b',
+    runId: 'case-b',
     subject: caseB.subject,
     input: null,
     output: null,
@@ -536,6 +550,7 @@ describe('a comparison of a flow version', () => {
   const flowOutput = (matches: unknown[]) => ({ matches });
   const flowCase = (caseId: string, matches: unknown[]): CorrectedTestCase => ({
     caseId,
+    runId: caseId,
     subject: { kind: 'flow', id: 'acme.intake', version: '1.0.0' },
     input: { ticket: caseId },
     output: flowOutput(matches),
@@ -775,8 +790,9 @@ describe('a rescore: the replays scored again, with what people corrected on the
   }
 
   const correctAnswer =
-    (verdict: 'yes' | 'no', extra: object = {}) =>
+    (answer: 'right' | 'wrong', extra: object = {}) =>
     async (j: ReturnType<typeof inMemoryCorrections>) => {
+      const lead = { kind: 'user' as const, id: 'lead' };
       await j.record({
         tenantId,
         projectId: 'p-run' as ProjectId,
@@ -786,15 +802,16 @@ describe('a rescore: the replays scored again, with what people corrected on the
           input: 'find b',
           output: answers['case-b']?.output,
         },
-        item: { key: 'answer', pointer: '/appended/3/content' },
-        verdict,
-        assertedBy: { kind: 'user', id: 'lead' },
+        answer,
+        ...(answer === 'wrong' && { why: 'not what was asked' }),
+        madeBy: lead,
+        ...sortAtSave({ answer, expert: false }, lead, '2026-10-09T00:00:00.000Z'),
         ...extra,
       });
     };
 
   test("a changed answer, corrected on its replay, counts: no replay runs, and the evidence says it's fresh", async () => {
-    const r = await rescoreAfter(correctAnswer('yes'));
+    const r = await rescoreAfter(correctAnswer('right'));
     expect(r.invoked).toEqual([]);
     expect(r.error).toBeUndefined();
     // Before: case-b's changed answer was a new item, with no evidence.
@@ -830,13 +847,13 @@ describe('a rescore: the replays scored again, with what people corrected on the
   });
 
   test('experts-only: a fresh correction counts only if its group was restricted', async () => {
-    const unrestricted = await rescoreAfter(correctAnswer('yes'), {
+    const unrestricted = await rescoreAfter(correctAnswer('right'), {
       groupWeights: 'experts-only',
     });
     expect(
       unrestricted.perCase.find((c) => c.caseId === 'case-b')?.candidate[0]?.fresh,
     ).toBeUndefined();
-    const restricted = await rescoreAfter(correctAnswer('yes', { expert: true }), {
+    const restricted = await rescoreAfter(correctAnswer('right', { expert: true }), {
       groupWeights: 'experts-only',
     });
     expect(restricted.perCase.find((c) => c.caseId === 'case-b')?.candidate[0]?.fresh).toEqual({
@@ -847,7 +864,7 @@ describe('a rescore: the replays scored again, with what people corrected on the
   });
 
   test("a case whose replay can't be read again keeps its scores, and is counted", async () => {
-    const r = await rescoreAfter(correctAnswer('yes'), { gone: ['run-b'] });
+    const r = await rescoreAfter(correctAnswer('right'), { gone: ['run-b'] });
     const b = r.perCase.find((c) => c.caseId === 'case-b');
     expect(b?.rescored).toBe(false);
     expect(b?.candidate).toEqual(r.first.perCase.find((c) => c.caseId === 'case-b')?.candidate);

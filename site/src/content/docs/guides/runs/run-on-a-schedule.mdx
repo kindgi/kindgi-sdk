@@ -37,7 +37,8 @@ pnpm exec kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" -
 ```
 
 - **What it runs:** `--agent` runs the agent's pinned version, or else its
-  latest. `--agent-version` pins one. `--flow` runs a flow, and needs
+  project's [Latest](../../improve/pinned-versions-reference/#latest).
+  `--agent-version` pins one. `--flow` runs a flow, and needs
   `--flow-version`.
 - **Its input:** an agent's is `{"userMessage": "…"}`, the message each run
   sends. A schedule for an agent without one is refused when you create it.

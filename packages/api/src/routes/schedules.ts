@@ -62,6 +62,7 @@ import {
   retargets,
   sameToolList,
   toolsAllowedUnattendedProblem,
+  triggerScope,
 } from './trigger-tools.js';
 import { versionField, versionFields, versionOne, versionsPage } from './trigger-versions.js';
 import { UUID_RE } from './uuid-param.js';
@@ -343,7 +344,7 @@ export function schedulesRouter(
       if (notAdmin !== undefined) return notAdmin;
       const problem = await toolsAllowedUnattendedProblem(
         targetTools,
-        tenantId,
+        triggerScope(tenantId, project),
         target.value,
         tools.value,
       );
@@ -574,7 +575,7 @@ export function schedulesRouter(
       if (notAdmin !== undefined) return notAdmin;
       const problem = await toolsAllowedUnattendedProblem(
         targetTools,
-        tenantId,
+        triggerScope(tenantId, found.value.projectId),
         nextTarget,
         tools.value,
       );

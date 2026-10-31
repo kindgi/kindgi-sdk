@@ -2,8 +2,9 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * `/v1/corrections` and `/v1/corrector-groups`: correcting an item of a finished
- * run, supersede, list filters, removal, and the corrector-group CRUD.
+ * `/v1/corrections` and `/v1/corrector-groups`: correcting a finished run's
+ * decisions, answer and items, sorting at save, supersede, list filters,
+ * counts, changes, removal, and the corrector-group CRUD.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -34,6 +35,7 @@ import type {
 } from '../src/index.js';
 import { correctorGroupApplies, isReplayCopy, whyNotAssertable } from '../src/index.js';
 import { inMemoryCorrections } from './support/in-memory-corrections.js';
+import { itemProjects } from './support/order-items.js';
 
 const tenantId = randomUUID() as TenantId;
 const projectA = randomUUID() as ProjectId;
@@ -138,6 +140,8 @@ function harness(
   reads: TurnReads = {},
   authz?: Authz,
   agentRegistry?: AgentRegistryBinding,
+  /** Which projects serve each item, for one more than one project serves. */
+  served?: ReturnType<typeof itemProjects>,
 ): Harness & { readonly reads: number[] } {
   const binding = inMemoryCorrections();
   const stubs = createStubAppBindings();
@@ -166,6 +170,7 @@ function harness(
     runHandler,
     correctionRegistry: binding,
     ...(agentRegistry !== undefined && { agentRegistry }),
+    ...(served !== undefined && { itemProjects: served }),
     ...(authz !== undefined && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -209,16 +214,15 @@ async function tenantClass(h: Harness, name = 'expert', weight = 3): Promise<str
 }
 
 describe('POST /v1/corrections', () => {
-  test('with a pointer: stores the item value and the run copy', async () => {
+  test('with a pointer: stores the item and the run copy', async () => {
     const run = row();
     const h = harness([run]);
     const classId = await tenantClass(h);
 
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { key: 'c2', pointer: '/matches/1', rank: 1 },
-      verdict: 'yes',
-      reason: 'Right company.',
+      items: [{ key: 'c2', pointer: '/matches/1', rank: 1, verdict: 'right' }],
+      why: 'Right company.',
       correctorGroupId: classId,
     });
     expect(res.status).toBe(201);
@@ -226,15 +230,13 @@ describe('POST /v1/corrections', () => {
       runId: run.runId,
       projectId: projectA,
       subject: { kind: 'agent', id: 'acme.matcher', version: '2.0.0' },
-      item: { key: 'c2', pointer: '/matches/1', rank: 1 },
-      verdict: 'yes',
-      reason: 'Right company.',
+      items: [{ key: 'c2', pointer: '/matches/1', rank: 1, verdict: 'right' }],
+      why: 'Right company.',
       correctorGroupId: classId,
     });
 
     const got = await h.call('GET', `/v1/corrections/${res.body.id}`);
     expect(got.status).toBe(200);
-    expect(got.body.itemValue).toEqual({ id: 'c2' });
     expect(got.body.run).toMatchObject({
       runId: run.runId,
       input: { query: 'acme' },
@@ -242,167 +244,263 @@ describe('POST /v1/corrections', () => {
     });
   });
 
-  test('stores a correction and echoes it back on read', async () => {
+  test('stores what should have been called and echoes it back on read', async () => {
     const run = row();
     const h = harness([run]);
-    const correction = {
-      calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
-      notCalled: ['acme.email'],
+    const expected = {
+      shouldCall: [{ tool: 'acme.refund', args: { amount: 25 } }],
+      mustNotCall: ['acme.email'],
     };
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { ...CORRECTION_ITEM },
-      verdict: 'no',
-      correction,
+      decisions: 'wrong',
+      ...expected,
     });
     expect(res.status).toBe(201);
-    expect(res.body.correction).toEqual(correction);
+    expect(res.body).toMatchObject({ decisions: 'wrong', ...expected });
     const got = await h.call('GET', `/v1/corrections/${res.body.id}`);
-    expect(got.body.correction).toEqual(correction);
+    expect(got.body).toMatchObject({ decisions: 'wrong', ...expected });
   });
 
-  test('a tool in both calls and notCalled is a 400', async () => {
+  test('a shouldCall entry without args answers args {}', async () => {
     const run = row();
     const h = harness([run]);
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { ...CORRECTION_ITEM },
-      verdict: 'no',
-      correction: { calls: [{ tool: 'acme.refund', args: {} }], notCalled: ['acme.refund'] },
+      decisions: 'wrong',
+      shouldCall: [{ tool: 'acme.refund' }],
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.shouldCall).toEqual([{ tool: 'acme.refund', args: {} }]);
+  });
+
+  test('a tool in both shouldCall and mustNotCall is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/corrections', {
+      runId: run.runId,
+      decisions: 'wrong',
+      shouldCall: [{ tool: 'acme.refund', args: {} }],
+      mustNotCall: ['acme.refund'],
     });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('bad-input');
     expect(res.body.error.message).toContain("can't be in both");
   });
 
-  test('a correction with neither a call nor a must-not-call is a 400', async () => {
+  test('decisions wrong with neither a call nor a must-not-call is a 400', async () => {
     const run = row();
     const h = harness([run]);
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { ...CORRECTION_ITEM },
-      verdict: 'no',
-      correction: { calls: [], notCalled: [] },
+      decisions: 'wrong',
+      shouldCall: [],
+      mustNotCall: [],
     });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('bad-input');
-    expect(res.body.error.message).toContain('at least one of calls or notCalled');
+    expect(res.body.error.message).toContain('at least one entry in shouldCall or mustNotCall');
   });
 
-  test('a correction on any item but the fixed one is a 400', async () => {
+  test('shouldCall and mustNotCall without decisions wrong are a 400', async () => {
     const run = row();
     const h = harness([run]);
-    const res = await h.call('POST', '/v1/corrections', {
-      runId: run.runId,
-      item: { key: 'answer', pointer: '' },
-      verdict: 'no',
-      correction: { calls: [{ tool: 'acme.refund', args: {} }], notCalled: [] },
-    });
-    expect(res.status).toBe(400);
-    expect(res.body.error.code).toBe('bad-input');
-    expect(res.body.error.message).toContain(CORRECTION_ITEM.key);
+    for (const body of [
+      { decisions: 'right', shouldCall: [{ tool: 'acme.refund' }] },
+      { answer: 'wrong', why: 'No.', mustNotCall: ['acme.refund'] },
+    ]) {
+      const res = await h.call('POST', '/v1/corrections', { runId: run.runId, ...body });
+      expect(res.status).toBe(400);
+      expect(res.body.error.message).toBe('shouldCall and mustNotCall go with decisions: "wrong".');
+    }
   });
 
-  test('a correction on the fixed key but a non-empty pointer is a 400', async () => {
+  test('a body without runId is a 400', async () => {
+    const res = await harness([]).call('POST', '/v1/corrections', { answer: 'right' });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toBe('runId is required.');
+  });
+
+  test('a body that says none of decisions, answer and items is a 400', async () => {
     const run = row();
     const h = harness([run]);
-    const res = await h.call('POST', '/v1/corrections', {
-      runId: run.runId,
-      item: { key: CORRECTION_ITEM.key, pointer: '/matches/0' },
-      verdict: 'no',
-      correction: { calls: [{ tool: 'acme.refund', args: {} }], notCalled: [] },
-    });
-    expect(res.status).toBe(400);
-    expect(res.body.error.message).toContain('whole output');
+    for (const body of [{}, { why: 'No.' }, { items: [] }]) {
+      const res = await h.call('POST', '/v1/corrections', { runId: run.runId, ...body });
+      expect(res.status).toBe(400);
+      expect(res.body.error.message).toContain('at least one of decisions, answer and items');
+    }
   });
 
-  test('an ordinary correction on the reserved item is a 400', async () => {
+  test('items alone are a correction', async () => {
     const run = row();
-    const h = harness([run]);
-    const res = await h.call('POST', '/v1/corrections', {
+    const res = await harness([run]).call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { ...CORRECTION_ITEM },
-      verdict: 'no',
-    });
-    expect(res.status).toBe(400);
-    expect(res.body.error.code).toBe('bad-input');
-    expect(res.body.error.message).toContain('reserved');
-  });
-
-  test('an ordinary correction on the reserved key at any pointer is a 400', async () => {
-    const run = row();
-    const h = harness([run]);
-    const res = await h.call('POST', '/v1/corrections', {
-      runId: run.runId,
-      item: { key: CORRECTION_ITEM.key, pointer: '/matches/0' },
-      verdict: 'yes',
-    });
-    expect(res.status).toBe(400);
-    expect(res.body.error.message).toContain('reserved');
-  });
-
-  test('an ordinary caller key the reserved key no longer shadows is accepted', async () => {
-    const run = row({ output: { decision: 'refund' } });
-    const h = harness([run]);
-    const res = await h.call('POST', '/v1/corrections', {
-      runId: run.runId,
-      item: { key: 'decision', pointer: '/decision' },
-      verdict: 'yes',
+      items: [{ key: 'c1', pointer: '/matches/0', verdict: 'wrong' }],
     });
     expect(res.status).toBe(201);
+    expect(res.body).not.toHaveProperty('decisions');
+    expect(res.body).not.toHaveProperty('answer');
   });
 
-  test('a correction call with oversized args is a 400', async () => {
+  test('shouldSay without answer wrong is a 400', async () => {
+    const run = row();
+    const res = await harness([run]).call('POST', '/v1/corrections', {
+      runId: run.runId,
+      answer: 'right',
+      shouldSay: 'Acme Corp.',
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toBe('shouldSay goes with answer: "wrong".');
+  });
+
+  test('answer wrong needs shouldSay or why', async () => {
+    const run = row();
+    const h = harness([run]);
+    const bare = await h.call('POST', '/v1/corrections', { runId: run.runId, answer: 'wrong' });
+    expect(bare.status).toBe(400);
+    expect(bare.body.error.message).toBe('answer: "wrong" needs shouldSay or why.');
+    for (const text of [{ shouldSay: 'Acme Corp.' }, { why: 'It named the wrong company.' }]) {
+      const res = await h.call('POST', '/v1/corrections', {
+        runId: run.runId,
+        answer: 'wrong',
+        ...text,
+      });
+      expect(res.status).toBe(201);
+      expect(res.body).toMatchObject(text);
+    }
+  });
+
+  test('shouldSay or why over 4000 characters is a 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    for (const name of ['shouldSay', 'why']) {
+      const res = await h.call('POST', '/v1/corrections', {
+        runId: run.runId,
+        answer: 'wrong',
+        [name]: 'x'.repeat(4001),
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error.message).toBe(`${name} must be a string of at most 4000 characters.`);
+    }
+  });
+
+  test('more than 100 items is a 400', async () => {
+    const run = row();
+    const items = Array.from({ length: 101 }, (_, i) => ({ key: `c${i}`, verdict: 'right' }));
+    const res = await harness([run]).call('POST', '/v1/corrections', { runId: run.runId, items });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toBe('items holds at most 100 entries.');
+  });
+
+  test("an item's key over 200 characters, or its pointer over 500, is a 400", async () => {
+    const run = row();
+    // A pointer at the cap still has to point at something in the output.
+    const deep = row({ output: { ['p'.repeat(499)]: 'x' } });
+    const h = harness([run, deep]);
+    const long = await h.call('POST', '/v1/corrections', {
+      runId: run.runId,
+      items: [{ key: 'k'.repeat(201), verdict: 'wrong' }],
+    });
+    expect(long.status).toBe(400);
+    expect(long.body.error.message).toBe(
+      "an item's key is at most 200 characters: its id, not its text.",
+    );
+    const far = await h.call('POST', '/v1/corrections', {
+      runId: run.runId,
+      items: [{ key: 'c1', pointer: `/${'p'.repeat(500)}`, verdict: 'wrong' }],
+    });
+    expect(far.status).toBe(400);
+    expect(far.body.error.message).toBe("an item's pointer is at most 500 characters.");
+    const fits = await h.call('POST', '/v1/corrections', {
+      runId: deep.runId,
+      items: [{ key: 'k'.repeat(200), pointer: `/${'p'.repeat(499)}`, verdict: 'wrong' }],
+    });
+    expect(fits.status).toBe(201);
+  });
+
+  test('an item key twice is a 400', async () => {
+    const run = row();
+    const res = await harness([run]).call('POST', '/v1/corrections', {
+      runId: run.runId,
+      items: [
+        { key: 'c1', verdict: 'right' },
+        { key: 'c1', verdict: 'wrong' },
+      ],
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toBe('the item key "c1" is in items twice.');
+  });
+
+  test('an item on the reserved key is a 400', async () => {
+    const run = row();
+    const res = await harness([run]).call('POST', '/v1/corrections', {
+      runId: run.runId,
+      items: [{ key: CORRECTION_ITEM.key, verdict: 'wrong' }],
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toBe(`the item key "${CORRECTION_ITEM.key}" is reserved.`);
+  });
+
+  test.each<[string, unknown, string]>([
+    ['item', { key: 'c1' }, 'answer and items'],
+    ['verdict', 'yes', 'decisions and answer'],
+    ['reason', 'Right company.', 'why'],
+    ['correction', { calls: [], notCalled: ['acme.refund'] }, 'shouldCall and mustNotCall'],
+  ])('the old field %s is a 400 naming the new ones', async (old, value, now) => {
+    const run = row();
+    const res = await harness([run]).call('POST', '/v1/corrections', {
+      runId: run.runId,
+      answer: 'right',
+      [old]: value,
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toBe(`${old} is gone: a correction says ${now}.`);
+  });
+
+  test('a shouldCall entry with oversized args is a 400', async () => {
     const run = row();
     const h = harness([run]);
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { ...CORRECTION_ITEM },
-      verdict: 'no',
-      correction: {
-        calls: [{ tool: 'acme.refund', args: { note: 'x'.repeat(4100) } }],
-        notCalled: [],
-      },
+      decisions: 'wrong',
+      shouldCall: [{ tool: 'acme.refund', args: { note: 'x'.repeat(4100) } }],
     });
     expect(res.status).toBe(400);
     expect(res.body.error.message).toContain('4000');
   });
 
-  test('a correction call with an over-long tool name is a 400', async () => {
+  test('a shouldCall entry with an over-long tool name is a 400', async () => {
     const run = row();
     const h = harness([run]);
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { ...CORRECTION_ITEM },
-      verdict: 'no',
-      correction: { calls: [{ tool: `acme.${'z'.repeat(220)}`, args: {} }], notCalled: [] },
+      decisions: 'wrong',
+      shouldCall: [{ tool: `acme.${'z'.repeat(220)}`, args: {} }],
     });
     expect(res.status).toBe(400);
     expect(res.body.error.message).toContain('200');
   });
 
-  test('a notCalled tool name that is too long is a 400', async () => {
+  test('a mustNotCall tool name that is too long is a 400', async () => {
     const run = row();
     const h = harness([run]);
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { ...CORRECTION_ITEM },
-      verdict: 'no',
-      correction: { calls: [], notCalled: [`acme.${'z'.repeat(220)}`] },
+      decisions: 'wrong',
+      mustNotCall: [`acme.${'z'.repeat(220)}`],
     });
     expect(res.status).toBe(400);
     expect(res.body.error.message).toContain('200');
   });
 
-  test('a second correction by the same caller on the same item replaces the first (counts once)', async () => {
+  test('a second correction by the same caller on the same run replaces the first (counts once)', async () => {
     const run = row();
     const h = harness([run]);
     const post = (amount: number) =>
       h.call('POST', '/v1/corrections', {
         runId: run.runId,
-        item: { ...CORRECTION_ITEM },
-        verdict: 'no',
-        correction: { calls: [{ tool: 'acme.refund', args: { amount } }], notCalled: [] },
+        decisions: 'wrong',
+        shouldCall: [{ tool: 'acme.refund', args: { amount } }],
       });
     const first = await post(25);
     const second = await post(40);
@@ -414,10 +512,8 @@ describe('POST /v1/corrections', () => {
     const list = await h.call('GET', `/v1/corrections?runId=${run.runId}`);
     expect(list.body.data).toHaveLength(1);
     expect(list.body.data[0].id).toBe(second.body.id);
-    expect(list.body.data[0].correction).toEqual({
-      calls: [{ tool: 'acme.refund', args: { amount: 40 } }],
-      notCalled: [],
-    });
+    expect(list.body.data[0].shouldCall).toEqual([{ tool: 'acme.refund', args: { amount: 40 } }]);
+    expect(list.body.data[0]).not.toHaveProperty('mustNotCall');
   });
 
   test('a correction may name tools the corrected version has', async () => {
@@ -425,12 +521,9 @@ describe('POST /v1/corrections', () => {
     const h = harness([run], {}, undefined, registryWithTools('acme.refund', 'acme.email'));
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { ...CORRECTION_ITEM },
-      verdict: 'no',
-      correction: {
-        calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
-        notCalled: ['acme.email'],
-      },
+      decisions: 'wrong',
+      shouldCall: [{ tool: 'acme.refund', args: { amount: 25 } }],
+      mustNotCall: ['acme.email'],
     });
     expect(res.status).toBe(201);
   });
@@ -440,9 +533,8 @@ describe('POST /v1/corrections', () => {
     const h = harness([run], {}, undefined, registryWithTools('acme.refund'));
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { ...CORRECTION_ITEM },
-      verdict: 'no',
-      correction: { calls: [{ tool: 'acme.ghost', args: {} }], notCalled: [] },
+      decisions: 'wrong',
+      shouldCall: [{ tool: 'acme.ghost', args: {} }],
     });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('bad-input');
@@ -454,9 +546,8 @@ describe('POST /v1/corrections', () => {
     const h = harness([run], {}, undefined, registryWithTools('acme.refund'));
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { ...CORRECTION_ITEM },
-      verdict: 'no',
-      correction: { calls: [], notCalled: ['acme.ghost'] },
+      decisions: 'wrong',
+      mustNotCall: ['acme.ghost'],
     });
     expect(res.status).toBe(400);
     expect(res.body.error.message).toContain('acme.ghost');
@@ -467,9 +558,8 @@ describe('POST /v1/corrections', () => {
     const h = harness([run], {}, undefined, registryVersionGone);
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { ...CORRECTION_ITEM },
-      verdict: 'no',
-      correction: { calls: [{ tool: 'acme.ghost', args: {} }], notCalled: [] },
+      decisions: 'wrong',
+      shouldCall: [{ tool: 'acme.ghost', args: {} }],
     });
     expect(res.status).toBe(201);
   });
@@ -479,9 +569,8 @@ describe('POST /v1/corrections', () => {
     const h = harness([flowRun], {}, undefined, registryWithTools('acme.refund'));
     const res = await h.call('POST', '/v1/corrections', {
       runId: flowRun.runId,
-      item: { ...CORRECTION_ITEM },
-      verdict: 'no',
-      correction: { calls: [{ tool: 'acme.ghost', args: {} }], notCalled: [] },
+      decisions: 'wrong',
+      shouldCall: [{ tool: 'acme.ghost', args: {} }],
     });
     expect(res.status).toBe(201);
   });
@@ -493,8 +582,7 @@ describe('POST /v1/corrections', () => {
     for (const run of [acme, plain]) {
       const res = await h.call('POST', '/v1/corrections', {
         runId: run.runId,
-        item: { key: 'c1' },
-        verdict: 'no',
+        items: [{ key: 'c1', verdict: 'wrong' }],
       });
       expect(res.status).toBe(201);
       const got = await h.call('GET', `/v1/corrections/${res.body.id}`);
@@ -508,8 +596,7 @@ describe('POST /v1/corrections', () => {
     const classId = await tenantClass(h);
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { key: 'c1' },
-      verdict: 'no',
+      items: [{ key: 'c1', verdict: 'wrong' }],
       correctorGroupId: classId,
     });
     expect(res.status).toBe(409);
@@ -526,8 +613,7 @@ describe('POST /v1/corrections', () => {
     const classId = await tenantClass(h);
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { key: 'c1' },
-      verdict: 'no',
+      items: [{ key: 'c1', verdict: 'wrong' }],
       correctorGroupId: classId,
     });
     expect(res.status).toBe(410);
@@ -539,8 +625,7 @@ describe('POST /v1/corrections', () => {
     const classId = await tenantClass(h);
     const res = await h.call('POST', '/v1/corrections', {
       runId: randomUUID(),
-      item: { key: 'c1' },
-      verdict: 'no',
+      items: [{ key: 'c1', verdict: 'wrong' }],
       correctorGroupId: classId,
     });
     expect(res.status).toBe(404);
@@ -553,8 +638,7 @@ describe('POST /v1/corrections', () => {
     const classId = await tenantClass(h);
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { key: 'c9', pointer: '/matches/9' },
-      verdict: 'yes',
+      items: [{ key: 'c9', pointer: '/matches/9', verdict: 'right' }],
       correctorGroupId: classId,
     });
     expect(res.status).toBe(400);
@@ -571,8 +655,7 @@ describe('POST /v1/corrections', () => {
     });
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { key: 'c1' },
-      verdict: 'yes',
+      items: [{ key: 'c1', verdict: 'right' }],
       correctorGroupId: created.body.id,
     });
     expect(res.status).toBe(400);
@@ -584,12 +667,12 @@ describe('POST /v1/corrections', () => {
     const h = harness([run]);
     const classId = await tenantClass(h);
     for (const body of [
-      { runId: run.runId, item: { key: 'c1' }, verdict: 'maybe', correctorGroupId: classId },
-      { runId: run.runId, item: {}, verdict: 'yes', correctorGroupId: classId },
+      { runId: run.runId, decisions: 'maybe', correctorGroupId: classId },
+      { runId: run.runId, items: [{ key: 'c1', verdict: 'maybe' }], correctorGroupId: classId },
+      { runId: run.runId, items: [{ verdict: 'right' }], correctorGroupId: classId },
       {
         runId: run.runId,
-        item: { key: 'c1', pointer: 'matches' },
-        verdict: 'yes',
+        items: [{ key: 'c1', pointer: 'matches', verdict: 'right' }],
         correctorGroupId: classId,
       },
     ]) {
@@ -603,9 +686,13 @@ describe('POST /v1/corrections', () => {
     const run = row();
     const h = harness([run]);
     const classId = await tenantClass(h);
-    const body = { runId: run.runId, item: { key: 'c1' }, correctorGroupId: classId };
-    const first = await h.call('POST', '/v1/corrections', { ...body, verdict: 'yes' });
-    const second = await h.call('POST', '/v1/corrections', { ...body, verdict: 'no' });
+    const body = { runId: run.runId, correctorGroupId: classId };
+    const first = await h.call('POST', '/v1/corrections', { ...body, answer: 'right' });
+    const second = await h.call('POST', '/v1/corrections', {
+      ...body,
+      answer: 'wrong',
+      why: 'It named the wrong company.',
+    });
     expect(second.status).toBe(201);
 
     const live = await h.call('GET', `/v1/corrections?runId=${run.runId}`);
@@ -621,8 +708,7 @@ describe('POST /v1/corrections', () => {
     const h = harness([run]);
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { key: 'c1' },
-      verdict: 'yes',
+      items: [{ key: 'c1', verdict: 'right' }],
     });
     expect(res.status).toBe(201);
     expect(res.body).not.toHaveProperty('correctorGroupId');
@@ -635,8 +721,7 @@ describe('POST /v1/corrections', () => {
     const h = harness([run]);
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { key: 'c1' },
-      verdict: 'yes',
+      items: [{ key: 'c1', verdict: 'right' }],
       correctorGroupId: 'jc-missing',
     });
     expect(res.status).toBe(400);
@@ -649,9 +734,8 @@ describe('POST /v1/corrections', () => {
     const classId = await tenantClass(h);
     const body = {
       runId: run.runId,
-      item: { key: 'c1' },
+      items: [{ key: 'c1', verdict: 'right' }],
       correctorGroupId: classId,
-      verdict: 'yes',
     };
     await h.call('POST', '/v1/corrections', { ...body, participantId: 'end-user-1' });
     await h.call('POST', '/v1/corrections', { ...body, participantId: 'end-user-2' });
@@ -659,21 +743,20 @@ describe('POST /v1/corrections', () => {
     expect(live.body.data).toHaveLength(2);
   });
 
-  test('assertedBy comes from the principal, never the body', async () => {
+  test('madeBy comes from the principal, never the body', async () => {
     const run = row();
     const h = harness([run]);
     const classId = await tenantClass(h);
     const body = {
       runId: run.runId,
-      item: { key: 'c1' },
-      verdict: 'yes',
+      items: [{ key: 'c1', verdict: 'right' }],
       correctorGroupId: classId,
-      assertedBy: { kind: 'user', id: 'someone-else' },
+      madeBy: { kind: 'user', id: 'someone-else' },
     };
     const asUser = await h.call('POST', '/v1/corrections', body, USER_TOKEN);
-    expect(asUser.body.assertedBy).toEqual({ kind: 'user', id: 'user-1' });
+    expect(asUser.body.madeBy).toEqual({ kind: 'user', id: 'user-1' });
     const asKey = await h.call('POST', '/v1/corrections', body, KEY_TOKEN);
-    expect(asKey.body.assertedBy).toEqual({ kind: 'service', id: 'key-1' });
+    expect(asKey.body.madeBy).toEqual({ kind: 'service', id: 'key-1' });
   });
 });
 
@@ -684,8 +767,7 @@ describe('correcting and authorization', () => {
     const granted: Authz = { grants: [`write project:${project}`], checked: [] };
     const allowed = await harness([run], {}, granted).call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { key: 'c1' },
-      verdict: 'yes',
+      items: [{ key: 'c1', verdict: 'right' }],
     });
     expect(allowed.status).toBe(201);
     expect(granted.checked).toContain(`write project:${project}`);
@@ -694,7 +776,10 @@ describe('correcting and authorization', () => {
       [run],
       {},
       { grants: [`read project:${project}`], checked: [] },
-    ).call('POST', '/v1/corrections', { runId: run.runId, item: { key: 'c1' }, verdict: 'yes' });
+    ).call('POST', '/v1/corrections', {
+      runId: run.runId,
+      items: [{ key: 'c1', verdict: 'right' }],
+    });
     expect(denied.status).toBe(403);
     expect(denied.body.error.code).toBe('permission-denied');
   });
@@ -731,8 +816,7 @@ describe("the context captured on a turn's first correction", () => {
     const h = harness([run], { messages, journal });
     const first = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { key: 'c1' },
-      verdict: 'yes',
+      items: [{ key: 'c1', verdict: 'right' }],
     });
     expect(first.status).toBe(201);
     const got = await h.call('GET', `/v1/corrections/${first.body.id}`);
@@ -763,8 +847,7 @@ describe("the context captured on a turn's first correction", () => {
     });
     const first = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { key: 'c1' },
-      verdict: 'yes',
+      items: [{ key: 'c1', verdict: 'right' }],
     });
     expect(first.status).toBe(201);
     const got = await h.call('GET', `/v1/corrections/${first.body.id}`);
@@ -787,8 +870,7 @@ describe("the context captured on a turn's first correction", () => {
       const h = harness([run], { messages, journal: gated(value) });
       const res = await h.call('POST', '/v1/corrections', {
         runId: run.runId,
-        item: { key: 'c1' },
-        verdict: 'yes',
+        items: [{ key: 'c1', verdict: 'right' }],
       });
       return (await h.call('GET', `/v1/corrections/${res.body.id}`)).body.run.context;
     };
@@ -840,8 +922,7 @@ describe("the context captured on a turn's first correction", () => {
     });
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { key: 'c1' },
-      verdict: 'yes',
+      items: [{ key: 'c1', verdict: 'right' }],
     });
     const got = await h.call('GET', `/v1/corrections/${res.body.id}`);
     expect(got.body.run.context.toolEnv).toEqual({ 'acme.lookup': { ORDERS_REGION: 'us' } });
@@ -852,8 +933,7 @@ describe("the context captured on a turn's first correction", () => {
     const h = harness([run], { messages, journal });
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { key: 'c1' },
-      verdict: 'yes',
+      items: [{ key: 'c1', verdict: 'right' }],
     });
     const got = await h.call('GET', `/v1/corrections/${res.body.id}`);
     expect(got.body.run.context).not.toHaveProperty('sessionApproval');
@@ -864,14 +944,12 @@ describe("the context captured on a turn's first correction", () => {
     const h = harness([run], { messages, journal });
     await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { key: 'c1' },
-      verdict: 'yes',
+      items: [{ key: 'c1', verdict: 'right' }],
     });
     expect(h.reads).toEqual([1, 1]);
     const second = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { key: 'c2' },
-      verdict: 'no',
+      items: [{ key: 'c2', verdict: 'wrong' }],
     });
     expect(second.status).toBe(201);
     expect(h.reads).toEqual([1, 1]);
@@ -888,8 +966,7 @@ describe("the context captured on a turn's first correction", () => {
     const contextOf = async (runId: string) => {
       const res = await h.call('POST', '/v1/corrections', {
         runId,
-        item: { key: 'c1' },
-        verdict: 'yes',
+        items: [{ key: 'c1', verdict: 'right' }],
       });
       expect(res.status, JSON.stringify(res.body)).toBe(201);
       return (await h.call('GET', `/v1/corrections/${res.body.id}`)).body.run.context;
@@ -905,8 +982,7 @@ describe("the context captured on a turn's first correction", () => {
     const h = harness([run], { messages, journal });
     const res = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { key: 'c1' },
-      verdict: 'yes',
+      items: [{ key: 'c1', verdict: 'right' }],
     });
     expect(res.status).toBe(201);
     const got = await h.call('GET', `/v1/corrections/${res.body.id}`);
@@ -917,57 +993,68 @@ describe("the context captured on a turn's first correction", () => {
 });
 
 describe('GET /v1/corrections', () => {
-  test('filters by run, agent and version, and verdict', async () => {
+  test('filters by run, agent and version, flow, group and status', async () => {
     const r1 = row();
     const r2 = row({ agent: agentRef('3.0.0') });
     const { agent: _agent, ...flowRun } = row({ flowId: 'acme.other' });
     const r3: KernelRunRecord = flowRun;
     const h = harness([r1, r2, r3]);
     const classId = await tenantClass(h);
-    const correct = (run: KernelRunRecord, key: string, verdict: 'yes' | 'no') =>
-      h.call('POST', '/v1/corrections', {
-        runId: run.runId,
-        item: { key },
-        verdict,
-        correctorGroupId: classId,
-      });
-    await correct(r1, 'a', 'yes');
-    await correct(r1, 'b', 'no');
-    await correct(r2, 'a', 'yes');
-    await correct(r3, 'a', 'no');
+    // A right item is fixed at save; a wrong one is open for Improve.
+    const correct = (
+      run: KernelRunRecord,
+      key: string,
+      verdict: 'right' | 'wrong',
+      token = USER_TOKEN,
+    ) =>
+      h.call(
+        'POST',
+        '/v1/corrections',
+        { runId: run.runId, items: [{ key, verdict }], correctorGroupId: classId },
+        token,
+      );
+    await correct(r1, 'a', 'right');
+    // Another author on the same run, so it doesn't supersede the first.
+    await correct(r1, 'b', 'wrong', KEY_TOKEN);
+    await correct(r2, 'a', 'right');
+    await correct(r3, 'a', 'wrong');
 
     const list = async (qs: string) =>
       (await h.call('GET', `/v1/corrections?${qs}`)).body.data as {
         runId: string;
-        verdict: string;
+        status: string;
       }[];
 
     expect(await list(`runId=${r1.runId}`)).toHaveLength(2);
     expect(await list('agentId=acme.matcher')).toHaveLength(3);
     const v3 = await list('agentId=acme.matcher&agentVersion=3.0.0');
     expect(v3.map((j) => j.runId)).toEqual([r2.runId]);
-    expect(await list('verdict=no')).toHaveLength(2);
+    expect((await list('status=open')).map((j) => j.runId)).toEqual([r3.runId, r1.runId]);
+    expect(await list('status=fixed')).toHaveLength(2);
     expect(await list('flowId=acme.other')).toHaveLength(1);
     expect(await list(`correctorGroupId=${classId}`)).toHaveLength(4);
   });
 
-  test('agentVersion without agentId, or an unknown verdict: 400', async () => {
+  test('agentVersion without agentId, or a verdict filter: 400', async () => {
     const h = harness([]);
     const a = await h.call('GET', '/v1/corrections?agentVersion=1.0.0');
     expect(a.status).toBe(400);
-    const b = await h.call('GET', '/v1/corrections?verdict=maybe');
-    expect(b.status).toBe(400);
+    const b = await h.call('GET', '/v1/corrections?verdict=no');
+    expect([b.status, b.body.error.code, b.body.error.message]).toEqual([
+      400,
+      'bad-input',
+      'verdict is gone: filter by status, sortedTo or from.',
+    ]);
   });
 
   test('pages with limit and nextCursor fields on the wire shape', async () => {
-    const run = row();
-    const h = harness([run]);
+    const runs = [row(), row(), row()];
+    const h = harness(runs);
     const classId = await tenantClass(h);
-    for (const key of ['a', 'b', 'c']) {
+    for (const run of runs) {
       await h.call('POST', '/v1/corrections', {
         runId: run.runId,
-        item: { key },
-        verdict: 'yes',
+        items: [{ key: 'c1', verdict: 'right' }],
         correctorGroupId: classId,
       });
     }
@@ -984,8 +1071,7 @@ describe('POST /v1/corrections/:id/remove', () => {
     const classId = await tenantClass(h);
     const made = await h.call('POST', '/v1/corrections', {
       runId: run.runId,
-      item: { key: 'c1' },
-      verdict: 'yes',
+      items: [{ key: 'c1', verdict: 'right' }],
       correctorGroupId: classId,
     });
     const gone = await h.call('POST', `/v1/corrections/${made.body.id}/remove`, {});
@@ -1142,7 +1228,7 @@ describe('expert groups (assertableBy, T200)', () => {
     h.call(
       'POST',
       '/v1/corrections',
-      { runId, item: { key: 'c1' }, verdict: 'yes', correctorGroupId },
+      { runId, items: [{ key: 'c1', verdict: 'right' }], correctorGroupId },
       token,
     );
 
@@ -1288,5 +1374,486 @@ describe('whyNotAssertable', () => {
         { ...user, reviewerRole: 'senior' },
       ),
     ).toBeUndefined();
+  });
+});
+
+const PULL_REQUEST = 'https://github.com/acme/app/pull/1';
+const WRONG_DECISIONS = { decisions: 'wrong', mustNotCall: ['acme.refund'] } as const;
+const WRONG_ANSWER = { answer: 'wrong', why: 'It named the wrong company.' } as const;
+const BY_RULE = { by: { kind: 'rule' }, at: expect.any(String) };
+
+/** Corrects `run` with `body` as `token`'s caller and answers the new correction's id. */
+async function made(
+  h: Harness,
+  run: KernelRunRecord,
+  body: Record<string, unknown>,
+  token?: string,
+): Promise<string> {
+  const res = await h.call('POST', '/v1/corrections', { runId: run.runId, ...body }, token);
+  expect(res.status, JSON.stringify(res.body)).toBe(201);
+  return res.body.id as string;
+}
+
+/** The ids a list answers, newest first. */
+async function listed(h: Harness, qs: string, token?: string): Promise<string[]> {
+  const res = await h.call('GET', `/v1/corrections?${qs}`, undefined, token);
+  expect(res.status, JSON.stringify(res.body)).toBe(200);
+  return (res.body.data as { id: string }[]).map((j) => j.id);
+}
+
+/**
+ * One correction in each status on project A's matcher, one on another agent
+ * in A, and one in project B: what the status filters and the counts read.
+ */
+async function seeded() {
+  const runs = {
+    open: row(),
+    withOwner: row(),
+    fixed: row(),
+    beingFixed: row(),
+    wontFix: row(),
+    removed: row(),
+    otherAgent: row({ agent: { ...agentRef('2.0.0'), id: 'acme.other' } }),
+    projectB: row({ projectId: projectB }),
+  };
+  type Name = keyof typeof runs;
+  const h = harness(Object.values(runs));
+  const ids = {} as Record<Name, string>;
+  for (const name of Object.keys(runs) as Name[]) {
+    const body =
+      name === 'withOwner'
+        ? WRONG_DECISIONS
+        : name === 'fixed'
+          ? { answer: 'right' }
+          : WRONG_ANSWER;
+    ids[name] = await made(h, runs[name], body);
+  }
+  const fixing = await h.call('PATCH', `/v1/corrections/${ids.beingFixed}`, {
+    status: 'being-fixed',
+    link: PULL_REQUEST,
+  });
+  const declined = await h.call('PATCH', `/v1/corrections/${ids.wontFix}`, {
+    status: 'wont-fix',
+    reason: 'Not worth a change.',
+  });
+  const removed = await h.call('POST', `/v1/corrections/${ids.removed}/remove`, {});
+  expect([fixing.status, declined.status, removed.status]).toEqual([200, 200, 200]);
+  /** The listed corrections by name, newest first. */
+  const names = async (qs: string) =>
+    (await listed(h, qs)).map((id) => (Object.keys(ids) as Name[]).find((n) => ids[n] === id));
+  return { h, names };
+}
+
+describe('sorted at save', () => {
+  test.each<[string, Record<string, unknown>, Record<string, unknown>]>([
+    [
+      'wrong decisions go to the owner, even with a wrong answer',
+      { ...WRONG_DECISIONS, ...WRONG_ANSWER },
+      { status: 'with-owner', sortedTo: 'owner', sorted: BY_RULE },
+    ],
+    [
+      'a wrong answer goes to Improve',
+      WRONG_ANSWER,
+      { status: 'open', sortedTo: 'improve', sorted: BY_RULE },
+    ],
+    [
+      'a wrong item goes to Improve',
+      { answer: 'right', items: [{ key: 'c2', verdict: 'wrong' }] },
+      { status: 'open', sortedTo: 'improve', sorted: BY_RULE },
+    ],
+    [
+      'all right is fixed, recorded right by its author',
+      { decisions: 'right', answer: 'right', items: [{ key: 'c1', verdict: 'right' }] },
+      {
+        status: 'fixed',
+        fixedIn: {
+          how: 'recorded-right',
+          by: { kind: 'user', id: 'user-1' },
+          at: expect.any(String),
+        },
+      },
+    ],
+    [
+      "an end user's is open and unsorted, for a person to sort",
+      { ...WRONG_DECISIONS, participantId: 'end-user-1' },
+      { status: 'open' },
+    ],
+  ])('%s', async (_, body, expected) => {
+    const run = row();
+    const h = harness([run]);
+    const res = await h.call('POST', '/v1/corrections', { runId: run.runId, ...body });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const { status, sortedTo, sorted, fixedIn } = res.body;
+    expect({ status, sortedTo, sorted, fixedIn }).toEqual(expected);
+    expect(res.body.updatedAt).toBe(res.body.createdAt);
+    // Saved so, not only answered so.
+    expect((await h.call('GET', `/v1/corrections/${res.body.id}`)).body).toMatchObject(expected);
+  });
+});
+
+describe('PATCH /v1/corrections/:id', () => {
+  const patch = (h: Harness, id: string, body: unknown) =>
+    h.call('PATCH', `/v1/corrections/${id}`, body);
+
+  test('a correction recorded right and then set wont-fix answers no fixedIn, and none when open again', async () => {
+    const run = row();
+    const h = harness([run]);
+    const id = await made(h, run, { answer: 'right' });
+    const got = await h.call('GET', `/v1/corrections/${id}`);
+    expect(got.body).toMatchObject({ status: 'fixed', fixedIn: { how: 'recorded-right' } });
+    const wontFix = await patch(h, id, { status: 'wont-fix', reason: 'not ours to fix' });
+    expect(wontFix.status, JSON.stringify(wontFix.body)).toBe(200);
+    expect(wontFix.body.status).toBe('wont-fix');
+    expect(wontFix.body).not.toHaveProperty('fixedIn');
+    const reopened = await patch(h, id, { status: 'open' });
+    expect(reopened.status, JSON.stringify(reopened.body)).toBe(200);
+    expect(reopened.body).not.toHaveProperty('fixedIn');
+  });
+
+  test('being-fixed takes a link; back to open clears it', async () => {
+    const run = row();
+    const h = harness([run]);
+    const id = await made(h, run, WRONG_ANSWER);
+    const fixing = await patch(h, id, { status: 'being-fixed', link: PULL_REQUEST });
+    expect(fixing.status, JSON.stringify(fixing.body)).toBe(200);
+    expect(fixing.body).toMatchObject({
+      status: 'being-fixed',
+      sortedTo: 'improve',
+      link: { kind: 'pull-request', url: PULL_REQUEST },
+    });
+    expect(fixing.body.updatedAt > fixing.body.createdAt).toBe(true);
+    const reopened = await patch(h, id, { status: 'open' });
+    expect(reopened.status).toBe(200);
+    expect(reopened.body).toMatchObject({ status: 'open', sortedTo: 'improve' });
+    expect(reopened.body).not.toHaveProperty('link');
+  });
+
+  test("a suggested change's link keeps its id alone; an id that isn't one: 400", async () => {
+    const run = row();
+    const h = harness([run]);
+    const id = await made(h, run, WRONG_ANSWER);
+    const changeId = '3bca94f1-61a4-4c2e-9d0b-7f5e2a8c1d36';
+    const fixing = await patch(h, id, { status: 'being-fixed', link: `sc-${changeId}` });
+    expect(fixing.status, JSON.stringify(fixing.body)).toBe(200);
+    expect(fixing.body.link).toEqual({ kind: 'suggested-change', id: changeId });
+    const res = await patch(h, id, { status: 'being-fixed', link: 'sc-41' });
+    expect([res.status, res.body.error.code, res.body.error.message]).toEqual([
+      400,
+      'bad-input',
+      'link must be a URL, an Improve run (ir-<its id>) or a suggested change (sc-<its id>).',
+    ]);
+  });
+
+  test('wont-fix needs a reason, kept as the status note; reopening clears the note', async () => {
+    const run = row();
+    const h = harness([run]);
+    const id = await made(h, run, WRONG_ANSWER);
+    const bare = await patch(h, id, { status: 'wont-fix' });
+    expect([bare.status, bare.body.error.code, bare.body.error.message]).toEqual([
+      400,
+      'bad-input',
+      'status: "wont-fix" needs a reason.',
+    ]);
+    const reason = 'The team wants the old wording.';
+    const declined = await patch(h, id, { status: 'wont-fix', reason });
+    expect(declined.status).toBe(200);
+    expect(declined.body).toMatchObject({
+      status: 'wont-fix',
+      statusNote: { text: reason, by: { kind: 'user', id: 'user-1' }, at: expect.any(String) },
+    });
+    const reopened = await patch(h, id, { status: 'open' });
+    expect(reopened.body.status).toBe('open');
+    expect(reopened.body).not.toHaveProperty('statusNote');
+  });
+
+  test('a fixed correction cannot become being-fixed: 409 naming both statuses', async () => {
+    const run = row();
+    const h = harness([run]);
+    const id = await made(h, run, { answer: 'right' });
+    const res = await patch(h, id, { status: 'being-fixed', link: PULL_REQUEST });
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'correction-status-change-not-allowed',
+      message: "A correction that's fixed can't become being-fixed.",
+      details: { from: 'fixed', to: 'being-fixed' },
+    });
+  });
+
+  test('re-sorting to the owner makes it with-owner, sorted by the person', async () => {
+    const run = row();
+    const h = harness([run]);
+    const id = await made(h, run, WRONG_ANSWER);
+    const res = await patch(h, id, { sortedTo: 'owner' });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      status: 'with-owner',
+      sortedTo: 'owner',
+      sorted: { by: { kind: 'user', id: 'user-1' }, at: expect.any(String) },
+    });
+  });
+
+  test('an unknown or a superseded correction: 404', async () => {
+    const run = row();
+    const h = harness([run]);
+    const first = await made(h, run, WRONG_ANSWER);
+    await made(h, run, { answer: 'right' });
+    for (const id of ['nope', first]) {
+      const res = await patch(h, id, { status: 'wont-fix', reason: 'Not needed.' });
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe('correction-not-found');
+    }
+  });
+
+  test('a body key it does not know: 400', async () => {
+    const run = row();
+    const h = harness([run]);
+    const id = await made(h, run, WRONG_ANSWER);
+    const res = await patch(h, id, { status: 'open', note: 'x' });
+    expect([res.status, res.body.error.code, res.body.error.message]).toEqual([
+      400,
+      'bad-input',
+      'A change has sortedTo, status, link and reason, not note.',
+    ]);
+  });
+});
+
+describe('changing a correction and authorization', () => {
+  test('a change needs publish on the agent', async () => {
+    const run = row();
+    const grants = [`write project:${projectA}`, `read project:${projectA}`];
+    const authz: Authz = { grants, checked: [] };
+    const h = harness([run], {}, authz);
+    const id = await made(h, run, WRONG_ANSWER);
+    const denied = await h.call('PATCH', `/v1/corrections/${id}`, { sortedTo: 'owner' });
+    expect(denied.status).toBe(403);
+    expect(denied.body.error.code).toBe('permission-denied');
+    expect(denied.body.error.message).toContain('publish on agent "acme.matcher"');
+    expect(authz.checked).toContain('publish agent:acme.matcher');
+
+    grants.push('publish agent:acme.matcher');
+    const allowed = await h.call('PATCH', `/v1/corrections/${id}`, { sortedTo: 'owner' });
+    expect(allowed.status).toBe(200);
+    expect(allowed.body.status).toBe('with-owner');
+  });
+
+  test("for an agent more than one project serves, a change takes write on the correction's project, never the agent's publish", async () => {
+    const run = row({ projectId: projectB });
+    const grants = [
+      `write project:${projectB}`,
+      `read project:${projectB}`,
+      `write project:${projectA}`,
+      'publish agent:acme.matcher',
+    ];
+    const authz: Authz = { grants, checked: [] };
+    const served = itemProjects([
+      { kind: 'agent', id: 'acme.matcher', projects: [projectA, projectB] },
+    ]);
+    const h = harness([run], {}, authz, undefined, served);
+    const id = await made(h, run, WRONG_ANSWER);
+    // A writer of the agent's first project who only reads this one.
+    grants.splice(grants.indexOf(`write project:${projectB}`), 1);
+    const before = authz.checked.length;
+    const denied = await h.call('PATCH', `/v1/corrections/${id}`, { sortedTo: 'owner' });
+    expect(denied.status).toBe(403);
+    expect(denied.body.error.message).toContain(`write on project ${projectB}`);
+    const asked = authz.checked.slice(before);
+    expect(asked).toContain(`write project:${projectB}`);
+    expect(asked).not.toContain('publish agent:acme.matcher');
+
+    grants.push(`write project:${projectB}`);
+    const allowed = await h.call('PATCH', `/v1/corrections/${id}`, { sortedTo: 'owner' });
+    expect(allowed.status, JSON.stringify(allowed.body)).toBe(200);
+    expect(allowed.body.status).toBe('with-owner');
+  });
+});
+
+describe('GET /v1/corrections: status, sorting, source, time and author', () => {
+  test('status: one, not-fixed, comma-separated or repeated; removed only when asked', async () => {
+    const { names } = await seeded();
+    expect(await names('')).toEqual([
+      'projectB',
+      'otherAgent',
+      'wontFix',
+      'beingFixed',
+      'fixed',
+      'withOwner',
+      'open',
+    ]);
+    expect(await names('status=not-fixed')).toEqual([
+      'projectB',
+      'otherAgent',
+      'beingFixed',
+      'withOwner',
+      'open',
+    ]);
+    expect(await names('status=open,fixed')).toEqual(['projectB', 'otherAgent', 'fixed', 'open']);
+    expect(await names('status=open&status=fixed')).toEqual([
+      'projectB',
+      'otherAgent',
+      'fixed',
+      'open',
+    ]);
+    expect(await names('status=removed')).toEqual(['removed']);
+  });
+
+  test('sortedTo, and none for the unsorted', async () => {
+    const { names } = await seeded();
+    expect(await names('sortedTo=none')).toEqual(['fixed']);
+    expect(await names('sortedTo=owner')).toEqual(['withOwner']);
+    expect(await names('sortedTo=improve&status=open')).toEqual(['projectB', 'otherAgent', 'open']);
+  });
+
+  test('from: end users (a participant, not under a restricted group) or experts (under one)', async () => {
+    const r1 = row();
+    const r2 = row();
+    const r3 = row();
+    const h = harness([r1, r2, r3]);
+    const usersOnly = await h.call('POST', '/v1/corrector-groups', {
+      scope: { kind: 'tenant' },
+      name: 'reviewer',
+      weight: 5,
+      assertableBy: { principalKinds: ['user'] },
+    });
+    expect(usersOnly.status).toBe(201);
+    const endUser = await made(h, r1, { ...WRONG_ANSWER, participantId: 'end-user-1' }, KEY_TOKEN);
+    // A participant under a restricted group is an expert, and sorted as one.
+    const expert = await made(h, r2, {
+      ...WRONG_ANSWER,
+      participantId: 'end-user-2',
+      correctorGroupId: usersOnly.body.id,
+    });
+    const neither = await made(h, r3, WRONG_ANSWER, SENIOR_TOKEN);
+
+    expect(await listed(h, 'from=end-users')).toEqual([endUser]);
+    expect(await listed(h, 'from=experts')).toEqual([expert]);
+    expect(await listed(h, 'from=all')).toEqual([neither, expert, endUser]);
+    const sorting = async (id: string) => {
+      const { status, sortedTo } = (await h.call('GET', `/v1/corrections/${id}`)).body;
+      return { status, sortedTo };
+    };
+    expect(await sorting(endUser)).toEqual({ status: 'open' });
+    expect(await sorting(expert)).toEqual({ status: 'open', sortedTo: 'improve' });
+  });
+
+  test('since (from, inclusive) and until (before)', async () => {
+    const r1 = row();
+    const r2 = row();
+    const r3 = row();
+    const h = harness([r1, r2, r3]);
+    const first = await made(h, r1, WRONG_ANSWER);
+    const second = await made(h, r2, WRONG_ANSWER);
+    const third = await made(h, r3, WRONG_ANSWER);
+    const createdAt = async (id: string) =>
+      encodeURIComponent((await h.call('GET', `/v1/corrections/${id}`)).body.createdAt as string);
+    const at = await createdAt(second);
+    expect(await listed(h, `since=${at}`)).toEqual([third, second]);
+    expect(await listed(h, `until=${at}`)).toEqual([first]);
+    expect(await listed(h, `since=${await createdAt(first)}&until=${at}`)).toEqual([first]);
+  });
+
+  test("madeBy=me: the caller's own; any other value is a 400", async () => {
+    const run = row();
+    const h = harness([run]);
+    const mine = await made(h, run, WRONG_ANSWER);
+    const theKeys = await made(h, run, WRONG_ANSWER, KEY_TOKEN);
+    expect(await listed(h, 'madeBy=me')).toEqual([mine]);
+    expect(await listed(h, 'madeBy=me', KEY_TOKEN)).toEqual([theKeys]);
+    const other = await h.call('GET', '/v1/corrections?madeBy=user-1');
+    expect([other.status, other.body.error.message]).toEqual([
+      400,
+      'madeBy takes only me: the caller.',
+    ]);
+  });
+
+  test('a bad status, sortedTo, from or since: 400', async () => {
+    const h = harness([]);
+    for (const qs of ['status=done', 'sortedTo=nobody', 'from=robots', 'since=yesterday']) {
+      const res = await h.call('GET', `/v1/corrections?${qs}`);
+      expect([qs, res.status, res.body.error.code]).toEqual([qs, 400, 'bad-input']);
+    }
+  });
+});
+
+describe('GET /v1/corrections/counts', () => {
+  test("a project's corrections in each status, or one agent's; other projects not counted", async () => {
+    const { h } = await seeded();
+    const counts = async (qs: string) => {
+      const res = await h.call('GET', `/v1/corrections/counts?${qs}`);
+      expect(res.status, JSON.stringify(res.body)).toBe(200);
+      return res.body;
+    };
+    const inA = `scopeKind=project&scopeId=${projectA}`;
+    expect(await counts(inA)).toEqual({
+      open: 2,
+      beingFixed: 1,
+      withOwner: 1,
+      fixed: 1,
+      wontFix: 1,
+      removed: 1,
+    });
+    expect(await counts(`${inA}&agentId=acme.matcher`)).toEqual({
+      open: 1,
+      beingFixed: 1,
+      withOwner: 1,
+      fixed: 1,
+      wontFix: 1,
+      removed: 1,
+    });
+    expect(await counts(`scopeKind=project&scopeId=${projectB}`)).toEqual({
+      open: 1,
+      beingFixed: 0,
+      withOwner: 0,
+      fixed: 0,
+      wontFix: 0,
+      removed: 0,
+    });
+  });
+
+  test('without a project scope: 400', async () => {
+    const h = harness([]);
+    for (const qs of ['', 'scopeKind=tenant']) {
+      const res = await h.call('GET', `/v1/corrections/counts?${qs}`);
+      expect([res.status, res.body.error.code, res.body.error.message]).toEqual([
+        400,
+        'bad-input',
+        'counts needs scopeKind=project and scopeId (the project).',
+      ]);
+    }
+  });
+});
+
+describe('removing a correction and authorization', () => {
+  test('its author may remove it; anyone else needs admin on the project', async () => {
+    const r1 = row();
+    const r2 = row();
+    const grants = [`write project:${projectA}`, `read project:${projectA}`];
+    const authz: Authz = { grants, checked: [] };
+    const h = harness([r1, r2], {}, authz);
+    const own = await made(h, r1, WRONG_ANSWER);
+    const other = await made(h, r2, WRONG_ANSWER);
+
+    expect((await h.call('POST', `/v1/corrections/${own}/remove`, {})).status).toBe(200);
+    expect(authz.checked).not.toContain(`admin project:${projectA}`);
+
+    const denied = await h.call('POST', `/v1/corrections/${other}/remove`, {}, SENIOR_TOKEN);
+    expect(denied.status).toBe(403);
+    expect(denied.body.error).toMatchObject({
+      code: 'permission-denied',
+      message: `Not allowed to remove correction "${other}".`,
+    });
+    expect(authz.checked).toContain(`admin project:${projectA}`);
+
+    grants.push(`admin project:${projectA}`);
+    const byAdmin = await h.call('POST', `/v1/corrections/${other}/remove`, {}, SENIOR_TOKEN);
+    expect(byAdmin.status).toBe(200);
+
+    const removed = await h.call('GET', '/v1/corrections?status=removed');
+    expect(
+      (removed.body.data as { id: string; status: string }[]).map((j) => [j.id, j.status]),
+    ).toEqual([
+      [other, 'removed'],
+      [own, 'removed'],
+    ]);
+    expect(await listed(h, '')).toEqual([]);
   });
 });

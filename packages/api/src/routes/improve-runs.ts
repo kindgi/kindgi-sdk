@@ -630,8 +630,12 @@ function parseStartImproveRunBody(b: Record<string, unknown>): StartImproveRunBo
   const extra = Object.keys(b).find((k) => !known.includes(k));
   if (extra !== undefined) return `\`${extra}\` isn't a field of improve: { ${known.join(', ')} }`;
   if (!nonEmpty(b.agentId)) return '`agentId` is required';
-  if (typeof b.projectId !== 'string' || !UUID_RE.test(b.projectId)) {
+  if (b.projectId === undefined) {
     return '`projectId` is required: the project the Improve run works in (a UUID)';
+  }
+  // As the project-ref middleware words it, which answers first on a start.
+  if (typeof b.projectId !== 'string' || !UUID_RE.test(b.projectId)) {
+    return '`projectId` must be a project id (a UUID)';
   }
   const tiers = parseTiers(b.tiers);
   if (typeof tiers === 'string') return tiers;

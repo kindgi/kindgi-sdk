@@ -786,7 +786,7 @@ export const ERROR_ENTRIES = {
   },
   'promotions-unsupported': {
     description:
-      "This runtime can't promote deployments: it has nowhere to write a promotion. The promotion check still answers. Nothing is written.",
+      "This runtime can't promote deployments: it has nowhere to write a promotion. The promotion check still answers. Nothing is written. From a deployment promotion with `pin` on a runtime that can't pin versions, the build has already moved and nothing is pinned in the target: promote without `pin` there.",
     details: [],
     seeAlso: ['POST /v1/deployments/{deploymentId}/promotions'],
   },
@@ -1227,6 +1227,11 @@ export const ERROR_ENTRIES = {
         meaning:
           "the tenant's limit on approvals waiting for a decision; absent when the server doesn't name it",
       },
+      {
+        key: 'pinned',
+        meaning:
+          "from a deployment promotion with `pin`, when some were: the carried agents pinned before this one, in the answer's `pinned` shape",
+      },
     ],
   },
   'invite-capped': {
@@ -1506,6 +1511,73 @@ export const ERROR_ENTRIES = {
     description:
       'The agent has no pinned version for the whole tenant, so a new version would serve every scope nothing is pinned for. Pin its current version for the tenant first, then retry.',
     details: [],
+  },
+  'suggested-change-not-for-a-project': {
+    description:
+      "The suggested change was made for a tenant, an org or a segment, before suggested changes were for one project, so it can't be checked, pinned or added as Latest. Withdraw it, and suggest the change for a project.",
+    details: [
+      {
+        key: 'suggestedChangeId',
+        meaning: 'the suggested change id',
+      },
+    ],
+  },
+  'suggested-change-check-unsupported': {
+    description:
+      "This runtime doesn't freeze a project's test set, so it can't make or check a suggested change.",
+    details: [],
+  },
+  'suggested-change-nothing-to-check': {
+    description:
+      "The project's test set has no cases for the agent, so there's nothing to check a change on. Correct some of the agent's conversations in the project first.",
+    details: [
+      {
+        key: 'projectId',
+        meaning: 'the project',
+      },
+    ],
+  },
+  'suggested-change-project-on-latest': {
+    description:
+      "The suggested change's project runs the agent's Latest, not a pin, so its version isn't pinned there. Add it as the project's Latest instead.",
+    details: [
+      {
+        key: 'suggestedChangeId',
+        meaning: 'the suggested change id',
+      },
+    ],
+  },
+  'suggested-change-project-pinned': {
+    description:
+      "The suggested change's project runs a pin of the agent, not its Latest, so its version isn't added as Latest there. Pin it instead.",
+    details: [
+      {
+        key: 'suggestedChangeId',
+        meaning: 'the suggested change id',
+      },
+    ],
+  },
+  'suggested-change-out-of-date': {
+    description:
+      "The suggested change's project now runs another version of the agent than the one it's built on, so it isn't pinned or added as Latest. When `rebuilding` is true, it's being rebuilt on that version and checked again: try again once its check is ready. Otherwise that version doesn't use its block, or already has the change: withdraw it.",
+    details: [
+      {
+        key: 'suggestedChangeId',
+        meaning: 'the suggested change id',
+      },
+      {
+        key: 'builtOn',
+        meaning: "the version it's built on",
+      },
+      {
+        key: 'runs',
+        meaning: 'the version its project runs now',
+      },
+      {
+        key: 'rebuilding',
+        meaning: "whether it's being rebuilt on `runs`",
+      },
+    ],
   },
   'improve-unsupported': {
     description: "This runtime doesn't run Improve.",
@@ -1905,6 +1977,14 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/improve/correct-a-runs-output'],
   },
+  'correction-status-change-not-allowed': {
+    description:
+      "The change isn't allowed from the correction's status: re-sorting only from `open`, `being-fixed` or `with-owner`; `being-fixed` only from `open` or `with-owner`; `open` only from `being-fixed` or `wont-fix`; `wont-fix` from anything but `removed`. `fixed` is set only by a pin or a deploy.",
+    details: [
+      { key: 'from', meaning: "the correction's status" },
+      { key: 'to', meaning: 'the status the change would have set' },
+    ],
+  },
   'corrector-group-not-found': {
     description: 'No live corrector group exists with that id.',
     details: [],
@@ -1965,6 +2045,23 @@ export const ERROR_ENTRIES = {
       "The scope has no pin of its own (for an agent, no pinned version of its own), so there's nothing to unpin. Pin a version for the scope first.",
     details: [],
   },
+  'nothing-runs-in-scope': {
+    description:
+      "No version of the agent runs in the scope yet: no pin covers it, and the agent has no Latest there (a tenant or org scope takes Latest over every project), so there's nothing to measure the version against. Nothing is promoted. Deploy or publish a version into the project first; into a later environment of an order, which takes builds only by promotion, promote a build that ships a version of the agent. From a deployment promotion with `pin`, the move has already committed: the carried agents pinned before this one stay pinned (`details.pinned`), and this agent, the carried agents after it and the carried flows aren't pinned. The message names the agent. When the scope's project is suspended, the refusal is `project-suspended` instead.",
+    details: [
+      {
+        key: 'pinned',
+        meaning:
+          "from a deployment promotion with `pin`, when some were: the carried agents pinned before this one, in the answer's `pinned` shape",
+      },
+    ],
+    seeAlso: [
+      'POST /v1/agents/{agentId}/pinned/pin',
+      'POST /v1/agents/{agentId}/pinned/check',
+      'POST /v1/deployments/{deploymentId}/promotions',
+      'guides/improve/pinned-versions-reference',
+    ],
+  },
   'gate-failed': {
     description:
       'A release gate refused pinning the version because one or more of its checks failed. The refusal is recorded; read the failing checks and fix what they name.',
@@ -1990,11 +2087,17 @@ export const ERROR_ENTRIES = {
   'pin-superseded': {
     description:
       "The scope's pinned version changed while the release gate was being checked, so the check no longer applies. Check the pin again against the new pinned version.",
-    details: [],
+    details: [
+      {
+        key: 'pinned',
+        meaning:
+          "from a deployment promotion with `pin`, when some were: the carried agents pinned before this one, in the answer's `pinned` shape",
+      },
+    ],
   },
   'pin-gate-unsupported': {
     description:
-      "A release gate applies to this pin, and the deployment can't record a gated pin, so the pin is refused.",
+      "A release gate applies to this pin, and the deployment can't record a gated pin, so the pin is refused. From a deployment promotion with `pin`, the build has already moved and nothing is pinned in the target.",
     details: [],
   },
   'separate-approver-required': {
@@ -2062,7 +2165,13 @@ export const ERROR_ENTRIES = {
   'release-gate-descendant-unpinned': {
     description:
       'The change would also move a narrower scope that a release gate applies to and that has no pinned version of its own, bypassing that gate. Pin that scope at its current version first.',
-    details: [],
+    details: [
+      {
+        key: 'pinned',
+        meaning:
+          "from a deployment promotion with `pin`, when some were: the carried agents pinned before this one, in the answer's `pinned` shape",
+      },
+    ],
   },
   'principal-not-found': {
     description:
@@ -2490,6 +2599,11 @@ export const ERROR_ENTRIES = {
       "The runtime runs without an authorization store, so it can't read or change a person's grants.",
     details: [],
   },
+  'agent-owner-unsupported': {
+    description:
+      "The runtime's agent store doesn't keep an owner, so an agent's owner can't be set. Nothing changed.",
+    details: [],
+  },
   'permissions-unsupported': {
     description:
       "The runtime runs without an authorization store, so it can't say what the caller may do. Read whoami's `tenantAdmin` and `reviewerRole` instead.",
@@ -2577,10 +2691,15 @@ export const ERROR_ENTRIES = {
     description: "The pointer in `item` resolves to nothing in the run's output. Fix the pointer.",
     details: [],
   },
-  'test-sets-not-supported': {
+  'test-case-not-found': {
     description:
-      "This deployment can't list corrected runs, so it can't build test cases from corrections.",
+      "The agent's test set has no case by that id. A correction's case has the correction's id, and a case added by hand an id that starts `case-`: list the cases to find it.",
     details: [],
+  },
+  'test-case-retired': {
+    description:
+      'The case is retired already. A retired case stays retired: there is no un-retire.',
+    details: [{ key: 'retired', meaning: 'the reason, who retired the case, and when' }],
   },
   'run-failures-not-supported': {
     description: "This deployment can't group failed runs by cause.",
@@ -3040,7 +3159,7 @@ export const ERROR_ENTRIES = {
   },
   'project-suspended': {
     description:
-      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an answer to one of its runs' waits (through the wait token's link or `POST /v1/runs/{runId}/resume`; a suspension cancels its runs, paused ones included), a test run started in it, an Improve run for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. A test run or an Improve run already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or Improve run: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project. A promotion from it or into it is refused too: `details.environment` says which.",
+      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an answer to one of its runs' waits (through the wait token's link or `POST /v1/runs/{runId}/resume`; a suspension cancels its runs, paused ones included), a test run started in it, an Improve run for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. A test run or an Improve run already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or Improve run: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project. A promotion from it or into it is refused too: `details.environment` says which. So is making an agent version live in one of its scopes where nothing runs (its deployments are retired), with no `details`.",
     details: [
       {
         key: 'environment',

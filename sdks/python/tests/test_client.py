@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pydantic
 import pytest
 
 from kindgi.client import (
@@ -125,25 +126,22 @@ def test_a_body_as_a_mapping_or_a_model() -> None:
 
 
 def test_a_field_named_for_a_keyword_takes_a_trailing_underscore() -> None:
-    # `from` is a Python keyword: `from_=` sends it, as does a mapping.
-    derived = {
-        "id": "acme.intake",
-        "version": "1.4.1",
-        "name": "Intake",
-        "instructions": {"prompt": "acme.intake-prompt", "version": "^1.0.0"},
+    # `for` is a Python keyword: `for_=` sends it, as does a mapping.
+    minted = {
+        "tokenId": "6ccd0eca-40b4-4b86-b8f5-24b0900ddd01",
+        "token": "kgi_ak_secret",
+        "principal": {"kind": "service-account", "id": "sa-1"},
+        "role": "member",
         "capabilities": [],
-        "tools": [],
-        "retrieval": [],
-        "guardrails": [],
-        "derivedFrom": {"version": "1.4.0", "reason": "edited", "by": "user:u-1"},
+        "createdAt": "2026-10-07T00:00:00.000Z",
     }
-    api, seen = client(lambda r: httpx.Response(201, json=derived))
-    pins = {"prompts": {"acme.intake-prompt": "1.1.0"}}
-    agent = api.agents.derive_version("acme.intake", from_="1.4.0", pins=pins)
-    api.agents.derive_version("acme.intake", {"from": "1.4.0", "pins": pins})
-    assert agent.derived_from is not None and agent.derived_from.reason == "edited"
-    assert [r.url for r in seen] == ["http://kindgi.test/v1/agents/acme.intake/versions"] * 2
-    assert [json.loads(r.content) for r in seen] == [{"from": "1.4.0", "pins": pins}] * 2
+    api, seen = client(lambda r: httpx.Response(201, json=minted))
+    principal = {"kind": "service-account", "id": "sa-1"}
+    key = api.tokens.mint(for_=principal, label="ci")
+    api.tokens.mint({"for": principal, "label": "ci"})
+    assert key.principal is not None and key.principal.id == "sa-1"
+    assert [r.url for r in seen] == ["http://kindgi.test/v1/tokens"] * 2
+    assert [json.loads(r.content) for r in seen] == [{"for": principal, "label": "ci"}] * 2
 
 
 def test_a_field_set_to_none_is_sent_as_null() -> None:
@@ -224,6 +222,36 @@ def test_a_usage_group_keeps_a_kind_class_or_state_this_client_does_not_list() -
     (got,) = read.data
     assert (got.kind, got.class_, got.state) == ("a-later-kind", "a-later-class", "a-later-state")
     assert seen[0].url.path == "/v1/system/usage"
+
+
+def test_an_items_key_and_pointer_have_caps_when_sent_but_not_when_read() -> None:
+    # A new correction's item key is an id, at most 200 characters, and its
+    # pointer at most 500. One saved before the caps may hold longer ones,
+    # and it still reads.
+    key, pointer = "k" * 201, "/" + "p" * 500
+    correction = {
+        "id": "c-1",
+        "tenantId": RUN["tenantId"],
+        "projectId": "p-1",
+        "runId": RUN["id"],
+        "subject": {"kind": "agent", "id": "acme.refunds", "version": "2.1.0"},
+        "items": [{"key": key, "pointer": pointer, "verdict": "wrong"}],
+        "madeBy": {"kind": "user", "id": "u-1"},
+        "status": "open",
+        "createdAt": "2026-10-01T14:07:42.379Z",
+        "updatedAt": "2026-10-01T14:07:42.379Z",
+    }
+    api, seen = client(lambda r: httpx.Response(201, json=correction))
+    for item in (
+        {"key": key, "verdict": "wrong"},
+        {"key": "kb-101", "pointer": pointer, "verdict": "wrong"},
+    ):
+        with pytest.raises(pydantic.ValidationError):
+            api.corrections.create(run_id=RUN["id"], items=[item])
+    assert seen == []
+    read = api.corrections.create(run_id=RUN["id"], items=[{"key": "kb-101", "verdict": "wrong"}])
+    assert read.items is not None
+    assert [(i.key, i.pointer) for i in read.items] == [(key, pointer)]
 
 
 def test_a_tenant_is_renamed_by_its_admins_or_the_operator_and_answers_nothing() -> None:

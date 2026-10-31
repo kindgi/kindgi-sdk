@@ -29,6 +29,7 @@ import type {
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
+import { noLatest } from './support/latest.js';
 import { type Grant, type ItemRow, grantsAuthz, itemProjects } from './support/order-items.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -150,6 +151,7 @@ function harness(
     }),
     agentPins: {
       pinned: fake.pinned,
+      latest: noLatest,
       changes: {} as AgentPinBindings['changes'],
     },
     ...(opts.withProjects !== false && { projectBinding: projects }),
