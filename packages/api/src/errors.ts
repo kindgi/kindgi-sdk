@@ -255,6 +255,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'block-not-found': 404,
   'block-already-registered': 409,
   'block-project-mismatch': 409,
+  // Where a block runs needs the agents' pins and Latest.
+  'runs-in-unsupported': 501,
   'test-set-not-found': 404,
   'test-set-already-registered': 409,
   'test-set-project-mismatch': 409,
@@ -555,6 +557,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'production-limit-reached': 403,
   /** The production route on a runtime whose project binding can't set it. */
   'production-unsupported': 501,
+  /** A repo connection that isn't a company-wide GitHub connection (`details.connectionId`, `app`, `owner`). */
+  'repo-connection-not-company-github': 400,
+  /** The repo-connection routes on a runtime whose project binding can't set one, or, to set one, that has no connections. */
+  'repo-connection-unsupported': 501,
   'team-membership-not-found': 404,
   'project-membership-not-found': 404,
   // Re-adding a member with another role: the role they hold is kept.

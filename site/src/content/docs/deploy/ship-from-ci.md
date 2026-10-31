@@ -412,8 +412,17 @@ has what a release gate checks, and how a reviewer approves.
 Improve, suggested changes and edits in the console change the runtime, not git, so
 the next deploy from git doesn't have them. Bring each one back as a pull
 request: copy the change into the pack's files, and open the pull request.
-[Improve an agent](../../guides/improve/improve-an-agent/) has what Improve
-changes.
+For blocks, `kindgi blocks pull` writes the newest version running anywhere
+into each block's file. [Improve an agent](../../guides/improve/improve-an-agent/)
+has what Improve changes.
+
+`kindgi deploy` run in a git work tree, as CI's is, also says where the pack
+lives: the `origin` remote with no user or token in it, the pack's folder in
+the repository, the commit and branch, and whether the pack's folder had
+changes the commit doesn't hold. Each deployment keeps that as `source`,
+with each block's file, and lists the block versions it shipped in
+`contents.blocks` (`GET /v1/deployments/:deploymentId`). A deploy from
+outside git keeps no `source`.
 
 ## Separate runtimes
 
