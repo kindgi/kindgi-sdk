@@ -326,6 +326,8 @@ function agentPinBinding(
     readonly errorOn?: readonly string[] | undefined;
     /** Record gated promotions (`promotions.request`), so each pin goes through the gate. */
     readonly gate?: boolean | undefined;
+    /** Every project follows Latest, 0.9.0; absent: nothing runs before a pin. */
+    readonly onLatest?: boolean | undefined;
   } = {},
 ): {
   readonly releases: AgentPinBindings;
@@ -354,6 +356,9 @@ function agentPinBinding(
           requestedBy: input.requestedBy,
           createdAt: '2026-10-01T10:00:00.000Z' as Timestamp,
           ...(input.reason !== undefined && { reason: input.reason }),
+          ...(input.stoppedFollowingLatest !== undefined && {
+            stoppedFollowingLatest: input.stoppedFollowingLatest,
+          }),
         } satisfies Pin,
       };
     },
@@ -402,7 +407,16 @@ function agentPinBinding(
     pinned,
     releases: {
       pinned: { resolve: async () => null, list: async () => [] },
-      latest: noLatest,
+      latest:
+        opts.onLatest === true
+          ? {
+              latest: async () => ({
+                version: '0.9.0' as Semver,
+                since: '2026-09-01T00:00:00.000Z',
+              }),
+              byProject: async () => [],
+            }
+          : noLatest,
       changes: changes as unknown as AgentPinBindings['changes'],
       ...(gated.size > 0 && {
         releaseGates: releaseGates as unknown as NonNullable<AgentPinBindings['releaseGates']>,
@@ -459,6 +473,8 @@ function harness(
     readonly errorOn?: readonly string[];
     /** Each pin goes through the gate (`livePins`' `gate`). */
     readonly gate?: boolean;
+    /** The target follows Latest before the pin (`agentPinBinding`'s `onLatest`). */
+    readonly onLatest?: boolean;
     /** Items an order carries, so an agent spans more than one project. */
     readonly itemRows?: readonly ItemRow[];
     /** Wire a flow pin binding (`flowPinBinding`), so `pin` pins the carried flows; the flows named fail their write. */
@@ -525,7 +541,12 @@ function harness(
   const grants = opts.grants;
   const agentPins =
     opts.agentPins === true || opts.cards !== undefined
-      ? agentPinBinding({ gated: opts.gated, errorOn: opts.errorOn, gate: opts.gate })
+      ? agentPinBinding({
+          gated: opts.gated,
+          errorOn: opts.errorOn,
+          gate: opts.gate,
+          onLatest: opts.onLatest,
+        })
       : undefined;
   const items = opts.itemRows !== undefined ? itemProjects([...opts.itemRows]) : undefined;
   const cards =
@@ -1218,6 +1239,25 @@ describe('pinning the carried agents in the target (pin)', () => {
       version: '1.0.0',
       scope: { kind: 'project', projectId: S2 },
     });
+    expect(h.pinned[0]).not.toHaveProperty('stoppedFollowingLatest');
+  });
+
+  test('a target on Latest goes off it with no 409 (`pin` is the ask), and the pin records that it did', async () => {
+    const h = harness({
+      agentPins: true,
+      onLatest: true,
+      grants: [`read project:${S1}`, `admin project:${S2}`, `pin agent:${AGENT}`],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.promoteAndPin('dep-s1', S2);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.pinned).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    expect(h.pinned).toEqual([
+      expect.objectContaining({
+        scope: { kind: 'project', projectId: S2 },
+        stoppedFollowingLatest: true,
+      }),
+    ]);
   });
 
   test("refused when the caller can't pin an agent one project serves: 403, though the build has already moved", async () => {

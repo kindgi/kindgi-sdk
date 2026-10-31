@@ -68,7 +68,10 @@ export function formatThrown(
     // unless --verbose asks otherwise.
     const detail = options.verbose
       ? `\n${JSON.stringify(wire, null, 2)}`
-      : formatValidationDetail(wire) + formatRecordState(wire) + formatNotReady(wire);
+      : formatValidationDetail(wire) +
+        formatRecordState(wire) +
+        formatNotReady(wire) +
+        formatStopsLatest(wire, options.commandLabel);
     return cliError(`Error [${errorTag(wire)}]: ${wire.message}${detail}`, 1);
   }
   if (thrown instanceof Error) {
@@ -144,6 +147,16 @@ function formatValidationDetail(wire: KindgiError): string {
     return lines.join('\n');
   }
   return '';
+}
+
+/**
+ * A pin that would take a project off Latest (`pin-stops-latest`): the
+ * server names the body field, and the CLI's pin commands take the flag.
+ */
+function formatStopsLatest(wire: KindgiError, commandLabel: string): string {
+  if (wire.code !== 'conflict' || wire.serverCode !== 'pin-stops-latest') return '';
+  const card = commandLabel.replace(/^kindgi /, '') === 'suggested-changes pin';
+  return `\nRun it again with --stop-following-latest to pin anyway${card ? ', or `kindgi suggested-changes add-as-latest` to add it as the Latest instead' : ''}.`;
 }
 
 /**

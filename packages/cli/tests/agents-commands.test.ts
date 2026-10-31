@@ -60,6 +60,11 @@ function pin(over: Record<string, unknown> = {}) {
   };
 }
 
+/** A pin as the pin route answers it: the pin, and the test runs that check it. */
+function answer(change: Record<string, unknown>) {
+  return { pin: change, testRuns: [], fixed: [], reopened: [] };
+}
+
 describe('kindgi agents — the registry', () => {
   test('list, get (latest or a version), versions and unregister call the client', async () => {
     const { calls, rec } = recorder();
@@ -195,7 +200,7 @@ describe('kindgi agents — pinned versions', () => {
         '--test-run=er-1',
         '--idempotency-key=k-1',
       ],
-      { agents: { pinned: { pin: rec('pin', pin()) } } },
+      { agents: { pinned: { pin: rec('pin', answer(pin())) } } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
@@ -209,6 +214,27 @@ describe('kindgi agents — pinned versions', () => {
           testRunId: 'er-1',
         },
         { idempotencyKey: 'k-1' },
+      ],
+    ]);
+  });
+
+  test('--stop-following-latest asks to take a project that follows Latest off it', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      ['agents', 'pin', 'acme.drafter', '1.1.0', `--project=${PROJECT}`, '--stop-following-latest'],
+      { agents: { pinned: { pin: rec('pin', answer(pin())) } } },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      [
+        'pin',
+        'acme.drafter',
+        {
+          version: '1.1.0',
+          scope: { kind: 'project', projectId: PROJECT },
+          stopFollowingLatest: true,
+        },
+        {},
       ],
     ]);
   });
@@ -229,12 +255,14 @@ describe('kindgi agents — pinned versions', () => {
     expect(calls).toEqual([]);
   });
 
-  test('unpin the tenant', async () => {
+  test('unpin the tenant, the answer printed as a pin answers', async () => {
     const { calls, rec } = recorder();
-    const client = { agents: { pinned: { unpin: rec('unpin', pin({ action: 'unpin' })) } } };
+    const unpin = answer(pin({ action: 'unpin', fromVersion: '1.1.0', toVersion: null }));
+    const client = { agents: { pinned: { unpin: rec('unpin', unpin) } } };
     const unpinned = await run(['agents', 'unpin', 'acme.drafter', '--tenant'], client);
     expect(unpinned.exitCode, unpinned.stderr).toBe(0);
     expect(calls).toEqual([['unpin', 'acme.drafter', { scope: { kind: 'tenant' } }, {}]]);
+    expect(JSON.parse(unpinned.stdout)).toEqual(unpin);
   });
 
   test('pinned-versions --table shows each scope and its version', async () => {
@@ -412,6 +440,24 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
     expect(out.stderr).toContain(`Error [gate-failed]: ${message}`);
   });
 
+  test('a pin that would take a project off Latest: exit 1, and the flag that pins anyway named', async () => {
+    const message =
+      'Project acme follows Latest, and this pin would take it off it: it would run the pinned version and no longer take each new Latest. Send `stopFollowingLatest: true` to pin anyway.';
+    const out = await run(['agents', 'pin', ...SCOPE], {
+      agents: {
+        pinned: {
+          pin: async () => {
+            throw new KindgiApiError(fromWire({ code: 'pin-stops-latest', message }, 409));
+          },
+        },
+      },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      `Error [pin-stops-latest]: ${message}\nRun it again with --stop-following-latest to pin anyway.\n`,
+    );
+  });
+
   test('any other error is still 1', async () => {
     const out = await run(['agents', 'pin', ...SCOPE], {
       agents: {
@@ -428,10 +474,10 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
   test('a pin that waits for an approval, without --wait: printed, exit 3, and the approval named', async () => {
     const calls: unknown[][] = [];
     const out = await run(['agents', 'pin', ...SCOPE], {
-      agents: { pinned: { pin: async () => PENDING, getChange: reads(calls, 'pinned') } },
+      agents: { pinned: { pin: async () => answer(PENDING), getChange: reads(calls, 'pinned') } },
     });
     expect(out.exitCode).toBe(3);
-    expect(JSON.parse(out.stdout)).toEqual(PENDING);
+    expect(JSON.parse(out.stdout)).toEqual(answer(PENDING));
     expect(calls).toEqual([]);
     expect(out.stderr).toBe(
       "Approval ap-1 stays open: once it's approved, acme.drafter 1.1.0 is pinned. `--wait` waits for the decision.\n",
@@ -443,7 +489,7 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
     const { out, pauses } = await runWaiting(['agents', 'pin', ...SCOPE, '--wait=30m'], {
       agents: {
         pinned: {
-          pin: async () => PENDING,
+          pin: async () => answer(PENDING),
           getChange: reads(calls, 'pending-approval', 'pinned'),
         },
       },
@@ -454,7 +500,7 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
       ['getChange', 'acme.drafter', 'p-1'],
     ]);
     expect(pauses).toEqual([5000, 5000]);
-    expect(JSON.parse(out.stdout)).toMatchObject({ id: 'p-1', status: 'pinned' });
+    expect(JSON.parse(out.stdout)).toMatchObject({ pin: { id: 'p-1', status: 'pinned' } });
     expect(out.stderr).toBe(
       'Waiting up to 30m for approval ap-1 of acme.drafter 1.1.0: `kindgi approvals complete ap-1 --decision=approve` approves it.\n',
     );
@@ -470,10 +516,10 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
   ])('--wait: a pin that ends %s exits 3 and says how it ended', async (status, line) => {
     const calls: unknown[][] = [];
     const { out } = await runWaiting(['agents', 'pin', ...SCOPE, '--wait'], {
-      agents: { pinned: { pin: async () => PENDING, getChange: reads(calls, status) } },
+      agents: { pinned: { pin: async () => answer(PENDING), getChange: reads(calls, status) } },
     });
     expect(out.exitCode).toBe(3);
-    expect(JSON.parse(out.stdout)).toMatchObject({ status });
+    expect(JSON.parse(out.stdout)).toMatchObject({ pin: { status } });
     expect(out.stderr).toContain('Waiting up to 1h for approval ap-1');
     expect(out.stderr).toContain(line);
   });
@@ -501,7 +547,7 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
     const { out } = await runWaiting(['agents', 'pin', ...SCOPE, '--wait'], {
       agents: {
         pinned: {
-          pin: async () => PENDING,
+          pin: async () => answer(PENDING),
           getChange: async () => pin({ status: 'superseded', approvalId: 'ap-1', checks }),
         },
       },
@@ -518,7 +564,7 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
   ])('--wait=%s waits up to %s', async (given, said) => {
     const calls: unknown[][] = [];
     const { out } = await runWaiting(['agents', 'pin', ...SCOPE, `--wait=${given}`], {
-      agents: { pinned: { pin: async () => PENDING, getChange: reads(calls, 'pinned') } },
+      agents: { pinned: { pin: async () => answer(PENDING), getChange: reads(calls, 'pinned') } },
     });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(out.stderr).toContain(`Waiting up to ${said} for approval ap-1`);
@@ -528,7 +574,7 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
     const calls: unknown[][] = [];
     const { out, pauses } = await runWaiting(['agents', 'pin', ...SCOPE, '--wait=8s'], {
       agents: {
-        pinned: { pin: async () => PENDING, getChange: reads(calls, 'pending-approval') },
+        pinned: { pin: async () => answer(PENDING), getChange: reads(calls, 'pending-approval') },
       },
     });
     expect(out.exitCode).toBe(3);
@@ -547,7 +593,7 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
       {
         agents: {
           pinned: {
-            pin: async () => PENDING,
+            pin: async () => answer(PENDING),
             getChange: async (...args: unknown[]) => {
               controller.abort();
               return await get(...args);
@@ -566,7 +612,7 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
     const { out, pauses } = await runWaiting(['agents', 'pin', ...SCOPE, '--wait'], {
       agents: {
         pinned: {
-          pin: async () => PENDING,
+          pin: async () => answer(PENDING),
           getChange: readsOrFails(
             calls,
             unavailable(),
@@ -582,20 +628,20 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toHaveLength(6);
     expect(pauses).toEqual([5000, 5000, 5000, 5000, 5000, 5000]);
-    expect(JSON.parse(out.stdout)).toMatchObject({ id: 'p-1', status: 'pinned' });
+    expect(JSON.parse(out.stdout)).toMatchObject({ pin: { id: 'p-1', status: 'pinned' } });
   });
 
   test('--wait: 3 failed reads in a row end the wait, exit 1; it prints the pin as last read, and the approval stays open', async () => {
     const calls: unknown[][] = [];
     const { out, pauses } = await runWaiting(['agents', 'pin', ...SCOPE, '--wait'], {
       agents: {
-        pinned: { pin: async () => PENDING, getChange: readsOrFails(calls, unavailable()) },
+        pinned: { pin: async () => answer(PENDING), getChange: readsOrFails(calls, unavailable()) },
       },
     });
     expect(out.exitCode).toBe(1);
     expect(calls).toHaveLength(3);
     expect(pauses).toEqual([5000, 5000, 5000]);
-    expect(JSON.parse(out.stdout)).toEqual(PENDING);
+    expect(JSON.parse(out.stdout)).toEqual(answer(PENDING));
     expect(out.stderr).toContain("Couldn't read the pin of acme.drafter 1.1.0 3 times in a row (");
     expect(out.stderr).toContain(
       "). Approval ap-1 stays open: once it's approved, acme.drafter 1.1.0 is pinned.",
@@ -612,7 +658,7 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
     const { out, pauses, slept } = await runWaiting(['agents', 'pin', ...SCOPE, '--wait'], {
       agents: {
         pinned: {
-          pin: async () => PENDING,
+          pin: async () => answer(PENDING),
           getChange: readsOrFails(calls, limited, limited, limited, 'pinned'),
         },
       },
@@ -628,7 +674,7 @@ describe('agents pin: exit 3 when the answer is no, and --wait for an approval',
     const { out, pauses } = await runWaiting(['agents', 'pin', ...SCOPE, '--wait'], {
       agents: {
         pinned: {
-          pin: async () => pin({ status: 'pinned' }),
+          pin: async () => answer(pin({ status: 'pinned' })),
           getChange: reads(calls, 'pinned'),
         },
       },

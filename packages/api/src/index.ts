@@ -562,6 +562,14 @@ export {
   reapplyTestRunOutcomes,
   testRunReason,
 } from './test-run-outcome.js';
+// The test runs a pin change or Latest moving starts, and what an approval that pins a waiting change applies.
+export {
+  type PinTestRun,
+  type PinTestRunDeps,
+  type PinTestRuns,
+  latestMoved,
+  pinTookEffect,
+} from './pin-test-runs.js';
 export {
   CHECK_LIST_MAX,
   type DeployCheck,

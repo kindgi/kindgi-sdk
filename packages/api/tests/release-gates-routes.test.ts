@@ -397,4 +397,19 @@ describe('parseReleaseGateSpec', () => {
       '/spec/approvals/separateApprover',
     ]);
   });
+
+  test('cases takes a whole minPassing and a true-or-false noNewFailures', () => {
+    expect(parseReleaseGateSpec({ cases: { minPassing: 25, noNewFailures: true } })).toEqual({
+      kind: 'ok',
+      spec: { cases: { minPassing: 25, noNewFailures: true } },
+    });
+    const r = parseReleaseGateSpec({
+      cases: { minPassing: 2.5, noNewFailures: 'yes', newlyFailing: [] },
+    });
+    expect(r.kind === 'err' && r.issues.map((i) => i.path)).toEqual([
+      '/spec/cases/newlyFailing',
+      '/spec/cases/minPassing',
+      '/spec/cases/noNewFailures',
+    ]);
+  });
 });

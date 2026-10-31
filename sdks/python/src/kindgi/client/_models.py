@@ -157,6 +157,19 @@ class RequestedBy(BaseModel):
     id: str
 
 
+class PinTestRun(BaseModel):
+    """
+    A test run a pin checks a project with: the one the pin named, reused, or one it started, with correlation id `pin:<changeId>`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    test_run_id: Annotated[str, Field(alias="testRunId")]
+
+
 class PinScopeTenant(BaseModel):
     """
     The whole tenant.
@@ -219,7 +232,7 @@ class GateCheck(BaseModel):
     )
     name: str
     """
-    Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsPinned`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a pin it supersedes, to say what changed since the check.
+    Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsPinned`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `cases.minPassing|noNewFailures`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a pin it supersedes, to say what changed since the check.
     """
     passed: bool
     message: str
@@ -228,6 +241,10 @@ class GateCheck(BaseModel):
     """
     value: float | str | None = None
     threshold: float | str | None = None
+    case_ids: Annotated[list[str] | None, Field(alias="caseIds")] = None
+    """
+    The cases it names: for `cases.noNewFailures`, the ones that passed before and fail now (empty when none does). Absent when it could not tell, and on other checks.
+    """
 
 
 class ReleaseGateRef(BaseModel):
@@ -302,6 +319,25 @@ class Replay(BaseModel):
     At most this many tool calls the replay refused (the comparison summary's `refusedWrites`). Reads count too, despite the name.
     """
     max_stopped: Annotated[int | None, Field(alias="maxStopped", ge=0)] = None
+
+
+class Cases(BaseModel):
+    """
+    The cases the comparison graded: each correction it checked is a case, and it passes when every repetition did.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    min_passing: Annotated[int | None, Field(alias="minPassing", ge=0)] = None
+    """
+    At least this many cases pass.
+    """
+    no_new_failures: Annotated[bool | None, Field(alias="noNewFailures")] = None
+    """
+    No case that passed before fails: none of the comparison's corrections that are `fixed` now fails it. One the comparison didn't grade isn't counted; the check's message says how many of the cases fixed now it graded.
+    """
 
 
 class Approvals(BaseModel):
@@ -2358,6 +2394,30 @@ class CorrectionFixedIn(BaseModel):
     `pin`: a pin fixed it. `latest`: a deploy or an add moved Latest in a project that follows it. `recorded-right`: it said nothing was wrong.
     """
     by: CorrectionMadeBy | None = None
+    at: AwareDatetime
+
+
+class CorrectionReopenedIn(BaseModel):
+    """
+    The version whose test run got a `fixed` correction wrong again. It holds no words: a client builds the sentence from the project's and the person's current names.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    """
+    The version that gets it wrong.
+    """
+    how: Annotated[Literal["pin", "went-back", "unpin", "latest"] | str, _open.OPEN]
+    """
+    How the project came to run it. `pin`: a pin. `went-back`: a pin of a version earlier than the one it ran just before. `unpin`: an unpin. `latest`: a deploy or an add moved Latest in a project that follows it.
+    """
+    by: CorrectionMadeBy | None = None
+    """
+    Who pinned, went back or unpinned. Absent when Latest moved.
+    """
     at: AwareDatetime
 
 
@@ -5236,9 +5296,9 @@ class CreateSuggestedChangeBody(BaseModel):
     For a prompt block: its new template.
     """
     why: Annotated[str, Field(max_length=2000, min_length=1)]
-    fixes: list[str] | None = None
+    fixes: Annotated[list[str] | None, Field(max_length=100)] = None
     """
-    The corrections it fixes, by id.
+    The corrections it fixes, by id, at most 100. Each must be a correction in the suggested change's project: an unknown id, or another project's, is refused (`400 validation-failed`, the ids in `details.fixes`).
     """
 
 
@@ -5248,6 +5308,18 @@ class SuggestedChangeReasonBody(BaseModel):
         populate_by_name=True,
     )
     reason: Annotated[str | None, Field(max_length=2000, min_length=1)] = None
+
+
+class SuggestedChangePinBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    reason: Annotated[str | None, Field(max_length=2000, min_length=1)] = None
+    stop_following_latest: Annotated[bool | None, Field(alias="stopFollowingLatest")] = None
+    """
+    Pin even when its project follows Latest now: the project then runs the pinned version, not each new Latest. Without it, that pin is refused (`409 pin-stops-latest`).
+    """
 
 
 class WithdrawSuggestedChangeBody(BaseModel):
@@ -14363,6 +14435,10 @@ class Pin(BaseModel):
     """
     When a `pending-approval` pin reached its final state.
     """
+    stopped_following_latest: Annotated[bool | None, Field(alias="stoppedFollowingLatest")] = None
+    """
+    A `pin`'s: `true` when it took a project that followed Latest off it, as its request asked (`stopFollowingLatest`) or as a promotion's pin does. Absent otherwise.
+    """
 
 
 class PinPage(BaseModel):
@@ -14373,6 +14449,55 @@ class PinPage(BaseModel):
     data: list[Pin]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class PinAnswer(BaseModel):
+    """
+    A pin, and the test runs that check it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    pin: Pin
+    test_runs: Annotated[list[PinTestRun], Field(alias="testRuns")]
+    """
+    One per project whose running version the pin changes and that has active cases: a project pin has one, a tenant or org pin one per such project, a segment pin none. While the pin waits for approval, its runs are already started.
+    """
+    fixed: list[str]
+    """
+    The corrections a reused run made `fixed` at pin time. Empty when the runs were started: their outcome changes the statuses when each ends.
+    """
+    reopened: list[str]
+    """
+    The corrections a reused run reopened at pin time, as `fixed`'s.
+    """
+
+
+class SuggestedChangePinAnswer(BaseModel):
+    """
+    A suggested change's pin, as `PinAnswer`, and the suggested change it pinned.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    pin: Pin
+    test_runs: Annotated[list[PinTestRun], Field(alias="testRuns")]
+    """
+    One per project whose running version the pin changes and that has active cases: a project pin has one, a tenant or org pin one per such project, a segment pin none. While the pin waits for approval, its runs are already started.
+    """
+    fixed: list[str]
+    """
+    The corrections a reused run made `fixed` at pin time. Empty when the runs were started: their outcome changes the statuses when each ends.
+    """
+    reopened: list[str]
+    """
+    The corrections a reused run reopened at pin time, as `fixed`'s.
+    """
+    suggested_change: Annotated[SuggestedChange, Field(alias="suggestedChange")]
 
 
 class PinnedVersionResolution(BaseModel):
@@ -14522,7 +14647,7 @@ class Comparison(BaseModel):
 
 class ReleaseGateSpec(BaseModel):
     """
-    What a pin must show. Every part is optional; an empty spec checks nothing. A pin must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.
+    What a pin must show. Every part is optional; an empty spec checks nothing. A pin must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay`, `cases` or `onlyExpertGroups`. Unknown keys are refused.
     """
 
     model_config = ConfigDict(
@@ -14538,6 +14663,10 @@ class ReleaseGateSpec(BaseModel):
     replay: Replay | None = None
     """
     Each knob left out of the block is 0. No block: no replay checks.
+    """
+    cases: Cases | None = None
+    """
+    The cases the comparison graded: each correction it checked is a case, and it passes when every repetition did.
     """
     approvals: Approvals | None = None
     """
@@ -14645,6 +14774,10 @@ class AgentPinBody(BaseModel):
     test_run_id: Annotated[str | None, Field(alias="testRunId")] = None
     """
     The comparison behind this pin.
+    """
+    stop_following_latest: Annotated[bool | None, Field(alias="stopFollowingLatest")] = None
+    """
+    Pin even when it takes a project that follows Latest now off it: the project then runs the pinned version, not each new Latest. Without it, such a pin is refused (`409 pin-stops-latest`). `POST …/pinned/check` ignores it.
     """
 
 
@@ -18468,7 +18601,11 @@ class Correction(BaseModel):
     """
     fixed_in: Annotated[CorrectionFixedIn | None, Field(alias="fixedIn")] = None
     """
-    Present while it is `fixed`.
+    Present while it's `fixed`, and beside `reopenedIn` after a test run reopened it.
+    """
+    reopened_in: Annotated[CorrectionReopenedIn | None, Field(alias="reopenedIn")] = None
+    """
+    Present after a test run got a `fixed` correction wrong again: it's `open`, or `with-owner` when it's sorted to the owner, with the `fixedIn` it had beside it. A status set by hand clears both, and a re-sort alone keeps them. A test run that gets it right again makes it `fixed` with a new `fixedIn`.
     """
     status_note: Annotated[CorrectionStatusNote | None, Field(alias="statusNote")] = None
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]

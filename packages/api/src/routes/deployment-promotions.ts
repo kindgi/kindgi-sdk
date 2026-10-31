@@ -726,14 +726,22 @@ async function pinCarried(
   if (gated !== undefined) return gated;
   const pinned: DeploymentPinnedAgent[] = [];
   for (const agent of pinnable) {
-    const outcome = await requestPin(agentRegistry, agentPins, agentPinGateDeps, {
-      tenantId,
-      agentId: agent.id,
-      version: agent.version as unknown as Semver,
-      scope,
-      requestedBy: actorOf(c),
-      ...(reason !== undefined && { reason }),
-    });
+    const outcome = await requestPin(
+      agentRegistry,
+      agentPins,
+      agentPinGateDeps,
+      {
+        tenantId,
+        agentId: agent.id,
+        version: agent.version as unknown as Semver,
+        scope,
+        requestedBy: actorOf(c),
+        ...(reason !== undefined && { reason }),
+      },
+      // `--pin` is the ask: a project on Latest in the target goes off it
+      // with no 409, and the pin records that it did.
+      { log: c.get('log'), stopFollowingLatest: true },
+    );
     // What the pre-checks leave is answered with the pins already made, so
     // the caller sees what was pinned.
     if (outcome.kind !== 'ok') {

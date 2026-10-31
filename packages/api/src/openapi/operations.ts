@@ -4035,16 +4035,21 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.pinned.pin',
     summary: 'Pin a version for a scope',
     description:
-      "Pins `version` for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every pin is recorded, with who asked and why. Needs `pin` on the agent.\n\nWith a release gate for the scope (`GET …/release-gate`), the pin is checked first against the comparison named by `testRunId`: `201` pinned; `202` the gate passed and wants a reviewer's approval (a HITL approval, subject `agent-pin`; the pinned version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.changeId`, `details.releaseGate` and every check in `details.checks`. A refused pin is recorded too.\n\nA pin in place skips the gate: when the scope has no pinned version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is pinned (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 pin-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: pinning a version writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole tenant, which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its suggested change changed, or another block's file a version not older), or the block left the pack, `409 pin-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way.",
+      "Pins `version` for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every pin is recorded, with who asked and why. Needs `pin` on the agent.\n\nThe pin checks the version in each project whose running version it changes and that has active cases, on the project's agent test set (`testRuns`): with the run `testRunId` names when that run completed there on the test set as it stands, whose outcome changes the corrections' statuses at once (`fixed`, `reopened`); otherwise with a run it starts, correlation id `pin:<changeId>`, whose outcome changes them when it ends. A pin that waits for approval starts its runs at once, and its statuses change once it's approved.\n\nA pin that would take a project that follows Latest now off it (a project or segment pin there, or a tenant or org pin over it) is refused with `409 pin-stops-latest` before any gate, whether or not its version changes, unless the body has `stopFollowingLatest: true`. The pin then records `stoppedFollowingLatest`, and the project runs the pinned version from then on, not each new Latest.\n\nWith a release gate for the scope (`GET …/release-gate`), the pin is checked first against the comparison named by `testRunId`: `201` pinned; `202` the gate passed and wants a reviewer's approval (a HITL approval, subject `agent-pin`; the pinned version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.changeId`, `details.releaseGate` and every check in `details.checks`. A refused pin is recorded too.\n\nA pin in place skips the gate: when the scope has no pinned version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is pinned (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 pin-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: pinning a version writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole tenant, which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its suggested change changed, or another block's file a version not older), or the block left the pack, `409 pin-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('AgentPinBody') },
     responses: {
-      '201': { description: 'Pinned.', schema: ref('Pin') },
+      '201': {
+        description:
+          'Pinned, with the test runs that check it (`testRuns`), and the corrections a reused run changed.',
+        schema: ref('PinAnswer'),
+      },
       '202': {
-        description: 'The gate passed; the pin waits for an approval (`approvalId`).',
-        schema: ref('Pin'),
+        description:
+          'The gate passed; the pin waits for an approval (`pin.approvalId`). Its test runs are started, and `fixed` and `reopened` are empty.',
+        schema: ref('PinAnswer'),
       },
       ...CommonMutationErrors,
       '400': ErrorResponse(
@@ -4054,10 +4059,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The version is not registered, or was unregistered; or the test run is not found.',
       ),
       '409': ErrorResponse(
-        "`nothing-runs-in-scope`: no version of the agent runs in the scope yet (no pin covers it, and it has no Latest), so there's nothing to measure the version against; deploy or publish a version into the project first (into a later environment, promote a build that ships one). `project-suspended`: nothing runs there because the scope's project is suspended. `pin-superseded`: the scope's pinned version changed while the gate ran; check again. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `pin-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `pin-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
+        "`pin-stops-latest`: the pin would take a project that follows Latest now off it, and the body doesn't have `stopFollowingLatest: true`; `details.projects` lists each one, `{ projectId, version }`, with the version it runs now. Nothing is recorded. `nothing-runs-in-scope`: no version of the agent runs in the scope yet (no pin covers it, and it has no Latest), so there's nothing to measure the version against; deploy or publish a version into the project first (into a later environment, promote a build that ships one). `project-suspended`: nothing runs there because the scope's project is suspended. `pin-superseded`: the scope's pinned version changed while the gate ran; check again. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `pin-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `pin-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
       ),
       '422': ErrorResponse(
-        '`gate-failed`: the gate refused it. `details.checks` has every check; the refusal is recorded (`details.changeId`).',
+        "`gate-failed`: the gate refused it. `details.checks` has every check; the refusal is recorded (`details.changeId`). With the gate's `cases` rule, `details.passing` and `details.needs` come with `minPassing`, and `details.newlyFailing` (the cases that passed before and fail now) with `noNewFailures`.",
       ),
       '429': ErrorResponse(
         "`approvals-pending-limit`: the gate wants an approval, and the tenant's approvals waiting for a decision are at its limit (set by the runtime's operator). Nothing is recorded.",
@@ -4288,13 +4293,17 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.pinned.unpin',
     summary: "Remove a scope's pinned version",
     description:
-      "Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a pin. Needs `pin` on the agent.",
+      "Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a pin. Needs `pin` on the agent.\n\nThe unpin answers as a pin does, with the unpin change under `pin`. It checks each project the pin covered that now runs another version and has active cases, on the project's agent test set (`testRuns`), with a run of the version it runs now that it starts, correlation id `pin:<changeId>` of the unpin, whose outcome changes the corrections' statuses when it ends. An unpin reuses no run, so `fixed` and `reopened` are empty.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('AgentUnpinBody') },
     responses: {
-      '200': { description: 'Unpinned.', schema: ref('Pin') },
+      '201': {
+        description:
+          'Unpinned, with the test runs that check what each project runs now (`testRuns`).',
+        schema: ref('PinAnswer'),
+      },
       ...CommonMutationErrors,
       '409': ErrorResponse(
         "`not-pinned`: the scope has no pin of its own. `release-gate-needs-pin`: the scope has a release gate of its own, and a gated scope keeps its own pin; unregister the gate first, or pin an earlier version instead. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. Or `registry-read-only`: under `kindgi dev`, a pinned version was written into the pack's files; undo it there, with git.",
@@ -5315,7 +5324,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed request body, or the change fails validation: a block the project's version doesn't pin, `values` for a prompt block or `template` for a settings block (`details.issues`). Or `reference-out-of-scope`: the project doesn't reach the agent, or the agent's project doesn't reach the block (`details.issues`).",
+        "Malformed request body, or the change fails validation: a block the project's version doesn't pin, `values` for a prompt block or `template` for a settings block (`details.issues`). Or `reference-out-of-scope`: the project doesn't reach the agent, or the agent's project doesn't reach the block (`details.issues`). Or `validation-failed` when an id in `fixes` is no correction in the project: `details.fixes` lists those ids, and `details.issues` their places.",
       ),
       '404': ErrorResponse(
         "The version the project runs isn't active (`agent-version-not-found`), the body's `projectId` names no project of this tenant (`project-not-found`), or a check's test run couldn't start (`test-set-not-found`).",
@@ -5363,20 +5372,21 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'suggestedChanges.pin',
     summary: "Pin a suggested change's version for its project",
     description:
-      "A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `pin` on the agent. Allowed from `ready`.",
+      "A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. A project on Latest takes the change as its Latest (`add-as-latest`); a pin there is refused with `409 pin-stops-latest`, before any rebuild, unless the body has `stopFollowingLatest: true`, which takes the project off Latest. Needs `pin` on the agent. Allowed from `ready`.",
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: false, schema: ref('SuggestedChangeReasonBody') },
+    requestBody: { required: false, schema: ref('SuggestedChangePinBody') },
     responses: {
       '201': {
-        description: 'Pinned: the suggested change, `pinned`.',
-        schema: ref('SuggestedChange'),
+        description:
+          'Pinned: the pin, as `POST /v1/agents/{agentId}/pinned/pin` answers it, with the suggested change, `pinned`.',
+        schema: ref('SuggestedChangePinAnswer'),
       },
       '202': {
         description:
-          'The gate passed and an approval is open: the suggested change, `waiting-for-second-person`.',
-        schema: ref('SuggestedChange'),
+          'The gate passed and an approval is open: the pin, with the suggested change, `waiting-for-second-person`.',
+        schema: ref('SuggestedChangePinAnswer'),
       },
       ...CommonMutationErrors,
       '400': ErrorResponse(
@@ -5384,10 +5394,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse('No such suggested change.'),
       '409': ErrorResponse(
-        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-project-on-latest`: its project runs Latest, not a pin. `suggested-change-out-of-date`: its project now runs another version than the one it's built on, so it's being rebuilt there and checked again (`details.rebuilding`), or it can't be.",
+        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `pin-stops-latest`: its project follows Latest, and the body doesn't have `stopFollowingLatest: true`; `details.projects` has `{ projectId, version }` with the version it runs now, and `details.suggestedChangeId`. `suggested-change-out-of-date`: its project now runs another version than the one it's built on, so it's being rebuilt there and checked again (`details.rebuilding`), or it can't be.",
       ),
       '422': ErrorResponse(
-        '`gate-failed`: the gate refused it (the error carries the checks and `suggestedChangeId`). The suggested change stays `ready`, with a `note`.',
+        "`gate-failed`: the gate refused it (the error carries the checks and `suggestedChangeId`, and, with the gate's `cases` rule, `passing`, `needs` and `newlyFailing` as the agent pin does). The suggested change stays `ready`, with a `note`.",
       ),
     },
   },
@@ -8326,7 +8336,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.promote',
     summary: 'Promote a deployment to the next environment',
     description:
-      "Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `pin`, the build's blocks (`contents.blocks`) are checked first against what runs in the target, as a deploy's are against what runs: a newer version of one running there stops the promotion with nothing written, unless `replace` names the block, and `blockCheck` answers what the check found. Then the move commits; then each carried agent is pinned through its target scope's release gate, and each carried flow is pinned. A release gate that refuses or holds an agent isn't an error: its `pinned` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.pinned` and `details.pinnedFlows`.",
+      "Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `pin`, the build's blocks (`contents.blocks`) are checked first against what runs in the target, as a deploy's are against what runs: a newer version of one running there stops the promotion with nothing written, unless `replace` names the block, and `blockCheck` answers what the check found. Then the move commits; then each carried agent is pinned through its target scope's release gate, and each carried flow is pinned. `pin` is the ask to take a target project that follows Latest off it: such a pin gets no `409 pin-stops-latest`, and records `stoppedFollowingLatest`. A release gate that refuses or holds an agent isn't an error: its `pinned` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.pinned` and `details.pinnedFlows`.",
     tags: ['deployments'],
     security: 'bearer',
     parameters: [

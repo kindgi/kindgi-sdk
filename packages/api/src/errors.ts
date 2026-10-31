@@ -217,8 +217,6 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // The runtime freezes no test set, so nothing can be checked.
   'suggested-change-check-unsupported': 501,
   'suggested-change-nothing-to-check': 409,
-  // A pin for a project that runs Latest.
-  'suggested-change-project-on-latest': 409,
   // An add as Latest for a project that runs a pin.
   'suggested-change-project-pinned': 409,
   'suggested-change-out-of-date': 409,
@@ -289,6 +287,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'pin-not-found': 404,
   /** A pin into a scope where no version of the agent runs yet: no pin, and no Latest. */
   'nothing-runs-in-scope': 409,
+  // A pin that would take a project that follows Latest off it, which the request didn't ask for.
+  'pin-stops-latest': 409,
   'not-pinned': 409,
   // The release gate.
   'gate-failed': 422,

@@ -479,6 +479,11 @@ export const PinSchema: JsonSchema = {
       format: 'date-time',
       description: 'When a `pending-approval` pin reached its final state.',
     },
+    stoppedFollowingLatest: {
+      type: 'boolean',
+      description:
+        "A `pin`'s: `true` when it took a project that followed Latest off it, as its request asked (`stopFollowingLatest`) or as a promotion's pin does. Absent otherwise.",
+    },
   },
 };
 
@@ -490,6 +495,58 @@ export const PinPageSchema: JsonSchema = {
     data: { type: 'array', items: { $ref: '#/components/schemas/Pin' } },
     hasMore: { type: 'boolean' },
     nextCursor: { type: 'string' },
+  },
+};
+
+export const PinTestRunSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'A test run a pin checks a project with: the one the pin named, reused, or one it started, with correlation id `pin:<changeId>`.',
+  required: ['projectId', 'testRunId'],
+  properties: {
+    projectId: { type: 'string', format: 'uuid' },
+    testRunId: { type: 'string' },
+  },
+};
+
+const pinAnswerProperties = {
+  pin: { $ref: '#/components/schemas/Pin' },
+  testRuns: {
+    type: 'array',
+    description:
+      'One per project whose running version the pin changes and that has active cases: a project pin has one, a tenant or org pin one per such project, a segment pin none. While the pin waits for approval, its runs are already started.',
+    items: { $ref: '#/components/schemas/PinTestRun' },
+  },
+  fixed: {
+    type: 'array',
+    description:
+      'The corrections a reused run made `fixed` at pin time. Empty when the runs were started: their outcome changes the statuses when each ends.',
+    items: { type: 'string' },
+  },
+  reopened: {
+    type: 'array',
+    description: "The corrections a reused run reopened at pin time, as `fixed`'s.",
+    items: { type: 'string' },
+  },
+} as const;
+
+export const PinAnswerSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'A pin, and the test runs that check it.',
+  required: ['pin', 'testRuns', 'fixed', 'reopened'],
+  properties: pinAnswerProperties,
+};
+
+export const SuggestedChangePinAnswerSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A suggested change's pin, as `PinAnswer`, and the suggested change it pinned.",
+  required: ['pin', 'testRuns', 'fixed', 'reopened', 'suggestedChange'],
+  properties: {
+    ...pinAnswerProperties,
+    suggestedChange: { $ref: '#/components/schemas/SuggestedChange' },
   },
 };
 
@@ -647,7 +704,7 @@ export const GateCheckSchema: JsonSchema = {
     name: {
       type: 'string',
       description:
-        'Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsPinned`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a pin it supersedes, to say what changed since the check.',
+        'Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsPinned`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `cases.minPassing|noNewFailures`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a pin it supersedes, to say what changed since the check.',
     },
     passed: { type: 'boolean' },
     message: {
@@ -656,6 +713,12 @@ export const GateCheckSchema: JsonSchema = {
     },
     value: { type: ['number', 'string'] },
     threshold: { type: ['number', 'string'] },
+    caseIds: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'The cases it names: for `cases.noNewFailures`, the ones that passed before and fail now (empty when none does). Absent when it could not tell, and on other checks.',
+    },
   },
 };
 
@@ -707,7 +770,7 @@ export const ReleaseGateSpecSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'What a pin must show. Every part is optional; an empty spec checks nothing. A pin must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.',
+    'What a pin must show. Every part is optional; an empty spec checks nothing. A pin must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay`, `cases` or `onlyExpertGroups`. Unknown keys are refused.',
   properties: {
     comparison: {
       type: 'object',
@@ -747,6 +810,20 @@ export const ReleaseGateSpecSchema: JsonSchema = {
             "At most this many tool calls the replay refused (the comparison summary's `refusedWrites`). Reads count too, despite the name.",
         },
         maxStopped: { type: 'integer', minimum: 0 },
+      },
+    },
+    cases: {
+      type: 'object',
+      additionalProperties: false,
+      description:
+        'The cases the comparison graded: each correction it checked is a case, and it passes when every repetition did.',
+      properties: {
+        minPassing: { type: 'integer', minimum: 0, description: 'At least this many cases pass.' },
+        noNewFailures: {
+          type: 'boolean',
+          description:
+            "No case that passed before fails: none of the comparison's corrections that are `fixed` now fails it. One the comparison didn't grade isn't counted; the check's message says how many of the cases fixed now it graded.",
+        },
       },
     },
     approvals: {
@@ -855,6 +932,11 @@ export const AgentPinBodySchema: JsonSchema = {
     scope: { $ref: '#/components/schemas/AgentPinScope' },
     reason: { type: 'string', maxLength: 2000 },
     testRunId: { type: 'string', description: 'The comparison behind this pin.' },
+    stopFollowingLatest: {
+      type: 'boolean',
+      description:
+        'Pin even when it takes a project that follows Latest now off it: the project then runs the pinned version, not each new Latest. Without it, such a pin is refused (`409 pin-stops-latest`). `POST …/pinned/check` ignores it.',
+    },
   },
 };
 
@@ -5369,6 +5451,29 @@ export const CorrectionFixedInSchema: JsonSchema = {
   },
 };
 
+/** The version whose test run got a `fixed` correction wrong again. */
+export const CorrectionReopenedInSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['version', 'how', 'at'],
+  description:
+    "The version whose test run got a `fixed` correction wrong again. It holds no words: a client builds the sentence from the project's and the person's current names.",
+  properties: {
+    version: { type: 'string', description: 'The version that gets it wrong.' },
+    how: {
+      type: 'string',
+      enum: ['pin', 'went-back', 'unpin', 'latest'],
+      description:
+        'How the project came to run it. `pin`: a pin. `went-back`: a pin of a version earlier than the one it ran just before. `unpin`: an unpin. `latest`: a deploy or an add moved Latest in a project that follows it.',
+    },
+    by: {
+      ...correctionActorProperty,
+      description: 'Who pinned, went back or unpinned. Absent when Latest moved.',
+    },
+    at: { type: 'string', format: 'date-time' },
+  },
+};
+
 /** A person's note on a status: why Won't fix, or why it went back to Open. */
 export const CorrectionStatusNoteSchema: JsonSchema = {
   type: 'object',
@@ -5473,7 +5578,13 @@ export const CorrectionSchema: JsonSchema = {
     },
     fixedIn: {
       $ref: '#/components/schemas/CorrectionFixedIn',
-      description: 'Present while it is `fixed`.',
+      description:
+        "Present while it's `fixed`, and beside `reopenedIn` after a test run reopened it.",
+    },
+    reopenedIn: {
+      $ref: '#/components/schemas/CorrectionReopenedIn',
+      description:
+        "Present after a test run got a `fixed` correction wrong again: it's `open`, or `with-owner` when it's sorted to the owner, with the `fixedIn` it had beside it. A status set by hand clears both, and a re-sort alone keeps them. A test run that gets it right again makes it `fixed` with a new `fixedIn`.",
     },
     statusNote: { $ref: '#/components/schemas/CorrectionStatusNote' },
     createdAt: { type: 'string', format: 'date-time' },
@@ -7448,7 +7559,9 @@ export const CreateSuggestedChangeBodySchema: JsonSchema = {
     fixes: {
       type: 'array',
       items: { type: 'string' },
-      description: 'The corrections it fixes, by id.',
+      maxItems: 100,
+      description:
+        "The corrections it fixes, by id, at most 100. Each must be a correction in the suggested change's project: an unknown id, or another project's, is refused (`400 validation-failed`, the ids in `details.fixes`).",
     },
   },
 };
@@ -7458,6 +7571,19 @@ export const SuggestedChangeReasonBodySchema: JsonSchema = {
   additionalProperties: false,
   properties: {
     reason: { type: 'string', minLength: 1, maxLength: 2000 },
+  },
+};
+
+export const SuggestedChangePinBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    reason: { type: 'string', minLength: 1, maxLength: 2000 },
+    stopFollowingLatest: {
+      type: 'boolean',
+      description:
+        'Pin even when its project follows Latest now: the project then runs the pinned version, not each new Latest. Without it, that pin is refused (`409 pin-stops-latest`).',
+    },
   },
 };
 
@@ -17081,6 +17207,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['AgentProjectList', AgentProjectListSchema],
   ['Pin', PinSchema],
   ['PinPage', PinPageSchema],
+  ['PinTestRun', PinTestRunSchema],
+  ['PinAnswer', PinAnswerSchema],
+  ['SuggestedChangePinAnswer', SuggestedChangePinAnswerSchema],
   ['PinScopeTenant', PinScopeTenantSchema],
   ['PinScopeOrg', PinScopeOrgSchema],
   ['PinScopeProject', PinScopeProjectSchema],
@@ -17220,6 +17349,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['CorrectionSorted', CorrectionSortedSchema],
   ['CorrectionLink', CorrectionLinkSchema],
   ['CorrectionFixedIn', CorrectionFixedInSchema],
+  ['CorrectionReopenedIn', CorrectionReopenedInSchema],
   ['CorrectionStatusNote', CorrectionStatusNoteSchema],
   ['ChangeCorrectionBody', ChangeCorrectionBodySchema],
   ['CorrectionCounts', CorrectionCountsSchema],
@@ -17372,6 +17502,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ImproveRunCheck', ImproveRunCheckSchema],
   ['CreateSuggestedChangeBody', CreateSuggestedChangeBodySchema],
   ['SuggestedChangeReasonBody', SuggestedChangeReasonBodySchema],
+  ['SuggestedChangePinBody', SuggestedChangePinBodySchema],
   ['WithdrawSuggestedChangeBody', WithdrawSuggestedChangeBodySchema],
   ['ProvenanceNodeKind', ProvenanceNodeKindSchema],
   ['ProvenanceEdgeKind', ProvenanceEdgeKindSchema],

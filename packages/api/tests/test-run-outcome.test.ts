@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   AgentId,
   AgentPinScope,
+  OrgId,
   ProjectId,
   RunId,
   Semver,
@@ -35,6 +36,8 @@ const ben = { kind: 'user', id: 'u-ben' } as const;
 const dana = { kind: 'user', id: 'u-dana' } as const;
 const projectScope: AgentPinScope = { kind: 'project', projectId };
 const tenantScope: AgentPinScope = { kind: 'tenant' };
+/** The project's org. */
+const orgId = randomUUID() as OrgId;
 
 /** One project's pin (its own, or the tenant's) and Latest, with each scope's pin history newest first. */
 function pins() {
@@ -131,6 +134,10 @@ function harness() {
     testRuns: { get: async ({ testRunId }: { testRunId: RunId }) => runs.get(testRunId) ?? null },
     agentPins: project.bindings,
     corrections,
+    projects: {
+      get: async (_tenant: TenantId, id: ProjectId) =>
+        id === projectId ? ({ id, orgId } as never) : undefined,
+    },
   };
   const corrected = async (status: 'open' | 'fixed' = 'open') => {
     const { id } = await corrections.record({
@@ -167,7 +174,8 @@ function harness() {
       agentRef: { agentId: agentId as AgentId, version: version as Semver },
       status,
       dryRun: false,
-      startedAt: '2026-10-02T00:00:00.000Z' as Timestamp,
+      // After every pin change the harness records (2026-11-06 09:00, counting seconds).
+      startedAt: '2026-11-06T10:00:00.000Z' as Timestamp,
       // Each run ends after the last one, and after every write of the store's.
       completedAt: new Date(Date.UTC(2026, 10, 7, 0, 0, ended++)).toISOString() as Timestamp,
       correlationId,
@@ -472,6 +480,90 @@ describe('a run that changes nothing', () => {
     const run = h.ran('13.0.0', pinRunCorrelation(v13.id), { [id]: true });
     expect(await h.apply(run)).toEqual({ fixed: [id], reopened: [] });
     expect(await h.apply(run)).toEqual({ fixed: [], reopened: [] });
+  });
+});
+
+describe("a `pin:` run applies only as its change's own run", () => {
+  test("an org pin's run of a project in the org applies", async () => {
+    const h = harness();
+    const id = await h.corrected();
+    const v13 = h.project.pin('13.0.0', ana, { scope: { kind: 'org', orgId } });
+    expect(await h.apply(h.ran('13.0.0', pinRunCorrelation(v13.id), { [id]: true }))).toEqual({
+      fixed: [id],
+      reopened: [],
+    });
+  });
+
+  test('one whose correlation names no recorded change, or more than its id', async () => {
+    const h = harness();
+    const id = await h.corrected();
+    const v13 = h.project.pin('13.0.0', ana);
+    for (const correlationId of [pinRunCorrelation('pc-none'), `${pinRunCorrelation(v13.id)}-x`]) {
+      expect(await h.apply(h.ran('13.0.0', correlationId, { [id]: true }))).toBeUndefined();
+    }
+    expect(await h.get(id)).toMatchObject({ status: 'open' });
+  });
+
+  test("one whose correlation names a recorded change of another agent's", async () => {
+    const h = harness();
+    const id = await h.corrected();
+    const v13 = h.project.pin('13.0.0', ana);
+    const other: Pin = { ...v13, id: 'pc-other', agentId: 'acme.billing' };
+    h.project.state.changes.push(other);
+    expect(
+      await h.apply(h.ran('13.0.0', pinRunCorrelation(other.id), { [id]: true })),
+    ).toBeUndefined();
+    expect(await h.get(id)).toMatchObject({ status: 'open' });
+  });
+
+  test('one that started before its change was recorded', async () => {
+    const h = harness();
+    const id = await h.corrected();
+    const v13 = h.project.pin('13.0.0', ana);
+    const early = h.ran('13.0.0', pinRunCorrelation(v13.id), { [id]: true }, 'completed', {
+      startedAt: '2026-11-06T08:59:59.999Z' as Timestamp,
+    });
+    expect(await h.apply(early)).toBeUndefined();
+    expect(await h.get(id)).toMatchObject({ status: 'open' });
+  });
+
+  test('one of another version than its change pinned, though the project runs that version now', async () => {
+    const h = harness();
+    const id = await h.corrected();
+    const v12 = h.project.pin('12.0.0', ana);
+    h.project.pin('13.0.0', ben);
+    expect(
+      await h.apply(h.ran('13.0.0', pinRunCorrelation(v12.id), { [id]: true })),
+    ).toBeUndefined();
+    expect(await h.get(id)).toMatchObject({ status: 'open' });
+  });
+
+  test("one of a project outside its change's scope: another project, another org, a segment", async () => {
+    const h = harness();
+    const id = await h.corrected();
+    const outside: AgentPinScope[] = [
+      { kind: 'project', projectId: randomUUID() as ProjectId },
+      { kind: 'org', orgId: randomUUID() as OrgId },
+      { kind: 'segment', projectId, path: [{ key: 'company', value: 'acme' }] },
+    ];
+    for (const scope of outside) {
+      const change = h.project.pin('13.0.0', ana, { scope });
+      expect(
+        await h.apply(h.ran('13.0.0', pinRunCorrelation(change.id), { [id]: true })),
+      ).toBeUndefined();
+    }
+    expect(await h.get(id)).toMatchObject({ status: 'open' });
+  });
+
+  test("one not on its project's agent test set", async () => {
+    const h = harness();
+    const id = await h.corrected();
+    const v13 = h.project.pin('13.0.0', ana);
+    const run = h.ran('13.0.0', pinRunCorrelation(v13.id), { [id]: true }, 'completed', {
+      testSetId: 'acme.refunds',
+    });
+    expect(await h.apply(run)).toBeUndefined();
+    expect(await h.get(id)).toMatchObject({ status: 'open' });
   });
 });
 

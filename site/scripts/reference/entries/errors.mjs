@@ -1532,16 +1532,6 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'suggested-change-project-on-latest': {
-    description:
-      "The suggested change's project runs the agent's Latest, not a pin, so its version isn't pinned there. Add it as the project's Latest instead.",
-    details: [
-      {
-        key: 'suggestedChangeId',
-        meaning: 'the suggested change id',
-      },
-    ],
-  },
   'suggested-change-project-pinned': {
     description:
       "The suggested change's project runs a pin of the agent, not its Latest, so its version isn't added as Latest there. Pin it instead.",
@@ -2063,6 +2053,26 @@ export const ERROR_ENTRIES = {
       'guides/improve/pinned-versions-reference',
     ],
   },
+  'pin-stops-latest': {
+    description:
+      "The pin would take a project that follows the agent's Latest now off it: the project would run the pinned version from then on, and no longer take each new Latest. A project or segment pin there, or a tenant or org pin over it, counts, whether or not the version changes. Nothing is pinned. Ask again with `stopFollowingLatest: true` to pin anyway; for a suggested change, add it as the project's Latest instead. A deployment promotion with `pin` is the ask itself, so it's never refused this way.",
+    details: [
+      {
+        key: 'projects',
+        meaning:
+          'each project the pin would take off Latest, `{ projectId, version }`, with the version it runs now',
+      },
+      {
+        key: 'suggestedChangeId',
+        meaning: "for a suggested change's pin: the suggested change id",
+      },
+    ],
+    seeAlso: [
+      'POST /v1/agents/{agentId}/pinned/pin',
+      'POST /v1/suggested-changes/{suggestedChangeId}/pin',
+      'guides/improve/pinned-versions-reference',
+    ],
+  },
   'gate-failed': {
     description:
       'A release gate refused pinning the version because one or more of its checks failed. The refusal is recorded; read the failing checks and fix what they name.',
@@ -2078,6 +2088,20 @@ export const ERROR_ENTRIES = {
       {
         key: 'checks',
         meaning: 'every check the release gate ran, with whether each passed',
+      },
+      {
+        key: 'passing',
+        meaning:
+          "how many of the test run's cases pass, when the release gate has `cases.minPassing`",
+      },
+      {
+        key: 'needs',
+        meaning: 'how many cases the release gate needs to pass (`cases.minPassing`)',
+      },
+      {
+        key: 'newlyFailing',
+        meaning:
+          'the cases that passed before and fail now, by id, when the release gate has `cases.noNewFailures`',
       },
       {
         key: 'suggestedChangeId',

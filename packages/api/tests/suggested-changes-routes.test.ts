@@ -44,7 +44,12 @@ import type {
 import type { FreezeTestSetInput, TestSetFreezeBinding } from '../src/test-set-binding.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { agentTestSetId, createApp, createSuggestedChangeService } from '../src/index.js';
+import {
+  agentTestSetId,
+  createApp,
+  createSuggestedChangeService,
+  latestRunCorrelation,
+} from '../src/index.js';
 import type {
   AgentMarkLatestInput,
   AgentPinBindings,
@@ -421,6 +426,9 @@ function pinsFake(agents: ReturnType<typeof agentBinding>) {
           toVersion: input.version,
           requestedBy: input.requestedBy,
           status: 'pinned',
+          ...(input.stoppedFollowingLatest !== undefined && {
+            stoppedFollowingLatest: input.stoppedFollowingLatest,
+          }),
         });
         setPin(input.agentId, input.scope, input.version, change.id);
         return { kind: 'ok', value: change };
@@ -453,6 +461,9 @@ function pinsFake(agents: ReturnType<typeof agentBinding>) {
           releaseGate: input.gate.releaseGate,
           checks: input.gate.checks,
           ...(status === 'pending-approval' && { approvalId: 'appr-1' }),
+          ...(input.stoppedFollowingLatest !== undefined && {
+            stoppedFollowingLatest: input.stoppedFollowingLatest,
+          }),
         });
         if (status === 'pinned') {
           setPin(input.agentId, input.scope, input.version, change.id);
@@ -1072,6 +1083,7 @@ describe('POST /v1/suggested-changes', () => {
     ['both values and a template', { template: 'x' }],
     ['neither values nor a template', { values: undefined }],
     ['fixes that are no correction ids', { fixes: [1] }],
+    ['more than 100 fixes', { fixes: Array.from({ length: 101 }, (_, i) => `c-${i}`) }],
     ['a tier, which the block decides', { tier: 'settings-block' }],
     ['a scope, which is the project', { scope: { kind: 'tenant' } }],
     ['a version to build on, which is what the project runs', { fromVersion: '1.0.0' }],
@@ -1081,6 +1093,79 @@ describe('POST /v1/suggested-changes', () => {
     const res = await call('POST', '/v1/suggested-changes', { ...CARD, ...patch });
     expect(res.status, JSON.stringify(res.body)).toBe(400);
     expect(res.body.error.code).toBe('bad-input');
+    expect(suggestedChanges.rows.size).toBe(0);
+  });
+
+  /** A correction of the agent in `inProject` of `inTenant`, as a person records it. */
+  async function correctionIn(
+    corrections: CorrectionRegistryBinding,
+    inProject: ProjectId,
+    inTenant: TenantId = tenantId,
+  ) {
+    const { id } = await corrections.record({
+      tenantId: inTenant,
+      projectId: inProject,
+      runId: randomUUID(),
+      run: {
+        subject: { kind: 'agent', id: AGENT, version: '1.0.0' },
+        input: { ask: 'score the acme filing' },
+        output: { text: '0.4' },
+      },
+      madeBy: { kind: 'user', id: 'user-1' },
+      status: 'open',
+      answer: 'wrong',
+      shouldSay: '0.8',
+    });
+    return id;
+  }
+
+  test('its `fixes` are corrections in its own project, and the answer lists them (201)', async () => {
+    const corrections = inMemoryCorrections();
+    const { call, pinStore } = await harness({ correctionRegistry: corrections });
+    pinStore.pin(PROJECT, '1.0.0');
+    const one = await correctionIn(corrections, projectId);
+    const two = await correctionIn(corrections, projectId);
+    const res = await call('POST', '/v1/suggested-changes', { ...CARD, fixes: [one, two] });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.fixes).toEqual([one, two]);
+  });
+
+  test("an id in `fixes` that's no correction in its project is refused (400 validation-failed), naming each, and nothing is made", async () => {
+    const corrections = inMemoryCorrections();
+    const { call, pinStore, freeze, suggestedChanges, testRuns } = await harness({
+      correctionRegistry: corrections,
+    });
+    pinStore.pin(PROJECT, '1.0.0');
+    const here = await correctionIn(corrections, projectId);
+    const otherProject = await correctionIn(corrections, randomUUID() as ProjectId);
+    const otherTenant = await correctionIn(corrections, projectId, randomUUID() as TenantId);
+    const res = await call('POST', '/v1/suggested-changes', {
+      ...CARD,
+      fixes: [here, 'c-unknown', otherProject, otherTenant, 'c-unknown'],
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(400);
+    expect(res.body.error.code).toBe('validation-failed');
+    expect(res.body.error.message).toContain(`no correction in project ${projectId}`);
+    expect(res.body.error.details.fixes).toEqual(['c-unknown', otherProject, otherTenant]);
+    expect(res.body.error.details.issues.map((i: { path: string }) => i.path)).toEqual([
+      'fixes[1]',
+      'fixes[2]',
+      'fixes[3]',
+      'fixes[4]',
+    ]);
+    // Asked before the freeze: nothing frozen, stored or run.
+    expect(freeze.calls).toEqual([]);
+    expect(suggestedChanges.rows.size).toBe(0);
+    expect(testRuns.started).toEqual([]);
+  });
+
+  test('with no corrections at all, a card naming one is refused (400 validation-failed)', async () => {
+    const { call, pinStore, suggestedChanges } = await harness();
+    pinStore.pin(PROJECT, '1.0.0');
+    const res = await call('POST', '/v1/suggested-changes', { ...CARD, fixes: ['c-1'] });
+    expect(res.status, JSON.stringify(res.body)).toBe(400);
+    expect(res.body.error.code).toBe('validation-failed');
+    expect(res.body.error.details.fixes).toEqual(['c-1']);
     expect(suggestedChanges.rows.size).toBe(0);
   });
 
@@ -1504,8 +1589,14 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
     const res = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body).toMatchObject({
-      status: 'pinned',
-      pinned: { version: '1.0.1', by: { kind: 'user', id: 'user-1' } },
+      pin: { status: 'pinned', toVersion: '1.0.1' },
+      testRuns: [],
+      fixed: [],
+      reopened: [],
+      suggestedChange: {
+        status: 'pinned',
+        pinned: { version: '1.0.1', by: { kind: 'user', id: 'user-1' } },
+      },
     });
   });
 
@@ -1515,7 +1606,7 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
       reason: 'acme wants recency',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
-    expect(res.body.status).toBe('pinned');
+    expect(res.body.suggestedChange.status).toBe('pinned');
     const request = pinStore.calls.find((c) => c.method === 'request')?.input as Record<
       string,
       unknown
@@ -1544,7 +1635,10 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
     };
     const res = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(res.body).toMatchObject({ status: 'waiting-for-second-person', approvalId: 'appr-1' });
+    expect(res.body).toMatchObject({
+      pin: { status: 'pending-approval', approvalId: 'appr-1' },
+      suggestedChange: { status: 'waiting-for-second-person', approvalId: 'appr-1' },
+    });
     expect(
       (await call('POST', `/v1/suggested-changes/${id}/withdraw`, { reason: 'x' })).status,
     ).toBe(409);
@@ -1584,19 +1678,66 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
     expect(again.body.note).toBeUndefined();
   });
 
-  test('a project on Latest takes no pin (409 suggested-change-project-on-latest), and nothing is requested', async () => {
-    const { call, testRuns, pinStore } = await harness();
-    const res = await call('POST', '/v1/suggested-changes', CARD);
+  /** A ready suggested change for the project, which follows Latest (nothing pinned). */
+  async function readyOnLatest() {
+    const h = await harness();
+    const res = await h.call('POST', '/v1/suggested-changes', CARD);
     expect(res.status, JSON.stringify(res.body)).toBe(201);
-    await testRuns.finish(res.body.check.with.testRunId, { delta: 0.1 });
-    await testRuns.finish(res.body.check.now.testRunId, { delta: 0 });
-    const pin = await call('POST', `/v1/suggested-changes/${res.body.id}/pin`, {});
+    await h.testRuns.finish(res.body.check.with.testRunId, { delta: 0.1 });
+    await h.testRuns.finish(res.body.check.now.testRunId, { delta: 0 });
+    return { ...h, id: res.body.id as string, card: res.body };
+  }
+
+  test('a project on Latest takes no pin unless the body asks (409 pin-stops-latest, with what it runs), and nothing changes', async () => {
+    const { call, pinStore, id, card } = await readyOnLatest();
+    const pin = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
     expect(pin.status, JSON.stringify(pin.body)).toBe(409);
     expect(pin.body.error).toMatchObject({
-      code: 'suggested-change-project-on-latest',
-      details: { suggestedChangeId: res.body.id },
+      code: 'pin-stops-latest',
+      details: {
+        projects: [{ projectId, version: card.builtOn.version }],
+        suggestedChangeId: id,
+      },
     });
     expect(pinStore.calls).toEqual([]);
+    expect((await call('GET', `/v1/suggested-changes/${id}`)).body).toMatchObject({
+      status: 'ready',
+      builtOn: card.builtOn,
+    });
+  });
+
+  test('with stopFollowingLatest it pins, and the pin records that the project stopped following Latest', async () => {
+    const { call, pinStore, id } = await readyOnLatest();
+    const pin = await call('POST', `/v1/suggested-changes/${id}/pin`, {
+      stopFollowingLatest: true,
+    });
+    expect(pin.status, JSON.stringify(pin.body)).toBe(201);
+    const requested = pinStore.calls.find((c) => c.method === 'request')?.input;
+    expect(requested).toMatchObject({ stoppedFollowingLatest: true });
+    expect(pin.body.pin).toMatchObject({
+      toVersion: (requested as { version: string }).version,
+      stoppedFollowingLatest: true,
+    });
+    expect(pin.body.suggestedChange.status).toBe('pinned');
+  });
+
+  test('a stopFollowingLatest that is not a boolean → 400, nothing requested', async () => {
+    const { call, pinStore, id } = await readyOnLatest();
+    const pin = await call('POST', `/v1/suggested-changes/${id}/pin`, {
+      stopFollowingLatest: 'yes',
+    });
+    expect(pin.status, JSON.stringify(pin.body)).toBe(400);
+    expect(pinStore.calls).toEqual([]);
+  });
+
+  test('a pinned project is pinned without stopFollowingLatest, and the pin records nothing about Latest', async () => {
+    const { id, call, pinStore } = await checked();
+    const pin = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
+    expect(pin.status, JSON.stringify(pin.body)).toBe(201);
+    expect(pin.body.pin.stoppedFollowingLatest).toBeUndefined();
+    expect(pinStore.calls.find((c) => c.method === 'request')?.input).not.toHaveProperty(
+      'stoppedFollowingLatest',
+    );
   });
 
   test('one made for the whole tenant before suggested changes were for a project is not pinned (409 suggested-change-not-for-a-project)', async () => {
@@ -1653,6 +1794,63 @@ describe('POST /v1/suggested-changes/:id/add-as-latest', () => {
     });
     expect(withdraw.status).toBe(409);
     expect(h.agents.marked).toHaveLength(1);
+  });
+
+  /** Latest in the card's project by project too, as `latest` answers it there. */
+  function latestByProject(h: Awaited<ReturnType<typeof readyOnLatest>>): void {
+    const { latest } = h.pinStore.bindings;
+    latest.byProject = async (q) => {
+      const answer = await latest.latest({ ...q, projectId });
+      return answer === null ? [] : [{ projectId, ...answer }];
+    };
+  }
+
+  /** Corrections where the card's project has one case: a Latest check reads that first. */
+  const oneCase = {
+    listCases: async () => ({ data: [{ id: 'j1' }], hasMore: false }),
+  } as unknown as CorrectionRegistryBinding;
+
+  test("it checks the new Latest in the card's project, with a latest: test run", async () => {
+    const h = await readyOnLatest({ correctionRegistry: oneCase });
+    latestByProject(h);
+    h.testRuns.started.length = 0;
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/add-as-latest`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(h.testRuns.started).toEqual([
+      expect.objectContaining({
+        projectId,
+        testSetId: FROZEN.testSetId,
+        testSetVersion: FROZEN.testSetVersion,
+        agentRef: { agentId: AGENT, version: h.version },
+        correlationId: latestRunCorrelation(AGENT, projectId),
+      }),
+    ]);
+  });
+
+  test("with no case in the card's project, it freezes nothing and starts nothing", async () => {
+    const h = await readyOnLatest({
+      correctionRegistry: {
+        listCases: async () => ({ data: [], hasMore: false }),
+      } as unknown as CorrectionRegistryBinding,
+    });
+    latestByProject(h);
+    h.testRuns.started.length = 0;
+    const freezes = h.freeze.calls.length;
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/add-as-latest`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(h.freeze.calls).toHaveLength(freezes);
+    expect(h.testRuns.started).toEqual([]);
+  });
+
+  test('a Latest check that does not start leaves the add as it is', async () => {
+    const h = await readyOnLatest({ correctionRegistry: oneCase });
+    latestByProject(h);
+    h.testRuns.started.length = 0;
+    h.testRuns.fail.start = 1;
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/add-as-latest`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.status).toBe('added-as-latest');
+    expect(h.testRuns.started).toHaveLength(1);
   });
 
   test('without a reason, none is kept', async () => {
@@ -1837,7 +2035,7 @@ describe('if the project moves first: a suggested change is rebuilt on what it r
     await h.testRuns.finish(b.check.now.testRunId, { delta: 0 });
     const pinned = await h.call('POST', `/v1/suggested-changes/${h.b.id}/pin`, {});
     expect(pinned.status, JSON.stringify(pinned.body)).toBe(201);
-    expect(pinned.body.pinned.version).toBe(b.version);
+    expect(pinned.body.suggestedChange.pinned.version).toBe(b.version);
   });
 
   test('checking one again after its project moved rebuilds it on what runs (202)', async () => {
@@ -2076,7 +2274,10 @@ describe('the cards a deploy makes (madeBy: deploy)', () => {
     const h = await readyCard();
     const res = await h.call('POST', `/v1/suggested-changes/${h.id}/pin`, {});
     expect(res.status, JSON.stringify(res.body)).toBe(201);
-    expect(res.body).toMatchObject({ status: 'pinned', pinned: { version: '1.1.0' } });
+    expect(res.body.suggestedChange).toMatchObject({
+      status: 'pinned',
+      pinned: { version: '1.1.0' },
+    });
     expect(h.pinStore.pins.find((p) => p.agentId === AGENT)?.version).toBe('1.1.0');
   });
 
@@ -4073,7 +4274,7 @@ describe('an agent an order carries from its project to prod', () => {
     grants.push(`admin project:${projectId}`);
     const res = await h.call('POST', `/v1/suggested-changes/${h.id}/pin`, {});
     expect(res.status, JSON.stringify(res.body)).toBe(201);
-    expect(res.body.status).toBe('pinned');
+    expect(res.body.suggestedChange.status).toBe('pinned');
   });
 
   test('a prod member reads its suggested changes; someone in neither project gets 404', async () => {

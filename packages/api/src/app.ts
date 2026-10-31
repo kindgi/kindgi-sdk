@@ -1632,6 +1632,13 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // `?projectId=` answers on its single read.
   const itemServing =
     input.itemProjects !== undefined ? itemServingOf(input.itemProjects) : undefined;
+  // What a pin's test runs need besides test runs and projects (`AgentPinGateDeps`):
+  // the agent pin route, a promotion's pins and a card's pin all start them.
+  const pinTestRunDeps = {
+    ...(input.testSetFreeze !== undefined && { testSets: input.testSetFreeze }),
+    ...(input.correctionRegistry !== undefined && { corrections: input.correctionRegistry }),
+    ...(input.itemProjects !== undefined && { itemProjects: input.itemProjects }),
+  };
   // A system principal acts in no tenant: it reaches /v1/system/* (and the
   // deployment's license), nothing else, and each of its requests is recorded.
   v1.use(
@@ -1782,6 +1789,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.testRunBinding !== undefined && { testRuns: input.testRunBinding }),
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
           ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
+          ...pinTestRunDeps,
         },
         {
           ...(input.memory?.semanticSearch !== undefined && {
@@ -1950,6 +1958,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       testRuns: input.testRunBinding,
       agentPins: input.agentPins,
       ...(input.testSetFreeze !== undefined && { testSets: input.testSetFreeze }),
+      ...(input.correctionRegistry !== undefined && { corrections: input.correctionRegistry }),
+      ...(input.itemProjects !== undefined && { itemProjects: input.itemProjects }),
       ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
       ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
       ...(input.projectSuspended !== undefined && {
@@ -2590,6 +2600,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
               ...(input.projectSuspended !== undefined && {
                 projectSuspended: input.projectSuspended,
               }),
+              ...pinTestRunDeps,
             },
           }),
           // A deploy is checked against what runs: the agent versions that
