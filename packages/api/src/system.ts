@@ -117,8 +117,6 @@ export function oneTenantSystemScopes(servesDeployments: boolean): readonly Syst
     : ONE_TENANT_SYSTEM_SCOPES;
 }
 
-const ON_DEPLOYMENT = String.raw`/v1/system/tenants/[^/]+/deployments/[^/]+`;
-
 /** The orchestrator's routes under `/v1/system/*`, as a runtime serving one tenant mounts them. */
 const ONE_TENANT_DEPLOYMENT_ROUTES: readonly {
   readonly methods: readonly string[];
@@ -127,9 +125,15 @@ const ONE_TENANT_DEPLOYMENT_ROUTES: readonly {
   { methods: ['GET'], path: /^\/v1\/system\/deployments$/ },
   { methods: ['POST'], path: /^\/v1\/system\/deployments\/round(?:\/end)?$/ },
   { methods: ['GET'], path: /^\/v1\/system\/pack-env$/ },
-  { methods: ['PUT', 'DELETE'], path: new RegExp(`^${ON_DEPLOYMENT}/endpoint$`) },
-  { methods: ['PUT'], path: new RegExp(`^${ON_DEPLOYMENT}/endpoint/problem$`) },
-  { methods: ['GET', 'PUT'], path: new RegExp(`^${ON_DEPLOYMENT}/pack-env$`) },
+  {
+    methods: ['PUT', 'DELETE'],
+    path: /^\/v1\/system\/tenants\/[^/]+\/deployments\/[^/]+\/endpoint$/,
+  },
+  {
+    methods: ['PUT'],
+    path: /^\/v1\/system\/tenants\/[^/]+\/deployments\/[^/]+\/endpoint\/problem$/,
+  },
+  { methods: ['GET', 'PUT'], path: /^\/v1\/system\/tenants\/[^/]+\/deployments\/[^/]+\/pack-env$/ },
 ];
 
 /**
