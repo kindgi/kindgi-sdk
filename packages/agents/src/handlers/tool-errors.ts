@@ -15,7 +15,8 @@
 import type { ModelMessage } from '@kindgi/capabilities';
 import { TOOL_ERROR_KINDS, type ToolErrorKind, type ToolErrorsSpec } from '@kindgi/policy-contract';
 
-import { isRepairMessage } from './structured-output.js';
+import type { TurnContext } from './context.js';
+import { loopMessages } from './history.js';
 
 /** Without an agent setting: one retry, for failures where nothing ran. */
 export const DEFAULT_TOOL_ERRORS: Required<ToolErrorsSpec> = {
@@ -96,20 +97,13 @@ export function toolErrorResult(
 }
 
 /**
- * Retries this turn has taken: the marked tool results after the turn's
- * user message. Earlier turns' results come back as history; they don't
- * count.
+ * Retries this turn has taken: the marked tool results the turn's loop
+ * added to `messages` (`loopMessages`). Earlier turns' results come back
+ * as history, before them, and don't count; nor does a message of the
+ * person's that starts with a marker move where the turn starts.
  */
-export function toolRetriesSoFar(messages: readonly ModelMessage[]): number {
-  let start = 0;
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const m = messages[i];
-    if (m !== undefined && m.role === 'user' && !isRepairMessage(m)) {
-      start = i + 1;
-      break;
-    }
-  }
-  return messages.slice(start).filter(isRetryResult).length;
+export function toolRetriesSoFar(ctx: TurnContext, messages: readonly ModelMessage[]): number {
+  return loopMessages(ctx, messages, "the turn's tool retries").filter(isRetryResult).length;
 }
 
 function isRetryResult(m: ModelMessage): boolean {

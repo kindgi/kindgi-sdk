@@ -805,7 +805,8 @@ export interface Flow {
    * The exact tool and agent versions this flow version runs, resolved by
    * the runtime when the version was published (see `FlowPins`). Never
    * authored: `loadFlow` refuses it. Absent on a flow version published
-   * before pins existed; it binds the latest versions per run.
+   * before pins existed: each run of it binds each tool's latest version,
+   * and each agent's version pinned for the run, else its latest.
    */
   readonly pins?: FlowPins;
   /** `flowPinsDigest(pins)`, recorded when the version was published. */

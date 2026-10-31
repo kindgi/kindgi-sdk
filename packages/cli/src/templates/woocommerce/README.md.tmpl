@@ -96,8 +96,8 @@ They're the prompt block `{{PACK_ID}}.store-agent-prompt`: its file is
 `blocks/store-agent-prompt.liquid`. The agent names it by range:
 `instructions: { prompt: '{{PACK_ID}}.store-agent-prompt', version: '^{{PACK_VERSION}}' }`.
 `{{KINDGI}} dev` reads it from these files, and `{{KINDGI}} deploy`
-publishes it before the agent. Since they're a block, an improvement pass
-can draft new instructions: `{{KINDGI}} proposals improve --tier=prompt`,
+publishes it before the agent. Since they're a block, an Improve run
+can draft new instructions: `{{KINDGI}} improve runs start --tier=prompt`,
 with a test set of the agent's cases and a model of yours to draft with
 (`--provider` and `--model`).
 
@@ -204,9 +204,15 @@ Ask the store agent something:
 
 ## One project and one pack per client
 
-This pack is one client's: every id in it starts with `{{PACK_ID}}.`. For
-another client, make another copy, so its ids start with that client's
-name:
+This pack is one client's: every id in it starts with `{{PACK_ID}}.`. A
+copy for another client runs only where each deployment runs as a service
+of its own. A runtime with one pack service runs only the pack that service
+was given, so don't make a copy there: a copy deploys, and its tools fail
+when called. Deploying this pack into a second project answers a `409`
+that names what such a runtime can do.
+
+Where each deployment runs as a service of its own, make a copy for each
+other client, so its ids start with that client's name:
 
 ```sh
 {{KINDGI}} init <client> --template=woocommerce

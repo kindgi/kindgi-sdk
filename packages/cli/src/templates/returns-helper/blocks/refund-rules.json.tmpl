@@ -1,0 +1,24 @@
+{
+  "id": "{{PACK_ID}}.refund-rules",
+  "version": "{{PACK_VERSION}}",
+  "kind": "settings",
+  "description": "The store's return rules, read by the returns helper's instructions and its refund tool",
+  "content": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "returnWindowDays": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 365,
+          "description": "Whole days after delivery an order can be returned and refunded"
+        }
+      },
+      "required": ["returnWindowDays"],
+      "additionalProperties": false
+    },
+    "values": {
+      "returnWindowDays": 30
+    }
+  }
+}

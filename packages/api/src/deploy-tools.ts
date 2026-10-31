@@ -16,7 +16,8 @@
  * - A version the registry doesn't hold is new.
  * - One it holds in the deploy's project with the same definition is
  *   kept, active or unregistered, each its own state. The deploy then
- *   points it at this image (`refreshToolCode`).
+ *   reinstates an unregistered one (`reinstateRetiredTool`) and points
+ *   it at this image (`refreshToolCode`).
  * - One it holds in the deploy's project with another definition is
  *   refused (`tool-already-registered`), naming the fields that differ,
  *   and whether it's active or unregistered.
@@ -40,7 +41,7 @@ export type PlannedToolState =
   | 'new'
   /** The pack's tool, active. */
   | 'kept'
-  /** The pack's tool, unregistered: kept as an active one is. */
+  /** The pack's tool, unregistered: kept as an active one is, and reinstated. */
   | 'unregistered'
   /** A version in another project, or an MCP endpoint's: its publish decides. */
   | 'publish-decides';

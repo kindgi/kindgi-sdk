@@ -114,7 +114,9 @@ call. A dry run checks a flow's wiring before it touches real data:
 Because every step is recorded, every answer can be traced to where it came
 from: the agent's turn, the model call and the tool results it used.
 `GET /v1/provenance/{runId}` returns that graph, and
-[Trace an answer](../../guides/observability/trace-an-answer/) reads it.
+[Trace an answer](../../guides/observability/trace-an-answer/) reads it. A
+finished flow run has a record of its own: its steps, why each ran, the runs
+each started, and the steps its output came from.
 
 Each model call is recorded with its tokens and cost too. So you can read
 what a run, a flow's whole run or one customer's month cost, as

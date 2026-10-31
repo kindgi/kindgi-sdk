@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: none
 
 /**
  * `kindgi feedback submit`, `status` and `withdraw`, as a person or a coding

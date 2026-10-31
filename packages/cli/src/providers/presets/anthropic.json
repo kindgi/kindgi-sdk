@@ -14,7 +14,11 @@
         "name": "claude-opus-5-5",
         "contextWindow": 1000000,
         "maxOutputTokens": 16000,
-        "thinking": { "mode": "always", "lowest": "low" },
+        "thinking": {
+          "mode": "always",
+          "lowest": "low",
+          "levels": ["low", "medium", "high", "xhigh", "max"]
+        },
         "sampling": false,
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {
@@ -29,7 +33,11 @@
         "name": "claude-sonnet-5-5",
         "contextWindow": 1000000,
         "maxOutputTokens": 16000,
-        "thinking": { "mode": "adaptive", "lowest": "between_tools" },
+        "thinking": {
+          "mode": "adaptive",
+          "lowest": "between_tools",
+          "levels": ["low", "medium", "high", "xhigh", "max"]
+        },
         "sampling": false,
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {
@@ -44,7 +52,11 @@
         "name": "claude-haiku-5-5",
         "contextWindow": 1000000,
         "maxOutputTokens": 16000,
-        "thinking": { "mode": "adaptive", "lowest": "disabled" },
+        "thinking": {
+          "mode": "adaptive",
+          "lowest": "disabled",
+          "levels": ["low", "medium", "high", "xhigh", "max"]
+        },
         "sampling": false,
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {

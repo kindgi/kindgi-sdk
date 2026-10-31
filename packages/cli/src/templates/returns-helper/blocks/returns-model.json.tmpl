@@ -1,0 +1,30 @@
+{
+  "id": "{{PACK_ID}}.returns-model",
+  "version": "{{PACK_VERSION}}",
+  "kind": "settings",
+  "description": "The returns helper's model settings",
+  "content": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "temperature": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "x-kindgi-tunable": true,
+          "description": "How varied its wording is: Improve may try other values"
+        },
+        "maxOutputTokens": {
+          "type": "integer",
+          "minimum": 64,
+          "maximum": 2000
+        }
+      },
+      "additionalProperties": false
+    },
+    "values": {
+      "temperature": 0.3,
+      "maxOutputTokens": 600
+    }
+  }
+}

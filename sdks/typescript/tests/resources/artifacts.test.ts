@@ -34,7 +34,7 @@ describe('artifacts.list', () => {
       limit: 20,
     });
 
-    expect(page.items[0]?.blobId).toBe('blob-1');
+    expect(page.data[0]?.blobId).toBe('blob-1');
     const url = new URL(stub.calls[0]?.url);
     expect(url.pathname).toBe('/v1/artifacts');
     expect(url.searchParams.get('contentType')).toBe('application/pdf');

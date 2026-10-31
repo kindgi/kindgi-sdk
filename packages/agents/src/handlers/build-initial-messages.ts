@@ -104,6 +104,8 @@ export function buildBuildInitialMessagesHandler(ctx: TurnContext): NodeHandler 
       ...(memoryMessage !== undefined ? [memoryMessage] : []),
       turnMessage(ctx, isEvent, files),
     ];
+    // Where the loop's own messages start: what's before is the person's.
+    ctx.initialMessageCount = modelMessages.length;
 
     return { nextMessages: modelMessages };
   };

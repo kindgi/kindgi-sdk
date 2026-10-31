@@ -51,10 +51,10 @@ describe('kindgi runs list', () => {
     expect(seen).toEqual([{}]);
   });
 
-  test('--replays and --eval-run reach the client', async () => {
+  test('--replays and --test-run reach the client', async () => {
     expect((await run('runs', 'list', '--replays=only')).exitCode).toBe(0);
-    expect((await run('runs', 'list', '--eval-run=eval-1')).exitCode).toBe(0);
-    expect(seen).toEqual([{ replays: 'only' }, { evalRunId: 'eval-1' }]);
+    expect((await run('runs', 'list', '--test-run=eval-1')).exitCode).toBe(0);
+    expect(seen).toEqual([{ replays: 'only' }, { testRunId: 'eval-1' }]);
   });
 
   test('--trigger reaches the client as triggerId', async () => {

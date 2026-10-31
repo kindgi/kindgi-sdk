@@ -232,10 +232,36 @@ function promptTemplate(blocks: URL, id: string): string {
   throw new Error(`${id}: no prompt block with a template in ${fileURLToPath(blocks)}`);
 }
 
-/** The stock packs' agents' instructions, as `kindgi init` writes them for a pack named `acme`. */
-function stockInstructions(): { readonly name: string; readonly template: string }[] {
+type Settings = NonNullable<RenderContext['settings']>;
+
+/** A stock pack's settings blocks' values, by block id: what a run's `settings` holds. */
+function settingsValues(blocks: URL): Settings {
+  const values: Record<string, Settings[string]> = {};
+  for (const name of existsSync(blocks) ? readdirSync(blocks) : []) {
+    if (!name.endsWith('.json.tmpl')) continue;
+    const block = JSON.parse(scaffolded(new URL(name, blocks))) as {
+      readonly id: string;
+      readonly kind: string;
+      readonly content: { readonly values?: Settings[string] };
+    };
+    if (block.kind === 'settings' && block.content.values !== undefined) {
+      values[block.id] = block.content.values;
+    }
+  }
+  return values;
+}
+
+/**
+ * The stock packs' agents' instructions, as `kindgi init` writes them for a
+ * pack named `acme`, with the values of the pack's settings blocks.
+ */
+function stockInstructions(): {
+  readonly name: string;
+  readonly template: string;
+  readonly settings: Settings;
+}[] {
   const templates = new URL('../../cli/src/templates/', import.meta.url);
-  const found: { name: string; template: string }[] = [];
+  const found: { name: string; template: string; settings: Settings }[] = [];
   for (const pack of readdirSync(templates)) {
     const agents = new URL(`${pack}/agents/`, templates);
     if (!existsSync(agents)) continue;
@@ -250,7 +276,8 @@ function stockInstructions(): { readonly name: string; readonly template: string
         prompt === undefined
           ? inlineInstructions(name, source)
           : promptTemplate(new URL(`${pack}/blocks/`, templates), prompt);
-      found.push({ name, template });
+      const settings = settingsValues(new URL(`${pack}/blocks/`, templates));
+      found.push({ name, template, settings });
     }
   }
   return found;
@@ -266,11 +293,12 @@ describe("the stock packs' instructions", () => {
     ).toBeGreaterThanOrEqual(2);
   });
 
-  test.each(STOCK.map(({ name, template }) => [name, template] as const))(
+  test.each(STOCK.map(({ name, template, settings }) => [name, template, settings] as const))(
     '%s renders byte for byte the same in a worker as in-process, under the hosted bounds',
-    async (_, template) => {
+    async (_, template, settings) => {
       const r = under(HOSTED_BOUNDS);
-      const { here, there } = await both(r, agentWith(template));
+      const ctx = { ...context, settings: { ...context.settings, ...settings } };
+      const { here, there } = await both(r, agentWith(template), ctx);
       expect(typeof here).toBe('string');
       expect(there).toBe(here);
     },

@@ -44,6 +44,17 @@ export async function isTenantAdmin(
   );
 }
 
+/**
+ * Whether two user ids name the same person. A reviewer's id is read from
+ * a uuid column, in lower case; the caller's, and an id an approval keeps
+ * (who asked, who it's addressed to), keep the case they were given in. A
+ * seed user id could be in upper case before 0.3.0. So the two are compared
+ * with this, never with `===`.
+ */
+export function sameUserId(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
+}
+
 /** A principal on the wire: `{kind: 'user' | 'service-account', id}`. */
 export function principalToWire(p: TokenPrincipal): {
   kind: 'user' | 'service-account';

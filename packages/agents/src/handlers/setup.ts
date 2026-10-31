@@ -313,6 +313,9 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
       ...(environment.blockVersions !== undefined && {
         blockVersions: environment.blockVersions,
       }),
+      // And the guardrails, each one's declaration: a resumed turn runs
+      // these, whatever the registry holds by then.
+      guardrails: environment.guardrails,
     };
   };
 }

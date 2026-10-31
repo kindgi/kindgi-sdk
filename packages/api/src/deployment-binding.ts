@@ -11,6 +11,7 @@ import type {
   VersionDerivationReason,
 } from '@kindgi/types';
 
+import type { PinActor } from './agent-pin-binding.js';
 import {
   PACK_ENV_PROBLEM_CODES,
   PACK_ENV_SECRET_GIVE_CODES,
@@ -97,10 +98,11 @@ export interface DeploymentBinding {
   /**
    * Promote a deployment into the next environment of its order, in one
    * transaction: a deployment in the target project with the source's
-   * signed fields, contents, pack and pack checks (as `register` writes
-   * one, with its routes and pending endpoint) and
-   * `promotedFromDeploymentId`; the versions carried with it; and where
-   * each tool's secrets are read in the target. Registries aren't touched,
+   * signed fields, contents, pack, pack checks and git `source` (as
+   * `register` writes one, with its routes and pending endpoint) and
+   * `promotedFromDeploymentId`, and its own `replaced` (the input's, never
+   * the source's); the versions carried with it; and where each tool's
+   * secrets are read in the target. Registries aren't touched,
    * and nothing is built: the image is the one the source runs.
    *
    * The route checks everything first (the order, the source served, the
@@ -149,6 +151,17 @@ export function serializeDeployment(d: Deployment): Record<string, unknown> {
       flows: d.primitives.flows,
     },
     contents: d.contents,
+    ...(d.source !== undefined && { source: d.source }),
+    ...(d.replaced !== undefined &&
+      d.replaced.length > 0 && {
+        replaced: d.replaced.map(({ blockId, from, to, reason, by }) => ({
+          blockId,
+          from,
+          to,
+          reason,
+          by: { kind: by.kind, id: by.id },
+        })),
+      }),
   };
 }
 
@@ -174,10 +187,14 @@ export type DeploymentEndpointStatus = 'pending' | 'ready' | 'cleared';
 
 /**
  * Why a deployment's pack service should go:
- * - `superseded`, for good: newer deployments ship every tool version and
- *   check it does, so no new call reaches it. A tool call a step made on it
- *   still goes back to it when the step runs again, and fails closed
- *   (`pack-endpoint-cleared`) once its endpoint is cleared;
+ * - `superseded`: nothing a call can still ask for needs it. Each tool
+ *   version, pack check, agent and flow version it serves is unregistered
+ *   and not held (a check: no registered guardrail runs it), or a newer
+ *   deployment into its project serves it. Registering one of its versions
+ *   again makes it needed again (from runtime 0.4.0; before, it was for good:
+ *   newer deployments shipped every tool version and check it does). A tool
+ *   call a step made on it still goes back to it when the step runs again,
+ *   and fails closed (`pack-endpoint-cleared`) once its endpoint is cleared;
  * - `tenant-closing`, `tenant-suspended`: every deployment of the tenant,
  *   routed or not, since nothing of it runs;
  * - `project-suspended`, `pack-suspended`: every deployment of the project,
@@ -215,7 +232,8 @@ export type SystemDeploymentRetireReason = (typeof SYSTEM_DEPLOYMENT_RETIRE_REAS
  *
  * The pack's declared environment can't be given to it (`pack-env.ts`), and
  * `GET /v1/deployments/{id}/pack-env` names each name:
- * - `pack-env-ambiguous`: a name is set both as a secret and as a plain value;
+ * - `pack-env-ambiguous`: a name is set two ways, as two of a plain value, a
+ *   secret and a cloud secret;
  * - `pack-env-secret-not-yet`: a name is set only as a secret, and the
  *   orchestrator doesn't give secrets;
  * - `pack-env-missing`: a required name is set nowhere;
@@ -228,6 +246,8 @@ export type SystemDeploymentRetireReason = (typeof SYSTEM_DEPLOYMENT_RETIRE_REAS
  *   again;
  * - `pack-env-secret-too-large`: a secret's value is over 32768 bytes, the
  *   most a pack service can be given;
+ * - `pack-env-name-too-long`: a name set as a secret is too long for the
+ *   secret it's kept in, which is named after the pack service;
  * - `pack-env-secret-capacity`: a name is set only as a secret, and there's
  *   no room just now for a pack service that can be given one, apart from
  *   other projects'. It's tried again.
@@ -277,11 +297,12 @@ export interface DeploymentEndpoint {
   readonly waiting?: true;
   /**
    * `cleared` only: why no pack service is wanted for it now, as the
-   * orchestrator is told to retire one. `superseded` is for good: newer
-   * deployments ship every tool version and check it does, so no new call
-   * reaches it; a tool call a step made on it still goes back to it when the
-   * step runs again, and fails closed (`pack-endpoint-cleared`). The others
-   * last until the tenant, project or pack is restored.
+   * orchestrator is told to retire one. `superseded`: nothing a call can
+   * still ask for needs it, until one of its versions is registered again
+   * (see {@link SYSTEM_DEPLOYMENT_RETIRE_REASONS}); a tool call a step made on
+   * it still goes back to it when the step runs again, and fails closed
+   * (`pack-endpoint-cleared`). The others last until the tenant, project or
+   * pack is restored.
    */
   readonly retired?: SystemDeploymentRetireReason;
   /**
@@ -295,6 +316,59 @@ export interface DeploymentEndpoint {
     /** When it was recorded. ISO-8601. */
     readonly since: string;
   };
+  /**
+   * What keeps this build's pack service, whatever its status, while the
+   * runtime runs one per build (from runtime 0.4.0). In kind, id, then
+   * version order. `[]` when nothing does: it's retired (`superseded`), or
+   * retired next. A suspended build has `retired` and still lists what keeps
+   * it, since its service comes back when the suspension lifts. Absent when
+   * builds aren't counted: one service serves every build, or an older
+   * runtime. On a list page, the first {@link DEPLOYMENT_KEPT_FOR_PAGE_LIMIT}
+   * entries, with `keptForTotal`; a get of one deployment gives them all.
+   */
+  readonly keptFor?: readonly DeploymentKeptFor[];
+  /**
+   * On a list page, with `keptFor`: how many entries there are, of which
+   * `keptFor` holds the first {@link DEPLOYMENT_KEPT_FOR_PAGE_LIMIT}. A get
+   * of one deployment doesn't send it.
+   */
+  readonly keptForTotal?: number;
+}
+
+/**
+ * What a kept build's pack service is kept for:
+ * - `tool`: a tool version this build is the newest into its project to
+ *   route, still registered or held. A tool deployed without a version has
+ *   no `version` and neither flag: it's kept until a newer deployment into
+ *   the project ships the tool.
+ * - `agent`, `flow`: a version this build is the newest into its project to
+ *   ship or carry, still registered or held.
+ * - `guardrail`: a registered guardrail that runs a pack check this build is
+ *   the newest into its project to route. It has no `version`.
+ *
+ * A later runtime may add kinds.
+ */
+export const DEPLOYMENT_KEPT_FOR_KINDS = ['tool', 'agent', 'flow', 'guardrail'] as const;
+
+export type DeploymentKeptForKind = (typeof DEPLOYMENT_KEPT_FOR_KINDS)[number];
+
+/** How many `keptFor` entries a deployment carries on a list page. */
+export const DEPLOYMENT_KEPT_FOR_PAGE_LIMIT = 20;
+
+/** One thing a build's pack service is kept for. */
+export interface DeploymentKeptFor {
+  readonly kind: DeploymentKeptForKind;
+  readonly id: string;
+  /** The version kept for; absent for a guardrail, or a tool deployed without one. */
+  readonly version?: string;
+  /** The version (or guardrail) is registered. */
+  readonly registered?: true;
+  /**
+   * A pin or a run that hasn't finished uses the version. Unregistering it
+   * then lets the build go only once the pin's own version is unregistered
+   * or the run finishes. Set beside `registered` when both are true.
+   */
+  readonly held?: true;
 }
 
 /**
@@ -323,6 +397,19 @@ export function endpointToWire(endpoint: DeploymentEndpoint): DeploymentEndpoint
           since: endpoint.packEnvProblem.since,
         },
       }),
+    ...(endpoint.keptFor !== undefined && { keptFor: endpoint.keptFor.map(keptForToWire) }),
+    ...(endpoint.keptFor !== undefined &&
+      endpoint.keptForTotal !== undefined && { keptForTotal: endpoint.keptForTotal }),
+  };
+}
+
+function keptForToWire(entry: DeploymentKeptFor): DeploymentKeptFor {
+  return {
+    kind: entry.kind,
+    id: entry.id,
+    ...(entry.version !== undefined && { version: entry.version }),
+    ...(entry.registered === true && { registered: true }),
+    ...(entry.held === true && { held: true }),
   };
 }
 
@@ -391,6 +478,58 @@ export interface Deployment {
    * enough to know which code a deployment made live.
    */
   readonly contents: DeploymentContents;
+  /**
+   * Where its pack lives in git, as `kindgi deploy` read it from the work
+   * tree it ran in. Absent for a deploy made outside git, one recorded
+   * before deploys said, and from a binding that doesn't keep it.
+   */
+  readonly source?: DeploymentSource;
+  /**
+   * The blocks the deploy put back to an older version than ran, on
+   * purpose (`replace`). A deployment a promotion made has its own: the
+   * blocks that promotion's pins put back in its project, never the
+   * source's. Absent when it put back none, and from a binding that
+   * doesn't keep them.
+   */
+  readonly replaced?: readonly DeploymentReplacedBlock[];
+}
+
+/**
+ * Where a deployment's pack lives in git, when the deploy ran inside a
+ * work tree. No local path and no credential are in it: `repo` is a host
+ * and a path, and `path` and each file are relative.
+ */
+export interface DeploymentSource {
+  /**
+   * The `origin` remote as `host/owner/name` (a group path may stand for
+   * the owner: `host/group/sub/name`), with no scheme, user, password,
+   * token or `.git`. Absent when the work tree has no `origin`, or one
+   * that isn't a host and a path.
+   */
+  readonly repo?: string;
+  /** The pack's folder, relative to the repository's root: `.` when it's the root. */
+  readonly path: string;
+  /** The commit checked out (`HEAD`), its full hex id. */
+  readonly commit: string;
+  /** The branch checked out; absent on a detached `HEAD`. */
+  readonly branch?: string;
+  /** The pack's folder had changes the commit doesn't hold (`git status`, untracked files included). */
+  readonly dirty: boolean;
+  /** Each of the pack's blocks by id: its file, relative to the pack's folder. */
+  readonly blockFiles: Readonly<Record<string, string>>;
+}
+
+/**
+ * A block a deploy put back on purpose: the newest version that ran in a
+ * project of one of its agents, the files' older one the deploy shipped,
+ * why, and who deployed.
+ */
+export interface DeploymentReplacedBlock {
+  readonly blockId: string;
+  readonly from: string;
+  readonly to: string;
+  readonly reason: string;
+  readonly by: PinActor;
 }
 
 /** A primitive a deployment shipped. Guardrails have no version. */
@@ -427,6 +566,12 @@ export interface DeploymentContents {
   readonly guardrails: readonly DeployedPrimitive[];
   readonly agents: readonly DeployedAgent[];
   readonly flows: readonly DeployedFlow[];
+  /**
+   * The pack's data blocks, each `{ id, version }`. Absent on a deployment
+   * recorded before deployments listed them, and from a binding that
+   * doesn't keep them.
+   */
+  readonly blocks?: readonly DeployedPrimitive[];
 }
 
 export interface DeploymentPrimitiveCounts {
@@ -444,6 +589,13 @@ export interface DeploymentPrimitiveCounts {
  * binding does not re-verify the signature (that's the route's job).
  */
 export interface DeploymentRegisterInput {
+  /**
+   * The id to register it under, a UUID the route mints before the
+   * pack's blocks are published, so each block version names the deploy
+   * it came from. Absent: the binding allocates one. Unused when the
+   * digest is already registered (that row keeps its id).
+   */
+  readonly deploymentId?: string;
   readonly tenantId: TenantId;
   readonly imageRef: string;
   readonly imageDigest: string;
@@ -488,6 +640,10 @@ export interface DeploymentRegisterInput {
    * deployment keeps them, so whatever runs it can give it their values.
    */
   readonly packEnv?: PackEnvDeclaration;
+  /** Where the pack lives in git (`Deployment.source`), when the deploy said. */
+  readonly source?: DeploymentSource;
+  /** The blocks the deploy put back on purpose (`Deployment.replaced`). */
+  readonly replaced?: readonly DeploymentReplacedBlock[];
 }
 
 export type DeploymentRegisterOutcome =
@@ -559,6 +715,27 @@ export interface DeploymentListInput {
 export interface DeploymentPage {
   readonly data: readonly Deployment[];
   readonly nextCursor?: Cursor;
+  /**
+   * How many builds keep a pack service, per project, among the deployments
+   * the project filter selects, whatever the page and the other filters,
+   * while the runtime runs one per build (from runtime 0.4.0): those whose
+   * `keptFor` isn't empty. With `projectId`, that project's alone (the
+   * Default's counts the deployments that name no project); without, one
+   * entry per project the tenant's kept builds serve. The route sums the
+   * ones the caller reads into the page's `keptBuilds`. Absent when builds
+   * aren't counted.
+   */
+  readonly keptBuilds?: readonly DeploymentKeptBuilds[];
+}
+
+/** How many builds keep a pack service in one project. */
+export interface DeploymentKeptBuilds {
+  /**
+   * The project they serve: the Default for a deployment that names none.
+   * Absent for those of a tenant with no Default.
+   */
+  readonly projectId?: ProjectId;
+  readonly builds: number;
 }
 
 // -------------------- promote --------------------
@@ -595,6 +772,13 @@ export interface DeploymentPromoteInput {
   readonly carried: readonly CarriedVersion[];
   /** Each tool version it ships, with where its secrets are read in the target. */
   readonly toolSecretScopes: readonly PromotedToolSecretScopes[];
+  /**
+   * The blocks this promotion's pins put back on purpose in the target
+   * (`replace`), from its own check against what runs there; `by` is who
+   * promoted. Recorded as the new deployment's `replaced`, never the
+   * source's. A target that has the digest already keeps its row as it is.
+   */
+  readonly replaced?: readonly DeploymentReplacedBlock[];
 }
 
 export type DeploymentPromoteOutcome =

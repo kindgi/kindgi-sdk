@@ -54,8 +54,8 @@ export interface VersionedRef<Id extends string> {
  *   existed, so it has none;
  * - `version-taken`: the definition's version holds another definition;
  * - `edited`: derived from an existing version with some data-block pins
- *   swapped (an expert's edit, or an improvement proposal's candidate:
- *   `proposalId`), not from a definition at all.
+ *   swapped (an expert's edit, or a suggested change's candidate:
+ *   `suggestedChangeId`), not from a definition at all.
  */
 export type VersionDerivationReason = 'pins-changed' | 'unpinned' | 'version-taken' | 'edited';
 
@@ -69,8 +69,8 @@ export interface VersionDerivation {
   /** For an edit: who made it (`user:<id>`, or the token for a key). */
   readonly by?: string;
   /**
-   * For an edit made to evaluate an improvement proposal: the proposal.
-   * Such a version serves no scope until a promotion makes it live.
+   * For an edit made to evaluate a suggested change: the suggested change.
+   * Such a version serves no scope until a pin makes it serve.
    */
-  readonly proposalId?: string;
+  readonly suggestedChangeId?: string;
 }

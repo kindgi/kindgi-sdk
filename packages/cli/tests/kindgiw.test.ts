@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/cli/src/templates/java/**
 
 /**
  * A Java pack's CLI pin: `kindgiw` (its three ways to run the pinned CLI),
@@ -7,12 +8,22 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest';
 
 import { cliPinWarning, readCliPin, writeCliPin } from '../src/cli-pin.js';
 import { runCli } from '../src/main.js';
@@ -22,6 +33,7 @@ const TEMPLATE = fileURLToPath(new URL('../src/templates/java/', import.meta.url
 
 let pack: string;
 let bin: string;
+let tools: string;
 beforeEach(async () => {
   pack = await mkdtemp(join(tmpdir(), 'kindgi-pin-'));
   bin = join(pack, '.fake-bin');
@@ -47,13 +59,46 @@ async function fake(name: string): Promise<void> {
 
 function kindgiw(...args: string[]) {
   return spawnSync('sh', [join(pack, 'kindgiw'), ...args], {
-    // Only the fakes, and what sh, sed and dirname need.
-    env: { PATH: `${bin}:/usr/bin:/bin` },
+    // Only the fakes, and the programs the wrapper itself runs.
+    env: { PATH: `${bin}:${tools}` },
     encoding: 'utf8',
   });
 }
 
 describe.skipIf(process.platform === 'win32')('kindgiw', () => {
+  // The wrapper runs sh, sed, dirname and head; its PATH links just those,
+  // from wherever this machine has them. A system folder on the PATH would
+  // bring whatever else is in it: where Node sits in /usr/bin, the tests
+  // without Node would find it there.
+  beforeAll(async () => {
+    tools = await mkdtemp(join(tmpdir(), 'kindgiw-tools-'));
+    const names = ['sh', 'sed', 'dirname', 'head'];
+    const found = spawnSync(
+      'sh',
+      ['-c', 'for c; do command -v "$c" || exit 1; done', 'sh', ...names],
+      { encoding: 'utf8' },
+    );
+    expect(found.status, `${names.join(', ')} on this machine`).toBe(0);
+    const paths = found.stdout.trim().split('\n');
+    expect(paths).toHaveLength(names.length);
+    expect(
+      paths.every((p) => p.startsWith('/')),
+      found.stdout,
+    ).toBe(true);
+    for (const [i, p] of paths.entries()) await symlink(p, join(tools, names[i] as string));
+    // The tests choose which of these the wrapper finds; the PATH brings none.
+    const extra = spawnSync(
+      'sh',
+      ['-c', 'for c in node npm npx uv uvx; do command -v "$c"; done; true'],
+      { env: { PATH: tools }, encoding: 'utf8' },
+    );
+    expect(extra.status).toBe(0);
+    expect(extra.stdout, 'node, npm, npx, uv or uvx on the wrapper PATH').toBe('');
+  });
+  afterAll(async () => {
+    await rm(tools, { recursive: true, force: true });
+  });
+
   beforeEach(async () => {
     await copyFile(join(TEMPLATE, 'kindgiw'), join(pack, 'kindgiw'));
   });

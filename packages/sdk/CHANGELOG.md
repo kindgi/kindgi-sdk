@@ -1,5 +1,380 @@
 # @kindgi/sdk
 
+## 0.3.0
+
+### Minor Changes
+
+- 3315892: Starts the 0.3 line: this release has new features, so the middle number moves. Every SDK package shares one version.
+  
+  Release-decision: 0.3.0, the maintainers, 2026-10-28
+
+### Patch Changes
+
+- 8dd91b0: **A model step's calls to read-only tools that come one after another run at the same time, up to 8 at once.** A turn used to run a step's tool calls one after another. Now each batch of up to 8 consecutive calls to tools that declare `mutating: false` (and no changing effect) starts together, and a call to any other tool runs on its own, in the order the model asked. A call that may wait, for another system's answer (a tool that pauses) or for the person who started the run to connect an app (a tool that declares connections), runs on its own too. The results reach the conversation and the model in that order, and the `tool.started` and `tool.completed` events keep it too; each call's `durationMs` is its own. Each batch is planned just before it starts, so a call's access is checked when it's about to run, not when the step began. Once a call needs a review (a tool gate, or a call that waits for a person's approval in an unattended run), the step's calls that haven't started run one at a time, as before, and each is checked again when it runs. When one call of a batch throws, the others are stopped through the step's abort signal and the turn fails after they've settled. A replay answers recorded calls from the record and runs the live ones together the same way. Tool retries (`toolErrors`) count failures in the model's order.
+  
+  A new optional agent field, **`parallelToolCalls`** (default on), turns it off: `false` runs every call on its own, as before. It is in `agent.schema.json` (1.7.0) and `pack-index.schema.json` (1.7.0), `AgentSpec` and `defineAgent` (which refuses a value that isn't `true` or `false`), the indexed pack agent, `POST /v1/agents`, `GET /v1/agents/...` and a deployment's agents (`agent.parallelToolCalls must be true or false` at `/parallelToolCalls`), and the Python SDK's `Agent(parallel_tool_calls=...)`. The `mutating` field's description, in `tool.schema.json`, `ToolSpec` and the API's `ToolSpec` schema, now says it decides what runs together. The authoring skills for tools and agents (TypeScript, Python, Java and Scala) say so too.
+- 8dd91b0: **A flow run's provenance record.** A finished flow run gets a record of its own, as an agent turn has: each step that ran, why it ran, what it started, and what the run's output came from.
+  - **`flowProvenanceBuilder`** (`@kindgi/provenance`) builds a finished flow run's record from its journal, read page by page without payloads: ids, kinds, statuses, times and codes, never a value or a digest of one. Each step is a node of the new kind `step`, with its edges to what caused it. A loop body step is placed by its scope and iteration, and a fanout branch is a step of its fanout. A step lists the child runs it started, and the results it reused when the runtime passes them. A tool step's waits are `wait` and `resume` nodes. A cancelled wait's `resume` node says `decision: 'cancelled'`, with the cancel's reason when the kernel kept one, as an agent turn's does.
+  - **Its caps:** at most 5000 nodes and 4 MiB of canonical bytes, cut from the middle in journal order, with a `truncated` node that says what was left out. A loop keeps whole iterations from both ends, at most 25 from each, within a node budget by its depth, and folds the rest into one node, which counts the loops inside them too. A node's attributes stop at 16 KiB, and an id over 256 characters takes a digest form. Journal entries the build didn't read become a `truncated:entries` node, and a loop across them says `partial: true`.
+  - **`flowProvenanceId(runId)`** is the record's id: a version 5 UUID of the run id, so a parent run names its child's record before it's written. Flow records are written at record version `1.1.0`, which adds the `step` node kind to the schema.
+  - **`stepNodePlacer(nodes)`** (`@kindgi/provenance`) finds the node in a flow record that counts a child run of one of its steps, from the child's `parentNodeId` and `parentScope`: the step's own node, or the folded node of the loop iteration it ran in. It answers `undefined` when the record has neither, as for a step cut with the record's middle. The ids it computes are part of the record's format.
+  - **`JournalEntryFacts`** (`@kindgi/runtime`): the position facts a journal entry can carry beside its payload, its scope, loop, iteration, edge decision and codes, which the builder reads.
+  - **`GET /v1/provenance/{runId}`** has `stepUsage` beside the DAG: a flow record's model usage per step from the cost ledger, keyed by the step's node id. A binding gives it as `getStepUsage`, one row per step as its runs' rows name it (`StepRunsUsage`), and the route places each row on the node that counts the step's runs (`stepNodePlacer`): a folded loop node sums its iterations', and a row with no node, as for a step cut with the record's middle, is left out. The signed export carries it too, at bundle version `1.3.0`. A finished run whose record isn't written yet answers `404 provenance-not-found` with `details.recordState` (`being-written` or `failed`) and, when it failed, `details.reason`.
+  - **`GET /v1/provenance?flowId=`** lists one flow's runs' records, and every page says `flowId` back. In the TypeScript client, `provenance.query({ flowId })` returns a `ProvenancePage` with `flowId`, a record has `stepUsage`, and a not-found error keeps the server's details as `fields`. In the Python client, `provenance.list(flow_id=)`.
+  - **`kindgi provenance list --flow=<flow-id>`** lists one flow's runs' records. A runtime that doesn't list records by flow ignores the filter, and the command then stops instead of printing every record as the flow's. `kindgi provenance get` on a finished run whose record isn't written yet prints the record's state.
+  - **The getting-started skills** (`@kindgi/sdk`), TypeScript and Python, say what a flow run's record holds: its steps, the runs they started and each step's model usage, with each client's name for the step usage and the not-found error's record state.
+- 8dd91b0: **A `retry` guardrail sends a failed answer back to the model, for a new one.** Before, `on-violation: 'retry'` was only recorded, as `log-only` is, and the turn completed. Now, in an agent turn with a `retry` guardrail:
+  - Each finished answer, after output repair, is judged on the turn's `halt` and `retry` guardrails. A failed `halt` fails the turn at once. A failed `retry` adds the answer and a user message naming the guardrails and their checks' reasons (`[kindgi:guardrail-retry] ["<id>",…]`), and the model writes a new answer.
+  - `retry.maxAttempts` counts the answers a guardrail fails, the first one included: with 3, it sends a failed answer back up to twice, and the third answer it fails ends the turn. Left out, it's 2. When a guardrail's attempts run out, or the agent's `budget.maxSteps` does, or the loop's 32 model calls do, the turn fails with `guardrail-violation`: its message says "after N answers", and `GuardrailViolationError.attempts` (and the wire's `details.attempts`) says how many answers the turn had.
+  - The other guardrails judge only the answer that's sent, once. A sent-back answer and its note aren't stored in the conversation.
+  - The outcome ledger gets a set of rows per answer judged, under the step `budget-check@<iteration>`, so a guardrail's counts are of answers judged. A turn without a `retry` guardrail is judged and recorded as before.
+  - The loop's iteration output and `agent.turn` 1.1.0 are unchanged, so a run journaled by either version resumes on the other. A turn resumed in another process after its last answer was judged in the loop judges that answer on its `halt` and `retry` guardrails again, since what the loop judged is kept in memory only; a `retry` failure there fails the turn as out of attempts.
+  - A dry run skips the model call and sends nothing back: a `retry` guardrail that fails its answer fails the turn, as one out of attempts does.
+  
+  `categorizeOutcomes` sorts `retry` failures into a new `retry` list, out of `other`. `GuardrailViolationError` and `describeBlockingViolations` take the attempts. `@kindgi/guardrails`' `retryHandler` takes a `retry` action without `action.retry` (the default attempts apply). The `Action`, schema, OpenAPI and SDK docs say what `retry` does; `@kindgi/client`'s `GuardrailViolationError` gains `attempts`. The guardrail skills say it too: `kindgi-authoring-guardrails` 0.3.12, `kindgi-python-authoring-guardrails` 0.1.6, `kindgi-java-authoring-guardrails` and `kindgi-scala-authoring-guardrails` 0.1.3. The agents skills say that a `retry` guardrail sends the answer back: `kindgi-authoring-agents` 0.4.10, `kindgi-python-authoring-agents` 0.1.9, `kindgi-java-authoring-agents` and `kindgi-scala-authoring-agents` 0.1.5.
+- 8dd91b0: **Flows and tools can have pinned versions, as agents have live versions.** A pin says which version is in use in a scope (a project, an org or the tenant) when nothing names one. A new version is then published without going into use where a pin covers. Without a pin, a new version is in use at once, as before.
+  - `@kindgi/api` adds `PinnedVersionBinding`, the binding behind the pins, and `createApp({ pinnedVersions })` to wire it. Its `resolve` takes the most specific pin covering a project (the project, its org, then the tenant) whose version is still active. `list`, `pin`, `unpin` and `history` keep each change for good: what was pinned before and after, who asked and why.
+  - The pin routes check, in order: the right to pin, the scope (a segment is `400 scope-invalid`, since flows and tools pin no finer than a project), the item and its version, that a project scope reaches the item, and that a pin wider than one project isn't for an item in an environment order (`409 pin-scope-spans-environments`). A tool pin is also refused on a later environment of an order (`409 environment-takes-promotions`), since a tool's pin acts where agent and flow versions are made. A tool that follows its server, an MCP catalog's or one the runtime ships, can't be pinned (`400 tool-not-pinnable`).
+  - Flows: with the binding, `/v1/flows/{flowId}` gains the five pin routes (`flows.pinned.resolve`, `list`, `pin`, `unpin` and `history`). A run that names no flow version takes the version pinned for its project, else the newest the project reaches, and `GET …/pinned` answers what such a run takes there; a pin whose version doesn't reach the project is passed over, as a run passes it over. Under `kindgi dev`, the flow registry is read-only and a pin write is refused with `409 registry-read-only`, as its other writes are. `Run` gains the optional `flowVersionVia` (`explicit`, `pinned` or `latest`) and `flowPinnedScope`, and `StartRunBody.flowVersion` says that an omitted version takes the pin.
+  - Tools: with the binding, `/v1/tools/{toolId}` gains the same five routes (`tools.pinned.*`). An agent or flow version made in a project a tool's pin covers (`POST /v1/agents`, `POST /v1/flows`, a deploy) locks the tool at the pinned version: a flow's tool step always, an agent's tool range when the pinned version is in it; else as before. A deploy looks each tool's pin up once. `GET …/pinned` answers what a flow version made there would lock. A tool an MCP catalog lists (its `kindgi.mcp` metadata) is refused with `400 tool-not-pinnable`, and a pin on a later environment of an order with `409 environment-takes-promotions`.
+  - A deployment promotion with `makeLive` also pins each flow version it carries for the target project, after the agents, and its answer lists them in the new optional `pinnedFlows` (`DeploymentPinnedFlow`: `{id, version}`). The right to pin each flow is checked with the agents' rights, before any pin. An error after some pins lists the flows pinned so far in `error.details.pinnedFlows`, as `error.details.live` lists the agents. Without the binding, nothing pins a flow and the answer has no `pinnedFlows`.
+  - Unregistering a pinned flow or tool version answers `409 flow-version-pinned` or `409 tool-version-pinned`, naming the pins' scopes in `details.scopes`: `FlowUnregisterOutcome` and `ToolUnregisterOutcome` gain the optional `pinned`, which a registry that knows pins sets.
+  - New schemas: `PinScope`, `PinActor`, `PinnedVersionResolution`, `PinnedVersion`, `PinnedVersionList`, `PinnedVersionChange`, `PinnedVersionChangePage`, `PinVersionBody` and `UnpinVersionBody`. New error codes: `pin-scope-spans-environments`, `tool-not-pinnable`, and `flow-version-pinned` and `tool-version-pinned`, which a runtime answers when a pinned version is unregistered or its item deleted.
+  - `@kindgi/authz` adds the `pin` action (`can_pin`) on flows and tools, so a caller's permissions can list it there.
+  - `@kindgi/compliance` and `@kindgi/specs` add six audit kinds: `flow-pinned`, `flow-unpinned`, `flow-pin-inactive`, `tool-pinned`, `tool-unpinned` and `tool-pin-inactive`.
+  - `@kindgi/types` adds `PinScope`, `PinnedItemKind` and `FlowVersionVia`.
+  - `@kindgi/runtime`: `RunFlowInput`, `StartRunParams` and `KernelRunRecord` gain the optional `flowVersionVia` and `flowPinnedScope`, recorded with the run.
+  - `@kindgi/cli`: `kindgi promote --make-live` also prints each flow version it pinned in `--to`, under "Flows pinned in", and its help says so; with `--json` they are in `promotion.pinnedFlows`. `kindgi exports create` writes each flow's and tool's pins, in `flow-pinned-versions.jsonl` and `tool-pinned-versions.jsonl`, and their changes, in `flow-pin-history.jsonl` and `tool-pin-history.jsonl`, one line per record under its flow's or tool's id.
+  - `@kindgi/client`: `client.flows.pinned.{resolve, list, pin, unpin, history}`, the same on `client.tools.pinned`, `Run.flowVersionVia` and `Run.flowPinnedScope`, and `DeploymentPromotion.pinnedFlows`.
+  - `@kindgi/sdk`: the four flow skills (`kindgi-authoring-flows` and its Java, Python and Scala ones) say a run keeps the flow version it started on, and that a run naming no version takes the version pinned for its project (or its org, or the tenant), else the newest the project reaches.
+- 8dd91b0: **The `kindgi-fix-corrections` skill reads exit code 3 as an answer.** `kindgi agents promote --check`, and the request itself, exit 3 when the answer is no or the request waits for an approval. The skill reads the printed outcome, and doesn't take exit 3 for an error.
+- 5960c0c: **A docs link in a skill no longer ends in a sentence's period.** The getting-started skills' Azure Container Apps and upgrade links, and the authoring-agents skills' memory link, sit on a line of their own after a colon, so copying one gives the page, not the page with a period on the end.
+- 8dd91b0: **The MCP servers, fix-corrections and framework-feedback skills load in levels.** Each `SKILL.md` now holds what's true on every path and names the file for each case, so a coding agent reads about 5–6 KB and then only the files its case needs, not the whole 12–15 KB. The MCP servers skill has one file each for how the secret reaches the server, Postgres and the steps every preset follows, several servers and their names, clients other than Claude Code, and common mistakes. The fix-corrections skill keeps what stays with the person and how to sort a correction in its entry, with a file for each step of the loop and a worked example. The framework-feedback skill keeps when and how to file in its entry, with one file each for an entry's fields, sending to Kindgi, hearing back, editing `FEEDBACK.md`, and common mistakes. The providers skill's Path A and Path B files list each of their steps by its title in their contents.
+- 8dd91b0: **The providers skill and the TypeScript tools skill load in levels.** Each `SKILL.md` now holds what's true on every path and a table naming the file for each case, so a coding agent reads about 6 KB and then only the files its case needs, not the whole 32 KB (tools) or 45 KB (providers). The providers skill has a file per path (Anthropic and the one-key presets, OpenAI-compatible endpoints and Ollama, in-process ONNX, Vertex AI, Bedrock), and one each for Kindgi Cloud, keys and registration, the router and common mistakes. The tools skill has one each for handlers, secrets and connections, HTTP specs, the `mutating` and approval flags, iterating and testing, and common mistakes. `kindgi skills sync` installs every file. The providers skill's description is now under the 1,024-character limit.
+- 70cd957: **The getting-started skills (TypeScript, Python, Java, Scala) say the Cloud Run module's `./upgrade.sh` upgrades a deployment in any `network_mode`,** from the `@kindgi/sdk@0.3.0` tag on (before it, `"none"` only), and that it takes a `--var-file` for each file the deployment's variables are in.
+- c39c1e6: **Breaking: `defineGuardrail(spec, checks)` is now `validateGuardrail(spec, checks)`.** It validates a guardrail declaration against the wire schema and a check registry and returns a `Result`, as before; only the name changes, and there's no alias. The new name says what it does, beside `validateGuardrailSpec`, and leaves `defineGuardrail` free for authoring a guardrail, as `defineTool` and `defineCheck` author theirs. To upgrade, rename the import and the call. The guardrail schema's descriptions and the `kindgi-authoring-guardrails` skill name `validateGuardrail`.
+- Updated dependencies [8dd91b0]
+- Updated dependencies [77de8bd]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [5022734]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [52d0759]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [c39c1e6]
+  - @kindgi/client@0.3.0
+  - @kindgi/agents@0.3.0
+  - @kindgi/handler-runtime@0.3.0
+  - @kindgi/tools@0.3.0
+  - @kindgi/guardrails@0.3.0
+  - @kindgi/types@0.3.0
+  - @kindgi/flow@0.3.0
+  - @kindgi/schema@0.3.0
+  - @kindgi/crypto@0.3.0
+
+## 0.3.0-rc.0
+
+### Minor Changes
+
+- 3315892: Starts the 0.3 line: this release has new features, so the middle number moves. Every SDK package shares one version.
+  
+  Release-decision: 0.3.0, the maintainers, 2026-10-28
+
+### Patch Changes
+
+- 8dd91b0: **A model step's calls to read-only tools that come one after another run at the same time, up to 8 at once.** A turn used to run a step's tool calls one after another. Now each batch of up to 8 consecutive calls to tools that declare `mutating: false` (and no changing effect) starts together, and a call to any other tool runs on its own, in the order the model asked. A call that may wait, for another system's answer (a tool that pauses) or for the person who started the run to connect an app (a tool that declares connections), runs on its own too. The results reach the conversation and the model in that order, and the `tool.started` and `tool.completed` events keep it too; each call's `durationMs` is its own. Each batch is planned just before it starts, so a call's access is checked when it's about to run, not when the step began. Once a call needs a review (a tool gate, or a call that waits for a person's approval in an unattended run), the step's calls that haven't started run one at a time, as before, and each is checked again when it runs. When one call of a batch throws, the others are stopped through the step's abort signal and the turn fails after they've settled. A replay answers recorded calls from the record and runs the live ones together the same way. Tool retries (`toolErrors`) count failures in the model's order.
+  
+  A new optional agent field, **`parallelToolCalls`** (default on), turns it off: `false` runs every call on its own, as before. It is in `agent.schema.json` (1.7.0) and `pack-index.schema.json` (1.7.0), `AgentSpec` and `defineAgent` (which refuses a value that isn't `true` or `false`), the indexed pack agent, `POST /v1/agents`, `GET /v1/agents/...` and a deployment's agents (`agent.parallelToolCalls must be true or false` at `/parallelToolCalls`), and the Python SDK's `Agent(parallel_tool_calls=...)`. The `mutating` field's description, in `tool.schema.json`, `ToolSpec` and the API's `ToolSpec` schema, now says it decides what runs together. The authoring skills for tools and agents (TypeScript, Python, Java and Scala) say so too.
+- 8dd91b0: **A flow run's provenance record.** A finished flow run gets a record of its own, as an agent turn has: each step that ran, why it ran, what it started, and what the run's output came from.
+  - **`flowProvenanceBuilder`** (`@kindgi/provenance`) builds a finished flow run's record from its journal, read page by page without payloads: ids, kinds, statuses, times and codes, never a value or a digest of one. Each step is a node of the new kind `step`, with its edges to what caused it. A loop body step is placed by its scope and iteration, and a fanout branch is a step of its fanout. A step lists the child runs it started, and the results it reused when the runtime passes them. A tool step's waits are `wait` and `resume` nodes. A cancelled wait's `resume` node says `decision: 'cancelled'`, with the cancel's reason when the kernel kept one, as an agent turn's does.
+  - **Its caps:** at most 5000 nodes and 4 MiB of canonical bytes, cut from the middle in journal order, with a `truncated` node that says what was left out. A loop keeps whole iterations from both ends, at most 25 from each, within a node budget by its depth, and folds the rest into one node, which counts the loops inside them too. A node's attributes stop at 16 KiB, and an id over 256 characters takes a digest form. Journal entries the build didn't read become a `truncated:entries` node, and a loop across them says `partial: true`.
+  - **`flowProvenanceId(runId)`** is the record's id: a version 5 UUID of the run id, so a parent run names its child's record before it's written. Flow records are written at record version `1.1.0`, which adds the `step` node kind to the schema.
+  - **`stepNodePlacer(nodes)`** (`@kindgi/provenance`) finds the node in a flow record that counts a child run of one of its steps, from the child's `parentNodeId` and `parentScope`: the step's own node, or the folded node of the loop iteration it ran in. It answers `undefined` when the record has neither, as for a step cut with the record's middle. The ids it computes are part of the record's format.
+  - **`JournalEntryFacts`** (`@kindgi/runtime`): the position facts a journal entry can carry beside its payload, its scope, loop, iteration, edge decision and codes, which the builder reads.
+  - **`GET /v1/provenance/{runId}`** has `stepUsage` beside the DAG: a flow record's model usage per step from the cost ledger, keyed by the step's node id. A binding gives it as `getStepUsage`, one row per step as its runs' rows name it (`StepRunsUsage`), and the route places each row on the node that counts the step's runs (`stepNodePlacer`): a folded loop node sums its iterations', and a row with no node, as for a step cut with the record's middle, is left out. The signed export carries it too, at bundle version `1.3.0`. A finished run whose record isn't written yet answers `404 provenance-not-found` with `details.recordState` (`being-written` or `failed`) and, when it failed, `details.reason`.
+  - **`GET /v1/provenance?flowId=`** lists one flow's runs' records, and every page says `flowId` back. In the TypeScript client, `provenance.query({ flowId })` returns a `ProvenancePage` with `flowId`, a record has `stepUsage`, and a not-found error keeps the server's details as `fields`. In the Python client, `provenance.list(flow_id=)`.
+  - **`kindgi provenance list --flow=<flow-id>`** lists one flow's runs' records. A runtime that doesn't list records by flow ignores the filter, and the command then stops instead of printing every record as the flow's. `kindgi provenance get` on a finished run whose record isn't written yet prints the record's state.
+  - **The getting-started skills** (`@kindgi/sdk`), TypeScript and Python, say what a flow run's record holds: its steps, the runs they started and each step's model usage, with each client's name for the step usage and the not-found error's record state.
+- 8dd91b0: **A `retry` guardrail sends a failed answer back to the model, for a new one.** Before, `on-violation: 'retry'` was only recorded, as `log-only` is, and the turn completed. Now, in an agent turn with a `retry` guardrail:
+  - Each finished answer, after output repair, is judged on the turn's `halt` and `retry` guardrails. A failed `halt` fails the turn at once. A failed `retry` adds the answer and a user message naming the guardrails and their checks' reasons (`[kindgi:guardrail-retry] ["<id>",…]`), and the model writes a new answer.
+  - `retry.maxAttempts` counts the answers a guardrail fails, the first one included: with 3, it sends a failed answer back up to twice, and the third answer it fails ends the turn. Left out, it's 2. When a guardrail's attempts run out, or the agent's `budget.maxSteps` does, or the loop's 32 model calls do, the turn fails with `guardrail-violation`: its message says "after N answers", and `GuardrailViolationError.attempts` (and the wire's `details.attempts`) says how many answers the turn had.
+  - The other guardrails judge only the answer that's sent, once. A sent-back answer and its note aren't stored in the conversation.
+  - The outcome ledger gets a set of rows per answer judged, under the step `budget-check@<iteration>`, so a guardrail's counts are of answers judged. A turn without a `retry` guardrail is judged and recorded as before.
+  - The loop's iteration output and `agent.turn` 1.1.0 are unchanged, so a run journaled by either version resumes on the other. A turn resumed in another process after its last answer was judged in the loop judges that answer on its `halt` and `retry` guardrails again, since what the loop judged is kept in memory only; a `retry` failure there fails the turn as out of attempts.
+  - A dry run skips the model call and sends nothing back: a `retry` guardrail that fails its answer fails the turn, as one out of attempts does.
+  
+  `categorizeOutcomes` sorts `retry` failures into a new `retry` list, out of `other`. `GuardrailViolationError` and `describeBlockingViolations` take the attempts. `@kindgi/guardrails`' `retryHandler` takes a `retry` action without `action.retry` (the default attempts apply). The `Action`, schema, OpenAPI and SDK docs say what `retry` does; `@kindgi/client`'s `GuardrailViolationError` gains `attempts`. The guardrail skills say it too: `kindgi-authoring-guardrails` 0.3.12, `kindgi-python-authoring-guardrails` 0.1.6, `kindgi-java-authoring-guardrails` and `kindgi-scala-authoring-guardrails` 0.1.3. The agents skills say that a `retry` guardrail sends the answer back: `kindgi-authoring-agents` 0.4.10, `kindgi-python-authoring-agents` 0.1.9, `kindgi-java-authoring-agents` and `kindgi-scala-authoring-agents` 0.1.5.
+- 8dd91b0: **Flows and tools can have pinned versions, as agents have live versions.** A pin says which version is in use in a scope (a project, an org or the tenant) when nothing names one. A new version is then published without going into use where a pin covers. Without a pin, a new version is in use at once, as before.
+  - `@kindgi/api` adds `PinnedVersionBinding`, the binding behind the pins, and `createApp({ pinnedVersions })` to wire it. Its `resolve` takes the most specific pin covering a project (the project, its org, then the tenant) whose version is still active. `list`, `pin`, `unpin` and `history` keep each change for good: what was pinned before and after, who asked and why.
+  - The pin routes check, in order: the right to pin, the scope (a segment is `400 scope-invalid`, since flows and tools pin no finer than a project), the item and its version, that a project scope reaches the item, and that a pin wider than one project isn't for an item in an environment order (`409 pin-scope-spans-environments`). A tool pin is also refused on a later environment of an order (`409 environment-takes-promotions`), since a tool's pin acts where agent and flow versions are made. A tool that follows its server, an MCP catalog's or one the runtime ships, can't be pinned (`400 tool-not-pinnable`).
+  - Flows: with the binding, `/v1/flows/{flowId}` gains the five pin routes (`flows.pinned.resolve`, `list`, `pin`, `unpin` and `history`). A run that names no flow version takes the version pinned for its project, else the newest the project reaches, and `GET …/pinned` answers what such a run takes there; a pin whose version doesn't reach the project is passed over, as a run passes it over. Under `kindgi dev`, the flow registry is read-only and a pin write is refused with `409 registry-read-only`, as its other writes are. `Run` gains the optional `flowVersionVia` (`explicit`, `pinned` or `latest`) and `flowPinnedScope`, and `StartRunBody.flowVersion` says that an omitted version takes the pin.
+  - Tools: with the binding, `/v1/tools/{toolId}` gains the same five routes (`tools.pinned.*`). An agent or flow version made in a project a tool's pin covers (`POST /v1/agents`, `POST /v1/flows`, a deploy) locks the tool at the pinned version: a flow's tool step always, an agent's tool range when the pinned version is in it; else as before. A deploy looks each tool's pin up once. `GET …/pinned` answers what a flow version made there would lock. A tool an MCP catalog lists (its `kindgi.mcp` metadata) is refused with `400 tool-not-pinnable`, and a pin on a later environment of an order with `409 environment-takes-promotions`.
+  - A deployment promotion with `makeLive` also pins each flow version it carries for the target project, after the agents, and its answer lists them in the new optional `pinnedFlows` (`DeploymentPinnedFlow`: `{id, version}`). The right to pin each flow is checked with the agents' rights, before any pin. An error after some pins lists the flows pinned so far in `error.details.pinnedFlows`, as `error.details.live` lists the agents. Without the binding, nothing pins a flow and the answer has no `pinnedFlows`.
+  - Unregistering a pinned flow or tool version answers `409 flow-version-pinned` or `409 tool-version-pinned`, naming the pins' scopes in `details.scopes`: `FlowUnregisterOutcome` and `ToolUnregisterOutcome` gain the optional `pinned`, which a registry that knows pins sets.
+  - New schemas: `PinScope`, `PinActor`, `PinnedVersionResolution`, `PinnedVersion`, `PinnedVersionList`, `PinnedVersionChange`, `PinnedVersionChangePage`, `PinVersionBody` and `UnpinVersionBody`. New error codes: `pin-scope-spans-environments`, `tool-not-pinnable`, and `flow-version-pinned` and `tool-version-pinned`, which a runtime answers when a pinned version is unregistered or its item deleted.
+  - `@kindgi/authz` adds the `pin` action (`can_pin`) on flows and tools, so a caller's permissions can list it there.
+  - `@kindgi/compliance` and `@kindgi/specs` add six audit kinds: `flow-pinned`, `flow-unpinned`, `flow-pin-inactive`, `tool-pinned`, `tool-unpinned` and `tool-pin-inactive`.
+  - `@kindgi/types` adds `PinScope`, `PinnedItemKind` and `FlowVersionVia`.
+  - `@kindgi/runtime`: `RunFlowInput`, `StartRunParams` and `KernelRunRecord` gain the optional `flowVersionVia` and `flowPinnedScope`, recorded with the run.
+  - `@kindgi/cli`: `kindgi promote --make-live` also prints each flow version it pinned in `--to`, under "Flows pinned in", and its help says so; with `--json` they are in `promotion.pinnedFlows`. `kindgi exports create` writes each flow's and tool's pins, in `flow-pinned-versions.jsonl` and `tool-pinned-versions.jsonl`, and their changes, in `flow-pin-history.jsonl` and `tool-pin-history.jsonl`, one line per record under its flow's or tool's id.
+  - `@kindgi/client`: `client.flows.pinned.{resolve, list, pin, unpin, history}`, the same on `client.tools.pinned`, `Run.flowVersionVia` and `Run.flowPinnedScope`, and `DeploymentPromotion.pinnedFlows`.
+  - `@kindgi/sdk`: the four flow skills (`kindgi-authoring-flows` and its Java, Python and Scala ones) say a run keeps the flow version it started on, and that a run naming no version takes the version pinned for its project (or its org, or the tenant), else the newest the project reaches.
+- 8dd91b0: **The `kindgi-fix-corrections` skill reads exit code 3 as an answer.** `kindgi agents promote --check`, and the request itself, exit 3 when the answer is no or the request waits for an approval. The skill reads the printed outcome, and doesn't take exit 3 for an error.
+- 5960c0c: **A docs link in a skill no longer ends in a sentence's period.** The getting-started skills' Azure Container Apps and upgrade links, and the authoring-agents skills' memory link, sit on a line of their own after a colon, so copying one gives the page, not the page with a period on the end.
+- 8dd91b0: **The MCP servers, fix-corrections and framework-feedback skills load in levels.** Each `SKILL.md` now holds what's true on every path and names the file for each case, so a coding agent reads about 5–6 KB and then only the files its case needs, not the whole 12–15 KB. The MCP servers skill has one file each for how the secret reaches the server, Postgres and the steps every preset follows, several servers and their names, clients other than Claude Code, and common mistakes. The fix-corrections skill keeps what stays with the person and how to sort a correction in its entry, with a file for each step of the loop and a worked example. The framework-feedback skill keeps when and how to file in its entry, with one file each for an entry's fields, sending to Kindgi, hearing back, editing `FEEDBACK.md`, and common mistakes. The providers skill's Path A and Path B files list each of their steps by its title in their contents.
+- 8dd91b0: **The providers skill and the TypeScript tools skill load in levels.** Each `SKILL.md` now holds what's true on every path and a table naming the file for each case, so a coding agent reads about 6 KB and then only the files its case needs, not the whole 32 KB (tools) or 45 KB (providers). The providers skill has a file per path (Anthropic and the one-key presets, OpenAI-compatible endpoints and Ollama, in-process ONNX, Vertex AI, Bedrock), and one each for Kindgi Cloud, keys and registration, the router and common mistakes. The tools skill has one each for handlers, secrets and connections, HTTP specs, the `mutating` and approval flags, iterating and testing, and common mistakes. `kindgi skills sync` installs every file. The providers skill's description is now under the 1,024-character limit.
+- 70cd957: **The getting-started skills (TypeScript, Python, Java, Scala) say the Cloud Run module's `./upgrade.sh` upgrades a deployment in any `network_mode`,** from the `@kindgi/sdk@0.3.0` tag on (before it, `"none"` only), and that it takes a `--var-file` for each file the deployment's variables are in.
+- c39c1e6: **Breaking: `defineGuardrail(spec, checks)` is now `validateGuardrail(spec, checks)`.** It validates a guardrail declaration against the wire schema and a check registry and returns a `Result`, as before; only the name changes, and there's no alias. The new name says what it does, beside `validateGuardrailSpec`, and leaves `defineGuardrail` free for authoring a guardrail, as `defineTool` and `defineCheck` author theirs. To upgrade, rename the import and the call. The guardrail schema's descriptions and the `kindgi-authoring-guardrails` skill name `validateGuardrail`.
+- Updated dependencies [8dd91b0]
+- Updated dependencies [77de8bd]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [5022734]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [52d0759]
+- Updated dependencies [8dd91b0]
+- Updated dependencies [c39c1e6]
+  - @kindgi/client@0.3.0-rc.0
+  - @kindgi/agents@0.3.0-rc.0
+  - @kindgi/handler-runtime@0.3.0-rc.0
+  - @kindgi/tools@0.3.0-rc.0
+  - @kindgi/guardrails@0.3.0-rc.0
+  - @kindgi/types@0.3.0-rc.0
+  - @kindgi/flow@0.3.0-rc.0
+  - @kindgi/schema@0.3.0-rc.0
+  - @kindgi/crypto@0.3.0-rc.0
+
+## 0.2.0
+
+### Minor Changes
+
+- ae09fc0: Version numbers now say what a release holds. A release with new features moves the middle number, as this one does, and a release with only fixes moves the last. Every SDK package shares one version.
+  
+  Release-decision: 0.2.0, the maintainers, 2026-10-22
+
+### Patch Changes
+
+- bf30268: **A new authoring skill, "Fix what the experts corrected", with a guide to match.** When an expert judges an agent's run wrong and says why, a coding agent can now turn those corrections into changes. `kindgi init` and `kindgi skills sync` install the `kindgi-fix-corrections` skill (every language), which pulls an agent's "no" judgments (`kindgi judgments list --verdict=no`), reads each with the run behind it (`kindgi runs get`, `kindgi runs journal`), and sorts each correction to where it belongs — a rule in a tool's code, a setting, an approval rule, or the agent's instructions — adding a pack test per correction, then publishing a new version (`kindgi agents derive` for a setting, `kindgi deploy` for code) and asking a person to make it live with `kindgi agents promote … --reason`, naming the corrections. It never raises a limit or drops a check — a correction that would loosen anything goes to the owner — and it keeps the pulled runs' customer data out of the pack. The guide "Fix what the experts corrected" walks a person through the same loop.
+- 08dedca: **`kindgi init --template=follow-up`:** an agent that writes a follow-up mail from your notes and sends it from your own Gmail, each send approved first.
+  - Its send tool is `gmailSend` from `@kindgi/connections`, included under the pack's own id. `init` adds `@kindgi/connections` at the CLI's own version, or linked from a checkout with `--link-local`.
+  - Its README covers connecting Google, what waits for a person, and why text other people wrote is information, never instructions.
+  - In an existing app, `init` refuses it and points at `--new-repo`.
+  - The getting-started skill lists it.
+- 08dedca: **`@kindgi/sdk/define` re-exports a tool's connection names** from `@kindgi/tools`, unchanged: `ConnectionRejectedError` and `isConnectionRejectedError`, and the types `ToolConnection`, `ConnectionNeed` and `ConnectionAccount`. A tool that declares `needsSpec.connections` imports everything from the SDK, as for its other names.
+- b5c5da3: **The TypeScript and Python getting-started skills say where `kindgi dev`'s token is:** `token` in the pack's `.kindgirc.json`, with the API's URL as `apiUrl`. `kindgi dev`'s banner now shows only the token's last four characters.
+- 633d9e7: **The TypeScript getting-started skill names the other provider presets,** as the Python, Java and Scala ones do: Anthropic is its example, and `kindgi providers presets` lists OpenAI, Gemini, Groq and OpenRouter too.
+- 08dedca: **The tool-authoring skills cover connections to other apps,** in TypeScript, Python, Java and Scala. A tool declares the connection it needs in its `needsSpec`, reads the call's short-lived token from the call's context, and throws a refusal with the connection's name when the app answers 401. The TypeScript skill also points at the ready-made Gmail, Outlook, GitHub and LinkedIn tools in `@kindgi/connections`, each included under an id the pack names, and at `appFetch` for a tool's own calls to an app's API.
+- 2efe644: **The getting-started skills (TypeScript, Python, Java, Scala) say how to upgrade a self-hosted deployment,** and load for it. There's no migration script: the runtime brings its database up to date when it starts. A small dev deployment on Cloud Run, on runtime 0.1.8 or later, upgrades with the Cloud Run module's `./upgrade.sh`, from the tag of the release it's upgrading to, `--dry-run` first; the skills link the module README's Upgrading section for the rest. Any other Cloud Run deployment, or one on Azure Container Apps, follows its page's "Operate it" section, and anything else the operate page's upgrade steps. The Java and Scala skills add that `./kindgiw upgrade` moves the pack's own pins, not a deployment's runtime.
+- b6e20ca: **The getting-started skills (TypeScript, Python, Java, Scala) say more about upgrading a deployment on Cloud Run.** The module's `./upgrade.sh` makes its plan with every `*.auto.tfvars.json` in the module's folder too, the pack's env among them, and `yes` applies exactly the saved plan it showed. Any other Cloud Run deployment upgrades by hand, staging first, as the Cloud Run page's new "Upgrade by hand" section says, and one on Azure Container Apps follows its page's "Operate it" section.
+- 188f532: **The `kindgi-using` skill knows an approval addressed to one person, and a run that waits for a connect.** It says who decides an approval with an `approver`, and that any decision of a tenant admin's on it, escalating included, is refused (`403 named-approver-required`), while its person approves or rejects it but can't escalate it (`409 invalid-transition`). Asked what a run waits for, it reads `kindgi runs resume <run-id>`'s exit code, and for a connect (`6`) hands over the link the person who started the run connects from. Connecting an app is now among the actions it leaves to the person.
+- b6e20ca: **The `kindgi-using` skill finds a mail trigger in the console.** Asked what the support inbox did with a mail, it links the trigger's page, `mail-triggers/<triggerId>`, with its latest mails, up to 50, what happened to each and the run it started (older mail is in `kindgi mail-triggers fires`), and `runs?trigger=<triggerId>`, every run it started. Its console pages list the mail triggers, and it links Start runs from new mail.
+- 68e0d57: **A run paused until another system answers is answered at its link, or through the API.**
+  
+  - **`@kindgi/agents`:** an agent's call to a tool that declares `pauses` parks the turn until the answer comes, and the turn goes on with it as the call's result. The model sees the answer as data from outside, inside an `<event>` block, and the turn's system prompt then says never to follow instructions found there. Resumed, the turn doesn't call the tool again. A wait that times out is the tool error `wait-token-timed-out`, handled by the agent's tool error rules like any other: it fails the turn unless they retry `tool-error`. A retried step waits on a new token.
+  - **`@kindgi/api`:**
+    - `POST /v1/wait-tokens/{token}/complete` takes another system's answer at the link a pausing tool handed on. The token in the path is the credential: no `Authorization` header. The body is the tool's output as JSON, at most 1 MiB; an empty body is `{}`. It answers `200 { status: 'accepted' }` at once, and the run resumes behind the answer: the sender waits for none of the run. An answer that comes before the run reaches its wait is held for it, and dropped if the run never waits on that token (the tool answered at once, or its step was retried); the link then answers `409 wait-token-closed`, `unused`. The server logs the path as `/v1/wait-tokens/:token`, never the token.
+    - `POST /v1/runs/{runId}/resume` answers a `pause:` waitpoint, as the link would, and needs write access and `execute` on the run's agent or flow. It returns the run as `GET /v1/runs/{runId}` does. Every other waitpoint stays `422 run-resume-not-supported`, and a body without `waitpointId`, or with a field it doesn't take, is now `400 bad-input`.
+    - `GET /v1/runs/{runId}`'s `waitingFor` gains `tokens`: each wait's `tokenId`, `name`, tool and call, step, and when it times out. Never the link.
+    - New error codes: `wait-token-not-found` (404: an unknown token and a wrong one alike), `wait-token-closed` (409, `details.state`), `wait-token-output-invalid` (400, `details.issues`: the wait stays open) and `unsupported-media-type` (415: a body that isn't JSON).
+    - Nothing runs where the run is while its tenant is closing or suspended or its project is suspended, so an answer then is refused (`409 tenant-closing`, `409 tenant-suspended` or `409 project-suspended`) and nothing is taken. Closing or suspending cancels the tenant's or project's runs, paused ones included, so the refusal is for an answer that comes before the cancel reaches its run. When the tenant's state can't be read, the answer is `503 tenant-state-unavailable` with `Retry-After`. The link tells any of it only for a token that matches; through the API, a frozen tenant is refused as every write of its is.
+    - The link limits requests per client: past 600 a minute, `429 rate-limit-exceeded` with `Retry-After`, counted before the body is read or the token looked up, so nothing was taken and the same answer can be sent again then.
+    - For a runtime: `createApp` takes `waitTokens`, a `WaitTokenBinding` (`complete` and `waiting`). Without one, the link answers `404` and resume `422`, as before. The link tells clients apart and counts them where `webhookReceiver` says (`clientAddress`, `rateLimitStore`), with its defaults when that's absent.
+  - **`@kindgi/compliance` and `@kindgi/specs`:** two built-in evidence kinds, `wait-token-completed` (an answer landed, held for the run or taken) and `wait-token-discarded` (a held early answer the run never took). Their payloads carry the answer's size and SHA-256, never the answer.
+  - **`@kindgi/client`:** `runs.resume` answers a run's wait for another system, and `Run` carries `waitingFor` (`RunWaitingFor`, `RunWaitingApproval` and `RunWaitingToken` are exported). `approvals.completeToken`, which had no route and always threw `not-yet-wired`, and its `CompleteTokenInput` (re-exported by `@kindgi/sdk` too) are removed, so code that imports `CompleteTokenInput` stops compiling: an approval's run resumes through `approvals.decide`.
+- b6e20ca: **A tool can say its results are text from outside: `resultIsOutsideData`.** A tool manifest's new optional `resultIsOutsideData: true` says the tool's results are text nobody checked, such as a mail someone sent. An agent then reads each result of it as data, not instructions:
+  - in an `<event>` block;
+  - in that turn, and again in every later turn's history;
+  - with the framework's line about outside data in the system message from the turn's start.
+  
+  It changes what the model is told, not what the tool may do. The pack index carries it, and `GET /v1/tools` shows it. `outlookMessagesList` sets it, so it moves to version 1.1.0: a project that has 1.0.0 gets the flag when it takes 1.1.0.
+- 760acad: **A turn whose `maxSteps` is above 32 now stops at the 32nd model call with `budget-exceeded`, instead of running its loop out.** A turn's loop runs at most 32 iterations (`AGENT_TURN_LOOP_MAX_ITERATIONS`), one model call each. With a higher `maxSteps`, a model that still wanted a tool on the 32nd call ended the loop with no answer, and the turn's failure didn't name the budget. The step check now holds `maxSteps` to 32: the turn fails with `budget-exceeded`, kind `steps`, `limit` 32, and the message adds that a turn makes at most 32 model calls, fewer than its `maxSteps`. A typed answer that doesn't fit on the 32nd call gets no repair the loop couldn't run, so the turn fails with `output-schema-violation`. A `maxSteps` of 32 or less works as before. No API, type or flow change: the turn's flow stays `agent.turn` 1.1.0.
+  
+  The budget docs now give the real defaults. `defineAgent`'s doc said `maxSteps` 6, `maxCostUsd` 0.1 and `maxWallMs` 30 000. They are 8 steps, no cost cap, and 120 000 ms. The `TurnBudget` type, `agent.schema.json`, the agent-authoring skills and the budgets guide now also say a turn makes at most 32 model calls.
+- b6e20ca: **In a run no person started, a tool that reads with a person's connection now waits for that person's yes too, as one that changes things does; in a schedule's or webhook's run, list it in its tools allowed unattended to run it unasked.** A tool counts when it has an `as: 'person'` connection, whatever its `mutating` says. On a flow's tool step such a call is refused with `needs-a-person`, as a change is.
+  
+  **A run can say a mail started it.**
+  - `startedBy` and a run's `trigger.kind` can be `mail`. The two OpenAPI enums are now built from `RUN_STARTED_BY` and the new `RUN_TRIGGER_KINDS`, so they can't drift from the runtime's.
+  - `RunMailbox` (`app`, and `as: 'company' | 'person'`) is the mailbox a mail trigger's run came from. It's recorded with the run, as `mailbox`, beside `startedBy` and `toolsAllowedUnattended`, and a resumed turn reads it back from its snapshot.
+  - In a run a mail started, two more calls wait for a person's yes in an agent turn, and are refused in a flow's tool step:
+    - a call of any tool that isn't `mutating: false`;
+    - a call with a connection of the run's own mailbox, its app and kind, read-only or not.
+  - A tool the mail trigger's `toolsAllowedUnattended` lists runs without that yes, as on a schedule or a webhook.
+  - `needsPersonsYesUnattended` takes the run's mailbox as an optional fourth argument.
+  - `unattendedWaitReason` gives why a call waits, the first that holds: the tool declares it (`declared`), it uses a person's connection (`persons-connection`), or in a mail's run it changes something (`mail-change`) or uses the run's own mailbox (`mail-own-mailbox`). So a refusal can name the reason the rule found. `needsPersonsYesUnattended` is whether it gives one.
+  - The TypeScript client's `RunTrigger.kind` can be `mail`.
+- Updated dependencies [68e0d57]
+- Updated dependencies [bf30268]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [68e0d57]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [bf30268]
+- Updated dependencies [68e0d57]
+- Updated dependencies [d70c2a5]
+- Updated dependencies [e019e64]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [68e0d57]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [119ac78]
+- Updated dependencies [fc7347c]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [760acad]
+- Updated dependencies [b6e20ca]
+  - @kindgi/agents@0.2.0
+  - @kindgi/handler-runtime@0.2.0
+  - @kindgi/client@0.2.0
+  - @kindgi/tools@0.2.0
+  - @kindgi/schema@0.2.0
+  - @kindgi/flow@0.2.0
+  - @kindgi/guardrails@0.2.0
+  - @kindgi/crypto@0.2.0
+  - @kindgi/types@0.2.0
+
+## 0.2.0-rc.1
+
+### Patch Changes
+
+- b6e20ca: **The getting-started skills (TypeScript, Python, Java, Scala) say more about upgrading a deployment on Cloud Run.** The module's `./upgrade.sh` makes its plan with every `*.auto.tfvars.json` in the module's folder too, the pack's env among them, and `yes` applies exactly the saved plan it showed. Any other Cloud Run deployment upgrades by hand, staging first, as the Cloud Run page's new "Upgrade by hand" section says, and one on Azure Container Apps follows its page's "Operate it" section.
+- b6e20ca: **The `kindgi-using` skill finds a mail trigger in the console.** Asked what the support inbox did with a mail, it links the trigger's page, `mail-triggers/<triggerId>`, with its latest mails, up to 50, what happened to each and the run it started (older mail is in `kindgi mail-triggers fires`), and `runs?trigger=<triggerId>`, every run it started. Its console pages list the mail triggers, and it links Start runs from new mail.
+- b6e20ca: **A tool can say its results are text from outside: `resultIsOutsideData`.** A tool manifest's new optional `resultIsOutsideData: true` says the tool's results are text nobody checked, such as a mail someone sent. An agent then reads each result of it as data, not instructions:
+  - in an `<event>` block;
+  - in that turn, and again in every later turn's history;
+  - with the framework's line about outside data in the system message from the turn's start.
+  
+  It changes what the model is told, not what the tool may do. The pack index carries it, and `GET /v1/tools` shows it. `outlookMessagesList` sets it, so it moves to version 1.1.0: a project that has 1.0.0 gets the flag when it takes 1.1.0.
+- b6e20ca: **In a run no person started, a tool that reads with a person's connection now waits for that person's yes too, as one that changes things does; in a schedule's or webhook's run, list it in its tools allowed unattended to run it unasked.** A tool counts when it has an `as: 'person'` connection, whatever its `mutating` says. On a flow's tool step such a call is refused with `needs-a-person`, as a change is.
+  
+  **A run can say a mail started it.**
+  - `startedBy` and a run's `trigger.kind` can be `mail`. The two OpenAPI enums are now built from `RUN_STARTED_BY` and the new `RUN_TRIGGER_KINDS`, so they can't drift from the runtime's.
+  - `RunMailbox` (`app`, and `as: 'company' | 'person'`) is the mailbox a mail trigger's run came from. It's recorded with the run, as `mailbox`, beside `startedBy` and `toolsAllowedUnattended`, and a resumed turn reads it back from its snapshot.
+  - In a run a mail started, two more calls wait for a person's yes in an agent turn, and are refused in a flow's tool step:
+    - a call of any tool that isn't `mutating: false`;
+    - a call with a connection of the run's own mailbox, its app and kind, read-only or not.
+  - A tool the mail trigger's `toolsAllowedUnattended` lists runs without that yes, as on a schedule or a webhook.
+  - `needsPersonsYesUnattended` takes the run's mailbox as an optional fourth argument.
+  - `unattendedWaitReason` gives why a call waits, the first that holds: the tool declares it (`declared`), it uses a person's connection (`persons-connection`), or in a mail's run it changes something (`mail-change`) or uses the run's own mailbox (`mail-own-mailbox`). So a refusal can name the reason the rule found. `needsPersonsYesUnattended` is whether it gives one.
+  - The TypeScript client's `RunTrigger.kind` can be `mail`.
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+- Updated dependencies [b6e20ca]
+  - @kindgi/tools@0.2.0-rc.1
+  - @kindgi/client@0.2.0-rc.1
+  - @kindgi/handler-runtime@0.2.0-rc.1
+  - @kindgi/agents@0.2.0-rc.1
+  - @kindgi/guardrails@0.2.0-rc.1
+  - @kindgi/flow@0.2.0-rc.1
+  - @kindgi/schema@0.2.0-rc.1
+  - @kindgi/crypto@0.2.0-rc.1
+  - @kindgi/types@0.2.0-rc.1
+
+## 0.2.0-rc.0
+
+### Minor Changes
+
+- ae09fc0: Version numbers now say what a release holds. A release with new features moves the middle number, as this one does, and a release with only fixes moves the last. Every SDK package shares one version.
+  
+  Release-decision: 0.2.0, the maintainers, 2026-10-22
+
+### Patch Changes
+
+- bf30268: **A new authoring skill, "Fix what the experts corrected", with a guide to match.** When an expert judges an agent's run wrong and says why, a coding agent can now turn those corrections into changes. `kindgi init` and `kindgi skills sync` install the `kindgi-fix-corrections` skill (every language), which pulls an agent's "no" judgments (`kindgi judgments list --verdict=no`), reads each with the run behind it (`kindgi runs get`, `kindgi runs journal`), and sorts each correction to where it belongs — a rule in a tool's code, a setting, an approval rule, or the agent's instructions — adding a pack test per correction, then publishing a new version (`kindgi agents derive` for a setting, `kindgi deploy` for code) and asking a person to make it live with `kindgi agents promote … --reason`, naming the corrections. It never raises a limit or drops a check — a correction that would loosen anything goes to the owner — and it keeps the pulled runs' customer data out of the pack. The guide "Fix what the experts corrected" walks a person through the same loop.
+- 08dedca: **`kindgi init --template=follow-up`:** an agent that writes a follow-up mail from your notes and sends it from your own Gmail, each send approved first.
+  - Its send tool is `gmailSend` from `@kindgi/connections`, included under the pack's own id. `init` adds `@kindgi/connections` at the CLI's own version, or linked from a checkout with `--link-local`.
+  - Its README covers connecting Google, what waits for a person, and why text other people wrote is information, never instructions.
+  - In an existing app, `init` refuses it and points at `--new-repo`.
+  - The getting-started skill lists it.
+- 08dedca: **`@kindgi/sdk/define` re-exports a tool's connection names** from `@kindgi/tools`, unchanged: `ConnectionRejectedError` and `isConnectionRejectedError`, and the types `ToolConnection`, `ConnectionNeed` and `ConnectionAccount`. A tool that declares `needsSpec.connections` imports everything from the SDK, as for its other names.
+- b5c5da3: **The TypeScript and Python getting-started skills say where `kindgi dev`'s token is:** `token` in the pack's `.kindgirc.json`, with the API's URL as `apiUrl`. `kindgi dev`'s banner now shows only the token's last four characters.
+- 633d9e7: **The TypeScript getting-started skill names the other provider presets,** as the Python, Java and Scala ones do: Anthropic is its example, and `kindgi providers presets` lists OpenAI, Gemini, Groq and OpenRouter too.
+- 08dedca: **The tool-authoring skills cover connections to other apps,** in TypeScript, Python, Java and Scala. A tool declares the connection it needs in its `needsSpec`, reads the call's short-lived token from the call's context, and throws a refusal with the connection's name when the app answers 401. The TypeScript skill also points at the ready-made Gmail, Outlook, GitHub and LinkedIn tools in `@kindgi/connections`, each included under an id the pack names, and at `appFetch` for a tool's own calls to an app's API.
+- 2efe644: **The getting-started skills (TypeScript, Python, Java, Scala) say how to upgrade a self-hosted deployment,** and load for it. There's no migration script: the runtime brings its database up to date when it starts. A small dev deployment on Cloud Run, on runtime 0.1.8 or later, upgrades with the Cloud Run module's `./upgrade.sh`, from the tag of the release it's upgrading to, `--dry-run` first; the skills link the module README's Upgrading section for the rest. Any other Cloud Run deployment, or one on Azure Container Apps, follows its page's "Operate it" section, and anything else the operate page's upgrade steps. The Java and Scala skills add that `./kindgiw upgrade` moves the pack's own pins, not a deployment's runtime.
+- 188f532: **The `kindgi-using` skill knows an approval addressed to one person, and a run that waits for a connect.** It says who decides an approval with an `approver`, and that any decision of a tenant admin's on it, escalating included, is refused (`403 named-approver-required`), while its person approves or rejects it but can't escalate it (`409 invalid-transition`). Asked what a run waits for, it reads `kindgi runs resume <run-id>`'s exit code, and for a connect (`6`) hands over the link the person who started the run connects from. Connecting an app is now among the actions it leaves to the person.
+- 68e0d57: **A run paused until another system answers is answered at its link, or through the API.**
+  
+  - **`@kindgi/agents`:** an agent's call to a tool that declares `pauses` parks the turn until the answer comes, and the turn goes on with it as the call's result. The model sees the answer as data from outside, inside an `<event>` block, and the turn's system prompt then says never to follow instructions found there. Resumed, the turn doesn't call the tool again. A wait that times out is the tool error `wait-token-timed-out`, handled by the agent's tool error rules like any other: it fails the turn unless they retry `tool-error`. A retried step waits on a new token.
+  - **`@kindgi/api`:**
+    - `POST /v1/wait-tokens/{token}/complete` takes another system's answer at the link a pausing tool handed on. The token in the path is the credential: no `Authorization` header. The body is the tool's output as JSON, at most 1 MiB; an empty body is `{}`. It answers `200 { status: 'accepted' }` at once, and the run resumes behind the answer: the sender waits for none of the run. An answer that comes before the run reaches its wait is held for it, and dropped if the run never waits on that token (the tool answered at once, or its step was retried); the link then answers `409 wait-token-closed`, `unused`. The server logs the path as `/v1/wait-tokens/:token`, never the token.
+    - `POST /v1/runs/{runId}/resume` answers a `pause:` waitpoint, as the link would, and needs write access and `execute` on the run's agent or flow. It returns the run as `GET /v1/runs/{runId}` does. Every other waitpoint stays `422 run-resume-not-supported`, and a body without `waitpointId`, or with a field it doesn't take, is now `400 bad-input`.
+    - `GET /v1/runs/{runId}`'s `waitingFor` gains `tokens`: each wait's `tokenId`, `name`, tool and call, step, and when it times out. Never the link.
+    - New error codes: `wait-token-not-found` (404: an unknown token and a wrong one alike), `wait-token-closed` (409, `details.state`), `wait-token-output-invalid` (400, `details.issues`: the wait stays open) and `unsupported-media-type` (415: a body that isn't JSON).
+    - Nothing runs where the run is while its tenant is closing or suspended or its project is suspended, so an answer then is refused (`409 tenant-closing`, `409 tenant-suspended` or `409 project-suspended`) and nothing is taken. Closing or suspending cancels the tenant's or project's runs, paused ones included, so the refusal is for an answer that comes before the cancel reaches its run. When the tenant's state can't be read, the answer is `503 tenant-state-unavailable` with `Retry-After`. The link tells any of it only for a token that matches; through the API, a frozen tenant is refused as every write of its is.
+    - The link limits requests per client: past 600 a minute, `429 rate-limit-exceeded` with `Retry-After`, counted before the body is read or the token looked up, so nothing was taken and the same answer can be sent again then.
+    - For a runtime: `createApp` takes `waitTokens`, a `WaitTokenBinding` (`complete` and `waiting`). Without one, the link answers `404` and resume `422`, as before. The link tells clients apart and counts them where `webhookReceiver` says (`clientAddress`, `rateLimitStore`), with its defaults when that's absent.
+  - **`@kindgi/compliance` and `@kindgi/specs`:** two built-in evidence kinds, `wait-token-completed` (an answer landed, held for the run or taken) and `wait-token-discarded` (a held early answer the run never took). Their payloads carry the answer's size and SHA-256, never the answer.
+  - **`@kindgi/client`:** `runs.resume` answers a run's wait for another system, and `Run` carries `waitingFor` (`RunWaitingFor`, `RunWaitingApproval` and `RunWaitingToken` are exported). `approvals.completeToken`, which had no route and always threw `not-yet-wired`, and its `CompleteTokenInput` (re-exported by `@kindgi/sdk` too) are removed, so code that imports `CompleteTokenInput` stops compiling: an approval's run resumes through `approvals.decide`.
+- 760acad: **A turn whose `maxSteps` is above 32 now stops at the 32nd model call with `budget-exceeded`, instead of running its loop out.** A turn's loop runs at most 32 iterations (`AGENT_TURN_LOOP_MAX_ITERATIONS`), one model call each. With a higher `maxSteps`, a model that still wanted a tool on the 32nd call ended the loop with no answer, and the turn's failure didn't name the budget. The step check now holds `maxSteps` to 32: the turn fails with `budget-exceeded`, kind `steps`, `limit` 32, and the message adds that a turn makes at most 32 model calls, fewer than its `maxSteps`. A typed answer that doesn't fit on the 32nd call gets no repair the loop couldn't run, so the turn fails with `output-schema-violation`. A `maxSteps` of 32 or less works as before. No API, type or flow change: the turn's flow stays `agent.turn` 1.1.0.
+  
+  The budget docs now give the real defaults. `defineAgent`'s doc said `maxSteps` 6, `maxCostUsd` 0.1 and `maxWallMs` 30 000. They are 8 steps, no cost cap, and 120 000 ms. The `TurnBudget` type, `agent.schema.json`, the agent-authoring skills and the budgets guide now also say a turn makes at most 32 model calls.
+- Updated dependencies [68e0d57]
+- Updated dependencies [bf30268]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [08dedca]
+- Updated dependencies [68e0d57]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [68e0d57]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [bf30268]
+- Updated dependencies [68e0d57]
+- Updated dependencies [d70c2a5]
+- Updated dependencies [e019e64]
+- Updated dependencies [68e0d57]
+- Updated dependencies [68e0d57]
+- Updated dependencies [08dedca]
+- Updated dependencies [119ac78]
+- Updated dependencies [fc7347c]
+- Updated dependencies [760acad]
+  - @kindgi/agents@0.2.0-rc.0
+  - @kindgi/handler-runtime@0.2.0-rc.0
+  - @kindgi/client@0.2.0-rc.0
+  - @kindgi/tools@0.2.0-rc.0
+  - @kindgi/schema@0.2.0-rc.0
+  - @kindgi/flow@0.2.0-rc.0
+  - @kindgi/guardrails@0.2.0-rc.0
+  - @kindgi/crypto@0.2.0-rc.0
+  - @kindgi/types@0.2.0-rc.0
+
 ## 0.1.10
 
 ### Patch Changes

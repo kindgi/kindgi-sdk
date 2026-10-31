@@ -16,8 +16,15 @@
  * revision it's given under, read at the version that revision names, and
  * each one's audit row written before any is returned. To an orchestrator that doesn't ask, such a name is
  * `secret-not-yet`; to the owner's check, it's set as a secret. A name
- * that's set both as a secret and as a plain value is `ambiguous`, naming
- * both scopes, and is never given.
+ * that's set two ways (as two of a plain value, a secret and a cloud
+ * secret) is `ambiguous`, naming each scope, and is never given.
+ *
+ * A name can also be set to a cloud secret (`EnvCloudSecretBinding`): a
+ * version of a secret the pack service's cloud holds, which the cloud reads,
+ * never the runtime. It's set, with no problem, to the orchestrator and the
+ * owner alike, and the orchestrator is given its name (`cloudSecrets`),
+ * never a value. Set as two of a plain value, a secret and a cloud secret,
+ * a name is `ambiguous`.
  *
  * A check reads with `get` only, never `resolve`: it tells where each name
  * is set. Only `packEnvValues`, the orchestrator's read, returns values, and
@@ -32,7 +39,12 @@ import type { Logger } from '@kindgi/log';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
 import type { EnvName, OrgId, ProjectId, TenantId } from '@kindgi/types';
 
-import type { EnvBinding, EnvRecord } from './env-binding.js';
+import type {
+  EnvBinding,
+  EnvCloudSecretBinding,
+  EnvCloudSecretRecord,
+  EnvRecord,
+} from './env-binding.js';
 import { secretScopeChain } from './secret-scope.js';
 import type { SecretBinding, SecretError, SecretRecord } from './secrets-binding.js';
 
@@ -53,7 +65,8 @@ export interface PackEnvScopeRef {
 /**
  * Why a deployment's pack service can't be given its declared environment,
  * in the order it's reported:
- * - `pack-env-ambiguous`: a name is set both as a secret and as a plain value;
+ * - `pack-env-ambiguous`: a name is set as two of a plain value, a secret and
+ *   a cloud secret;
  * - `pack-env-secret-not-yet`: a name is set only as a secret, and the
  *   orchestrator didn't ask for secret values;
  * - `pack-env-missing`: a required name is set nowhere;
@@ -79,11 +92,19 @@ export type PackEnvProblemCode = (typeof PACK_ENV_PROBLEM_CODES)[number];
  *   it gives out, so it gives none (`501`). The platform fixes it, and it's
  *   tried again;
  * - `pack-env-secret-too-large`: a secret's value is over 32768 bytes, the
- *   most a pack service can be given.
+ *   most a pack service can be given;
+ * - `pack-env-name-too-long`: a name set as a secret is too long for the
+ *   secret the orchestrator keeps it in, which is named after the pack
+ *   service. Shorten the name in the pack.
+ * - `pack-env-cloud-secret-unsupported`: a name is set to a cloud secret, and
+ *   the host the pack service runs on can't give it one. It waits for the
+ *   name to be set another way.
  */
 export const PACK_ENV_SECRET_GIVE_CODES = [
   'pack-env-secrets-unaudited',
   'pack-env-secret-too-large',
+  'pack-env-name-too-long',
+  'pack-env-cloud-secret-unsupported',
 ] as const;
 
 /**
@@ -134,23 +155,29 @@ export const PACK_ENV_RETRY_MS = 60 * 60_000;
 export interface PackEnvNameStatus {
   readonly name: string;
   readonly required: boolean;
-  /** What it's set as. `null` when it's set nowhere. */
-  readonly kind: 'env' | 'secret' | null;
-  /** Where it's set: the plain value's scope when `ambiguous`. `null` when it's set nowhere. */
+  /**
+   * What it's set as: a plain value, a secret, or a cloud secret. `null`
+   * when it's set nowhere. When `ambiguous`, the first of those it's set as.
+   */
+  readonly kind: 'env' | 'secret' | 'cloud-secret' | null;
+  /** Where it's set, as `kind`. `null` when it's set nowhere. */
   readonly scope: PackEnvScopeRef | null;
-  /** Set nowhere, as a plain value or a secret (optional names too). */
+  /** Set nowhere, as a plain value, a secret or a cloud secret (optional names too). */
   readonly missing: boolean;
   /** Why it can't be served. Absent when it can, and for an optional name set nowhere. */
   readonly problem?: 'ambiguous' | 'secret-not-yet' | 'missing' | 'unreadable';
-  /** `ambiguous` only: the secret's scope. */
+  /** `ambiguous` only, when `kind` isn't `secret` and it's set as a secret too: the secret's scope. */
   readonly secretScope?: PackEnvScopeRef;
+  /** `ambiguous` only, when it's set as a cloud secret too: the cloud secret's scope. */
+  readonly cloudSecretScope?: PackEnvScopeRef;
 }
 
 export interface PackEnvCheck {
   /**
    * Changes whenever what would be served changes: a value written or
-   * removed, a secret set or revoked. It's made from scopes, row ids,
-   * revisions and update times, never from a value.
+   * removed, a secret set or revoked, a cloud secret set, changed or
+   * removed. It's made from scopes, row ids, revisions and update times,
+   * never from a value.
    */
   readonly revision: string;
   /** Every declared name, required ones first, each list in name order. */
@@ -167,6 +194,8 @@ export interface PackEnvDeps {
    * with secret values.
    */
   readonly secrets?: Pick<SecretBinding, 'get' | 'resolve'>;
+  /** Absent: nothing is ever set to a cloud secret. */
+  readonly cloudSecrets?: Pick<EnvCloudSecretBinding, 'get'>;
   readonly projects?: Pick<ProjectBinding, 'get' | 'getDefault'>;
 }
 
@@ -235,6 +264,13 @@ export type PackEnvValues =
       readonly values?: Readonly<Record<string, string>>;
       /** With `secrets` asked, the secrets, by name. Absent while there's a problem. */
       readonly secrets?: Readonly<Record<string, PackEnvSecretValue>>;
+      /**
+       * The names set to a cloud secret, each with its version's resource
+       * name, for the host to give the pack service: names, never values,
+       * so given whether or not `secrets` is asked. Absent while there's a
+       * problem, and when there's none.
+       */
+      readonly cloudSecrets?: Readonly<Record<string, string>>;
     }
   /**
    * Nothing given, for now, and the orchestrator tries again: the secret
@@ -262,7 +298,12 @@ export async function packEnvValues(
   if (ask === undefined) {
     const read = await readPackEnv(deps, input);
     if (read.check.problem !== undefined) return { kind: 'ok', check: read.check };
-    return { kind: 'ok', check: read.check, values: await plainValues(read.plain, input) };
+    return {
+      kind: 'ok',
+      check: read.check,
+      values: await plainValues(read.plain, input),
+      ...cloudSecretsOf(read.cloudSecrets),
+    };
   }
   const auditEvents = input.auditEvents;
   if (auditEvents === undefined) return { kind: 'unaudited' };
@@ -296,7 +337,18 @@ async function valuesWithSecrets(
     check: read.check,
     values: await plainValues(read.plain, input),
     secrets: given.secrets,
+    ...cloudSecretsOf(read.cloudSecrets),
   };
+}
+
+/** The names set to a cloud secret, each with its version's resource name: none, when there are none. */
+function cloudSecretsOf(found: ReadonlyMap<string, EnvCloudSecretRecord>): {
+  readonly cloudSecrets?: Readonly<Record<string, string>>;
+} {
+  if (found.size === 0) return {};
+  const cloudSecrets: Record<string, string> = {};
+  for (const [name, record] of found) cloudSecrets[name] = record.cloudSecret;
+  return { cloudSecrets };
 }
 
 /** Each plain value to give, by name, each audited as the deployment's system read. */
@@ -542,6 +594,8 @@ async function readPackEnv(
   readonly plain: ReadonlyMap<string, EnvRecord>;
   /** With `secretOnly: 'set'`, each name set only as a secret. */
   readonly secrets: ReadonlyMap<string, SecretRecord>;
+  /** Each name set only to a cloud secret. */
+  readonly cloudSecrets: ReadonlyMap<string, EnvCloudSecretRecord>;
   /** The project the names were read for (`servedProject`). */
   readonly projectId?: ProjectId;
 }> {
@@ -550,6 +604,7 @@ async function readPackEnv(
   const names: PackEnvNameStatus[] = [];
   const plain = new Map<string, EnvRecord>();
   const secrets = new Map<string, SecretRecord>();
+  const cloudSecrets = new Map<string, EnvCloudSecretRecord>();
   const marks: string[] = [];
   const declared = [
     ...input.declaration.required.map((name) => ({ name, required: true })),
@@ -558,14 +613,14 @@ async function readPackEnv(
   for (const { name, required } of declared) {
     const env = await firstEnv(deps, chain, input.envName, name);
     const secret = await firstSecret(deps, chain, input.envName, name);
-    marks.push(markOf(name, env, secret));
-    const status = statusOf(name, required, env, secret, input.secretOnly ?? 'not-yet');
+    const cloud = await firstCloudSecret(deps, chain, input.envName, name);
+    marks.push(markOf(name, env, secret, cloud));
+    const status = statusOf(name, required, { env, secret, cloud }, input.secretOnly ?? 'not-yet');
     names.push(status);
-    if (status.problem === undefined && status.kind === 'env' && env !== undefined) {
-      plain.set(name, env);
-    } else if (status.problem === undefined && status.kind === 'secret' && secret !== undefined) {
-      secrets.set(name, secret);
-    }
+    if (status.problem !== undefined) continue;
+    if (status.kind === 'env' && env !== undefined) plain.set(name, env);
+    else if (status.kind === 'secret' && secret !== undefined) secrets.set(name, secret);
+    else if (status.kind === 'cloud-secret' && cloud !== undefined) cloudSecrets.set(name, cloud);
   }
   const problem = PACK_ENV_PROBLEM_CODES.find((code) =>
     names.some((n) => n.problem !== undefined && `pack-env-${n.problem}` === code),
@@ -577,27 +632,40 @@ async function readPackEnv(
     check: { revision, names, ...(problem !== undefined && { problem }) },
     plain,
     secrets,
+    cloudSecrets,
     ...(projectId !== undefined && { projectId }),
   };
+}
+
+/** Where a declared name is found, at the first scope of the chain each is set at. */
+interface Found {
+  readonly env: EnvRecord | undefined;
+  readonly secret: SecretRecord | undefined;
+  readonly cloud: EnvCloudSecretRecord | undefined;
 }
 
 /** Where a declared name is set, and why it can't be given, if it can't. */
 function statusOf(
   name: string,
   required: boolean,
-  env: EnvRecord | undefined,
-  secret: SecretRecord | undefined,
+  { env, secret, cloud }: Found,
   secretOnly: 'not-yet' | 'set',
 ): PackEnvNameStatus {
-  if (env !== undefined && secret !== undefined) {
+  const ways = [env, secret, cloud].filter((found) => found !== undefined).length;
+  if (ways > 1) {
+    // Set two ways or three: `kind` and `scope` are the first, and each
+    // other way's scope says where else it's set.
+    const first = env !== undefined ? ('env' as const) : ('secret' as const);
+    const at = (env ?? secret) as EnvRecord | SecretRecord;
     return {
       name,
       required,
-      kind: 'env',
-      scope: scopeRef(env.scope),
+      kind: first,
+      scope: scopeRef(at.scope),
       missing: false,
       problem: 'ambiguous',
-      secretScope: scopeRef(secret.scope),
+      ...(first === 'env' && secret !== undefined && { secretScope: scopeRef(secret.scope) }),
+      ...(cloud !== undefined && { cloudSecretScope: scopeRef(cloud.scope) }),
     };
   }
   if (secret !== undefined) {
@@ -609,6 +677,9 @@ function statusOf(
       missing: false,
       ...(secretOnly === 'not-yet' && { problem: 'secret-not-yet' as const }),
     };
+  }
+  if (cloud !== undefined) {
+    return { name, required, kind: 'cloud-secret', scope: scopeRef(cloud.scope), missing: false };
   }
   if (env !== undefined) {
     return { name, required, kind: 'env', scope: scopeRef(env.scope), missing: false };
@@ -634,6 +705,7 @@ function markOf(
   name: string,
   env: EnvRecord | undefined,
   secret: SecretRecord | undefined,
+  cloud: EnvCloudSecretRecord | undefined,
 ): string {
   return JSON.stringify([
     name,
@@ -641,6 +713,11 @@ function markOf(
       ? null
       : [scopeKey(env.scope), env.recordId ?? null, env.revision, env.updatedAt],
     secret === undefined ? null : secretMark(secret),
+    // Only with one, so a name with none keeps the mark it had before cloud
+    // secrets, and a pack service's revision doesn't move for nothing.
+    ...(cloud === undefined
+      ? []
+      : [[scopeKey(cloud.scope), cloud.recordId ?? null, cloud.revision, cloud.updatedAt]]),
   ]);
 }
 
@@ -672,6 +749,20 @@ async function firstEnv(
 ): Promise<EnvRecord | undefined> {
   for (const scope of chain) {
     const found = await deps.env.get({ scope, envName, name });
+    if (found !== null) return found;
+  }
+  return undefined;
+}
+
+async function firstCloudSecret(
+  deps: PackEnvDeps,
+  chain: readonly Scope[],
+  envName: EnvName,
+  name: string,
+): Promise<EnvCloudSecretRecord | undefined> {
+  if (deps.cloudSecrets === undefined) return undefined;
+  for (const scope of chain) {
+    const found = await deps.cloudSecrets.get({ scope, envName, name });
     if (found !== null) return found;
   }
   return undefined;

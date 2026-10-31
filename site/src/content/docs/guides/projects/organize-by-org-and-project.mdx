@@ -22,7 +22,7 @@ An agent, flow, tool or set of test cases belongs to the project its first versi
 was published into, and never moves. Publishing a version of it into another
 project is refused with a `409`, and nothing is written. Its code names the
 kind, such as `agent-project-mismatch`, `flow-…`, `tool-…` or
-`eval-suite-project-mismatch`.
+`test-set-project-mismatch`.
 The refusal doesn't name the project it belongs to, since you may not be
 able to read that project. A deploy that includes one is refused whole and
 deploys nothing, even when that agent or flow is unchanged. Publish new
@@ -280,8 +280,8 @@ What a deploy into a project does, with the runtime 0.1.8 or later:
 - **A project of another tenant, or none,** is `404 project-not-found`.
 - **A suspended project** takes no deploy, where the runtime suspends
   projects: `409 project-suspended`, before anything is written. No run
-  starts in it either: `POST /v1/runs` answers the same, as do an eval run
-  started in it and an Improve run for one of its agents. An eval run
+  starts in it either: `POST /v1/runs` answers the same, as do a test run
+  started in it and an Improve run for one of its agents. A test run
   or an Improve run already going stops at its next case and ends `cancelled`, with
   `project-suspended` in its `cancelReason`. A delivery to one of its
   webhook triggers is answered `202` and skipped, with nothing recorded on
@@ -290,8 +290,16 @@ What a deploy into a project does, with the runtime 0.1.8 or later:
 Deploying the same pack into a second project is refused, because its ids
 already belong to the first project: `409 tool-project-mismatch` (or
 `agent-…`, `flow-…`, `guardrail-…`), and nothing is deployed. The message
-names the fix: make a copy of the pack for the new client with `kindgi init`,
-which gives every id the new pack's id.
+names the fix your runtime has. Where each deployment runs as a service of
+its own, make a copy of the pack for the new client with `kindgi init`,
+which gives every id the new pack's id. Where one pack service runs every
+deployment, the default on any runtime, a copy's code wouldn't run. There,
+when both projects are in the same org, or neither is in an org, put them
+in one environment order (`kindgi environments set`), the second right
+after the first, and `kindgi promote` the build to the second instead of
+deploying it. Projects in two orgs can't share an order, so a client in an
+org of its own, as this guide sets one up, needs a runtime that runs each
+deployment as a service of its own.
 
 ## What a project's runs can use
 
@@ -406,15 +414,17 @@ kindgi.projects().production()
 </TabItem>
 </Tabs>
 
-In the console, a project's **Dashboard** has a **Production** card. It shows
-**Live**, and since when, or **Not live**. A tenant admin puts the project in
-production with **Go live**, and takes it out with **Take out of
-production**, after the console asks ("Go live?", "Take this project out of
-production?"). While the tenant may not put projects in production, the card says so,
-and gives a tenant admin **See how to go live** when the runtime names where
-to go. A refused switch shows the runtime's own message.
-
-![The Default project's Dashboard, as a tenant admin sees it: the Production card, "Runs here count as staging: building and testing.", marked Not live, with Go live.](../../../../assets/projects/production-card.png)
+In the console, a project's **Dashboard** says at the top whether it's in
+production: **Live**, by a green dot, or **Testing mode**, by a gray one.
+Choosing it says since when it's been live, or "Kindgi counts its runs as
+testing. Once it's live, they count as live use.", and gives a tenant admin
+the switch: **Go live**, or **Move back to testing**. While the tenant may
+not put projects in production, it says "Going live isn't turned on for this
+tenant yet.", and gives a tenant admin **See how to go live** when the
+runtime names where to go. A refused switch says why in the console's
+words: at the tenant's limit of live projects, "Move one back to testing
+first", with a link to get more when the runtime names one, or "Going live
+isn't turned on for this tenant yet."
 
 - **Tenant admins only,** both ways: anyone else gets
   `403 permission-denied`.

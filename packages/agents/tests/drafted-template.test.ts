@@ -4,7 +4,7 @@
 /**
  * A drafted prompt template is held to what the agent already has: the
  * variables it may read, the ids it may name, and its size. An
- * improvement pass refuses a candidate this finds a problem with, so a
+ * Improve run refuses a candidate this finds a problem with, so a
  * model that obeyed instructions hidden in judges' reasons gets nowhere.
  */
 

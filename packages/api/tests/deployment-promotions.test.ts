@@ -15,7 +15,9 @@
  *     value named; the check lists the same ones and writes nothing;
  *   - a repeat answers the target's own deployment, and records only the
  *     edits made since;
- *   - a signed `deployment-promoted` event for each promotion that wrote.
+ *   - a signed `deployment-promoted` event for each promotion that wrote;
+ *   - with `pin`, a stop when a newer version of one of the build's blocks
+ *     runs in the target, unless `replace` names it.
  */
 
 import { createHash, randomUUID } from 'node:crypto';
@@ -26,11 +28,13 @@ import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import { generateEd25519KeyPair, signEd25519 } from '@kindgi/crypto';
 import type {
+  AgentId,
+  AgentPinScope,
   Cursor,
   EnvName,
-  LiveScope,
   ProjectId,
   RecordedSecretScope,
+  Semver,
   SigningKeyId,
   TenantId,
   Timestamp,
@@ -39,23 +43,33 @@ import type {
 } from '@kindgi/types';
 
 import { canonicalizeEnvelope } from '../src/deployment-envelope.js';
-import { createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
+import { agentTestSetId, createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
 import type {
-  AgentReleaseBindings,
+  AgentPinBindings,
+  AgentPinInput,
+  BlockUse,
   CarriedVersion,
   Deployment,
   DeploymentBinding,
   DeploymentContents,
   DeploymentEndpoint,
-  GatePolicy,
-  PromoteInput,
+  LatestInProject,
+  Pin,
+  PinRequestInput,
+  PinVersionInput,
+  PinnedVersionBinding,
   PromotedToolSecretScopes,
-  Promotion,
+  ReleaseGate,
   RunHandlerBinding,
+  TestRunBinding,
+  TestSetFreezeBinding,
   TokenResolver,
 } from '../src/index.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 import { environmentOrders } from './support/environment-orders.js';
+import { inMemoryBlocks } from './support/in-memory-blocks.js';
+import { inMemorySuggestedChanges } from './support/in-memory-suggested-changes.js';
+import { noLatest } from './support/latest.js';
 import { type ItemRow, itemProjects } from './support/order-items.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -209,13 +223,14 @@ function ledger(seeded: readonly Deployment[], opts: { promotes?: boolean } = {}
       }
       seq += 1;
       minute += 1;
-      const { projectId: _from, endpoint: _endpoint, ...copied } = source;
+      const { projectId: _from, endpoint: _endpoint, replaced: _source, ...copied } = source;
       const deployment: Deployment = {
         ...copied,
         deploymentId: `promoted-${seq}`,
         activatedAt: new Date(Date.UTC(2026, 9, 1, 10, minute)).toISOString(),
         ...(input.projectId !== undefined && { projectId: input.projectId }),
         promotedFromDeploymentId: source.deploymentId,
+        ...(input.replaced !== undefined && { replaced: input.replaced }),
       };
       rows.push(deployment);
       carried.set(deployment.deploymentId, [...input.carried]);
@@ -258,24 +273,70 @@ const notUsed = async (): Promise<never> => {
 };
 
 /**
- * A live-release binding that records every pin a make-live asks for and
- * answers it live at once, with no gate. `pinned` is each `promote` input,
+ * A flow and tool pin binding that records every pin a promotion's `pin` asks for
+ * and answers it pinned; a flow in `errorOn` fails its write (the error
+ * only the write can give). `bindings` wires it into the app; with no
+ * `how`, there's no binding and `asked` stays empty.
+ */
+function flowPinBinding(how: { readonly errorOn?: readonly string[] } | undefined) {
+  const asked: PinVersionInput[] = [];
+  if (how === undefined) return { asked, bindings: {} };
+  const errorOn = how.errorOn ?? [];
+  const binding: PinnedVersionBinding = {
+    resolve: async () => null,
+    list: async () => [],
+    pin: async (input) => {
+      if (errorOn.includes(input.itemId)) {
+        return { kind: 'err', error: { code: 'persistence-error', message: 'write failed' } };
+      }
+      asked.push(input);
+      return {
+        kind: 'ok',
+        value: {
+          change: {
+            id: randomUUID(),
+            kind: input.kind,
+            itemId: input.itemId,
+            scope: input.scope,
+            action: 'pin',
+            fromVersion: null,
+            toVersion: input.version,
+            requestedBy: input.requestedBy,
+            createdAt: '2026-10-27T07:00:00.000Z' as Timestamp,
+          },
+          unchanged: false,
+        },
+      };
+    },
+    unpin: notUsed,
+    history: notUsed,
+  };
+  return { asked, bindings: { pinnedVersions: binding } };
+}
+
+/**
+ * An agent pin binding that records every pin a promotion's `pin` asks for
+ * and answers it pinned at once, with no gate. `pinned` is each `pin` input,
  * in order, so a test can read the scope the pin was set at.
  */
-function livePins(
+function agentPinBinding(
   opts: {
     readonly gated?: readonly string[] | undefined;
     /** Carried agents whose pin write fails (the error only the write can give). */
     readonly errorOn?: readonly string[] | undefined;
+    /** Record gated promotions (`promotions.request`), so each pin goes through the gate. */
+    readonly gate?: boolean | undefined;
+    /** Every project follows Latest, 0.9.0; absent: nothing runs before a pin. */
+    readonly onLatest?: boolean | undefined;
   } = {},
 ): {
-  readonly releases: AgentReleaseBindings;
-  readonly pinned: PromoteInput[];
+  readonly releases: AgentPinBindings;
+  readonly pinned: AgentPinInput[];
 } {
-  const pinned: PromoteInput[] = [];
+  const pinned: AgentPinInput[] = [];
   const errorOn = new Set(opts.errorOn ?? []);
-  const promotions = {
-    promote: async (input: PromoteInput) => {
+  const changes = {
+    pin: async (input: AgentPinInput) => {
       if (errorOn.has(input.agentId)) {
         return {
           kind: 'err' as const,
@@ -289,26 +350,47 @@ function livePins(
           id: `pin-${pinned.length}`,
           agentId: input.agentId,
           scope: input.scope,
-          action: 'promote',
+          action: 'pin',
           fromVersion: null,
           toVersion: input.version,
           requestedBy: input.requestedBy,
           createdAt: '2026-10-01T10:00:00.000Z' as Timestamp,
           ...(input.reason !== undefined && { reason: input.reason }),
-        } satisfies Promotion,
+          ...(input.stoppedFollowingLatest !== undefined && {
+            stoppedFollowingLatest: input.stoppedFollowingLatest,
+          }),
+        } satisfies Pin,
       };
     },
-    rollback: notUsed,
+    ...(opts.gate === true && {
+      request: async (input: PinRequestInput) => {
+        pinned.push(input);
+        return {
+          kind: 'ok' as const,
+          value: {
+            id: `pin-${pinned.length}`,
+            agentId: input.agentId,
+            scope: input.scope,
+            action: 'pin',
+            fromVersion: null,
+            toVersion: input.version,
+            requestedBy: input.requestedBy,
+            createdAt: '2026-10-01T10:00:00.000Z' as Timestamp,
+            status: 'pinned',
+          } satisfies Pin,
+        };
+      },
+    }),
     unpin: notUsed,
     list: async () => ({ data: [] }),
     get: async () => null,
   };
-  // A gate policy on a carried agent's scope, so `makeLive` sees a gate it
-  // can't record (this binding has no `promotions.request`): `promotion-
+  // A release gate on a carried agent's scope, so `pin` sees a gate it
+  // can't record (this binding has no `changes.request`): `pin-
   // gate-unsupported`, decided before any pin.
   const gated = new Set(opts.gated ?? []);
-  const gatePolicies = {
-    resolve: async ({ agentId, scope }: { agentId: string; scope: LiveScope }) =>
+  const releaseGates = {
+    resolve: async ({ agentId, scope }: { agentId: string; scope: AgentPinScope }) =>
       gated.has(agentId)
         ? ({
             id: `gate-${agentId}`,
@@ -318,18 +400,52 @@ function livePins(
             scope,
             spec: {},
             createdAt: '2026-10-01T00:00:00.000Z' as Timestamp,
-          } satisfies GatePolicy)
+          } satisfies ReleaseGate)
         : null,
   };
   return {
     pinned,
     releases: {
-      live: { resolve: async () => null, list: async () => [] },
-      promotions: promotions as unknown as AgentReleaseBindings['promotions'],
+      pinned: { resolve: async () => null, list: async () => [] },
+      latest:
+        opts.onLatest === true
+          ? {
+              latest: async () => ({
+                version: '0.9.0' as Semver,
+                since: '2026-09-01T00:00:00.000Z',
+              }),
+              byProject: async () => [],
+            }
+          : noLatest,
+      changes: changes as unknown as AgentPinBindings['changes'],
       ...(gated.size > 0 && {
-        gatePolicies: gatePolicies as unknown as NonNullable<AgentReleaseBindings['gatePolicies']>,
+        releaseGates: releaseGates as unknown as NonNullable<AgentPinBindings['releaseGates']>,
       }),
     },
+  };
+}
+
+/** What runs, for a promotion's check against it (`harness`'s `runs`). */
+interface Runs {
+  /** Each agent's Latest by project. */
+  readonly latest: Readonly<Record<string, readonly LatestInProject[]>>;
+  /** The agent versions that pin each block. */
+  readonly uses: Readonly<Record<string, readonly BlockUse[]>>;
+}
+
+/** The agent pin bindings, their Latest by project from `runs`, and the block uses binding, wired only with `runs`. */
+function pinsAndRuns(releases: AgentPinBindings | undefined, runs: Runs | undefined) {
+  if (releases === undefined) return {};
+  if (runs === undefined) return { agentPins: releases };
+  return {
+    agentPins: {
+      ...releases,
+      latest: {
+        ...noLatest,
+        byProject: async (q: { agentId: string }) => runs.latest[q.agentId] ?? [],
+      },
+    },
+    blockUse: { pinningBlock: async (q: { blockId: string }) => runs.uses[q.blockId] ?? [] },
   };
 }
 
@@ -349,14 +465,24 @@ function harness(
     readonly envName?: string | null;
     /** The tool's schema for `ACME_TOKEN`; absent: a required string. */
     readonly secretSchema?: object;
-    /** Wire a live-release binding (`livePins`), so `makeLive` can pin. */
-    readonly live?: boolean;
-    /** Carried agents whose scope has a gate policy this binding can't record. */
+    /** Wire an agent pin binding (`agentPinBinding`), so `pin` pins the carried agents. */
+    readonly agentPins?: boolean;
+    /** Carried agents whose scope has a release gate this binding can't record. */
     readonly gated?: readonly string[];
     /** Carried agents whose pin write fails (the error only the write can give). */
     readonly errorOn?: readonly string[];
+    /** Each pin goes through the gate (`livePins`' `gate`). */
+    readonly gate?: boolean;
+    /** The target follows Latest before the pin (`agentPinBinding`'s `onLatest`). */
+    readonly onLatest?: boolean;
     /** Items an order carries, so an agent spans more than one project. */
     readonly itemRows?: readonly ItemRow[];
+    /** Wire a flow pin binding (`flowPinBinding`), so `pin` pins the carried flows; the flows named fail their write. */
+    readonly flowPins?: { readonly errorOn?: readonly string[] };
+    /** Wire suggested changes (`cardBindings`): the carried agent runs `pinned` in S2. */
+    readonly cards?: { readonly pinned: string };
+    /** What runs, for a promotion's check against it (`pinsAndRuns`). */
+    readonly runs?: Runs;
   } = {},
 ) {
   const deployments = ledger(opts.rows ?? [built({ id: 'dep-s1', projectId: S1 })], {
@@ -413,9 +539,21 @@ function harness(
     },
   };
   const grants = opts.grants;
-  const live =
-    opts.live === true ? livePins({ gated: opts.gated, errorOn: opts.errorOn }) : undefined;
+  const agentPins =
+    opts.agentPins === true || opts.cards !== undefined
+      ? agentPinBinding({
+          gated: opts.gated,
+          errorOn: opts.errorOn,
+          gate: opts.gate,
+          onLatest: opts.onLatest,
+        })
+      : undefined;
   const items = opts.itemRows !== undefined ? itemProjects([...opts.itemRows]) : undefined;
+  const cards =
+    opts.cards !== undefined && agentPins !== undefined
+      ? cardBindings(opts.cards.pinned, agentPins)
+      : undefined;
+  const flowPins = flowPinBinding(opts.flowPins);
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -444,12 +582,16 @@ function harness(
           : null,
     } as never,
     agentRegistry: {
-      getVersion: async () => null,
+      // The gate reads the carried version; without it, nothing does.
+      getVersion: async ({ agentId, version }: { agentId: string; version: string }) =>
+        opts.gate === true || cards !== undefined ? { id: agentId, version } : null,
       listVersions: async () => ({ data: versions.rows }),
     } as never,
     secretsBinding: secretsBinding as never,
     environmentOrders: environmentOrders(opts.orders ?? [ORDER]),
-    ...(live !== undefined && { agentReleases: live.releases }),
+    ...pinsAndRuns(agentPins?.releases, opts.runs),
+    ...cards?.bindings,
+    ...flowPins.bindings,
     ...(items !== undefined && { itemProjects: items }),
     ...(opts.suspended !== undefined && {
       projectSuspended: async (_t: TenantId, p: ProjectId) => opts.suspended?.includes(p) === true,
@@ -479,15 +621,17 @@ function harness(
     trusted,
     appended,
     versions,
-    /** The pins the make-live asked for, in order (empty without `live`). */
-    pinned: live?.pinned ?? [],
+    /** The pins a promotion's `pin` asked for, in order (empty without `agentPins`). */
+    pinned: agentPins?.pinned ?? [],
+    /** The flow pins a promotion's `pin` asked for, in order (empty without `flowPins`). */
+    flowPinned: flowPins.asked,
     promote: (id: string, toProjectId: ProjectId, reason?: string) =>
       call(`/v1/deployments/${id}/promotions`, {
         toProjectId,
         ...(reason !== undefined && { reason }),
       }),
-    makeLive: (id: string, toProjectId: ProjectId, token = TOKEN) =>
-      call(`/v1/deployments/${id}/promotions`, { toProjectId, makeLive: true }, token),
+    promoteAndPin: (id: string, toProjectId: ProjectId, token = TOKEN) =>
+      call(`/v1/deployments/${id}/promotions`, { toProjectId, pin: true }, token),
     check: (id: string, toProjectId: ProjectId) =>
       call(`/v1/deployments/${id}/promotions/check`, { toProjectId }),
     // What `kindgi deploy --sync-secrets` asks of a deployment once it lands.
@@ -506,6 +650,48 @@ function harness(
         resolveContext: { caller: 'dispatch' },
       }),
     call,
+    /** The suggested changes stored so far (none without `cards`). */
+    cardsNow: () => [...(cards?.supervisor.rows.values() ?? [])],
+  };
+}
+
+/**
+ * Suggested changes wired, for the cards a promotion makes in its target:
+ * the carried agent runs `pinned` in S2 until a promotion pins another
+ * (`agentPinBinding`'s pins). S2's test set has no cases yet, so a card is made
+ * unchecked.
+ */
+function cardBindings(pinned: string, agentPins: ReturnType<typeof agentPinBinding>) {
+  const supervisor = inMemorySuggestedChanges();
+  const testSetFreeze: TestSetFreezeBinding = {
+    freezeTestSet: async ({ agentId, projectId }) => ({
+      testSetId: agentTestSetId(agentId, projectId),
+      testSetVersion: '1.0.0',
+      cases: [],
+    }),
+  };
+  const releases: AgentPinBindings = {
+    ...agentPins.releases,
+    pinned: {
+      resolve: async ({ projectId }) =>
+        projectId === S2
+          ? {
+              version: (agentPins.pinned.at(-1)?.version ?? pinned) as Semver,
+              scope: { kind: 'project', projectId: S2 },
+            }
+          : null,
+      list: async () => [],
+    },
+  };
+  return {
+    supervisor,
+    bindings: {
+      supervisor,
+      blockRegistry: inMemoryBlocks(),
+      testRunBinding: {} as TestRunBinding,
+      testSetFreeze,
+      agentPins: releases,
+    },
   };
 }
 
@@ -1034,18 +1220,18 @@ describe('the record, and what a promotion takes', () => {
   });
 });
 
-describe('making the carried agents live in the target (makeLive)', () => {
+describe('pinning the carried agents in the target (pin)', () => {
   const AGENT = 'acme.matcher';
 
-  test('pins each carried agent in the target and reports it live; an agent one project serves is asked the promote right it has today', async () => {
+  test('pins each carried agent in the target and reports it pinned; an agent one project serves is asked the pin right', async () => {
     const h = harness({
-      live: true,
-      grants: [`read project:${S1}`, `admin project:${S2}`, `promote agent:${AGENT}`],
+      agentPins: true,
+      grants: [`read project:${S1}`, `admin project:${S2}`, `pin agent:${AGENT}`],
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(201);
-    expect(res.body.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    expect(res.body.pinned).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
     // Pinned in the target, at the target's own project scope — never the tenant's.
     expect(h.pinned).toHaveLength(1);
     expect(h.pinned[0]).toMatchObject({
@@ -1053,17 +1239,36 @@ describe('making the carried agents live in the target (makeLive)', () => {
       version: '1.0.0',
       scope: { kind: 'project', projectId: S2 },
     });
+    expect(h.pinned[0]).not.toHaveProperty('stoppedFollowingLatest');
   });
 
-  test("refused when the caller can't promote an agent one project serves: 403, though the build has already moved", async () => {
+  test('a target on Latest goes off it with no 409 (`pin` is the ask), and the pin records that it did', async () => {
     const h = harness({
-      live: true,
+      agentPins: true,
+      onLatest: true,
+      grants: [`read project:${S1}`, `admin project:${S2}`, `pin agent:${AGENT}`],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.promoteAndPin('dep-s1', S2);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.pinned).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    expect(h.pinned).toEqual([
+      expect.objectContaining({
+        scope: { kind: 'project', projectId: S2 },
+        stoppedFollowingLatest: true,
+      }),
+    ]);
+  });
+
+  test("refused when the caller can't pin an agent one project serves: 403, though the build has already moved", async () => {
+    const h = harness({
+      agentPins: true,
       grants: [`read project:${S1}`, `admin project:${S2}`],
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(403);
-    expect(res.body.error.details).toMatchObject({ action: 'promote', resource: `agent:${AGENT}` });
+    expect(res.body.error.details).toMatchObject({ action: 'pin', resource: `agent:${AGENT}` });
     // The promotion committed (the move isn't undone); nothing was pinned.
     expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
     expect(h.pinned).toEqual([]);
@@ -1071,82 +1276,85 @@ describe('making the carried agents live in the target (makeLive)', () => {
 
   test('an agent an order carries is asked admin on the target project, not its home: a target admin who runs neither the source nor the home pins it', async () => {
     const h = harness({
-      live: true,
+      agentPins: true,
       // `acme.matcher` runs in S1 (its home) and S2 (the target).
       itemRows: [{ kind: 'agent', id: AGENT, projects: [S1, S2] }],
       // Admin on the target S2 and read on the source S1 — but no admin on the home S1.
       grants: [`read project:${S1}`, `admin project:${S2}`],
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(201);
-    expect(res.body.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    expect(res.body.pinned).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
     expect(h.pinned[0]).toMatchObject({ scope: { kind: 'project', projectId: S2 } });
   });
 
-  test('admin on the source alone, not the target: the promotion is refused before anything is made live', async () => {
+  test('admin on the source alone, not the target: the promotion is refused before anything is pinned', async () => {
     const h = harness({
-      live: true,
+      agentPins: true,
       grants: [`read project:${S1}`, `admin project:${S1}`],
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(403);
     expect(res.body.error.details).toMatchObject({ action: 'admin', resource: `project:${S2}` });
     expect(h.pinned).toEqual([]);
     expect(h.deployments.rows.filter((d) => d.projectId === S2)).toHaveLength(0);
   });
 
-  test('making it live again is safe: the move is idempotent and a pin in place passes, with the same answer', async () => {
+  test('pinning it again is safe: the move is idempotent and a pin in place passes, with the same answer', async () => {
     const h = harness({
-      live: true,
-      grants: [`read project:${S1}`, `admin project:${S2}`, `promote agent:${AGENT}`],
+      agentPins: true,
+      grants: [`read project:${S1}`, `admin project:${S2}`, `pin agent:${AGENT}`],
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const first = await h.makeLive('dep-s1', S2);
-    const again = await h.makeLive('dep-s1', S2);
+    const first = await h.promoteAndPin('dep-s1', S2);
+    const again = await h.promoteAndPin('dep-s1', S2);
     expect(first.status).toBe(201);
     expect(first.body.created).toBe(true);
-    // The target already has the build, so the repeat answers 200 — and makes
-    // it live again all the same, with the same answer.
+    // The target already has the build, so the repeat answers 200 — and pins
+    // it again all the same, with the same answer.
     expect(again.status).toBe(200);
     expect(again.body.created).toBe(false);
-    expect(again.body.live).toEqual(first.body.live);
+    expect(again.body.pinned).toEqual(first.body.pinned);
     // One deployment in the target; the pin was asked both times (in place, a no-op the binding absorbs).
     expect(h.deployments.rows.filter((d) => d.projectId === S2)).toHaveLength(1);
     expect(h.pinned).toHaveLength(2);
   });
 
-  test('made live in the Default project: the pin names that project, so a Default run resolves it over an older tenant-wide pin', async () => {
+  test('pinned in the Default project: the pin names that project, so a Default run resolves it over an older tenant-wide pin', async () => {
     const h = harness({
-      live: true,
+      agentPins: true,
       rows: [built({ id: 'dep-s2', projectId: S2 })],
     });
-    const res = await h.makeLive('dep-s2', PROD);
+    const res = await h.promoteAndPin('dep-s2', PROD);
     expect(res.status).toBe(201);
-    expect(res.body.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    expect(res.body.pinned).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
     // A project-kind pin on the Default — never tenant- or org-wide — so it
-    // takes precedence over an older tenant pin when the Default resolves live.
+    // takes precedence over an older tenant pin when a Default run resolves its version.
     expect(h.pinned).toHaveLength(1);
     expect(h.pinned[0]?.scope).toEqual({ kind: 'project', projectId: PROD });
   });
 
-  test("a composition without a live-release binding can't make a promotion live: 501, the move still done", async () => {
+  test("a composition without an agent pin binding can't pin what a promotion carries: 501, the move still done", async () => {
     const h = harness();
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(501);
     expect(res.body.error.code).toBe('promotions-unsupported');
-    // The build moved; only making it live is unsupported.
+    expect(res.body.error.message).toBe(
+      "The build moved, but this runtime can't pin versions, so nothing was pinned in the target. Promote without `pin` here; the move is already done.",
+    );
+    // The build moved; only pinning what it carried is unsupported.
     expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
   });
 
   // S2: everything decidable before a pin is decided for every agent first,
   // so a later agent's gate the deployment can't record never leaves an
-  // earlier agent half-live.
-  test('a later carried agent whose scope is gated, in a deployment that can’t record a gated promotion: refused before any pin, nothing made live', async () => {
+  // earlier agent pinned on its own.
+  test('a later carried agent whose scope is gated, in a deployment that can’t record a gated promotion: refused before any pin, nothing pinned', async () => {
     const GATED_AGENT = 'acme.ranker';
     const h = harness({
-      live: true,
+      agentPins: true,
       gated: [GATED_AGENT],
       rows: [
         built({
@@ -1164,29 +1372,29 @@ describe('making the carried agents live in the target (makeLive)', () => {
       grants: [
         `read project:${S1}`,
         `admin project:${S2}`,
-        `promote agent:${AGENT}`,
-        `promote agent:${GATED_AGENT}`,
+        `pin agent:${AGENT}`,
+        `pin agent:${GATED_AGENT}`,
       ],
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(501);
-    expect(res.body.error.code).toBe('promotion-gate-unsupported');
-    // The first agent is not left live: the gate is decided before any pin.
+    expect(res.body.error.code).toBe('pin-gate-unsupported');
+    // The first agent is not left pinned: the gate is decided before any pin.
     expect(h.pinned).toEqual([]);
-    // Nothing was pinned, so the refusal carries no `live` (N3: assert the
-    // error body, not a top-level field that an error answer never has).
-    expect(res.body.error.details?.live).toBeUndefined();
-    // The build still moved — only making the carried agents live is refused.
+    // Nothing was pinned, so the refusal carries no `pinned` (assert the error
+    // body, not a top-level field that an error answer never has).
+    expect(res.body.error.details?.pinned).toBeUndefined();
+    // The build still moved — only pinning the carried agents is refused.
     expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
   });
 
   // S3: an error only the pin write can give, after an earlier agent is
-  // already live, answers with the pins made so far in `error.details.live`.
-  test('a later carried agent’s pin write fails after an earlier one is live: the error carries the pins already made', async () => {
+  // already pinned, answers with the pins made so far in `error.details.pinned`.
+  test('a later carried agent’s pin write fails after an earlier one is pinned: the error carries the pins already made', async () => {
     const FAILS = 'acme.ranker';
     const h = harness({
-      live: true,
+      agentPins: true,
       errorOn: [FAILS],
       rows: [
         built({
@@ -1204,18 +1412,342 @@ describe('making the carried agents live in the target (makeLive)', () => {
       grants: [
         `read project:${S1}`,
         `admin project:${S2}`,
-        `promote agent:${AGENT}`,
-        `promote agent:${FAILS}`,
+        `pin agent:${AGENT}`,
+        `pin agent:${FAILS}`,
       ],
       secrets: [`project:${S2}:ACME_TOKEN`],
     });
-    const res = await h.makeLive('dep-s1', S2);
+    const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(503);
     expect(res.body.error.code).toBe('database-busy');
-    // The write failed on the second agent, but the first is already live, so
-    // the answer names it (its `live` shape) rather than hiding it.
-    expect(res.body.error.details?.live).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    // The write failed on the second agent, but the first is already pinned, so
+    // the answer names it (its `pinned` shape) rather than hiding it.
+    expect(res.body.error.details?.pinned).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
     expect(h.pinned).toHaveLength(1);
     expect(h.pinned[0]).toMatchObject({ agentId: AGENT });
+  });
+  test("a first promotion carrying only a version made for a project: nothing runs in the target yet, so it isn't pinned (409), and the move stays", async () => {
+    // The carried version isn't Latest by being carried, and the target has
+    // no pin and no other Latest: the gate has nothing to measure it against.
+    const h = harness({
+      agentPins: true,
+      gate: true,
+      grants: [`read project:${S1}`, `admin project:${S2}`, `pin agent:${AGENT}`],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.promoteAndPin('dep-s1', S2);
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error.code).toBe('nothing-runs-in-scope');
+    expect(res.body.error.message).toContain(`agent "${AGENT}" 1.0.0 wasn't pinned`);
+    expect(res.body.error.message).toContain(
+      'Promote a build that ships a version of it, then pin it. If this version came from a suggested change',
+    );
+    expect(res.body.error.message).toContain('then promote this build again');
+    expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
+    expect(h.pinned).toEqual([]);
+  });
+});
+
+describe('making the carried flows the ones in use in the target (pin)', () => {
+  const AGENT = 'acme.matcher';
+  const FLOW = 'acme.refunds';
+  const LATER = 'acme.returns';
+  const shipsFlows = (...flows: string[]) =>
+    built({
+      id: 'dep-s1',
+      projectId: S1,
+      contents: { ...SHIPS, flows: flows.map((id) => ({ id, version: '1.0.0' })) },
+    });
+  const grants = (...extra: string[]) => [
+    `read project:${S1}`,
+    `admin project:${S2}`,
+    `pin agent:${AGENT}`,
+    ...extra,
+  ];
+
+  test('pins each carried flow version in the target project, after the agents, and reports it in pinnedFlows; a flow one project serves is asked the pin right', async () => {
+    const h = harness({
+      agentPins: true,
+      flowPins: {},
+      rows: [shipsFlows(FLOW)],
+      grants: grants(`pin flow:${FLOW}`),
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.promoteAndPin('dep-s1', S2);
+    expect(res.status).toBe(201);
+    expect(res.body.pinned).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    expect(res.body.pinnedFlows).toEqual([{ id: FLOW, version: '1.0.0' }]);
+    // The target project's own pin: never the org's or the tenant's.
+    expect(h.flowPinned).toHaveLength(1);
+    expect(h.flowPinned[0]).toMatchObject({
+      kind: 'flow',
+      itemId: FLOW,
+      version: '1.0.0',
+      scope: { kind: 'project', projectId: S2 },
+    });
+  });
+
+  test("refused when the caller can't pin a flow one project serves: 403 before any pin, an agent's included", async () => {
+    const h = harness({
+      agentPins: true,
+      flowPins: {},
+      rows: [shipsFlows(FLOW)],
+      grants: grants(),
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.promoteAndPin('dep-s1', S2);
+    expect(res.status).toBe(403);
+    expect(res.body.error.details).toMatchObject({ action: 'pin', resource: `flow:${FLOW}` });
+    expect(h.pinned).toEqual([]);
+    expect(h.flowPinned).toEqual([]);
+    // The build still moved.
+    expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
+  });
+
+  test('a flow an order carries is asked admin on the target project, which the promotion needs anyway', async () => {
+    const h = harness({
+      agentPins: true,
+      flowPins: {},
+      rows: [shipsFlows(FLOW)],
+      itemRows: [{ kind: 'flow', id: FLOW, projects: [S1, S2] }],
+      grants: grants(),
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.promoteAndPin('dep-s1', S2);
+    expect(res.status).toBe(201);
+    expect(res.body.pinnedFlows).toEqual([{ id: FLOW, version: '1.0.0' }]);
+  });
+
+  test('a later carried flow’s pin write fails: the error carries the agents and flows pinned so far', async () => {
+    const h = harness({
+      agentPins: true,
+      flowPins: { errorOn: [LATER] },
+      rows: [shipsFlows(FLOW, LATER)],
+      grants: grants(`pin flow:${FLOW}`, `pin flow:${LATER}`),
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.promoteAndPin('dep-s1', S2);
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe('persistence-error');
+    expect(res.body.error.details?.pinned).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
+    expect(res.body.error.details?.pinnedFlows).toEqual([{ id: FLOW, version: '1.0.0' }]);
+    expect(h.flowPinned.map((p) => p.itemId)).toEqual([FLOW]);
+  });
+
+  test("without a pin binding nothing pins a flow, so the answer has no pinnedFlows; a promotion that doesn't ask to pin pins none either", async () => {
+    const without = harness({
+      agentPins: true,
+      rows: [shipsFlows(FLOW)],
+      grants: grants(),
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await without.promoteAndPin('dep-s1', S2);
+    expect(res.status).toBe(201);
+    expect(res.body.pinnedFlows).toBeUndefined();
+
+    const plain = harness({
+      agentPins: true,
+      flowPins: {},
+      rows: [shipsFlows(FLOW)],
+      grants: grants(`pin flow:${FLOW}`),
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const moved = await plain.promote('dep-s1', S2);
+    expect(moved.status).toBe(201);
+    expect(moved.body.pinnedFlows).toBeUndefined();
+    expect(plain.flowPinned).toEqual([]);
+  });
+});
+
+describe('the cards a promotion makes in the target', () => {
+  const AGENT = 'acme.matcher';
+
+  test("a target pinned to another version gets a card for each carried agent version, made by the target's new deployment", async () => {
+    const h = harness({ cards: { pinned: '0.9.0' }, secrets: [`project:${S2}:ACME_TOKEN`] });
+    const res = await h.promote('dep-s1', S2);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const cards = h.cardsNow();
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({
+      agentId: AGENT,
+      fromVersion: '0.9.0',
+      scope: { kind: 'project', projectId: S2 },
+      tier: 'code',
+      change: { deploymentId: res.body.deployment.deploymentId },
+      madeBy: { kind: 'deploy', deploymentId: res.body.deployment.deploymentId },
+      candidate: { agentVersion: '1.0.0' },
+    });
+    expect(res.body.deployment.deploymentId).not.toBe('dep-s1');
+  });
+
+  test('pinned in the same promotion, the target runs it: no card', async () => {
+    const h = harness({ cards: { pinned: '0.9.0' }, secrets: [`project:${S2}:ACME_TOKEN`] });
+    const res = await h.promoteAndPin('dep-s1', S2);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(h.cardsNow()).toHaveLength(0);
+  });
+});
+
+describe('a promotion that pins, against what runs in the target', () => {
+  const AGENT = 'acme.matcher';
+  const TONE = 'acme.tone';
+  /** The build ships the matcher 1.0.0, which pins tone 1.0.0. */
+  const withBlocks = (): Deployment =>
+    built({
+      id: 'dep-s1',
+      projectId: S1,
+      contents: { ...SHIPS, blocks: [{ id: TONE, version: '1.0.0' }] },
+    });
+  const uses = (version: string): BlockUse => ({
+    agentId: AGENT as AgentId,
+    version,
+    as: 'prompt',
+    blockVersion: version,
+  });
+  /** The matcher runs 2.0.0, which pins tone 2.0.0, as Latest in `projectId`. */
+  const newerIn = (projectId: ProjectId) => ({
+    latest: { [AGENT]: [{ projectId, version: '2.0.0' as Semver }] },
+    uses: { [TONE]: [uses('1.0.0'), uses('2.0.0')] },
+  });
+  const promotions = '/v1/deployments/dep-s1/promotions';
+
+  test('a newer version of a block running in the target stops it before anything moves: 409, each block in details.blocks', async () => {
+    const h = harness({ agentPins: true, rows: [withBlocks()], runs: newerIn(S2) });
+    const res = await h.promoteAndPin('dep-s1', S2);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('deploy-would-put-back-older-blocks');
+    expect(res.body.error.message).toContain(
+      'This promotion would put back older versions of blocks than run now: acme.tone (1.0.0 in the files, 2.0.0 runs now). Promote a build whose files have the newer versions, or name each block in `replace`, with a reason.',
+    );
+    expect(res.body.error.details.blocks).toEqual([
+      {
+        blockId: TONE,
+        inFiles: '1.0.0',
+        runs: { version: '2.0.0', projectId: S2, follows: 'latest' },
+      },
+    ]);
+    // Nothing moved, nothing pinned, nothing recorded.
+    expect(h.deployments.rows.map((d) => d.deploymentId)).toEqual(['dep-s1']);
+    expect(h.pinned).toEqual([]);
+    expect(h.appended).toEqual([]);
+  });
+
+  test("only the target's runs count, and without pin nothing is checked", async () => {
+    const elsewhere = harness({ agentPins: true, rows: [withBlocks()], runs: newerIn(PROD) });
+    const pinned = await elsewhere.promoteAndPin('dep-s1', S2);
+    expect(pinned.status).toBe(201);
+    expect(pinned.body.blockCheck).toEqual({ checked: true, replaced: [], notNeeded: [] });
+
+    const unpinned = harness({ agentPins: true, rows: [withBlocks()], runs: newerIn(S2) });
+    const moved = await unpinned.promote('dep-s1', S2);
+    expect(moved.status).toBe(201);
+    expect(moved.body.blockCheck).toBeUndefined();
+  });
+
+  test('replace puts the block back on purpose: the answer says which, the new deployment keeps its own, and the audit log records each', async () => {
+    // The source put a block back in its own project: that stays with it.
+    const source: Deployment = {
+      ...withBlocks(),
+      replaced: [
+        {
+          blockId: 'acme.rules',
+          from: '3.0.0',
+          to: '2.0.0',
+          reason: 'from the deploy',
+          by: { kind: 'user', id: 'usr-ana' },
+        },
+      ],
+    };
+    const h = harness({ agentPins: true, rows: [source], runs: newerIn(S2) });
+    const body = {
+      toProjectId: S2,
+      pin: true,
+      replace: [
+        { blockId: TONE, reason: 'v2 was a try' },
+        { blockId: 'acme.rules', reason: 'v2 was a try' },
+      ],
+    };
+    const res = await h.call(promotions, body);
+    expect(res.status).toBe(201);
+    // Its own, by the promoter: never the source's `acme.rules` by usr-ana.
+    const own = [
+      {
+        blockId: TONE,
+        from: '2.0.0',
+        to: '1.0.0',
+        reason: 'v2 was a try',
+        by: { kind: 'user', id: 'user-1' },
+      },
+    ];
+    expect(res.body.deployment.replaced).toEqual(own);
+    expect(res.body.blockCheck).toEqual({
+      checked: true,
+      replaced: [{ blockId: TONE, from: '2.0.0', to: '1.0.0' }],
+      notNeeded: ['acme.rules'],
+    });
+    expect(h.pinned).toHaveLength(1);
+    const replaced = h.appended.filter((e) => e.kind === 'deployment-replaced-block');
+    expect(replaced).toHaveLength(1);
+    expect(replaced[0]).toMatchObject({
+      outcome: 'succeeded',
+      projectId: S2,
+      payload: {
+        doc: {
+          deploymentId: res.body.deployment.deploymentId,
+          blockId: TONE,
+          from: '2.0.0',
+          to: '1.0.0',
+          reason: 'v2 was a try',
+        },
+      },
+    });
+
+    // A repeat finds the build there (200): its deployment stays as it is,
+    // and the audit log records each block the repeat's pins put back.
+    const again = await h.call(promotions, body);
+    expect(again.status).toBe(200);
+    expect(again.body.deployment.replaced).toEqual(own);
+    expect(h.appended.filter((e) => e.kind === 'deployment-replaced-block')).toHaveLength(
+      1 + (again.body.blockCheck.replaced as unknown[]).length,
+    );
+  });
+
+  test('a build deployed before deployments kept their blocks is not compared, and the answer says so', async () => {
+    const h = harness({ agentPins: true, runs: newerIn(S2) });
+    const res = await h.promoteAndPin('dep-s1', S2);
+    expect(res.status).toBe(201);
+    expect(res.body.blockCheck).toEqual({ checked: false, replaced: [], notNeeded: [] });
+  });
+
+  test("a runtime that doesn't read what runs doesn't check, and says nothing of it", async () => {
+    const h = harness({ agentPins: true, rows: [withBlocks()] });
+    const res = await h.promoteAndPin('dep-s1', S2);
+    expect(res.status).toBe(201);
+    expect(res.body.blockCheck).toBeUndefined();
+  });
+
+  test('replace goes with pin, and each entry says why', async () => {
+    const h = harness({ agentPins: true, rows: [withBlocks()], runs: newerIn(S2) });
+    const unpinned = await h.call(promotions, {
+      toProjectId: S2,
+      replace: [{ blockId: TONE, reason: 'v2 was a try' }],
+    });
+    expect(unpinned.status).toBe(400);
+    expect(unpinned.body.error.message).toBe(
+      '`replace` goes with `pin`: only the pins put a block back to an older version.',
+    );
+    const noReason = await h.call(promotions, {
+      toProjectId: S2,
+      pin: true,
+      replace: [{ blockId: TONE }],
+    });
+    expect(noReason.status).toBe(400);
+    expect(noReason.body.error.message).toBe(
+      'replace[0].reason must say why, in 1 to 500 characters with no control characters.',
+    );
+    const check = await h.call(`${promotions}/check`, { toProjectId: S2, replace: [] });
+    expect(check.status).toBe(400);
+    expect(check.body.error.message).toBe('Unknown field `replace`.');
+    expect(h.deployments.rows.map((d) => d.deploymentId)).toEqual(['dep-s1']);
   });
 });

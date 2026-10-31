@@ -23,4 +23,13 @@ object Checks {
     .checkId("conformance.checks.throws")
     .onViolation("log-only")
     .check((_, _) => throw new IllegalStateException("check boom"))
+
+  // The runtime judges an llm-judge guardrail with a model, by its config; it never calls this check.
+  val judged: Guardrail[Map[String, Any]] = Guardrail.json("conformance.judged")
+    .checkId("conformance.checks.judged")
+    .kind("llm-judge")
+    .set("config", Map("rubric" -> "The reply answers the message.", "responseFormat" -> "pass-fail"))
+    .judgeCapabilities(Map("needs" -> List(Map("feature" -> "structured-output"))))
+    .onViolation("log-only")
+    .check((_, _) => CheckResult.pass)
 }

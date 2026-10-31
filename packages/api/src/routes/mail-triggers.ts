@@ -9,7 +9,7 @@ import { type Action, type ResourceRef, ref } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
 import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
-import { callerRef, isTenantAdmin } from '../caller.js';
+import { callerIdentity, callerRef, isTenantAdmin } from '../caller.js';
 import { sameJson } from '../canonical-json.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, runIn } from '../item-rights.js';
@@ -26,6 +26,7 @@ import {
   type MailTriggerMailbox,
   type MailTriggerRecord,
   type MailTriggerTarget,
+  type MailTriggerVersionRecord,
   type RegisterMailTriggerInput,
   type TriggerFire,
   type TriggerRegistryBinding,
@@ -63,7 +64,9 @@ import {
   retargets,
   sameToolList,
   toolsAllowedUnattendedProblem,
+  triggerScope,
 } from './trigger-tools.js';
+import { versionField, versionFields, versionOne, versionsPage } from './trigger-versions.js';
 import { UUID_RE } from './uuid-param.js';
 
 export interface MailTriggersRouterOptions {
@@ -305,7 +308,7 @@ export function mailTriggersRouter(
       if (refusedList !== undefined) return refusedList;
       const problem = await toolsAllowedUnattendedProblem(
         targetTools,
-        tenantId,
+        triggerScope(tenantId, project),
         target.value,
         tools.value,
       );
@@ -327,6 +330,7 @@ export function mailTriggersRouter(
     const registerInput: RegisterMailTriggerInput = {
       kind: 'mail',
       tenantId,
+      by: callerIdentity(c),
       target: target.value,
       ...(project !== undefined && { projectId: project as ProjectId }),
       owner,
@@ -356,6 +360,7 @@ export function mailTriggersRouter(
         by: callerRef(c),
         correlationId: requestId,
         log: c.get('log'),
+        ...versionField(result.value),
       });
     }
     if (tools.kind === 'ok' && tools.value.length > 0) {
@@ -370,6 +375,7 @@ export function mailTriggersRouter(
         by: callerRef(c),
         correlationId: requestId,
         log: c.get('log'),
+        ...versionField(result.value),
       });
     }
     c.status(201);
@@ -530,7 +536,7 @@ export function mailTriggersRouter(
       if (refusedList !== undefined) return refusedList;
       const problem = await toolsAllowedUnattendedProblem(
         targetTools,
-        tenantId,
+        triggerScope(tenantId, project),
         nextTarget,
         tools.value,
       );
@@ -547,10 +553,13 @@ export function mailTriggersRouter(
       kind: 'mail',
       tenantId,
       triggerId,
+      by: callerIdentity(c),
       ...(Object.keys(config.value).length > 0 && { config: config.value }),
       ...(target !== undefined && { target: target.value }),
       ...('label' in body && { label: body.label === null ? null : (body.label as string) }),
-      ...(tools.kind === 'ok' && { toolsAllowedUnattended: tools.value }),
+      // The same tools in another order change nothing: no version, as no audit entry.
+      ...(tools.kind === 'ok' &&
+        !sameToolList(kept, tools.value) && { toolsAllowedUnattended: tools.value }),
     };
     const result = await binding.update(updateInput);
     if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
@@ -565,6 +574,7 @@ export function mailTriggersRouter(
       triggerKind: 'mail',
       change: 'updated',
       ...changed,
+      ...versionField(result.value),
     });
     // A change of the list is audited; so is a new target or mailbox it names again.
     if (
@@ -584,6 +594,7 @@ export function mailTriggersRouter(
         by: callerRef(c),
         correlationId: requestId,
         log: c.get('log'),
+        ...versionField(result.value),
       });
     }
     return mailTriggerJson(c, updated);
@@ -656,6 +667,33 @@ export function mailTriggersRouter(
     });
   });
 
+  /** Versions, their owners named as a trigger's is. */
+  const versionsJson = async (
+    c: Context<AppEnv>,
+    versions: readonly MailTriggerVersionRecord[],
+  ) => {
+    const named = await ownerNamesOf(
+      names,
+      c.get('tenantId') as TenantId,
+      versions.map((v) => v.definition.owner),
+    );
+    return versions.map((v) => serializeMailTriggerVersion(v, named));
+  };
+
+  // ---------- GET /:triggerId/versions (newest first) ----------
+  r.get('/:triggerId/versions', async (c) => {
+    const found = await mailTriggerFor(c, 'read');
+    if (found.kind === 'err') return found.response;
+    return versionsPage(c, binding, found.value.triggerId, 'mail', (v) => versionsJson(c, v));
+  });
+
+  // ---------- GET /:triggerId/versions/:version ----------
+  r.get('/:triggerId/versions/:version', async (c) => {
+    const found = await mailTriggerFor(c, 'read');
+    if (found.kind === 'err') return found.response;
+    return versionOne(c, binding, found.value.triggerId, 'mail', (v) => versionsJson(c, v));
+  });
+
   // ---------- POST /:triggerId/owner (take ownership) ----------
   r.post('/:triggerId/owner', async (c) => {
     const requestId = c.get('requestId');
@@ -695,7 +733,12 @@ export function mailTriggersRouter(
     );
     if (resolved.kind === 'refused') return resolved.response;
     const { tenantId, triggerId } = rec;
-    const result = await binding.setOwner({ tenantId, triggerId, owner: resolved.owner });
+    const result = await binding.setOwner({
+      tenantId,
+      triggerId,
+      owner: resolved.owner,
+      by: callerIdentity(c),
+    });
     if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
     // Every owner change is audited, a plain caller take-over included.
     await recordOwnerSet({
@@ -713,6 +756,7 @@ export function mailTriggersRouter(
       ...(rec.toolsAllowedUnattended !== undefined && {
         toolsAllowedUnattended: rec.toolsAllowedUnattended,
       }),
+      ...versionField(result.value),
     });
     tellTakenOver(c, ownerNotices, owned(rec), 'mail');
     return mailTriggerJson(c, result.value as MailTriggerRecord);
@@ -822,6 +866,7 @@ function serializeMailTrigger(
     label: r.label,
     status: r.status,
     ...(r.statusReason !== undefined && { statusReason: r.statusReason }),
+    ...(r.version !== undefined && { version: r.version }),
     ...(r.account !== undefined && { account: { id: r.account.id, label: r.account.label } }),
     ...(r.lastPolledAt !== undefined && { lastPolledAt: r.lastPolledAt }),
     ...(r.toolsAllowedUnattended !== undefined &&
@@ -841,8 +886,35 @@ function serializeFire(f: TriggerFire): Record<string, unknown> {
     firedAt: f.firedAt,
     outcome: f.outcome,
     ...(f.runId !== undefined && { runId: f.runId }),
+    ...(f.version !== undefined && { version: f.version }),
     ...(f.detail !== undefined && { detail: f.detail }),
     ...(f.countsTowardPause !== undefined && { countsTowardPause: f.countsTowardPause }),
+  };
+}
+
+/** A version, its definition named as a mail trigger's own fields are. */
+function serializeMailTriggerVersion(
+  v: MailTriggerVersionRecord,
+  names: ReadonlyMap<string, OwnerFacts>,
+): Record<string, unknown> {
+  const d = v.definition;
+  return {
+    triggerId: v.triggerId as unknown as string,
+    ...versionFields(v),
+    definition: {
+      ...targetFields(d.target),
+      projectId: d.projectId as unknown as string,
+      owner: ownerJson(d.owner, names),
+      mailbox: { app: d.config.mailbox.app, as: d.config.mailbox.as },
+      ...(d.config.folder !== undefined && { folder: d.config.folder }),
+      pollSeconds: d.config.pollSeconds,
+      runsPerHour: d.config.runsPerHour,
+      label: d.label,
+      ...(d.toolsAllowedUnattended !== undefined &&
+        d.toolsAllowedUnattended.length > 0 && {
+          toolsAllowedUnattended: [...d.toolsAllowedUnattended],
+        }),
+    },
   };
 }
 
