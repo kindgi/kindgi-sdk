@@ -636,6 +636,9 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
   '/v1/system/tenants/{tenantId}': "the server's operator routes",
   '/v1/system/tenants/{tenantId}/admins': "the server's operator routes",
   '/v1/system/tenants/{tenantId}/limits': "the server's operator routes",
+  '/v1/system/tenants/{tenantId}/env': "the server's operator routes",
+  '/v1/env/cloud-secrets':
+    "names the server's operator set to its own cloud's secrets: the operator's to set, not the workspace's to move",
   '/v1/system/whoami': "the server's operator routes",
   '/v1/system/deployments': "the server's operator routes",
   '/v1/system/pack-env': "the server's operator routes",

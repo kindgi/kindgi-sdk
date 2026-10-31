@@ -130,6 +130,7 @@ export CLOUDSDK_CORE_DISABLE_FILE_LOGGING=true
 # instances, service accounts and bucket paths — keep it to this user.
 umask 077
 
+# >>> same in both modules: releases
 readonly RUNTIME_REPO="registry.kindgi.com/kindgi/runtime"
 readonly VERSION_FLOOR="0.1.8"         # upgrades from before this are refused
 readonly TARGET_FLOOR="0.2.0"          # the first release on registry.kindgi.com
@@ -141,6 +142,7 @@ readonly DEFAULT_TARGET="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 # How long to wait for the new revision to become ready (step 6).
 readonly POLL_INTERVAL=10
 readonly POLL_TRIES=60
+# <<<
 
 # How long to wait for a new bucket grant to reach Cloud SQL (step 3): Google
 # says an IAM change typically takes effect in 2 minutes, and potentially 7
@@ -150,6 +152,7 @@ readonly GRANT_WAIT_SECONDS=420
 
 # --- small helpers ----------------------------------------------------------
 
+# >>> same in both modules: small-helpers
 ME="upgrade"  # "upgrade (dry run)" with --dry-run
 die() { printf '%s: %s\n' "$ME" "$*" >&2; exit 1; }
 warn() { printf '%s: %s\n' "$ME" "$*" >&2; }
@@ -162,7 +165,9 @@ require_cmd() {
     command -v "$c" >/dev/null 2>&1 || die "this needs \"$c\" on your PATH."
   done
 }
+# <<<
 
+# >>> same in both modules: version-helpers
 # A version as a plain base-10 integer for comparison: an rc ranks below its
 # final, and a server-only release X.Y.Z.N above it, in order of N:
 # 0.2.0-rc.1 -> 200000001, 0.2.0 -> 200050000, 0.2.0.1 -> 200050001. Each of
@@ -192,7 +197,9 @@ sdk_tag() { printf 'the @kindgi/sdk@%s tag or, before that release is out, its n
 # @kindgi/cli@X.Y, as the CLI names itself (publishedCliSpec, in
 # packages/cli/src/package-manager.ts).
 line_of() { [[ $1 =~ ^([0-9]+\.[0-9]+)\. ]] && printf '%s' "${BASH_REMATCH[1]}"; }
+# <<<
 
+# >>> same in both modules: varfile-helpers
 # The var-file's value for one variable, or nothing unless the file sets it
 # exactly once, on one line, as  name = "value"  (or as a string in .json).
 varfile_value() {
@@ -241,6 +248,7 @@ var_file_flags() {
   local f
   for f in "${VAR_FILES[@]}"; do printf ' -var-file=%q' "$f"; done
 }
+# <<<
 
 # The go-back path, printed (never run) when the apply fails or the new revision
 # doesn't come up. It reads variables set by the time it's called (steps 5/6).
@@ -329,7 +337,9 @@ EOT
 # The names a run gives what it creates, so a dry run lists the ones a real
 # run uses. A check job's name is at most 63 characters: the prefix is cut to
 # 45 (the rest adds 18) and loses a trailing "-". $2 is the run's HHMMSS.
+# >>> same in both modules: checks
 readonly CHECKS=("provider-keys" "secret-scopes" "mcp-header-credentials")
+# <<<
 check_job_name() {
   local prefix="${NAME_PREFIX:0:45}" suffix
   while [[ $prefix == *- ]]; do prefix="${prefix%-}"; done
@@ -342,9 +352,11 @@ check_job_name() {
 }
 # The export and the var-file's backup copy. $1 is the run's UTC stamp.
 export_uri() { printf '%s/%s-%s-%s-%s.sql.gz' "${BACKUP_BUCKET%/}" "$NAME_PREFIX" "$DATABASE_NAME" "$CURRENT" "$1"; }
+# >>> same in both modules: kept-files
 varfile_backup_name() { printf '%s.pre-upgrade-%s' "$VAR_FILE" "$1"; }
 # The plan a run applies, kept next to the var-file's copy.
 plan_kept_name() { printf '%s.upgrade-%s.tfplan' "$VAR_FILE" "$1"; }
+# <<<
 
 # --- arguments --------------------------------------------------------------
 
@@ -372,12 +384,14 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# >>> same in both modules: required-arguments
 [[ ${#VAR_FILES[@]} -gt 0 ]] || die "--var-file is required (see --help)."
 for f in "${VAR_FILES[@]}"; do
   [[ -n $f && -f $f ]] || die "--var-file \"$f\" doesn't exist."
 done
 [[ -n $RUNTIME_DIGEST ]] || die "--runtime-digest is required (see --help)."
 [[ $RUNTIME_DIGEST =~ ^sha256:[0-9a-f]{64}$ ]] || die "--runtime-digest must look like sha256:<64 hex>."
+# <<<
 [[ -n $BACKUP_BUCKET ]] || die "--backup-bucket is required (see --help)."
 [[ $BACKUP_BUCKET =~ ^gs://[a-z0-9][-a-z0-9._]*(/.*)?$ ]] || die "--backup-bucket must look like gs://<bucket>[/<prefix>]."
 BUCKET_ONLY="${BACKUP_BUCKET#gs://}"; BUCKET_ONLY="${BUCKET_ONLY%%/*}"
@@ -385,6 +399,7 @@ is_version "$TARGET" || die "--to \"$TARGET\" isn't a version like 0.2.0, 0.2.0-
 TARGET_RELEASE="$(release_of "$TARGET")"
 [[ "$(ver_num "$TARGET_RELEASE")" -ge "$(ver_num "$TARGET_FLOOR")" ]] \
   || die "--to $TARGET: this script copies the runtime from registry.kindgi.com, which has $TARGET_FLOOR and later. For an earlier release, use this script as of the @kindgi/sdk@0.1.10 tag."
+# >>> same in both modules: target-release
 # A later release may need steps this copy doesn't have, so it isn't run past
 # the newest release it knows (an rc counts as its final). A server-only
 # release has no SDK tag of its own: its release's script runs it.
@@ -400,9 +415,11 @@ if is_server_fix "$TARGET" && [[ " ${KNOWN_RELEASES[*]} " != *" $TARGET_RELEASE 
 fi
 if [[ -n $FROM_OVERRIDE ]]; then is_version "$FROM_OVERRIDE" || die "--from \"$FROM_OVERRIDE\" isn't a version like 0.1.10 or 0.2.0.1."; fi
 if [[ -n $PACK_DIR ]]; then [[ -d $PACK_DIR ]] || die "--pack-dir \"$PACK_DIR\" isn't a directory."; fi
+# <<<
 
 require_cmd terraform gcloud jq docker
 
+# >>> same in both modules: var-file
 # The var-file this run writes the new image(s) into: the one that sets
 # server_image. Terraform takes a later file's value over an earlier one's,
 # so a second file that sets it would plan an image this run didn't write.
@@ -420,6 +437,7 @@ VARFILE_JSON=false
 case "$VAR_FILE" in *.json) VARFILE_JSON=true ;; esac
 TF_VAR_FILE_ARGS=()
 for f in "${VAR_FILES[@]}"; do TF_VAR_FILE_ARGS+=("-var-file=$f"); done
+# <<<
 
 WORK="$(mktemp -d)"
 CHECK_JOBS=()          # ephemeral pre-upgrade check jobs, deleted on exit
@@ -533,6 +551,7 @@ if [[ -n $OLD_PACK_IMAGE && $TENANCY == "single" ]]; then HAS_PACK=true; fi
 REBUILD_PACK=false
 if [[ $HAS_PACK == true && -n $PACK_DIR ]]; then REBUILD_PACK=true; fi
 
+# >>> same in both modules: var-file-checks
 # Step 5 rewrites the image line(s) in the var-file, so a later plain apply
 # can't put the old image back on the migrated database. Refuse now, before
 # any work, if the file doesn't hold each one exactly once as terraform reads it.
@@ -584,6 +603,7 @@ fi
 for v in $(compgen -e | grep '^TF_VAR_' || true); do
   info "also set       $v (in the environment)"
 done
+# <<<
 info "project         $PROJECT"
 info "region          $REGION"
 info "server service  $SERVER_SERVICE"
@@ -635,6 +655,7 @@ else
   fi
 fi
 
+# >>> same in both modules: versions-crossed
 if [[ "$(ver_num "$CURRENT")" -lt "$(ver_num "$VERSION_FLOOR")" ]]; then
   die "the deployment is on $CURRENT; this script upgrades from $VERSION_FLOOR or later. Upgrade to $VERSION_FLOOR first."
 fi
@@ -666,6 +687,7 @@ MODULE_CROSSED=()
 for r in "${KNOWN_RELEASES[@]}"; do
   if [[ "$(ver_num "$r")" -gt "$(ver_num "$CURRENT")" ]]; then MODULE_CROSSED+=("$r"); fi
 done
+# <<<
 if [[ "$(ver_num "$TARGET_RELEASE")" -lt "$(ver_num "$NEWEST_KNOWN")" ]]; then
   warn "the module here is this copy's, as of $NEWEST_KNOWN: the plan also makes its changes for the releases after $TARGET_RELEASE (its steps to confirm by hand list them), with the $TARGET runtime. To keep the module at $TARGET_RELEASE, use this script as of $(sdk_tag "$TARGET_RELEASE")."
 fi
@@ -680,8 +702,10 @@ NEW_PACK_IMAGE="$OLD_PACK_IMAGE"
 
 step "2. Pre-upgrade checks"
 
+# >>> same in both modules: fail-check
 CHECK_FAILED=false
 fail_check() { CHECK_FAILED=true; warn "CHECK FAILED: $*"; }
+# <<<
 
 # 2a. Preconditions, cheapest first.
 # The database's instance: its socket (the check jobs and the server mount it),
@@ -739,6 +763,7 @@ if [[ $CHECK_FAILED == true ]]; then
   die "a precondition failed (above). Nothing was mirrored, backed up or changed. Fix it and run again."
 fi
 
+# >>> same in both modules: release-steps
 # A release's steps to confirm by hand, for the runtime it brings.
 release_steps() {
   case "$1" in
@@ -860,6 +885,7 @@ EOT
       ;;
   esac
 }
+# <<<
 
 # What a release's module changes in place, which the plan makes: the plan
 # check allows these (plan_allowed_changes) and nothing else. A run to an
@@ -989,6 +1015,7 @@ plan_protects_instance() {
         and .change.after.settings[0].deletion_protection_enabled == true)] | length > 0' "$1" >/dev/null 2>&1
 }
 
+# >>> same in both modules: plan-changes
 # Every change in a plan (terraform show -json) that $allowed doesn't name,
 # one line each: a create, delete, replace or forget by what it does; an
 # update by each attribute it changes, a value it knows or one known only
@@ -1037,10 +1064,12 @@ readonly PLAN_CHANGES_JQ='
       | select(. as $w | $allowed | any(.[]; .key == $key and (.path as $p | $w == $p or ($w | startswith($p + ".")))) | not)
       | "\($addr): changes \(.)"
     end'
+# <<<
 
 # The image a plan gives a Cloud Run service ($n: server or pack), or nothing.
 readonly PLAN_IMAGE_JQ='[.resource_changes[]? | select(.type == "google_cloud_run_v2_service" and .name == $n) | .change.after.template[0].containers[0].image // empty] | first // ""'
 
+# >>> same in both modules: check-plan
 # Check a saved plan: it must point the server (and a rebuilt pack, with $2
 # true) at the new image, and change nothing else plan_allowed_changes
 # doesn't name. Says what's wrong and returns 1 if not.
@@ -1075,6 +1104,7 @@ check_plan() {
   warn "Nothing above was applied. A var file left off the command (a pack's env, say) is what usually does this: give each file the deployment uses its own --var-file. If the changes are yours (a variable you changed, say), apply them on the release it runs now with a plan you review, then run this again."
   return 1
 }
+# <<<
 
 # A dry run stops here. It lists what the steps below would change, with the
 # names they'd use, prints the steps to confirm by hand, and shows the plan for
@@ -1198,6 +1228,7 @@ for check in "${CHECKS[@]}"; do
   fi
 done
 
+# >>> same in both modules: checks-done
 # 2d. The steps to confirm by hand, and what doesn't apply here.
 print_by_hand_steps
 
@@ -1205,6 +1236,7 @@ if [[ $CHECK_FAILED == true ]]; then
   die "one or more checks failed (above). Nothing was backed up or changed. Fix them and run again."
 fi
 info "all automated checks passed."
+# <<<
 
 # --- step 3: back up the database -------------------------------------------
 # One database, as an export — never an instance backup, which would be the
@@ -1281,6 +1313,7 @@ fi
 # The new image(s) go into the var-file itself, so what's planned is what the
 # file says from now on. Until the apply starts, the EXIT trap puts it back.
 
+# >>> same in both modules: plan
 step "5. Terraform plan"
 VARFILE_BACKUP="$(varfile_backup_name "$STAMP")"
 cp "$VAR_FILE" "$VARFILE_BACKUP"
@@ -1295,16 +1328,20 @@ PLAN="$WORK/upgrade.tfplan"
 PLAN_KEPT="$(plan_kept_name "$STAMP")"
 terraform plan "${TF_VAR_FILE_ARGS[@]}" -out="$PLAN" \
   || die "terraform plan failed. Nothing has changed."
+# <<<
 check_plan "$PLAN" "$REBUILD_PACK" \
   || die "the plan check failed (above), so nothing was applied. (The backup stays at $EXPORT_URI.)"
 
+# >>> same in both modules: yes-prompt
 printf '\n'
 warn "Review the plan above. It points the server (and pack, if rebuilt) at the new image. yes applies exactly this plan, and keeps it as $PLAN_KEPT."
 printf 'Apply this plan? Type yes to proceed: '
 reply=""
 IFS= read -r reply || reply=""
+# <<<
 [[ $reply == "yes" ]] || die "not confirmed — nothing was applied. (The backup stays at $EXPORT_URI.)"
 
+# >>> same in both modules: apply
 step "Applying"
 mv "$PLAN" "$PLAN_KEPT" || die "couldn't keep the plan as $PLAN_KEPT, so nothing was applied."
 # From here the deployment may change, so the var-file keeps the new image(s).
@@ -1315,6 +1352,7 @@ if ! terraform apply "$PLAN_KEPT"; then
   print_go_back
   exit 1
 fi
+# <<<
 
 # --- step 6: wait for the new revision --------------------------------------
 

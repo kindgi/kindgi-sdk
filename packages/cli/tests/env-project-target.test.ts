@@ -193,6 +193,7 @@ function runtime(
         data: [{ name: 'ACME_REGION', value: 'eu', revision: 1, updatedAt: 'x' }],
       })),
       delete: record('env.delete', () => ({ deleted: true })),
+      listCloudSecrets: record('env.listCloudSecrets', () => ({ data: [] })),
     },
     providers: {
       register: record('providers.register', (input) => ({
@@ -472,7 +473,7 @@ describe('kindgi env: --env naming a pack environment, on a runtime that keeps i
       await cli(rt, ['env', 'pull', '--env=staging-1', '--quiet']),
     ];
     for (const out of done) expect([out.exitCode, out.stdout, out.stderr]).toEqual([0, '', '']);
-    for (const op of ['env.set', 'env.list', 'env.delete']) {
+    for (const op of ['env.set', 'env.list', 'env.delete', 'env.listCloudSecrets']) {
       expect(sentTo(rt, op)).toEqual(
         op === 'env.list' ? [AT_STAGING_1, AT_STAGING_1] : [AT_STAGING_1],
       );

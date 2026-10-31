@@ -105,6 +105,7 @@ own **system key** (`kgi_sy_…`), with the least scope it needs:
 | `system:suspend` | Suspending and restoring a tenant, a project or a pack |
 | `system:deployments` | The deployments and their pack services' endpoints |
 | `system:pack-env` | The values each deployment's pack declares, for its pack service, and the revision it runs (runtime 0.1.9 or later). On a key of its own: the deployments key reads no value, and only a key holding this scope itself, not `kindgi:system`, reads a secret's |
+| `system:env-refs` | [Setting a tenant's env names to a cloud secret](#set-a-name-to-a-cloud-secret), for its pack services (runtime 0.4.0 or later) |
 | `system:license` | Reading the deployment's license, for its renewal |
 | `kindgi:system` | All of them: a full key |
 
@@ -285,6 +286,10 @@ service is, and checks it. It never creates or deletes one.
    plain value (`env`) and the `revision` they make. Ask with
    `?secrets=values`, and a name set only as a secret is given too, in
    `secrets`, read at the version the revision names. Give the service those.
+   A name your operator [set to a cloud secret](#set-a-name-to-a-cloud-secret)
+   (runtime 0.4.0 or later) comes in `cloudSecrets`, by its path, and never
+   its value: give the service that name from that version of the secret,
+   read as the service's own account, as a Cloud Run `secretKeyRef` does.
    If it names a `problem` instead, it gives no value: start nothing, and say
    why (step 4).
 3. **Record its endpoint:**
@@ -315,8 +320,10 @@ service is, and checks it. It never creates or deletes one.
    `tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed` or
    `image-not-allowed`. For its environment (runtime 0.1.9 or later):
    `pack-env-missing` (a required name is set nowhere), `pack-env-ambiguous`
-   (set both as a secret and as a plain value) or `pack-env-secret-not-yet`
-   (set only as a secret, read without `secrets=values`). With
+   (set more than one way: as a plain value, a secret or a cloud secret) or
+   `pack-env-secret-not-yet` (set only as a secret, read without
+   `secrets=values`). Where you run the service can't give it a cloud secret,
+   record `pack-env-cloud-secret-unsupported` (runtime 0.4.0 or later). With
    `secrets=values`, every secret value the route gives is audited, one row
    per secret, before the answer. When those rows can't be written, or the
    secret store is out, it gives none (`503 pack-env-unavailable`): try
@@ -352,8 +359,15 @@ service is, and checks it. It never creates or deletes one.
 6. **Retire what should go:** `GET /v1/system/deployments?endpoint=retire`
    lists deployments with an endpoint whose service should go, each with its
    `reason`. Clear the endpoint first, with `DELETE …/endpoint`, then delete
-   the service. A `superseded` deployment is one whose every tool version and
-   check newer deployments in its project ship.
+   the service. Nothing a call can still ask for needs a `superseded`
+   deployment. Each tool version, check, agent and flow version it serves is
+   unregistered and not used by a pin or an unfinished run (a check: no
+   registered guardrail runs it), or a newer deployment in its project
+   serves it (runtime 0.4.0 or later; before, `superseded` meant newer
+   deployments in its project shipped every tool version and check it
+   does). Registering one of its versions again lists it as needing a
+   service again. A tenant sees what keeps each one in its endpoint's
+   `keptFor`.
 
 A call to a deployment's tool never goes anywhere else. With no endpoint yet
 it fails with `pack-endpoint-pending`, and after a clear with
@@ -374,6 +388,59 @@ deployment isn't in the run's project, or doesn't ship what the call names:
 ```text
 Deployment <deployment-id> isn't in project "<project name>", or doesn't ship tool acme.lookup@1.0.0. This call first ran on deployment <deployment-id>, and a re-run doesn't move to another.
 ```
+
+### Set a name to a cloud secret
+
+A name a pack reads from its environment can be set, at a tenant's scope and
+under one env, to a version of a secret your cloud holds instead of to a
+value (runtime 0.4.0 or later): a Google Cloud Secret Manager version,
+`projects/<project>/secrets/<secret>/versions/<number>`. Turn it on with
+`KINDGI_ENV_CLOUD_SECRETS=on`, which needs
+`KINDGI_PACK_ROUTING=per-deployment`. The runtime keeps
+that path and never reads the value. The pack service is given the name, and
+Cloud Run reads the value as the pack service's own account, so that account
+needs `roles/secretmanager.secretAccessor` on the secret. Every deployment's
+pack service runs as that one account, so any of them could read it: set one
+only for a value every pack may see.
+
+The version is a number, never `latest` or an alias, so what a pack service
+runs changes only when you set another version. A secret whose id starts
+with `kp-` is refused: those are the pack services' own copies.
+
+Only the operator sets one, with a system key holding `system:env-refs` as
+`KINDGI_API_TOKEN`:
+
+```sh
+npx --yes @kindgi/cli@0.4 env set STRIPE_KEY \
+  --cloud-secret projects/acme-prod/secrets/stripe-key/versions/3 \
+  --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
+npx --yes @kindgi/cli@0.4 env list --cloud-secret \
+  --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
+npx --yes @kindgi/cli@0.4 env unset STRIPE_KEY --cloud-secret \
+  --tenant="$TENANT_ID" --scope="project:$PROJECT_ID" --env=prod
+```
+
+`kindgi env set` refuses to change one that's set to another version without
+`--force`. Over HTTP, those are `PUT`, `GET` and `DELETE` on
+`/v1/system/tenants/{tenantId}/env[/{name}]`, with `envName`, `scopeKind` and
+`scopeId` in the query, and `{"cloudSecret": "<path>"}` as the `PUT`'s body.
+A path not of that form is `400 cloud-secret-invalid`, and a tenant's own key
+is refused, on `kindgi env set` too (`403 cloud-secret-system-only`). Each
+change is in the tenant's audit record (`env-set`, `env-deleted`), naming the
+system key that made it and marked `cloudSecret`, never with the path, and
+in the system access record. Setting, changing or removing one moves the
+pack env revision, so the pack services that declare the name are given the
+change as for any value (step 5).
+
+The tenant sees which names are set this way, never the path:
+`kindgi env list --scope` shows each as `NAME (cloud secret)`, and
+`kindgi deployments get` names it set. A name set to a cloud secret and also
+as a value or a secret is `pack-env-ambiguous`: its pack service gets
+neither until one is removed. With `KINDGI_ENV_CLOUD_SECRETS` off, the
+default, the runtime keeps none and answers `501 cloud-secrets-unsupported`,
+as Kindgi Cloud does. A runtime serving one
+tenant with a pack service per deployment mints `system:env-refs` keys too,
+from its own token, for that tenant alone.
 
 ## Limits and production
 

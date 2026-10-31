@@ -101,6 +101,9 @@ export type {
 } from './resources/tools.js';
 export type {
   EnvClient,
+  EnvCloudSecretListInput,
+  EnvCloudSecretName,
+  EnvCloudSecretNamePage,
   EnvDeleteInput,
   EnvDeleteOutcome,
   EnvGetInput,
@@ -474,6 +477,15 @@ export type {
   SystemPackEnvEntry,
   SystemPackEnvPage,
 } from './resources/system-deployments.js';
+export type {
+  EnvCloudSecret,
+  EnvCloudSecretPage,
+  SystemCloudSecretKey,
+  SystemCloudSecretListInput,
+  SystemCloudSecretSetInput,
+  SystemCloudSecretSetOutcome,
+  SystemEnvClient,
+} from './resources/system-env.js';
 export type {
   CreatedSystemTenant,
   SystemTenant,

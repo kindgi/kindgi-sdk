@@ -53,7 +53,11 @@ another's is how that service runs:
   runs those services records each one's endpoint and gives each its
   values, secrets included, with system keys holding `system:deployments`
   and `system:pack-env`. Those keys reach nothing else of the runtime, and
-  the system access record keeps each request they make.
+  the system access record keeps each request they make. Since every one of
+  those services can read what the pack identity can, only the operator
+  sets a name to a secret the cloud holds for them, with a system key
+  holding `system:env-refs`
+  ([Set a name to a cloud secret](../../deploy/self-hosted/serve-many-tenants/#set-a-name-to-a-cloud-secret)).
 - **On Kindgi Cloud,** each deployment's tools' code runs in a pack service
   of its own, apart from every other workspace's. Up to 3 of a workspace's
   projects run their tools' code under an identity of their own, so other

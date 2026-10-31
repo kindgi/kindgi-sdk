@@ -592,6 +592,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'pack-env-not-served': 501,
   /** Secret values asked for from a server with nowhere to audit them: none is read or given. */
   'pack-env-secrets-unaudited': 501,
+  // An env name set to a cloud secret, on a server that keeps none (hosted, for one).
+  'cloud-secrets-unsupported': 501,
+  // A cloud secret that isn't a numbered version's resource name, or names a pack service's own `kp-` copy.
+  'cloud-secret-invalid': 400,
+  // A cloud secret sent by a tenant: only the operator's system key sets one.
+  'cloud-secret-system-only': 403,
   // A project named in `PUT /v1/environment-orders/*` already belongs to another order.
   'project-in-another-order': 409,
   // A build, a publish or a derived version aimed at a later environment of
