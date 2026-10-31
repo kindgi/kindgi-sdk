@@ -35,7 +35,7 @@ describe('cost.usage.query', () => {
       limit: 50,
     });
 
-    expect(page.items[0]?.id).toBe('rec-1');
+    expect(page.data[0]?.id).toBe('rec-1');
     const url = new URL(stub.calls[0]?.url);
     expect(url.pathname).toBe('/v1/cost/records');
     expect(url.searchParams.get('runId')).toBe('r-1');

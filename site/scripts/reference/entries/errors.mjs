@@ -1619,11 +1619,6 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/improve/suggest-a-change'],
   },
-  'supervisor-header-missing': {
-    description: "The API doesn't send this code.",
-    details: [],
-    seeAlso: ['concepts/architecture'],
-  },
   'blob-not-found': {
     description:
       "No artifact with that id exists in the tenant, or it's in a project your key can't read.",

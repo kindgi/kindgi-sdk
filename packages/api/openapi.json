@@ -367,7 +367,6 @@
           "improve-not-ready": 409,
           "improve-run-running": 409,
           "version-already-exists": 409,
-          "supervisor-header-missing": 400,
           "blob-not-found": 404,
           "blob-hash-mismatch": 400,
           "blob-size-mismatch": 400,

@@ -374,7 +374,6 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'guardrail-config-invalid':
     case 'provider-config-invalid':
     case 'provider-key-refused':
-    case 'supervisor-header-missing':
     case 'scope-invalid':
     case 'artifact-too-large':
       return invalidRequest(message, obj, details);

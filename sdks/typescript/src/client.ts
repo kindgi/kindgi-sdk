@@ -67,7 +67,6 @@ import {
   type SuggestedChangesClient,
   makeSuggestedChangesClient,
 } from './resources/suggested-changes.js';
-import { type SupervisorClient, makeSupervisorClient } from './resources/supervisor.js';
 import {
   type SystemDeploymentsClient,
   makeSystemDeploymentsClient,
@@ -116,7 +115,6 @@ export interface KindgiClient {
   readonly memory: MemoryClient;
   readonly provenance: ProvenanceClient;
   // Governance & oversight
-  readonly supervisor: SupervisorClient;
   /** Suggested changes: new content for a data block, evaluated, then pinned for a scope. */
   readonly suggestedChanges: SuggestedChangesClient;
   /** Improve runs: start, check, list, get and cancel. */
@@ -220,7 +218,6 @@ export function createClient(options: ClientOptions): KindgiClient {
     conversations: makeConversationsClient(transport),
     memory: makeMemoryClient(transport),
     provenance: makeProvenanceClient(transport),
-    supervisor: makeSupervisorClient(transport),
     suggestedChanges: makeSuggestedChangesClient(transport),
     improveRuns: makeImproveRunsClient(transport),
     observations: makeObservationsClient(transport),

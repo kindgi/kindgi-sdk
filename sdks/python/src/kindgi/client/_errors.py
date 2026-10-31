@@ -167,7 +167,7 @@ _INVALID = {
     "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",
     "unresolved-guardrail", "schema-validation-failed", "invalid-agent", "invalid-tool-definition",
     "invalid-schema", "unknown-effect", "invalid-guardrail", "invalid-provider",
-    "guardrail-config-invalid", "provider-config-invalid", "supervisor-header-missing",
+    "guardrail-config-invalid", "provider-config-invalid",
     "scope-invalid", "artifact-too-large", "provider-key-refused",
 }  # fmt: skip
 _AUTH: Mapping[str, Literal["unauthenticated", "forbidden", "token-expired"]] = {

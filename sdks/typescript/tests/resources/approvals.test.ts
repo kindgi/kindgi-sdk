@@ -43,7 +43,7 @@ describe('approvals.list / get — /v1/approvals mapping', () => {
       requiredRole: 'standard',
       limit: 10,
     });
-    expect(page.items[0]?.id).toBe(WIRE_APPROVAL.id);
+    expect(page.data[0]?.id).toBe(WIRE_APPROVAL.id);
     const url = new URL(stub.calls[0]?.url);
     expect(url.searchParams.get('status')).toBe('pending');
     expect(url.searchParams.get('requiredRole')).toBe('standard');
@@ -174,7 +174,7 @@ describe('approvals.reviewers — /v1/approvals/reviewers sub-resource', () => {
     });
 
     const page = await client.approvals.reviewers.list({ role: 'standard' });
-    expect(page.items[0]?.id).toBe(WIRE_REVIEWER.id);
+    expect(page.data[0]?.id).toBe(WIRE_REVIEWER.id);
     const url = new URL(stub.calls[0]?.url);
     expect(url.searchParams.get('role')).toBe('standard');
   });
