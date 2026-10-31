@@ -1485,8 +1485,14 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
     const res = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body).toMatchObject({
-      status: 'pinned',
-      pinned: { version: '1.0.1', by: { kind: 'user', id: 'user-1' } },
+      pin: { status: 'pinned', toVersion: '1.0.1' },
+      testRuns: [],
+      fixed: [],
+      reopened: [],
+      suggestedChange: {
+        status: 'pinned',
+        pinned: { version: '1.0.1', by: { kind: 'user', id: 'user-1' } },
+      },
     });
   });
 
@@ -1496,7 +1502,7 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
       reason: 'acme wants recency',
     });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
-    expect(res.body.status).toBe('pinned');
+    expect(res.body.suggestedChange.status).toBe('pinned');
     const request = pinStore.calls.find((c) => c.method === 'request')?.input as Record<
       string,
       unknown
@@ -1525,7 +1531,10 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
     };
     const res = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
     expect(res.status, JSON.stringify(res.body)).toBe(202);
-    expect(res.body).toMatchObject({ status: 'waiting-for-second-person', approvalId: 'appr-1' });
+    expect(res.body).toMatchObject({
+      pin: { status: 'pending-approval', approvalId: 'appr-1' },
+      suggestedChange: { status: 'waiting-for-second-person', approvalId: 'appr-1' },
+    });
     expect(
       (await call('POST', `/v1/suggested-changes/${id}/withdraw`, { reason: 'x' })).status,
     ).toBe(409);
@@ -1818,7 +1827,7 @@ describe('if the project moves first: a suggested change is rebuilt on what it r
     await h.testRuns.finish(b.check.now.testRunId, { delta: 0 });
     const pinned = await h.call('POST', `/v1/suggested-changes/${h.b.id}/pin`, {});
     expect(pinned.status, JSON.stringify(pinned.body)).toBe(201);
-    expect(pinned.body.pinned.version).toBe(b.version);
+    expect(pinned.body.suggestedChange.pinned.version).toBe(b.version);
   });
 
   test('checking one again after its project moved rebuilds it on what runs (202)', async () => {
@@ -2057,7 +2066,10 @@ describe('the cards a deploy makes (madeBy: deploy)', () => {
     const h = await readyCard();
     const res = await h.call('POST', `/v1/suggested-changes/${h.id}/pin`, {});
     expect(res.status, JSON.stringify(res.body)).toBe(201);
-    expect(res.body).toMatchObject({ status: 'pinned', pinned: { version: '1.1.0' } });
+    expect(res.body.suggestedChange).toMatchObject({
+      status: 'pinned',
+      pinned: { version: '1.1.0' },
+    });
     expect(h.pinStore.pins.find((p) => p.agentId === AGENT)?.version).toBe('1.1.0');
   });
 
@@ -4187,7 +4199,7 @@ describe('an agent an order carries from its project to prod', () => {
     grants.push(`admin project:${projectId}`);
     const res = await h.call('POST', `/v1/suggested-changes/${h.id}/pin`, {});
     expect(res.status, JSON.stringify(res.body)).toBe(201);
-    expect(res.body.status).toBe('pinned');
+    expect(res.body.suggestedChange.status).toBe('pinned');
   });
 
   test('a prod member reads its suggested changes; someone in neither project gets 404', async () => {

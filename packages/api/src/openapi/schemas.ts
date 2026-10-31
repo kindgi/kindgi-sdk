@@ -493,6 +493,58 @@ export const PinPageSchema: JsonSchema = {
   },
 };
 
+export const PinTestRunSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'A test run a pin checks a project with: the one the pin named, reused, or one it started, with correlation id `pin:<changeId>`.',
+  required: ['projectId', 'testRunId'],
+  properties: {
+    projectId: { type: 'string', format: 'uuid' },
+    testRunId: { type: 'string' },
+  },
+};
+
+const pinAnswerProperties = {
+  pin: { $ref: '#/components/schemas/Pin' },
+  testRuns: {
+    type: 'array',
+    description:
+      'One per project whose running version the pin changes and that has active cases: a project pin has one, a tenant or org pin one per such project, a segment pin none. While the pin waits for approval, its runs are already started.',
+    items: { $ref: '#/components/schemas/PinTestRun' },
+  },
+  fixed: {
+    type: 'array',
+    description:
+      'The corrections a reused run made `fixed` at pin time. Empty when the runs were started: their outcome changes the statuses when each ends.',
+    items: { type: 'string' },
+  },
+  reopened: {
+    type: 'array',
+    description: "The corrections a reused run reopened at pin time, as `fixed`'s.",
+    items: { type: 'string' },
+  },
+} as const;
+
+export const PinAnswerSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'A pin, and the test runs that check it.',
+  required: ['pin', 'testRuns', 'fixed', 'reopened'],
+  properties: pinAnswerProperties,
+};
+
+export const SuggestedChangePinAnswerSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A suggested change's pin, as `PinAnswer`, and the suggested change it pinned.",
+  required: ['pin', 'testRuns', 'fixed', 'reopened', 'suggestedChange'],
+  properties: {
+    ...pinAnswerProperties,
+    suggestedChange: { $ref: '#/components/schemas/SuggestedChange' },
+  },
+};
+
 // ---------------- pinned versions of flows and tools ----------------
 
 export const PinScopeTenantSchema = pinScopeVariant('tenant', 'The whole tenant.', {});
@@ -16486,6 +16538,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['AgentProjectList', AgentProjectListSchema],
   ['Pin', PinSchema],
   ['PinPage', PinPageSchema],
+  ['PinTestRun', PinTestRunSchema],
+  ['PinAnswer', PinAnswerSchema],
+  ['SuggestedChangePinAnswer', SuggestedChangePinAnswerSchema],
   ['PinScopeTenant', PinScopeTenantSchema],
   ['PinScopeOrg', PinScopeOrgSchema],
   ['PinScopeProject', PinScopeProjectSchema],

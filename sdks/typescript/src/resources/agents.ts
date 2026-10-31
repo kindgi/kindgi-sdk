@@ -14,6 +14,7 @@ import type {
   AgentProjectList,
   AgentTestSet,
   Pin,
+  PinAnswer,
   PinCheck,
   PinPage,
   ReleaseGateResolution,
@@ -169,15 +170,25 @@ export interface AgentPinnedClient {
    * first; into a later environment, promote a build that ships one.
    *
    * With a release gate for the scope, the pin is checked first,
-   * against the comparison named by `testRunId`. The answer's `status`
-   * says what happened: `pinned`, or `pending-approval` (a reviewer
-   * must approve it; `approvalId`). A refusal throws a `KindgiApiError`
-   * whose `error.serverCode` is `gate-failed`, with `changeId`,
-   * `releaseGate` and every check in `error.fields`.
+   * against the comparison named by `testRunId`. The answer's
+   * `pin.status` says what happened: `pinned`, or `pending-approval` (a
+   * reviewer must approve it; `pin.approvalId`). A refusal throws a
+   * `KindgiApiError` whose `error.serverCode` is `gate-failed`, with
+   * `changeId`, `releaseGate` and every check in `error.fields`.
+   *
+   * `testRuns` are the test runs that check the version in each project
+   * whose running version it changes and that has active cases: the run
+   * `testRunId` names, reused, whose outcome is in `fixed` and
+   * `reopened`, or one started, whose outcome changes the corrections
+   * when it ends.
    *
    * @wire POST /v1/agents/:agentId/pinned/pin
    */
-  pin(agentId: AgentId | string, input: AgentPinInput, options?: MutationOptions): Promise<Pin>;
+  pin(
+    agentId: AgentId | string,
+    input: AgentPinInput,
+    options?: MutationOptions,
+  ): Promise<PinAnswer>;
   /**
    * What `pin` with the same input would do, recording nothing:
    * `would-pin`, `needs-approval` (with the approval it needs) or
@@ -454,7 +465,7 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
         });
       },
       async pin(agentId, input, options) {
-        return transport.request<Pin>({
+        return transport.request<PinAnswer>({
           method: 'POST',
           path: `/v1/agents/${seg(agentId as string)}/pinned/pin`,
           body: input,

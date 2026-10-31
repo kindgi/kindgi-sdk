@@ -4010,16 +4010,21 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.pinned.pin',
     summary: 'Pin a version for a scope',
     description:
-      "Pins `version` for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every pin is recorded, with who asked and why. Needs `pin` on the agent.\n\nWith a release gate for the scope (`GET …/release-gate`), the pin is checked first against the comparison named by `testRunId`: `201` pinned; `202` the gate passed and wants a reviewer's approval (a HITL approval, subject `agent-pin`; the pinned version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.changeId`, `details.releaseGate` and every check in `details.checks`. A refused pin is recorded too.\n\nA pin in place skips the gate: when the scope has no pinned version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is pinned (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 pin-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: pinning a version writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole tenant, which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its suggested change changed, or another block's file a version not older), or the block left the pack, `409 pin-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way.",
+      "Pins `version` for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every pin is recorded, with who asked and why. Needs `pin` on the agent.\n\nThe pin checks the version in each project whose running version it changes and that has active cases, on the project's agent test set (`testRuns`): with the run `testRunId` names when that run completed there on the test set as it stands, whose outcome changes the corrections' statuses at once (`fixed`, `reopened`); otherwise with a run it starts, correlation id `pin:<changeId>`, whose outcome changes them when it ends. A pin that waits for approval starts its runs at once, and its statuses change once it's approved.\n\nWith a release gate for the scope (`GET …/release-gate`), the pin is checked first against the comparison named by `testRunId`: `201` pinned; `202` the gate passed and wants a reviewer's approval (a HITL approval, subject `agent-pin`; the pinned version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.changeId`, `details.releaseGate` and every check in `details.checks`. A refused pin is recorded too.\n\nA pin in place skips the gate: when the scope has no pinned version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is pinned (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 pin-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: pinning a version writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole tenant, which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its suggested change changed, or another block's file a version not older), or the block left the pack, `409 pin-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('AgentPinBody') },
     responses: {
-      '201': { description: 'Pinned.', schema: ref('Pin') },
+      '201': {
+        description:
+          'Pinned, with the test runs that check it (`testRuns`), and the corrections a reused run changed.',
+        schema: ref('PinAnswer'),
+      },
       '202': {
-        description: 'The gate passed; the pin waits for an approval (`approvalId`).',
-        schema: ref('Pin'),
+        description:
+          'The gate passed; the pin waits for an approval (`pin.approvalId`). Its test runs are started, and `fixed` and `reopened` are empty.',
+        schema: ref('PinAnswer'),
       },
       ...CommonMutationErrors,
       '400': ErrorResponse(
@@ -5342,13 +5347,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     requestBody: { required: false, schema: ref('SuggestedChangeReasonBody') },
     responses: {
       '201': {
-        description: 'Pinned: the suggested change, `pinned`.',
-        schema: ref('SuggestedChange'),
+        description:
+          'Pinned: the pin, as `POST /v1/agents/{agentId}/pinned/pin` answers it, with the suggested change, `pinned`.',
+        schema: ref('SuggestedChangePinAnswer'),
       },
       '202': {
         description:
-          'The gate passed and an approval is open: the suggested change, `waiting-for-second-person`.',
-        schema: ref('SuggestedChange'),
+          'The gate passed and an approval is open: the pin, with the suggested change, `waiting-for-second-person`.',
+        schema: ref('SuggestedChangePinAnswer'),
       },
       ...CommonMutationErrors,
       '400': ErrorResponse(

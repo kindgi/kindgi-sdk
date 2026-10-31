@@ -294,7 +294,13 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
       pinBody({ testRunId: undefined }),
     );
     expect(res.status).toBe(201);
-    expect(await res.json()).toMatchObject({ status: 'pinned', releaseGate: null, checks: [] });
+    // No test runs wired here: the pin, and no runs that check it.
+    expect(await res.json()).toEqual({
+      pin: expect.objectContaining({ status: 'pinned', releaseGate: null, checks: [] }),
+      testRuns: [],
+      fixed: [],
+      reopened: [],
+    });
     const request = calls.find((c) => c.method === 'request')?.input as PinRequestInput;
     expect(request.gate).toEqual({
       releaseGate: null,
@@ -331,7 +337,7 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
     state.testRun = testRun(summary());
     const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
     expect(res.status).toBe(201);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = ((await res.json()) as { pin: Record<string, unknown> }).pin;
     expect(body).toMatchObject({
       status: 'pinned',
       releaseGate: { id: 'acme.drafting-prod', version: '1.0.0' },
@@ -348,7 +354,9 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
     state.testRun = testRun(summary());
     const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
     expect(res.status).toBe(202);
-    expect(await res.json()).toMatchObject({ status: 'pending-approval', approvalId: 'appr-1' });
+    expect(await res.json()).toMatchObject({
+      pin: { status: 'pending-approval', approvalId: 'appr-1' },
+    });
     const request = calls.find((c) => c.method === 'request')?.input as PinRequestInput;
     expect(request.gate.approval).toEqual({ role: 'admin', count: 1, separateApprover: true });
   });
@@ -540,7 +548,7 @@ describe('a pin in place (T288): the scope has no pin of its own and serves the 
     // Nothing pinned: the scope serves the latest, 1.1.0.
     const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinHere);
     expect(res.status).toBe(201);
-    const body = (await res.json()) as Pin;
+    const body = ((await res.json()) as { pin: Pin }).pin;
     expect(body.status).toBe('pinned');
     expect(body.checks).toEqual([
       expect.objectContaining({

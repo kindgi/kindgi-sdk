@@ -75,6 +75,9 @@ function harness() {
   const started: TestRunStartInput[] = [];
   const cases = new Map<ProjectId, string[]>();
   const testSetVersions = new Map<ProjectId, string>();
+  const failing = new Set<ProjectId>();
+  const warned: string[] = [];
+  const log = { warn: (message: string) => void warned.push(message) };
   let second = 0;
   let ended = 0;
   // After the corrections' store clock (2026-10-01, counting seconds).
@@ -135,14 +138,17 @@ function harness() {
     },
     itemProjects: { projectsOf: async () => [support, billing, returns] },
     testSets: {
-      freezeTestSet: async ({ projectId }) => ({
-        testSetId: agentTestSetId(agentId as AgentId, projectId),
-        testSetVersion: testSetVersions.get(projectId) ?? '1',
-        cases: (cases.get(projectId) ?? []).map((id) => ({
-          caseId: `case-${id}`,
-          correctionId: id,
-        })),
-      }),
+      freezeTestSet: async ({ projectId }) => {
+        if (failing.has(projectId)) throw new Error('the test set store is down');
+        return {
+          testSetId: agentTestSetId(agentId as AgentId, projectId),
+          testSetVersion: testSetVersions.get(projectId) ?? '1',
+          cases: (cases.get(projectId) ?? []).map((id) => ({
+            caseId: `case-${id}`,
+            correctionId: id,
+          })),
+        };
+      },
     },
     testRuns: {
       get: async ({ testRunId }) => runs.get(testRunId) ?? null,
@@ -182,6 +188,10 @@ function harness() {
     started,
     latest,
     testSetVersions,
+    /** Projects whose test set doesn't freeze: the store throws. */
+    failing,
+    /** What the pin flow logged. */
+    warned,
     /** An open correction of the agent in `projectId`, a case on its test set. */
     async corrected(projectId: ProjectId) {
       const { id } = await corrections.record({
@@ -233,7 +243,10 @@ function harness() {
       };
       changes.push(change);
       if (opts.waits !== true) setPinned(change);
-      return { change, ...(await startPinTestRuns(deps, { tenantId, change, projects: moved })) };
+      return {
+        change,
+        ...(await startPinTestRuns(deps, { tenantId, change, projects: moved, log })),
+      };
     },
     /** The approval pins a waiting change: the same id and `createdAt`, with `resolvedAt`. */
     approve(change: Pin): Pin {
@@ -280,7 +293,7 @@ function harness() {
       });
     },
     apply: (testRunId: RunId) => applyTestRunOutcome(deps, { tenantId, testRunId }),
-    tookEffect: (change: Pin) => pinTookEffect(deps, { tenantId, changeId: change.id }),
+    tookEffect: (change: Pin) => pinTookEffect(deps, { tenantId, changeId: change.id, log }),
     get: (correctionId: string) => corrections.get({ tenantId, correctionId }),
   };
 }
@@ -340,6 +353,40 @@ describe('a project pin', () => {
     });
   });
 
+  test('the run it names still changes a correction that changed after it ended, before the pin', async () => {
+    const h = harness();
+    h.onLatest(support, '12.0.0');
+    const check = h.finished(
+      support,
+      '13.0.0',
+      {},
+      {
+        startedAt: '2026-09-30T10:00:00.000Z' as Timestamp,
+        completedAt: '2026-09-30T10:05:00.000Z' as Timestamp,
+      },
+    );
+    const id = await h.corrected(support);
+    const run = h.runs.get(check);
+    if (run === undefined) throw new Error('no run');
+    h.runs.set(check, { ...run, result: perCase({ [id]: true }) });
+    // A suggested change takes it on after the run ended: it's being fixed.
+    expect(
+      await h.corrections.update({
+        tenantId,
+        correctionId: id,
+        expected: { status: 'open', sortedTo: null },
+        status: 'being-fixed',
+        link: { kind: 'suggested-change', id: 'sc-1' },
+      }),
+    ).toMatchObject({ kind: 'updated' });
+    const pinned = await h.pin('13.0.0', project(support), { testRunId: check });
+    expect(pinned).toMatchObject({ fixed: [id], reopened: [] });
+    expect(await h.get(id)).toMatchObject({
+      status: 'fixed',
+      fixedIn: { version: '13.0.0', how: 'pin', at: pinned.change.createdAt },
+    });
+  });
+
   test('starts a run when the one it names can not stand for the check', async () => {
     const notReusable: Partial<TestRun>[] = [
       { testSetVersion: '2' },
@@ -349,6 +396,9 @@ describe('a project pin', () => {
       { projectId: billing },
       { testSetId: 'acme.refunds' },
       { comparison: { baseline: 'recorded', sample: 3 } as never },
+      { comparison: { baseline: 'recorded', overrides: { settings: {} } } as never },
+      { comparison: { baseline: 'recorded', rescoreOf: 'tr-1' } as never },
+      { kind: 'accuracy' },
     ];
     for (const run of notReusable) {
       const h = harness();
@@ -411,6 +461,20 @@ describe('a tenant or org pin', () => {
     h.started.length = 0;
     await h.pin('14.0.0', { kind: 'tenant' });
     expect(h.started.map((s) => s.projectId)).toEqual([returns]);
+  });
+
+  test("a project whose test run doesn't start is left out and logged; the others start", async () => {
+    const h = harness();
+    for (const p of [support, billing, returns]) {
+      h.onLatest(p, '12.0.0');
+      await h.corrected(p);
+    }
+    h.failing.add(billing);
+    const pinned = await h.pin('13.0.0', { kind: 'tenant' });
+    expect(pinned.testRuns.map((r) => r.projectId)).toEqual([support, returns]);
+    expect(h.warned).toEqual([
+      `pin change ${pinned.change.id}'s test run in project ${billing as unknown as string} didn't start or apply: the test set store is down`,
+    ]);
   });
 
   test('a run of a project the pin moved applies at its end', async () => {
@@ -496,6 +560,21 @@ describe('a pin that waits for approval', () => {
     expect(h.started.map((s) => s.correlationId)).toEqual([pinRunCorrelation(waiting.change.id)]);
     expect(effect).toMatchObject({ testRuns: [{ projectId: support }], fixed: [], reopened: [] });
     expect(await h.get(id)).toMatchObject({ status: 'open' });
+  });
+
+  test("the approval leaves out a project whose test run doesn't start, and logs it", async () => {
+    const h = harness();
+    h.onLatest(support, '12.0.0');
+    h.onLatest(returns, '12.0.0');
+    const waiting = await h.pin('13.0.0', { kind: 'tenant' }, { waits: true });
+    expect(waiting.testRuns).toEqual([]);
+    await h.corrected(support);
+    await h.corrected(returns);
+    h.failing.add(support);
+    const effect = await h.tookEffect(h.approve(waiting.change));
+    expect(effect.testRuns.map((r) => r.projectId)).toEqual([returns]);
+    expect(h.warned).toHaveLength(1);
+    expect(h.warned[0]).toContain(support as unknown as string);
   });
 
   test('a refused pin, and one still waiting, apply nothing at approval time', async () => {

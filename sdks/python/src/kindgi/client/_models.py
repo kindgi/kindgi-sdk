@@ -157,6 +157,19 @@ class RequestedBy(BaseModel):
     id: str
 
 
+class PinTestRun(BaseModel):
+    """
+    A test run a pin checks a project with: the one the pin named, reused, or one it started, with correlation id `pin:<changeId>`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    test_run_id: Annotated[str, Field(alias="testRunId")]
+
+
 class PinScopeTenant(BaseModel):
     """
     The whole tenant.
@@ -13774,6 +13787,55 @@ class PinPage(BaseModel):
     data: list[Pin]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class PinAnswer(BaseModel):
+    """
+    A pin, and the test runs that check it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    pin: Pin
+    test_runs: Annotated[list[PinTestRun], Field(alias="testRuns")]
+    """
+    One per project whose running version the pin changes and that has active cases: a project pin has one, a tenant or org pin one per such project, a segment pin none. While the pin waits for approval, its runs are already started.
+    """
+    fixed: list[str]
+    """
+    The corrections a reused run made `fixed` at pin time. Empty when the runs were started: their outcome changes the statuses when each ends.
+    """
+    reopened: list[str]
+    """
+    The corrections a reused run reopened at pin time, as `fixed`'s.
+    """
+
+
+class SuggestedChangePinAnswer(BaseModel):
+    """
+    A suggested change's pin, as `PinAnswer`, and the suggested change it pinned.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    pin: Pin
+    test_runs: Annotated[list[PinTestRun], Field(alias="testRuns")]
+    """
+    One per project whose running version the pin changes and that has active cases: a project pin has one, a tenant or org pin one per such project, a segment pin none. While the pin waits for approval, its runs are already started.
+    """
+    fixed: list[str]
+    """
+    The corrections a reused run made `fixed` at pin time. Empty when the runs were started: their outcome changes the statuses when each ends.
+    """
+    reopened: list[str]
+    """
+    The corrections a reused run reopened at pin time, as `fixed`'s.
+    """
+    suggested_change: Annotated[SuggestedChange, Field(alias="suggestedChange")]
 
 
 class PinnedVersionResolution(BaseModel):

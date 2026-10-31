@@ -652,6 +652,7 @@
   "PersonTeamRole": ["PersonTeamRole"],
   "Pin": ["Pin"],
   "PinActor": ["PinActor"],
+  "PinAnswer": ["PinAnswer"],
   "PinChange": ["PinChange"],
   "PinCheck": ["PinCheck"],
   "PinPage": ["PinPage"],
@@ -660,6 +661,7 @@
   "PinScopeSegment": ["PinScopeSegment"],
   "PinScopeTenant": ["PinScopeTenant"],
   "PinScopeUnrecognized": ["PinScopeUnrecognized"],
+  "PinTestRun": ["PinTestRun"],
   "PinVersionBody": ["PinVersionBody"],
   "Pinned": ["SuggestedChange.pinned"],
   "Pinned1": [
@@ -1004,6 +1006,7 @@
   "SuggestedChangeMadeBy": ["SuggestedChangeMadeBy"],
   "SuggestedChangeNote": ["SuggestedChangeNote"],
   "SuggestedChangePin": [],
+  "SuggestedChangePinAnswer": ["SuggestedChangePinAnswer"],
   "SuggestedChangePromotion": [],
   "SuggestedChangeReasonBody": ["SuggestedChangeReasonBody"],
   "Suite": [],

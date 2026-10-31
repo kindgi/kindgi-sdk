@@ -15,6 +15,7 @@
  * (`pinTookEffect`).
  */
 
+import type { Logger } from '@kindgi/log';
 import type { AgentId, AgentPinScope, ProjectId, RunId, Semver, TenantId } from '@kindgi/types';
 
 import type { Pin } from './agent-pin-binding.js';
@@ -84,9 +85,10 @@ export async function projectsPinMoves(
  * before it was recorded), each that has active cases: the run the change
  * names where it's reusable, applied at once when the change took effect;
  * else a run started with correlation `pin:<changeId>`. A refused change,
- * or one no longer waiting, starts none. A start the binding refuses
- * leaves its project out of `testRuns`: the pin stands, and the project's
- * statuses wait for its next check.
+ * or one no longer waiting, starts none. The change is recorded already,
+ * so a start the binding refuses, or a read that throws, leaves only its
+ * project out of `testRuns` (and is logged): the pin stands, and the
+ * project's statuses wait for its next check.
  */
 export async function startPinTestRuns(
   deps: PinTestRunDeps,
@@ -94,16 +96,19 @@ export async function startPinTestRuns(
     readonly tenantId: TenantId;
     readonly change: Pin;
     readonly projects: readonly ProjectId[];
+    readonly log?: Pick<Logger, 'warn'>;
   },
 ): Promise<PinTestRuns> {
   const { tenantId, change } = input;
   if (!checksNow(change)) return NO_PIN_TEST_RUNS;
   const found = collect();
   for (const projectId of input.projects) {
-    const frozen = await activeCases(deps, tenantId, change, projectId);
-    if (frozen === undefined) continue;
-    if (await reuseNamed(deps, tenantId, change, projectId, frozen, found)) continue;
-    await start(deps, tenantId, change, projectId, frozen, found);
+    await eachProject(input.log, change, projectId, async () => {
+      const frozen = await activeCases(deps, tenantId, change, projectId);
+      if (frozen === undefined) return;
+      if (await reuseNamed(deps, tenantId, change, projectId, frozen, found)) return;
+      await start(deps, tenantId, change, projectId, frozen, found);
+    });
   }
   return found.answer();
 }
@@ -115,11 +120,16 @@ export async function startPinTestRuns(
  * `pin:<changeId>` runs, newest first. A project with neither, nor one of
  * its runs still going, gets one started; a run still going applies at
  * its own end. Applying again changes nothing, so the start-up reconcile
- * can retry it. Answers nothing for a change that didn't take effect.
+ * can retry it. A project whose step throws is logged, and the others
+ * still go. Answers nothing for a change that didn't take effect.
  */
 export async function pinTookEffect(
   deps: PinTestRunDeps,
-  input: { readonly tenantId: TenantId; readonly changeId: string },
+  input: {
+    readonly tenantId: TenantId;
+    readonly changeId: string;
+    readonly log?: Pick<Logger, 'warn'>;
+  },
 ): Promise<PinTestRuns> {
   const { tenantId } = input;
   const change = await deps.agentPins.changes.get(tenantId, input.changeId);
@@ -129,19 +139,40 @@ export async function pinTookEffect(
   const rows = await whatRunsByProject(deps.agentPins, { tenantId, agentId }, inside);
   const found = collect();
   for (const { projectId } of rows.filter((row) => row.pin?.changeId === change.id)) {
-    const frozen = await activeCases(deps, tenantId, change, projectId);
-    if (frozen === undefined) continue;
-    if (await reuseNamed(deps, tenantId, change, projectId, frozen, found)) continue;
-    const own = await ownRuns(deps, tenantId, change, projectId);
-    if (own.length === 0) {
-      await start(deps, tenantId, change, projectId, frozen, found);
-      continue;
-    }
-    for (const run of own) found.run(projectId, run.testRunId);
-    const ended = own.filter((run) => run.status === 'completed').map((run) => run.testRunId);
-    found.add(await reapplyTestRunOutcomes(deps, { tenantId, testRunIds: ended }));
+    await eachProject(input.log, change, projectId, async () => {
+      const frozen = await activeCases(deps, tenantId, change, projectId);
+      if (frozen === undefined) return;
+      if (await reuseNamed(deps, tenantId, change, projectId, frozen, found)) return;
+      const own = await ownRuns(deps, tenantId, change, projectId);
+      if (own.length === 0) {
+        await start(deps, tenantId, change, projectId, frozen, found);
+        return;
+      }
+      for (const run of own) found.run(projectId, run.testRunId);
+      const ended = own.filter((run) => run.status === 'completed').map((run) => run.testRunId);
+      found.add(await reapplyTestRunOutcomes(deps, { tenantId, testRunIds: ended }));
+    });
   }
   return found.answer();
+}
+
+/**
+ * One project's step of a recorded change's check. A throw there is
+ * logged and leaves that project out, so the others still go.
+ */
+async function eachProject(
+  log: Pick<Logger, 'warn'> | undefined,
+  change: Pin,
+  projectId: ProjectId,
+  step: () => Promise<void>,
+): Promise<void> {
+  try {
+    await step();
+  } catch (e) {
+    log?.warn(
+      `pin change ${change.id}'s test run in project ${projectId as unknown as string} didn't start or apply: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
 }
 
 /** A pin that checks its projects now: one that took effect, or one waiting for approval. */

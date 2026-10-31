@@ -5,6 +5,7 @@ import type { Context, Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
 import type { ReviewerRole } from '@kindgi/authz';
+import type { Logger } from '@kindgi/log';
 import type {
   AgentPinScope,
   Cursor,
@@ -228,15 +229,21 @@ export function mountAgentPinRoutes(
     const parsed = await readPinBody(c);
     if (parsed.kind === 'err') return badInput(c, requestId, parsed.message);
     const agentId = c.req.param('agentId');
-    const outcome = await requestPin(registry, agentPins, gateDeps, {
-      tenantId: c.get('tenantId') as TenantId,
-      agentId,
-      version: parsed.value.version,
-      scope: parsed.value.scope,
-      requestedBy: actorOf(c),
-      ...(parsed.value.reason !== undefined && { reason: parsed.value.reason }),
-      ...(parsed.value.testRunId !== undefined && { testRunId: parsed.value.testRunId }),
-    });
+    const outcome = await requestPin(
+      registry,
+      agentPins,
+      gateDeps,
+      {
+        tenantId: c.get('tenantId') as TenantId,
+        agentId,
+        version: parsed.value.version,
+        scope: parsed.value.scope,
+        requestedBy: actorOf(c),
+        ...(parsed.value.reason !== undefined && { reason: parsed.value.reason }),
+        ...(parsed.value.testRunId !== undefined && { testRunId: parsed.value.testRunId }),
+      },
+      { log: c.get('log') },
+    );
     return pinResponse(c, outcome);
   });
 
@@ -455,6 +462,8 @@ export async function requestPin(
      * gate's role rather than the drafter's own `standard`.
      */
     readonly draftedEligibleAtRole?: (role: ReviewerRole) => Promise<boolean>;
+    /** Where a project whose test run didn't start or apply is logged; the pin still answers. */
+    readonly log?: Pick<Logger, 'warn'>;
   } = {},
 ): Promise<PinRequestOutcome> {
   // Every way a pin is asked for comes through here (the route, a
@@ -480,7 +489,7 @@ export async function requestPin(
       };
     }
     // No gate, and a binding from before gates: pin as before.
-    const moves = await pinMoves(agentPins, deps, input);
+    const moves = await pinMoves(agentPins, deps, input, options.log);
     const outcome = await agentPins.changes.pin(input);
     return outcome.kind === 'err'
       ? { kind: 'err', error: outcome.error }
@@ -489,7 +498,7 @@ export async function requestPin(
   const gate = await runGate(registry, agentPins, deps, input, releaseGate);
   if (gate.kind === 'err') return gate;
   const approval = await resolveApproval(gate.result.approval, options);
-  const moves = await pinMoves(agentPins, deps, input);
+  const moves = await pinMoves(agentPins, deps, input, options.log);
   const outcome = await agentPins.changes.request({
     ...input,
     gate: {
@@ -521,6 +530,7 @@ async function pinMoves(
   agentPins: AgentPinBindings,
   deps: AgentPinGateDeps,
   input: AgentPinInput,
+  log: Pick<Logger, 'warn'> | undefined,
 ): Promise<{ check(change: Pin): Promise<PinTestRuns> }> {
   const { testRuns, testSets, corrections, projects, itemProjects } = deps;
   if (
@@ -542,7 +552,13 @@ async function pinMoves(
   const { tenantId } = input;
   const moved = await projectsPinMoves(runDeps, input);
   return {
-    check: (change) => startPinTestRuns(runDeps, { tenantId, change, projects: moved }),
+    check: (change) =>
+      startPinTestRuns(runDeps, {
+        tenantId,
+        change,
+        projects: moved,
+        ...(log !== undefined && { log }),
+      }),
   };
 }
 
@@ -624,7 +640,25 @@ export function pinResponse(
     );
   }
   c.status(pin.status === 'pending-approval' ? 202 : 201);
-  return c.json({ ...serializePin(pin), ...extra });
+  return c.json({ ...pinAnswer(outcome), ...extra });
+}
+
+/**
+ * A pin the gate let through, as both pin routes answer it (DESIGN 10.3):
+ * the pin, the test runs that check it, and the corrections a reused run
+ * changed at pin time.
+ */
+export function pinAnswer(outcome: Extract<PinRequestOutcome, { kind: 'ok' }>) {
+  const { testRuns, fixed, reopened } = outcome.runs;
+  return {
+    pin: serializePin(outcome.pin),
+    testRuns: testRuns.map((run) => ({
+      projectId: run.projectId as unknown as string,
+      testRunId: run.testRunId as unknown as string,
+    })),
+    fixed,
+    reopened,
+  };
 }
 
 async function readBody(c: Ctx): Promise<Record<string, unknown> | undefined> {

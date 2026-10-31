@@ -9,7 +9,7 @@ import { type Action, ref } from '@kindgi/authz';
 import { emitAuditEvent } from '@kindgi/compliance';
 import type { AgentPinScope, Cursor, ProjectId, SuggestedChangeId, TenantId } from '@kindgi/types';
 
-import type { Pin, PinActor } from '../agent-pin-binding.js';
+import type { PinActor } from '../agent-pin-binding.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
 import { callerIdentity } from '../caller.js';
 import { environmentTakesPromotionsResponse } from '../environment-entry.js';
@@ -44,7 +44,7 @@ import type {
   SuggestedChangeMaker,
 } from '../supervisor-binding.js';
 import type { AppEnv } from '../types.js';
-import { actorOf, pinResponse } from './agent-pins.js';
+import { type PinRequestOutcome, actorOf, pinAnswer, pinResponse } from './agent-pins.js';
 import { clampLimit } from './pagination.js';
 
 /** What the suggested change lifecycle runs on besides its own store. */
@@ -382,6 +382,7 @@ export function suggestedChangesRouter(
       suggestedChange: ready.suggestedChange,
       actor: actorOf(c),
       ...(reason.value !== undefined && { reason: reason.value }),
+      log: c.get('log'),
     });
     if (outcome.kind === 'err') return refuse(c, outcome.error);
     const { suggestedChange, pin } = outcome.value;
@@ -391,25 +392,29 @@ export function suggestedChangesRouter(
         suggestedChangeId: suggestedChange.id as unknown as string,
       });
     }
-    return pinned(c, suggestedChange, pin.pin);
+    return pinned(c, suggestedChange, pin);
   });
 
   /**
    * A pin the gate let through: recorded, and answered `201` pinned, or
-   * `202` while it waits for a second person.
+   * `202` while it waits for a second person, as the agent pin route
+   * answers it (`pinAnswer`), with the suggested change it pinned.
    */
   async function pinned(
     c: Ctx,
     suggestedChange: StoredSuggestedChange,
-    pin: Pin,
+    outcome: Extract<PinRequestOutcome, { kind: 'ok' }>,
   ): Promise<Response> {
+    const { pin } = outcome;
     const waits = pin.status === 'pending-approval';
     await audit(c, 'suggested-change-pinned', suggestedChange, {
       pinChangeId: pin.id,
       status: waits ? 'waiting-for-second-person' : 'pinned',
     });
     if (!waits) await rebuildOthers(c, suggestedChange);
-    return answer(c, suggestedChange, waits ? 202 : 201);
+    const f = await service.facts(c.get('tenantId') as TenantId)(suggestedChange);
+    c.status(waits ? 202 : 201);
+    return c.json({ ...pinAnswer(outcome), suggestedChange: serialize(suggestedChange, f) });
   }
 
   /**

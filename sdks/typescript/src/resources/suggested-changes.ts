@@ -3,6 +3,7 @@
 
 import type { AgentId, Cursor, SuggestedChangeId } from '@kindgi/types';
 
+import type { PinAnswer } from '../generated/api.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type {
@@ -11,6 +12,9 @@ import type {
   SuggestedChangeMadeBy,
   SuggestedChangeStatus,
 } from '../types.js';
+
+/** A suggested change's pin: the pin as `agents.pinned.pin` answers it, and the suggested change it pinned. */
+export type SuggestedChangePinAnswer = PinAnswer & { readonly suggestedChange: SuggestedChange };
 
 /**
  * Suggested changes (`/v1/suggested-changes`): new content for one block
@@ -66,12 +70,16 @@ export interface SuggestedChangesClient {
 
   /**
    * A pin of its version for its project, through the project's gate: the
-   * suggested change, `pinned` or `waiting-for-second-person`. A gate
-   * refusal throws (`gate-failed`, with the checks).
+   * pin as `agents.pinned.pin` answers it, with the suggested change,
+   * `pinned` or `waiting-for-second-person`. A gate refusal throws
+   * (`gate-failed`, with the checks).
    *
    * @wire `POST /v1/suggested-changes/{suggestedChangeId}/pin`
    */
-  pin(id: SuggestedChangeId | string, input?: SuggestedChangeReasonInput): Promise<SuggestedChange>;
+  pin(
+    id: SuggestedChangeId | string,
+    input?: SuggestedChangeReasonInput,
+  ): Promise<SuggestedChangePinAnswer>;
 
   /**
    * Its version made its project's Latest, now, for a project on Latest
@@ -178,7 +186,12 @@ export function makeSuggestedChangesClient(transport: Transport): SuggestedChang
 
     async pin(id, input = {}) {
       const { idempotencyKey, ...body } = input;
-      return post({ path: `/v1/suggested-changes/${seg(id)}/pin`, body, idempotencyKey });
+      return transport.request<SuggestedChangePinAnswer>({
+        method: 'POST',
+        path: `/v1/suggested-changes/${seg(id)}/pin`,
+        body: body as Record<string, unknown>,
+        ...(idempotencyKey !== undefined && { idempotencyKey }),
+      });
     },
 
     async addAsLatest(id, input = {}) {

@@ -317,15 +317,20 @@ describe('POST /v1/agents/:agentId/pinned/pin', () => {
     );
     expect(res.status).toBe(201);
     expect(await res.json()).toEqual({
-      id: made.id,
-      agentId: AGENT,
-      scope: { kind: 'org', orgId: ORG },
-      action: 'pin',
-      fromVersion: null,
-      toVersion: '1.1.0',
-      requestedBy: { kind: 'user', id: userId },
-      reason: 'eval passed',
-      createdAt: '2026-10-05T12:00:00.000Z',
+      pin: {
+        id: made.id,
+        agentId: AGENT,
+        scope: { kind: 'org', orgId: ORG },
+        action: 'pin',
+        fromVersion: null,
+        toVersion: '1.1.0',
+        requestedBy: { kind: 'user', id: userId },
+        reason: 'eval passed',
+        createdAt: '2026-10-05T12:00:00.000Z',
+      },
+      testRuns: [],
+      fixed: [],
+      reopened: [],
     });
     expect(calls).toEqual([
       {

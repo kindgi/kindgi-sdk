@@ -8,6 +8,7 @@ import type {
   AgentPinnedVersion,
   AgentPinnedVersionList,
   Pin,
+  PinAnswer,
   PinPage,
 } from '@kindgi/client';
 
@@ -371,11 +372,12 @@ async function pinAgent(ctx: CommandContext): Promise<Rendered & { readonly exit
       ...(check.outcome !== 'would-pin' && { exitCode: ANSWER_NO_EXIT_CODE }),
     };
   }
-  const change = await pins.pin(agentId, input, idempotency(ctx));
-  if (change.status !== 'pending-approval') return renderJson(change, format);
+  const answer = await pins.pin(agentId, input, idempotency(ctx));
+  const change = answer.pin;
+  if (change.status !== 'pending-approval') return renderJson(answer, format);
   if (waitMs === undefined) {
     return {
-      stdout: renderJson(change, format).stdout,
+      stdout: renderJson(answer, format).stdout,
       stderr: successNote(format, `${stillOpenLine(change)} \`--wait\` waits for the decision.\n`),
       exitCode: ANSWER_NO_EXIT_CODE,
     };
@@ -388,17 +390,21 @@ async function pinAgent(ctx: CommandContext): Promise<Rendered & { readonly exit
     () => pins.getChange(agentId, change.id),
     waitDeadline(ctx, waitMs),
   );
-  return waitedAnswer(waited, waitMs, format, out);
+  return waitedAnswer(answer, waited, waitMs, format, out);
 }
 
-/** What `agents pin --wait` answers: the pin as the wait ended it, and how it ended. */
+/**
+ * What `agents pin --wait` answers: the pin's answer with the pin as the
+ * wait ended it, and how it ended. Its test runs started with the request.
+ */
 function waitedAnswer(
+  answer: PinAnswer,
   waited: ApprovalWaited,
   waitMs: number,
   format: OutputFormat,
   out: ProgressLines,
 ): Rendered & { readonly exitCode?: number } {
-  const stdout = renderJson(waited.pin, format).stdout;
+  const stdout = renderJson({ ...answer, pin: waited.pin }, format).stdout;
   switch (waited.kind) {
     case 'stopped':
       out.line(`Stopped waiting. ${stillOpenLine(waited.pin)}`);

@@ -12,6 +12,7 @@ import {
   tuplesForCreate,
   userPrincipal,
 } from '@kindgi/authz';
+import type { Logger } from '@kindgi/log';
 import type { ProjectBinding } from '@kindgi/platform';
 import { canonicalize } from '@kindgi/schema';
 import type {
@@ -1391,6 +1392,8 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       readonly suggestedChange: StoredSuggestedChange;
       readonly actor: PinActor;
       readonly reason?: string;
+      /** Where a project whose test run didn't start or apply is logged. */
+      readonly log?: Pick<Logger, 'warn'>;
     }): Promise<
       SuggestedChangeOutcome<{
         suggestedChange: StoredSuggestedChange;
@@ -1455,7 +1458,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
           reason: input.reason ?? `Suggested change ${suggestedChange.id as unknown as string}`,
           testRunId: evaluation.testRunId,
         },
-        drafterApproval,
+        { ...drafterApproval, ...(input.log !== undefined && { log: input.log }) },
       );
       if (outcome.kind !== 'ok') return { kind: 'ok', value: { suggestedChange, pin: outcome } };
       const recorded = await record(suggestedChange, {

@@ -3064,7 +3064,7 @@ class AgentsPinnedResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Pin:
+    ) -> _models.PinAnswer:
         """Pin a version for a scope. `POST /v1/agents/{agentId}/pinned/pin`
 
         Pins `version` for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every pin is recorded, with who asked and why. Needs `pin` on the agent.
@@ -3075,7 +3075,7 @@ class AgentsPinnedResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.AgentPinBody, body, fields),
-            response=_models.Pin,
+            response=_models.PinAnswer,
             timeout=timeout,
         )
 
@@ -4801,7 +4801,7 @@ class SuggestedChangesResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.SuggestedChange:
+    ) -> _models.SuggestedChangePinAnswer:
         """Pin a suggested change's version for its project. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
 
         A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `pin` on the agent. Allowed from `ready`.
@@ -4812,7 +4812,7 @@ class SuggestedChangesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.SuggestedChangeReasonBody, body, fields),
-            response=_models.SuggestedChange,
+            response=_models.SuggestedChangePinAnswer,
             timeout=timeout,
         )
 
@@ -12876,7 +12876,7 @@ class AsyncAgentsPinnedResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Pin:
+    ) -> _models.PinAnswer:
         """Pin a version for a scope. `POST /v1/agents/{agentId}/pinned/pin`
 
         Pins `version` for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every pin is recorded, with who asked and why. Needs `pin` on the agent.
@@ -12887,7 +12887,7 @@ class AsyncAgentsPinnedResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.AgentPinBody, body, fields),
-            response=_models.Pin,
+            response=_models.PinAnswer,
             timeout=timeout,
         )
 
@@ -14615,7 +14615,7 @@ class AsyncSuggestedChangesResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.SuggestedChange:
+    ) -> _models.SuggestedChangePinAnswer:
         """Pin a suggested change's version for its project. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
 
         A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `pin` on the agent. Allowed from `ready`.
@@ -14626,7 +14626,7 @@ class AsyncSuggestedChangesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.SuggestedChangeReasonBody, body, fields),
-            response=_models.SuggestedChange,
+            response=_models.SuggestedChangePinAnswer,
             timeout=timeout,
         )
 

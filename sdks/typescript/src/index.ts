@@ -64,6 +64,7 @@ export type {
 } from './resources/improve-runs.js';
 export type {
   CreateSuggestedChangeInput,
+  SuggestedChangePinAnswer,
   SuggestedChangeReasonInput,
   SuggestedChangesClient,
   SuggestedChangesListInput,
@@ -317,8 +318,10 @@ export type {
   PinnedVersionList,
   PinnedVersionResolution,
   Pin,
+  PinAnswer,
   PinCheck,
   PinPage,
+  PinTestRun,
   RunProgress,
   ScopeSegment,
 } from './generated/api.js';
