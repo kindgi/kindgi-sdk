@@ -189,7 +189,7 @@ export function planChange(
 
 /**
  * A status set by hand ends a test run's reopening, when it has one:
- * `reopenedIn` goes, with the `fixedIn` kept beside it.
+ * `reopenedIn` goes, and so does the `fixedIn` kept beside it.
  */
 function endsReopening(current: { readonly reopenedIn?: CorrectionReopenedIn }): {
   readonly reopenedIn?: null;
