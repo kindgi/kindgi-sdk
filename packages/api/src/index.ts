@@ -803,6 +803,12 @@ export type {
   TestSetCounts,
   TestSetOfInput,
 } from './test-case-binding.js';
+export type {
+  AnswerCheck,
+  AnswerCheckBinding,
+  AnswerCheckInput,
+  TestRunJudging,
+} from './answer-check-binding.js';
 export { resolvePointer } from './routes/corrections.js';
 export type {
   BlockGetInput,
@@ -955,6 +961,7 @@ export type {
   CorrectedCaseResult,
   CorrectedComparisonSummary,
   CorrectedDispatcherOptions,
+  CorrectionGraded,
   ReplayRunReader,
 } from './corrected-dispatcher.js';
 export {

@@ -2638,6 +2638,10 @@ class TestCase(BaseModel):
     """
     Present on a retired case: it stays listed, and no test run checks it.
     """
+    expert: Literal[True] | None = None
+    """
+    Present (true) on an expert's case: a correction's case when the correction was recorded while its group was restricted, and every hand case, since adding one needs publish on the agent, or write on its project when more than one project serves the agent. A test run weighted `experts-only` grades only these. Absent from older servers.
+    """
 
 
 class TestCaseCollectionPage(BaseModel):
@@ -13177,6 +13181,10 @@ class ComparisonCaseResultCorrection(BaseModel):
     """
     The `n` of "k of n".
     """
+    why: str | None = None
+    """
+    The judging model's reason, from the first repetition that failed, when it failed on its answer and the model gave one. It can quote the answer, so an erasure clears it. Absent from older servers.
+    """
 
 
 class DeploymentContentsTool(BaseModel):
@@ -15021,6 +15029,10 @@ class CorrectedTestCase(BaseModel):
     """
     What the case expects of a run, as the agent's test set lists it. Set on a frozen case of an agent's test set, from its own correction or hand case, which also fill `items` and `corrections`. A grader reads it when it's present, and `items` and `corrections` otherwise.
     """
+    expert: Literal[True] | None = None
+    """
+    Present (true) on a frozen case whose test case is an expert's: a test run weighted `experts-only` grades its `expect`, and drops the `expect` of every other case. Absent from older servers.
+    """
     erased: Literal[True] | None = None
     """
     An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections`, `expect` and `segments` gone, and test runs leave it out (counted as `erased`).
@@ -15841,7 +15853,7 @@ class ComparisonCaseResult(BaseModel):
     """
     corrections: list[ComparisonCaseResultCorrection] | None = None
     """
-    Each correction graded on this case: its verdict and how many repetitions passed. Shown, not enforced. Survives an erasure — the differences, which quote values, are in `correctionDifferences`.
+    Each correction graded on this case: its verdict and how many repetitions passed. Shown, not enforced. A case of an agent's test set that carries `expect` has one entry instead, keyed by the case's id: a repetition passes when every part the case expects passed on it. It has none when the case expects only items, or when a part couldn't be checked. Survives an erasure, all but `why` — the differences, which quote values, are in `correctionDifferences`.
     """
     correction_differences: Annotated[
         list[CorrectionDifference] | None, Field(alias="correctionDifferences")
@@ -15851,7 +15863,7 @@ class ComparisonCaseResult(BaseModel):
     """
     cost_usd: Annotated[list[CostUsdItem] | None, Field(alias="costUsd")] = None
     """
-    What each repetition's replay cost in model calls, as the runtime reported it, in US dollars: one per repetition. Absent when a repetition reported none.
+    What each repetition's replay cost in model calls, as the runtime reported it, in US dollars: one per repetition, with what checking its answer cost. Absent when a repetition reported none.
     """
     diverged: bool
     refused_writes: Annotated[int, Field(alias="refusedWrites", ge=0)]

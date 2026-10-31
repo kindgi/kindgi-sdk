@@ -81,6 +81,14 @@ export interface TestCase {
   /** When the case last changed: its `addedAt` until it's retired. */
   readonly updatedAt: string;
   readonly retired?: TestCaseRetired;
+  /**
+   * Set on an expert's case: a correction's case when the correction was
+   * recorded while its group was restricted (`Correction.expert`), and
+   * every hand case, since adding one needs publish on the agent, or write
+   * on its project when more than one project serves the agent. A test run
+   * weighted `experts-only` grades only these.
+   */
+  readonly expert?: true;
 }
 
 /**
