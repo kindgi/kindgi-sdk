@@ -13,6 +13,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`client.corrections.thumbs` records an end user's thumbs up or down from
+  your app's server.** `thumbs(run_id=..., participant_id=..., up=..., why=...)` posts a
+  correction of the run's answer, made for the end user: `answer="right"` for a thumbs
+  up, `"wrong"` for a thumbs down, with their words as `why`. A thumbs down needs `why`,
+  and without it the API answers 400 (`InvalidRequestError`). `AsyncKindgi` has it too.
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
   judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
   judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator

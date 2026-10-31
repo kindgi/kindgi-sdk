@@ -197,6 +197,14 @@ FOLLOW_DESCRIPTION = (
     "Ends after the terminal event."
 )
 
+# A generated resource's hand-written methods: a mixin class in its own
+# module (sync, and the same name after `Async`), calling only the
+# resource's generated methods. `client.corrections.thumbs` is an end user's
+# thumbs up or down, posted with `corrections.create`.
+MIXINS: dict[tuple[str, ...], tuple[str, str]] = {
+    ("corrections",): ("_thumbs", "Thumbs"),
+}
+
 
 def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]:
     doc = copy.deepcopy(source)
@@ -420,10 +428,12 @@ def render_resource(node: Resource, asynchronous: bool) -> list[str]:
     for child in node.children.values():
         out += render_resource(child, asynchronous)
     title = ".".join(node.path)
+    mixin = MIXINS.get(node.path)
+    bases = f"({'Async' if asynchronous else ''}{mixin[1]})" if mixin is not None else ""
     out += [
         "",
         "",
-        f"class {name}:",
+        f"class {name}{bases}:",
         f'    """`client.{".".join(snake(p) for p in node.path)}` — the `{title}` operations."""',
         "",
         f"    def __init__(self, client: {client}) -> None:",
@@ -454,6 +464,10 @@ def render_resources(root: Resource, ops: list[Operation]) -> str:
         "",
         "from . import _models",
         "from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments",
+        *(
+            f"from .{module} import Async{mixin}, {mixin}"
+            for module, mixin in sorted(MIXINS.values())
+        ),
         "",
         '__all__ = ["OPERATIONS", "AsyncResources", "Resources"]',
         "",

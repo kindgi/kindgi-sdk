@@ -257,6 +257,84 @@ def test_an_items_key_and_pointer_have_caps_when_sent_but_not_when_read() -> Non
     assert [(i.key, i.pointer) for i in read.items] == [(key, pointer)]
 
 
+THUMBED = {
+    "id": "c-2",
+    "tenantId": RUN["tenantId"],
+    "projectId": "p-1",
+    "runId": RUN["id"],
+    "subject": {"kind": "agent", "id": "acme.refunds", "version": "2.1.0"},
+    "answer": "wrong",
+    "why": "It promised a refund.",
+    "madeBy": {"kind": "user", "id": "u-1"},
+    "participantId": "end-user-1",
+    "status": "open",
+    "createdAt": "2026-10-01T14:07:42.379Z",
+    "updatedAt": "2026-10-01T14:07:42.379Z",
+}
+
+
+def test_an_end_users_thumbs_is_a_correction_of_the_answer_made_for_them() -> None:
+    api, seen = client(lambda r: httpx.Response(201, json=THUMBED))
+    down = api.corrections.thumbs(
+        run_id=RUN["id"],
+        participant_id="end-user-1",
+        up=False,
+        why="It promised a refund.",
+        idempotency_key="idem-t",
+    )
+    assert (down.answer, down.why) == ("wrong", "It promised a refund.")
+    api.corrections.thumbs(run_id=RUN["id"], participant_id="end-user-1", up=True)
+    assert [(r.method, r.url.path) for r in seen] == [("POST", "/v1/corrections")] * 2
+    assert seen[0].headers["Idempotency-Key"] == "idem-t"
+    assert [json.loads(r.content) for r in seen] == [
+        {
+            "runId": RUN["id"],
+            "participantId": "end-user-1",
+            "answer": "wrong",
+            "why": "It promised a refund.",
+        },
+        {"runId": RUN["id"], "participantId": "end-user-1", "answer": "right"},
+    ]
+
+
+def test_a_thumbs_down_without_why_is_the_apis_400() -> None:
+    message = 'answer: "wrong" needs shouldSay or why.'
+    api, seen = client(
+        lambda r: httpx.Response(400, json={"error": {"code": "bad-input", "message": message}})
+    )
+    with pytest.raises(InvalidRequestError, match="needs shouldSay or why"):
+        api.corrections.thumbs(run_id=RUN["id"], participant_id="end-user-1", up=False)
+    assert json.loads(seen[0].content) == {
+        "runId": RUN["id"],
+        "participantId": "end-user-1",
+        "answer": "wrong",
+    }
+
+
+def test_the_async_client_takes_an_end_users_thumbs_too() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(201, json=THUMBED)
+
+    async def scenario() -> None:
+        http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        async with AsyncKindgi("http://kindgi.test", token="t", http_client=http) as api:
+            down = await api.corrections.thumbs(
+                run_id=RUN["id"], participant_id="end-user-1", up=False, why="It promised a refund."
+            )
+            assert down.answer == "wrong"
+
+    asyncio.run(scenario())
+    assert json.loads(seen[0].content) == {
+        "runId": RUN["id"],
+        "participantId": "end-user-1",
+        "answer": "wrong",
+        "why": "It promised a refund.",
+    }
+
+
 def test_a_tenant_is_renamed_by_its_admins_or_the_operator_and_answers_nothing() -> None:
     tenant_id = "6f1c2c0e-3b0a-4f1e-9a51-0c1d2e3f4a5b"
     api, seen = client(lambda r: httpx.Response(204))
