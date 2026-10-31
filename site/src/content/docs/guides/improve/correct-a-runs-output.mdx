@@ -208,7 +208,8 @@ object RecordCorrection {
   have said, `shouldSay`, or why it was wrong, `why`.
 - **`participantId`** is your app's own opaque id for the user who made the
   correction. Who called comes from the token, as `madeBy`. Your users'
-  corrections stay `open` until a person sorts them.
+  corrections stay `open` and unsorted until a person sorts them, unless
+  the project [sorts them](#where-a-correction-goes).
   [Record your users' thumbs](../record-your-users-thumbs/) puts a thumbs up
   and down under your app's answers.
 - **For an answer that is a ranked list,** `items` says which items were
