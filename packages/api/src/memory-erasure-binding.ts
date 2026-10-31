@@ -32,8 +32,9 @@ export interface MemoryErasureBinding {
   exportLedger(tenantId: TenantId): Promise<readonly MemoryErasureLedgerEntry[]>;
   /**
    * Try an unfinished erasure again now; with `force`, stop waiting for a
-   * run in a flow that serves other people (it's cancelled). A finished
-   * one comes back as it is; `undefined` when there's no such erasure.
+   * run in a flow that serves other people, or a test run with a case from
+   * the person's runs (it's cancelled). A finished one comes back as it
+   * is; `undefined` when there's no such erasure.
    */
   resume(
     tenantId: TenantId,
@@ -92,7 +93,7 @@ export interface MemoryErasure {
   readonly attempts: number;
   /** The last failure's code, or why it's waiting (`not-yet:<reason>`). Never content. */
   readonly lastError?: string;
-  /** The run it waits (or waited) for, and until when; kept as the record of the wait. */
+  /** The run or test run it waits (or waited) for, and until when; kept as the record of the wait. */
   readonly waitingOn?: { readonly runId: string; readonly until?: string };
   /** A tenant admin said not to wait. */
   readonly forced?: true;
