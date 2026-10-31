@@ -4731,7 +4731,7 @@ class MemoryResource:
     ) -> _models.MemoryErasure:
         """Resume an erasure. `POST /v1/memory/erasures/{erasureId}/resume`
 
-        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people) stops waiting: the run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.
+        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people, or a test run still going with a case from their runs) stops waiting: that run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.
         """
         return self._client._request(
             _OPERATIONS["memory.resumeErasure"],
@@ -14748,7 +14748,7 @@ class AsyncMemoryResource:
     ) -> _models.MemoryErasure:
         """Resume an erasure. `POST /v1/memory/erasures/{erasureId}/resume`
 
-        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people) stops waiting: the run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.
+        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people, or a test run still going with a case from their runs) stops waiting: that run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.
         """
         return await self._client._request(
             _OPERATIONS["memory.resumeErasure"],

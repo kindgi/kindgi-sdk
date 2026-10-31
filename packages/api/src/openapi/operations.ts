@@ -5233,7 +5233,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.resumeErasure',
     summary: 'Resume an erasure',
     description:
-      "Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people) stops waiting: the run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.",
+      "Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people, or a test run still going with a case from their runs) stops waiting: that run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.",
     tags: ['memory'],
     security: 'bearer',
     parameters: [ErasureIdPathParam, IdempotencyKeyParam],
