@@ -60,7 +60,7 @@ A subsystem no part of the runtime logs under only warns:
 `schedules`, `references`, `secrets`, `license`, `aws-identity`,
 `expert-queue` (`judging` before runtime 0.4.0), `db`, `migrations`,
 `openfga`, `sso`, `tenants`, `improvement-passes`,
-`api-keys` and `connections` (runtime 0.2.0 or later), with these nested
+`api-keys`, and `connections` (runtime 0.2.0 or later), with these nested
 ones: `kernel.waitpoints`, `kernel.sweeper`,
 `webhooks.worker`, `authz.outbox`, `approvals.notifier`, `audit.retention`,
 `mcp.headers`, `providers.keys`, `providers.prune`, `secrets.scopes` and
