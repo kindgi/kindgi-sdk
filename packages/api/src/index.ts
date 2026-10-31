@@ -551,6 +551,16 @@ export {
   whatRuns,
   whatRunsByProject,
 } from './what-runs.js';
+// A test run a pin, an unpin or Latest moving started, and what its end does to the project's corrections.
+export {
+  type TestRunOutcome,
+  type TestRunOutcomeDeps,
+  type TestRunReason,
+  applyTestRunOutcome,
+  latestRunCorrelation,
+  pinRunCorrelation,
+  testRunReason,
+} from './test-run-outcome.js';
 export type { RegistryReadOnly } from './registry-read-only.js';
 // A pack agent's block pins where the pack's own versions are the only ones (`kindgi dev`).
 export { type BlockPins, type BlockVersionReads, resolveBlockPins } from './block-pins.js';
