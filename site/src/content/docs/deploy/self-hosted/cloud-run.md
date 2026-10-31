@@ -361,6 +361,8 @@ account, `$N-orch`, and Cloud Scheduler starts it once a minute. Each pass
 makes a service for each deployment that needs one, gives running ones
 their changed env, and retires what should go, through the runtime's system
 routes. The runtime never makes or deletes a service itself.
+[Run a pack service for each deployment on Cloud Run](../pack-orchestrator/)
+says what a pass does and what each of its settings means.
 
 The orchestrator works with a system key of its own, which only a runtime
 that already routes per deployment mints. So it takes a second apply. The
