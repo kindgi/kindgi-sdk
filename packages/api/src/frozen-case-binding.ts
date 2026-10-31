@@ -18,11 +18,11 @@ import type { TestCaseExpect } from './test-case-binding.js';
  * Cases are written once, when the version is published, and removed
  * with it.
  */
-export interface EvalCaseStoreBinding {
+export interface FrozenCaseStoreBinding {
   /** Store a version's cases. Called once, right after the version is published. */
-  putCases(input: EvalCasePutInput): Promise<void>;
+  putCases(input: FrozenCasePutInput): Promise<void>;
   /** A version's cases, in the order they were stored, cursor-paginated. */
-  listCases(input: EvalCaseListInput): Promise<EvalCasePage>;
+  listCases(input: FrozenCaseListInput): Promise<FrozenCasePage>;
 }
 
 /** The corrections of one item of a case's output, summed up. */
@@ -125,14 +125,14 @@ export interface CorrectedTestCase {
   readonly erased?: true;
 }
 
-export interface EvalCasePutInput {
+export interface FrozenCasePutInput {
   readonly tenantId: TenantId;
   readonly testSetId: string;
   readonly version: string;
   readonly cases: readonly CorrectedTestCase[];
 }
 
-export interface EvalCaseListInput {
+export interface FrozenCaseListInput {
   readonly tenantId: TenantId;
   readonly testSetId: string;
   readonly version: string;
@@ -140,7 +140,7 @@ export interface EvalCaseListInput {
   readonly limit: number;
 }
 
-export interface EvalCasePage {
+export interface FrozenCasePage {
   readonly data: readonly CorrectedTestCase[];
   readonly hasMore: boolean;
   readonly nextCursor?: Cursor;

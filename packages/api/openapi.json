@@ -148,7 +148,7 @@
     },
     {
       "name": "test-sets",
-      "description": "Test set catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: test-run execution + per-kind grader dispatch live on the `test-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `corrections`). The cases of a `corrections` test set are copies of corrected runs, built before an agent's corrections were its test set (`/v1/agents/{agentId}/test-set`); they're read at `GET .../versions/{version}/cases` (`EvalCaseStoreBinding`), and `GET /v1/test-sets` doesn't list them. Runs against these test sets are started through the `test-runs` tag. Caller-plugged via `TestSetRegistryBinding`."
+      "description": "Test set catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: test-run execution + per-kind grader dispatch live on the `test-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `corrections`). The cases of a `corrections` test set are copies of corrected runs, built before an agent's corrections were its test set (`/v1/agents/{agentId}/test-set`); they're read at `GET .../versions/{version}/cases` (`FrozenCaseStoreBinding`), and `GET /v1/test-sets` doesn't list them. Runs against these test sets are started through the `test-runs` tag. Caller-plugged via `TestSetRegistryBinding`."
     },
     {
       "name": "blocks",
@@ -52758,7 +52758,7 @@
             }
           },
           "400": {
-            "description": "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the test set, the agent or flow, or an agent or tool a flow candidate's `versions` names, isn't registered in `projectId`'s project, its org or the tenant; or a version named (by `agentRef`, `flowRef` or `versions.agents`) isn't one `projectId`'s project runs (`details.issues`, each at the path it was named, whose message names the version). Nothing runs.",
+            "description": "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the test set, the agent or flow, or an agent or tool a flow candidate's `versions` names, isn't registered in `projectId`'s project, its org or the tenant; or a version named (by `agentRef`, `flowRef` or `versions.agents`) isn't one `projectId`'s project runs (`details.issues`, each at the path it was named, whose message names the version). Or `bad-input` for an agent's own test set run with another agent, in another project, or with `flowRef`: the message names the test set this run's agent and project have. Nothing runs.",
             "content": {
               "application/json": {
                 "schema": {
@@ -52788,7 +52788,7 @@
             }
           },
           "409": {
-            "description": "`project-suspended`: the project is suspended, so no test run starts in it. Or Idempotency-Key was reused with a different body.",
+            "description": "`project-suspended`: the project is suspended, so no test run starts in it. Or `suggested-change-nothing-to-check`: an agent's own test set has no cases in the project (`details.projectId`), as a suggested change's check answers. Or Idempotency-Key was reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -52827,6 +52827,16 @@
               }
             }
           },
+          "501": {
+            "description": "`suggested-change-check-unsupported`: an agent's own test set, on a runtime that doesn't freeze a project's test set.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "503": {
             "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
             "content": {
@@ -52838,7 +52848,7 @@
             }
           }
         },
-        "description": "Dispatches a test run against the latest version of the test set. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.",
+        "description": "Dispatches a test run against the latest version of the test set. An agent's own test set (`agent.<agentId>.<projectId>`, read at `GET /v1/agents/{agentId}/test-set`) is frozen first, as a suggested change's check freezes it, and the run records the frozen version as `testSetVersion`; a dry run freezes it too; it runs only its agent, in its project. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.",
         "parameters": [
           {
             "name": "testSetId",

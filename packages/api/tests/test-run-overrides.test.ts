@@ -15,7 +15,6 @@ import { describe, expect, test } from 'vitest';
 import type { ProjectId, RunId, TenantId } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { sampleCases } from '../src/eval-sample.js';
 import type {
   AgentRegistryBinding,
   AgentVersionRecord,
@@ -35,12 +34,13 @@ import {
   createInProcessTestRunBinding,
   evaluateGate,
 } from '../src/index.js';
+import { sampleCases } from '../src/test-run-sample.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
 import { inMemoryCaseStore } from './support/in-memory-cases.js';
 
 const tenantId = randomUUID() as TenantId;
 const projectId = randomUUID() as ProjectId;
-const TOKEN = 'eval-overrides-token';
+const TOKEN = 'test-run-overrides-token';
 const resolveToken: TokenResolver = async (token) => (token === TOKEN ? { tenantId } : null);
 const unused = async () => ({ kind: 'err' as const, error: { code: 'bad-input', message: 'x' } });
 const runHandler = {
