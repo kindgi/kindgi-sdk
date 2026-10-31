@@ -46,6 +46,13 @@ Ready-made tools that act with a connection, one subpath per app:
 - `@kindgi/connections/microsoft/tools`: `outlookSend`,
   `outlookMessagesList`, `outlookMessageGet` and `outlookReply`, the same
   for Outlook.
+- Calendars, from the same two subpaths: `googleCalendarEventsList` and
+  `outlookCalendarEventsList` list the events in a window,
+  `googleCalendarFreeBusy` and `outlookCalendarFreeBusy` say when the
+  calendar is busy, and `googleCalendarEventCreate`,
+  `outlookCalendarEventCreate`, `googleCalendarEventUpdate` and
+  `outlookCalendarEventUpdate` add or change an event and invite the
+  people it names.
 - `@kindgi/connections/github/tools`, on the company's GitHub connection:
   `githubIssuesList`, `githubLabelsList`, and `githubIssuesAddLabels`, which
   adds only labels the repository has.
