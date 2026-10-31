@@ -32,7 +32,7 @@ import { inMemoryCaseStore } from './support/in-memory-cases.js';
 import { inMemoryCorrections } from './support/in-memory-corrections.js';
 
 const tenantId = randomUUID() as TenantId;
-const TOKEN = 'eval-comparison-token';
+const TOKEN = 'test-run-comparison-token';
 const resolveToken: TokenResolver = async (token) => (token === TOKEN ? { tenantId } : null);
 const unused = async () => ({
   kind: 'err' as const,
@@ -61,6 +61,7 @@ async function setup() {
     cases: [
       {
         caseId: 'case-1',
+        runId: 'case-1',
         subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
         input: 'hello',
         output: { appended: [{ role: 'agent', content: 'Hi.' }] },
@@ -255,6 +256,7 @@ describe('a flow candidate with some of its agents or tools at other versions', 
       cases: [
         {
           caseId: 'case-f',
+          runId: 'case-f',
           subject: { kind: 'flow', id: 'acme.flow', version: '1.0.0' },
           input: { name: 'Sam' },
           output: { reply: 'Hi.' },
@@ -436,6 +438,7 @@ describe('rescoring a comparison over the API: correct the new answers, then res
       cases: [
         {
           caseId: 'case-1',
+          runId: 'case-1',
           subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
           input: 'hello',
           output: { appended: [{ role: 'agent', content: 'Hi.' }] },

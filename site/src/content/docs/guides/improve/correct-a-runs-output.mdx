@@ -16,8 +16,8 @@ called, were right, whether its answer was right, and what was right
 instead. For an answer that is a ranked list, it says which items were
 right. People who know the work, your users or your experts, correct it.
 Each correction goes to whoever fixes it, and moves on until it's fixed.
-The corrections also tell you how an agent or flow version does: you
-[build test cases](../build-a-test-set/) from them, and
+The corrections also tell you how an agent or flow version does: they're
+the cases of the agent's [test set](../build-a-test-set/), and you
 [try a new version](../compare-an-agent-version/) on them.
 [Corrections reference](../expert-queue-reference/) has every field, rule and
 console page.
@@ -41,38 +41,38 @@ From the CLI, correct the run's answer:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi corrections add --run=<run-id> --item=answer --yes --reason="Echoes the message back"
+pnpm exec kindgi corrections add --run=<run-id> --answer=right --why="Echoes the message back"
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi corrections add --run=<run-id> --item=answer --yes --reason="Echoes the message back"
+uv run kindgi corrections add --run=<run-id> --answer=right --why="Echoes the message back"
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw corrections add --run=<run-id> --item=answer --yes --reason="Echoes the message back"
+./kindgiw corrections add --run=<run-id> --answer=right --why="Echoes the message back"
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw corrections add --run=<run-id> --item=answer --yes --reason="Echoes the message back"
+./kindgiw corrections add --run=<run-id> --answer=right --why="Echoes the message back"
 ```
 
 </TabItem>
 </Tabs>
 
 - `--run=<run-id>` is the run's id.
-- `--item=answer` says it's about the run's answer. For a flow run, it's
-  `--item=output`, the whole output.
-- `--yes` says it was right, or `--no` that it was wrong.
-- `--reason` says why. It's optional, but a wrong answer needs one.
+- `--answer=right` says the run's answer was right, or `--answer=wrong`
+  that it was wrong. For a flow run, the answer is its whole output.
+- `--why` says why. It's optional, but a wrong answer needs it, or
+  `--should-say` with what the answer should have said.
 
 It prints the correction:
 
@@ -210,14 +210,17 @@ object RecordCorrection {
   correction. Who called comes from the token, as `madeBy`. Your users'
   corrections stay `open` until a person sorts them.
 - **For an answer that is a ranked list,** `items` says which items were
-  right, as [Build test cases](../build-a-test-set/#correct-some-runs) shows.
+  right, as [An agent's test set](../build-a-test-set/#correct-some-runs) shows.
   Each item's `key` is an id, such as the matched case's id, never the
   item's text.
 - **One correction per run and person.** Correcting the run again, as the
   same caller and participant, replaces your earlier correction, and the
   earlier one stays in the history. From a client, send the whole
   correction each time. The CLI does that for you: each
-  `kindgi corrections add` adds to your correction of the run.
+  `kindgi corrections add` replaces the parts it gives and keeps the rest.
+  Saying a part was right drops what should have happened there, and an
+  empty `--why=` clears the why. A correction that was being fixed or with
+  the owner starts again, sorted afresh, and the CLI says which it replaced.
 
 The run now has the correction. Only a finished run can be corrected, and
 each item's pointer must find something.
@@ -238,58 +241,46 @@ the run's decisions, not its answer. When you
 [try a version](../compare-an-agent-version/#what-it-should-have-done) on
 test cases built from the run, it checks what that version does against it.
 
-Write what it should have done in a file, such as `refund-fix.json`:
-
-```json
-{
-  "calls": [
-    { "tool": "acme-store.offer-store-credit", "args": { "orderId": "A-1042" } }
-  ],
-  "notCalled": ["acme-store.refund"]
-}
-```
-
-- **`calls`** are the calls it should have made. `args` holds only the
-  top-level arguments that matter, each compared whole. Arguments left out
-  aren't compared, and `{}` asks only that the tool was called.
-- **`notCalled`** are the tools it shouldn't have called at all.
-
-Then record it with your mark:
+Record it with your mark:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi corrections add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
+pnpm exec kindgi corrections add --run=<run-id> --decisions=wrong --should-call='acme-store.offer-store-credit:{"orderId":"A-1042"}' --must-not-call=acme-store.refund --why="Final sale: store credit, never a refund"
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi corrections add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
+uv run kindgi corrections add --run=<run-id> --decisions=wrong --should-call='acme-store.offer-store-credit:{"orderId":"A-1042"}' --must-not-call=acme-store.refund --why="Final sale: store credit, never a refund"
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw corrections add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
+./kindgiw corrections add --run=<run-id> --decisions=wrong --should-call='acme-store.offer-store-credit:{"orderId":"A-1042"}' --must-not-call=acme-store.refund --why="Final sale: store credit, never a refund"
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw corrections add --run=<run-id> --no --reason="Final sale: store credit, never a refund" --correction=@refund-fix.json
+./kindgiw corrections add --run=<run-id> --decisions=wrong --should-call='acme-store.offer-store-credit:{"orderId":"A-1042"}' --must-not-call=acme-store.refund --why="Final sale: store credit, never a refund"
 ```
 
 </TabItem>
 </Tabs>
 
-- `--correction` is what it should have done, as JSON or `@<file>`.
-- `--no` marks the run's decisions wrong.
-- It's about the run's decisions, so leave out `--item` and `--pointer`.
+- `--decisions=wrong` marks the run's decisions wrong.
+- `--should-call` is a call it should have made: the tool, then, after a
+  `:`, the top-level arguments that matter, as JSON. Each is compared whole.
+  Arguments left out aren't compared, and the tool alone asks only that it
+  was called. Repeat it for each call.
+- `--must-not-call` is a tool it shouldn't have called at all. Repeat it for
+  each tool.
 
 It prints the correction, with what it should have done as its `shouldCall`
 and `mustNotCall`:
@@ -385,6 +376,79 @@ run's own retention. The clients have the same: `corrections.list`,
 filters by status, sorting, who made it and when, as
 [Where a correction goes](#where-a-correction-goes) shows.
 
+## Export the corrections
+
+An agent's corrections export as a CSV file, for a spreadsheet, or as JSON
+lines, for a script:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi corrections export --agent=<agent-id> --since=2026-10-01 --until=2026-11-01 --out=october.csv
+pnpm exec kindgi corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=not-fixed.jsonl
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi corrections export --agent=<agent-id> --since=2026-10-01 --until=2026-11-01 --out=october.csv
+uv run kindgi corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=not-fixed.jsonl
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw corrections export --agent=<agent-id> --since=2026-10-01 --until=2026-11-01 --out=october.csv
+./kindgiw corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=not-fixed.jsonl
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw corrections export --agent=<agent-id> --since=2026-10-01 --until=2026-11-01 --out=october.csv
+./kindgiw corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=not-fixed.jsonl
+```
+
+</TabItem>
+</Tabs>
+
+- `<agent-id>` is the agent whose corrections you export. It filters as
+  the clients' `corrections.list` does: `--project`, `--status` and
+  `--sorted-to` (each repeatable), `--from` (`experts`, `end-users` or
+  `all`), `--since` and `--until`. A date, such as `2026-10-01`, is
+  midnight UTC.
+- Like `list`, it leaves out replaced corrections, and removed ones unless
+  `--status=removed` asks for them.
+- `--out` names the file. On macOS and Linux, only you can read it. It
+  takes that name only once the whole export has arrived, and an existing
+  file is kept unless you add `--force`. Then it prints the agent, the
+  format, the file and its size in bytes, as JSON. Without `--out`, the
+  export is printed.
+- Each correction comes only when you may read its project.
+
+The CSV has a header row, then one correction per line: `id`, `projectId`,
+`runId`, `agentVersion`, `madeBy` (`user:<id>` or `service:<id>`),
+`participantId`, `expert`, `decisions`, `shouldCall` and `mustNotCall` (these
+two as JSON), `answer`, `shouldSay`, `why`, `sortedTo`, `status`, `fixedIn` (the
+version that fixed it) and `createdAt`. A field that starts with `=`, `+`,
+`-`, `@`, a tab or a carriage return gets a leading `'`, so a spreadsheet
+shows it rather than running it as a formula. Where a spreadsheet's list
+separator is `;`, import the file with a comma as the separator rather than
+opening it directly. JSON lines have one correction per line, as each one
+in `list`'s `data`. Neither has the run's own input or output, only the
+run's id.
+
+Every export is in the audit log, with who exported, the filters and how
+many rows went out. In the TypeScript and Python clients it's
+`corrections.export`: TypeScript's returns the body as a stream, and
+Python's yields it in chunks. The Java client has no method for it: use
+the CLI, or call `GET /v1/corrections/export`, as
+[Export](../expert-queue-reference/#export) shows.
+
 ## Where a correction goes
 
 Each correction has a `status`, and `sortedTo` says who fixes it:
@@ -448,7 +512,7 @@ Add a group, then correct as it:
 
 ```sh
 pnpm exec kindgi corrector-groups add --name=expert --weight=3 --project=<project-id>
-pnpm exec kindgi corrections add --run=<run-id> --item=answer --yes --group=<corrector-group-id>
+pnpm exec kindgi corrections add --run=<run-id> --answer=right --group=<corrector-group-id>
 ```
 
 </TabItem>
@@ -456,7 +520,7 @@ pnpm exec kindgi corrections add --run=<run-id> --item=answer --yes --group=<cor
 
 ```sh
 uv run kindgi corrector-groups add --name=expert --weight=3 --project=<project-id>
-uv run kindgi corrections add --run=<run-id> --item=answer --yes --group=<corrector-group-id>
+uv run kindgi corrections add --run=<run-id> --answer=right --group=<corrector-group-id>
 ```
 
 </TabItem>
@@ -464,7 +528,7 @@ uv run kindgi corrections add --run=<run-id> --item=answer --yes --group=<correc
 
 ```sh
 ./kindgiw corrector-groups add --name=expert --weight=3 --project=<project-id>
-./kindgiw corrections add --run=<run-id> --item=answer --yes --group=<corrector-group-id>
+./kindgiw corrections add --run=<run-id> --answer=right --group=<corrector-group-id>
 ```
 
 </TabItem>
@@ -472,7 +536,7 @@ uv run kindgi corrections add --run=<run-id> --item=answer --yes --group=<correc
 
 ```sh
 ./kindgiw corrector-groups add --name=expert --weight=3 --project=<project-id>
-./kindgiw corrections add --run=<run-id> --item=answer --yes --group=<corrector-group-id>
+./kindgiw corrections add --run=<run-id> --answer=right --group=<corrector-group-id>
 ```
 
 </TabItem>
@@ -481,7 +545,7 @@ uv run kindgi corrections add --run=<run-id> --item=answer --yes --group=<correc
 - `--name` names the group, and `--weight=3` counts its corrections three
   times.
 - `--project=<project-id>` is the project it applies to.
-  [Build the test cases](../build-a-test-set/#build-the-test-cases) shows how to
+  [Read the test set](../build-a-test-set/#read-the-test-set) shows how to
   find a project's id.
 - `--group=<corrector-group-id>` is the group's `id`, which `add` printed. In the
   clients, it's `correctorGroupId`.
@@ -835,6 +899,6 @@ a run does.
 
 ## Next
 
-- [Build test cases from corrections](../build-a-test-set/)
+- [An agent's test set](../build-a-test-set/)
 - [Try a version on the test cases](../compare-an-agent-version/)
 - [Corrections reference](../expert-queue-reference/)

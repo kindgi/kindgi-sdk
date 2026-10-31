@@ -318,12 +318,8 @@ export const CLI_DEFAULTS = {
     project: "the tenant's Default project",
     spec: 'required',
   },
-  'agents derive': {
-    from: 'required',
-    label: 'none',
-    project: 'none',
-    prompt: 'none (at least one `--prompt` or `--setting` is required)',
-    setting: 'none (at least one `--prompt` or `--setting` is required)',
+  'agents owner': {
+    set: 'none (shows the owner)',
   },
   'agents versions': {
     cursor: 'none',
@@ -447,35 +443,27 @@ export const CLI_DEFAULTS = {
     agent: 'none',
     cursor: 'none',
     limit: '`25` (at most `100`)',
-    org: 'none',
     project: 'none',
-    segment: 'none',
     status: 'none',
-    tier: 'none',
   },
-  'suggested-changes draft': {
+  'suggested-changes create': {
     agent: 'required',
     block: 'required',
-    correction: 'none',
-    'from-version': 'required',
+    fixes: 'none',
+    project: 'required',
     why: 'required',
     'idempotency-key': 'none',
-    org: 'none',
-    project: 'none',
-    segment: 'none',
     template: 'none',
     values: 'none',
   },
-  'suggested-changes evaluate': {
-    'group-weights': '`as-recorded`',
+  'suggested-changes check': {
     'idempotency-key': 'none',
-    k: '`10`',
-    objective: '`passRate`',
-    reads: '`recorded`',
-    repetitions: '`1`',
-    'test-set': 'required',
   },
-  'suggested-changes request': {
+  'suggested-changes pin': {
+    'idempotency-key': 'none',
+    reason: 'none',
+  },
+  'suggested-changes add-as-latest': {
     'idempotency-key': 'none',
     reason: 'none',
   },
@@ -785,16 +773,20 @@ export const CLI_DEFAULTS = {
     spec: 'required',
   },
   'corrections add': {
+    answer: 'none (at least one of `--decisions`, `--answer` or `--item` is required)',
+    decisions: 'none (at least one of `--decisions`, `--answer` or `--item` is required)',
     group: 'none (the correction is ungrouped)',
-    correction: 'none (an ordinary correction, without what the agent should have done)',
-    item: 'required',
-    no: 'off (exactly one of `--yes` or `--no` is required)',
+    item: 'none (at least one of `--decisions`, `--answer` or `--item` is required)',
+    'must-not-call': 'none',
+    no: 'off (with `--item`, exactly one of `--yes` or `--no` is required)',
     participant: 'none',
     pointer: 'none (item recorded without a pointer)',
     rank: 'none',
-    reason: 'none',
     run: 'required',
-    yes: 'off (exactly one of `--yes` or `--no` is required)',
+    'should-call': 'none',
+    'should-say': 'none',
+    why: 'none',
+    yes: 'off (with `--item`, exactly one of `--yes` or `--no` is required)',
   },
   'corrections list': {
     agent: 'none',
@@ -805,7 +797,28 @@ export const CLI_DEFAULTS = {
     limit: '`25` (at most `100`)',
     participant: 'none',
     project: 'none',
+    from: '`all`',
     run: 'none',
+    since: 'none',
+    'sorted-to': 'none (sorted anywhere, or not at all)',
+    status: 'none (every status but `removed`)',
+  },
+  'corrections set': {
+    link: 'none',
+    reason: 'none',
+    'sorted-to': 'none (at least one of `--status` or `--sorted-to` is required)',
+    status: 'none (at least one of `--status` or `--sorted-to` is required)',
+  },
+  'corrections export': {
+    agent: 'required',
+    format: '`csv`',
+    from: '`all`',
+    out: 'none (the export is printed)',
+    project: 'none',
+    since: 'none',
+    'sorted-to': 'none',
+    status: 'none (every status but `removed`)',
+    until: 'none',
   },
   'corrector-groups list': {
     agent: 'none',
@@ -944,19 +957,6 @@ export const CLI_DEFAULTS = {
   'test-sets show': {
     'test-set-version': 'the latest version',
   },
-  'test-sets from-corrections': {
-    agent: 'required: one of `--agent`, `--flow`',
-    'agent-version': 'none',
-    group: 'none',
-    description: 'none',
-    flow: 'required: one of `--agent`, `--flow`',
-    'min-corrections': '`1`',
-    project: 'required',
-    segment: 'none',
-    since: 'none',
-    'test-set-version': 'required',
-    until: 'none',
-  },
   'test-sets cases': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
@@ -989,6 +989,9 @@ export const CLI_DEFAULTS = {
   },
   'blocks reinstate': {
     'block-version': 'required',
+  },
+  'blocks pull': {
+    path: 'the current directory',
   },
   'release-gates list': {
     agent: 'none',
@@ -1518,6 +1521,16 @@ export const CLI_EXAMPLES = {
       line: 'kindgi agents unregister acme-ops.reply-drafter 1.2.0',
     },
   ],
+  'agents owner': [
+    {
+      purpose: "Show the agent's owner.",
+      line: 'kindgi agents owner acme-ops.reply-drafter',
+    },
+    {
+      purpose: 'Make a person the owner, replacing the one before.',
+      line: 'kindgi agents owner acme-ops.reply-drafter --set=<user-id>',
+    },
+  ],
   'agents versions': [
     {
       purpose: "List an agent's registered versions.",
@@ -1945,6 +1958,26 @@ export const CLI_EXAMPLES = {
       line: 'kindgi reviewers unregister <reviewer-id>',
     },
   ],
+  'corrections list': [
+    {
+      purpose: "List an agent's corrections that aren't fixed yet, sorted to its owner.",
+      line: 'kindgi corrections list --agent=acme-ops.reply-drafter --status=not-fixed --sorted-to=owner',
+    },
+  ],
+  'corrections set': [
+    {
+      purpose: 'Say a pull request is fixing a correction.',
+      line: 'kindgi corrections set <correction-id> --status=being-fixed --link=https://github.com/acme/agents/pull/7',
+    },
+    {
+      purpose: "Close a correction that won't be fixed, with why.",
+      line: "kindgi corrections set <correction-id> --status=wont-fix --reason='The refund policy changed.'",
+    },
+    {
+      purpose: 'Send a correction to the developer instead.',
+      line: "kindgi corrections set <correction-id> --sorted-to=developer --reason='It needs a new tool.'",
+    },
+  ],
   'corrector-groups list': [
     {
       purpose: 'List the corrector groups of the whole tenant.',
@@ -2078,6 +2111,12 @@ export const CLI_EXAMPLES = {
       line: 'kindgi test-runs list --agent=acme-ops.article-picker --status=failed --limit=10',
     },
   ],
+  'test-runs show': [
+    {
+      purpose: "Show a test run's status and, once it's done, its summary.",
+      line: 'kindgi test-runs show <test-run-id>',
+    },
+  ],
   'test-runs cancel': [
     {
       purpose: 'Cancel a pending or running test run.',
@@ -2096,8 +2135,8 @@ export const CLI_EXAMPLES = {
   ],
   'test-sets list': [
     {
-      purpose: 'List the corrections test sets of a project.',
-      line: 'kindgi test-sets list --project=<project-id> --kind=corrections',
+      purpose: 'List the accuracy test sets of a project.',
+      line: 'kindgi test-sets list --project=<project-id> --kind=accuracy',
     },
     {
       purpose: 'List test sets including retired ones.',
@@ -2164,6 +2203,16 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Reinstate an unregistered block version.',
       line: 'kindgi blocks reinstate acme.reply-style --block-version=1.0.0',
+    },
+  ],
+  'blocks pull': [
+    {
+      purpose: "Write the newest running version of each of the pack's blocks into its file.",
+      line: 'kindgi blocks pull',
+    },
+    {
+      purpose: 'Pull one block, in a pack in another directory.',
+      line: 'kindgi blocks pull acme.reply-style --path=./support-pack',
     },
   ],
   'release-gates list': [
@@ -2518,6 +2567,7 @@ export const CLI_GROUP_SEE_ALSO = {
   'mcp-launch': ['guides/tools/mcp-servers'],
   deployments: ['hosted/deploy-your-agent', 'guides/secrets/pack-env'],
   projects: ['guides/projects/organize-by-org-and-project'],
+  'test-sets': ['guides/improve/build-a-test-set', 'guides/improve/compare-an-agent-version'],
   connections: ['deploy/people-and-keys'],
   'connection-apps': ['guides/secrets/store-a-secret', 'deploy/people-and-keys'],
   tenant: ['guides/projects/organize-by-org-and-project'],

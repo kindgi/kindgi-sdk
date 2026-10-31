@@ -213,6 +213,16 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'suggested-change-invalid-state-transition': 409,
   // Evaluating would make a version that serves every unpinned scope.
   'suggested-change-needs-pin': 409,
+  // Made before suggested changes were for one project: withdraw only.
+  'suggested-change-not-for-a-project': 409,
+  // The runtime freezes no test set, so nothing can be checked.
+  'suggested-change-check-unsupported': 501,
+  'suggested-change-nothing-to-check': 409,
+  // A pin for a project that runs Latest.
+  'suggested-change-project-on-latest': 409,
+  // An add as Latest for a project that runs a pin.
+  'suggested-change-project-pinned': 409,
+  'suggested-change-out-of-date': 409,
   // Improve runs.
   'improve-unsupported': 501,
   'improve-run-not-found': 404,
@@ -245,6 +255,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'block-not-found': 404,
   'block-already-registered': 409,
   'block-project-mismatch': 409,
+  // Where a block runs needs the agents' pins and Latest.
+  'runs-in-unsupported': 501,
   'test-set-not-found': 404,
   'test-set-already-registered': 409,
   'test-set-project-mismatch': 409,
@@ -255,6 +267,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'correction-not-found': 404,
   'correction-status-change-not-allowed': 409,
   'corrector-group-not-found': 404,
+  /** The agent's test set has no case by that id (`/v1/agents/:agentId/test-set/cases/:caseId`). */
+  'test-case-not-found': 404,
+  /** Retiring a case that's retired already: there's no un-retire. */
+  'test-case-retired': 409,
   /** A queue rule that isn't in the project (`/v1/projects/:projectId/queue-rules/:ruleId`). */
   'queue-rule-not-found': 404,
   /** A run that isn't in the project's expert queue. */
@@ -268,6 +284,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // Pinned versions of agents and their pin history.
   'agent-version-not-found': 404,
   'pin-not-found': 404,
+  /** A pin into a scope where no version of the agent runs yet: no pin, and no Latest. */
+  'nothing-runs-in-scope': 409,
   'not-pinned': 409,
   // The release gate.
   'gate-failed': 422,
@@ -422,8 +440,6 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'unsupported-media-type': 415,
   'run-not-finished': 409,
   'item-not-found': 400,
-  // The correction binding can't list corrected runs, so no test sets from corrections.
-  'test-sets-not-supported': 501,
   'run-failures-not-supported': 501,
   'memory-operation-unsupported': 501,
   // The conversation binding can't unregister (a runtime built before it).
@@ -543,6 +559,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'production-limit-reached': 403,
   /** The production route on a runtime whose project binding can't set it. */
   'production-unsupported': 501,
+  /** A repo connection that isn't a company-wide GitHub connection (`details.connectionId`, `app`, `owner`). */
+  'repo-connection-not-company-github': 400,
+  /** The repo-connection routes on a runtime whose project binding can't set one, or, to set one, that has no connections. */
+  'repo-connection-unsupported': 501,
   'team-membership-not-found': 404,
   'project-membership-not-found': 404,
   // Re-adding a member with another role: the role they hold is kept.

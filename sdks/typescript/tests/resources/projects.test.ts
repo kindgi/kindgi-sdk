@@ -127,4 +127,25 @@ describe('projects — wire round-trips', () => {
       'GET /v1/projects/p1/pinned-versions?limit=1&cursor=c1',
     ]);
   });
+
+  it('setRepoConnection PUTs the connection, and clearRepoConnection DELETEs it', async () => {
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ projectId: 'p1', repoConnectionId: 'conn-1' }) },
+      { status: 200, body: JSON.stringify({ projectId: 'p1', repoConnectionId: null }) },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(await client.projects.setRepoConnection('p1', 'conn-1')).toEqual({
+      projectId: 'p1',
+      repoConnectionId: 'conn-1',
+    });
+    expect(await client.projects.clearRepoConnection('p1')).toEqual({
+      projectId: 'p1',
+      repoConnectionId: null,
+    });
+    expect(stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual([
+      'PUT /v1/projects/p1/repo-connection',
+      'DELETE /v1/projects/p1/repo-connection',
+    ]);
+    expect(JSON.parse(stub.calls[0]?.body ?? '{}')).toEqual({ connectionId: 'conn-1' });
+  });
 });

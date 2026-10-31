@@ -31,6 +31,7 @@ import type {
   EnvName,
   ProjectId,
   RecordedSecretScope,
+  Semver,
   SigningKeyId,
   TenantId,
   Timestamp,
@@ -39,7 +40,7 @@ import type {
 } from '@kindgi/types';
 
 import { canonicalizeEnvelope } from '../src/deployment-envelope.js';
-import { createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
+import { agentTestSetId, createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
 import type {
   AgentPinBindings,
   AgentPinInput,
@@ -49,15 +50,21 @@ import type {
   DeploymentContents,
   DeploymentEndpoint,
   Pin,
+  PinRequestInput,
   PinVersionInput,
   PinnedVersionBinding,
   PromotedToolSecretScopes,
   ReleaseGate,
   RunHandlerBinding,
+  TestRunBinding,
+  TestSetFreezeBinding,
   TokenResolver,
 } from '../src/index.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 import { environmentOrders } from './support/environment-orders.js';
+import { inMemoryBlocks } from './support/in-memory-blocks.js';
+import { inMemorySuggestedChanges } from './support/in-memory-suggested-changes.js';
+import { noLatest } from './support/latest.js';
 import { type ItemRow, itemProjects } from './support/order-items.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -311,6 +318,8 @@ function agentPinBinding(
     readonly gated?: readonly string[] | undefined;
     /** Carried agents whose pin write fails (the error only the write can give). */
     readonly errorOn?: readonly string[] | undefined;
+    /** Record gated promotions (`promotions.request`), so each pin goes through the gate. */
+    readonly gate?: boolean | undefined;
   } = {},
 ): {
   readonly releases: AgentPinBindings;
@@ -342,6 +351,25 @@ function agentPinBinding(
         } satisfies Pin,
       };
     },
+    ...(opts.gate === true && {
+      request: async (input: PinRequestInput) => {
+        pinned.push(input);
+        return {
+          kind: 'ok' as const,
+          value: {
+            id: `pin-${pinned.length}`,
+            agentId: input.agentId,
+            scope: input.scope,
+            action: 'pin',
+            fromVersion: null,
+            toVersion: input.version,
+            requestedBy: input.requestedBy,
+            createdAt: '2026-10-01T10:00:00.000Z' as Timestamp,
+            status: 'pinned',
+          } satisfies Pin,
+        };
+      },
+    }),
     unpin: notUsed,
     list: async () => ({ data: [] }),
     get: async () => null,
@@ -368,6 +396,7 @@ function agentPinBinding(
     pinned,
     releases: {
       pinned: { resolve: async () => null, list: async () => [] },
+      latest: noLatest,
       changes: changes as unknown as AgentPinBindings['changes'],
       ...(gated.size > 0 && {
         releaseGates: releaseGates as unknown as NonNullable<AgentPinBindings['releaseGates']>,
@@ -398,10 +427,14 @@ function harness(
     readonly gated?: readonly string[];
     /** Carried agents whose pin write fails (the error only the write can give). */
     readonly errorOn?: readonly string[];
+    /** Each pin goes through the gate (`livePins`' `gate`). */
+    readonly gate?: boolean;
     /** Items an order carries, so an agent spans more than one project. */
     readonly itemRows?: readonly ItemRow[];
     /** Wire a flow pin binding (`flowPinBinding`), so `pin` pins the carried flows; the flows named fail their write. */
     readonly flowPins?: { readonly errorOn?: readonly string[] };
+    /** Wire suggested changes (`cardBindings`): the carried agent runs `pinned` in S2. */
+    readonly cards?: { readonly pinned: string };
   } = {},
 ) {
   const deployments = ledger(opts.rows ?? [built({ id: 'dep-s1', projectId: S1 })], {
@@ -459,10 +492,14 @@ function harness(
   };
   const grants = opts.grants;
   const agentPins =
-    opts.agentPins === true
-      ? agentPinBinding({ gated: opts.gated, errorOn: opts.errorOn })
+    opts.agentPins === true || opts.cards !== undefined
+      ? agentPinBinding({ gated: opts.gated, errorOn: opts.errorOn, gate: opts.gate })
       : undefined;
   const items = opts.itemRows !== undefined ? itemProjects([...opts.itemRows]) : undefined;
+  const cards =
+    opts.cards !== undefined && agentPins !== undefined
+      ? cardBindings(opts.cards.pinned, agentPins)
+      : undefined;
   const flowPins = flowPinBinding(opts.flowPins);
   const app = createApp({
     ...createStubAppBindings(),
@@ -492,12 +529,15 @@ function harness(
           : null,
     } as never,
     agentRegistry: {
-      getVersion: async () => null,
+      // The gate reads the carried version; without it, nothing does.
+      getVersion: async ({ agentId, version }: { agentId: string; version: string }) =>
+        opts.gate === true || cards !== undefined ? { id: agentId, version } : null,
       listVersions: async () => ({ data: versions.rows }),
     } as never,
     secretsBinding: secretsBinding as never,
     environmentOrders: environmentOrders(opts.orders ?? [ORDER]),
     ...(agentPins !== undefined && { agentPins: agentPins.releases }),
+    ...cards?.bindings,
     ...flowPins.bindings,
     ...(items !== undefined && { itemProjects: items }),
     ...(opts.suspended !== undefined && {
@@ -557,6 +597,48 @@ function harness(
         resolveContext: { caller: 'dispatch' },
       }),
     call,
+    /** The suggested changes stored so far (none without `cards`). */
+    cardsNow: () => [...(cards?.supervisor.rows.values() ?? [])],
+  };
+}
+
+/**
+ * Suggested changes wired, for the cards a promotion makes in its target:
+ * the carried agent runs `pinned` in S2 until a promotion pins another
+ * (`agentPinBinding`'s pins). S2's test set has no cases yet, so a card is made
+ * unchecked.
+ */
+function cardBindings(pinned: string, agentPins: ReturnType<typeof agentPinBinding>) {
+  const supervisor = inMemorySuggestedChanges();
+  const testSetFreeze: TestSetFreezeBinding = {
+    freezeTestSet: async ({ agentId, projectId }) => ({
+      testSetId: agentTestSetId(agentId, projectId),
+      testSetVersion: '1.0.0',
+      cases: [],
+    }),
+  };
+  const releases: AgentPinBindings = {
+    ...agentPins.releases,
+    pinned: {
+      resolve: async ({ projectId }) =>
+        projectId === S2
+          ? {
+              version: (agentPins.pinned.at(-1)?.version ?? pinned) as Semver,
+              scope: { kind: 'project', projectId: S2 },
+            }
+          : null,
+      list: async () => [],
+    },
+  };
+  return {
+    supervisor,
+    bindings: {
+      supervisor,
+      blockRegistry: inMemoryBlocks(),
+      testRunBinding: {} as TestRunBinding,
+      testSetFreeze,
+      agentPins: releases,
+    },
   };
 }
 
@@ -1187,6 +1269,9 @@ describe('pinning the carried agents in the target (pin)', () => {
     const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status).toBe(501);
     expect(res.body.error.code).toBe('promotions-unsupported');
+    expect(res.body.error.message).toBe(
+      "The build moved, but this runtime can't pin versions, so nothing was pinned in the target. Promote without `pin` here; the move is already done.",
+    );
     // The build moved; only pinning what it carried is unsupported.
     expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
   });
@@ -1268,6 +1353,26 @@ describe('pinning the carried agents in the target (pin)', () => {
     expect(res.body.error.details?.pinned).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
     expect(h.pinned).toHaveLength(1);
     expect(h.pinned[0]).toMatchObject({ agentId: AGENT });
+  });
+  test("a first promotion carrying only a version made for a project: nothing runs in the target yet, so it isn't pinned (409), and the move stays", async () => {
+    // The carried version isn't Latest by being carried, and the target has
+    // no pin and no other Latest: the gate has nothing to measure it against.
+    const h = harness({
+      agentPins: true,
+      gate: true,
+      grants: [`read project:${S1}`, `admin project:${S2}`, `pin agent:${AGENT}`],
+      secrets: [`project:${S2}:ACME_TOKEN`],
+    });
+    const res = await h.promoteAndPin('dep-s1', S2);
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error.code).toBe('nothing-runs-in-scope');
+    expect(res.body.error.message).toContain(`agent "${AGENT}" 1.0.0 wasn't pinned`);
+    expect(res.body.error.message).toContain(
+      'Promote a build that ships a version of it, then pin it. If this version came from a suggested change',
+    );
+    expect(res.body.error.message).toContain('then promote this build again');
+    expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
+    expect(h.pinned).toEqual([]);
   });
 });
 
@@ -1379,5 +1484,34 @@ describe('making the carried flows the ones in use in the target (pin)', () => {
     expect(moved.status).toBe(201);
     expect(moved.body.pinnedFlows).toBeUndefined();
     expect(plain.flowPinned).toEqual([]);
+  });
+});
+
+describe('the cards a promotion makes in the target', () => {
+  const AGENT = 'acme.matcher';
+
+  test("a target pinned to another version gets a card for each carried agent version, made by the target's new deployment", async () => {
+    const h = harness({ cards: { pinned: '0.9.0' }, secrets: [`project:${S2}:ACME_TOKEN`] });
+    const res = await h.promote('dep-s1', S2);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const cards = h.cardsNow();
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({
+      agentId: AGENT,
+      fromVersion: '0.9.0',
+      scope: { kind: 'project', projectId: S2 },
+      tier: 'code',
+      change: { deploymentId: res.body.deployment.deploymentId },
+      madeBy: { kind: 'deploy', deploymentId: res.body.deployment.deploymentId },
+      candidate: { agentVersion: '1.0.0' },
+    });
+    expect(res.body.deployment.deploymentId).not.toBe('dep-s1');
+  });
+
+  test('pinned in the same promotion, the target runs it: no card', async () => {
+    const h = harness({ cards: { pinned: '0.9.0' }, secrets: [`project:${S2}:ACME_TOKEN`] });
+    const res = await h.promoteAndPin('dep-s1', S2);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(h.cardsNow()).toHaveLength(0);
   });
 });

@@ -43,7 +43,15 @@ import { ref } from '@kindgi/authz';
 import { emitAuditEvent } from '@kindgi/compliance';
 import { verifyEd25519 } from '@kindgi/crypto';
 import type { Scope } from '@kindgi/platform';
-import type { AgentPinScope, PinScope, ProjectId, Semver, TenantId, ToolId } from '@kindgi/types';
+import type {
+  AgentId,
+  AgentPinScope,
+  PinScope,
+  ProjectId,
+  Semver,
+  TenantId,
+  ToolId,
+} from '@kindgi/types';
 
 import type { Pin, PinStatus } from '../agent-pin-binding.js';
 import { callerIdentity } from '../caller.js';
@@ -75,9 +83,15 @@ import type { PinnedVersionBinding } from '../pinned-version-binding.js';
 import type { ReleaseGateRef } from '../release-gate-binding.js';
 import { deploymentSecretScope, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
 import type { AppEnv } from '../types.js';
-import { actorOf, pinResponse, releaseGateFor, requestPin } from './agent-pins.js';
+import {
+  type PinRequestOutcome,
+  actorOf,
+  pinResponse,
+  releaseGateFor,
+  requestPin,
+} from './agent-pins.js';
 import { deniedBy, refused } from './denied.js';
-import type { DeploymentsRouterBindings } from './deployments.js';
+import { type DeploymentsRouterBindings, makeDeployCards } from './deployments.js';
 import { pinWriteFailure } from './pinned-versions.js';
 import { scopeResourceRef } from './scope-params.js';
 
@@ -416,8 +430,10 @@ export function mountDeploymentPromotions(
 /**
  * After the move commits: record it, and — when `pin` was asked — pin
  * every carried agent and every carried flow in the target
- * (`pinCarried`), adding `pinned` and `pinnedFlows` to the answer.
- * Answers the promotion either way.
+ * (`pinCarried`), adding `pinned` and `pinnedFlows` to the answer. Then
+ * the suggested-change cards the moved agent versions make in the target
+ * (`makeDeployCards`): none where a pin was just made for them. Answers
+ * the promotion either way.
  */
 async function finishPromotion(
   c: Context<AppEnv>,
@@ -428,12 +444,24 @@ async function finishPromotion(
   carried: readonly CarriedVersion[],
   body: PromotionBody,
 ): Promise<Response> {
-  if (result.created || carried.length > 0) {
-    await auditPromotion(c, bindings, plan, result, carried, body.reason);
+  const moved = result.created || carried.length > 0;
+  if (moved) await auditPromotion(c, bindings, plan, result, carried, body.reason);
+  const made =
+    body.pin === true ? await pinCarried(c, bindings, authorizer, plan, result, body.reason) : {};
+  if (made instanceof Response) return made;
+  if (moved) {
+    await makeDeployCards(c, bindings, {
+      tenantId: plan.source.tenantId,
+      projectId: plan.toProjectId,
+      deploymentId: result.deployment.deploymentId,
+      imageDigest: plan.source.imageDigest,
+      by: actorOf(c),
+      agents: result.moved.agents
+        .filter(versioned)
+        .map((a) => ({ agentId: a.id as AgentId, version: a.version as Semver })),
+    });
   }
-  if (body.pin !== true) return promotionAnswer(c, result);
-  const pins = await pinCarried(c, bindings, authorizer, plan, result, body.reason);
-  return pins instanceof Response ? pins : promotionAnswer(c, { ...result, ...pins });
+  return promotionAnswer(c, { ...result, ...made });
 }
 
 /** A moved agent or flow with its version: the ones `pin` pins. */
@@ -593,7 +621,11 @@ async function pinCarried(
 ): Promise<Pick<PromotionResult, 'pinned' | 'pinnedFlows'> | Response> {
   const { agentPins, agentRegistry, agentPinGateDeps, pinnedVersions } = bindings;
   if (agentPins === undefined || agentRegistry === undefined || agentPinGateDeps === undefined) {
-    return unsupported(c);
+    // The move has committed: say so, not "nothing was promoted".
+    return refusal(c, 'promotions-unsupported', {
+      message:
+        "The build moved, but this runtime can't pin versions, so nothing was pinned in the target. Promote without `pin` here; the move is already done.",
+    });
   }
   const tenantId = plan.source.tenantId;
   const scope: AgentPinScope = { kind: 'project', projectId: plan.toProjectId };
@@ -619,7 +651,7 @@ async function pinCarried(
     // What the pre-checks leave is answered with the pins already made, so
     // the caller sees what was pinned.
     if (outcome.kind !== 'ok') {
-      return pinResponse(c, outcome, pinned.length > 0 ? { pinned } : {});
+      return pinResponse(c, carriedRefusal(outcome, agent), pinned.length > 0 ? { pinned } : {});
     }
     pinned.push(pinnedAgentOf(agent, outcome.pin, outcome.checks));
   }
@@ -634,6 +666,26 @@ async function pinCarried(
     pinned,
   );
   return pinnedFlows instanceof Response ? pinnedFlows : { pinned, pinnedFlows };
+}
+
+/**
+ * A carried agent's pin refused because no version of it runs in the
+ * target yet (its first promotion there, carrying only a version made for
+ * a project, which isn't Latest by being carried): said for this move,
+ * which has committed. Any other refusal as the gate gave it.
+ */
+function carriedRefusal(
+  outcome: Exclude<PinRequestOutcome, { kind: 'ok' }>,
+  agent: MovedVersion & { version: string },
+): Exclude<PinRequestOutcome, { kind: 'ok' }> {
+  if (outcome.kind !== 'err' || outcome.error.code !== 'nothing-runs-in-scope') return outcome;
+  return {
+    ...outcome,
+    error: {
+      ...outcome.error,
+      message: `The build moved, but agent "${agent.id}" ${agent.version} wasn't pinned: no version of it runs in the target project yet (no pin, and no Latest; a version made for a project isn't Latest by being carried). Promote a build that ships a version of it, then pin it. If this version came from a suggested change, and the project it was made in runs Latest, add it as Latest there from that change, then promote this build again: a promotion counts a carried version only when it was already Latest where it was made.`,
+    },
+  };
 }
 
 /** A carried agent's `pinned` entry from its pin change: pinned unless a gate holds it, with the gate's say when it does or ran checks. */

@@ -98,6 +98,12 @@ export function runProjectBindingConformance(
      */
     readonly productionLimit?: boolean;
     /**
+     * The binding implements `setRepoConnection`: a connection set, read
+     * back on the project, kept by an update, and cleared, with repeats
+     * changing nothing.
+     */
+    readonly repoConnection?: boolean;
+    /**
      * The binding refuses to delete, or to move to another parent, a project
      * that is a member of an environment order (`project-in-environment-order`),
      * while allowing a rename or slug change. Needs `putInEnvironmentOrder` +
@@ -323,6 +329,80 @@ export function runProjectBindingConformance(
         });
         expect(await set(T2, id, true)).toEqual({ kind: 'project-not-found' });
         expect((await projects.get(T1, id))?.productionSince).toBeUndefined();
+      });
+    });
+  }
+
+  if (options.repoConnection === true) {
+    describe(`${label} — repo connection`, () => {
+      function setter(projects: ProjectBinding) {
+        const set = projects.setRepoConnection?.bind(projects);
+        if (set === undefined) throw new Error('this binding has no setRepoConnection');
+        return set;
+      }
+
+      it('sets a connection, reads it back, and clears it', async () => {
+        const { projects } = makeBinding();
+        const id = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+        const set = setter(projects);
+        expect(await set(T1, id, 'conn-1')).toEqual({
+          kind: 'ok',
+          repoConnectionId: 'conn-1',
+          changed: true,
+        });
+        expect((await projects.get(T1, id))?.repoConnectionId).toBe('conn-1');
+        expect((await projects.list(T1, {})).items.find((p) => p.id === id)?.repoConnectionId).toBe(
+          'conn-1',
+        );
+        expect(await set(T1, id, 'conn-2')).toEqual({
+          kind: 'ok',
+          repoConnectionId: 'conn-2',
+          changed: true,
+        });
+
+        expect(await set(T1, id, null)).toEqual({
+          kind: 'ok',
+          repoConnectionId: null,
+          changed: true,
+        });
+        expect((await projects.get(T1, id))?.repoConnectionId).toBeUndefined();
+      });
+
+      it('a repeat changes nothing', async () => {
+        const { projects } = makeBinding();
+        const id = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+        const set = setter(projects);
+        await set(T1, id, 'conn-1');
+        expect(await set(T1, id, 'conn-1')).toEqual({
+          kind: 'ok',
+          repoConnectionId: 'conn-1',
+          changed: false,
+        });
+        await set(T1, id, null);
+        expect(await set(T1, id, null)).toEqual({
+          kind: 'ok',
+          repoConnectionId: null,
+          changed: false,
+        });
+      });
+
+      it('an update keeps the connection', async () => {
+        const { projects } = makeBinding();
+        const id = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+        await setter(projects)(T1, id, 'conn-1');
+        expect(await projects.update(T1, id, { name: 'Shop, renamed' })).toEqual({ kind: 'ok' });
+        expect((await projects.get(T1, id))?.repoConnectionId).toBe('conn-1');
+      });
+
+      it("an unknown project, or another tenant's: project-not-found, nothing changed", async () => {
+        const { projects } = makeBinding();
+        const id = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+        const set = setter(projects);
+        expect(await set(T1, 'project-missing' as ProjectId, 'conn-1')).toEqual({
+          kind: 'project-not-found',
+        });
+        expect(await set(T2, id, 'conn-1')).toEqual({ kind: 'project-not-found' });
+        expect((await projects.get(T1, id))?.repoConnectionId).toBeUndefined();
       });
     });
   }

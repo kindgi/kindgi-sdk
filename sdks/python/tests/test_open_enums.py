@@ -446,7 +446,6 @@ def test_every_response_enum_in_the_api_is_read_open() -> None:
     # The enums of one value: each open, but where a union picks its member by it.
     assert {
         "ApprovalCollectionPage.decidedBy",
-        "BuildCorrectedTestSetResult.kind",
         "ConversationCollectionPage.openedBy",
         "TestRunComparison.baseline",
         "Fact.review",

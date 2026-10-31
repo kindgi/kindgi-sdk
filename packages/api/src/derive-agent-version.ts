@@ -10,13 +10,13 @@ import {
   pinsDigest,
 } from '@kindgi/agents';
 import type { TupleEnqueueHook } from '@kindgi/authz';
-import { latestVersion, nextVersion } from '@kindgi/tools';
+import { highestVersion, nextVersion } from '@kindgi/tools';
 import type { ProjectId, Semver, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.js';
 import { activeAgentVersions } from './agent-pins.js';
 import type { BlockRegistryBinding } from './block-binding.js';
-import { definitionKey } from './deploy-versions.js';
+import { definitionKey, withoutRecordFields } from './deploy-versions.js';
 import {
   type LaterEnvironment,
   firstEnvironmentOf,
@@ -77,7 +77,7 @@ export type DeriveAgentVersionOutcome =
   | { readonly kind: 'invalid'; readonly issues: readonly SwapIssue[] }
   | { readonly kind: 'no-project' }
   | { readonly kind: 'project-not-found'; readonly projectId: ProjectId }
-  /** The agent belongs to another project than the one given (`projectId`): nothing is written. */
+  /** The agent belongs to another project (`projectId`, its own) than the one given: nothing is written. */
   | { readonly kind: 'project-mismatch'; readonly projectId: ProjectId }
   /** The project given is a later environment of its order: nothing is written. */
   | { readonly kind: 'environment-takes-promotions'; readonly later: LaterEnvironment };
@@ -134,13 +134,9 @@ export async function deriveAgentVersion(
   const home = from.projectId ?? input.projectId;
   if (home === undefined) return { kind: 'no-project' };
   const madeIn = (await firstEnvironmentOf(input.orders, tenantId, home)) ?? home;
-  const {
-    unregisteredAt: _u,
-    projectId: _p,
-    madeInProjectId: _m,
-    derivedFrom: _d,
-    ...definition
-  } = from;
+  // What the registry added to `from` (where it's kept, what it was made
+  // for, who made it Latest) is no part of the new version.
+  const { derivedFrom: _d, ...definition } = withoutRecordFields(from);
   return publishNextFree(
     input,
     { home, madeIn },
@@ -178,7 +174,7 @@ async function publishNextFree(
   const same = active.find((a) => a.pinsDigest === derived.pinsDigest && definitionKey(a) === key);
   if (same !== undefined) return { kind: 'reused', agent: same };
   const highest =
-    latestVersion(active.map((a) => a.version as unknown as string)) ??
+    highestVersion(active.map((a) => a.version as unknown as string)) ??
     (derived.version as unknown as string);
   let candidate = nextVersion(highest);
   for (let tries = 0; candidate !== undefined && tries < MAX_TRIES; tries++) {
@@ -187,6 +183,8 @@ async function publishNextFree(
       tenantId,
       projectId,
       agent,
+      // Made for the project it's derived in: Latest nowhere until someone adds it.
+      madeFor: 'project',
       enqueueTuples: input.tuplesFor(projectId),
     });
     if (outcome.kind === 'ok') {
