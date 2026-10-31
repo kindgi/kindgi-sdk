@@ -361,6 +361,26 @@ export function agentTestSetId(agentId: AgentId, projectId: ProjectId): string {
   return `${AGENT_TEST_SET_ID_PREFIX}${agentId as unknown as string}.${projectId as unknown as string}`;
 }
 
+/**
+ * The refusal when a project's test set of an agent has no cases, so
+ * there's nothing to run: a suggested change's check and a test run of
+ * the agent's test set say the same.
+ */
+export function nothingToCheck(
+  agentId: AgentId,
+  projectId: ProjectId,
+): {
+  readonly code: 'suggested-change-nothing-to-check';
+  readonly message: string;
+  readonly projectId: string;
+} {
+  return {
+    code: 'suggested-change-nothing-to-check',
+    message: `Project ${projectId as unknown as string} has no corrections of ${agentId as unknown as string} to check a change on: correct some of its conversations first`,
+    projectId: projectId as unknown as string,
+  };
+}
+
 /** The answer when a caller publishes a test set under an agent's test set id. */
 export function agentTestSetIdReserved(testSetId: string): string {
   return `Test set ids starting \`${AGENT_TEST_SET_ID_PREFIX}\` are agents' own test sets, and only a test run or a suggested change's check makes their versions. Publish "${testSetId}" under another id.`;

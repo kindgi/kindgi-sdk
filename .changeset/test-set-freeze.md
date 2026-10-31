@@ -16,3 +16,8 @@
 - **A frozen case.**
   - A case gains an optional `expect` (`TestCaseExpect`): what it expects of a run. A grader reads it when it's present, and `items` and `corrections` otherwise.
   - A case gains an optional `segments`: the segment path its run was started with, from the run's copy.
+- **A test run of an agent's own test set.** `POST /v1/test-sets/{testSetId}/runs` with `agent.<agentId>.<projectId>` freezes the set first, through `testSetFreeze`, and runs that version, which the run records as its `testSetVersion`. A dry run freezes it too.
+  - It runs only that agent in that project: another agent or project, or a `flowRef`, is `400 bad-input`, and the message names the test set id the run would take.
+  - Without `testSetFreeze` it answers `501 suggested-change-check-unsupported`, and with no cases `409 suggested-change-nothing-to-check`, in a suggested change's check's words.
+  - Starting it takes `write` on the project and the right to run the agent. The set has no right of its own to check before its first freeze.
+  - Other test sets run their latest version, as before.

@@ -84,7 +84,11 @@ import type {
   TestRunStartOutcome,
 } from './test-run-binding.js';
 import { rescoreRefusal, rescoreStart } from './test-run-rescore.js';
-import type { FrozenTestSet, TestSetFreezeBinding } from './test-set-binding.js';
+import {
+  type FrozenTestSet,
+  type TestSetFreezeBinding,
+  nothingToCheck,
+} from './test-set-binding.js';
 import { type WhatRuns, whatRuns } from './what-runs.js';
 
 /**
@@ -677,11 +681,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
   ): Promise<SuggestedChangeOutcome<FrozenTestSet>> {
     const frozen = await testSets.freezeTestSet({ tenantId, agentId, projectId });
     if (frozen.cases.length > 0) return { kind: 'ok', value: frozen };
-    return err({
-      code: 'suggested-change-nothing-to-check',
-      message: `Project ${projectId as unknown as string} has no corrections of ${agentId as unknown as string} to check a change on: correct some of its conversations first`,
-      projectId: projectId as unknown as string,
-    });
+    return err(nothingToCheck(agentId, projectId));
   }
 
   /**
