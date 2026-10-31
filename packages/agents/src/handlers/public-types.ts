@@ -18,9 +18,9 @@ import type {
 } from '@kindgi/runtime';
 import type { ConnectionResolver, ToolRegistry, ToolSecretRef } from '@kindgi/tools';
 import type {
+  AgentPinScope,
   AgentVersionVia,
   EnvName,
-  LiveScope,
   OrgId,
   ProjectId,
   ProvenanceId,
@@ -67,8 +67,8 @@ export interface InvokeAgentInput {
   readonly conversationId: ConversationId;
   /** Why the caller chose this agent version; recorded on the run (`RunAgentRef.via`). */
   readonly versionVia?: AgentVersionVia;
-  /** The live pin that chose it, when `versionVia` is `live`. */
-  readonly liveScope?: LiveScope;
+  /** The pin that chose it, when `versionVia` is `pinned`. */
+  readonly pinnedScope?: AgentPinScope;
   /** The segment path the turn runs for; recorded on its run (`KernelRunRecord.segments`). */
   readonly segments?: readonly ScopeSegment[];
   readonly userMessage: string;
@@ -86,7 +86,7 @@ export interface InvokeAgentInput {
    */
   readonly parent?: ParentRunRef;
   /**
-   * Marks the turn as a replay: an eval run re-running a past run (`of`)
+   * Marks the turn as a replay: a test run re-running a past run (`of`)
    * on this agent version. Recorded on the turn's run and in its snapshot.
    * Its tool calls are decided by `InvokeAgentBindings.replay` (every call
    * is refused when that isn't wired), and only a read-only tool can run.
@@ -137,7 +137,9 @@ export interface InvokeAgentInput {
    * When `true`, executes the turn as a plan preview: no side effects
    * to the conversation, memory, or provenance. Retrievals + guardrails
    * still run for real (pure reads); the model call is skipped and
-   * returns a fixed mock response with no tool calls, so no tools run;
+   * returns a fixed mock response with no tool calls, so no tools run
+   * and no guardrail runs at a loop point; a failed `halt` or `retry`
+   * guardrail at the final answer fails the turn, as in any run;
    * every `persist-*` node skips its write. The returned
    * `AgentTurnResult` carries `dryRun: true`, and the underlying run is
    * journaled as a dry run.

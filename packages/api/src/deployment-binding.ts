@@ -11,6 +11,7 @@ import type {
   VersionDerivationReason,
 } from '@kindgi/types';
 
+import type { PinActor } from './agent-pin-binding.js';
 import {
   PACK_ENV_PROBLEM_CODES,
   PACK_ENV_SECRET_GIVE_CODES,
@@ -97,10 +98,11 @@ export interface DeploymentBinding {
   /**
    * Promote a deployment into the next environment of its order, in one
    * transaction: a deployment in the target project with the source's
-   * signed fields, contents, pack and pack checks (as `register` writes
-   * one, with its routes and pending endpoint) and
-   * `promotedFromDeploymentId`; the versions carried with it; and where
-   * each tool's secrets are read in the target. Registries aren't touched,
+   * signed fields, contents, pack, pack checks and git `source` (as
+   * `register` writes one, with its routes and pending endpoint) and
+   * `promotedFromDeploymentId`, and its own `replaced` (the input's, never
+   * the source's); the versions carried with it; and where each tool's
+   * secrets are read in the target. Registries aren't touched,
    * and nothing is built: the image is the one the source runs.
    *
    * The route checks everything first (the order, the source served, the
@@ -149,6 +151,17 @@ export function serializeDeployment(d: Deployment): Record<string, unknown> {
       flows: d.primitives.flows,
     },
     contents: d.contents,
+    ...(d.source !== undefined && { source: d.source }),
+    ...(d.replaced !== undefined &&
+      d.replaced.length > 0 && {
+        replaced: d.replaced.map(({ blockId, from, to, reason, by }) => ({
+          blockId,
+          from,
+          to,
+          reason,
+          by: { kind: by.kind, id: by.id },
+        })),
+      }),
   };
 }
 
@@ -228,6 +241,8 @@ export type SystemDeploymentRetireReason = (typeof SYSTEM_DEPLOYMENT_RETIRE_REAS
  *   again;
  * - `pack-env-secret-too-large`: a secret's value is over 32768 bytes, the
  *   most a pack service can be given;
+ * - `pack-env-name-too-long`: a name set as a secret is too long for the
+ *   secret it's kept in, which is named after the pack service;
  * - `pack-env-secret-capacity`: a name is set only as a secret, and there's
  *   no room just now for a pack service that can be given one, apart from
  *   other projects'. It's tried again.
@@ -391,6 +406,58 @@ export interface Deployment {
    * enough to know which code a deployment made live.
    */
   readonly contents: DeploymentContents;
+  /**
+   * Where its pack lives in git, as `kindgi deploy` read it from the work
+   * tree it ran in. Absent for a deploy made outside git, one recorded
+   * before deploys said, and from a binding that doesn't keep it.
+   */
+  readonly source?: DeploymentSource;
+  /**
+   * The blocks the deploy put back to an older version than ran, on
+   * purpose (`replace`). A deployment a promotion made has its own: the
+   * blocks that promotion's pins put back in its project, never the
+   * source's. Absent when it put back none, and from a binding that
+   * doesn't keep them.
+   */
+  readonly replaced?: readonly DeploymentReplacedBlock[];
+}
+
+/**
+ * Where a deployment's pack lives in git, when the deploy ran inside a
+ * work tree. No local path and no credential are in it: `repo` is a host
+ * and a path, and `path` and each file are relative.
+ */
+export interface DeploymentSource {
+  /**
+   * The `origin` remote as `host/owner/name` (a group path may stand for
+   * the owner: `host/group/sub/name`), with no scheme, user, password,
+   * token or `.git`. Absent when the work tree has no `origin`, or one
+   * that isn't a host and a path.
+   */
+  readonly repo?: string;
+  /** The pack's folder, relative to the repository's root: `.` when it's the root. */
+  readonly path: string;
+  /** The commit checked out (`HEAD`), its full hex id. */
+  readonly commit: string;
+  /** The branch checked out; absent on a detached `HEAD`. */
+  readonly branch?: string;
+  /** The pack's folder had changes the commit doesn't hold (`git status`, untracked files included). */
+  readonly dirty: boolean;
+  /** Each of the pack's blocks by id: its file, relative to the pack's folder. */
+  readonly blockFiles: Readonly<Record<string, string>>;
+}
+
+/**
+ * A block a deploy put back on purpose: the newest version that ran in a
+ * project of one of its agents, the files' older one the deploy shipped,
+ * why, and who deployed.
+ */
+export interface DeploymentReplacedBlock {
+  readonly blockId: string;
+  readonly from: string;
+  readonly to: string;
+  readonly reason: string;
+  readonly by: PinActor;
 }
 
 /** A primitive a deployment shipped. Guardrails have no version. */
@@ -427,6 +494,12 @@ export interface DeploymentContents {
   readonly guardrails: readonly DeployedPrimitive[];
   readonly agents: readonly DeployedAgent[];
   readonly flows: readonly DeployedFlow[];
+  /**
+   * The pack's data blocks, each `{ id, version }`. Absent on a deployment
+   * recorded before deployments listed them, and from a binding that
+   * doesn't keep them.
+   */
+  readonly blocks?: readonly DeployedPrimitive[];
 }
 
 export interface DeploymentPrimitiveCounts {
@@ -444,6 +517,13 @@ export interface DeploymentPrimitiveCounts {
  * binding does not re-verify the signature (that's the route's job).
  */
 export interface DeploymentRegisterInput {
+  /**
+   * The id to register it under, a UUID the route mints before the
+   * pack's blocks are published, so each block version names the deploy
+   * it came from. Absent: the binding allocates one. Unused when the
+   * digest is already registered (that row keeps its id).
+   */
+  readonly deploymentId?: string;
   readonly tenantId: TenantId;
   readonly imageRef: string;
   readonly imageDigest: string;
@@ -488,6 +568,10 @@ export interface DeploymentRegisterInput {
    * deployment keeps them, so whatever runs it can give it their values.
    */
   readonly packEnv?: PackEnvDeclaration;
+  /** Where the pack lives in git (`Deployment.source`), when the deploy said. */
+  readonly source?: DeploymentSource;
+  /** The blocks the deploy put back on purpose (`Deployment.replaced`). */
+  readonly replaced?: readonly DeploymentReplacedBlock[];
 }
 
 export type DeploymentRegisterOutcome =
@@ -595,6 +679,13 @@ export interface DeploymentPromoteInput {
   readonly carried: readonly CarriedVersion[];
   /** Each tool version it ships, with where its secrets are read in the target. */
   readonly toolSecretScopes: readonly PromotedToolSecretScopes[];
+  /**
+   * The blocks this promotion's pins put back on purpose in the target
+   * (`replace`), from its own check against what runs there; `by` is who
+   * promoted. Recorded as the new deployment's `replaced`, never the
+   * source's. A target that has the digest already keeps its row as it is.
+   */
+  readonly replaced?: readonly DeploymentReplacedBlock[];
 }
 
 export type DeploymentPromoteOutcome =

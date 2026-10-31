@@ -260,6 +260,23 @@ def test_an_agent_declares_how_it_uses_memory(make_pack: Callable[..., Path]) ->
     assert entry["retrieval"] == [{"types": ["acme.note"], "scope": "same-user", "mode": "both"}]
 
 
+def test_an_agent_can_run_its_read_only_calls_one_at_a_time(
+    make_pack: Callable[..., Path],
+) -> None:
+    def desk(extra: str) -> str:
+        return (
+            "from kindgi import Agent\n"
+            f'desk = Agent(id="acme.desk", version="1.0.0", name="Desk", instructions="Help."{extra})\n'
+        )
+
+    for extra, expected in [(", parallel_tool_calls=False", False), ("", None)]:
+        report, index = index_of(full_pack(make_pack, **{"agents/desk.py": desk(extra)}))
+        assert report["fileErrors"] == []
+        (entry,) = [a for a in index["agents"] if a["id"] == "acme.desk"]
+        assert entry.get("parallelToolCalls", None) is expected
+        assert ("parallelToolCalls" in entry) is (expected is not None)
+
+
 def test_an_agent_that_sets_auto_close_is_refused(make_pack: Callable[..., Path]) -> None:
     # A conversation never closes by itself, so the setting isn't supported.
     def desk(policy: str) -> str:
@@ -531,6 +548,24 @@ def test_the_index_carries_result_is_outside_data_as_declared(
     assert by_id["acme.local"]["resultIsOutsideData"] is False
     assert "resultIsOutsideData" not in by_id["acme.unsaid"]  # absent: results are not outside data
     assert by_id["acme.charge"]["resultIsOutsideData"] is True
+
+
+def test_an_llm_judge_guardrails_judge_is_in_the_index(make_pack: Callable[..., Path]) -> None:
+    # The runtime routes an llm-judge guardrail's judge by its judgeCapabilities, and refuses
+    # one without them on every turn.
+    judged = (
+        "from kindgi import RunTrace, guardrail\n\n\n"
+        '@guardrail(id="acme.tone", kind="llm-judge", on_violation="halt",\n'
+        '           config={"rubric": "The reply is polite."},\n'
+        '           judge_capabilities={"needs": [{"feature": "structured-output"}]})\n'
+        "def tone(config: dict, trace: RunTrace) -> bool:\n"
+        "    return True\n"
+    )
+    report, index = index_of(full_pack(make_pack, **{"guardrails/tone.py": judged}))
+    assert report["fileErrors"] == []
+    tone = next(g for g in index["guardrails"] if g["id"] == "acme.tone")
+    assert tone["kind"] == "llm-judge"
+    assert tone["judgeCapabilities"] == {"needs": [{"feature": "structured-output"}]}
 
 
 def _guardrail(id: str, check_id: str | None = None) -> str:

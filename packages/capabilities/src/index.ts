@@ -3,6 +3,7 @@
 
 export {
   adapterConfigError,
+  adapterConfigKeyProblems,
   createAdapterFactoryRegistry,
   identitiesPresent,
 } from './adapter-factory.js';
@@ -54,6 +55,16 @@ export { matchTuples, route } from './router.js';
 export type { RouteInput } from './router.js';
 export { SAMPLING_UNSUPPORTED, samplingFor } from './sampling.js';
 export type { Sampling } from './sampling.js';
+export {
+  THINKING_LEVEL_ADJUSTED,
+  THINKING_LEVELS,
+  THINKING_UNSUPPORTED,
+  isThinkingLevel,
+  modelThinkingProblem,
+  thinkingFor,
+  thinkingLevelsOf,
+} from './thinking.js';
+export type { Thinking, ThinkingLevel } from './thinking.js';
 export { recordModelUsage } from './usage.js';
 export { ToolNameCollisionError, nameToolsAsSent, toolIdsBySentName } from './tool-names.js';
 export type { RecordModelUsageOptions } from './usage.js';

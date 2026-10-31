@@ -79,7 +79,7 @@ A pack image runs it bundled (`dist/kindgi-pack-service.mjs`) with `--bundle-map
 
 - `listen()` opens the front; `start(indexPath)` boots a child on the index (loopback, any port) and switches calls to it once it listens. The previous child finishes its in-flight calls and stops; a child that fails to boot leaves the previous one serving; a child that exits on its own is restarted.
 - The front forwards `POST /v1/invoke` and `GET /v1/info`, and answers `503` with `Retry-After` while no child serves (the call did not run, so a caller may retry) and `502` when a child died mid-call (it may have run). `/healthz` answers while the front listens, `/readyz` while a child serves.
-- `writeBlock` (optional; `kindgi dev` gives one): the front also takes `POST /v1/blocks`, token-gated like `/v1/invoke`, and writes a block made live into its file in the pack (`writePackBlock`). Without it, the route answers `404`.
+- `writeBlock` (optional; `kindgi dev` gives one): the front also takes `POST /v1/blocks`, token-gated like `/v1/invoke`, and writes a block pinned in the console into its file in the pack (`writePackBlock`). Without it, the route answers `404`.
 - `command` is the child's argv; the supervisor appends `--index`, `--module-root` and `--host`. Any pack service with the process contract of [`pack-protocol.schema.json`](../specs/schemas/pack-protocol.schema.json) works: this package's (`[process.execPath, <pack-service-main>]`) or the Python SDK's (`[python, '-m', 'kindgi.pack', 'serve']`). It can also be a function returning the argv, called before every start: for a command that depends on what that start runs (`kindgi dev` writes the pack service's sandbox for it there). `cwd` sets the child's working directory.
 - The child's environment is exactly `env()` plus the token and `PORT=0`.
 - Forwarding is a separate `relay` (a request body plus deadline, run and request ids, and a cancel signal), so a listener other than HTTP can reuse it.
@@ -103,7 +103,7 @@ They're data only: `kindgi build` renders them into the image's Containerfile.
 
 1. **Discovers** files under `tools/`, `guardrails/`, `agents/`, `flows/` per `kindgi.config.ts` (`.ts` / `.js` / `.mjs` all accepted). Indexing a build (`bundleMap`), the map's source paths are the file list, classified by the same patterns — the source tree needn't be there — each imported from its bundle; the index still records the source path.
 2. **Kind-maps** each file by its containing directory (primary) or by structural detection on the default export (fallback for files matched by custom-discovery globs outside the four default folders).
-3. **Imports** each file and reads the `default` export — accepting either the raw primitive shape or a `Result`-wrapped envelope from `defineTool` / `defineGuardrail` / etc. Fails loud on: no default export, kind mismatch, or a `Result`-wrapped error.
+3. **Imports** each file and reads the `default` export — accepting either the raw primitive shape or a `Result`-wrapped envelope from `defineTool` / `validateGuardrail` / etc. Fails loud on: no default export, kind mismatch, or a `Result`-wrapped error.
 4. **Converts Zod schemas** — `tool.inputZod` / `tool.outputZod` / `check.configZod` — to their JSON Schema wire form via `@kindgi/schema.toJSONSchemaSync`. JSON-Schema-authored slots pass through verbatim.
 5. **Writes** the `v: 1` `index.json` envelope atomically (write to `.tmp-<pid>-<time>`, then rename) to the configured output path.
 

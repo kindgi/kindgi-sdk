@@ -493,6 +493,24 @@ describe('/v1/connection-apps', () => {
     expect(calls.createApp).toBeUndefined();
   });
 
+  test('a reserved `kindgi.` name as its secret is refused, made or changed, before the binding', async () => {
+    const { app, calls } = makeApp();
+    const held = { envName: 'local', name: 'kindgi.google-client' };
+    const made = await call(app, 'admin', 'POST', '/v1/connection-apps', {
+      app: 'google',
+      oauth2: { clientId: 'acme-client.apps.googleusercontent.com', clientSecret: held },
+    });
+    expect([made.status, made.json.error?.code]).toEqual([400, 'reserved-name-prefix']);
+    expect(made.json.error.message).toContain('a connection app never names one');
+    expect(calls.createApp).toBeUndefined();
+    const created = await call(app, 'admin', 'POST', '/v1/connection-apps', { app: 'google' });
+    const changed = await call(app, 'admin', 'PATCH', `/v1/connection-apps/${created.json.appId}`, {
+      oauth2: { clientId: 'acme-client.apps.googleusercontent.com', clientSecret: held },
+    });
+    expect([changed.status, changed.json.error?.code]).toEqual([400, 'reserved-name-prefix']);
+    expect(calls.updateApp).toBeUndefined();
+  });
+
   test("answers the binding's refusal in the error body's code", async () => {
     const { app } = makeApp();
     const res = await call(app, 'admin', 'POST', '/v1/connection-apps', { app: 'acme' });
@@ -655,6 +673,22 @@ describe('a connect request: read, start and finish', () => {
     const path = `/v1/connections/requests/${requestId}`;
     expect((await call(app, 'admin', 'GET', path)).status).toBe(200);
     expect((await call(app, 'ana', 'GET', path)).status).toBe(404);
+  });
+
+  test("a request id that isn't a UUID is a 400, on the request and under it, before the binding", async () => {
+    const { app, calls } = makeApp();
+    for (const [method, path] of [
+      ['GET', '/v1/connections/requests/not-a-uuid'],
+      ['POST', '/v1/connections/requests/not-a-uuid/start'],
+    ] as const) {
+      const res = await call(app, 'ana', method, path);
+      expect(res.status).toBe(400);
+      expect(res.json.error).toMatchObject({
+        code: 'bad-input',
+        message: '`requestId` must be a connect request id (a UUID)',
+      });
+    }
+    expect(calls.startRequest).toBeUndefined();
   });
 
   test("the owner starts it, and gets the app's consent page", async () => {

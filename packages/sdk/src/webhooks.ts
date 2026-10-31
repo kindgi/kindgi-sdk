@@ -36,7 +36,7 @@ export type {
 export type {
   ApprovalRequestedEvent,
   FinishedRun,
-  ImprovementPassFinishedEvent,
+  ImproveRunFinishedEvent,
   RequestedApproval,
   RunFinishedEvent,
   WebhookEvent,

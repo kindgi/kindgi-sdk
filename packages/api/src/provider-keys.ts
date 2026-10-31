@@ -6,7 +6,7 @@ import type { Cursor, TenantId } from '@kindgi/types';
 
 import { type MCPEndpointRegistryBinding, mcpEndpointSecretNames } from './mcp-endpoint-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
-import type { SecretBinding } from './secrets-binding.js';
+import { RESERVED_SECRET_NAME_PREFIX, type SecretBinding } from './secrets-binding.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
 import type { TriggerRegistryBinding } from './trigger-binding.js';
 import type { WebhookEndpointBinding } from './webhook-endpoint-binding.js';
@@ -158,8 +158,24 @@ export async function usersOfSecret(
   return out;
 }
 
+/** Why `name` can't be used by `user`: it's one of Kindgi's own, reserved names. */
+function reservedNameRefusal(
+  name: string,
+  user: SecretUser,
+): {
+  readonly code: 'reserved-name-prefix';
+  readonly message: string;
+  readonly secret: string;
+} {
+  return {
+    code: 'reserved-name-prefix',
+    message: `\`${name}\` uses the reserved "${RESERVED_SECRET_NAME_PREFIX}" prefix: ${user} never names one. Those names are Kindgi's own; store the secret under a name of its own and use that`,
+    secret: name,
+  };
+}
+
 /** The first secret in `names` that's a model provider's key, refused for `user`. */
-export async function refuseProviderKeys(
+async function refuseProviderKeys(
   keys: ProviderKeys | undefined,
   tenantId: TenantId,
   names: readonly string[],
@@ -172,6 +188,24 @@ export async function refuseProviderKeys(
     if (providerId !== undefined) return providerKeyRefusal(name, providerId, user);
   }
   return undefined;
+}
+
+/**
+ * The first secret in `names` that `user` can't name: one under the reserved
+ * `kindgi.` prefix, then a model provider's key. Every registration that names
+ * secrets checks them here, so none gets one check without the other.
+ */
+export async function refuseSecretNames(
+  keys: ProviderKeys | undefined,
+  tenantId: TenantId,
+  names: readonly string[],
+  user: SecretUser,
+): Promise<
+  ReturnType<typeof reservedNameRefusal> | ReturnType<typeof providerKeyRefusal> | undefined
+> {
+  const reserved = names.find((name) => name.startsWith(RESERVED_SECRET_NAME_PREFIX));
+  if (reserved !== undefined) return reservedNameRefusal(reserved, user);
+  return refuseProviderKeys(keys, tenantId, names, user);
 }
 
 /**

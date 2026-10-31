@@ -4,6 +4,7 @@
 import type { ProjectId, RunId, TenantId } from '@kindgi/types';
 
 import type { MessageFile } from './message-files.js';
+import type { ThinkingLevel } from './thinking.js';
 
 /**
  * The closed set of feature flags an agent can require. Matches
@@ -303,10 +304,10 @@ export interface ModelInfo {
    */
   readonly sampling?: boolean;
   /**
-   * How the model thinks before it answers, so a call that wants as
-   * little as it allows (`ModelCallInput.thinking: 'lowest'`, which
-   * judges set) gets it. Absent: it doesn't think, or nothing is known,
-   * and the adapter sends nothing for it.
+   * How the model thinks before it answers, and the levels it takes, so
+   * a call's level (`ModelCallInput.thinking`) is sent as one it takes
+   * (`thinkingFor`). Absent: it doesn't think, or nothing is known, and
+   * the adapter sends nothing for it.
    */
   readonly thinking?: ModelThinking;
   /** Short per-model description surfaced in logs. */
@@ -324,6 +325,19 @@ export interface ModelThinking {
    * (`low`, `minimal`); for OpenAI a reasoning effort (`low`, `none`).
    */
   readonly lowest: string;
+  /**
+   * The levels the model takes besides `lowest`, least first (Vertex
+   * refuses `minimal` on some Gemini models; `xhigh` and `max` exist only
+   * on some). Absent: the ones every thinking model takes
+   * (`thinkingLevelsOf`), so a level the vendor may refuse is never sent.
+   */
+  readonly levels?: readonly ThinkingLevel[];
+  /**
+   * The level a call that asks none is sent. It must be `lowest` or one
+   * the model takes, or the registration is refused, so it's sent as
+   * registered. Absent: the vendor's default.
+   */
+  readonly default?: ThinkingLevel;
 }
 
 /**
@@ -468,12 +482,14 @@ export interface ModelCallInput {
   /** Sampling controls — providers translate to their equivalent. */
   readonly temperature?: number;
   /**
-   * `lowest`: think as little as the model allows (its
+   * How much the model thinks: an agent's model settings set it, and
+   * judges ask for `lowest`, as little as the model allows (its
    * `ModelInfo.thinking.lowest`), so a short answer isn't crowded out by
-   * thinking. Judges set it. Absent, or a model with no `thinking`: the
-   * model's default.
+   * thinking. A level the model doesn't take is rounded to one it does,
+   * with a warning (`thinkingFor`). Absent: the model's `thinking.default`,
+   * or the vendor's default. A model with no `thinking` gets nothing.
    */
-  readonly thinking?: 'lowest';
+  readonly thinking?: ThinkingLevel;
   readonly maxOutputTokens?: number;
   /** Cooperative cancellation. Handlers should observe. */
   readonly abortSignal?: AbortSignal;
@@ -565,6 +581,16 @@ export interface ModelCallResult {
   readonly attempts?: number;
   /** The vendor's usage object, exactly as it reported it. */
   readonly rawUsage?: Readonly<Record<string, unknown>>;
+  /**
+   * What the adapter sent about thinking: the level (after rounding, or
+   * the model's `default`) and the vendor's own fields as they went out
+   * (`{ thinkingLevel: 'LOW' }`, `{ reasoning_effort: 'low' }`). Absent:
+   * it sent nothing about thinking.
+   */
+  readonly thinking?: {
+    readonly level: ThinkingLevel;
+    readonly sent: Readonly<Record<string, string>>;
+  };
 }
 
 /**
@@ -602,6 +628,11 @@ export interface ModelUsageRecord {
   /** What the answer used, and what the vendor said about it (`ok`). */
   readonly result?: Omit<ModelCallResult, 'message'>;
   /**
+   * The level the call asked for (`ModelCallInput.thinking`), failed or
+   * not; what was sent is `result.thinking`.
+   */
+  readonly thinkingAsked?: ThinkingLevel;
+  /**
    * Why the call failed (`failed`), and the HTTP attempts it took before
    * it did, when they were counted (`attemptsOf`).
    */
@@ -610,9 +641,9 @@ export interface ModelUsageRecord {
   readonly durationMs: number;
   /**
    * Set on a replay turn's calls: the past run it re-runs (`of`) and the
-   * eval run it's for, so eval spend can be told apart from production.
+   * test run it's for, so eval spend can be told apart from production.
    */
-  readonly replay?: { readonly of: string; readonly evalRunId: string };
+  readonly replay?: { readonly of: string; readonly testRunId: string };
 }
 
 /**

@@ -117,6 +117,38 @@ run "postgres_needs_the_aad_key_version" {
   expect_failures = [google_cloud_run_v2_service.server]
 }
 
+# The seed ids are uuids, as the server's settings are: another is refused
+# at plan, not at the server's start. The check is the server's own (8-4-4-4-12
+# hex digits, in either case), so a plan never refuses an id the server takes.
+run "a_seed_tenant_id_that_isnt_a_uuid_is_refused" {
+  command = plan
+
+  variables {
+    seed_tenant_id = "acme"
+  }
+
+  expect_failures = [var.seed_tenant_id]
+}
+
+run "a_seed_user_id_that_isnt_a_uuid_is_refused" {
+  command = plan
+
+  variables {
+    seed_user_id = "acme-admin"
+  }
+
+  expect_failures = [var.seed_user_id]
+}
+
+run "a_seed_id_in_upper_case_is_taken" {
+  command = plan
+
+  variables {
+    seed_tenant_id = "0000000A-0000-4000-8000-0000000000AB"
+    seed_user_id   = "0000000A-0000-4000-8000-0000000000CD"
+  }
+}
+
 run "latest_is_refused" {
   command = plan
 
@@ -1327,6 +1359,36 @@ run "host_puts_kindgis_database_on_the_app_instance" {
       if e.name == "KINDGI_DATABASE_URL"
     ]) == "kindgi-dev-database-url"
     error_message = "KINDGI_DATABASE_URL reuses the module's own database-url secret; the operator points it at the host."
+  }
+}
+
+run "the_instance_is_protected_from_deletion_by_default" {
+  command = plan
+
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].deletion_protection == true
+    error_message = "Terraform's deletion protection should be on by default."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].deletion_protection_enabled == true
+    error_message = "Google's deletion protection should be on by default, beside Terraform's."
+  }
+}
+
+run "protection_off_turns_both_flags_off" {
+  command = plan
+
+  variables {
+    database_deletion_protection = false
+  }
+
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].deletion_protection == false
+    error_message = "false should turn Terraform's deletion protection off."
+  }
+  assert {
+    condition     = google_sql_database_instance.kindgi[0].settings[0].deletion_protection_enabled == false
+    error_message = "false should turn Google's deletion protection off too, so a destroy can delete the instance."
   }
 }
 

@@ -84,7 +84,7 @@ function turn(
       agent: agent.value,
       conversationId: 'c-1' as ConversationId,
       userMessage: 'Where is order A-1042?',
-      ...(options.replay === true && { replay: { of: 'r-0', evalRunId: 'er-1' } }),
+      ...(options.replay === true && { replay: { of: 'r-0', testRunId: 'er-1' } }),
     },
     bindings: {
       checks: checks(),

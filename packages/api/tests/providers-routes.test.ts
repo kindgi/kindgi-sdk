@@ -5,9 +5,13 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import type { AuditEvent } from '@kindgi/audit-events';
+import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
 import type { ProviderMetadata } from '@kindgi/capabilities';
 import type { Cursor, TenantId } from '@kindgi/types';
 
+import { ModelInfoSchema, ProviderMetadataSchema } from '../src/openapi/schemas.js';
+import { METADATA_FIELDS, MODEL_FIELDS } from '../src/routes/providers.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
@@ -173,13 +177,23 @@ function registerBody(over: ProviderSpecOverrides = {}): string {
 
 function makeApp() {
   const binding = makeInMemoryBinding();
+  const store = createInMemoryAuditEventBinding();
+  const written: AuditEvent[] = [];
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
     runHandler,
     providerRegistry: binding,
+    auditEvents: {
+      ...store,
+      append: async (events) => {
+        written.push(...events);
+        return store.append(events);
+      },
+    },
   });
-  return { app, binding };
+  const events = (kind: string) => written.filter((e) => e.kind === kind);
+  return { app, binding, events };
 }
 
 describe('API — providers list', () => {
@@ -521,6 +535,56 @@ describe('API — providers register + get', () => {
     expect(body.error.details?.reason).toBe('invalid-thinking');
   });
 
+  test("a model's levels and default round-trip; a default it doesn't take → 400 invalid-thinking, naming the ones it takes", async () => {
+    const { app } = makeApp();
+    const spec = providerSpec({ id: 'thinks-at' });
+    const thinking = {
+      mode: 'adaptive',
+      lowest: 'low',
+      levels: ['low', 'medium', 'high', 'max'],
+      default: 'max',
+    };
+    const models = spec.models.map((m, i) => (i === 0 ? { ...m, thinking } : m));
+    const register = await app.request('/v1/providers', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ metadata: { ...spec, models }, adapter_id: TEST_ADAPTER_ID }),
+    });
+    expect(register.status).toBe(201);
+    const get = await app.request('/v1/providers/thinks-at', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(
+      ((await get.json()) as { models: { thinking?: unknown }[] }).models[0]?.thinking,
+    ).toEqual(thinking);
+    for (const [i, [bad, takes]] of [
+      // Without levels: the ones every thinking model takes.
+      [{ mode: 'adaptive', lowest: 'low', default: 'max' }, 'lowest, low, medium, high'],
+      [
+        { mode: 'adaptive', lowest: 'low', levels: ['low', 'high'], default: 'medium' },
+        'lowest, low, high',
+      ],
+    ].entries()) {
+      const refused = await app.request('/v1/providers', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          metadata: {
+            ...providerSpec({ id: `bad-default-${i}` }),
+            models: spec.models.map((m) => ({ ...m, thinking: bad })),
+          },
+          adapter_id: TEST_ADAPTER_ID,
+        }),
+      });
+      expect(refused.status, JSON.stringify(bad)).toBe(400);
+      const body = (await refused.json()) as {
+        error: { message: string; details?: { reason?: string } };
+      };
+      expect(body.error.details?.reason).toBe('invalid-thinking');
+      expect(body.error.message).toContain(`isn't a level this model takes: it takes ${takes}`);
+    }
+  });
+
   test("a model's cost keeps its adapter's rates through register + get; a bad one → 400 invalid-cost", async () => {
     const { app } = makeApp();
     const spec = providerSpec({ id: 'rated' });
@@ -599,6 +663,67 @@ describe('API — providers register + get', () => {
     const body = (await res.json()) as { error: { code: string; details?: { reason?: string } } };
     expect(body.error.code).toBe('invalid-provider');
     expect(body.error.details?.reason).toBe('unknown-feature');
+  });
+
+  test('a model field no model takes (a misspelled `thinking`) → 400 unknown-model-field, naming it and the fields a model takes', async () => {
+    const { app } = makeApp();
+    const spec = providerSpec();
+    const register = (models: readonly Record<string, unknown>[]) =>
+      app.request('/v1/providers', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ metadata: { ...spec, models }, adapter_id: TEST_ADAPTER_ID }),
+      });
+    const thinking = { mode: 'adaptive', lowest: 'low' };
+    const one = await register(spec.models.map((m) => ({ ...m, thinkng: thinking })));
+    expect(one.status).toBe(400);
+    const body = (await one.json()) as {
+      error: { code: string; message: string; details?: { reason?: string } };
+    };
+    expect(body.error.code).toBe('invalid-provider');
+    expect(body.error.details?.reason).toBe('unknown-model-field');
+    expect(body.error.message).toBe(
+      `provider "anthropic:claude-opus-4-7" model "claude-opus-4-7" has "thinkng", which isn't a model field: a model takes ${MODEL_FIELDS.join(', ')}`,
+    );
+    const two = await register(
+      spec.models.map((m) => ({ ...m, maxTokens: 1024, thinkng: thinking })),
+    );
+    expect(two.status).toBe(400);
+    expect(((await two.json()) as { error: { message: string } }).error.message).toContain(
+      'has "maxTokens" and "thinkng", which aren\'t model fields: a model takes',
+    );
+  });
+
+  test("a metadata field provider metadata doesn't take (a misspelled `defaultModel`) → 400 unknown-metadata-field", async () => {
+    const { app } = makeApp();
+    const res = await app.request('/v1/providers', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        metadata: { ...providerSpec(), defaultModle: 'claude-opus-4-7' },
+        adapter_id: TEST_ADAPTER_ID,
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details?: { reason?: string } };
+    };
+    expect(body.error.code).toBe('invalid-provider');
+    expect(body.error.details?.reason).toBe('unknown-metadata-field');
+    expect(body.error.message).toBe(
+      `provider "anthropic:claude-opus-4-7" metadata has "defaultModle", which isn't a field of provider metadata: it takes ${METADATA_FIELDS.join(', ')}`,
+    );
+  });
+
+  test("the fields models and metadata take are the schema's, which allows no others", () => {
+    expect(ModelInfoSchema.additionalProperties).toBe(false);
+    expect(ProviderMetadataSchema.additionalProperties).toBe(false);
+    expect([...MODEL_FIELDS].sort()).toEqual(
+      Object.keys(ModelInfoSchema.properties as Record<string, unknown>).sort(),
+    );
+    expect([...METADATA_FIELDS].sort()).toEqual(
+      Object.keys(ProviderMetadataSchema.properties as Record<string, unknown>).sort(),
+    );
   });
 
   test('validation failure (missing id) → 400 invalid-provider', async () => {
@@ -706,6 +831,50 @@ describe('API — providers unregister', () => {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(404);
+  });
+});
+
+describe('API — providers: audit events', () => {
+  test('register and unregister are recorded with the caller, never the key', async () => {
+    const { app, events } = makeApp();
+    const reg = await app.request('/v1/providers', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: registerBody(),
+    });
+    expect(reg.status).toBe(201);
+    const unreg = await app.request('/v1/providers/anthropic:claude-opus-4-7/unregister', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(unreg.status).toBe(200);
+
+    const [registered, ...moreRegistered] = events('provider-registered');
+    expect(moreRegistered).toEqual([]);
+    expect(registered?.actor).toMatch(/.+/);
+    expect(registered?.payload).toMatchObject({
+      doc: { providerId: 'anthropic:claude-opus-4-7', adapterId: TEST_ADAPTER_ID },
+    });
+    expect(Object.keys((registered?.payload as { doc: object }).doc).sort()).toEqual([
+      'adapterId',
+      'providerId',
+    ]);
+    const [unregistered, ...moreUnregistered] = events('provider-unregistered');
+    expect(moreUnregistered).toEqual([]);
+    expect(unregistered?.actor).toBe(registered?.actor);
+    expect(unregistered?.payload).toMatchObject({
+      doc: { providerId: 'anthropic:claude-opus-4-7' },
+    });
+  });
+
+  test('an unregister of an unknown provider records nothing', async () => {
+    const { app, events } = makeApp();
+    const res = await app.request('/v1/providers/nope/unregister', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(404);
+    expect(events('provider-unregistered')).toEqual([]);
   });
 });
 

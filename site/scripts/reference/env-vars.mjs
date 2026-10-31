@@ -2,8 +2,8 @@
 // Copyright (C) 2026 Kindgi Inc.
 /**
  * The environment variables reference, from `@kindgi/env-schema`: every
- * `KINDGI_*` variable the runtime and the pack service read, grouped as
- * the schema groups them.
+ * `KINDGI_*` variable the runtime, the pack service and the pack
+ * orchestrator read, grouped as the schema groups them.
  *
  * A variable's `appliesTo` is a predicate over the deployment's choices
  * (which process reads it, the secrets backend, its KMS, the pack
@@ -63,6 +63,9 @@ function readBy(spec) {
     parts.push(`the server, ${conditions(matching)}`);
   }
   if (pack) parts.push('the pack service');
+  if (spec.appliesTo({ component: 'pack-orchestrator' })) {
+    parts.push('the pack orchestrator (`kindgi-runtime packs orchestrate`)');
+  }
   return parts.join('; ');
 }
 
@@ -151,12 +154,12 @@ export function envVarsPage({ mentions, pages }) {
   const out = [
     '---',
     `title: ${TITLE}`,
-    'description: Every KINDGI_* variable the Kindgi runtime and the pack service read.',
+    'description: Every KINDGI_* variable the Kindgi runtime, the pack service and the pack orchestrator read.',
     '---',
     '',
-    'Every `KINDGI_*` variable the Kindgi runtime (the server) and the pack',
-    "service read. Generated from `@kindgi/env-schema`, Kindgi's own list, so",
-    'it matches this version.',
+    'Every `KINDGI_*` variable the Kindgi runtime (the server), the pack',
+    'service and the pack orchestrator read. Generated from',
+    "`@kindgi/env-schema`, Kindgi's own list, so it matches this version.",
     '',
     "The `KINDGI_` prefix is reserved for Kindgi: a pack can't declare such a",
     'name in its `env`, and `kindgi dev` never resolves one as a secret, so an',

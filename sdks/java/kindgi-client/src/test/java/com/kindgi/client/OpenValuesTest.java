@@ -5,12 +5,18 @@ package com.kindgi.client;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
-import com.kindgi.client.models.LiveScope;
+import com.fasterxml.jackson.annotation.JsonValue;
+import com.kindgi.client.models.Checks;
+import com.kindgi.client.models.TestRunBaseline;
+import com.kindgi.client.models.AgentPinScope;
 import com.kindgi.client.models.Model;
+import com.kindgi.client.models.OpenEnum;
 import com.kindgi.client.models.Run;
 import java.io.IOException;
 import java.lang.reflect.Method;
+import java.lang.reflect.RecordComponent;
 import java.net.URISyntaxException;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
@@ -28,6 +34,9 @@ import org.junit.jupiter.api.Test;
  * client is held to the same by its generator's open check, apart from the field Python code
  * tells a method's answers apart by ({@code secrets.rotate}'s {@code kind}), which stays closed
  * there.
+ *
+ * <p>Each of them is refused before it's sent: checked as a request body ({@link Checks#sending()}),
+ * it fails, while a builder's checks ({@code new Checks()}) keep it.
  */
 class OpenValuesTest {
   private static final String UNKNOWN = "kindgi-test-unknown";
@@ -117,7 +126,7 @@ class OpenValuesTest {
       }
       unions.add(type.getName());
     }
-    assertThat(unions).contains(LiveScope.class.getName()).hasSizeGreaterThan(10);
+    assertThat(unions).contains(AgentPinScope.class.getName()).hasSizeGreaterThan(10);
   }
 
   /** A tagged union's own method for its tag: the one abstract method it declares that reads text. */
@@ -130,5 +139,91 @@ class OpenValuesTest {
     }
     assertThat(tags).as(union.getName()).hasSize(1);
     return tags.get(0);
+  }
+
+  /** The problems {@code value} has, checked as a request body or not. */
+  private static List<String> problems(Object value, boolean sending) {
+    Checks checks = sending ? Checks.sending() : new Checks();
+    checks.nested("", value);
+    return checks.violations();
+  }
+
+  @Test
+  void everyEnumKnowsItsValuesAndRefusesAnotherOnlyOnSend() throws Exception {
+    int enums = 0;
+    for (Class<?> type : models()) {
+      Class<?> value = nested(type, knownValues(type));
+      if (value == null || !value.isEnum()) {
+        continue;
+      }
+      assertThat(OpenEnum.class).as(type.getName()).isAssignableFrom(type);
+      List<String> known = new ArrayList<>();
+      for (Object constant : value.getEnumConstants()) {
+        if (!constant.toString().equals("UNRECOGNIZED")) {
+          OpenEnum k = (OpenEnum) type.getField(constant.toString()).get(null);
+          assertThat(problems(k, true)).as(type.getName() + " " + k.asString()).isEmpty();
+          known.add(k.asString());
+        }
+      }
+      OpenEnum read = (OpenEnum) KindgiJson.read("\"" + UNKNOWN + "\"", type);
+      assertThat(read.knownValues()).as(type.getName()).isEqualTo(known);
+      assertThat(problems(read, false)).as(type.getName()).isEmpty();
+      assertThat(problems(read, true)).as(type.getName()).containsExactly("(value): must be one of " + String.join(", ", known));
+      enums++;
+    }
+    assertThat(enums).isGreaterThan(100);
+  }
+
+  @Test
+  void everyUnionVariantItDoesntKnowIsRefusedOnlyOnSend() throws Exception {
+    List<String> unions = new ArrayList<>();
+    for (Class<?> type : models()) {
+      Class<?> unrecognized = type.isInterface() ? nested(type, "Unrecognized") : null;
+      if (unrecognized == null) {
+        continue;
+      }
+      String tag = null;
+      for (RecordComponent c : unrecognized.getRecordComponents()) {
+        if (!c.getName().equals("properties")) {
+          tag = c.getAccessor().getAnnotation(JsonProperty.class).value();
+        }
+      }
+      String body = tag != null ? "{\"" + tag + "\":\"" + UNKNOWN + "\",\"kindgiTestExtra\":1}" : "{\"kindgiTestExtra\":1}";
+      Object read = KindgiJson.read(body, type);
+      assertThat(read).as(type.getName()).isInstanceOf(unrecognized);
+      assertThat(problems(read, false)).as(type.getName()).isEmpty();
+      if (tag != null) {
+        assertThat(problems(read, true)).as(type.getName()).singleElement().asString().startsWith(tag + ": must be one of ");
+      } else {
+        assertThat(problems(read, true)).as(type.getName()).containsExactly("(value): a variant this client doesn't know can't be sent");
+      }
+      unions.add(type.getSimpleName());
+    }
+    assertThat(unions).contains(AgentPinScope.class.getSimpleName(), TestRunBaseline.class.getSimpleName()).hasSizeGreaterThan(10);
+  }
+
+  @Test
+  void aUnionsTextItDoesntKnowIsRefusedOnlyOnSend() throws Exception {
+    List<String> refused = new ArrayList<>();
+    for (Class<?> type : models()) {
+      if (!type.isInterface() || !Model.class.isAssignableFrom(type)) {
+        continue;
+      }
+      for (Class<?> variant : type.getDeclaredClasses()) {
+        RecordComponent[] components = variant.getRecordComponents();
+        // The text variant: one text, written as it is.
+        if (components == null || components.length != 1 || components[0].getAccessor().getAnnotation(JsonValue.class) == null) {
+          continue;
+        }
+        Object read = KindgiJson.read("\"" + UNKNOWN + "\"", type);
+        assertThat(read).as(type.getName()).isInstanceOf(variant);
+        assertThat(problems(read, false)).as(type.getName()).isEmpty();
+        if (!problems(read, true).isEmpty()) {
+          assertThat(problems(read, true)).as(type.getName()).singleElement().asString().startsWith("(value): must be one of ");
+          refused.add(type.getSimpleName());
+        }
+      }
+    }
+    assertThat(refused).containsExactly(TestRunBaseline.class.getSimpleName());
   }
 }

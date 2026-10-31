@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   type ModelCallInput,
+  type ModelCallResult,
   type ModelMessage,
   type ModelProvider,
   type ModelUsageRecord,
@@ -14,10 +15,11 @@ import { attemptsOf } from '@kindgi/capabilities/attempts';
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
 import type { Timestamp } from '@kindgi/types';
 
-import { emitTurnEvent } from '../streaming.js';
+import { type CallThinking, emitTurnEvent } from '../streaming.js';
 
 import type { AgentTurnIterationOutput, TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { toWireMessages } from './guardrail-retry.js';
 import { replayTag } from './replay.js';
 import { chargeTurnMemory } from './turn-memory.js';
 import { addModelCallNode } from './turn-provenance.js';
@@ -85,7 +87,8 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
     } else {
       const callInput: ModelCallInput = {
         model: ctx.model.name,
-        messages: nextMessages,
+        // The model's own fields only: a loop message's guardrail mark stays in the loop.
+        messages: toWireMessages(nextMessages),
         ...(ctx.tools.definitions.length > 0 && {
           tools: ctx.tools.definitions,
         }),
@@ -108,6 +111,7 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
     ctx.lastProvider = callResult.provider;
     addModelWarnings(ctx, callResult.warnings);
 
+    const thinking = thinkingOf(ctx, callResult);
     await emitTurnEvent(ctx.bindings.onEvent, {
       kind: 'model.call.completed',
       step: ctx.usage.steps,
@@ -116,6 +120,7 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
       completionTokens: callResult.usage.completionTokens,
       costUsd: callResult.costUsd,
       durationMs: callResult.durationMs,
+      ...(thinking !== undefined && { thinking }),
     });
 
     if (ctx.provenance !== undefined && ctx.userMessage !== undefined) {
@@ -126,6 +131,7 @@ export function buildModelCallHandler(ctx: TurnContext): NodeHandler {
           callId,
           provider: callResult.provider,
           finishReason: callResult.finishReason,
+          ...(thinking !== undefined && { thinking }),
           at: new Date().toISOString() as Timestamp,
         },
         ctx.userMessage.sequence,
@@ -260,6 +266,7 @@ async function recordCall(
   const sink = ctx.bindings.usage;
   if (sink === undefined || ctx.provider === undefined || ctx.model === undefined) return;
   const { input } = ctx;
+  const thinkingAsked = ctx.blocks?.modelSettings?.thinking;
   const recorded = await recordModelUsage(sink, {
     ...call,
     tenantId: input.tenantId,
@@ -271,6 +278,7 @@ async function recordCall(
     nodeId: kctx.nodeId as unknown as string,
     providerId: ctx.provider.metadata.id,
     model: ctx.model.name,
+    ...(thinkingAsked !== undefined && { thinkingAsked }),
     ...(ctx.provider.metadata.fallback === true && { fallback: true }),
     ...(input.replay !== undefined && { replay: replayTag(input.replay) }),
     occurredAt: new Date().toISOString(),
@@ -291,10 +299,23 @@ function describeCause(cause: unknown): string {
 /** The pinned model-settings block's values, as model-call fields; none when it has none. */
 function modelSettingsOf(
   ctx: TurnContext,
-): Pick<ModelCallInput, 'temperature' | 'maxOutputTokens'> {
+): Pick<ModelCallInput, 'temperature' | 'maxOutputTokens' | 'thinking'> {
   const settings = ctx.blocks?.modelSettings;
   return {
     ...(settings?.temperature !== undefined && { temperature: settings.temperature }),
     ...(settings?.maxOutputTokens !== undefined && { maxOutputTokens: settings.maxOutputTokens }),
+    ...(settings?.thinking !== undefined && { thinking: settings.thinking }),
   };
+}
+
+/**
+ * The level the call asked for and the one its adapter sent, for its
+ * node and its event; none when it neither asked nor sent. What went out
+ * to the vendor is the cost record's (`result.thinking.sent`).
+ */
+function thinkingOf(ctx: TurnContext, answer: ModelCallResult): CallThinking | undefined {
+  const asked = ctx.blocks?.modelSettings?.thinking;
+  const level = answer.thinking?.level;
+  if (asked === undefined && level === undefined) return undefined;
+  return { ...(asked !== undefined && { asked }), ...(level !== undefined && { level }) };
 }
