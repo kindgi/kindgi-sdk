@@ -301,6 +301,7 @@ async function listScopedAt(ctx: CommandContext, target: ScopedTarget): Promise<
       revision: r.revision,
       updatedAt: r.updatedAt,
     }));
+    const cloudSecrets = await tenantCloudSecretNames(ctx, scope, envName as EnvName);
     const lines = [
       '',
       `  Value set: ${envName}`,
@@ -308,15 +309,76 @@ async function listScopedAt(ctx: CommandContext, target: ScopedTarget): Promise<
       '',
       values.length === 0 ? '  (no values set here)' : `  ${values.length} key(s):`,
       ...values.map((v) => `    ${v.key.padEnd(24, ' ')} ${v.value}`),
+      ...(cloudSecrets.length > 0
+        ? [
+            '',
+            `  ${cloudSecrets.length} set by your operator to a cloud secret, which a pack service reads from the cloud:`,
+            ...cloudSecrets.map((c) => `    ${c.key} (cloud secret)`),
+          ]
+        : []),
       '',
       "  A tool gets the project's value, else its org's, else the tenant's.",
       '',
     ].map(note);
-    return ok({ envName, scope: describeScope(scope), count: values.length, values }, ctx, lines);
+    return ok(
+      {
+        envName,
+        scope: describeScope(scope),
+        count: values.length,
+        values,
+        ...(cloudSecrets.length > 0 && { cloudSecrets }),
+      },
+      ctx,
+      lines,
+    );
   } catch (err) {
     return envErrorResult(err, ctx, 'kindgi env list');
   }
 }
+
+/**
+ * The names the operator set to a cloud secret at a tenant's scope, as the
+ * tenant sees them: no path. Empty from a runtime that keeps none (`501`)
+ * or doesn't know them (`404`).
+ */
+export async function tenantCloudSecretNames(
+  ctx: CommandContext,
+  scope: ScopeRef,
+  envName: EnvName,
+): Promise<
+  readonly { readonly key: string; readonly revision: number; readonly updatedAt: string }[]
+> {
+  const out: { key: string; revision: number; updatedAt: string }[] = [];
+  let cursor: string | undefined;
+  try {
+    for (let i = 0; i < 1_000; i += 1) {
+      const page = await ctx.client().env.listCloudSecrets({
+        scope,
+        envName,
+        ...(cursor !== undefined && { cursor: cursor as never }),
+      });
+      out.push(
+        ...page.data.map((r) => ({ key: r.name, revision: r.revision, updatedAt: r.updatedAt })),
+      );
+      if (page.nextCursor === undefined) break;
+      cursor = page.nextCursor;
+    }
+  } catch (err) {
+    // A runtime that keeps none, or before the route (`/v1/env/:name` then
+    // reads `cloud-secrets` as a name): none.
+    const wire = extractKindgiError(err);
+    const code = wire !== null && 'serverCode' in wire ? wire.serverCode : undefined;
+    if (code !== undefined && TENANT_LIST_NONE.has(code)) return [];
+    throw err;
+  }
+  return out.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+}
+
+const TENANT_LIST_NONE: ReadonlySet<string> = new Set([
+  'cloud-secrets-unsupported',
+  'route-not-found',
+  'env-not-found',
+]);
 
 /** What a call sees once a scope's value is gone. */
 const FALLBACK: Readonly<Record<ScopeRef['kind'], string>> = {

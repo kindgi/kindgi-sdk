@@ -149,6 +149,12 @@ export interface EmitLifecycleEventInput {
    */
   readonly recoverableUntil?: string;
   /**
+   * An env name set to, or removed from, a cloud secret, which the cloud
+   * reads for a pack service. Never the secret's path or a value: a tenant
+   * may read this event, and only the operator reads the path.
+   */
+  readonly cloudSecret?: true;
+  /**
    * Who did it, as the API names its caller (`user:<id>`,
    * `service_account:<id>`, `session:<id>`, `token:<hash>`). Absent: from
    * `resolveContext`, as a binding emits.
@@ -372,6 +378,7 @@ function buildLifecyclePayload(input: EmitLifecycleEventInput): Readonly<Record<
   if (input.rotationId !== undefined) payload.rotationId = input.rotationId;
   if (input.revokedValuesPurged === true) payload.revokedValuesPurged = true;
   if (input.recoverableUntil !== undefined) payload.recoverableUntil = input.recoverableUntil;
+  if (input.cloudSecret === true) payload.cloudSecret = true;
   if (input.resolveContext?.nodeId !== undefined) payload.nodeId = input.resolveContext.nodeId;
   if (input.resolveContext?.runId !== undefined) payload.runId = input.resolveContext.runId;
   return payload;

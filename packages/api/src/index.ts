@@ -1290,6 +1290,12 @@ export type {
 } from './signing-key-binding.js';
 export type {
   EnvBinding,
+  EnvCloudSecretBinding,
+  EnvCloudSecretListInput,
+  EnvCloudSecretListPage,
+  EnvCloudSecretRecord,
+  EnvCloudSecretSetInput,
+  EnvCloudSecretSetOutcome,
   EnvDeleteInput,
   EnvDeleteOutcome,
   EnvError,

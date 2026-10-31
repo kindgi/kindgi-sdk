@@ -108,6 +108,41 @@ describe('packEnvProblemLines', () => {
     ]);
   });
 
+  test('a name set to a cloud secret too: each way, and whose that one is to remove', () => {
+    expect(
+      packEnvProblemLines(
+        [
+          name('E', {
+            problem: 'ambiguous',
+            cloudSecretScope: { kind: 'tenant' },
+          }),
+          name('F', {
+            kind: 'secret',
+            scope: { kind: 'org', id: 'org-1' },
+            problem: 'ambiguous',
+            cloudSecretScope: { kind: 'project', id: PROJECT },
+          }),
+          name('G', {
+            problem: 'ambiguous',
+            secretScope: { kind: 'org', id: 'org-1' },
+            cloudSecretScope: { kind: 'tenant' },
+          }),
+        ],
+        target,
+      ),
+    ).toEqual([
+      "E is set both as a plain value (tenant) and as a cloud secret (tenant): remove one, so it's clear which the pack service gets. A cloud secret is your operator's to remove.",
+      `F is set both as a secret (org org-1) and as a cloud secret (project ${PROJECT}): remove one, so it's clear which the pack service gets. A cloud secret is your operator's to remove.`,
+      "G is set 3 ways: as a secret (org org-1), as a plain value (tenant) and as a cloud secret (tenant): remove all but one, so it's clear which the pack service gets. A cloud secret is your operator's to remove.",
+    ]);
+  });
+
+  test('a name set only to a cloud secret is set: no line', () => {
+    expect(
+      packEnvProblemLines([name('H', { kind: 'cloud-secret', scope: { kind: 'tenant' } })], target),
+    ).toEqual([]);
+  });
+
   test('a reason a later runtime names: said by its code', () => {
     expect(packEnvProblemLines([name('A', { problem: 'a-later-reason' })], target)).toEqual([
       "A can't be given to the pack service yet (a-later-reason).",
