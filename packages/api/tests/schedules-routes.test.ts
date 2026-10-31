@@ -749,7 +749,11 @@ describe("an improve schedule's owner, its readers, and a retarget to another ki
           body: JSON.stringify(body),
         }),
       });
-    const stored = () => registry.get({ tenantId, triggerId: id as TriggerId });
+    // The schedule as stored: a cron record, whose target the tests read.
+    const stored = async () => {
+      const record = await registry.get({ tenantId, triggerId: id as TriggerId });
+      return record?.kind === 'cron' ? record : undefined;
+    };
     return { call, checked, stored };
   }
 
