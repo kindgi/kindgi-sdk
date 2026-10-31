@@ -69,11 +69,35 @@ case "$*" in
     exit "${STUB_JOB_CREATE_RC:-0}" ;;
   "run jobs execute"*) exit "${STUB_CHECK_RC:-0}" ;;
   "sql export sql"*)
-    # Counts each try; the first STUB_EXPORT_412 tries are refused as Cloud SQL
-    # refuses one before its bucket grant takes effect.
+    # Counts each try; the first STUB_EXPORT_412 (or STUB_EXPORT_403) tries are
+    # refused as Cloud SQL refuses one before its bucket grant takes effect, in
+    # its 412 (or its 403) form. STUB_EXPORT_403_OTHER refuses every try with a
+    # 403 on the upload that no grant fixes.
     n=$(( $(cat "$STUB_EXPORT_TRIES" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$STUB_EXPORT_TRIES"
     if (( n <= ${STUB_EXPORT_412:-0} )); then
       echo 'ERROR: (gcloud.sql.export.sql) HTTPError 412: The service account does not have the required permissions for the bucket.' >&2
+      exit 1
+    fi
+    if (( n <= ${STUB_EXPORT_403:-0} )); then
+      cat >&2 <<'ERR'
+ERROR: (gcloud.sql.export.sql) [ERROR_RDBMS] failed to initiate resumable upload to GCS URL gs://backups/upgrade/x.sql.gz: googleapi: Error 403: {
+  "error": {
+    "code": 403,
+    "message": "p-sql@demo-proj.iam.gserviceaccount.com does not have storage.objects.create access to the Google Cloud Storage object. Permission 'storage.objects.create' denied on resource (or it may not exist).",
+    "errors": [
+      {
+        "message": "p-sql@demo-proj.iam.gserviceaccount.com does not have storage.objects.create access to the Google Cloud Storage object. Permission 'storage.objects.create' denied on resource (or it may not exist).",
+        "domain": "global",
+        "reason": "forbidden"
+      }
+    ]
+  }
+}
+ERR
+      exit 1
+    fi
+    if [[ -n ${STUB_EXPORT_403_OTHER:-} ]]; then
+      echo "ERROR: (gcloud.sql.export.sql) [ERROR_RDBMS] failed to initiate resumable upload to GCS URL gs://backups/upgrade/x.sql.gz: googleapi: Error 403: Request is prohibited by organization's policy. vpcServiceControlsUniqueIdentifier: 0123456789abcdef, forbidden" >&2
       exit 1
     fi
     : >"${STUB_MARKER_EXPORT:-/dev/null}"; exit "${STUB_EXPORT_RC:-0}" ;;
@@ -198,7 +222,7 @@ fail() { FAIL=$((FAIL + 1)); printf '  FAIL: %s\n' "$*"; }
 # A fresh case directory, var-file and markers. $1 = a pack_image line to add.
 reset_env() {
   unset STUB_TAGS STUB_DB_VERSION STUB_DB_PUBLIC STUB_JOB_CREATE_RC STUB_CHECK_RC \
-        STUB_EXPORT_RC STUB_EXPORT_412 STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC STUB_INSPECT_ERR STUB_SQL_SA \
+        STUB_EXPORT_RC STUB_EXPORT_412 STUB_EXPORT_403 STUB_EXPORT_403_OTHER STUB_PLAN_RC STUB_APPLY_RC STUB_MIRROR_RC STUB_INSPECT_ERR STUB_SQL_SA \
         STUB_DB_CA STUB_PACK_BEFORE STUB_PLAN_CHANGES STUB_SERVER_ENV STUB_PLAN_KEEP_IMAGE STUB_SHOW_RC \
         V_NET V_HOST V_TENANCY V_PACK V_AAD V_PREFIX V_DBI V_CONNECTOR V_DB_PRIVATE
   CASE_DIR="$(mktemp -d "$TMP/case.XXXXXX")"
@@ -509,7 +533,8 @@ assert_export_tries() {
 }
 
 # 21. A new bucket grant that hasn't reached Cloud SQL yet: the export waits
-# for it, saying so, then goes on.
+# for it, saying so, then goes on. Cloud SQL refuses it as HTTPError 412, or as
+# a 403 on its upload to the bucket.
 case_start "export waits for the bucket grant"
 reset_env; export STUB_TAGS="0.1.8" STUB_EXPORT_412=2
 run "yes"
@@ -518,6 +543,17 @@ assert_export_tries 3 "two refusals, then the export"
 assert_out "hasn't taken effect yet"
 assert_out "trying the export again (30s waited)"
 if [[ "$(grep -c 'HTTPError 412' "$OUT")" == 1 ]]; then pass; else fail "gcloud's refusal should be shown once"; fi
+if grep -q "Fix the cause" "$OUT"; then fail "a grant still taking effect was called a cause to fix"; else pass; fi
+assert_present "$STUB_MARKER_APPLY" "apply"
+
+case_start "export waits for the bucket grant, refused as a 403"
+reset_env; export STUB_TAGS="0.1.8" STUB_EXPORT_403=2
+run "yes"
+assert_rc 0 "the export goes on once the grant takes effect"
+assert_export_tries 3 "two refusals, then the export"
+assert_out "hasn't taken effect yet"
+assert_out "trying the export again (30s waited)"
+if [[ "$(grep -c 'failed to initiate resumable upload' "$OUT")" == 1 ]]; then pass; else fail "gcloud's refusal should be shown once"; fi
 if grep -q "Fix the cause" "$OUT"; then fail "a grant still taking effect was called a cause to fix"; else pass; fi
 assert_present "$STUB_MARKER_APPLY" "apply"
 
@@ -533,13 +569,25 @@ assert_out "get-iam-policy gs://backups"
 assert_absent "$STUB_MARKER_APPLY" "apply"
 assert_varfile_unchanged
 
-# 23. Any other export failure stops at once.
+# 23. Any other export failure stops at once, a 403 that no grant fixes among
+# them.
 case_start "export fails otherwise"
 reset_env; export STUB_TAGS="0.1.8" STUB_EXPORT_RC=1
 run "yes"
 assert_rc 1 "an export failure stops it"
 assert_export_tries 1 "no second try"
 assert_out "the export failed (above). Nothing has changed."
+assert_absent "$STUB_MARKER_APPLY" "apply"
+assert_varfile_unchanged
+
+case_start "export refused by another 403"
+reset_env; export STUB_TAGS="0.1.8" STUB_EXPORT_403_OTHER=1
+run "yes"
+assert_rc 1 "a 403 that no grant fixes stops it"
+assert_export_tries 1 "no second try"
+assert_out "prohibited by organization's policy"
+assert_out "the export failed (above). Nothing has changed."
+if grep -q "hasn't taken effect yet" "$OUT"; then fail "a 403 no grant fixes was waited out"; else pass; fi
 assert_absent "$STUB_MARKER_APPLY" "apply"
 assert_varfile_unchanged
 
