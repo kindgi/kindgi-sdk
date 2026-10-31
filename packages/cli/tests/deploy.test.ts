@@ -1905,6 +1905,10 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       'pack-env-secrets-unaudited',
       "the platform can't give the pack its secrets just now: its team is told, and it's tried again",
     ],
+    [
+      'pack-env-cloud-secret-unsupported',
+      "a name the pack reads from its env is set to a cloud secret, which this pack service's host can't mount: set it as a value or a secret instead, or ask your operator",
+    ],
   ])('a pack service waiting on its secrets (%s) says why', async (problem, why) => {
     await writeAutoEnvelope();
     const run = hostedFixtures(pending(), [pending(problem), ready]);

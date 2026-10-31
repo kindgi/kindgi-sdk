@@ -15,6 +15,8 @@ import { SYSTEM_TENANT_ID, createApp, packServiceName } from '../src/index.js';
 import type {
   CreateAppInput,
   DeploymentEndpoint,
+  EnvCloudSecretBinding,
+  EnvCloudSecretRecord,
   RunHandlerBinding,
   SystemAccessRecord,
   SystemDeploymentEntry,
@@ -27,7 +29,8 @@ import type {
  * A runtime serving one tenant that runs a pack service per deployment:
  * its own token mints its orchestrator's keys (`system:deployments`,
  * `system:pack-env`), and they reach the orchestrator's routes under
- * `/v1/system/*` and nothing else. A license key reaches none of them, and
+ * `/v1/system/*` and nothing else; and the operator's cloud secrets key
+ * (`system:env-refs`), which reaches the sole tenant's env routes alone. A license key reaches none of them, and
  * a key holding a scope one tenant doesn't serve is refused everywhere.
  */
 
@@ -134,6 +137,37 @@ function makeSystemKeys() {
   return { binding, keys, plant };
 }
 
+/** The sole tenant's cloud secrets, by name: the fence is what's under test. */
+function makeCloudSecrets(): EnvCloudSecretBinding {
+  const rows = new Map<string, EnvCloudSecretRecord>();
+  return {
+    async get(input) {
+      return rows.get(input.name) ?? null;
+    },
+    async list() {
+      return { data: [...rows.values()] };
+    },
+    async set(input) {
+      const old = rows.get(input.name);
+      const record: EnvCloudSecretRecord = {
+        scope: input.scope,
+        envName: input.envName,
+        name: input.name,
+        cloudSecret: input.cloudSecret,
+        revision: (old?.revision ?? 0) + 1,
+        createdAt: old?.createdAt ?? NOW,
+        updatedAt: NOW,
+        recordId: old?.recordId ?? randomUUID(),
+      };
+      rows.set(input.name, record);
+      return { kind: 'ok', record };
+    },
+    async delete(input) {
+      return { deleted: rows.delete(input.name) };
+    },
+  };
+}
+
 function makeApp(options: { readonly deployments?: boolean; readonly round?: boolean } = {}) {
   const deployments = makeDeployments({
     ...(options.round !== undefined && { round: options.round }),
@@ -194,6 +228,7 @@ function makeApp(options: { readonly deployments?: boolean; readonly round?: boo
         endpointHostAllowed: (host: string) => host.endsWith(RUN_TAIL),
       },
     }),
+    envCloudSecrets: makeCloudSecrets(),
   });
   const call = async (token: string, method: string, path: string, body?: unknown) => {
     const res = await app.request(path, {
@@ -461,9 +496,93 @@ describe("the orchestrator's round", () => {
   });
 });
 
+const ENV_QUERY = `envName=production&scopeKind=project&scopeId=${randomUUID()}`;
+const onEnv = (t: string, name?: string) =>
+  `/v1/system/tenants/${t}/env${name !== undefined ? `/${name}` : ''}?${ENV_QUERY}`;
+const PATH = 'projects/acme-prod/secrets/stripe-key/versions/3';
+
+/** Every cloud secrets route, with a body each would take. */
+const ENV_REF_ROUTES: readonly [string, string, unknown?][] = [
+  ['PUT', onEnv(tenantId, 'STRIPE_KEY'), { cloudSecret: PATH }],
+  ['DELETE', onEnv(tenantId, 'STRIPE_KEY')],
+  ['GET', onEnv(tenantId)],
+];
+
+describe("serving one tenant with a pack service per deployment: the operator's cloud secrets", () => {
+  test("the deployment's own token mints system:env-refs; without per-deployment routing it does not", async () => {
+    const served = makeApp();
+    const r = await served.call(BOOT, 'POST', '/v1/system/keys', { scopes: ['system:env-refs'] });
+    expect(r.status, JSON.stringify(r.body)).toBe(201);
+    const unserved = makeApp({ deployments: false });
+    const n = await unserved.call(BOOT, 'POST', '/v1/system/keys', { scopes: ['system:env-refs'] });
+    expect(n.status).toBe(400);
+    expect(code(n)).toBe('bad-input');
+  });
+
+  test('an env-refs key sets, lists and removes one on the sole tenant, each on the access record', async () => {
+    const { call, mint, audit } = makeApp();
+    const key = await mint(['system:env-refs']);
+    const set = await call(key, 'PUT', onEnv(tenantId, 'STRIPE_KEY'), { cloudSecret: PATH });
+    expect(set.status, JSON.stringify(set.body)).toBe(200);
+    expect(set.body).toMatchObject({ name: 'STRIPE_KEY', cloudSecret: PATH, revision: 1 });
+    const listed = await call(key, 'GET', onEnv(tenantId));
+    expect(listed.status).toBe(200);
+    expect(listed.body.data).toEqual([expect.objectContaining({ cloudSecret: PATH })]);
+    const removed = await call(key, 'DELETE', onEnv(tenantId, 'STRIPE_KEY'));
+    expect(removed.body).toEqual({ deleted: true });
+    const paths = audit.map((a) => `${a.method} ${a.path} ${a.status}`);
+    expect(paths).toContain(`PUT /v1/system/tenants/${tenantId}/env/STRIPE_KEY 200`);
+    expect(paths).toContain(`DELETE /v1/system/tenants/${tenantId}/env/STRIPE_KEY 200`);
+  });
+
+  test('another tenant is a 404: the directory knows the sole tenant alone', async () => {
+    const { call, mint } = makeApp();
+    const key = await mint(['system:env-refs']);
+    const r = await call(key, 'PUT', onEnv(randomUUID(), 'STRIPE_KEY'), { cloudSecret: PATH });
+    expect(r.status).toBe(404);
+    expect(code(r)).toBe('tenant-not-found');
+  });
+
+  test("an env-refs key reaches none of the orchestrator's routes, and the orchestrator's keys none of its", async () => {
+    const { call, mint } = makeApp();
+    const refs = await mint(['system:env-refs']);
+    for (const [method, path, body] of ORCHESTRATOR_ROUTES) {
+      const r = await call(refs, method, path, body);
+      expect(r.status, `${method} ${path}: ${JSON.stringify(r.body)}`).toBe(403);
+      expect(code(r), `${method} ${path}`).toBe('system-scope-missing');
+    }
+    for (const scopes of [['system:deployments'], ['system:pack-env'], ['system:license']]) {
+      const key = await mint(scopes);
+      for (const [method, path, body] of ENV_REF_ROUTES) {
+        const r = await call(key, method, path, body);
+        expect(r.status, `${scopes.join(',')} ${method} ${path}`).toBe(403);
+        expect(code(r), `${scopes.join(',')} ${method} ${path}`).toBe('system-scope-missing');
+      }
+    }
+    for (const [method, path] of [
+      ['GET', '/v1/license'],
+      ['GET', '/v1/system/keys'],
+      ['GET', '/v1/env'],
+    ] as const) {
+      const r = await call(refs, method, path);
+      expect(r.status, `${method} ${path}`).toBe(403);
+    }
+  });
+
+  test('without per-deployment routing, a planted env-refs key is refused on its routes', async () => {
+    const { call, system } = makeApp({ deployments: false });
+    const key = system.plant(['system:env-refs']);
+    for (const [method, path, body] of ENV_REF_ROUTES) {
+      const r = await call(key, method, path, body);
+      expect(r.status, `${method} ${path}`).toBe(403);
+      expect(code(r), `${method} ${path}`).toBe('system-key-scope-not-served');
+    }
+  });
+});
+
 describe('the routes a system key reaches serving one tenant', () => {
   test("isOneTenantDeploymentRoute: the orchestrator's routes, by method, and nothing near them", () => {
-    for (const [method, path] of ORCHESTRATOR_ROUTES) {
+    for (const [method, path] of [...ORCHESTRATOR_ROUTES, ...ENV_REF_ROUTES]) {
       expect(
         isOneTenantDeploymentRoute(method, path.split('?')[0] as string),
         `${method} ${path}`,
@@ -480,6 +599,12 @@ describe('the routes a system key reaches serving one tenant', () => {
       ['GET', '/v1/system/keys'],
       ['GET', '/v1/system/tenants'],
       ['GET', '/v1/license'],
+      ['GET', `/v1/system/tenants/${tenantId}/env/STRIPE_KEY`],
+      ['PUT', `/v1/system/tenants/${tenantId}/env`],
+      ['DELETE', `/v1/system/tenants/${tenantId}/env`],
+      ['POST', `/v1/system/tenants/${tenantId}/env/STRIPE_KEY`],
+      ['PUT', `/v1/system/tenants/${tenantId}/env/STRIPE_KEY/x`],
+      ['GET', `/v1/system/tenants/${tenantId}/env/`],
     ] as const) {
       expect(isOneTenantDeploymentRoute(method, path), `${method} ${path}`).toBe(false);
     }

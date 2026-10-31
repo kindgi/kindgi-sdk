@@ -763,6 +763,9 @@ kindgi env unset <KEY> [--env <name>] [--path <dir>]
 kindgi env pull  [--env <name>] --scope=<kind>[:id] [--overwrite-existing] [--path <dir>]
 kindgi env init  [--secrets-backend=<none|postgres|secret-manager>] [--kms=<gcp|aws|libsodium|vault>] [--out=<path>]
 kindgi env plan  [--env <name>] [--format=terraform|gcloud] [--path <dir>]
+kindgi env set   <KEY> --cloud-secret <projects/<p>/secrets/<s>/versions/<n>> --tenant=<id> --scope=<kind>[:id] --env=<name> [--force]
+kindgi env unset <KEY> --cloud-secret --tenant=<id> --scope=<kind>[:id] --env=<name>
+kindgi env list  --cloud-secret --tenant=<id> --scope=<kind>[:id] --env=<name>
 ```
 
 Per-environment values for the pack, in env files next to
@@ -778,6 +781,12 @@ Per-environment values for the pack, in env files next to
 - **`list`** redacts values; `--reveal` prints them, but not to a pipe
   without `--force-reveal`.
 - **`pull`** fetches the env's values from the API into `.env.<envName>`.
+- **`--cloud-secret`** is the operator's, with a system key holding
+  `system:env-refs`: it sets KEY, for the tenant `--tenant` names, to a
+  numbered version of a secret the operator's cloud holds, which a pack
+  service reads from the cloud as its own account. Kindgi keeps the name,
+  never the value. The tenant's `kindgi env list --scope` shows each such
+  name as `NAME (cloud secret)`, without the path.
 - **`init`** writes a `.env.example` for a deployment target.
 - **Format:** dotenv, read the way `dotenv` (and Next.js) read it, with
   `${VAR}` expansion. `set` and `unset` touch one key and keep every other

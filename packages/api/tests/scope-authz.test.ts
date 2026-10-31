@@ -127,6 +127,32 @@ describe('env — the check uses ?scopeKind + ?scopeId', () => {
     },
   );
 
+  test("GET /cloud-secrets: the scope's admin alone reads which names are set to one", async () => {
+    const checked: string[] = [];
+    const calls: Call[] = [];
+    const app = mount(
+      envRouter(
+        recordingBinding([]),
+        authorizerGranting([`project:${A}`], checked),
+        undefined,
+        undefined,
+        recordingBinding(calls),
+      ),
+      [],
+    );
+    const denied = await app.request(
+      `/cloud-secrets?envName=staging&scopeKind=project&scopeId=${B}&projectId=${A}`,
+    );
+    expect(denied.status).toBe(403);
+    expect(checked).toEqual([`project:${B}`]);
+    expect(calls).toEqual([]);
+    const allowed = await app.request(
+      `/cloud-secrets?envName=staging&scopeKind=project&scopeId=${A}`,
+    );
+    expect(allowed.status).toBe(200);
+    expect(calls.map((c) => [c.method, c.input.scope])).toEqual([['list', projectScope(A)]]);
+  });
+
   test('a project admin can write its project (the client request shape)', async () => {
     const { app, checked, calls } = setup([`project:${A}`]);
     const res = await app.request(

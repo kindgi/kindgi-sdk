@@ -19,6 +19,15 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `True` to keep an instance of the service running (calls in its project go
   to it for something always on), `False` when it can scale to zero. A
   runtime that doesn't say leaves it out.
+- `kindgi`: **An operator can set a pack's env name to a cloud secret.**
+  `client.system_env` has `set_cloud_secret`, `delete_cloud_secret` and
+  `list_cloud_secrets` (`/v1/system/tenants/{tenantId}/env[/{name}]`, a system
+  key holding `system:env-refs`), each naming a numbered version of a secret
+  the operator's cloud holds, `projects/<project>/secrets/<secret>/versions/<number>`.
+  The runtime keeps that path, never the value, and a pack service reads the
+  value from the cloud as its own account. `env.list_cloud_secrets` is the
+  tenant's list of the names set this way, without the path, and the pack-env
+  check names each as `kind` `cloud-secret`.
 - `kindgi`: **A project can sort its end users' corrections like the others.**
   `Project` and `ProjectPatch` carry `sort_end_user_corrections`
   (`sortEndUserCorrections`), off by default, and

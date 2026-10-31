@@ -232,7 +232,8 @@ export type SystemDeploymentRetireReason = (typeof SYSTEM_DEPLOYMENT_RETIRE_REAS
  *
  * The pack's declared environment can't be given to it (`pack-env.ts`), and
  * `GET /v1/deployments/{id}/pack-env` names each name:
- * - `pack-env-ambiguous`: a name is set both as a secret and as a plain value;
+ * - `pack-env-ambiguous`: a name is set two ways, as two of a plain value, a
+ *   secret and a cloud secret;
  * - `pack-env-secret-not-yet`: a name is set only as a secret, and the
  *   orchestrator doesn't give secrets;
  * - `pack-env-missing`: a required name is set nowhere;

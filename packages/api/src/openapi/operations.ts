@@ -3057,6 +3057,123 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/env/:name',
+    openapiPath: '/v1/system/tenants/{tenantId}/env/{name}',
+    operationId: 'systemEnv.setCloudSecret',
+    summary: 'Set an env name to a cloud secret',
+    description:
+      "Sets an env name, at a scope of the tenant and one env, to a version of a secret the operator's cloud holds. A pack service whose pack declares the name is given it by that name, and its host reads the value from the cloud as the pack service's own account: the runtime keeps the name, never a value. Every pack service runs as that one account, so only a system key sets one. The version is a number, so what a pack service runs changes only when this does. A name set both to this and to a plain value or a secret is `pack-env-ambiguous`. The tenant sees the name as set (`GET /v1/env/cloud-secrets`, the pack-env check), never the path. Recorded as `env-set` in the tenant's audit record, naming the system key and marked `cloudSecret`, never with the path. Every write bumps `revision`; `ifRevision` guards it. Takes `system:env-refs`. A closing tenant is frozen: `409 tenant-closing`.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      EnvEntryNamePathParam,
+      EnvNameQueryParam,
+      ScopeKindRequiredQueryParam,
+      ScopeIdQueryParam,
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('EnvCloudSecretSetRequest') },
+    responses: {
+      '200': { description: 'The cloud secret now.', schema: ref('EnvCloudSecret') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "`cloudSecret` isn't a numbered version of a secret, or names a `kp-` secret (`cloud-secret-invalid`); or a missing or malformed scope or `envName`, or another field in the body (`bad-input`).",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:env-refs` (`system-scope-missing`). On a runtime serving one tenant, a system key reaches these only when it runs a pack service per deployment.",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse(
+        `\`ifRevision\` mismatch (\`env-write-conflict\`); the tenant is closing (\`tenant-closing\`); or an Idempotency-Key reused with another body. Or ${ENV_NOT_SERVED_VALUE}`,
+      ),
+      '501': ErrorResponse(
+        'This runtime keeps no cloud secrets (`cloud-secrets-unsupported`): hosted, for one.',
+      ),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/system/tenants/:tenantId/env/:name',
+    openapiPath: '/v1/system/tenants/{tenantId}/env/{name}',
+    operationId: 'systemEnv.deleteCloudSecret',
+    summary: "Remove an env name's cloud secret",
+    description:
+      "Removes the cloud secret an env name is set to, at that scope and env: its pack services lose the name at their next revision. Idempotent: `{ deleted: false }` when there's none. Recorded as `env-deleted` in the tenant's audit record, naming the system key and marked `cloudSecret`, never with the path. Takes `system:env-refs`. A closing tenant is frozen: `409 tenant-closing`.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      EnvEntryNamePathParam,
+      EnvNameQueryParam,
+      ScopeKindRequiredQueryParam,
+      ScopeIdQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Delete outcome.', schema: ref('EnvDeleteResult') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:env-refs` (`system-scope-missing`). On a runtime serving one tenant, a system key reaches these only when it runs a pack service per deployment.",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse('The tenant is closing (`tenant-closing`).'),
+      '501': ErrorResponse(
+        'This runtime keeps no cloud secrets (`cloud-secrets-unsupported`): hosted, for one.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/system/tenants/:tenantId/env',
+    openapiPath: '/v1/system/tenants/{tenantId}/env',
+    operationId: 'systemEnv.listCloudSecrets',
+    summary: "List a tenant's cloud secrets",
+    description:
+      'The env names set to a cloud secret at one scope of the tenant and one env, in name order, each with its `cloudSecret`. Takes `system:env-refs`.',
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      EnvNameQueryParam,
+      ScopeKindRequiredQueryParam,
+      ScopeIdQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': { description: 'A page of them.', schema: ref('EnvCloudSecretPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:env-refs` (`system-scope-missing`). On a runtime serving one tenant, a system key reaches these only when it runs a pack service per deployment.",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '501': ErrorResponse(
+        'This runtime keeps no cloud secrets (`cloud-secrets-unsupported`): hosted, for one.',
+      ),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/system/usage',
     openapiPath: '/v1/system/usage',
@@ -3286,7 +3403,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemDeployments.getPackEnv',
     summary: "Read the env a deployment's pack service is to be given",
     description:
-      "For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set both ways (`pack-env-ambiguous`), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.",
+      "For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set two ways (`pack-env-ambiguous`: two of a plain value, a secret and a cloud secret), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each name set to a cloud secret is given in `cloudSecrets`, with its version's resource name, for the pack service's host to read as the pack service's own account. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.",
     tags: ['system-deployments'],
     security: 'bearer',
     parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam, PackEnvSecretsQueryParam],
@@ -10431,6 +10548,32 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
+    honoPath: '/v1/env/cloud-secrets',
+    openapiPath: '/v1/env/cloud-secrets',
+    operationId: 'env.listCloudSecrets',
+    summary: 'List the names set to a cloud secret',
+    description:
+      "The env names the operator set to a cloud secret at `(scope, envName)`, in name order: a version of a secret the operator's cloud holds, which a pack service's host reads as the pack service's own account. Which secret is the operator's to know, so it isn't given. The operator sets them with a system key (`PUT /v1/system/tenants/{tenantId}/env/{name}`).",
+    tags: ['env'],
+    security: 'bearer',
+    parameters: [
+      EnvNameQueryParam,
+      ScopeKindRequiredQueryParam,
+      ScopeIdQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': { description: 'A page of them.', schema: ref('EnvCloudSecretNamePage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Missing or malformed scope / envName.'),
+      '501': ErrorResponse(
+        'This runtime keeps no cloud secrets (`cloud-secrets-unsupported`): hosted, for one.',
+      ),
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/env/:name',
     openapiPath: '/v1/env/{name}',
     operationId: 'env.get',
@@ -10458,7 +10601,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'env.put',
     summary: 'Upsert an env entry',
     description:
-      "Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`.",
+      "Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`. A body with `cloudSecret` is refused: only the operator sets a name to a cloud secret, with a system key.",
     tags: ['env'],
     security: 'bearer',
     parameters: [
@@ -10472,9 +10615,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Env record.', schema: ref('EnvRecord') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('Bearer token missing `env:write` capability.'),
+      '403': ErrorResponse(
+        'Bearer token missing `env:write` capability; or a body with `cloudSecret`, which only the operator sets (`cloud-secret-system-only`).',
+      ),
       '409': ErrorResponse(
         `\`ifRevision\` mismatch (env-write-conflict). Or ${ENV_NOT_SERVED_VALUE}`,
+      ),
+      '501': ErrorResponse(
+        'A body with `cloudSecret`, on a runtime that keeps no cloud secrets (`cloud-secrets-unsupported`).',
       ),
     },
   },
