@@ -100,7 +100,9 @@ Each correction moves on until it's fixed. Its `status` says where it is, and
   it's saved, `{ "kind": "fix-job" }`, or `{ "kind": "user", "id": … }`),
   an optional `reason`, and `at`.
 - **`link`**, while it's `being-fixed`, is the work fixing it: an Improve
-  run, a suggested change, or a pull request's URL.
+  run, a suggested change, or a pull request's URL. An Improve run or a
+  suggested change is named by its id alone, without the `ir-` or `sc-` you
+  send (`{ "kind": "improve-run", "id": … }`), as their own routes take it.
 - **`fixedIn`**, while it's `fixed`, says how: `how` and `at`, with `by` and
   `version` when they apply. A correction that found nothing wrong is fixed
   as `recorded-right`.
@@ -146,10 +148,12 @@ with the two statuses in `details` as `from` and `to`:
 A correction that's fixed can't become being-fixed.
 ```
 
-A change that's missing something is refused with `400 bad-input`:
+A change that's missing something, or whose `link` is none of those, is
+refused with `400 bad-input`:
 
 ```text
 status: "being-fixed" needs a link: a URL, ir-<its id> or sc-<its id>.
+link must be a URL, an Improve run (ir-<its id>) or a suggested change (sc-<its id>).
 status: "wont-fix" needs a reason.
 link goes with status: "being-fixed".
 A change sets sortedTo, status, or both.
