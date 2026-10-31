@@ -1,12 +1,12 @@
 ---
-"@kindgi/tools": minor
-"@kindgi/handler-runtime": minor
-"@kindgi/specs": minor
-"@kindgi/api": minor
-"@kindgi/client": minor
-"@kindgi/agents": minor
-"@kindgi/pack-conformance": minor
-"@kindgi/types": minor
+"@kindgi/tools": patch
+"@kindgi/handler-runtime": patch
+"@kindgi/specs": patch
+"@kindgi/api": patch
+"@kindgi/client": patch
+"@kindgi/agents": patch
+"@kindgi/pack-conformance": patch
+"@kindgi/types": patch
 "@kindgi/capabilities": patch
 "@kindgi/env-schema": patch
 ---
