@@ -250,9 +250,9 @@ export interface CorrectedCaseResult {
    *
    * A case that carries `expect` gives one entry instead, keyed by the
    * case's id: it passes a repetition when every part it expects passed
-   * on it, and it's one check in `passRate`, beside the case's items. It
-   * gives none when it expects only items, or when a part couldn't be
-   * checked.
+   * on it, and each part (`parts`) is one check in `passRate`, beside the
+   * case's items. It gives none when it expects only items, or when a part
+   * couldn't be checked.
    */
   readonly corrections?: readonly CorrectionGraded[];
   /**
@@ -298,17 +298,22 @@ export interface CorrectionGraded {
   readonly pass: boolean;
   /**
    * How many repetitions passed. For a case's `expect` with an `answer`,
-   * the repetitions after the first that failed aren't checked, and count
-   * as not passed.
+   * the answers after the first that failed aren't checked, and their
+   * repetitions count as not passed.
    */
   readonly repetitionsPassed: number;
   readonly repetitions: number;
   /**
-   * The judging model's reason, from the first repetition that failed,
-   * when it failed on its answer (a case's `expect.answer`) and the model
-   * gave one. It can quote the answer, so an erasure clears it.
+   * The judging model's reason, from the first repetition whose answer
+   * failed (a case's `expect.answer`), when the model gave one. It can
+   * quote the answer, so an erasure clears it.
    */
   readonly why?: string;
+  /**
+   * A case's `expect` only: whether each part it expects passed on every
+   * repetition. Each one is a check in `passRate`.
+   */
+  readonly parts?: { readonly decisions?: boolean; readonly answer?: boolean };
 }
 
 /** Reads a replay run's output again, for a rescore. */
@@ -711,16 +716,18 @@ interface ExpectGraded {
  * - `decisions: right`: the same tools the recorded run called, by id, in
  *   any order. Unchecked when the recorded calls can't be read.
  * - `answer`: the host's checker (`answers`), for each repetition in
- *   order, stopping at the first repetition that fails, so a failed case
- *   costs one call at most. Unchecked without a checker, when it answers
- *   `unchecked`, or when the test run is stopped before a check.
+ *   order, stopping at the first answer that fails, so a failed answer
+ *   costs one call at most. It's checked on a repetition whose decisions
+ *   failed too: it's a check of its own in `passRate`. Unchecked without a
+ *   checker, when it answers `unchecked`, or when the test run is stopped
+ *   before a check.
  *
- * A repetition that errored or stopped fails every part, and one whose
- * decisions failed fails; neither's answer is checked, nor any after it.
- * A repetition passes when every part passed on it. The
- * entry is left out when the case expects only items (they count toward
- * `weightedPrecisionAtK`), or when a part was unchecked; what checking
- * cost counts either way.
+ * A repetition that errored or stopped fails every part; its answer isn't
+ * checked, nor any after it. A repetition passes when every part passed on
+ * it, and each part (`parts`) passes when it passed on every repetition.
+ * The entry is left out when the case expects only items (they count
+ * toward `weightedPrecisionAtK`), or when a part was unchecked; what
+ * checking cost counts either way.
  */
 async function gradeExpect(
   ctx: DispatchContext,
@@ -739,14 +746,7 @@ async function gradeExpect(
   let judgingCosts: readonly (number | undefined)[] = [];
   let why: string | undefined;
   if (answer !== undefined) {
-    const checked = await checkAnswers(
-      ctx,
-      correctedCase,
-      answer,
-      repetitions,
-      decided.passes,
-      answers,
-    );
+    const checked = await checkAnswers(ctx, correctedCase, answer, repetitions, answers);
     // What a check cost counts even when a later one couldn't be made.
     judgingCosts = checked.costs;
     if (checked.unchecked === true) {
@@ -766,6 +766,12 @@ async function gradeExpect(
       repetitionsPassed,
       repetitions: n,
       ...(why !== undefined && { why }),
+      parts: {
+        ...(decisions !== undefined && {
+          decisions: n > 0 && decided.passes.every((p) => p),
+        }),
+        ...(answer !== undefined && { answer: n > 0 && answered.every((p) => p === true) }),
+      },
     },
     ...(differences !== undefined && { differences }),
     judgingCosts,
@@ -825,10 +831,10 @@ interface AnswersChecked {
 }
 
 /**
- * Check each repetition's answer, in order, stopping at the first
- * repetition that fails: the case has failed then, and checking more would
- * only cost more. A repetition that errored or stopped, or whose decisions
- * failed (`decided`), fails with no call. A test run stopped before a check
+ * Check each repetition's answer, in order, stopping at the first answer
+ * that fails: the answer has failed then, and checking more would only
+ * cost more. A repetition whose decisions failed is still checked. One that
+ * errored or stopped fails with no call. A test run stopped before a check
  * leaves the answers unchecked.
  */
 async function checkAnswers(
@@ -836,7 +842,6 @@ async function checkAnswers(
   correctedCase: CorrectedTestCase,
   expect: TestCaseAnswer,
   repetitions: readonly Repetition[],
-  decided: readonly boolean[],
   answers: AnswerCheckBinding | undefined,
 ): Promise<AnswersChecked> {
   const target = ctx.target;
@@ -847,7 +852,7 @@ async function checkAnswers(
   const passes: (boolean | undefined)[] = repetitions.map(() => undefined);
   const costs: (number | undefined)[] = repetitions.map(() => undefined);
   for (const [i, r] of repetitions.entries()) {
-    if (!r.ran || decided[i] !== true) {
+    if (!r.ran) {
       passes[i] = false;
       return { passes, costs };
     }
@@ -1171,11 +1176,11 @@ function metric(
 }
 
 /**
- * The cases as `passRate` counts them: a case's graded `expect` (its one
- * entry, under its id) is one check of weight 1, beside its items. The
- * recorded run passes it when every part the case expects was `right`;
- * each repetition that ran, when the case passed. A case with no entry
- * (only `items`, or a part unchecked) adds none.
+ * The cases as `passRate` counts them: each part of a case's graded
+ * `expect` (its entry under its id: `parts`) is one check of weight 1,
+ * beside its items. The recorded run passes a part when people marked it
+ * `right`; each repetition that ran, when the part passed on every one.
+ * A case with no entry (only `items`, or a part unchecked) adds none.
  */
 function withExpectChecks(
   cases: readonly CorrectedTestCase[],
@@ -1184,20 +1189,41 @@ function withExpectChecks(
   const expects = new Map(cases.map((c) => [c.caseId, c.expect]));
   return results.map((r) => {
     const expect = expects.get(r.caseId);
-    const graded =
-      expect === undefined ? undefined : r.corrections?.find((c) => c.correctionId === r.caseId);
-    if (expect === undefined || graded === undefined) return r;
-    const recorded = expect.decisions?.verdict !== 'wrong' && expect.answer?.verdict !== 'wrong';
+    const parts =
+      expect === undefined
+        ? undefined
+        : r.corrections?.find((c) => c.correctionId === r.caseId)?.parts;
+    if (expect === undefined || parts === undefined) return r;
+    const checks: { readonly recorded: boolean; readonly pass: boolean }[] = [];
+    if (expect.decisions !== undefined && parts.decisions !== undefined) {
+      checks.push({ recorded: expect.decisions.verdict !== 'wrong', pass: parts.decisions });
+    }
+    if (expect.answer !== undefined && parts.answer !== undefined) {
+      checks.push({ recorded: expect.answer.verdict !== 'wrong', pass: parts.answer });
+    }
+    if (checks.length === 0) return r;
     return {
       ...r,
-      baseline: withCheck(r.baseline, recorded),
-      candidate: r.candidate.map((s) => withCheck(s, graded.pass)),
+      baseline: withChecks(
+        r.baseline,
+        checks.map((c) => c.recorded),
+      ),
+      candidate: r.candidate.map((s) =>
+        withChecks(
+          s,
+          checks.map((c) => c.pass),
+        ),
+      ),
     };
   });
 }
 
-function withCheck(s: OutputScore, pass: boolean): OutputScore {
-  return { ...s, yesWeight: s.yesWeight + (pass ? 1 : 0), totalWeight: s.totalWeight + 1 };
+function withChecks(s: OutputScore, passes: readonly boolean[]): OutputScore {
+  return {
+    ...s,
+    yesWeight: s.yesWeight + passes.filter(Boolean).length,
+    totalWeight: s.totalWeight + passes.length,
+  };
 }
 
 function summarize(
