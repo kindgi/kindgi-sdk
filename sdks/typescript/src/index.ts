@@ -327,7 +327,11 @@ export type {
   ServiceAccountFilter,
   ServiceAccountsClient,
 } from './resources/service-accounts.js';
-export type { CorrectionFilter, CorrectionsClient } from './resources/corrections.js';
+export type {
+  CorrectionExportFilter,
+  CorrectionFilter,
+  CorrectionsClient,
+} from './resources/corrections.js';
 export type {
   McpClient,
   McpEndpointFilter,

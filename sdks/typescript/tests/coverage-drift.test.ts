@@ -76,6 +76,11 @@ function resourcePathSet(): ReadonlySet<string> {
     for (const m of src.matchAll(/`\$\{transport\.apiUrl\}(\/v1\/[^`]+)`/g)) {
       paths.add(normalize(m[1]!));
     }
+    // Or with the transport's builder, for a query:
+    //   const url = buildUrl(transport.apiUrl, '/v1/corrections/export', query);
+    for (const m of src.matchAll(/buildUrl\(\s*transport\.apiUrl,\s*['"`]([^'"`]+)['"`]/g)) {
+      paths.add(normalize(m[1]!));
+    }
   }
   return paths;
 }

@@ -46647,6 +46647,268 @@
         ]
       }
     },
+    "/v1/corrections/export": {
+      "get": {
+        "operationId": "corrections.export",
+        "summary": "Export corrections",
+        "tags": [
+          "corrections"
+        ],
+        "responses": {
+          "200": {
+            "description": "The corrections, as CSV or JSON lines (by `format`).",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/jsonl": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed query parameter, no `agentId`, or a `limit` or `cursor`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: a project scope the caller can't read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "`persistence-error`: the export couldn't be recorded, so nothing was sent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every correction of an agent the list's filters match, streamed as CSV (`format=csv`, the default: RFC 4180, UTF-8, a header row) or JSON lines (`format=jsonl`: one correction per line, as the list sends it). Each comes only when the caller may read its project, and a project scope the caller can't read is a 403 before anything is sent. The run's own text isn't exported, only its id. A CSV field that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, so a spreadsheet doesn't run it. Recorded in the audit log: `corrections-export-started` before the first row (when it can't be written, a 500 and nothing is sent), and `corrections-exported` when the stream ends, with the rows sent and `succeeded` or `failed`.",
+        "x-kindgi-streamed": true,
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "csv",
+                "jsonl"
+              ]
+            },
+            "required": false,
+            "description": "`csv` (the default) or `jsonl`."
+          },
+          {
+            "name": "runId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only corrections of this run."
+          },
+          {
+            "name": "agentId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "The agent whose corrections are exported."
+          },
+          {
+            "name": "agentVersion",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only corrections of runs of this agent version. Needs `agentId`."
+          },
+          {
+            "name": "flowId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only corrections of runs of this flow."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "not-fixed",
+                  "open",
+                  "being-fixed",
+                  "with-owner",
+                  "fixed",
+                  "wont-fix",
+                  "removed"
+                ]
+              }
+            },
+            "required": false,
+            "description": "Only corrections in these statuses: one, or several, repeated or comma-separated. `not-fixed` is short for `open`, `being-fixed` and `with-owner`. Removed corrections come back only when `removed` is asked for."
+          },
+          {
+            "name": "sortedTo",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "improve",
+                  "developer",
+                  "owner"
+                ]
+              }
+            },
+            "required": false,
+            "description": "Only corrections sorted to these (repeated or comma-separated), with `none` for unsorted ones."
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "experts",
+                "end-users",
+                "all"
+              ]
+            },
+            "required": false,
+            "description": "`experts`: corrections under a restricted corrector group. `end-users`: an app's end users' (`participantId`), not experts'. `all` (the default): every one."
+          },
+          {
+            "name": "madeBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "me"
+              ]
+            },
+            "required": false,
+            "description": "`me`: only the caller's own corrections."
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Only corrections made at or after this time."
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Only corrections made before this time."
+          },
+          {
+            "name": "correctorGroupId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only corrections recorded under this corrector group."
+          },
+          {
+            "name": "participantId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only corrections made for this app end user's opaque id."
+          },
+          {
+            "name": "scopeKind",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ScopeKind"
+            },
+            "required": false,
+            "description": "Optional scope discriminator. If absent, no scope filter is applied."
+          },
+          {
+            "name": "scopeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/corrections/{correctionId}": {
       "get": {
         "operationId": "corrections.get",

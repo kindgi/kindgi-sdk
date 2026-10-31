@@ -385,6 +385,68 @@ run's own retention. The clients have the same: `corrections.list`,
 filters by status, sorting, who made it and when, as
 [Where a correction goes](#where-a-correction-goes) shows.
 
+## Export the corrections
+
+An agent's corrections export as a CSV file, for a spreadsheet, or as JSON
+lines, for a script:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi corrections export --agent=<agent-id> --since=2026-10-01 --until=2026-11-01 --out=october.csv
+pnpm exec kindgi corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=open.jsonl
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi corrections export --agent=<agent-id> --since=2026-10-01 --until=2026-11-01 --out=october.csv
+uv run kindgi corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=open.jsonl
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw corrections export --agent=<agent-id> --since=2026-10-01 --until=2026-11-01 --out=october.csv
+./kindgiw corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=open.jsonl
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw corrections export --agent=<agent-id> --since=2026-10-01 --until=2026-11-01 --out=october.csv
+./kindgiw corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=open.jsonl
+```
+
+</TabItem>
+</Tabs>
+
+- `<agent-id>` is the agent whose corrections you export. It takes the
+  list's filters: `--project`, `--status` and `--sorted-to` (each
+  repeatable), `--from`, `--since` and `--until`.
+- `--out` names the file. It takes that name only once the whole export has
+  arrived, and an existing file is kept unless you add `--force`. Without
+  `--out`, the export is printed.
+- Each correction comes only when you may read its project.
+
+The CSV has a header row, then one correction per line: `id`, `projectId`,
+`runId`, `agentVersion`, `madeBy` (`user:<id>` or `service:<id>`),
+`participantId`, `expert`, `decisions`, `shouldCall` and `mustNotCall` (these
+two as JSON), `answer`, `shouldSay`, `why`, `sortedTo`, `status`, `fixedIn` (the
+version that fixed it) and `createdAt`. A field that starts with `=`, `+`,
+`-`, `@`, a tab or a carriage return gets a leading `'`, so a spreadsheet
+shows it rather than running it as a formula. JSON lines have one
+correction per line, as `list` prints it. Neither has the run's own input
+or output, only the run's id.
+
+Every export is in the audit log, with who exported, the filters and how
+many rows went out. In the clients it's `corrections.export`: TypeScript's
+returns the body as a stream, and Python's yields it in chunks.
+
 ## Where a correction goes
 
 Each correction has a `status`, and `sortedTo` says who fixes it:

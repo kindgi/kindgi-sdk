@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -294,6 +294,180 @@ describe('kindgi corrections', () => {
       ['remove', 'j-1'],
     ]);
     expect(JSON.parse(removed.stdout)).toEqual({ correctionId: 'j-1', removed: true });
+  });
+
+  /** A body that sends `chunks`, then ends, or breaks off when `cut`. Records a cancel. */
+  function body(chunks: string[], { cut = false } = {}) {
+    const state = { cancelled: false };
+    const encoder = new TextEncoder();
+    let i = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (i < chunks.length) controller.enqueue(encoder.encode(chunks[i++] as string));
+        else if (cut) controller.error(new Error('connection reset'));
+        else controller.close();
+      },
+      cancel() {
+        state.cancelled = true;
+      },
+    });
+    return { stream, state };
+  }
+
+  const CSV = ['id,projectId\r\n', 'c-1,p-1\r\n', 'c-2,p-1\r\n'];
+
+  test('export prints the CSV once it has all arrived, and passes the filters', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      [
+        'corrections',
+        'export',
+        '--agent=acme.matcher',
+        '--project=p-1',
+        '--status=not-fixed',
+        '--status=fixed',
+        '--sorted-to=developer',
+        '--from=end-users',
+        '--since=2026-10-01',
+        '--until=2026-11-01T00:00:00Z',
+      ],
+      { corrections: { export: rec('export', body(CSV).stream) } },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe(CSV.join(''));
+    expect(calls).toEqual([
+      [
+        'export',
+        {
+          agentId: 'acme.matcher',
+          scope: { kind: 'project', projectId: 'p-1' },
+          status: ['not-fixed', 'fixed'],
+          sortedTo: ['developer'],
+          from: 'end-users',
+          since: '2026-10-01T00:00:00.000Z',
+          until: '2026-11-01T00:00:00.000Z',
+          format: 'csv',
+        },
+      ],
+    ]);
+  });
+
+  test('--format=jsonl asks for JSON lines', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(['corrections', 'export', '--agent=a', '--format=jsonl'], {
+      corrections: { export: rec('export', body(['{"id":"c-1"}\n']).stream) },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe('{"id":"c-1"}\n');
+    expect(calls[0]?.[1]).toMatchObject({ format: 'jsonl' });
+  });
+
+  test('--out writes the file once the whole export has arrived, and leaves no partial', async () => {
+    const { rec } = recorder();
+    const out = await run(['corrections', 'export', '--agent=a', '--out=october.csv'], {
+      corrections: { export: rec('export', body(CSV).stream) },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    const file = join(cwd, 'october.csv');
+    expect(await readFile(file, 'utf8')).toBe(CSV.join(''));
+    expect(await readdir(cwd)).toEqual(['october.csv']);
+    expect(JSON.parse(out.stdout)).toEqual({
+      agentId: 'a',
+      format: 'csv',
+      file,
+      bytes: Buffer.byteLength(CSV.join('')),
+    });
+  });
+
+  test('an existing --out file is kept unless --force, and no export is asked for', async () => {
+    const file = join(cwd, 'october.csv');
+    await writeFile(file, 'mine\n');
+    const { calls, rec } = recorder();
+    const kept = await run(['corrections', 'export', '--agent=a', '--out=october.csv'], {
+      corrections: { export: rec('export', body(CSV).stream) },
+    });
+    expect(kept.exitCode).not.toBe(0);
+    expect(kept.stderr).toContain(
+      `${file} exists: pass --force to overwrite it, or --out=<other file>`,
+    );
+    expect(await readFile(file, 'utf8')).toBe('mine\n');
+    expect(calls).toEqual([]);
+    expect(await readdir(cwd)).toEqual(['october.csv']);
+
+    const forced = await run(
+      ['corrections', 'export', '--agent=a', '--out=october.csv', '--force'],
+      {
+        corrections: { export: rec('export', body(CSV).stream) },
+      },
+    );
+    expect(forced.exitCode, forced.stderr).toBe(0);
+    expect(await readFile(file, 'utf8')).toBe(CSV.join(''));
+    expect(await readdir(cwd)).toEqual(['october.csv']);
+  });
+
+  test('a stream cut part way writes nothing: no file, no partial, an existing file as it was', async () => {
+    const { rec } = recorder();
+    const cut = await run(['corrections', 'export', '--agent=a', '--out=new.csv'], {
+      corrections: { export: rec('export', body(CSV.slice(0, 2), { cut: true }).stream) },
+    });
+    expect(cut.exitCode).not.toBe(0);
+    expect(cut.stderr).toContain('the export stopped part way (connection reset)');
+    expect(cut.stderr).toContain("wasn't written");
+    expect(await readdir(cwd)).toEqual([]);
+
+    const file = join(cwd, 'october.csv');
+    await writeFile(file, 'mine\n');
+    const forcedCut = await run(
+      ['corrections', 'export', '--agent=a', '--out=october.csv', '--force'],
+      {
+        corrections: { export: rec('export', body(CSV.slice(0, 1), { cut: true }).stream) },
+      },
+    );
+    expect(forcedCut.exitCode).not.toBe(0);
+    expect(await readFile(file, 'utf8')).toBe('mine\n');
+    expect(await readdir(cwd)).toEqual(['october.csv']);
+  });
+
+  test('a stream cut part way prints nothing', async () => {
+    const { rec } = recorder();
+    const out = await run(['corrections', 'export', '--agent=a'], {
+      corrections: { export: rec('export', body(CSV.slice(0, 2), { cut: true }).stream) },
+    });
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toContain(
+      'the export stopped part way (connection reset): nothing was printed',
+    );
+  });
+
+  test('export needs --agent, a known --format and --from, and times it can read; none of these sends a request', async () => {
+    const { calls, rec } = recorder();
+    const client = { corrections: { export: rec('export', body(CSV).stream) } };
+    const cases: [string[], string][] = [
+      [[], '--agent'],
+      [['--agent=a', '--format=xml'], '--format'],
+      [['--agent=a', '--from=nobody'], '--from'],
+      [['--agent=a', '--since=yesterday'], '--since'],
+      [['--agent=a', '--until=soon'], '--until'],
+    ];
+    for (const [flags, named] of cases) {
+      const out = await run(['corrections', 'export', ...flags], client);
+      expect(out.exitCode, flags.join(' ')).toBe(2);
+      expect(out.stderr).toContain(named);
+    }
+    expect(calls).toEqual([]);
+  });
+
+  test('an API error comes back as the command error', async () => {
+    const out = await run(['corrections', 'export', '--agent=a', '--project=p-9'], {
+      corrections: {
+        export: async () => {
+          throw Object.assign(new Error('Not allowed to read project "p-9".'), { status: 403 });
+        },
+      },
+    });
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('Not allowed to read project "p-9".');
   });
 });
 

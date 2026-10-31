@@ -529,6 +529,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "corrections.list": Operation("corrections.list", "GET", "/v1/corrections", "json", False),
     "corrections.create": Operation("corrections.create", "POST", "/v1/corrections", "json", True),
+    "corrections.export": Operation(
+        "corrections.export", "GET", "/v1/corrections/export", "byte-stream", False
+    ),
     "corrections.get": Operation(
         "corrections.get", "GET", "/v1/corrections/{correctionId}", "json", False
     ),
@@ -5461,6 +5464,65 @@ class CorrectionsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.CreateCorrectionBody, body, fields),
             response=_models.Correction,
+            timeout=timeout,
+        )
+
+    def export(
+        self,
+        /,
+        *,
+        format: Literal["csv", "jsonl"] | None = None,
+        run_id: str | UUID | None = None,
+        agent_id: str | UUID,
+        agent_version: str | None = None,
+        flow_id: str | UUID | None = None,
+        status: Literal[
+            "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+        ]
+        | list[
+            Literal[
+                "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+            ]
+        ]
+        | None = None,
+        sorted_to: Literal["none", "improve", "developer", "owner"]
+        | list[Literal["none", "improve", "developer", "owner"]]
+        | None = None,
+        from_: Literal["experts", "end-users", "all"] | None = None,
+        made_by: Literal["me"] | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        corrector_group_id: str | UUID | None = None,
+        participant_id: str | UUID | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> Iterator[bytes]:
+        """Export corrections. `GET /v1/corrections/export`
+
+        Every correction of an agent the list's filters match, streamed as CSV (`format=csv`, the default: RFC 4180, UTF-8, a header row) or JSON lines (`format=jsonl`: one correction per line, as the list sends it). Each comes only when the caller may read its project, and a project scope the caller can't read is a 403 before anything is sent. The run's own text isn't exported, only its id. A CSV field that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, so a spreadsheet doesn't run it. Recorded in the audit log: `corrections-export-started` before the first row (when it can't be written, a 500 and nothing is sent), and `corrections-exported` when the stream ends, with the rows sent and `succeeded` or `failed`.
+        """
+        return self._client._stream_bytes(
+            _OPERATIONS["corrections.export"],
+            path={},
+            query={
+                "format": format,
+                "runId": run_id,
+                "agentId": agent_id,
+                "agentVersion": agent_version,
+                "flowId": flow_id,
+                "status": status,
+                "sortedTo": sorted_to,
+                "from": from_,
+                "madeBy": made_by,
+                "since": since,
+                "until": until,
+                "correctorGroupId": corrector_group_id,
+                "participantId": participant_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+            },
+            headers={},
             timeout=timeout,
         )
 
@@ -15229,6 +15291,65 @@ class AsyncCorrectionsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.CreateCorrectionBody, body, fields),
             response=_models.Correction,
+            timeout=timeout,
+        )
+
+    def export(
+        self,
+        /,
+        *,
+        format: Literal["csv", "jsonl"] | None = None,
+        run_id: str | UUID | None = None,
+        agent_id: str | UUID,
+        agent_version: str | None = None,
+        flow_id: str | UUID | None = None,
+        status: Literal[
+            "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+        ]
+        | list[
+            Literal[
+                "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+            ]
+        ]
+        | None = None,
+        sorted_to: Literal["none", "improve", "developer", "owner"]
+        | list[Literal["none", "improve", "developer", "owner"]]
+        | None = None,
+        from_: Literal["experts", "end-users", "all"] | None = None,
+        made_by: Literal["me"] | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        corrector_group_id: str | UUID | None = None,
+        participant_id: str | UUID | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> AsyncIterator[bytes]:
+        """Export corrections. `GET /v1/corrections/export`
+
+        Every correction of an agent the list's filters match, streamed as CSV (`format=csv`, the default: RFC 4180, UTF-8, a header row) or JSON lines (`format=jsonl`: one correction per line, as the list sends it). Each comes only when the caller may read its project, and a project scope the caller can't read is a 403 before anything is sent. The run's own text isn't exported, only its id. A CSV field that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, so a spreadsheet doesn't run it. Recorded in the audit log: `corrections-export-started` before the first row (when it can't be written, a 500 and nothing is sent), and `corrections-exported` when the stream ends, with the rows sent and `succeeded` or `failed`.
+        """
+        return self._client._stream_bytes(
+            _OPERATIONS["corrections.export"],
+            path={},
+            query={
+                "format": format,
+                "runId": run_id,
+                "agentId": agent_id,
+                "agentVersion": agent_version,
+                "flowId": flow_id,
+                "status": status,
+                "sortedTo": sorted_to,
+                "from": from_,
+                "madeBy": made_by,
+                "since": since,
+                "until": until,
+                "correctorGroupId": corrector_group_id,
+                "participantId": participant_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+            },
+            headers={},
             timeout=timeout,
         )
 

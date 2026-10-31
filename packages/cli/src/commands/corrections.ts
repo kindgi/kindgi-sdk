@@ -1,17 +1,35 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { randomBytes } from 'node:crypto';
+import { open, rename, rm } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+
 import type {
   CorrectedAnswerItem,
   Correction,
+  CorrectionExportFilter,
   CreateCorrectionInput,
   ExpectedDecisions,
   Verdict,
 } from '@kindgi/client';
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
-import { integerFlag, readJsonInput, requiredPositional, runSdk, stringFlag } from './helpers.js';
-import type { Command, LeafCommand } from './types.js';
+import { renderJson } from '../output.js';
+import { exists, placeNew } from '../place-file.js';
+import {
+  integerFlag,
+  listFlag,
+  readJsonInput,
+  requiredPositional,
+  runSdk,
+  runSdkRendered,
+  stringFlag,
+  timeFlag,
+} from './helpers.js';
+import type { Command, CommandResult, LeafCommand } from './types.js';
 
 /** The string flags given, under their request field names (`{ group: 'correctorGroupId' }`). */
 function givenFlags<F extends string>(
@@ -276,10 +294,192 @@ const remove: LeafCommand = {
     }),
 };
 
+const EXPORT_FORMATS = ['csv', 'jsonl'] as const;
+const FROM = ['experts', 'end-users', 'all'] as const;
+
+const exportCorrections: LeafCommand = {
+  kind: 'leaf',
+  name: 'export',
+  description:
+    "Export an agent's corrections, as CSV (the default) or JSON lines: to --out's file, which takes its name only once the whole export has arrived (an existing file is kept unless --force), or printed once it has all arrived. The run's own text isn't in it, only the run's id.",
+  usage:
+    'kindgi corrections export --agent=<id> [--project=<id>] [--format=csv|jsonl] [--status=<s>]… [--sorted-to=<s>]… [--from=experts|end-users|all] [--since=<time>] [--until=<time>] [--out=<file>] [--force]',
+  optionSpec: {
+    agent: { type: 'string', description: 'The agent whose corrections to export.' },
+    project: { type: 'string', description: 'Only corrections in this project.' },
+    format: {
+      type: 'string',
+      description: '`csv` (the default) or `jsonl`: one correction per line, as `list` prints it.',
+    },
+    status: {
+      type: 'string',
+      multiple: true,
+      description:
+        'Only corrections in this status (repeatable): open, being-fixed, with-owner, fixed, wont-fix, removed, or not-fixed.',
+    },
+    'sorted-to': {
+      type: 'string',
+      multiple: true,
+      description:
+        'Only corrections sorted to this (repeatable): improve, developer, owner, or none.',
+    },
+    from: {
+      type: 'string',
+      description: 'Whose corrections: experts, end-users, or all (the default).',
+    },
+    since: {
+      type: 'string',
+      description: 'Only corrections made at or after this time (ISO 8601 with a zone) or date.',
+    },
+    until: {
+      type: 'string',
+      description: 'Only corrections made before this time (ISO 8601 with a zone) or date.',
+    },
+    out: { type: 'string', description: 'Write the export to this file.' },
+    force: { type: 'boolean', description: "Replace --out's file if it exists." },
+  },
+  run: async (ctx) => {
+    const stop = ctx.stopSignal;
+    const result = await runSdkRendered(ctx, 'corrections export', async () => {
+      const filter = exportFilter(ctx);
+      const out = stringFlag(ctx, 'out');
+      if (out === undefined) {
+        const body = await ctx.client().corrections.export(filter);
+        return { stdout: await wholeText(body, stop), stderr: '' };
+      }
+      const target = resolve(ctx.cwd, out);
+      const force = ctx.options.force === true;
+      // Before asking: every export is recorded, so one that can't be kept isn't made.
+      if (!force && (await exists(target))) throw exportExists(target);
+      const body = await ctx.client().corrections.export(filter);
+      const bytes = await saveExport(body, target, force, stop);
+      return renderJson(
+        { agentId: filter.agentId, format: filter.format ?? 'csv', file: target, bytes },
+        ctx.globals.format,
+      );
+    });
+    // Ctrl+C (or SIGTERM): a stop, not a failure, as a download's is.
+    return result.kind === 'error' && stop?.aborted === true ? STOPPED_EXPORT : result;
+  },
+};
+
+/** The export's filters from the flags; a flag it can't read is a usage error, before any request. */
+function exportFilter(ctx: CommandContext): CorrectionExportFilter {
+  const agentId = stringFlag(ctx, 'agent');
+  if (agentId === undefined) {
+    throw new UsageError('--agent is required: the agent whose corrections to export');
+  }
+  const format = stringFlag(ctx, 'format');
+  if (format !== undefined && !(EXPORT_FORMATS as readonly string[]).includes(format)) {
+    throw new UsageError(`--format must be csv or jsonl; got "${format}"`);
+  }
+  const from = stringFlag(ctx, 'from');
+  if (from !== undefined && !(FROM as readonly string[]).includes(from)) {
+    throw new UsageError(`--from must be experts, end-users or all; got "${from}"`);
+  }
+  const projectId = stringFlag(ctx, 'project');
+  const status = listFlag(ctx, 'status');
+  const sortedTo = listFlag(ctx, 'sorted-to');
+  const since = timeFlag(ctx, 'since');
+  const until = timeFlag(ctx, 'until');
+  // A status or a sorting the API doesn't know comes back as its 400, as for `list`.
+  return {
+    agentId,
+    ...(projectId !== undefined && { scope: { kind: 'project' as const, projectId } }),
+    ...(status.length > 0 && { status: status as never }),
+    ...(sortedTo.length > 0 && { sortedTo: sortedTo as never }),
+    ...(from !== undefined && { from: from as (typeof FROM)[number] }),
+    ...(since !== undefined && { since }),
+    ...(until !== undefined && { until }),
+    ...(format !== undefined && { format: format as (typeof EXPORT_FORMATS)[number] }),
+  };
+}
+
+const exportExists = (target: string) =>
+  new Error(`${target} exists: pass --force to overwrite it, or --out=<other file>`);
+
+/** The whole body as text, for printing once it has all arrived; the stop (Ctrl+C) ends it. */
+async function wholeText(
+  body: ReadableStream<Uint8Array>,
+  stop: AbortSignal | undefined,
+): Promise<string> {
+  const chunks: Buffer[] = [];
+  try {
+    await pipeline(
+      Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]),
+      async (source: AsyncIterable<Buffer>) => {
+        for await (const chunk of source) chunks.push(chunk);
+      },
+      { ...(stop !== undefined && { signal: stop }) },
+    );
+  } catch (err) {
+    throw new Error(
+      `the export stopped part way (${(err as Error).message}): nothing was printed`,
+      { cause: err },
+    );
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+/**
+ * The export written to a new file beside `target`, which takes `target`'s
+ * name only once the whole export has arrived, as `kindgi artifacts
+ * download` writes one. With `force`, it is renamed over `target`; without,
+ * it takes the name only while nothing has it (`placeNew`). Otherwise that
+ * file is removed, and `target` is as it was: the stop (`stop`, a Ctrl+C)
+ * ends the stream as a cut connection does. Returns the bytes written.
+ */
+async function saveExport(
+  body: ReadableStream<Uint8Array>,
+  target: string,
+  force: boolean,
+  stop: AbortSignal | undefined,
+): Promise<number> {
+  const partial = `${target}.${randomBytes(4).toString('hex')}.partial`;
+  const file = await open(partial, 'wx').catch(async (err: unknown) => {
+    await body.cancel();
+    throw err;
+  });
+  let bytes = 0;
+  try {
+    await pipeline(
+      Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]),
+      async function* (chunks: AsyncIterable<Buffer>) {
+        for await (const chunk of chunks) {
+          bytes += chunk.length;
+          yield chunk;
+        }
+      },
+      file.createWriteStream(),
+      { ...(stop !== undefined && { signal: stop }) },
+    );
+  } catch (err) {
+    await rm(partial, { force: true });
+    throw new Error(
+      `the export stopped part way (${(err as Error).message}): ${target} wasn't written`,
+      { cause: err },
+    );
+  }
+  try {
+    await (force ? rename(partial, target) : placeNew(partial, target, () => exportExists(target)));
+  } finally {
+    // Gone after a rename; after a link, its second name; after a failure, the file.
+    await rm(partial, { force: true });
+  }
+  return bytes;
+}
+
+/** An export the stop ended: no file written, and the exit code says so. */
+const STOPPED_EXPORT: CommandResult = {
+  kind: 'error',
+  stderr: 'kindgi corrections export stopped: no file was written.\n',
+  exitCode: 130,
+};
+
 export const correctionsCommand: Command = {
   kind: 'group',
   name: 'corrections',
   description:
-    "Correct a run's decisions and answer, marking them right or wrong (add / list / show / remove).",
-  subcommands: [add, list, show, remove],
+    "Correct a run's decisions and answer, marking them right or wrong (add / list / show / export / remove).",
+  subcommands: [add, list, show, exportCorrections, remove],
 };
