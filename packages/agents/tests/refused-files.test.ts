@@ -162,6 +162,8 @@ function filesOf(
       options.log?.push(`read ${key}`);
       return options.bytes?.get(key) ?? new Uint8Array([1, 2, 3]);
     },
+    store: async () => ({ notStored: 'limit' }),
+    readSource: async () => ({ notRead: 'rule' }),
     ...(options.hold !== undefined && { hold: options.hold }),
     shown: async (ids) => {
       shown.push([...ids]);

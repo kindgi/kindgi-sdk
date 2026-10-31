@@ -712,6 +712,8 @@ describe('after-tool: what a call came to, before the model sees it', () => {
     const files: FileBinding = {
       admit: async (values) => values.map((v) => asMessageFile(v)),
       read: async () => undefined,
+      store: async () => ({ notStored: 'limit' }),
+      readSource: async () => ({ notRead: 'rule' }),
       shown: async () => {},
       refuse: async () => {},
     };
