@@ -23,15 +23,25 @@
 # --var-file to each terraform command that reads them (console and plan).
 #
 # The plan: before it asks for "yes", it checks the plan itself (terraform
-# show -json). It stops if the plan creates, deletes or replaces anything, or
-# changes anything but the new image(s) and the in-place changes that the
-# releases after the current one name in their steps to confirm by hand; it
-# says what each one is. The plan is of the module in this directory, as of
-# the newest release this copy knows, so with a --to below that release it
-# also has the module's changes up to it, which it lists and allows. So a var
-# file left off the command, whose variables the plan would empty (a pack's
-# env in pack_env and pack_secret_env, say), stops it before anything is
+# show -json). It stops if the plan replaces anything, or creates, deletes or
+# changes anything but the new image and what the releases after the current
+# one change, as their steps to confirm by hand name; it says what each one
+# is. The plan is of the module in this directory, as of the newest release
+# this copy knows, so with a --to below that release it also has the
+# module's changes up to it, which it lists and allows. So a var file left
+# off the command, whose variables the plan would empty (the server's own env
+# in server_env and server_secret_env, say), stops it before anything is
 # applied. "yes" applies exactly the plan shown.
+#
+# From a release before 0.4.0, the plan also moves the deployment from the one
+# pack service to a pack service for each deployment, which the pack
+# orchestrator makes (README "5. The pack orchestrator"). From the apply until
+# each pack is deployed again, calls to a deployed pack's tools are refused, so
+# run it at a quiet hour. After the apply it prints the steps that finish the
+# switch, by hand: the orchestrator's key, a second apply, the pack's env and a
+# deploy of each pack. For those steps it reads the variables 0.4.0 took out
+# (pack_image, pack_min_instances, pack_env, pack_secret_env) from the var
+# files, and prints names, secret ids and version numbers, never a value.
 #
 # Run it from this module directory, after `terraform init`, as the identity
 # that deploys the module (it reads the running service and the module's state,
@@ -46,9 +56,9 @@
 #     on the backup bucket (Cloud SQL writes the export as that account). The
 #     grant stays on the bucket. A new grant can take a few minutes to take
 #     effect; until it does, the export waits for it.
-#   - It rewrites the server_image line (and pack_image, with --pack-dir) in the
-#     var-file that sets server_image, so a later plain apply keeps the new
-#     image. The previous file is kept next to it as
+#   - It rewrites the server_image line in the var-file that sets it, so a
+#     later plain apply keeps the new image. The previous file is kept next to
+#     it as
 #     <var-file>.pre-upgrade-<UTC time>; if you don't confirm the plan, the
 #     var-file is put back.
 #   - It keeps the plan it applies next to that copy, as
@@ -62,8 +72,7 @@
 #   ./upgrade.sh --var-file dev.tfvars [--var-file <another var file> ...] \
 #                --runtime-digest sha256:<64 hex> \
 #                --backup-bucket gs://<bucket>[/<prefix>] \
-#                [--to 0.3.1] [--from <version>] \
-#                [--pack-dir <path to the pack project>] \
+#                [--to 0.4.0] [--from <version>] \
 #                [--check-tenant <uuid>] [--dry-run]
 #
 #   --var-file         A tfvars file the deployment uses (.tfvars or
@@ -73,13 +82,14 @@
 #                      plan it prints for going back. A file Terraform doesn't
 #                      load on its own (a pack's env in dev.pack-env.tfvars.json,
 #                      say, not named *.auto.tfvars.json) needs its own
-#                      --var-file.
+#                      --var-file. From a release before 0.4.0, give it the
+#                      file with the pack's env too: the steps after the
+#                      apply name each of its variables.
 #                      Exactly one of them sets server_image, on one line:
-#                      that's the one rewritten, and pack_image goes on a line
-#                      of the same file to rebuild the pack. No file
-#                      Terraform loads on its own, and no TF_VAR_ in the
-#                      environment, may set the image it writes, or a later
-#                      apply without that --var-file would put it back.
+#                      that's the one rewritten. No file Terraform loads on
+#                      its own, and no TF_VAR_ in the environment, may set the
+#                      image it writes, or a later apply without that
+#                      --var-file would put it back.
 #   --runtime-digest   The release digest of the runtime being upgraded to,
 #                      from its release notes (sha256:…). Checked against the
 #                      release's tag, then mirrored into the deployment's
@@ -87,26 +97,22 @@
 #   --backup-bucket    A GCS bucket (optionally a prefix) the database export
 #                      is written to. The export is one database, never an
 #                      instance backup.
-#   --to               The target runtime version, 0.2.0 or later (default
-#                      0.3.1). An rc such as 0.3.1-rc.0 works too, and so does
-#                      a server-only release such as 0.2.0.1: a server fix for
-#                      0.2.0, with no SDK release of its own. Earlier
-#                      releases aren't on registry.kindgi.com: for those, use
-#                      this script as of the @kindgi/sdk@0.1.10 tag. This
-#                      script knows the steps up to 0.3.1; for a later
+#   --to               The target runtime version, 0.4.0 or later (default
+#                      0.4.0). An rc such as 0.4.0-rc.0 works too, and so does
+#                      a server-only release such as 0.4.0.1: a server fix for
+#                      0.4.0, with no SDK release of its own. The module here
+#                      is 0.4.0's, which needs the 0.4.0 runtime or later: to
+#                      an earlier release, use this script as of that
+#                      release's @kindgi/sdk@<version> tag (for X.Y.Z.N,
+#                      X.Y.Z's tag), and below 0.2.0, which isn't on
+#                      registry.kindgi.com, as of the @kindgi/sdk@0.1.10 tag.
+#                      This script knows the steps up to 0.4.0; for a later
 #                      release, use this script as of that release's
-#                      @kindgi/sdk@<version> tag (for X.Y.Z.N, X.Y.Z's tag)
-#                      or, before that release is out, its newest
-#                      @kindgi/sdk@<version>-rc.N tag.
-#                      Below 0.3.0, the plan still makes this module's
-#                      changes up to 0.3.0, with the older runtime; that
-#                      release's tag keeps the module at its own.
+#                      @kindgi/sdk@<version> tag or, before that release is
+#                      out, its newest @kindgi/sdk@<version>-rc.N tag.
 #   --from             Assert the current version (0.1.10, say, or 0.2.0.1)
 #                      when it can't be read from the deployment (no version
 #                      tag on the running image).
-#   --pack-dir         Rebuild and push the pack from here with `kindgi build`
-#                      (only if the deployment has a pack service). Without it,
-#                      the runtime is upgraded alone and the pack is left as is.
 #   --check-tenant     Limit the runtime's read-only checks to one tenant.
 #   --dry-run          Change nothing. Run the reads and the read-only checks,
 #                      list every change a real run would make, in order, with
@@ -135,7 +141,7 @@ readonly RUNTIME_REPO="registry.kindgi.com/kindgi/runtime"
 readonly VERSION_FLOOR="0.1.8"         # upgrades from before this are refused
 readonly TARGET_FLOOR="0.2.0"          # the first release on registry.kindgi.com
 # Releases this script knows the upgrade steps for, oldest first.
-readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1")
+readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0")
 # The newest of them.
 readonly DEFAULT_TARGET="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 
@@ -149,6 +155,17 @@ readonly POLL_TRIES=60
 # minutes or longer.
 readonly GRANT_WAIT_INTERVAL=15
 readonly GRANT_WAIT_SECONDS=420
+
+# The module here is 0.4.0's: its server sends each deployment's pack calls to
+# a pack service of that deployment's own, which only the 0.4.0 runtime and
+# later can. A run to an earlier release is that release's script's.
+readonly MODULE_RUNTIME_FLOOR="0.4.0"
+# The release that moved the deployment from the one pack service to one per
+# deployment: a run from before it makes the switch.
+readonly PACKS_RELEASE="0.4.0"
+# The names 0.4.0's module gives the server itself, which its plan refuses in
+# server_env and server_secret_env.
+readonly SERVER_ENV_SET_BY_MODULE=("KINDGI_PACK_ROUTING" "KINDGI_PACK_ENDPOINT_HOSTS" "KINDGI_PACK_ENDPOINT_KMS_KEY" "KINDGI_ENV_CLOUD_SECRETS")
 
 # --- small helpers ----------------------------------------------------------
 
@@ -291,10 +308,7 @@ To go back:
     If no server answers, the backup's own ledger is all there is: an
     erasure made after ${STAMP} can't be replayed.
 
- 2. Before the database changes, put the old image(s) back and save the
-    plan, then read it:
-      cp $(printf '%q' "$VARFILE_BACKUP") $(printf '%q' "$VAR_FILE")
-      (umask 077 && terraform plan$(var_file_flags) -out=back.tfplan)
+$(print_go_back_plan)
     The plan holds your variables' values, secret ones too: umask 077 keeps
     it readable by you alone, and step 6 deletes it.
     The server runs its migrations each time an instance of it starts. An
@@ -334,6 +348,86 @@ To go back:
 EOT
 }
 
+# The way back's step 2: the old image(s) back, and the plan. After a switch
+# to 0.4.0's packs, the module of the release it came from too, whose plan
+# makes the one pack service again.
+print_go_back_plan() {
+  local from letters="abcde" l
+  from="$(release_of "$CURRENT")"
+  if [[ $SWITCH != true ]]; then
+    cat <<EOT
+ 2. Before the database changes, put the old image(s) back and save the
+    plan, then read it:
+      cp $(printf '%q' "$VARFILE_BACKUP") $(printf '%q' "$VAR_FILE")
+      (umask 077 && terraform plan$(var_file_flags) -out=back.tfplan)
+EOT
+    return 0
+  fi
+  cat <<EOT
+ 2. Before the database changes, put back the module of ${from}, then the old
+    image(s), and save the plan, then read it. The module here is 0.4.0's,
+    which plans the 0.4.0 runtime or later only.
+EOT
+  l="${letters:0:1}"; letters="${letters:1}"
+  cat <<EOT
+    ${l}. In this directory, put the module's .tf files as of the
+       @kindgi/sdk@${from} tag (deploy/gcp-cloud-run) in place of these.
+       Keep .terraform/, the state and your var files.
+EOT
+  l="${letters:0:1}"; letters="${letters:1}"
+  cat <<EOT
+    ${l}. Put the var-file back:
+         cp $(printf '%q' "$VARFILE_BACKUP") $(printf '%q' "$VAR_FILE")
+EOT
+  if [[ $TENANCY == "multi" ]]; then
+    cat <<EOT
+       Then give server_env back the KINDGI_PACK_ROUTING ("per-deployment")
+       and KINDGI_PACK_ENDPOINT_HOSTS that ${from}'s module needs, and start
+       your own orchestrator again.
+EOT
+  fi
+  if [[ $SECRETS_BACKEND == "none" ]]; then
+    l="${letters:0:1}"; letters="${letters:1}"
+    cat <<EOT
+    ${l}. Take the KMS key 0.4.0's module made out of the state: ${from}'s module
+       has none with secrets_backend = "none", and the key can't be
+       destroyed. It stays in the project, unused. Each of these that
+       terraform state list lists:
+         terraform state rm google_kms_crypto_key_iam_member.server_wraps google_kms_crypto_key_iam_member.server_reads_key google_kms_crypto_key.secrets google_kms_key_ring.kindgi
+EOT
+  fi
+  if [[ $HAS_PACK == true ]]; then
+    l="${letters:0:1}"; letters="${letters:1}"
+    cat <<EOT
+    ${l}. If terraform state list lists no google_secret_manager_secret.shared,
+       the apply took the one pack service's token away. Make it again, with
+       a new value, and give it to the module, or the pack service and the
+       server can't start:
+         gcloud secrets create ${NAME_PREFIX}-pack-service-token --replication-policy=user-managed --locations=${REGION} --project=${PROJECT}
+         openssl rand -hex 32 | tr -d '\n' | gcloud secrets versions add ${NAME_PREFIX}-pack-service-token --data-file=- --project=${PROJECT}
+         terraform import$(var_file_flags) 'google_secret_manager_secret.shared["pack_service_token"]' projects/${PROJECT}/secrets/${NAME_PREFIX}-pack-service-token
+EOT
+  fi
+  l="${letters:0:1}"; letters="${letters:1}"
+  cat <<EOT
+    ${l}. Plan:
+         (umask 077 && terraform plan$(var_file_flags) -out=back.tfplan)
+       It takes away what 0.4.0's module made: the orchestrator's Job,
+       schedule, account, roles and key secret.
+EOT
+  if [[ $HAS_PACK == true ]]; then
+    cat <<EOT
+       It makes the one pack service again: from that apply until it's up,
+       calls to the pack's tools are refused again.
+EOT
+  fi
+  cat <<EOT
+       The pack services the orchestrator made, named kp-..., and their kp-
+       secrets aren't in the state. After the way back nothing calls them,
+       and they stay until you delete them.
+EOT
+}
+
 # The names a run gives what it creates, so a dry run lists the ones a real
 # run uses. A check job's name is at most 63 characters: the prefix is cut to
 # 45 (the rest adds 18) and loses a trailing "-". $2 is the run's HHMMSS.
@@ -365,7 +459,7 @@ RUNTIME_DIGEST=""
 BACKUP_BUCKET=""
 TARGET="$DEFAULT_TARGET"
 FROM_OVERRIDE=""
-PACK_DIR=""
+PACK_DIR=""            # never set here (--pack-dir is refused); the shared code reads it
 CHECK_TENANT=""
 DRY_RUN=false
 
@@ -376,7 +470,7 @@ while [[ $# -gt 0 ]]; do
     --backup-bucket) BACKUP_BUCKET="${2:-}"; shift 2 ;;
     --to) TARGET="${2:-}"; shift 2 ;;
     --from) FROM_OVERRIDE="${2:-}"; shift 2 ;;
-    --pack-dir) PACK_DIR="${2:-}"; shift 2 ;;
+    --pack-dir) die "--pack-dir: from 0.4.0 each deployment has a pack service of its own, which the pack orchestrator makes from the image its deploy names, so there's no pack service to rebuild here. Deploy each pack with kindgi deploy (after an upgrade from before 0.4.0, the steps after the apply say how)." ;;
     --check-tenant) CHECK_TENANT="${2:-}"; shift 2 ;;
     --dry-run) DRY_RUN=true; ME="upgrade (dry run)"; shift ;;
     -h|--help) awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; exit 0 ;;
@@ -416,6 +510,8 @@ fi
 if [[ -n $FROM_OVERRIDE ]]; then is_version "$FROM_OVERRIDE" || die "--from \"$FROM_OVERRIDE\" isn't a version like 0.1.10 or 0.2.0.1."; fi
 if [[ -n $PACK_DIR ]]; then [[ -d $PACK_DIR ]] || die "--pack-dir \"$PACK_DIR\" isn't a directory."; fi
 # <<<
+[[ "$(ver_num "$TARGET_RELEASE")" -ge "$(ver_num "$MODULE_RUNTIME_FLOOR")" ]] \
+  || die "--to $TARGET: the module here is ${MODULE_RUNTIME_FLOOR}'s, which needs the ${MODULE_RUNTIME_FLOOR} runtime or later. Use this script as of $(sdk_tag "$TARGET_RELEASE")."
 
 require_cmd terraform gcloud jq docker
 
@@ -483,10 +579,13 @@ SERVER_URL="$(jq -r '.server_url.value // empty' "$TF_OUT")"
 
 # One terraform console call returns the variables as a JSON object. console
 # renders jsonencode()'s string with HCL quoting, so `jq fromjson` unwraps it.
-VARS_EXPR='jsonencode({project_id=var.project_id, region=var.region, name_prefix=var.name_prefix, network_mode=var.network_mode, vpc_connector=var.vpc_connector, database_private_network=var.database_private_network, database_host_instance=var.database_host_instance, database_name=var.database_name, secrets_backend=var.secrets_backend, secrets_aad_key_version=var.secrets_aad_key_version, tenancy=var.tenancy, server_image=var.server_image, pack_image=var.pack_image, database_instance=var.database_instance})'
+# Its warnings, such as one for each variable a var file sets that the module
+# doesn't declare, come on stdout ahead of the value, so the value is its
+# last line.
+VARS_EXPR='jsonencode({project_id=var.project_id, region=var.region, name_prefix=var.name_prefix, network_mode=var.network_mode, vpc_connector=var.vpc_connector, database_private_network=var.database_private_network, database_host_instance=var.database_host_instance, database_name=var.database_name, secrets_backend=var.secrets_backend, secrets_aad_key_version=var.secrets_aad_key_version, tenancy=var.tenancy, seed_tenant_id=var.seed_tenant_id, server_image=var.server_image, database_instance=var.database_instance, orchestrator_key_version=var.orchestrator_key_version, server_env_names=keys(var.server_env), server_secret_env_names=keys(var.server_secret_env), pack_endpoint_hosts=lookup(var.server_env, "KINDGI_PACK_ENDPOINT_HOSTS", "")})'
 VARS_RAW="$(terraform console "${TF_VAR_FILE_ARGS[@]}" <<<"$VARS_EXPR" 2>"$WORK/console.err")" \
   || die "couldn't read the module's variables with 'terraform console'. $(cat "$WORK/console.err")"
-VARS="$(jq 'fromjson' <<<"$VARS_RAW")" \
+VARS="$(jq 'fromjson' <<<"${VARS_RAW##*$'\n'}")" \
   || die "couldn't parse the module's variables from terraform console."
 
 PROJECT="$(jq -r '.project_id' <<<"$VARS")"
@@ -499,13 +598,86 @@ DATABASE_NAME="$(jq -r '.database_name' <<<"$VARS")"
 SECRETS_BACKEND="$(jq -r '.secrets_backend' <<<"$VARS")"
 SECRETS_AAD_KEY_VERSION="$(jq -r '.secrets_aad_key_version // ""' <<<"$VARS")"
 TENANCY="$(jq -r '.tenancy' <<<"$VARS")"
+SEED_TENANT_ID="$(jq -r '.seed_tenant_id // ""' <<<"$VARS")"
 DATABASE_HOST_INSTANCE="$(jq -r '.database_host_instance // ""' <<<"$VARS")"
 OLD_SERVER_IMAGE="$(jq -r '.server_image' <<<"$VARS")"
-OLD_PACK_IMAGE="$(jq -r '.pack_image // ""' <<<"$VARS")"
+ORCHESTRATOR_KEY_VERSION="$(jq -r '.orchestrator_key_version // ""' <<<"$VARS")"
 DATABASE_INSTANCE_NAME="$(jq -r '.database_instance.name // ""' <<<"$VARS")"
 DATABASE_INSTANCE_URL_SECRET="$(jq -r '.database_instance.url_secret // ""' <<<"$VARS")"
 
 SERVER_SERVICE="${NAME_PREFIX}-server"
+
+# The variables 0.4.0's module took out, the one pack service's: pack_image,
+# pack_min_instances, pack_env and pack_secret_env. The module here doesn't
+# declare them, so its console can't read them. A config of their own in
+# $WORK declares those four alone, as the releases before 0.4.0 did, and reads
+# them from the same files in the order Terraform takes them: TF_VAR_ in the
+# environment, then from this directory terraform.tfvars,
+# terraform.tfvars.json and the *.auto.tfvars(.json) files in name order, then
+# each --var-file. Terraform only warns about a file's value for a variable
+# the config doesn't declare, so the module's own plan takes the same files.
+# Here those warnings come every time, for the module's own variables, and
+# the value is again console's last line. pack_env's names alone are read,
+# never its values.
+REMOVED_DIR="$WORK/removed-variables"
+mkdir "$REMOVED_DIR"
+cat >"$REMOVED_DIR/variables.tf" <<'EOT'
+variable "pack_image" {
+  type    = string
+  default = ""
+}
+variable "pack_min_instances" {
+  type    = number
+  default = 1
+}
+variable "pack_env" {
+  type    = map(string)
+  default = {}
+}
+variable "pack_secret_env" {
+  type = map(object({
+    secret  = string
+    version = string
+    project = optional(string)
+  }))
+  default = {}
+}
+EOT
+REMOVED_ARGS=()
+for f in terraform.tfvars terraform.tfvars.json; do
+  if [[ -f $f ]]; then REMOVED_ARGS+=("-var-file=$PWD/$f"); fi
+done
+while IFS= read -r f; do
+  if [[ -f $f ]]; then REMOVED_ARGS+=("-var-file=$PWD/$f"); fi
+done < <(printf '%s\n' *.auto.tfvars *.auto.tfvars.json | LC_ALL=C sort)
+for f in "${VAR_FILES[@]}"; do
+  case "$f" in
+    /*) REMOVED_ARGS+=("-var-file=$f") ;;
+    *) REMOVED_ARGS+=("-var-file=$PWD/$f") ;;
+  esac
+done
+REMOVED_RAW="$(terraform -chdir="$REMOVED_DIR" console "${REMOVED_ARGS[@]}" \
+  <<<'jsonencode({pack_image=var.pack_image, pack_min_instances=var.pack_min_instances, pack_env_names=keys(var.pack_env), pack_secret_env=var.pack_secret_env})' \
+  2>"$WORK/removed.err")" \
+  || die "couldn't read the variables 0.4.0 took out (pack_image, pack_min_instances, pack_env, pack_secret_env) with 'terraform console'. $(cat "$WORK/removed.err")"
+REMOVED="$(jq 'fromjson' <<<"${REMOVED_RAW##*$'\n'}")" \
+  || die "couldn't parse the variables 0.4.0 took out from terraform console."
+OLD_PACK_IMAGE="$(jq -r '.pack_image' <<<"$REMOVED")"
+OLD_PACK_MIN_INSTANCES="$(jq -r '.pack_min_instances' <<<"$REMOVED")"
+
+# 0.4.0's module refuses these in its plan; say so before anything is read,
+# backed up or changed.
+if [[ $NAME_PREFIX == "kp" || $NAME_PREFIX == kp-* ]]; then
+  die "name_prefix is \"$NAME_PREFIX\": from 0.4.0 the pack orchestrator owns the services and secrets named kp-..., and the module refuses that prefix. A name_prefix can't change in place: deploy the module again under another name_prefix, and serve it from a restored instance (README \"Serving from a restored instance\")."
+fi
+for name in "${SERVER_ENV_SET_BY_MODULE[@]}"; do
+  if jq -e --arg n "$name" '(.server_env_names + .server_secret_env_names) | index($n) != null' <<<"$VARS" >/dev/null; then
+    if [[ $name == KINDGI_PACK_ENDPOINT_HOSTS ]]; then
+      die "server_env or server_secret_env sets $name ($(jq -r '.pack_endpoint_hosts' <<<"$VARS")), which 0.4.0's module sets itself, to *-<project number>.${REGION}.run.app: this project's services in $REGION. An endpoint recorded on any other host is refused from the apply on. Take it out of the var file, then run again. Nothing was changed."
+    fi
+    die "server_env or server_secret_env sets $name, which 0.4.0's module sets itself, and its plan refuses it there. Take it out of the var file, then run again. Nothing was changed."
+  fi
+done
 
 case "$NETWORK_MODE" in
   none|direct|connector) ;;
@@ -546,10 +718,9 @@ else
   DB_URL_SECRET="${NAME_PREFIX}-database-url"
 fi
 
-HAS_PACK=false
-if [[ -n $OLD_PACK_IMAGE && $TENANCY == "single" ]]; then HAS_PACK=true; fi
+# The shared code rebuilds a pack with --pack-dir, which this module refuses.
 REBUILD_PACK=false
-if [[ $HAS_PACK == true && -n $PACK_DIR ]]; then REBUILD_PACK=true; fi
+NEW_PACK_IMAGE=""
 
 # >>> same in both modules: var-file-checks
 # Step 5 rewrites the image line(s) in the var-file, so a later plain apply
@@ -692,8 +863,46 @@ if [[ "$(ver_num "$TARGET_RELEASE")" -lt "$(ver_num "$NEWEST_KNOWN")" ]]; then
   warn "the module here is this copy's, as of $NEWEST_KNOWN: the plan also makes its changes for the releases after $TARGET_RELEASE (its steps to confirm by hand list them), with the $TARGET runtime. To keep the module at $TARGET_RELEASE, use this script as of $(sdk_tag "$TARGET_RELEASE")."
 fi
 
+# A run from a release before 0.4.0 moves the deployment to 0.4.0's packs. An
+# rc of 0.4.0 has them already.
+SWITCH=false
+if [[ "$(ver_num "$(release_of "$CURRENT")")" -lt "$(ver_num "$PACKS_RELEASE")" ]]; then SWITCH=true; fi
+# Whether it ran the one pack service then, which the switch takes away.
+HAS_PACK=false
+if [[ $SWITCH == true && -n $OLD_PACK_IMAGE && $TENANCY == "single" ]]; then HAS_PACK=true; fi
+
+if [[ $SWITCH == true ]]; then
+  # The orchestrator's key secret is made by this run's apply, and the key is
+  # minted after it, by the 0.4.0 server: no version of it can exist yet.
+  if [[ -n $ORCHESTRATOR_KEY_VERSION ]]; then
+    die "orchestrator_key_version is set (\"$ORCHESTRATOR_KEY_VERSION\"), but ${NAME_PREFIX}-orchestrator-key, the secret it names a version of, is made by this run's apply, and the key in it is minted after that, by the 0.4.0 server. Take it out of the var file, then run again: the steps after the apply say when to set it. Nothing was changed."
+  fi
+  # Each pack_secret_env entry becomes a cloud secret of the pack's env, so it
+  # must be one: checked as kindgi env set --cloud-secret checks it, by its
+  # name, secret id, project and version, never a value.
+  bad_secret_env="$(jq -r '.pack_secret_env | to_entries[]
+    | .key as $n | .value as $r
+    | if ($n | test("^[A-Z_][A-Z0-9_]*$") | not) or ($n | startswith("KINDGI_"))
+        then "\($n): a pack env name is upper-case letters, digits and _, and not KINDGI_..."
+      elif ($r.secret | test("^[A-Za-z0-9_-]{1,255}$") | not)
+        then "\($n): secret is a secret id of letters, digits, _ and -, with the project in project, not a path"
+      elif ($r.secret | startswith("kp-"))
+        then "\($n): secret \($r.secret) starts with kp-, which the pack services own"
+      elif $r.project != null and ($r.project | test("^([a-z][a-z0-9-]{4,28}[a-z0-9]|[1-9][0-9]{0,29})$") | not)
+        then "\($n): project is a project id or number"
+      elif $r.version == "latest"
+        then "\($n): version is \"latest\": pick its number (gcloud secrets versions list \($r.secret)), and set that"
+      elif ($r.version | test("^[1-9][0-9]{0,18}$") | not)
+        then "\($n): version is a version number"
+      else empty end' <<<"$REMOVED")"
+  if [[ -n $bad_secret_env ]]; then
+    warn "from 0.4.0 each pack_secret_env entry is a cloud secret of the pack's env, pinned to a version number. These aren't:"
+    sed 's/^/    /' <<<"$bad_secret_env" >&2
+    die "fix them in the var file, then run again. Nothing was changed."
+  fi
+fi
+
 NEW_SERVER_IMAGE="${IMAGE_REPOSITORY}/runtime@${RUNTIME_DIGEST}"
-NEW_PACK_IMAGE="$OLD_PACK_IMAGE"
 
 # --- step 2: checks ---------------------------------------------------------
 # Everything here is read-only against the deployment. Mirroring the new image
@@ -821,7 +1030,7 @@ EOT
      signed in with an emailed link or an identity provider isn't one.
    - A pack built for 0.1.10 keeps working without a rebuild. To use 0.2.0's
      features in it (a tool that pauses, a connection, data blocks), move its
-     pins to 0.2.0 first: --pack-dir builds what they say. A Python pack made
+     pins to 0.2.0 first: its next build takes what they say. A Python pack made
      by a 0.1 CLI pins kindgi>=0.1,<0.2 and kindgi-cli>=0.1,<0.2:
        uv add "kindgi==0.2.0" && uv add --dev "kindgi-cli==0.2.0"
 EOT
@@ -883,6 +1092,16 @@ EOT
      or sees changed while an earlier deploy kept the old ones.
 EOT
       ;;
+    0.4.0)
+      # STEPS-PENDING marks a release whose runtime steps aren't here yet:
+      # they come from its release notes' Upgrade steps before its rc, and
+      # the rc's cut stops while either script has the marker.
+      cat <<'EOT'
+   - STEPS-PENDING: this copy doesn't have 0.4.0's runtime steps yet. Don't
+     upgrade a deployment you keep with it: read the 0.4.0 release notes'
+     Upgrade steps.
+EOT
+      ;;
   esac
 }
 # <<<
@@ -905,9 +1124,9 @@ EOT
       ;;
     0.2.0)
       cat <<'EOT'
-   - With a pack service, the plan also changes it in place, with or without
-     --pack-dir: CPU only while a call runs, a start boost, and quicker
-     readiness checks.
+   - With a pack service, 0.2.0's module changes it in place: CPU only while
+     a call runs, a start boost, and quicker readiness checks. 0.4.0's deletes
+     it (below), so this plan doesn't change it.
    - With a private-IP database (database_private_network), the plan also
      gives the server KINDGI_DATABASE_SERVER_CA, in place: the instance's
      CAs, which the server checks the database's certificate against.
@@ -931,6 +1150,44 @@ EOT
       cat <<'EOT'
    - 0.3.1 doesn't change the module.
 EOT
+      ;;
+    0.4.0)
+      if [[ $SWITCH != true ]]; then
+        cat <<'EOT'
+   - From a 0.4.0 pre-release, the module has 0.4.0's packs already: the plan
+     gives the orchestrator's Job the new image too.
+EOT
+        return 0
+      fi
+      cat <<'EOT'
+   - The plan moves the deployment from the one pack service to a pack service
+     for each deployment, which the pack orchestrator makes: a Cloud Run Job,
+     from the server's image, that Cloud Scheduler runs once a minute. It
+     deletes the pack service, its token's secret and their grants. It makes
+     the orchestrator's account, its grants and its key's secret, the
+     server's right to invoke the project's services, and, with
+     secrets_backend "none", the KMS key the pack services' tokens are sealed
+     under. It gives the server its settings for routing each deployment
+     (KINDGI_PACK_ROUTING and the rest). The Job and its schedule come at a
+     second apply, by hand, once the orchestrator's key is in its secret.
+   - From the apply until each pack is deployed again, calls to a deployed
+     pack's tools are refused: pack-route-missing, then, for about a minute,
+     pack-endpoint-pending. Pick a quiet hour. Going back to the release it
+     runs now makes the one pack service again, with a second such window.
+   - After the apply, this script prints the steps that finish the switch, by
+     hand: the orchestrator's key, the var file's second apply, the pack's
+     env, and a deploy of each pack.
+EOT
+      if [[ $TENANCY == "multi" ]]; then
+        cat <<'EOT'
+   - With tenancy = "multi", stop your own orchestrator before the apply: from
+     0.4.0 the module's makes each new deployment's service. An endpoint
+     yours recorded stays as it is, and its calls keep reaching your service
+     while its host matches *-<project number>.<region>.run.app, until that
+     deployment is deployed again. Then the old one is retired, and you
+     delete your service, its token and its secrets.
+EOT
+      fi
       ;;
   esac
 }
@@ -960,17 +1217,130 @@ print_by_hand_steps() {
   info "The secret-manager secret-name grammar — this module stores secrets under \"$SECRETS_BACKEND\", never KINDGI_SECRETS_BACKEND=secret-manager."
 }
 
+# What step 4 says: from 0.4.0 there's no pack to build here.
+pack_step_said() {
+  if [[ $HAS_PACK == true ]]; then
+    printf '%s' "the apply deletes the one pack service, and the pack orchestrator makes each deployment's own, from the image its deploy names (the steps after the apply)"
+  else
+    printf '%s' "the pack orchestrator makes each deployment's pack service, from the image its deploy names"
+  fi
+}
+
+# After a run from before 0.4.0, the steps that finish the switch to a pack
+# service per deployment: printed, never run. They name the pack's env by its
+# names, and its secrets by id, project and version number, never a value.
+print_switch_steps() {
+  local readers plain cloud name path n=2 env_flags tenant="<tenant id>" grants=""
+  readers="$(jq -r '[.pack_secret_env[] | {secret, project}] | unique[]
+    | if .project == null then "        { secret = \"\(.secret)\" },"
+      else "        { secret = \"\(.secret)\", project = \"\(.project)\" }," end' <<<"$REMOVED")"
+  plain="$(jq -r '.pack_env_names[]' <<<"$REMOVED")"
+  cloud="$(jq -r --arg p "$PROJECT" '.pack_secret_env | to_entries[]
+    | "\(.key) projects/\(.value.project // $p)/secrets/\(.value.secret)/versions/\(.value.version)"' <<<"$REMOVED")"
+  if [[ -n $readers ]]; then grants=", and the pack account's grants on those secrets"; fi
+  if [[ $TENANCY == "single" && -n $SEED_TENANT_ID ]]; then tenant="$SEED_TENANT_ID"; fi
+  env_flags="--url $(printf '%q' "$SERVER_URL") --scope=tenant --env=<env>"
+  step "Steps that finish the switch to 0.4.0's packs, by hand"
+  cat <<EOT
+ 1. Mint the pack orchestrator's key, and keep it as the first version of
+    ${NAME_PREFIX}-orchestrator-key, as step 1 of this says, with your names
+    in it (README "5. The pack orchestrator"):
+      terraform output -raw orchestrator_key_steps
+
+ 2. In the var files, set orchestrator_key_version to the version it added
+    ("1" the first time), and take out the variables 0.4.0 doesn't have:
+    pack_image, pack_min_instances, pack_env and pack_secret_env. A var file
+    that held only those goes from the command below.
+EOT
+  if [[ -n $readers ]]; then
+    cat <<EOT
+    Add the secrets the pack's env reads to pack_secret_readers, so the pack
+    account may read each one:
+      pack_secret_readers = [
+${readers}
+      ]
+EOT
+  fi
+  if [[ $OLD_PACK_MIN_INSTANCES != "1" ]]; then
+    cat <<EOT
+    pack_min_instances was ${OLD_PACK_MIN_INSTANCES}. From 0.4.0 a pack service keeps
+    one instance warm while something in use calls it, and scales to zero
+    otherwise (README "The pack services").
+EOT
+  fi
+  cat <<EOT
+    Then plan, read the plan, and apply it. It makes the orchestrator's Job
+    and its schedule${grants}. The plan holds your variables' values, secret
+    ones too: umask 077 keeps it readable by you alone.
+      (umask 077 && terraform plan$(var_file_flags) -out=switch.tfplan)
+      terraform apply switch.tfplan
+      rm switch.tfplan
+EOT
+  if [[ -n $plain || -n $cloud ]]; then
+    n=$((n + 1))
+    cat <<EOT
+
+ ${n}. Set the pack's env in Kindgi, at the env the pack is deployed at
+    (README "The pack services"). At the tenant's scope each deployment gets
+    it, as the one pack service did; org:<id> or project:<id> narrows it.
+EOT
+    if [[ -n $plain ]]; then
+      printf '%s
+' "    Its plain values, each with its value from pack_env, and the API token:"
+      while IFS= read -r name; do
+        printf '      KINDGI_API_TOKEN=<api token> kindgi env set %q <its value> %s
+' "$name" "$env_flags"
+      done <<<"$plain"
+    fi
+    if [[ -n $cloud ]]; then
+      printf '%s
+' "    Its cloud secrets, with a system key holding system:env-refs, minted as"
+      printf '%s
+' "    README \"The pack services\" says (revoke it once they're set):"
+      while read -r name path; do
+        printf '      KINDGI_API_TOKEN=<that key> kindgi env set %s --cloud-secret %s --tenant=%s %s
+' "$name" "$path" "$tenant" "$env_flags"
+      done <<<"$cloud"
+    fi
+  fi
+  n=$((n + 1))
+  cat <<EOT
+
+ ${n}. Deploy each pack again, as it's deployed now, with the same image and a
+    new idempotency key, so the deploy isn't answered as the earlier one was:
+      kindgi deploy --env <env> --endpoint $(printf '%q' "$SERVER_URL") --token <api token> --idempotency-key <new value>
+    Its tools answer once the orchestrator has made its service, within about
+    a minute; until the deploy they answer pack-route-missing.
+    kindgi deployments get <deployment-id> shows whether its service is ready.
+EOT
+  if [[ $TENANCY == "multi" ]]; then
+    n=$((n + 1))
+    cat <<EOT
+
+ ${n}. With tenancy = "multi", each tenant deploys its packs again, as above,
+    with a key of the tenant. Each old deployment is then retired. Once
+    GET /v1/system/deployments?endpoint=retire no longer lists one, delete
+    the service your own orchestrator made for it, its token and its
+    secrets.
+EOT
+  fi
+}
+
 # 5. The plan's check. Besides the new image(s), a plan may change only what
 # the module's releases after the current one (MODULE_CROSSED) change in
 # place, as their steps to confirm by hand say (module_changes):
 # "<resource type>.<name> <attribute path>", the path without list indices,
-# an env var or a database flag by its name. The module's own changes in that
-# release (services.tf, data.tf, foundation.tf), each made in place. $1 is the
-# plan (terraform show -json), for a change allowed only beside another.
+# an env var or a database flag by its name. A resource the release makes or
+# takes away is "<resource type>.<name> (created)" or "(deleted)", and one
+# instance of it "<resource type>.<name>[<index>]". The module's own changes
+# in that release (services.tf, data.tf, foundation.tf, orchestrator.tf). $1
+# is the plan (terraform show -json), for a change allowed only beside
+# another.
 plan_allowed_changes() {
   local r
   printf '%s\n' "google_cloud_run_v2_service.server template.containers.image"
-  if [[ $REBUILD_PACK == true ]]; then printf '%s\n' "google_cloud_run_v2_service.pack template.containers.image"; fi
+  # From 0.4.0 the orchestrator's Job runs the server's image too.
+  printf '%s\n' "google_cloud_run_v2_job.orchestrator template.template.containers.image"
   for r in ${MODULE_CROSSED[@]+"${MODULE_CROSSED[@]}"}; do
     case "$r" in
       0.1.10)
@@ -1002,6 +1372,60 @@ plan_allowed_changes() {
           printf '%s\n' "google_cloud_run_v2_service.server template.containers.env.KINDGI_DATABASE_SERVER_CA"
         fi
         ;;
+      0.4.0)
+        # Only a run from before 0.4.0 makes the switch.
+        [[ $SWITCH == true ]] || continue
+        printf '%s\n' \
+          "google_cloud_run_v2_service.pack (deleted)" \
+          "google_cloud_run_v2_service_iam_member.server_invokes_pack (deleted)" \
+          "google_secret_manager_secret.shared (deleted)" \
+          "google_secret_manager_secret_iam_member.pack_reads_token (deleted)" \
+          "google_secret_manager_secret_iam_member.pack_reads_its_secrets (deleted)" \
+          "google_secret_manager_secret_iam_member.server_reads[\"pack_service_token\"] (deleted)" \
+          "google_service_account.orchestrator (created)" \
+          "google_project_iam_member.orchestrator_runs_services (created)" \
+          "google_service_account_iam_member.orchestrator_acts_as_pack (created)" \
+          "google_artifact_registry_repository_iam_member.orchestrator_reads_images (created)" \
+          "google_project_iam_custom_role.pack_secrets (created)" \
+          "google_project_iam_member.orchestrator_pack_secrets (created)" \
+          "google_project_iam_custom_role.secret_create_list (created)" \
+          "google_project_iam_member.orchestrator_creates_lists_secrets (created)" \
+          "google_project_iam_member.pack_reads_pack_secrets (created)" \
+          "google_secret_manager_secret.orchestrator_key (created)" \
+          "google_secret_manager_secret_iam_member.orchestrator_reads_key (created)" \
+          "google_project_iam_member.server_invokes_packs (created)" \
+          "google_project_service.apis[\"cloudscheduler.googleapis.com\"] (created)" \
+          "google_cloud_run_v2_service_iam_member.orchestrator_invokes_server (created)" \
+          "google_secret_manager_secret_iam_member.pack_reads_cloud_secrets (created)" \
+          "google_cloud_run_v2_service.server template.containers.env.KINDGI_PACK_ROUTING" \
+          "google_cloud_run_v2_service.server template.containers.env.KINDGI_PACK_ENDPOINT_HOSTS" \
+          "google_cloud_run_v2_service.server template.containers.env.KINDGI_PACK_ENDPOINT_KMS_KEY" \
+          "google_cloud_run_v2_service.server template.containers.env.KINDGI_ENV_CLOUD_SECRETS" \
+          "google_cloud_run_v2_service.server template.containers.env.KINDGI_PACK_SERVICE_URL" \
+          "google_cloud_run_v2_service.server template.containers.env.KINDGI_PACK_SERVICE_TOKEN" \
+          "google_cloud_run_v2_service.server template.containers.env.KINDGI_PACK_SERVICE_AUTH"
+        # The KMS key the endpoints' tokens are sealed under: the secrets'
+        # key, which "postgres" has already.
+        if [[ $SECRETS_BACKEND == "none" ]]; then
+          printf '%s\n' \
+            "google_project_service.apis[\"cloudkms.googleapis.com\"] (created)" \
+            "google_kms_key_ring.kindgi (created)" \
+            "google_kms_crypto_key.secrets (created)" \
+            "google_kms_crypto_key_iam_member.server_wraps (created)" \
+            "google_kms_crypto_key_iam_member.server_reads_key (created)"
+        fi
+        # The pack account, now there in every shape: renamed where the one
+        # pack service ran as it, made with its grants where none did.
+        if [[ $HAS_PACK == true ]]; then
+          printf '%s\n' "google_service_account.pack display_name"
+        else
+          printf '%s\n' \
+            "google_service_account.pack (created)" \
+            "google_project_iam_member.pack_sql_client (created)" \
+            "google_storage_bucket_iam_member.pack_reads (created)" \
+            "google_cloud_run_v2_service_iam_member.pack_invokes (created)"
+        fi
+        ;;
     esac
   done
 }
@@ -1019,10 +1443,14 @@ plan_protects_instance() {
 # Every change in a plan (terraform show -json) that $allowed doesn't name,
 # one line each: a create, delete, replace or forget by what it does; an
 # update by each attribute it changes, a value it knows or one known only
-# after the apply. Never a value: a plan holds the variables' values, secret
-# ones too. An env var or a database flag is keyed by its name, so one added
-# or dropped from a list says which, and moves no other; one known only after
-# the apply is named from the plan's after.
+# after the apply. $allowed names a resource by "<type>.<name>", which covers
+# each of its instances, or one instance by "<type>.<name>[<index>]" (a
+# string index in double quotes); a create or a delete by the path
+# "(created)" or "(deleted)". A replace or a forget is always listed. Never a
+# value: a plan holds the variables' values, secret ones too. An env var or
+# a database flag is keyed by its name, so one added or dropped from a list
+# says which, and moves no other; one known only after the apply is named
+# from the plan's after.
 readonly PLAN_CHANGES_JQ='
   def leaves(p):
     if type == "object" then to_entries[] | .key as $k | .value | leaves(p + [$k])
@@ -1054,14 +1482,20 @@ readonly PLAN_CHANGES_JQ='
     else join(", ") end;
   .resource_changes[]?
   | .address as $addr | "\(.type).\(.name)" as $key | .change as $c
+  | ($key + (if .index == null then "" elif (.index | type) == "string"
+      then "[\(.index | tojson)]" else "[\(.index)]" end)) as $inst
   | select($c.actions != ["no-op"] and $c.actions != ["read"])
-  | if $c.actions != ["update"] then "\($addr): \($c.actions | act)"
+  | if $c.actions != ["update"] then
+      ($c.actions | act) as $did
+      | select(($did == "created" or $did == "deleted")
+          and ($allowed | any(.[]; (.key == $key or .key == $inst) and .path == "(\($did))")) | not)
+      | "\($addr): \($did)"
     else
       ($c.before // {} | flat) as $b | ($c.after // {} | flat) as $a
       | ([$b, $a] | map(keys) | add | unique | map(. as $k | select($b[$k] != $a[$k])))
         + [$c.after_unknown // {} | paths(. == true) | named($c.after // {}) | tojson]
       | map(said) | unique | .[]
-      | select(. as $w | $allowed | any(.[]; .key == $key and (.path as $p | $w == $p or ($w | startswith($p + ".")))) | not)
+      | select(. as $w | $allowed | any(.[]; (.key == $key or .key == $inst) and (.path as $p | $w == $p or ($w | startswith($p + ".")))) | not)
       | "\($addr): changes \(.)"
     end'
 # <<<
@@ -1098,7 +1532,7 @@ check_plan() {
     ok=false
   fi
   if [[ $ok == true ]]; then
-    info "plan check: it changes the image(s), and only what the releases crossed change in place."
+    info "plan check: it changes the image(s), and only what the releases crossed change."
     return 0
   fi
   warn "Nothing above was applied. A var file left off the command (a pack's env, say) is what usually does this: give each file the deployment uses its own --var-file. If the changes are yours (a variable you changed, say), apply them on the release it runs now with a plan you review, then run this again."
@@ -1114,7 +1548,6 @@ if [[ $DRY_RUN == true ]]; then
   info "the read-only checks passed."
   [[ -n $SQL_SA ]] || die "couldn't read instance $DB_INSTANCE's service account; a real run would stop at the backup."
   varfile_value_ok server_image "$NEW_SERVER_IMAGE"
-  if [[ $REBUILD_PACK == true ]]; then require_cmd kindgi; fi
 
   step "What a real run would change, in order"
   info "2. add gcloud as the credential helper for ${REGION}-docker.pkg.dev in your docker config"
@@ -1135,28 +1568,18 @@ if [[ $DRY_RUN == true ]]; then
   info "   A dry run doesn't run them; a real run stops before the backup if one fails."
   info "3. grant serviceAccount:${SQL_SA} roles/storage.objectAdmin on gs://${BUCKET_ONLY} (the grant stays)"
   info "   export the \"${DATABASE_NAME}\" database to $(export_uri "<YYYYMMDDTHHMMSSZ>")"
-  if [[ $REBUILD_PACK == true ]]; then
-    info "4. rebuild and push the pack from ${PACK_DIR} (kindgi build --local --push --env dev)"
-  elif [[ $HAS_PACK == true ]]; then
-    info "4. nothing: without --pack-dir the pack image stays as it is"
-  else
-    info "4. nothing: no pack service"
-  fi
+  info "4. nothing to build: $(pack_step_said)"
   info "5. copy ${VAR_FILE} to $(varfile_backup_name "<YYYYMMDDTHHMMSSZ>")"
   info "   set server_image = \"${NEW_SERVER_IMAGE}\" in ${VAR_FILE}"
-  if [[ $REBUILD_PACK == true ]]; then
-    info "   set pack_image to the rebuilt pack (its digest is known only after the build)"
-  fi
   info "   plan, check the plan as below, show it and ask you to type yes"
   info "   apply exactly that plan, kept as $(plan_kept_name "<YYYYMMDDTHHMMSSZ>")"
   info "6. wait for the new revision of ${SERVER_SERVICE}"
+  if [[ $SWITCH == true ]]; then info "   then print the steps that finish the switch to 0.4.0's packs (below)"; fi
 
   print_by_hand_steps
+  if [[ $SWITCH == true ]]; then print_switch_steps; fi
 
   step "Terraform plan for the new image (read-only; ${VAR_FILE} is untouched)"
-  if [[ $REBUILD_PACK == true ]]; then
-    info "pack_image is unchanged in this plan: the rebuilt pack's digest is known only after the build."
-  fi
   terraform plan "${TF_VAR_FILE_ARGS[@]}" -var "server_image=${NEW_SERVER_IMAGE}" -lock=false -out="$WORK/dry-run.tfplan" \
     || die "terraform plan failed. Nothing has changed."
   check_plan "$WORK/dry-run.tfplan" false \
@@ -1279,35 +1702,10 @@ done
 cat "$WORK/export.err" >&2
 info "backup complete: $EXPORT_URI"
 
-# --- step 4: the pack image (if any) ----------------------------------------
+# --- step 4: the pack services ---------------------------------------------
 
-step "4. Pack image"
-if [[ $REBUILD_PACK == true ]]; then
-  require_cmd kindgi
-  info "rebuilding the pack from $PACK_DIR"
-  ( cd "$PACK_DIR" && kindgi build --local --push --env dev ) \
-    || die "the pack build failed. The runtime image is mirrored and the backup is taken; fix the pack and run again."
-  envelope="${PACK_DIR%/}/.kindgi/build/deploy-envelope.json"
-  [[ -f $envelope ]] || die "the pack build left no $envelope to read the new image from."
-  # pack_image is pinned by digest: the pushed ref's repository, then the digest.
-  pack_ref="$(jq -r '.imageRef // empty' "$envelope")"
-  pack_digest="$(jq -r '.imageDigest // empty' "$envelope")"
-  if [[ $pack_ref == *@sha256:* ]]; then
-    NEW_PACK_IMAGE="$pack_ref"
-  else
-    [[ -n $pack_ref && $pack_digest =~ ^sha256:[0-9a-f]{64}$ ]] \
-      || die "couldn't read the new pack image (imageRef, imageDigest) from $envelope."
-    pack_repo="$pack_ref"
-    # Drop a tag, which follows the last "/" (a registry host's ":port" doesn't).
-    if [[ ${pack_ref##*/} == *:* ]]; then pack_repo="${pack_ref%:*}"; fi
-    NEW_PACK_IMAGE="${pack_repo}@${pack_digest}"
-  fi
-  info "new pack image $NEW_PACK_IMAGE"
-elif [[ $HAS_PACK == true ]]; then
-  warn "the deployment has a pack service, but no --pack-dir was given: the pack image is left unchanged. If a release crossed needs the pack rebuilt (its steps to confirm by hand, above, say so), rebuild it with 'kindgi build --local --push' and run again with --pack-dir."
-else
-  info "no pack service (tenancy=$TENANCY); nothing to build."
-fi
+step "4. Pack services"
+info "nothing to build: $(pack_step_said)"
 
 # --- step 5: plan and apply -------------------------------------------------
 # The new image(s) go into the var-file itself, so what's planned is what the
@@ -1331,6 +1729,13 @@ terraform plan "${TF_VAR_FILE_ARGS[@]}" -out="$PLAN" \
 # <<<
 check_plan "$PLAN" "$REBUILD_PACK" \
   || die "the plan check failed (above), so nothing was applied. (The backup stays at $EXPORT_URI.)"
+if [[ $SWITCH == true ]]; then
+  printf '\n'
+  warn "This plan moves the deployment to a pack service for each deployment. From the apply until each pack is deployed again (the steps after it say how), calls to a deployed pack's tools are refused: pack-route-missing, then, for about a minute, pack-endpoint-pending. If that matters now, answer no and run this again at a quiet hour."
+  if [[ $TENANCY == "multi" ]]; then
+    warn "With tenancy = \"multi\", stop your own orchestrator before you answer yes: from the apply on, the module's makes each new deployment's service."
+  fi
+fi
 
 # >>> same in both modules: yes-prompt
 printf '\n'
@@ -1383,4 +1788,5 @@ fi
 step "Done"
 info "$CURRENT -> $TARGET applied. Check it with:  kindgi health --url \"$SERVER_URL\" --token <api token>"
 info "Backup kept at $EXPORT_URI; the previous var-file at $VARFILE_BACKUP; the plan applied at $PLAN_KEPT."
+if [[ $SWITCH == true ]]; then print_switch_steps; fi
 exit 0
