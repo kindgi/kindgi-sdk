@@ -1851,6 +1851,10 @@ describe('kindgi deploy --hosted: build there, then wait for the pack service', 
       'a secret the pack reads from its env is over 32 KiB, the most a pack service can be given',
     ],
     [
+      'pack-env-name-too-long',
+      'a name the pack reads from its env as a secret is too long to keep as one: shorten it in the pack',
+    ],
+    [
       'pack-env-secret-unreadable',
       "a secret the pack reads from its env can't be read just now: the platform's team is told, and it's tried again",
     ],

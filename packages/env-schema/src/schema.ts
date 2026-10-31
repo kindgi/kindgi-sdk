@@ -1557,7 +1557,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ORCHESTRATOR_RUNTIME_URL',
     description:
-      'The server, as the pack orchestrator reaches it: its base URL, `https` (`http` only on a loopback host). The orchestrator calls its system routes there: the deployments to give a pack service, to keep warm and to retire, their pack env, and the round that keeps two passes from running at once. The server needs `KINDGI_PACK_ROUTING=per-deployment`.',
+      'The server, as the pack orchestrator reaches it: its base URL, `https` (`http` only on a loopback host). The orchestrator calls its system routes there: the deployments to give a pack service and to retire, their pack env, and the round that keeps two passes from running at once. The server needs `KINDGI_PACK_ROUTING=per-deployment`.',
     example: 'https://kindgi-runtime-123456789012.us-central1.run.app',
     required: true,
     appliesTo: appliesToPackOrchestrator,

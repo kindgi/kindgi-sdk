@@ -79,11 +79,15 @@ export type PackEnvProblemCode = (typeof PACK_ENV_PROBLEM_CODES)[number];
  *   it gives out, so it gives none (`501`). The platform fixes it, and it's
  *   tried again;
  * - `pack-env-secret-too-large`: a secret's value is over 32768 bytes, the
- *   most a pack service can be given.
+ *   most a pack service can be given;
+ * - `pack-env-name-too-long`: a name set as a secret is too long for the
+ *   secret the orchestrator keeps it in, which is named after the pack
+ *   service. Shorten the name in the pack.
  */
 export const PACK_ENV_SECRET_GIVE_CODES = [
   'pack-env-secrets-unaudited',
   'pack-env-secret-too-large',
+  'pack-env-name-too-long',
 ] as const;
 
 /**
