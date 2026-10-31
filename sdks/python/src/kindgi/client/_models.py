@@ -4542,7 +4542,7 @@ CountsAdditionalProperty = TypeAliasType("CountsAdditionalProperty", Annotated[i
 
 class WaitingOn(BaseModel):
     """
-    The run it waits (or waited) for, and until when; kept as the record of the wait.
+    The run or test run it waits (or waited) for, and until when; kept as the record of the wait.
     """
 
     model_config = ConfigDict(
@@ -4576,7 +4576,7 @@ class MemoryErasure(BaseModel):
         Literal["pending", "running", "waiting-on-run", "completed", "failed"] | str, _open.OPEN
     ]
     """
-    `waiting-on-run`: a turn of the person's sits in a flow that serves other people; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.
+    `waiting-on-run`: a turn of the person's sits in a flow that serves other people, or a test run still going has a case from their runs; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.
     """
     phase: Annotated[Literal["seed", "expand", "settle", "erase", "done"] | str, _open.OPEN]
     """
@@ -4604,7 +4604,7 @@ class MemoryErasure(BaseModel):
     """
     waiting_on: Annotated[WaitingOn | None, Field(alias="waitingOn")] = None
     """
-    The run it waits (or waited) for, and until when; kept as the record of the wait.
+    The run or test run it waits (or waited) for, and until when; kept as the record of the wait.
     """
     forced: Literal[True] | None = None
     """
@@ -4675,7 +4675,7 @@ class MemoryErasureLedgerEntry(BaseModel):
         Literal["pending", "running", "waiting-on-run", "completed", "failed"] | str, _open.OPEN
     ]
     """
-    `waiting-on-run`: a turn of the person's sits in a flow that serves other people; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.
+    `waiting-on-run`: a turn of the person's sits in a flow that serves other people, or a test run still going has a case from their runs; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
@@ -4707,7 +4707,7 @@ class ResumeMemoryErasureBody(BaseModel):
     )
     force: bool | None = None
     """
-    Stop waiting for a run in a flow that serves other people: it's cancelled, and the erasure goes on.
+    Stop waiting for a run in a flow that serves other people, or a test run with a case from the person's runs: it's cancelled, and the erasure goes on.
     """
 
 

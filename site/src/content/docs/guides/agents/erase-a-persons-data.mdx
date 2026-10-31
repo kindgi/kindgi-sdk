@@ -258,6 +258,13 @@ until a deadline, `KINDGI_ERASURE_SHARED_WAIT_MS`, 7 days by default. Then it
 cancels the run and goes on. Erasing a person also clears the records of
 flows they shared with others.
 
+A test run still going can have a case from the person's runs. It keeps its
+case results until it ends, and it serves the agent's owner and the people
+of its other cases too. So the erasure waits for it the same way, with
+`waitingOn` naming the test run, until the same deadline. Then it cancels
+the test run and goes on. A test run with none of the person's cases isn't
+waited for.
+
 To act before the deadline, where `<erasure-id>` is the erasure's id:
 
 ```sh

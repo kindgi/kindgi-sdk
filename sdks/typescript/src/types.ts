@@ -1290,8 +1290,9 @@ export interface MemoryErasure {
   /** The last failure's code, or `not-yet:<reason>` while it waits. Never content. */
   readonly lastError?: string;
   /**
-   * The run it waits (or waited) for, and until when: a turn of the
-   * person's in a flow that serves other people (`waiting-on-run`).
+   * The run or test run it waits (or waited) for, and until when: a turn
+   * of the person's in a flow that serves other people, or a test run
+   * still going with a case from their runs (`waiting-on-run`).
    */
   readonly waitingOn?: { readonly runId: string; readonly until?: string };
   /** A tenant admin said not to wait. */
