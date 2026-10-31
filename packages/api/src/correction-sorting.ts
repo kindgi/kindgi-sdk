@@ -287,9 +287,9 @@ function outcomeChange(
   };
 }
 
-const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-const IMPROVE_RUN_LINK = new RegExp(`^ir-(${UUID})$`, 'i');
-const SUGGESTED_CHANGE_LINK = new RegExp(`^sc-(${UUID})$`, 'i');
+const IMPROVE_RUN_LINK = /^ir-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+const SUGGESTED_CHANGE_LINK =
+  /^sc-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
 /**
  * A link from its wire form: a URL is a pull request, `ir-` and an id an
