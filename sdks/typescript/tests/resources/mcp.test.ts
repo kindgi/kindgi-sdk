@@ -25,7 +25,7 @@ describe('mcp.endpoints.list', () => {
     });
 
     const page = await client.mcp.endpoints.list({ transport: 'stdio' });
-    expect(page.items[0]?.endpointId).toBe('mcp-1');
+    expect(page.data[0]?.endpointId).toBe('mcp-1');
     const url = new URL(stub.calls[0]?.url);
     expect(url.pathname).toBe('/v1/mcp/endpoints');
     expect(url.searchParams.get('transport')).toBe('stdio');

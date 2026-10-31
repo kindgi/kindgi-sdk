@@ -16,7 +16,7 @@
  * Naming convention:
  *   - `<Entity>Id`     — a single identifier for that entity kind.
  *   - Most entity kinds in the `@kindgi/specs/*.schema.json` files have an ID
- *     here (eval suites, for one, use plain strings); some IDs (e.g.
+ *     here (test sets, for one, use plain strings); some IDs (e.g.
  *     `ConversationId`, `TriggerId`) name entities that have no schema.
  *
  * If you add a new entity kind to Kindgi, add its ID here. Consumers rely on
@@ -149,14 +149,14 @@ export type ApprovalId = Brand<string, 'ApprovalId'>;
 /** A reviewer registered with HITL — carries a role class (standard/senior/admin). */
 export type ReviewerId = Brand<string, 'ReviewerId'>;
 
-/** A supervisor definition — the actor that observes runs and proposes fixes. */
+/** A supervisor definition — the actor that observes runs and suggests fixes. */
 export type SupervisorId = Brand<string, 'SupervisorId'>;
 
 /** A recorded supervisor observation of a single agent run. */
 export type ObservationId = Brand<string, 'ObservationId'>;
 
-/** A supervisor's proposed fix to an agent artifact (prompt / retrieval / tool-config). */
-export type FixProposalId = Brand<string, 'FixProposalId'>;
+/** A suggested change to an agent artifact (prompt / retrieval / tool-config). */
+export type SuggestedChangeId = Brand<string, 'SuggestedChangeId'>;
 
 /** A signed audit bundle exported from HITL. Wraps approvals + evidence + provenance refs. */
 export type AuditBundleId = Brand<string, 'AuditBundleId'>;

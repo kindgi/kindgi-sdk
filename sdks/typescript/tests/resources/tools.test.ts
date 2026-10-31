@@ -26,7 +26,7 @@ describe('tools.list', () => {
     });
 
     const page = await client.tools.list({ name: 'acme.', limit: 10 });
-    expect(page.items[0]?.id).toBe('acme.verify-citation');
+    expect(page.data[0]?.id).toBe('acme.verify-citation');
     expect(page.nextCursor).toBe('cur-1');
     const url = new URL(stub.calls[0]?.url);
     expect(url.searchParams.get('name')).toBe('acme.');
@@ -82,7 +82,7 @@ describe('tools.listVersions', () => {
     });
 
     const page = await client.tools.listVersions('acme.verify-citation' as never, { limit: 5 });
-    expect(page.items.map((t) => (t as { version: string }).version)).toEqual(['2.0.0', '1.0.0']);
+    expect(page.data.map((t) => (t as { version: string }).version)).toEqual(['2.0.0', '1.0.0']);
     const url = new URL(stub.calls[0]?.url);
     expect(url.pathname).toBe('/v1/tools/acme.verify-citation/versions');
     expect(url.searchParams.get('limit')).toBe('5');

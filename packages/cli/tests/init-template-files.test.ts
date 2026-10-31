@@ -21,6 +21,7 @@ const TEMPLATE_NAMES = [
   'java',
   'minimal',
   'python',
+  'returns-helper',
   'sample',
   'woocommerce',
 ];

@@ -107,8 +107,8 @@ describe('retention.sweep', () => {
 
   it('with a domain, POSTs /v1/retention/sweep/{domain}', async () => {
     const { stub, client: c } = client({ perDomain: [], totalPurged: 0 });
-    await c.retention.sweep({ domain: 'judge_class' });
-    expect(stub.calls[0]?.url).toBe('https://api.example.com/v1/retention/sweep/judge_class');
+    await c.retention.sweep({ domain: 'corrector_group' });
+    expect(stub.calls[0]?.url).toBe('https://api.example.com/v1/retention/sweep/corrector_group');
     expect(JSON.parse(stub.calls[0]?.body ?? '{}')).toEqual({});
   });
 });

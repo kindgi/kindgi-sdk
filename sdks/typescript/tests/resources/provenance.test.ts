@@ -106,7 +106,7 @@ describe('provenance.query', () => {
       flowId: 'acme.report' as never,
       createdAfter: '2026-01-01T00:00:00Z' as never,
     });
-    expect(page.items[0]?.signed).toBe(false);
+    expect(page.data[0]?.signed).toBe(false);
     expect(page.flowId).toBe('acme.report');
     const url = new URL(stub.calls[0]?.url);
     expect(url.searchParams.get('runId')).toBe('run-1');
@@ -135,7 +135,7 @@ describe('provenance.query', () => {
     });
 
     const page = await client.provenance.query({ flowId: 'acme.report' as never });
-    expect(page.items).toHaveLength(1);
+    expect(page.data).toHaveLength(1);
     expect(page).not.toHaveProperty('flowId');
   });
 });

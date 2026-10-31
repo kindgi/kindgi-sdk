@@ -104,7 +104,7 @@ describe('projects — wire round-trips', () => {
       agentId: 'acme.order-desk',
       scope: { kind: 'org', orgId: 'o1' },
       version: '1.0.0',
-      promotionId: '0d6a3c1e-6f3e-4c7a-9a59-2f0b6c3c8e11',
+      changeId: '0d6a3c1e-6f3e-4c7a-9a59-2f0b6c3c8e11',
       setAt: '2026-10-28T00:00:00Z',
     };
     const stub = recordingFetch([
@@ -126,5 +126,26 @@ describe('projects — wire round-trips', () => {
       'GET /v1/projects/p1/pinned-versions?limit=1',
       'GET /v1/projects/p1/pinned-versions?limit=1&cursor=c1',
     ]);
+  });
+
+  it('setRepoConnection PUTs the connection, and clearRepoConnection DELETEs it', async () => {
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ projectId: 'p1', repoConnectionId: 'conn-1' }) },
+      { status: 200, body: JSON.stringify({ projectId: 'p1', repoConnectionId: null }) },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(await client.projects.setRepoConnection('p1', 'conn-1')).toEqual({
+      projectId: 'p1',
+      repoConnectionId: 'conn-1',
+    });
+    expect(await client.projects.clearRepoConnection('p1')).toEqual({
+      projectId: 'p1',
+      repoConnectionId: null,
+    });
+    expect(stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual([
+      'PUT /v1/projects/p1/repo-connection',
+      'DELETE /v1/projects/p1/repo-connection',
+    ]);
+    expect(JSON.parse(stub.calls[0]?.body ?? '{}')).toEqual({ connectionId: 'conn-1' });
   });
 });

@@ -18,9 +18,9 @@ import type {
 } from '@kindgi/runtime';
 import type { ConnectionResolver, ToolRegistry, ToolSecretRef } from '@kindgi/tools';
 import type {
+  AgentPinScope,
   AgentVersionVia,
   EnvName,
-  LiveScope,
   OrgId,
   ProjectId,
   ProvenanceId,
@@ -67,8 +67,8 @@ export interface InvokeAgentInput {
   readonly conversationId: ConversationId;
   /** Why the caller chose this agent version; recorded on the run (`RunAgentRef.via`). */
   readonly versionVia?: AgentVersionVia;
-  /** The live pin that chose it, when `versionVia` is `live`. */
-  readonly liveScope?: LiveScope;
+  /** The pin that chose it, when `versionVia` is `pinned`. */
+  readonly pinnedScope?: AgentPinScope;
   /** The segment path the turn runs for; recorded on its run (`KernelRunRecord.segments`). */
   readonly segments?: readonly ScopeSegment[];
   readonly userMessage: string;
@@ -86,7 +86,7 @@ export interface InvokeAgentInput {
    */
   readonly parent?: ParentRunRef;
   /**
-   * Marks the turn as a replay: an eval run re-running a past run (`of`)
+   * Marks the turn as a replay: a test run re-running a past run (`of`)
    * on this agent version. Recorded on the turn's run and in its snapshot.
    * Its tool calls are decided by `InvokeAgentBindings.replay` (every call
    * is refused when that isn't wired), and only a read-only tool can run.
