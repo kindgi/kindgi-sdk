@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/api/src/**
 
 /**
  * A router's gate decides a request once. Hono's trailing '/*' matches the
