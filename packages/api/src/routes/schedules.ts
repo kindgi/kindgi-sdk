@@ -40,7 +40,6 @@ import {
   type OwnerFacts,
   type TriggerOwnerNames,
   type TriggerOwnerNotices,
-  callerOwns,
   isTriggerAdmin,
   namesAnOwner,
   noteChangeForOwner,
@@ -105,14 +104,15 @@ import { UUID_RE } from './uuid-param.js';
  *
  * An Improve schedule (`improve: { agentId, projectId }`) is in the project
  * it improves, and an agent and project have one at most: a second is
- * `409 schedule-exists`. Registering or changing one takes `publish` on the
- * agent, as starting an Improve run does, and not `write` on the project:
- * its owner changes, pauses, fires or deletes theirs with that alone, and
- * anyone else's change to a personal one still takes a project admin, as a
- * shared one's target, input and tool list do. Retargeting one to an agent
- * or a flow takes what registering that takes. Reading one takes `read` on
- * its project or on its agent, as an Improve run's read does. Its read says
- * when its month's cap has paused it (`pausedUntil`, `pausedReason`).
+ * `409 schedule-exists`. Registering or changing one takes `write` on the
+ * project, as any schedule does, and `publish` on the agent, as starting an
+ * Improve run does; so do resuming and firing it, and the owner rule above
+ * holds. Pausing or deleting one takes the same, or its project's admin
+ * without `publish`, as its runs count toward the project's month cap.
+ * Retargeting one to an agent or a flow takes what registering that takes.
+ * Reading one takes `read` on its project or on its agent, as an Improve
+ * run's read does. Its read says when its month's cap has paused it
+ * (`pausedUntil`, `pausedReason`).
  */
 export function schedulesRouter(
   binding: TriggerRegistryBinding,
@@ -216,11 +216,12 @@ export function schedulesRouter(
     const projectId = rec.projectId as unknown as string;
     const improve = rec.target.kind === 'improve' ? rec.target : undefined;
     const asked: Action = action === 'stop' ? 'write' : action;
-    // Changing an Improve schedule takes `publish` on its agent, as registering it does.
+    // Changing an Improve schedule also takes `publish` on its agent, as registering it does.
     const refused =
-      asked === 'write' && improve !== undefined
+      (await denied(c, asked, ref('project', projectId))) ??
+      (asked === 'write' && improve !== undefined
         ? await targetRefused(c, improve, projectId)
-        : await denied(c, asked, ref('project', projectId));
+        : undefined);
     if (refused !== undefined && !(await improveAlsoAllows(c, action, improve, projectId))) {
       return { kind: 'err', response: refused };
     }
@@ -254,9 +255,9 @@ export function schedulesRouter(
 
   /**
    * What registering `target` in `project` takes: `write` on the project
-   * (a tenant admin when there's none), except for an Improve schedule, and
-   * what firing the target takes ({@link targetRefused}). A retarget asks
-   * the same of its new target.
+   * (a tenant admin when there's none), and what firing the target takes
+   * ({@link targetRefused}), for an Improve schedule `publish` on its agent.
+   * A retarget asks the same of its new target.
    */
   async function registerRefusal(
     c: Context<AppEnv>,
@@ -265,26 +266,10 @@ export function schedulesRouter(
   ): Promise<Response | undefined> {
     const tenantId = c.get('tenantId') as TenantId;
     const projectRefused =
-      target.kind === 'improve'
-        ? undefined
-        : project === undefined
-          ? await denied(c, 'admin', ref('tenant', tenantId as unknown as string))
-          : await denied(c, 'write', ref('project', project));
+      project === undefined
+        ? await denied(c, 'admin', ref('tenant', tenantId as unknown as string))
+        : await denied(c, 'write', ref('project', project));
     return projectRefused ?? (await targetRefused(c, target, project));
-  }
-
-  /**
-   * The owner rule for a change ({@link personalTriggerRefusal}). An
-   * Improve schedule's owner passes on `publish` on the agent, which
-   * {@link scheduleFor} asked, not on `write` on the project; anyone else's
-   * change to a personal one still takes a project admin.
-   */
-  async function notOwnersRefusal(
-    c: Context<AppEnv>,
-    rec: CronTriggerRecord,
-  ): Promise<Response | undefined> {
-    if (rec.target.kind === 'improve' && callerOwns(c, rec.owner)) return undefined;
-    return personalTriggerRefusal(c, authorizer, names, owned(rec), 'schedule');
   }
 
   /**
@@ -588,7 +573,13 @@ export function schedulesRouter(
 
     const found = await scheduleFor(c, 'write');
     if (found.kind === 'err') return found.response;
-    const notOwners = await notOwnersRefusal(c, found.value);
+    const notOwners = await personalTriggerRefusal(
+      c,
+      authorizer,
+      names,
+      owned(found.value),
+      'schedule',
+    );
     if (notOwners !== undefined) return notOwners;
     if (target !== undefined) {
       if (target.value.kind === 'improve' && target.value.projectId !== found.value.projectId) {
@@ -746,7 +737,13 @@ export function schedulesRouter(
       const requestId = c.get('requestId');
       const found = await scheduleFor(c, verb === 'pause' ? 'stop' : 'write');
       if (found.kind === 'err') return found.response;
-      const notOwners = await notOwnersRefusal(c, found.value);
+      const notOwners = await personalTriggerRefusal(
+        c,
+        authorizer,
+        names,
+        owned(found.value),
+        'schedule',
+      );
       if (notOwners !== undefined) return notOwners;
       const { tenantId, triggerId } = found.value;
       const result = await binding[verb]({ tenantId, triggerId });
@@ -766,7 +763,13 @@ export function schedulesRouter(
   r.post('/:triggerId/unregister', async (c) => {
     const found = await scheduleFor(c, 'stop');
     if (found.kind === 'err') return found.response;
-    const notOwners = await notOwnersRefusal(c, found.value);
+    const notOwners = await personalTriggerRefusal(
+      c,
+      authorizer,
+      names,
+      owned(found.value),
+      'schedule',
+    );
     if (notOwners !== undefined) return notOwners;
     const { tenantId, triggerId } = found.value;
     const outcome = await binding.unregister({ tenantId, triggerId });
@@ -837,7 +840,13 @@ export function schedulesRouter(
     const requestId = c.get('requestId');
     const found = await scheduleFor(c, 'write');
     if (found.kind === 'err') return found.response;
-    const notOwners = await notOwnersRefusal(c, found.value);
+    const notOwners = await personalTriggerRefusal(
+      c,
+      authorizer,
+      names,
+      owned(found.value),
+      'schedule',
+    );
     if (notOwners !== undefined) return notOwners;
     if (binding.fireNow === undefined) return unsupported(c, requestId, 'run-now');
     const { tenantId, triggerId } = found.value;

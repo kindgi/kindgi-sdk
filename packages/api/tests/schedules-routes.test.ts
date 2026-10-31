@@ -557,7 +557,7 @@ describe('what each route asks the authorizer', () => {
     return { r, id, checked };
   }
 
-  test('registering an improve schedule: publish on the agent, and nothing on the project', async () => {
+  test('registering an improve schedule: write on the project, then publish on the agent', async () => {
     const checked: string[] = [];
     const r = new Hono<AppEnv>();
     r.use('*', async (c, next) => {
@@ -578,7 +578,7 @@ describe('what each route asks the authorizer', () => {
       body: JSON.stringify(hourly),
     });
     expect(res.status).toBe(201);
-    expect(checked).toEqual(['publish agent:acme.scorer']);
+    expect(checked).toEqual([`write project:${PROJECT}`, 'publish agent:acme.scorer']);
   });
 
   test('registering: write on the project and execute on what it runs', async () => {
@@ -639,9 +639,9 @@ describe('what each route asks the authorizer', () => {
 
   test.each([
     ['GET', '', undefined, [`read project:${PROJECT}`]],
-    ['PATCH', '', { label: 'x' }, ['publish agent:acme.scorer']],
-    ['POST', '/pause', undefined, ['publish agent:acme.scorer']],
-    ['POST', '/unregister', undefined, ['publish agent:acme.scorer']],
+    ['PATCH', '', { label: 'x' }, [`write project:${PROJECT}`, 'publish agent:acme.scorer']],
+    ['POST', '/pause', undefined, [`write project:${PROJECT}`, 'publish agent:acme.scorer']],
+    ['POST', '/unregister', undefined, [`write project:${PROJECT}`, 'publish agent:acme.scorer']],
   ])('an improve schedule: %s %s → %j', async (method, path, body, expected) => {
     const checked: string[] = [];
     const r = new Hono<AppEnv>();
@@ -707,16 +707,16 @@ describe("an improve schedule's owner, its readers, and a retarget to another ki
   }
 
   /**
-   * An improve schedule for acme.scorer, registered with only `publish` on
-   * it by `registrant` (a person; absent, there's no principal, so it's
-   * shared), then called by `caller` (the registrant unless named) holding
-   * `granted`.
+   * An improve schedule for acme.scorer, registered with `publish` on it and
+   * `write` on the project by `registrant` (a person; absent, there's no
+   * principal, so it's shared), then called by `caller` (the registrant
+   * unless named) holding `granted`.
    */
   async function asked(opts: { registrant?: string; caller?: string; granted: readonly string[] }) {
     const registry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT });
     const checked: string[] = [];
     let who = opts.registrant;
-    let grants: readonly string[] = [SCORER];
+    let grants: readonly string[] = [WRITE, SCORER];
     const r = new Hono<AppEnv>();
     r.use('*', async (c, next) => {
       c.set('tenantId' as never, tenantId as never);
@@ -757,8 +757,53 @@ describe("an improve schedule's owner, its readers, and a retarget to another ki
     return { call, checked, stored };
   }
 
-  test('its owner, with only publish on the agent, changes, pauses, resumes, fires and deletes it', async () => {
-    const { call } = await asked({ registrant: OWNER, granted: [SCORER] });
+  test.each([
+    ['only publish on the agent', [SCORER]],
+    ['only write on the project', [WRITE]],
+  ])('registering one with %s is refused', async (_name, granted) => {
+    const registry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT });
+    const r = new Hono<AppEnv>();
+    r.use('*', async (c, next) => {
+      c.set('tenantId' as never, tenantId as never);
+      c.set('requestId' as never, 'req-schedules' as never);
+      c.set('principal' as never, userPrincipal(OWNER, tenantId) as never);
+      return next();
+    });
+    r.route(
+      '/',
+      schedulesRouter(
+        registry,
+        granting(() => granted, []),
+      ),
+    );
+    const res = await r.request('/', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(hourly),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  test.each([
+    ['only publish on the agent', [SCORER]],
+    ['only write on the project', [WRITE]],
+  ])(
+    'its owner with %s changes, resumes, fires, pauses and deletes nothing',
+    async (_name, granted) => {
+      const { call, stored } = await asked({ registrant: OWNER, granted });
+      const before = await stored();
+      expect((await call('PATCH', '', { label: 'nightly scorer' })).status).toBe(403);
+      expect((await call('PATCH', '', { config: { input: { corrections: 8 } } })).status).toBe(403);
+      expect((await call('POST', '/resume')).status).toBe(403);
+      expect((await call('POST', '/run-now')).status).toBe(403);
+      expect((await call('POST', '/pause')).status).toBe(403);
+      expect((await call('POST', '/unregister')).status).toBe(403);
+      expect(await stored()).toEqual(before);
+    },
+  );
+
+  test('its owner, with publish on the agent and write on the project, changes, pauses, resumes, fires and deletes it', async () => {
+    const { call } = await asked({ registrant: OWNER, granted: [SCORER, WRITE] });
     expect((await call('PATCH', '', { label: 'nightly scorer' })).status).toBe(200);
     expect((await call('PATCH', '', { config: { input: { corrections: 8 } } })).status).toBe(200);
     expect((await call('POST', '/pause')).status).toBe(200);
@@ -767,14 +812,18 @@ describe("an improve schedule's owner, its readers, and a retarget to another ki
     expect((await call('POST', '/unregister')).status).toBe(200);
   });
 
-  test("another person with publish on the agent can't change the owner's; a project admin can", async () => {
-    const other = await asked({ registrant: OWNER, caller: OTHER, granted: [SCORER] });
+  test("another person with publish on the agent and write on the project can't change the owner's; a project admin can", async () => {
+    const other = await asked({ registrant: OWNER, caller: OTHER, granted: [SCORER, WRITE] });
     expect((await other.call('PATCH', '', { label: 'mine now' })).status).toBe(403);
-    // Its publish, then the project admin it isn't: never `write` on the project.
-    expect(other.checked).toEqual([SCORER, ADMIN]);
+    // Write on the project, publish on the agent, then the project admin it isn't.
+    expect(other.checked).toEqual([WRITE, SCORER, ADMIN]);
     expect((await other.stored())?.label ?? undefined).toBeUndefined();
 
-    const admin = await asked({ registrant: OWNER, caller: OTHER, granted: [SCORER, ADMIN] });
+    const admin = await asked({
+      registrant: OWNER,
+      caller: OTHER,
+      granted: [SCORER, WRITE, ADMIN],
+    });
     expect((await admin.call('PATCH', '', { label: 'renamed' })).status).toBe(200);
     expect((await admin.stored())?.label).toBe('renamed');
   });
@@ -856,10 +905,10 @@ describe("an improve schedule's owner, its readers, and a retarget to another ki
     },
   );
 
-  test("write on the project doesn't stop one: pausing it takes publish on the agent or the project's admin", async () => {
+  test("write on the project alone doesn't stop one: pausing it takes publish on the agent too, or the project's admin", async () => {
     const writer = await asked({ registrant: OWNER, caller: OTHER, granted: [WRITE] });
     expect((await writer.call('POST', '/pause')).status).toBe(403);
-    expect(writer.checked).toEqual([SCORER, ADMIN]);
+    expect(writer.checked).toEqual([WRITE, SCORER, ADMIN]);
     expect((await writer.call('POST', '/unregister')).status).toBe(403);
     expect((await writer.stored())?.status).toBe('active');
   });

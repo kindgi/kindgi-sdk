@@ -557,16 +557,16 @@ FIRED                     FOR      OUTCOME          STARTED                     
   `owner-lost-publish`. Saving it with a new owner
   ([`take-ownership`](#shared-or-personal)) resumes it.
 - **At most once an hour.**
-- **Who may change it:** registering one takes `publish` on the agent, as
-  starting an Improve run does, and not `write` on the project. So does
-  changing, pausing, resuming, firing or unregistering one: its owner does
-  that with `publish` alone. Anyone else's change to a personal one takes a
-  project admin, as changing what a shared one runs (its agent, input or
-  tools) does. Saving one with an agent or a flow in place of the Improve
-  target takes what registering that takes.
+- **Who may change it:** registering one takes `write` on the project, as
+  any schedule does, and `publish` on the agent, as starting an Improve run
+  does. So does changing, pausing, resuming, firing or unregistering one.
+  Anyone else's change to a personal one also takes a project admin, as
+  changing what a shared one runs (its agent, input or tools) does. Saving
+  one with an agent or a flow in place of the Improve target takes what
+  registering that takes.
 - **Who may stop it:** an admin of its project may also pause or unregister
   one without `publish` on the agent, as its Improve runs count toward the
-  project's month. Changing, resuming or firing one still takes `publish`.
+  project's month. Changing, resuming or firing one still takes both.
 - **Who may read it:** reading one, or its fires, takes `read` on its
   project or on the agent, as reading an Improve run does.
 
