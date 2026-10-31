@@ -5329,7 +5329,10 @@ export const CorrectionLinkSchema: JsonSchema = {
       required: ['kind', 'id'],
       properties: {
         kind: { type: 'string', enum: ['improve-run', 'suggested-change'] },
-        id: { type: 'string' },
+        id: {
+          type: 'string',
+          description: "The Improve run's or suggested change's id, without its prefix.",
+        },
       },
     },
     {
@@ -5909,7 +5912,7 @@ export const ChangeCorrectionBodySchema: JsonSchema = {
     link: {
       type: 'string',
       description:
-        'With `status: "being-fixed"`: a pull request URL, an Improve run (`ir-…`) or a suggested change (`sc-…`).',
+        'With `status: "being-fixed"`: a pull request URL, an Improve run (`ir-<its id>`) or a suggested change (`sc-<its id>`).',
     },
     reason: {
       type: 'string',

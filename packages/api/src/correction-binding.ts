@@ -289,7 +289,10 @@ export interface CorrectionSorted {
   readonly at: string;
 }
 
-/** The work fixing a correction, while it's `being-fixed`. */
+/**
+ * The work fixing a correction, while it's `being-fixed`. An Improve run or
+ * a suggested change is named by its id, without its prefix.
+ */
 export type CorrectionLink =
   | { readonly kind: 'improve-run'; readonly id: string }
   | { readonly kind: 'suggested-change'; readonly id: string }

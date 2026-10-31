@@ -3,6 +3,7 @@
 
 import { type Context, Hono } from 'hono';
 
+import type { AuditEventBinding } from '@kindgi/audit-events';
 import {
   type AdapterConfig,
   type AdapterConfigProblem,
@@ -15,9 +16,8 @@ import {
   modelThinkingProblem,
   validateProviderLabels,
 } from '@kindgi/capabilities';
-import type { Cursor, TenantId } from '@kindgi/types';
-import type { AuditEventBinding } from '@kindgi/audit-events';
 import { emitAuditEvent } from '@kindgi/compliance';
+import type { Cursor, TenantId } from '@kindgi/types';
 
 import { callerIdentity } from '../caller.js';
 import type { CapabilityDescriptor } from '../capability-binding.js';

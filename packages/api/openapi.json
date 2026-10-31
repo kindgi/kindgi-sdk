@@ -6587,7 +6587,8 @@
                 ]
               },
               "id": {
-                "type": "string"
+                "type": "string",
+                "description": "The Improve run's or suggested change's id, without its prefix."
               }
             }
           },
@@ -6690,7 +6691,7 @@
           },
           "link": {
             "type": "string",
-            "description": "With `status: \"being-fixed\"`: a pull request URL, an Improve run (`ir-…`) or a suggested change (`sc-…`)."
+            "description": "With `status: \"being-fixed\"`: a pull request URL, an Improve run (`ir-<its id>`) or a suggested change (`sc-<its id>`)."
           },
           "reason": {
             "type": "string",
