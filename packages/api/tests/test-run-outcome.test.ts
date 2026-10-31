@@ -21,6 +21,7 @@ import {
   applyTestRunOutcome,
   latestRunCorrelation,
   pinRunCorrelation,
+  reapplyTestRunOutcomes,
   testRunReason,
 } from '../src/index.js';
 import { inMemoryCorrections } from './support/in-memory-corrections.js';
@@ -159,8 +160,11 @@ function harness() {
     return testRunId;
   };
   const apply = (testRunId: RunId) => applyTestRunOutcome(deps, { tenantId, testRunId });
+  /** Runs applied again, newest first, as a start-up reconcile does. */
+  const reapply = (...testRunIds: RunId[]) =>
+    reapplyTestRunOutcomes(deps, { tenantId, testRunIds });
   const get = async (correctionId: string) => corrections.get({ tenantId, correctionId });
-  return { corrections, project, corrected, ran, apply, get };
+  return { corrections, project, corrected, ran, apply, reapply, get };
 }
 
 describe('a test run names why it started', () => {
@@ -316,5 +320,35 @@ describe('a run that changes nothing', () => {
     const run = h.ran('13.0.0', pinRunCorrelation(v13.id), { [id]: true });
     expect(await h.apply(run)).toEqual({ fixed: [id], reopened: [] });
     expect(await h.apply(run)).toEqual({ fixed: [], reopened: [] });
+  });
+});
+
+describe('applying ended runs again, newest first', () => {
+  test('a run whose end was never applied lands, and one applied before changes nothing', async () => {
+    const h = harness();
+    const id = await h.corrected();
+    const v13 = h.project.pin('13.0.0', ana);
+    const applied = h.ran('13.0.0', pinRunCorrelation(v13.id), { [id]: true });
+    await h.apply(applied);
+    const v14 = h.project.pin('14.0.0', ben);
+    const missed = h.ran('14.0.0', pinRunCorrelation(v14.id), { [id]: false });
+    expect(await h.reapply(missed, applied)).toEqual({ fixed: [], reopened: [id] });
+    expect(await h.get(id)).toMatchObject({
+      status: 'open',
+      fixedIn: { version: '13.0.0', by: ana },
+      reopenedIn: { version: '14.0.0', how: 'pin', by: ben },
+    });
+  });
+
+  test("of two runs of the version a project runs, an older one's fail never lands over a newer one's pass", async () => {
+    const h = harness();
+    const id = await h.corrected();
+    const v13 = h.project.pin('13.0.0', ana);
+    await h.apply(h.ran('13.0.0', pinRunCorrelation(v13.id), { [id]: true }));
+    // Neither end was applied: the older fails it, the newer passes it and so changes nothing.
+    const older = h.ran('13.0.0', pinRunCorrelation(v13.id), { [id]: false });
+    const newer = h.ran('13.0.0', pinRunCorrelation(v13.id), { [id]: true });
+    expect(await h.reapply(newer, older)).toEqual({ fixed: [], reopened: [] });
+    expect(await h.get(id)).toMatchObject({ status: 'fixed', fixedIn: { version: '13.0.0' } });
   });
 });

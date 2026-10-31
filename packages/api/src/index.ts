@@ -559,6 +559,7 @@ export {
   applyTestRunOutcome,
   latestRunCorrelation,
   pinRunCorrelation,
+  reapplyTestRunOutcomes,
   testRunReason,
 } from './test-run-outcome.js';
 export type { RegistryReadOnly } from './registry-read-only.js';

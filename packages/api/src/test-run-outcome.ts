@@ -96,6 +96,41 @@ export async function applyTestRunOutcome(
   deps: TestRunOutcomeDeps,
   input: { readonly tenantId: TenantId; readonly testRunId: RunId },
 ): Promise<TestRunOutcome | undefined> {
+  return applyOne(deps, input, new Set());
+}
+
+/**
+ * Apply again the outcomes of a tenant's ended runs, `testRunIds` newest
+ * first: a process that stopped between a run's end and applying it never
+ * applied it. Each correction is left to the newest of them that checked it
+ * in a version its project still runs, so an older run's outcome never
+ * lands over a newer one's, even where the newer one changed nothing. A run
+ * applied before changes nothing again. Answers what they changed.
+ */
+export async function reapplyTestRunOutcomes(
+  deps: TestRunOutcomeDeps,
+  input: { readonly tenantId: TenantId; readonly testRunIds: readonly RunId[] },
+): Promise<TestRunOutcome> {
+  const decided = new Set<string>();
+  const fixed: string[] = [];
+  const reopened: string[] = [];
+  for (const testRunId of input.testRunIds) {
+    const outcome = await applyOne(deps, { tenantId: input.tenantId, testRunId }, decided);
+    fixed.push(...(outcome?.fixed ?? []));
+    reopened.push(...(outcome?.reopened ?? []));
+  }
+  return { fixed, reopened };
+}
+
+/**
+ * One run's outcome, leaving out the corrections in `decided`, and adding
+ * to it the ones this run checked once it applies.
+ */
+async function applyOne(
+  deps: TestRunOutcomeDeps,
+  input: { readonly tenantId: TenantId; readonly testRunId: RunId },
+  decided: Set<string>,
+): Promise<TestRunOutcome | undefined> {
   const { tenantId } = input;
   const run = await deps.testRuns.get(input);
   const check = run === null ? undefined : endedCheck(run);
@@ -108,7 +143,8 @@ export async function applyTestRunOutcome(
   }
   const moved = await howItMoved(deps.agentPins, tenantId, check, { ...now, runs }, run);
   if (moved === undefined) return undefined;
-  const passed = passedByCorrection(run);
+  const passed = new Map([...passedByCorrection(run)].filter(([id]) => !decided.has(id)));
+  for (const id of passed.keys()) decided.add(id);
   if (passed.size === 0) return { fixed: [], reopened: [] };
   const plan = planRunOutcome({
     version,
