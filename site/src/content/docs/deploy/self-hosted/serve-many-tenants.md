@@ -457,11 +457,14 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/purge" \
 - **`confirm` is the tenant's slug,** a second check on the id. Another
   value is `400 tenant-slug-mismatch`, and nothing is changed.
 - **The servers need `KINDGI_TENANT_PURGE_RECORD`:** where purge records
-  are kept, `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]`, the same
-  place as the command's `--record`. Unset, every purge is refused with
-  `409 purge-record-unset`: without a record, restoring a backup taken
-  before the purge would bring the tenant back, with nothing to purge it
-  again ([`kindgi-runtime tenants repurge`](#after-a-restore-tenants-repurge)
+  are kept, `local:<absolute dir>`, `gcs:<bucket>[/<prefix>]` or
+  `s3:<bucket>[/<prefix>]` (runtime 0.3.0 or later), the same place as the
+  command's `--record`
+  ([Choose where the runtime keeps files](../store-files/)). Unset, every
+  purge is refused with `409 purge-record-unset`: without a record,
+  restoring a backup taken before the purge would bring the tenant back,
+  with nothing to purge it again
+  ([`kindgi-runtime tenants repurge`](#after-a-restore-tenants-repurge)
   reads the records after a restore).
 - **It answers when it's done,** after its wait. The answer names each
   table's rows it deleted (`deleted`), the objects deleted from the
@@ -542,8 +545,9 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
   `kindgi-runtime check purged-tenants` lists every tenant marked purged
   that still holds rows, by table and count: rows only, not the bytes under
   its prefix.
-- **`--record`** (`local:<dir>` or `gcs:<bucket>[/<prefix>]`) keeps a record
-  of each purge, `purged/<tenant id>.json` under it. After a restore,
+- **`--record`** (`local:<dir>`, `gcs:<bucket>[/<prefix>]`, or
+  `s3:<bucket>[/<prefix>]` with runtime 0.3.0 or later) keeps a record of
+  each purge, `purged/<tenant id>.json` under it. After a restore,
   [`tenants repurge`](#after-a-restore-tenants-repurge) reads them.
 - **One purge of a tenant runs at a time** (runtime 0.1.10 or later): a
   second, here or through the system API, waits for the first to finish.
@@ -564,10 +568,11 @@ kindgi-runtime tenants repurge --from <where> --ledger <where>
 ```
 
 - **Two sources name the tenants:** the purge records under `--from`
-  (`local:<dir>` or `gcs:<bucket>[/<prefix>]`, where `--record` and
-  `KINDGI_TENANT_PURGE_RECORD` write them), and the newest copy of the
-  erasure ledger under `--ledger` (runtime 0.1.10 or later), which names
-  every tenant purged before it was written, however long ago. A record can
+  (`local:<dir>`, `gcs:<bucket>[/<prefix>]` or `s3:<bucket>[/<prefix>]`,
+  where `--record` and `KINDGI_TENANT_PURGE_RECORD` write them), and the
+  newest copy of the erasure ledger under `--ledger` (runtime 0.1.10 or
+  later), which names every tenant purged before it was written, however
+  long ago. A record can
   be gone, deleted by a bucket's retention rule, say; the copy still names
   its tenant. A tenant both name is purged once.
 - **`--ledger`** takes what `erasures replay --from` takes: a directory, a
@@ -581,7 +586,8 @@ kindgi-runtime tenants repurge --from <where> --ledger <where>
   (`--from gcs:<bucket>`) and the server's copies under `runtime/`
   (`--ledger gcs:<bucket>/runtime`). Reading a bucket, it lists and
   downloads, so whatever runs it needs read access to it, as
-  [replay](../back-up-and-restore/) does.
+  [replay](../back-up-and-restore/) does
+  ([the permissions](../store-files/#files-written-once)).
 - **Run it with `--dry-run` first,** and nothing changes. Its first line
   says what it read:
   `tenants repurge --dry-run: <n> purge records, and the ledger's copy <file> (written <when>; <n> purged tenants). Nothing will be changed.`

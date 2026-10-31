@@ -48,6 +48,9 @@ password ([Pull the runtime image](../deploy/self-hosted/pull-the-runtime-image/
 - **[Keep secrets in your own secret manager](self-hosted/secret-manager/):** Azure Key
   Vault, Google Secret Manager or HashiCorp Vault holds the secrets set
   through Kindgi's API, and Kindgi keeps their names and versions.
+- **[Choose where the runtime keeps files](self-hosted/store-files/):** a
+  directory, a Google Cloud Storage bucket, or an S3 bucket holds
+  artifacts, the erasure ledger's copies and purge records.
 - **[Keep and purge deleted data](retention/):** how long deleted records
   are kept, and the retention policies and sweeps that purge them.
 - **[Turn on sign-in](self-hosted/sign-in/):** people sign in to the console with their
