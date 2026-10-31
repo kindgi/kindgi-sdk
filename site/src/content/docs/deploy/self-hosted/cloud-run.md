@@ -326,8 +326,10 @@ pack service (`KINDGI_PACK_ROUTING=per-deployment`), at a Cloud Run URL of
 this project and region
 (`KINDGI_PACK_ENDPOINT_HOSTS = "*-<project number>.<region>.run.app"`). Each
 service's token is sealed under the module's KMS key
-(`KINDGI_PACK_ENDPOINT_KMS_KEY`). `server_env` and `server_secret_env` can't
-set these. No deployment has a service until the pack orchestrator is on.
+(`KINDGI_PACK_ENDPOINT_KMS_KEY`). It also lets a pack's env name a secret of
+yours in Secret Manager, a cloud secret (`KINDGI_ENV_CLOUD_SECRETS=on`).
+`server_env` and `server_secret_env` can't set these. No deployment has a
+service until the pack orchestrator is on.
 
 The KMS checks come right before, as log lines of their own: one for the
 pack services' tokens, and with `secrets_backend = "postgres"` one for the
@@ -466,7 +468,8 @@ stored in Kindgi: its plain values, and cloud secrets
 ### Read a secret of yours
 
 A pack's env can name a secret of yours in Secret Manager as a cloud secret,
-pinned to a version. Set it with a system key, such as the API token in
+pinned to a version (the module turns this on: `KINDGI_ENV_CLOUD_SECRETS=on`).
+Set it with a system key, such as the API token in
 `KINDGI_API_TOKEN` ([5. Trust your key, and deploy](#5-trust-your-key-and-deploy)):
 
 ```sh

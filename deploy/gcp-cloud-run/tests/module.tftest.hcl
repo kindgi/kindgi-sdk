@@ -112,6 +112,13 @@ run "secrets_backend_none_seals_endpoint_tokens_under_the_key" {
     condition     = contains([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name], "KINDGI_PACK_ENDPOINT_KMS_KEY")
     error_message = "secrets_backend = none still names the key the server seals endpoint tokens under."
   }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_ENV_CLOUD_SECRETS"
+    ]) == "on"
+    error_message = "secrets_backend = none still takes cloud secrets in a pack's env."
+  }
 }
 
 run "postgres_needs_the_aad_key_version" {
@@ -879,6 +886,13 @@ run "the_server_routes_per_deployment" {
     error_message = "The server takes an endpoint only on Cloud Run's URLs in this project (by number) and region."
   }
   assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_ENV_CLOUD_SECRETS"
+    ]) == "on"
+    error_message = "The server takes cloud secrets in a pack's env, which each deployment's own service reads."
+  }
+  assert {
     condition     = length(setintersection(toset([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name]), local.single_pack_env)) == 0
     error_message = "The server gets none of the one pack service's settings."
   }
@@ -896,6 +910,14 @@ run "the_pack_routing_is_the_modules" {
   command = plan
   variables {
     server_env = { KINDGI_PACK_ROUTING = "single" }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "the_cloud_secrets_switch_is_the_modules" {
+  command = plan
+  variables {
+    server_env = { KINDGI_ENV_CLOUD_SECRETS = "on" }
   }
   expect_failures = [google_cloud_run_v2_service.server]
 }

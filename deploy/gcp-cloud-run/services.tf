@@ -27,6 +27,7 @@ locals {
   server_module_env = toset([
     "KINDGI_API_TOKEN", "KINDGI_CORS_ORIGINS", "KINDGI_DATABASE_SERVER_CA",
     "KINDGI_DATABASE_SERVER_CA_PATH", "KINDGI_DATABASE_URL", "KINDGI_DEV", "KINDGI_ENV",
+    "KINDGI_ENV_CLOUD_SECRETS",
     "KINDGI_EXPORT_SIGNING_KEY", "KINDGI_EXPORT_SIGNING_KMS_KEY", "KINDGI_IMAGE_REGISTRY_AUTH",
     "KINDGI_IMAGE_REGISTRY_HOST", "KINDGI_LICENSE_KEY", "KINDGI_OPENFGA_API_URL",
     "KINDGI_PACK_CALL_TIMEOUT_MS", "KINDGI_PACK_ENDPOINT_HOSTS", "KINDGI_PACK_ENDPOINT_KMS_KEY",
@@ -256,6 +257,14 @@ resource "google_cloud_run_v2_service" "server" {
       env {
         name  = "KINDGI_PACK_ENDPOINT_KMS_KEY"
         value = google_kms_crypto_key.secrets.id
+      }
+      # A pack's env may name a secret of yours in Secret Manager, pinned to
+      # a version (a cloud secret), whatever the secrets backend: each
+      # deployment's own service reads it as the pack account
+      # (pack_secret_readers).
+      env {
+        name  = "KINDGI_ENV_CLOUD_SECRETS"
+        value = "on"
       }
 
       # Reading deployments' images from Artifact Registry with the
