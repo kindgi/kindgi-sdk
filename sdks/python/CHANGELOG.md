@@ -13,6 +13,18 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`client.corrections.thumbs` records an end user's thumbs up or down from
+  your app's server.** `thumbs(run_id=..., participant_id=..., up=..., why=...)` posts a
+  correction of the run's answer, made for the end user: `answer="right"` for a thumbs
+  up, `"wrong"` for a thumbs down, with their words as `why`. A thumbs down needs `why`,
+  and without it the API answers 400 (`InvalidRequestError`). `AsyncKindgi` has it too.
+- `kindgi`: **a comparison's `pass_rate` counts what each case expects.**
+  Each part of a frozen case's graded `expect`, its decisions and its
+  answer, is one check of weight 1 in `pass_rate`, beside the case's items,
+  and its `n` counts the case. The case's entry in `corrections` has
+  `parts`, whether each part passed on every repetition. So a test set of
+  cases that expect only an answer has a `pass_rate` instead of `None`.
+  `case_coverage` and `weighted_precision_at_k` stay items only.
 - `kindgi`: **corrections export.** `kindgi.corrections.export(agent_id=...)`
   yields an agent's corrections in chunks of bytes, as CSV, or as JSON lines
   with `format="jsonl"`, taking the list's filters. Write the chunks to a file

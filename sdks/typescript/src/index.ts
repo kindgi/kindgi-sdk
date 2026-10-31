@@ -334,6 +334,7 @@ export type {
   CorrectionExportFilter,
   CorrectionFilter,
   CorrectionsClient,
+  ThumbsInput,
 } from './resources/corrections.js';
 export type {
   McpClient,
