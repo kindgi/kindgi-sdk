@@ -20,6 +20,7 @@ import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { Cursor, RunId, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from './agent-binding.js';
+import type { AnswerCheckBinding } from './answer-check-binding.js';
 import {
   type ItemChanges,
   type ItemCorrections,
@@ -28,6 +29,7 @@ import {
   matchCorrected,
   outputItems,
   scoreItems,
+  turnToolIds,
   withFresh,
 } from './corrected-items.js';
 import { groupWeightReader, summarizeByItem } from './corrected-summary.js';
@@ -43,6 +45,7 @@ import {
   type CandidateCall,
   gradeExpectedDecisions,
 } from './expected-decisions.js';
+import type { TestCaseAnswer, TestCaseDecisions, TestCaseExpect } from './test-case-binding.js';
 import type {
   AgentRef,
   FlowRef,
@@ -242,15 +245,15 @@ export interface CorrectedCaseResult {
   /**
    * Each correction on the case, graded on the replay: its verdict and how
    * many of the repetitions passed (it passes only when every one did).
-   * Shown, not enforced. Kept through an erasure — the differences, which
-   * quote values, are in `correctionDifferences`.
+   * Shown, not enforced. Kept through an erasure, all but `why` — the
+   * differences, which quote values, are in `correctionDifferences`.
+   *
+   * A case that carries `expect` gives one entry instead, keyed by the
+   * case's id: it passes a repetition when every part it expects passed
+   * on it. It gives none when it expects only items, or when a part
+   * couldn't be checked.
    */
-  readonly corrections?: readonly {
-    readonly correctionId: string;
-    readonly pass: boolean;
-    readonly repetitionsPassed: number;
-    readonly repetitions: number;
-  }[];
+  readonly corrections?: readonly CorrectionGraded[];
   /**
    * How each correction's calls differed, by correction: the differences from
    * the first repetition that failed it, and that repetition's number (the
@@ -265,8 +268,9 @@ export interface CorrectedCaseResult {
   }[];
   /**
    * What each repetition's replay cost in model calls, as the runtime
-   * reported it, one per repetition. Absent when a repetition reported
-   * none.
+   * reported it, one per repetition, with what checking its answer cost
+   * (`CorrectedDispatcherOptions.answers`). Absent when a repetition
+   * reported none.
    */
   readonly costUsd?: readonly number[];
   readonly diverged: boolean;
@@ -287,6 +291,25 @@ export interface CorrectedCaseResult {
   readonly rescored?: false;
 }
 
+/** One correction graded on a case, or the case's own `expect`. */
+export interface CorrectionGraded {
+  readonly correctionId: string;
+  readonly pass: boolean;
+  /**
+   * How many repetitions passed. For a case's `expect` with an `answer`,
+   * the repetitions after the first that failed aren't checked, and count
+   * as not passed.
+   */
+  readonly repetitionsPassed: number;
+  readonly repetitions: number;
+  /**
+   * The judging model's reason, from the first repetition that failed,
+   * when it failed on its answer (a case's `expect.answer`) and the model
+   * gave one. It can quote the answer, so an erasure clears it.
+   */
+  readonly why?: string;
+}
+
 /** Reads a replay run's output again, for a rescore. */
 export interface ReplayRunReader {
   getRun(tenantId: TenantId, runId: RunId): Promise<{ readonly output?: unknown } | null>;
@@ -304,6 +327,13 @@ export interface CorrectedDispatcherOptions {
   readonly testRuns?: Pick<TestRunBinding, 'get'>;
   readonly runs?: ReplayRunReader;
   readonly corrections?: Pick<CorrectionRegistryBinding, 'list' | 'getGroup'>;
+  /**
+   * Checks a replay's answer against a case's `expect.answer`, with the
+   * judging model (`DispatchContext.judging`, else the tested version's
+   * own). The host passes it in. Without it, a case that expects
+   * something of the answer has no pass. A rescore never calls it.
+   */
+  readonly answers?: AnswerCheckBinding;
 }
 
 export const RESCORE_UNSUPPORTED =
@@ -398,7 +428,7 @@ async function replayAll(
   let halt: Halt | undefined;
   for (const correctedCase of all) {
     if (ctx.abortSignal.aborted) break;
-    const result = await runCase(ctx, comparison, correctedCase, models);
+    const result = await runCase(ctx, comparison, correctedCase, models, options.answers);
     if (result === 'erased') {
       erasedLate.add(correctedCase.caseId);
       continue;
@@ -479,18 +509,28 @@ class CaseTally {
   private correctionRepetitions = 0;
   /** Each repetition's reported cost, in order (undefined where one reported none). */
   private readonly costs: (number | undefined)[] = [];
+  /** Each repetition as a case's `expect` is graded on it, in order. */
+  readonly repetitions: Repetition[] = [];
 
   constructor(
     private readonly correctedCase: CorrectedTestCase,
     private readonly comparison: TestRunComparison,
     private readonly agentTurn: boolean,
   ) {
-    this.correctionsCase = correctedCase.corrections ?? [];
+    // A case that carries `expect` is graded from it, not from its corrections.
+    this.correctionsCase =
+      correctedCase.expect === undefined ? (correctedCase.corrections ?? []) : [];
   }
 
   add(outcome: TestRunSubjectInvokeOutcome): 'ran' | 'stopped' | 'error' {
-    this.gradeCorrections(outcome);
+    const calls = candidateCalls(outcome);
+    this.gradeCorrections(calls);
     this.costs.push(outcome.costUsd);
+    this.repetitions.push({
+      ran: outcome.stopped === undefined && outcome.error === undefined,
+      output: outcome.output,
+      calls,
+    });
     if (outcome.runId !== undefined) this.runIds.push(outcome.runId as unknown as string);
     if (outcome.stopped !== undefined) {
       this.stopped ??= outcome.stopped;
@@ -534,17 +574,10 @@ class CaseTally {
    * a `calls` correction fails it. The first repetition that fails a
    * correction keeps its differences, with its repetition number.
    */
-  private gradeCorrections(outcome: TestRunSubjectInvokeOutcome): void {
+  private gradeCorrections(calls: readonly CandidateCall[]): void {
     if (this.correctionsCase.length === 0) return;
     this.correctionRepetitions += 1;
     const repetition = this.correctionRepetitions;
-    const calls: CandidateCall[] = (outcome.replay?.tools ?? []).map((t) => ({
-      tool: t.toolId,
-      args: asArgs(t.arguments),
-      step: t.step,
-      callId: t.callId,
-      ...(t.source === 'refused' && { refused: true }),
-    }));
     for (const c of this.correctionsCase) {
       const graded = gradeExpectedDecisions(c, calls);
       if (graded.pass) {
@@ -558,10 +591,11 @@ class CaseTally {
     }
   }
 
-  result(baseline: OutputScore): CorrectedCaseResult {
+  /** The case's result; `graded`: its `expect`, graded (`gradeExpect`). */
+  result(baseline: OutputScore, graded?: ExpectGraded): CorrectedCaseResult {
     const none = this.candidate.length === 0;
     const n = this.comparison.repetitions;
-    const corrections = this.correctionsCase.map((c) => {
+    const corrections: CorrectionGraded[] = this.correctionsCase.map((c) => {
       const passed = this.correctionPasses.get(c.correctionId) ?? 0;
       return {
         correctionId: c.correctionId,
@@ -570,6 +604,7 @@ class CaseTally {
         repetitions: n,
       };
     });
+    if (graded?.entry !== undefined) corrections.push(graded.entry);
     const correctionDifferences = this.correctionsCase.flatMap((c) => {
       const failure = this.firstFailure.get(c.correctionId);
       return failure === undefined
@@ -582,7 +617,11 @@ class CaseTally {
             },
           ];
     });
-    const costs = this.costs;
+    if (graded?.differences !== undefined) correctionDifferences.push(graded.differences);
+    // A judging call's cost counts in its repetition's, when the replay reported one.
+    const costs = this.costs.map((c, i) =>
+      c === undefined ? undefined : c + (graded?.judgingCosts[i] ?? 0),
+    );
     const costUsd =
       costs.length === n && costs.every((c): c is number => c !== undefined) ? costs : undefined;
     return {
@@ -611,6 +650,7 @@ async function runCase(
   comparison: TestRunComparison,
   correctedCase: CorrectedTestCase,
   models: Map<string, { providerId: string; model: string; runs: number }>,
+  answers: AnswerCheckBinding | undefined,
 ): Promise<CorrectedCaseResult | 'erased' | { readonly halt: Halt }> {
   // An agent turn's items are its answer and typed result; a flow run's, its whole output.
   const agentTurn = correctedCase.subject.kind === 'agent';
@@ -631,7 +671,224 @@ async function runCase(
     if (outcome.halt !== undefined) return { halt: outcome.halt };
     if (tally.add(outcome) === 'ran') countModel(models, outcome);
   }
-  return tally.result(baseline);
+  const graded =
+    correctedCase.expect === undefined
+      ? undefined
+      : await gradeExpect(ctx, correctedCase, correctedCase.expect, tally.repetitions, answers);
+  return tally.result(baseline, graded);
+}
+
+/** One repetition, as a case's `expect` is graded on it. */
+interface Repetition {
+  /** It ran: it neither errored nor stopped at a refused call. */
+  readonly ran: boolean;
+  readonly output: unknown;
+  /** Its tool calls, refused ones included. */
+  readonly calls: readonly CandidateCall[];
+}
+
+/** A case's `expect`, graded over its repetitions. */
+interface ExpectGraded {
+  /** Its one entry, keyed by the case's id; absent when it has no pass. */
+  readonly entry?: CorrectionGraded;
+  /** How the calls differed from `decisions: wrong` on the first repetition whose calls did. */
+  readonly differences?: {
+    readonly correctionId: string;
+    readonly repetition: number;
+    readonly differences: readonly CallDifference[];
+  };
+  /** What checking each repetition's answer cost, by repetition (0-based). */
+  readonly judgingCosts: readonly (number | undefined)[];
+}
+
+/**
+ * Grade a case's `expect` over its repetitions: each part it expects,
+ * repetition by repetition.
+ *
+ * - `decisions: wrong`: every `shouldCall` (args where given) and none of
+ *   `mustNotCall`, exactly (`gradeExpectedDecisions`).
+ * - `decisions: right`: the same tools the recorded run called, by id, in
+ *   any order. Unchecked when the recorded calls can't be read.
+ * - `answer`: the host's checker (`answers`), for each repetition in
+ *   order, stopping at the first repetition that fails, so a failed case
+ *   costs one call at most. Unchecked without a checker, when it answers
+ *   `unchecked`, or when the test run is stopped before a check.
+ *
+ * A repetition that errored or stopped fails every part, and one whose
+ * decisions failed fails; neither's answer is checked, nor any after it.
+ * A repetition passes when every part passed on it. The
+ * entry is left out when the case expects only items (they count toward
+ * `weightedPrecisionAtK`), or when a part was unchecked; what checking
+ * cost counts either way.
+ */
+async function gradeExpect(
+  ctx: DispatchContext,
+  correctedCase: CorrectedTestCase,
+  expect: TestCaseExpect,
+  repetitions: readonly Repetition[],
+  answers: AnswerCheckBinding | undefined,
+): Promise<ExpectGraded> {
+  const { decisions, answer } = expect;
+  if (decisions === undefined && answer === undefined) return { judgingCosts: [] };
+  const decided = gradeDecisions(correctedCase, decisions, repetitions);
+  // Decisions that can't be checked leave the case with no pass: its answer isn't checked.
+  if (decided === undefined) return { judgingCosts: [] };
+  const { differences } = decided;
+  let answered: readonly (boolean | undefined)[] = repetitions.map(() => true);
+  let judgingCosts: readonly (number | undefined)[] = [];
+  let why: string | undefined;
+  if (answer !== undefined) {
+    const checked = await checkAnswers(
+      ctx,
+      correctedCase,
+      answer,
+      repetitions,
+      decided.passes,
+      answers,
+    );
+    // What a check cost counts even when a later one couldn't be made.
+    judgingCosts = checked.costs;
+    if (checked.unchecked === true) {
+      return { judgingCosts, ...(differences !== undefined && { differences }) };
+    }
+    answered = checked.passes;
+    why = checked.why;
+  }
+  const n = repetitions.length;
+  const repetitionsPassed = repetitions.filter(
+    (_, i) => decided.passes[i] === true && answered[i] === true,
+  ).length;
+  return {
+    entry: {
+      correctionId: correctedCase.caseId,
+      pass: n > 0 && repetitionsPassed === n,
+      repetitionsPassed,
+      repetitions: n,
+      ...(why !== undefined && { why }),
+    },
+    ...(differences !== undefined && { differences }),
+    judgingCosts,
+  };
+}
+
+/**
+ * Whether each repetition's decisions passed (each does when the case
+ * expects none), and how the calls differed from `decisions: wrong` on the
+ * first repetition whose calls did. `undefined` when they can't be
+ * checked: `decisions: right` on a recorded run whose calls can't be read.
+ */
+function gradeDecisions(
+  correctedCase: CorrectedTestCase,
+  decisions: TestCaseDecisions | undefined,
+  repetitions: readonly Repetition[],
+):
+  | { readonly passes: readonly boolean[]; readonly differences?: ExpectGraded['differences'] }
+  | undefined {
+  if (decisions === undefined) return { passes: repetitions.map(() => true) };
+  if (decisions.verdict === 'right') {
+    const recorded = turnToolIds(correctedCase.output);
+    if (recorded === undefined) return undefined;
+    return { passes: repetitions.map((r) => r.ran && sameTools(recorded, r.calls)) };
+  }
+  const expected = { calls: decisions.shouldCall ?? [], notCalled: decisions.mustNotCall ?? [] };
+  const passes: boolean[] = [];
+  let differences: ExpectGraded['differences'];
+  for (const [i, r] of repetitions.entries()) {
+    const graded = gradeExpectedDecisions(expected, r.calls);
+    passes.push(r.ran && graded.pass);
+    if (differences === undefined && graded.differences.length > 0) {
+      differences = {
+        correctionId: correctedCase.caseId,
+        repetition: i + 1,
+        differences: graded.differences,
+      };
+    }
+  }
+  return { passes, ...(differences !== undefined && { differences }) };
+}
+
+/** Each repetition's answer, checked (`checkAnswers`). */
+interface AnswersChecked {
+  /** Whether each passed; `undefined` where none was checked. */
+  readonly passes: readonly (boolean | undefined)[];
+  /** What each check cost, by repetition. */
+  readonly costs: readonly (number | undefined)[];
+  /** The first failing answer's reason, when the judging model gave one. */
+  readonly why?: string;
+  /**
+   * Set when the answers couldn't be checked: no checker, a candidate that
+   * isn't an agent version, a check the checker couldn't make, or a test
+   * run stopped before a check.
+   */
+  readonly unchecked?: true;
+}
+
+/**
+ * Check each repetition's answer, in order, stopping at the first
+ * repetition that fails: the case has failed then, and checking more would
+ * only cost more. A repetition that errored or stopped, or whose decisions
+ * failed (`decided`), fails with no call. A test run stopped before a check
+ * leaves the answers unchecked.
+ */
+async function checkAnswers(
+  ctx: DispatchContext,
+  correctedCase: CorrectedTestCase,
+  expect: TestCaseAnswer,
+  repetitions: readonly Repetition[],
+  decided: readonly boolean[],
+  answers: AnswerCheckBinding | undefined,
+): Promise<AnswersChecked> {
+  const target = ctx.target;
+  if (answers === undefined || !('agentId' in target) || target.version === undefined) {
+    return { passes: [], costs: [], unchecked: true };
+  }
+  const judging = ctx.judging ?? { version: target.version };
+  const passes: (boolean | undefined)[] = repetitions.map(() => undefined);
+  const costs: (number | undefined)[] = repetitions.map(() => undefined);
+  for (const [i, r] of repetitions.entries()) {
+    if (!r.ran || decided[i] !== true) {
+      passes[i] = false;
+      return { passes, costs };
+    }
+    if (ctx.abortSignal.aborted) return { passes, costs, unchecked: true };
+    const checked = await answers.check({
+      tenantId: ctx.tenantId,
+      ...(ctx.projectId !== undefined && { projectId: ctx.projectId }),
+      testRunId: ctx.testRunId,
+      caseId: correctedCase.caseId,
+      agentId: target.agentId,
+      judging,
+      input: correctedCase.input,
+      recorded: correctedCase.output,
+      answer: r.output,
+      expect,
+    });
+    // A call whose reply couldn't be read still cost what it did.
+    costs[i] = checked.costUsd;
+    if (checked.kind === 'unchecked') return { passes, costs, unchecked: true };
+    passes[i] = checked.pass;
+    if (!checked.pass) {
+      return { passes, costs, ...(checked.why !== undefined && { why: checked.why }) };
+    }
+  }
+  return { passes, costs };
+}
+
+/** Whether a repetition called the same tools as the recorded run, by id, in any order. */
+function sameTools(recorded: ReadonlySet<string>, calls: readonly CandidateCall[]): boolean {
+  const made = new Set(calls.map((c) => c.tool));
+  return made.size === recorded.size && [...recorded].every((tool) => made.has(tool));
+}
+
+/** A repetition's tool calls as a correction grades them, refused ones included. */
+function candidateCalls(outcome: TestRunSubjectInvokeOutcome): CandidateCall[] {
+  return (outcome.replay?.tools ?? []).map((t) => ({
+    tool: t.toolId,
+    args: asArgs(t.arguments),
+    step: t.step,
+    callId: t.callId,
+    ...(t.source === 'refused' && { refused: true }),
+  }));
 }
 
 /**
@@ -1031,15 +1288,17 @@ function costOf(
  * expert-group corrections' weights; an item with none is left out, so it
  * counts as uncorrected. Corrections filter the same way — only the ones
  * recorded under an expert group are kept, so a correction from someone
- * outside the restriction isn't graded.
+ * outside the restriction isn't graded. A case's `expect` is kept only on
+ * an expert's case (`expert`), so no one else's case is graded.
  */
 function expertsOnly(c: CorrectedTestCase): CorrectedTestCase {
-  const { corrections, ...rest } = c;
+  const { corrections, expect, ...rest } = c;
   const kept = corrections?.filter((x) => x.expert === true);
   return {
     ...rest,
     items: expertItems(rest.items),
     ...(kept !== undefined && kept.length > 0 && { corrections: kept }),
+    ...(expect !== undefined && c.expert === true && { expect }),
   };
 }
 

@@ -28,6 +28,7 @@ import type {
 
 import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.js';
 import type { AgentPinBindings, AgentPinnedVersion, Pin, PinActor } from './agent-pin-binding.js';
+import type { TestRunJudging } from './answer-check-binding.js';
 import { approvalResourceRef, projectOfScope } from './approval-resource.js';
 import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
 import { type BlockEdit, blockEditDefinition, publishBlockEdit } from './block-publish.js';
@@ -247,6 +248,13 @@ export interface EvaluateSuggestedChangeInput {
     readonly rule: SuggestedChangeRule;
     readonly reference: { readonly testRunId: string };
   };
+  /**
+   * Whose model checks the test run's answers (`TestRunStartInput.judging`).
+   * Improve names the model it was asked to judge with, else the version it
+   * starts from, and starts the `reference` run with the same, so one model
+   * judges both sides. Absent: the candidate version's own model.
+   */
+  readonly judging?: TestRunJudging;
   /** Who it's done for: what the derived version records as `by`. */
   readonly actor: PinActor;
 }
@@ -715,6 +723,8 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       });
     }
     const correlationId = `suggested-change:${suggestedChange.id as unknown as string}`;
+    // Both sides' answers are checked by the version it's built on, so one model judges both.
+    const judging = { version: builtOn(suggestedChange) };
     const start = (version: string) =>
       deps.testRuns.start({
         tenantId,
@@ -723,6 +733,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         testSetVersion: frozen.testSetVersion,
         agentRef: { agentId: suggestedChange.agentId, version: version as Semver },
         correlationId,
+        judging,
       });
     const withIt = await start(candidate.agentVersion);
     if (withIt.kind !== 'ok') return err(startError(withIt));
@@ -1304,6 +1315,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         agentRef: { agentId: suggestedChange.agentId, version: candidate.agentVersion as Semver },
         correlationId: `suggested-change:${suggestedChange.id as unknown as string}`,
         ...(input.comparison !== undefined && { comparison: input.comparison }),
+        ...(input.judging !== undefined && { judging: input.judging }),
       });
       if (started.kind !== 'ok') return err(startError(started));
       return record(suggestedChange, {

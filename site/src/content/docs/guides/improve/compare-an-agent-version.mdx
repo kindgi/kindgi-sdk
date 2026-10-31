@@ -302,6 +302,12 @@ An item none of them corrected counts as not corrected. In TypeScript, it's
 `group_weights="experts-only"`. The summary says which it used, in
 `groupWeights`, `as-recorded` by default.
 
+On an agent's test set, it grades only experts' cases, which have
+`expert: true`: a correction's case when the correction was made under a
+restricted expert group, and every case added by hand, since adding one
+takes `publish` on the agent (or `write` on its project). No other case's
+[`expect`](#what-a-case-expects) is graded.
+
 On three test cases, one of them corrected only under a group restricted
 afterwards:
 
@@ -375,6 +381,55 @@ CAPTURE: "corrections": { "checked": …, "passed": … } from the same run's su
 With `--group-weights=experts-only`, only the ones made under an
 expert group are checked. No release gate checks them: read them
 before you [pin the version](../release-an-agent-version/#check-before-you-pin-it).
+
+### What a case expects
+
+A case of an [agent's test set](../build-a-test-set/#what-a-case-expects)
+is graded on its `expect`, part by part, on each repetition:
+
+| The case expects | A repetition passes it when |
+|---|---|
+| `decisions: "wrong"` | It calls every `shouldCall` tool (with its `args` where given) and none of `mustNotCall`, checked exactly |
+| `decisions: "right"` | It calls the same tools the recorded run called, by id, in any order. A refused call counts as called |
+| `answer: "wrong"` | A judging model finds that its answer does what `shouldSay` or `why` asks |
+| `answer: "right"` | A judging model finds that its answer says what the recorded answer said |
+| `items` | Nothing: the items count toward the metrics, as above, with no pass |
+
+The case has one entry in `corrections`, under the case's id, and it's
+counted in the summary's `corrections`. A repetition passes when every
+part the case expects passed on it, and the case passes when every
+repetition did. For `decisions: "wrong"`, `correctionDifferences` says what
+differed. When an answer fails, `why` has the judging model's reason:
+
+```json
+{
+  "correctionId": "8f2c4e1a-6b0d-4c3e-9a57-2d1f0b7e4c93",
+  "pass": false,
+  "repetitionsPassed": 1,
+  "repetitions": 3,
+  "why": "It never says how long the refund takes."
+}
+```
+
+- **Which model judges.** The version you try judges its own answers, with
+  the model its model-settings block names. A suggested change's check
+  judges both of its runs with the version the change is built on. An
+  Improve run judges with the version it starts from, or with the model it
+  names. Either way, one model judges both sides.
+- **What it costs.** Each answer checked is a call to the judging model,
+  which costs money. It's counted in its repetition's `costUsd`, so it's in
+  the test run's cost, even when the reply couldn't be read. Answers are
+  checked in order, and checking stops at the first repetition that fails,
+  since the case has failed then. A repetition whose decisions failed fails
+  without a check.
+- **No pass.** A case that expects only `items` has no entry: its items
+  count toward the metrics. Neither does a case whose answer couldn't be
+  checked, say because the version has no model settings or the call to
+  the judging model failed, or one that expects `decisions: "right"` when
+  the recorded run's tool calls can't be read. A failed call doesn't stop
+  the test run.
+- **A repetition that errored or stopped** fails every part, and its answer
+  isn't checked.
 
 ## What a replay does
 

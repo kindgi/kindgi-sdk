@@ -111,6 +111,12 @@ export interface CorrectedTestCase {
    */
   readonly expect?: TestCaseExpect;
   /**
+   * Set on a frozen case whose test case is an expert's
+   * (`TestCase.expert`): `experts-only` grades its `expect`, and drops the
+   * `expect` of every other case.
+   */
+  readonly expert?: true;
+  /**
    * An erasure cleared this case (a person's words were erased): its
    * `input`, `output` and `context` are gone, its items empty, and its
    * corrections, `expect` and `segments` dropped. Test runs leave it out
