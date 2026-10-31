@@ -8,6 +8,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonValue;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -22,6 +23,7 @@ public record SettingsPutBody(@JsonProperty("mode") SettingsPutBody.Mode mode) i
 
     @Override
     public void validate(Checks checks) {
+        checks.nested("mode", mode);
     }
 
     /**
@@ -79,7 +81,7 @@ public record SettingsPutBody(@JsonProperty("mode") SettingsPutBody.Mode mode) i
     /**
      * One of the values below, or one this client doesn't know yet: {@link #of} keeps any value, and {@link #value()} is {@code UNRECOGNIZED} for an unknown one. Switch on {@link #value()}.
      */
-    public static final class Mode {
+    public static final class Mode implements OpenEnum {
         /**
          * <code>strict</code>
          */
@@ -93,6 +95,8 @@ public record SettingsPutBody(@JsonProperty("mode") SettingsPutBody.Mode mode) i
         private static final Map<String, Mode> byValue = Map.ofEntries(
             Map.entry("strict", STRICT),
             Map.entry("lenient", LENIENT));
+
+        private static final List<String> knownValues = List.of("strict", "lenient");
 
         private final String raw;
 
@@ -115,6 +119,7 @@ public record SettingsPutBody(@JsonProperty("mode") SettingsPutBody.Mode mode) i
         /**
          * The value as the API spells it.
          */
+        @Override
         @JsonValue
         public String asString() {
             return raw;
@@ -130,8 +135,17 @@ public record SettingsPutBody(@JsonProperty("mode") SettingsPutBody.Mode mode) i
         /**
          * Whether this client knows the value.
          */
+        @Override
         public boolean isKnown() {
             return value != Value.UNRECOGNIZED;
+        }
+
+        /**
+         * The values this client knows, as the API spells them.
+         */
+        @Override
+        public List<String> knownValues() {
+            return knownValues;
         }
 
         @Override

@@ -16,11 +16,11 @@ import { describe, expect, test } from 'vitest';
 import type { Authorizer } from '../src/middleware/authorize.js';
 import { agentsRouter } from '../src/routes/agents.js';
 import { envRouter } from '../src/routes/env.js';
-import { evalSuitesRouter } from '../src/routes/eval-suites.js';
 import { flowsRouter } from '../src/routes/flows.js';
 import { guardrailsRouter } from '../src/routes/guardrails.js';
 import { mcpRouter } from '../src/routes/mcp.js';
 import { secretsRouter } from '../src/routes/secrets.js';
+import { testSetsRouter } from '../src/routes/test-sets.js';
 import { toolsRouter } from '../src/routes/tools.js';
 import type { AppEnv } from '../src/types.js';
 
@@ -332,7 +332,7 @@ describe('registry lists — a project filter needs read on that project', () =>
     ['flows', (a) => flowsRouter(recordingBinding([]), a)],
     ['tools', (a) => toolsRouter(recordingBinding([]), a)],
     ['guardrails', (a) => guardrailsRouter(recordingBinding([]), a)],
-    ['eval-suites', (a) => evalSuitesRouter(recordingBinding([]), a)],
+    ['test-sets', (a) => testSetsRouter(recordingBinding([]), a)],
   ];
 
   test.each(routers)('%s: ?scopeKind=project&scopeId= is checked', async (_name, make) => {

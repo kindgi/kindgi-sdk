@@ -119,10 +119,40 @@ describe('kindgi init — minimal template', () => {
       '.agents/skills/kindgi-authoring-flows/SKILL.md',
       '.agents/skills/kindgi-authoring-guardrails/SKILL.md',
       '.agents/skills/kindgi-authoring-mcp-servers/SKILL.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/common-mistakes.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/how-it-works.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/other-clients.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/postgres.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/several-servers.md',
       '.agents/skills/kindgi-authoring-providers/SKILL.md',
+      '.agents/skills/kindgi-authoring-providers/bedrock.md',
+      '.agents/skills/kindgi-authoring-providers/common-mistakes.md',
+      '.agents/skills/kindgi-authoring-providers/keys-and-registration.md',
+      '.agents/skills/kindgi-authoring-providers/kindgi-cloud.md',
+      '.agents/skills/kindgi-authoring-providers/path-a-anthropic.md',
+      '.agents/skills/kindgi-authoring-providers/path-b-openai-compat.md',
+      '.agents/skills/kindgi-authoring-providers/path-c-onnx.md',
+      '.agents/skills/kindgi-authoring-providers/path-d-vertex.md',
+      '.agents/skills/kindgi-authoring-providers/router.md',
       '.agents/skills/kindgi-authoring-tools/SKILL.md',
+      '.agents/skills/kindgi-authoring-tools/common-mistakes.md',
+      '.agents/skills/kindgi-authoring-tools/declarative-http.md',
+      '.agents/skills/kindgi-authoring-tools/imperative-handler.md',
+      '.agents/skills/kindgi-authoring-tools/iterating-and-testing.md',
+      '.agents/skills/kindgi-authoring-tools/secrets-and-connections.md',
+      '.agents/skills/kindgi-authoring-tools/tool-flags.md',
       '.agents/skills/kindgi-fix-corrections/SKILL.md',
+      '.agents/skills/kindgi-fix-corrections/fix-in-code.md',
+      '.agents/skills/kindgi-fix-corrections/pin-and-fixed.md',
+      '.agents/skills/kindgi-fix-corrections/pull-corrections.md',
+      '.agents/skills/kindgi-fix-corrections/suggest-a-change.md',
+      '.agents/skills/kindgi-fix-corrections/worked-example.md',
       '.agents/skills/kindgi-framework-feedback/SKILL.md',
+      '.agents/skills/kindgi-framework-feedback/common-mistakes.md',
+      '.agents/skills/kindgi-framework-feedback/editing-feedback-file.md',
+      '.agents/skills/kindgi-framework-feedback/fields-and-entry-shape.md',
+      '.agents/skills/kindgi-framework-feedback/hearing-back.md',
+      '.agents/skills/kindgi-framework-feedback/sending.md',
       '.agents/skills/kindgi-getting-started/SKILL.md',
       '.agents/skills/kindgi-using/SKILL.md',
       '.claude/settings.json',
@@ -131,10 +161,40 @@ describe('kindgi init — minimal template', () => {
       '.claude/skills/kindgi-authoring-flows/SKILL.md',
       '.claude/skills/kindgi-authoring-guardrails/SKILL.md',
       '.claude/skills/kindgi-authoring-mcp-servers/SKILL.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/common-mistakes.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/how-it-works.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/other-clients.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/postgres.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/several-servers.md',
       '.claude/skills/kindgi-authoring-providers/SKILL.md',
+      '.claude/skills/kindgi-authoring-providers/bedrock.md',
+      '.claude/skills/kindgi-authoring-providers/common-mistakes.md',
+      '.claude/skills/kindgi-authoring-providers/keys-and-registration.md',
+      '.claude/skills/kindgi-authoring-providers/kindgi-cloud.md',
+      '.claude/skills/kindgi-authoring-providers/path-a-anthropic.md',
+      '.claude/skills/kindgi-authoring-providers/path-b-openai-compat.md',
+      '.claude/skills/kindgi-authoring-providers/path-c-onnx.md',
+      '.claude/skills/kindgi-authoring-providers/path-d-vertex.md',
+      '.claude/skills/kindgi-authoring-providers/router.md',
       '.claude/skills/kindgi-authoring-tools/SKILL.md',
+      '.claude/skills/kindgi-authoring-tools/common-mistakes.md',
+      '.claude/skills/kindgi-authoring-tools/declarative-http.md',
+      '.claude/skills/kindgi-authoring-tools/imperative-handler.md',
+      '.claude/skills/kindgi-authoring-tools/iterating-and-testing.md',
+      '.claude/skills/kindgi-authoring-tools/secrets-and-connections.md',
+      '.claude/skills/kindgi-authoring-tools/tool-flags.md',
       '.claude/skills/kindgi-fix-corrections/SKILL.md',
+      '.claude/skills/kindgi-fix-corrections/fix-in-code.md',
+      '.claude/skills/kindgi-fix-corrections/pin-and-fixed.md',
+      '.claude/skills/kindgi-fix-corrections/pull-corrections.md',
+      '.claude/skills/kindgi-fix-corrections/suggest-a-change.md',
+      '.claude/skills/kindgi-fix-corrections/worked-example.md',
       '.claude/skills/kindgi-framework-feedback/SKILL.md',
+      '.claude/skills/kindgi-framework-feedback/common-mistakes.md',
+      '.claude/skills/kindgi-framework-feedback/editing-feedback-file.md',
+      '.claude/skills/kindgi-framework-feedback/fields-and-entry-shape.md',
+      '.claude/skills/kindgi-framework-feedback/hearing-back.md',
+      '.claude/skills/kindgi-framework-feedback/sending.md',
       '.claude/skills/kindgi-getting-started/SKILL.md',
       '.claude/skills/kindgi-using/SKILL.md',
       '.gitignore',
@@ -174,7 +234,7 @@ describe('kindgi init — minimal template', () => {
     expect(pkg.dependencies?.zod).toBeTruthy();
   });
 
-  test.each(['minimal', 'sample', 'woocommerce', 'drupal', 'follow-up'])(
+  test.each(['minimal', 'sample', 'woocommerce', 'drupal', 'follow-up', 'returns-helper'])(
     "the %s template decides esbuild's install script for npm and pnpm alike: off (T277)",
     async (template) => {
       await runCli(baseInputs({ argv: ['init', 'my-pack', `--template=${template}`] }));
@@ -418,6 +478,90 @@ describe('kindgi init --template=follow-up', () => {
     expect(index.agents.map((a) => [a.id, a.tools])).toEqual([
       ['acme-mail.follow-up', [{ id: 'acme-mail.gmail.send', version: '^1.0.0' }]],
     ]);
+  });
+});
+
+describe('kindgi init --template=returns-helper', () => {
+  test('scaffolds the returns helper: two tools, one agent and its three blocks, which hold up', async () => {
+    const out = await runCli(
+      baseInputs({ argv: ['init', 'acme-returns', '--template=returns-helper'] }),
+    );
+    expect(out.exitCode).toBe(0);
+    const root = join(cwd, 'acme-returns');
+    const files = await listRecursive(root);
+    for (const rel of [
+      'lib/orders.ts',
+      'tools/find-order/index.ts',
+      'tools/refund/index.ts',
+      'tools/refund/index.test.ts',
+      'agents/returns-helper/index.ts',
+      'README.md',
+      'AGENTS.md',
+      '.gitignore',
+    ]) {
+      expect(files, rel).toContain(rel);
+    }
+    for (const rel of files) {
+      const raw = await readFile(join(root, rel), 'utf8');
+      expect(raw, `${rel} still contains an unsubstituted placeholder`).not.toMatch(
+        /\{\{[A-Z_]+\}\}/,
+      );
+    }
+    const agent = await readFile(join(root, 'agents/returns-helper/index.ts'), 'utf8');
+    expect(agent).toContain("instructions: { prompt: 'acme-returns.tone', version: '^0.1.0' },");
+    expect(agent).toContain("settings: [{ id: 'acme-returns.refund-rules', version: '^0.1.0' }],");
+    expect(agent).toContain(
+      "modelSettings: { id: 'acme-returns.returns-model', version: '^0.1.0' },",
+    );
+    // Read and checked as `kindgi build` reads and checks a pack's blocks.
+    const read = await readPackBlocks(root, 'blocks/**/*.json');
+    expect(read.errors).toEqual([]);
+    expect([...read.files].sort()).toEqual([
+      'blocks/refund-rules.json',
+      'blocks/returns-model.json',
+      'blocks/tone.json',
+      'blocks/tone.liquid',
+    ]);
+    expect(
+      read.blocks
+        .map(({ id, version, kind }) => ({ id, version, kind }))
+        .sort((a, b) => a.id.localeCompare(b.id)),
+    ).toEqual([
+      { id: 'acme-returns.refund-rules', version: '0.1.0', kind: 'settings' },
+      { id: 'acme-returns.returns-model', version: '0.1.0', kind: 'settings' },
+      { id: 'acme-returns.tone', version: '0.1.0', kind: 'prompt' },
+    ]);
+    expect(blockProblems(read.blocks)).toEqual([]);
+    // The instructions rendered from the tone block as a turn renders them,
+    // strictly, with the refund-rules block's values as the agent pins them.
+    const nodeModules = join(dirname(fileURLToPath(import.meta.url)), '..', 'node_modules');
+    const bundles = await mkdtemp(join(nodeModules, '.returns-helper-template-test-'));
+    try {
+      const outfile = join(bundles, 'returns-helper.mjs');
+      await build({
+        entryPoints: [join(root, 'agents/returns-helper/index.ts')],
+        bundle: true,
+        platform: 'node',
+        format: 'esm',
+        packages: 'external',
+        outfile,
+        logLevel: 'silent',
+      });
+      const helper = ((await import(pathToFileURL(outfile).href)) as { default: Agent }).default;
+      const tone = read.blocks.find((b) => b.id === 'acme-returns.tone');
+      const rules = read.blocks.find((b) => b.id === 'acme-returns.refund-rules');
+      const values = (rules?.content as { values?: Record<string, unknown> } | undefined)?.values;
+      expect(values).toEqual({ returnWindowDays: 30 });
+      const rendered = renderInstructions(
+        helper,
+        { parameters: {}, settings: { 'acme-returns.refund-rules': values ?? {} } },
+        tone?.content as PromptBlockContent | undefined,
+      );
+      if (!rendered.ok) throw new Error(rendered.error.message);
+      expect(rendered.value.rendered).toContain('within 30 days of delivery');
+    } finally {
+      await rm(bundles, { recursive: true, force: true });
+    }
   });
 });
 
@@ -758,9 +902,33 @@ describe('kindgi init — python template', () => {
     const files = await listRecursive(join(cwd, 'my-pack'));
     expect(files).toEqual([
       '.agents/skills/kindgi-authoring-mcp-servers/SKILL.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/common-mistakes.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/how-it-works.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/other-clients.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/postgres.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/several-servers.md',
       '.agents/skills/kindgi-authoring-providers/SKILL.md',
+      '.agents/skills/kindgi-authoring-providers/bedrock.md',
+      '.agents/skills/kindgi-authoring-providers/common-mistakes.md',
+      '.agents/skills/kindgi-authoring-providers/keys-and-registration.md',
+      '.agents/skills/kindgi-authoring-providers/kindgi-cloud.md',
+      '.agents/skills/kindgi-authoring-providers/path-a-anthropic.md',
+      '.agents/skills/kindgi-authoring-providers/path-b-openai-compat.md',
+      '.agents/skills/kindgi-authoring-providers/path-c-onnx.md',
+      '.agents/skills/kindgi-authoring-providers/path-d-vertex.md',
+      '.agents/skills/kindgi-authoring-providers/router.md',
       '.agents/skills/kindgi-fix-corrections/SKILL.md',
+      '.agents/skills/kindgi-fix-corrections/fix-in-code.md',
+      '.agents/skills/kindgi-fix-corrections/pin-and-fixed.md',
+      '.agents/skills/kindgi-fix-corrections/pull-corrections.md',
+      '.agents/skills/kindgi-fix-corrections/suggest-a-change.md',
+      '.agents/skills/kindgi-fix-corrections/worked-example.md',
       '.agents/skills/kindgi-framework-feedback/SKILL.md',
+      '.agents/skills/kindgi-framework-feedback/common-mistakes.md',
+      '.agents/skills/kindgi-framework-feedback/editing-feedback-file.md',
+      '.agents/skills/kindgi-framework-feedback/fields-and-entry-shape.md',
+      '.agents/skills/kindgi-framework-feedback/hearing-back.md',
+      '.agents/skills/kindgi-framework-feedback/sending.md',
       '.agents/skills/kindgi-python-authoring-agents/SKILL.md',
       '.agents/skills/kindgi-python-authoring-flows/SKILL.md',
       '.agents/skills/kindgi-python-authoring-guardrails/SKILL.md',
@@ -772,9 +940,33 @@ describe('kindgi init — python template', () => {
       // Only the skills written for Python packs: the shared ones and the
       // Python getting-started and authoring skills — none of the TypeScript ones.
       '.claude/skills/kindgi-authoring-mcp-servers/SKILL.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/common-mistakes.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/how-it-works.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/other-clients.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/postgres.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/several-servers.md',
       '.claude/skills/kindgi-authoring-providers/SKILL.md',
+      '.claude/skills/kindgi-authoring-providers/bedrock.md',
+      '.claude/skills/kindgi-authoring-providers/common-mistakes.md',
+      '.claude/skills/kindgi-authoring-providers/keys-and-registration.md',
+      '.claude/skills/kindgi-authoring-providers/kindgi-cloud.md',
+      '.claude/skills/kindgi-authoring-providers/path-a-anthropic.md',
+      '.claude/skills/kindgi-authoring-providers/path-b-openai-compat.md',
+      '.claude/skills/kindgi-authoring-providers/path-c-onnx.md',
+      '.claude/skills/kindgi-authoring-providers/path-d-vertex.md',
+      '.claude/skills/kindgi-authoring-providers/router.md',
       '.claude/skills/kindgi-fix-corrections/SKILL.md',
+      '.claude/skills/kindgi-fix-corrections/fix-in-code.md',
+      '.claude/skills/kindgi-fix-corrections/pin-and-fixed.md',
+      '.claude/skills/kindgi-fix-corrections/pull-corrections.md',
+      '.claude/skills/kindgi-fix-corrections/suggest-a-change.md',
+      '.claude/skills/kindgi-fix-corrections/worked-example.md',
       '.claude/skills/kindgi-framework-feedback/SKILL.md',
+      '.claude/skills/kindgi-framework-feedback/common-mistakes.md',
+      '.claude/skills/kindgi-framework-feedback/editing-feedback-file.md',
+      '.claude/skills/kindgi-framework-feedback/fields-and-entry-shape.md',
+      '.claude/skills/kindgi-framework-feedback/hearing-back.md',
+      '.claude/skills/kindgi-framework-feedback/sending.md',
       '.claude/skills/kindgi-python-authoring-agents/SKILL.md',
       '.claude/skills/kindgi-python-authoring-flows/SKILL.md',
       '.claude/skills/kindgi-python-authoring-guardrails/SKILL.md',
@@ -818,9 +1010,33 @@ describe('kindgi init — java template', () => {
       '.claude/settings.json',
       '.claude/skills/.kindgi-manifest.json',
       '.claude/skills/kindgi-authoring-mcp-servers/SKILL.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/common-mistakes.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/how-it-works.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/other-clients.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/postgres.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/several-servers.md',
       '.claude/skills/kindgi-authoring-providers/SKILL.md',
+      '.claude/skills/kindgi-authoring-providers/bedrock.md',
+      '.claude/skills/kindgi-authoring-providers/common-mistakes.md',
+      '.claude/skills/kindgi-authoring-providers/keys-and-registration.md',
+      '.claude/skills/kindgi-authoring-providers/kindgi-cloud.md',
+      '.claude/skills/kindgi-authoring-providers/path-a-anthropic.md',
+      '.claude/skills/kindgi-authoring-providers/path-b-openai-compat.md',
+      '.claude/skills/kindgi-authoring-providers/path-c-onnx.md',
+      '.claude/skills/kindgi-authoring-providers/path-d-vertex.md',
+      '.claude/skills/kindgi-authoring-providers/router.md',
       '.claude/skills/kindgi-fix-corrections/SKILL.md',
+      '.claude/skills/kindgi-fix-corrections/fix-in-code.md',
+      '.claude/skills/kindgi-fix-corrections/pin-and-fixed.md',
+      '.claude/skills/kindgi-fix-corrections/pull-corrections.md',
+      '.claude/skills/kindgi-fix-corrections/suggest-a-change.md',
+      '.claude/skills/kindgi-fix-corrections/worked-example.md',
       '.claude/skills/kindgi-framework-feedback/SKILL.md',
+      '.claude/skills/kindgi-framework-feedback/common-mistakes.md',
+      '.claude/skills/kindgi-framework-feedback/editing-feedback-file.md',
+      '.claude/skills/kindgi-framework-feedback/fields-and-entry-shape.md',
+      '.claude/skills/kindgi-framework-feedback/hearing-back.md',
+      '.claude/skills/kindgi-framework-feedback/sending.md',
       '.claude/skills/kindgi-java-authoring-agents/SKILL.md',
       '.claude/skills/kindgi-java-authoring-flows/SKILL.md',
       '.claude/skills/kindgi-java-authoring-guardrails/SKILL.md',
@@ -893,9 +1109,33 @@ describe('kindgi init — scala template', () => {
       // The skills written for Scala packs: the shared ones and the Scala getting-started and
       // authoring skills.
       '.agents/skills/kindgi-authoring-mcp-servers/SKILL.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/common-mistakes.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/how-it-works.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/other-clients.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/postgres.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/several-servers.md',
       '.agents/skills/kindgi-authoring-providers/SKILL.md',
+      '.agents/skills/kindgi-authoring-providers/bedrock.md',
+      '.agents/skills/kindgi-authoring-providers/common-mistakes.md',
+      '.agents/skills/kindgi-authoring-providers/keys-and-registration.md',
+      '.agents/skills/kindgi-authoring-providers/kindgi-cloud.md',
+      '.agents/skills/kindgi-authoring-providers/path-a-anthropic.md',
+      '.agents/skills/kindgi-authoring-providers/path-b-openai-compat.md',
+      '.agents/skills/kindgi-authoring-providers/path-c-onnx.md',
+      '.agents/skills/kindgi-authoring-providers/path-d-vertex.md',
+      '.agents/skills/kindgi-authoring-providers/router.md',
       '.agents/skills/kindgi-fix-corrections/SKILL.md',
+      '.agents/skills/kindgi-fix-corrections/fix-in-code.md',
+      '.agents/skills/kindgi-fix-corrections/pin-and-fixed.md',
+      '.agents/skills/kindgi-fix-corrections/pull-corrections.md',
+      '.agents/skills/kindgi-fix-corrections/suggest-a-change.md',
+      '.agents/skills/kindgi-fix-corrections/worked-example.md',
       '.agents/skills/kindgi-framework-feedback/SKILL.md',
+      '.agents/skills/kindgi-framework-feedback/common-mistakes.md',
+      '.agents/skills/kindgi-framework-feedback/editing-feedback-file.md',
+      '.agents/skills/kindgi-framework-feedback/fields-and-entry-shape.md',
+      '.agents/skills/kindgi-framework-feedback/hearing-back.md',
+      '.agents/skills/kindgi-framework-feedback/sending.md',
       '.agents/skills/kindgi-scala-authoring-agents/SKILL.md',
       '.agents/skills/kindgi-scala-authoring-flows/SKILL.md',
       '.agents/skills/kindgi-scala-authoring-guardrails/SKILL.md',
@@ -905,9 +1145,33 @@ describe('kindgi init — scala template', () => {
       '.claude/settings.json',
       '.claude/skills/.kindgi-manifest.json',
       '.claude/skills/kindgi-authoring-mcp-servers/SKILL.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/common-mistakes.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/how-it-works.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/other-clients.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/postgres.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/several-servers.md',
       '.claude/skills/kindgi-authoring-providers/SKILL.md',
+      '.claude/skills/kindgi-authoring-providers/bedrock.md',
+      '.claude/skills/kindgi-authoring-providers/common-mistakes.md',
+      '.claude/skills/kindgi-authoring-providers/keys-and-registration.md',
+      '.claude/skills/kindgi-authoring-providers/kindgi-cloud.md',
+      '.claude/skills/kindgi-authoring-providers/path-a-anthropic.md',
+      '.claude/skills/kindgi-authoring-providers/path-b-openai-compat.md',
+      '.claude/skills/kindgi-authoring-providers/path-c-onnx.md',
+      '.claude/skills/kindgi-authoring-providers/path-d-vertex.md',
+      '.claude/skills/kindgi-authoring-providers/router.md',
       '.claude/skills/kindgi-fix-corrections/SKILL.md',
+      '.claude/skills/kindgi-fix-corrections/fix-in-code.md',
+      '.claude/skills/kindgi-fix-corrections/pin-and-fixed.md',
+      '.claude/skills/kindgi-fix-corrections/pull-corrections.md',
+      '.claude/skills/kindgi-fix-corrections/suggest-a-change.md',
+      '.claude/skills/kindgi-fix-corrections/worked-example.md',
       '.claude/skills/kindgi-framework-feedback/SKILL.md',
+      '.claude/skills/kindgi-framework-feedback/common-mistakes.md',
+      '.claude/skills/kindgi-framework-feedback/editing-feedback-file.md',
+      '.claude/skills/kindgi-framework-feedback/fields-and-entry-shape.md',
+      '.claude/skills/kindgi-framework-feedback/hearing-back.md',
+      '.claude/skills/kindgi-framework-feedback/sending.md',
       '.claude/skills/kindgi-scala-authoring-agents/SKILL.md',
       '.claude/skills/kindgi-scala-authoring-flows/SKILL.md',
       '.claude/skills/kindgi-scala-authoring-guardrails/SKILL.md',
@@ -994,10 +1258,40 @@ describe('kindgi init — sample template', () => {
       '.agents/skills/kindgi-authoring-flows/SKILL.md',
       '.agents/skills/kindgi-authoring-guardrails/SKILL.md',
       '.agents/skills/kindgi-authoring-mcp-servers/SKILL.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/common-mistakes.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/how-it-works.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/other-clients.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/postgres.md',
+      '.agents/skills/kindgi-authoring-mcp-servers/several-servers.md',
       '.agents/skills/kindgi-authoring-providers/SKILL.md',
+      '.agents/skills/kindgi-authoring-providers/bedrock.md',
+      '.agents/skills/kindgi-authoring-providers/common-mistakes.md',
+      '.agents/skills/kindgi-authoring-providers/keys-and-registration.md',
+      '.agents/skills/kindgi-authoring-providers/kindgi-cloud.md',
+      '.agents/skills/kindgi-authoring-providers/path-a-anthropic.md',
+      '.agents/skills/kindgi-authoring-providers/path-b-openai-compat.md',
+      '.agents/skills/kindgi-authoring-providers/path-c-onnx.md',
+      '.agents/skills/kindgi-authoring-providers/path-d-vertex.md',
+      '.agents/skills/kindgi-authoring-providers/router.md',
       '.agents/skills/kindgi-authoring-tools/SKILL.md',
+      '.agents/skills/kindgi-authoring-tools/common-mistakes.md',
+      '.agents/skills/kindgi-authoring-tools/declarative-http.md',
+      '.agents/skills/kindgi-authoring-tools/imperative-handler.md',
+      '.agents/skills/kindgi-authoring-tools/iterating-and-testing.md',
+      '.agents/skills/kindgi-authoring-tools/secrets-and-connections.md',
+      '.agents/skills/kindgi-authoring-tools/tool-flags.md',
       '.agents/skills/kindgi-fix-corrections/SKILL.md',
+      '.agents/skills/kindgi-fix-corrections/fix-in-code.md',
+      '.agents/skills/kindgi-fix-corrections/pin-and-fixed.md',
+      '.agents/skills/kindgi-fix-corrections/pull-corrections.md',
+      '.agents/skills/kindgi-fix-corrections/suggest-a-change.md',
+      '.agents/skills/kindgi-fix-corrections/worked-example.md',
       '.agents/skills/kindgi-framework-feedback/SKILL.md',
+      '.agents/skills/kindgi-framework-feedback/common-mistakes.md',
+      '.agents/skills/kindgi-framework-feedback/editing-feedback-file.md',
+      '.agents/skills/kindgi-framework-feedback/fields-and-entry-shape.md',
+      '.agents/skills/kindgi-framework-feedback/hearing-back.md',
+      '.agents/skills/kindgi-framework-feedback/sending.md',
       '.agents/skills/kindgi-getting-started/SKILL.md',
       '.agents/skills/kindgi-using/SKILL.md',
       '.claude/settings.json',
@@ -1006,10 +1300,40 @@ describe('kindgi init — sample template', () => {
       '.claude/skills/kindgi-authoring-flows/SKILL.md',
       '.claude/skills/kindgi-authoring-guardrails/SKILL.md',
       '.claude/skills/kindgi-authoring-mcp-servers/SKILL.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/common-mistakes.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/how-it-works.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/other-clients.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/postgres.md',
+      '.claude/skills/kindgi-authoring-mcp-servers/several-servers.md',
       '.claude/skills/kindgi-authoring-providers/SKILL.md',
+      '.claude/skills/kindgi-authoring-providers/bedrock.md',
+      '.claude/skills/kindgi-authoring-providers/common-mistakes.md',
+      '.claude/skills/kindgi-authoring-providers/keys-and-registration.md',
+      '.claude/skills/kindgi-authoring-providers/kindgi-cloud.md',
+      '.claude/skills/kindgi-authoring-providers/path-a-anthropic.md',
+      '.claude/skills/kindgi-authoring-providers/path-b-openai-compat.md',
+      '.claude/skills/kindgi-authoring-providers/path-c-onnx.md',
+      '.claude/skills/kindgi-authoring-providers/path-d-vertex.md',
+      '.claude/skills/kindgi-authoring-providers/router.md',
       '.claude/skills/kindgi-authoring-tools/SKILL.md',
+      '.claude/skills/kindgi-authoring-tools/common-mistakes.md',
+      '.claude/skills/kindgi-authoring-tools/declarative-http.md',
+      '.claude/skills/kindgi-authoring-tools/imperative-handler.md',
+      '.claude/skills/kindgi-authoring-tools/iterating-and-testing.md',
+      '.claude/skills/kindgi-authoring-tools/secrets-and-connections.md',
+      '.claude/skills/kindgi-authoring-tools/tool-flags.md',
       '.claude/skills/kindgi-fix-corrections/SKILL.md',
+      '.claude/skills/kindgi-fix-corrections/fix-in-code.md',
+      '.claude/skills/kindgi-fix-corrections/pin-and-fixed.md',
+      '.claude/skills/kindgi-fix-corrections/pull-corrections.md',
+      '.claude/skills/kindgi-fix-corrections/suggest-a-change.md',
+      '.claude/skills/kindgi-fix-corrections/worked-example.md',
       '.claude/skills/kindgi-framework-feedback/SKILL.md',
+      '.claude/skills/kindgi-framework-feedback/common-mistakes.md',
+      '.claude/skills/kindgi-framework-feedback/editing-feedback-file.md',
+      '.claude/skills/kindgi-framework-feedback/fields-and-entry-shape.md',
+      '.claude/skills/kindgi-framework-feedback/hearing-back.md',
+      '.claude/skills/kindgi-framework-feedback/sending.md',
       '.claude/skills/kindgi-getting-started/SKILL.md',
       '.claude/skills/kindgi-using/SKILL.md',
       '.gitignore',
@@ -1145,6 +1469,14 @@ describe('kindgi init --template in an existing app (augment mode)', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('@kindgi/connections');
     expect(out.stderr).toContain('--template=follow-up --new-repo');
+    expect(await readdir(cwd)).toEqual(['package.json']);
+  });
+
+  test('--template=returns-helper is refused, pointing at --new-repo', async () => {
+    await writeFile(join(cwd, 'package.json'), '{"name":"acme-app"}\n');
+    const out = await runCli(baseInputs({ argv: ['init', '--template=returns-helper'] }));
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('--template=returns-helper --new-repo');
     expect(await readdir(cwd)).toEqual(['package.json']);
   });
 

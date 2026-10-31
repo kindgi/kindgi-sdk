@@ -330,7 +330,8 @@ shows the error that caused it and the wait before the next attempt:
     **`maxDelayMs`**, the longest wait.
 
 When the last attempt fails, the step fails and so does the run, with the last
-error.
+error. A step [left for the run's next resume](#a-step-whose-read-failed)
+uses one of its attempts too.
 
 `policy.timeoutMs` limits each attempt. An attempt that takes longer is
 stopped and counts as a failed attempt. Without retries, the step fails with
@@ -348,6 +349,46 @@ part of its work: a payment that timed out may still have gone through. Make
 the tool idempotent, such as by passing the order id to the API as its
 idempotency key, or don't retry it.
 :::
+
+## A step whose read failed
+
+An agent's step first reads what its turn needs from the runtime's database:
+the agent's registration and pin, the versions shipped into its
+project, the release gate, and its turn's snapshot and journal. When one of
+those reads fails, such as when the database doesn't answer, the step
+doesn't fail. It's left for the run's next resume:
+
+```json
+{"sequence": 3, "kind": "step.retry-scheduled", "nodeId": "draft", "payload": {"nodeId": "draft", "attempt": 1, "nextDelayMs": 0, "previousError": "run-version-unreadable: Could not read …", "left": true}, …}
+```
+
+- **Its `step.retry-scheduled` entry says `left: true`,** with `nextDelayMs`
+  0 and the read's error in `previousError`.
+- **The run stays `running`.** Steps running beside it finish first.
+- **The run is resumed once its lease runs out,** 5 minutes by default
+  ([If the runtime stops](../../../concepts/runs/#if-the-runtime-stops)),
+  and the step runs again. A step in a loop, a fan-out or a subflow is left
+  with the whole loop, fan-out or subflow step, and the resume replays from
+  the journal what had finished.
+- **The runtime logs it at `WARN`:**
+  `flow run <run-id>'s step "<node-id>" was left for the run's next resume: the release gate couldn't be read`,
+  naming the read.
+
+A leave uses one of the step's attempts under `retry.maxAttempts`, so a
+retry after it has one attempt fewer. A step is left 3 times at most. Its
+fourth failed read is a failed attempt like any other: it's retried if the
+policy has attempts left, and otherwise the step fails with the read's
+error, and so does the run.
+
+A step isn't left when its read finds nothing, such as an agent that isn't
+registered: that's a failed attempt. Nor is one whose read was cut short by
+its `timeoutMs` or by the run's cancel.
+
+A subflow's child run that's left with its parent's subflow step is held
+for its parent. It stays `running`, and only the parent's resume resumes it:
+a resume of the child itself is refused with `run-held-by-parent`. Once the
+parent's subflow step has been left 3 times, the child's step fails with the
+read's error, and the parent's subflow step fails with `child-failed`.
 
 ## Where a policy applies
 

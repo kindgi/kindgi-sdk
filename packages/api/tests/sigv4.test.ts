@@ -523,6 +523,113 @@ describe("the app's S3 object reads: a HEAD from the metadata, a GET reads the o
   });
 });
 
+describe("the app's S3 object reads: a browser that opens one never runs it as a page of this origin", () => {
+  const SAVED = {
+    'content-disposition': `attachment; filename="page"; filename*=UTF-8''page`,
+    'x-content-type-options': 'nosniff',
+    'content-security-policy': "default-src 'none'; sandbox",
+  };
+
+  /** One object, `page`, stored with `contentType`. */
+  function typedApp(contentType: string) {
+    const meta: BlobMeta = {
+      blobId: '00000000-0000-4000-8000-0000000000d3' as ArtifactId,
+      tenantId: TENANT,
+      name: 'page',
+      contentType,
+      size: 9,
+      hash: 'b'.repeat(64),
+      tags: {},
+      createdAt: '2026-09-30T11:00:00.000Z' as Timestamp,
+    };
+    const blobStorage = {
+      async headByKey(_tenant: TenantId, _bucket: string, key: string) {
+        return key === 'page' ? meta : null;
+      },
+      async getByKey(_tenant: TenantId, _bucket: string, key: string) {
+        if (key !== 'page')
+          return { kind: 'err', error: { code: 'blob-not-found', message: 'none' } };
+        return { kind: 'ok', value: { meta, stream: new Response('<p>hi</p>').body } };
+      },
+    } as unknown as BlobStorageBinding;
+    return createApp({
+      ...createStubAppBindings(),
+      resolveToken: async () => null,
+      runHandler: {} as RunHandlerBinding,
+      blobStorage,
+      s3Credentials: credentials,
+    });
+  }
+
+  test.each([
+    ['HTML', 'text/html; charset=utf-8', { ...SAVED, 'content-type': 'text/html; charset=utf-8' }],
+    ['SVG', 'image/svg+xml', { ...SAVED, 'content-type': 'image/svg+xml' }],
+    ['XML', 'application/xml', { ...SAVED, 'content-type': 'application/xml' }],
+    [
+      'a type that is not a media type',
+      'text/html, image/png',
+      { ...SAVED, 'content-type': 'application/octet-stream' },
+    ],
+    [
+      'an image type over 255 characters',
+      `image/png; x=${'a'.repeat(243)}`,
+      { ...SAVED, 'content-type': 'application/octet-stream' },
+    ],
+  ])(
+    '%s: GET, a range and HEAD answer an attachment, nosniff and sandboxed',
+    async (_what, stored, expected) => {
+      const app = typedApp(stored);
+      for (const [method, headers] of [
+        ['GET', {}],
+        ['GET', { range: 'bytes=0-2' }],
+        ['HEAD', {}],
+      ] as const) {
+        const req = sign({ method, path: `/s3/${BUCKET}/page`, headers });
+        const res = await app.request(req.url, req.init);
+        expect(res.status, `${method} ${JSON.stringify(headers)}`).toBeLessThan(300);
+        expect(Object.fromEntries(res.headers.entries())).toMatchObject(expected);
+      }
+    },
+  );
+
+  test.each([
+    ['PNG', 'image/png'],
+    ['PDF', 'application/pdf'],
+    ['plain text', 'Text/Plain; charset=utf-8'],
+    ['MP4 video', 'video/mp4'],
+  ])('%s stays inline, nosniff, so a presigned link opens it', async (_what, stored) => {
+    const app = typedApp(stored);
+    const res = await app.request(presign(`/s3/${BUCKET}/page`, 300), {
+      headers: { host: 'localhost' },
+    });
+    expect(res.status).toBe(200);
+    const headers = Object.fromEntries(res.headers.entries());
+    expect(headers).toMatchObject({ 'content-type': stored, 'x-content-type-options': 'nosniff' });
+    expect(headers).not.toHaveProperty('content-disposition');
+    expect(headers).not.toHaveProperty('content-security-policy');
+  });
+
+  test('a presigned link that asks for another type or for inline gets the object as stored', async () => {
+    const asPng = 'response-content-type=image%2Fpng&response-content-disposition=inline';
+    const html = await typedApp('text/html').request(presign(`/s3/${BUCKET}/page?${asPng}`, 300), {
+      headers: { host: 'localhost' },
+    });
+    expect(html.status).toBe(200);
+    expect(Object.fromEntries(html.headers.entries())).toMatchObject({
+      ...SAVED,
+      'content-type': 'text/html',
+    });
+
+    const asHtml = 'response-content-type=text%2Fhtml';
+    const png = await typedApp('image/png').request(presign(`/s3/${BUCKET}/page?${asHtml}`, 300), {
+      headers: { host: 'localhost' },
+    });
+    expect(png.status).toBe(200);
+    expect(png.headers.get('content-type')).toBe('image/png');
+    expect(png.headers.get('content-disposition')).toBeNull();
+  });
+});
+
 describe('SigV4 canonicalization matches S3 signers', () => {
   test.each([
     ['nested key', '/s3/artifacts/dir/sub/file.bin'],

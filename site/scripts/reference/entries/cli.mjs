@@ -77,7 +77,10 @@ export const CLI_DEFAULTS = {
     path: 'the current directory',
     project: "none: a tenant-wide deploy, into the tenant's Default project",
     'published-at': 'for an inline build: the build time',
+    reason: 'none; required with `--replace`, and only with it',
     'registry-push-creds': 'none',
+    replace:
+      'none: a block the deploy would put back to an older version than runs now stops it (repeatable; needs `--reason`)',
     'signer-key-id': "for an inline build: the env block's `signerKeyId`, else the key file's name",
     'signing-key': "for an inline build: the env block's `signingKey`",
     target: "for an inline build: the env block's `buildTarget`, else the env name",
@@ -145,8 +148,11 @@ export const CLI_DEFAULTS = {
     from: 'required',
     to: 'required',
     deployment: 'none (the one deployment serving in `--from`; in a pack, of this pack)',
-    reason: 'none',
+    reason: 'none; required with `--replace`',
+    replace:
+      'none: a block the pins would put back to an older version than runs in `--to` stops the promote (with `--pin` only, repeatable; needs `--reason`)',
     path: 'the current directory',
+    wait: 'off; a bare `--wait` waits at most `1h`',
   },
   'secrets list': {
     cursor: 'none',
@@ -283,9 +289,9 @@ export const CLI_DEFAULTS = {
   'runs list': {
     agent: 'none',
     cursor: 'none',
-    'eval-run': 'none',
+    'test-run': 'none',
     limit: '`25` (at most `100`)',
-    replays: '`exclude`; with `--eval-run`, `include`',
+    replays: '`exclude`; with `--test-run`, `include`',
     trigger: 'none',
   },
   'runs journal': {
@@ -317,44 +323,32 @@ export const CLI_DEFAULTS = {
     project: "the tenant's Default project",
     spec: 'required',
   },
-  'agents derive': {
-    from: 'required',
-    label: 'none',
-    project: 'none',
-    prompt: 'none (at least one `--prompt` or `--setting` is required)',
-    setting: 'none (at least one `--prompt` or `--setting` is required)',
+  'agents owner': {
+    set: 'none (shows the owner)',
   },
   'agents versions': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
-  'agents live': {
+  'agents pinned': {
     project: 'none',
     segment: 'none',
   },
-  'agents promote': {
-    'eval-run': 'none',
+  'agents pin': {
+    'test-run': 'none',
     'idempotency-key': 'none',
     tenant: 'required: one of `--tenant`, `--org`, `--project`',
     org: 'required: one of `--tenant`, `--org`, `--project`',
     project: 'required: one of `--tenant`, `--org`, `--project`',
     segment: 'none',
     reason: 'none',
+    wait: 'off; a bare `--wait` waits at most `1h`',
   },
-  'agents gate-policy': {
+  'agents release-gate': {
     tenant: 'required: one of `--tenant`, `--org`, `--project`',
     org: 'required: one of `--tenant`, `--org`, `--project`',
     project: 'required: one of `--tenant`, `--org`, `--project`',
     segment: 'none',
-  },
-  'agents rollback': {
-    tenant: 'required: one of `--tenant`, `--org`, `--project`',
-    org: 'required: one of `--tenant`, `--org`, `--project`',
-    project: 'required: one of `--tenant`, `--org`, `--project`',
-    segment: 'none',
-    'idempotency-key': 'none',
-    reason: 'none',
-    to: 'the previous live version',
   },
   'agents unpin': {
     tenant: 'required: one of `--tenant`, `--org`, `--project`',
@@ -364,7 +358,7 @@ export const CLI_DEFAULTS = {
     'idempotency-key': 'none',
     reason: 'none',
   },
-  'agents promotions list': {
+  'agents pin-history list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
     tenant: 'none (no scope given: the history of every scope)',
@@ -450,81 +444,68 @@ export const CLI_DEFAULTS = {
   'memory erasures export': {
     out: 'standard output',
   },
-  'proposals list': {
+  'suggested-changes list': {
     agent: 'none',
     cursor: 'none',
     limit: '`25` (at most `100`)',
-    org: 'none',
     project: 'none',
-    segment: 'none',
     status: 'none',
-    tier: 'none',
   },
-  'proposals draft': {
+  'suggested-changes create': {
     agent: 'required',
     block: 'required',
-    'from-version': 'required',
-    hypothesis: 'required',
+    fixes: 'none',
+    project: 'required',
+    why: 'required',
     'idempotency-key': 'none',
-    judgment: 'none',
-    org: 'none',
-    project: 'none',
-    segment: 'none',
     template: 'none',
     values: 'none',
   },
-  'proposals evaluate': {
-    'class-weights': '`as-recorded`',
+  'suggested-changes check': {
     'idempotency-key': 'none',
-    k: '`10`',
-    objective: '`weightedYesShare`',
-    reads: '`recorded`',
-    repetitions: '`1`',
-    'test-set': 'required',
   },
-  'proposals request': {
+  'suggested-changes pin': {
     'idempotency-key': 'none',
     reason: 'none',
   },
-  'proposals rollback': {
+  'suggested-changes add-as-latest': {
     'idempotency-key': 'none',
     reason: 'none',
   },
-  'proposals withdraw': {
+  'suggested-changes withdraw': {
     'idempotency-key': 'none',
     reason: 'required',
   },
-  'proposals improve': {
+  'improve runs start': {
     agent: 'required',
-    'class-weights':
-      "none (counts everyone until the test cases' project, its tenant, or the agent improved there has a restricted judge class, then only those)",
+    'group-weights':
+      'none (counts everyone until the project, its tenant, or the agent in the project has an expert group, then only those)',
     drafts: '`3` (`1` to `5`; with `--tier=prompt` only)',
-    'from-version': 'the version serving the scope',
     'idempotency-key': 'none',
     'max-candidates': '`30`',
     'max-cost': '`5` (US dollars)',
-    model: 'none (needed with `--tier=prompt`, with `--provider`)',
-    objective: '`weightedYesShare`',
-    org: 'none',
-    'pass-project': "the scope's project, else the agent version's",
-    project: 'none',
-    provider: 'none (needed with `--tier=prompt`, with `--model`)',
-    segment: 'none',
-    'test-set': 'required',
-    tier: '`settings`',
+    model:
+      "none (the model the version's model-settings block names drafts the wording; with `--provider`, for `--tier=prompt`)",
+    objective: '`passRate`',
+    project: 'required',
+    provider: 'none (with `--model`, for `--tier=prompt`)',
+    tier: "every tier that's ready",
   },
-  'proposals passes list': {
+  'improve runs list': {
     agent: 'none',
     cursor: 'none',
     limit: '`25` (at most `100`)',
+    project: 'none',
+    status: 'none',
   },
-  'proposals passes cancel': {
+  'improve runs cancel': {
     'idempotency-key': 'none',
   },
   'provenance list': {
     agent: 'none',
     'created-after': 'none',
     cursor: 'none',
+    flow: 'none',
     limit: '`25` (at most `100`)',
     org: 'none',
     project: 'none',
@@ -590,9 +571,8 @@ export const CLI_DEFAULTS = {
     input: '`{}`',
     label: 'none',
     overlap: '`skip`',
-    project: "the tenant's Default project",
+    project: "the tenant's Default project; required with `--improve`, the project it improves",
     'run-as': 'none (you own the schedule)',
-    segment: 'none',
     'starting-deadline': '`600` (seconds)',
     timezone: '`UTC`',
   },
@@ -612,12 +592,15 @@ export const CLI_DEFAULTS = {
     input: 'unchanged',
     label: 'unchanged',
     overlap: 'unchanged',
-    project: 'unchanged',
-    segment: 'none',
+    project: 'none (with `--improve` only, which needs it)',
     'starting-deadline': 'unchanged',
     timezone: 'unchanged',
   },
   'schedules fires': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
+  'schedules versions': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
@@ -663,6 +646,10 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
+  'webhooks versions': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
   'webhooks take-ownership': {
     'run-as': 'none (you own the trigger)',
   },
@@ -674,7 +661,7 @@ export const CLI_DEFAULTS = {
   },
   'mail-triggers create': {
     agent: 'none',
-    'agent-version': 'none (its live version, else the latest)',
+    'agent-version': 'none (its pinned version, else the latest)',
     'allow-unattended': 'none (a tool that waits for a person still waits)',
     as: '`person` (your own mailbox)',
     flow: 'none',
@@ -702,6 +689,10 @@ export const CLI_DEFAULTS = {
     'runs-per-hour': 'unchanged',
   },
   'mail-triggers fires': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
+  'mail-triggers versions': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
@@ -782,38 +773,62 @@ export const CLI_DEFAULTS = {
   'reviewers register': {
     spec: 'required',
   },
-  'judgments add': {
-    class: 'none (the correction is unclassified)',
-    correction: 'none (an ordinary correction, without what the agent should have done)',
-    item: 'required',
-    no: 'off (exactly one of `--yes` or `--no` is required)',
+  'corrections add': {
+    answer: 'none (at least one of `--decisions`, `--answer` or `--item` is required)',
+    decisions: 'none (at least one of `--decisions`, `--answer` or `--item` is required)',
+    group: 'none (the correction is ungrouped)',
+    item: 'none (at least one of `--decisions`, `--answer` or `--item` is required)',
+    'must-not-call': 'none',
+    no: 'off (with `--item`, exactly one of `--yes` or `--no` is required)',
     participant: 'none',
     pointer: 'none (item recorded without a pointer)',
     rank: 'none',
-    reason: 'none',
     run: 'required',
-    yes: 'off (exactly one of `--yes` or `--no` is required)',
+    'should-call': 'none',
+    'should-say': 'none',
+    why: 'none',
+    yes: 'off (with `--item`, exactly one of `--yes` or `--no` is required)',
   },
-  'judgments list': {
+  'corrections list': {
     agent: 'none',
     'agent-version': 'none',
-    class: 'none',
+    group: 'none',
     cursor: 'none',
     flow: 'none',
     limit: '`25` (at most `100`)',
     participant: 'none',
     project: 'none',
+    from: '`all`',
     run: 'none',
-    verdict: 'none',
+    since: 'none',
+    'sorted-to': 'none (sorted anywhere, or not at all)',
+    status: 'none (every status but `removed`)',
   },
-  'judge-classes list': {
+  'corrections set': {
+    link: 'none',
+    reason: 'none',
+    'sorted-to': 'none (at least one of `--status` or `--sorted-to` is required)',
+    status: 'none (at least one of `--status` or `--sorted-to` is required)',
+  },
+  'corrections export': {
+    agent: 'required',
+    format: '`csv`',
+    from: '`all`',
+    out: 'none (the export is printed)',
+    project: 'none',
+    since: 'none',
+    'sorted-to': 'none',
+    status: 'none (every status but `removed`)',
+    until: 'none',
+  },
+  'corrector-groups list': {
     agent: 'none',
     cursor: 'none',
     limit: '`25` (at most `100`)',
     project: 'none',
     tenant: 'off (with no scope flag, no scope filter is sent)',
   },
-  'judge-classes add': {
+  'corrector-groups add': {
     agent: 'none',
     description: 'none',
     'min-reviewer-role': 'none (anyone who may correct the run may assert)',
@@ -824,14 +839,14 @@ export const CLI_DEFAULTS = {
     tenant: 'off (a scope is required: `--tenant`, `--project`, or `--agent` with `--project`)',
     weight: 'required',
   },
-  'judge-classes set': {
+  'corrector-groups set': {
     description: 'unchanged',
     'min-reviewer-role': 'unchanged',
     'principal-id': 'unchanged',
     'principal-kind': 'unchanged',
     weight: 'unchanged',
   },
-  'judging-rules create': {
+  'queue-rules create': {
     project: "the tenant's Default project",
     name: 'required',
     agent: 'none (runs of any agent)',
@@ -840,20 +855,20 @@ export const CLI_DEFAULTS = {
     status: '`completed` (only completed runs match)',
     sample: '`1` (every matching run)',
     'max-open': 'none (no cap)',
-    class: 'none (any correction closes an item)',
+    group: 'none (any correction closes an item)',
     'queue-last':
       'none (nothing is queued on create unless `--queue-last` or `--queue-since` is given)',
     'queue-since': 'none',
   },
-  'judging-rules list': {
+  'queue-rules list': {
     project: "the tenant's Default project",
     limit: '`25` (at most `100`)',
     cursor: 'none',
   },
-  'judging-rules show': {
+  'queue-rules show': {
     project: "the tenant's Default project",
   },
-  'judging-rules update': {
+  'queue-rules update': {
     project: "the tenant's Default project",
     name: 'unchanged',
     agent: 'unchanged (any match flag replaces `when` whole)',
@@ -862,21 +877,21 @@ export const CLI_DEFAULTS = {
     status: 'unchanged (any match flag replaces `when` whole)',
     sample: 'unchanged',
     'max-open': 'unchanged',
-    class: 'unchanged',
+    group: 'unchanged',
   },
-  'judging-rules remove': {
+  'queue-rules remove': {
     project: "the tenant's Default project",
   },
-  'judging-rules versions': {
+  'queue-rules versions': {
     project: "the tenant's Default project",
     limit: '`25` (at most `100`)',
     cursor: 'none',
   },
-  'judging-rules results': {
+  'queue-rules results': {
     project: "the tenant's Default project",
     since: 'none (every result)',
   },
-  'judging-rules preview': {
+  'queue-rules preview': {
     project: "the tenant's Default project",
     agent: 'none (runs of any agent)',
     flow: 'none (runs of any flow)',
@@ -886,30 +901,30 @@ export const CLI_DEFAULTS = {
     last: '`100` (1 to 500)',
     rule: 'none (preview the given flags, not an existing rule)',
   },
-  'judging-rules queue-recent': {
+  'queue-rules queue-recent': {
     project: "the tenant's Default project",
     last: 'none (give `--last` and/or `--since`)',
     since: 'none (give `--last` and/or `--since`)',
   },
-  'judging-queue list': {
+  'expert-queue list': {
     project: "the tenant's Default project",
     state: 'none (every state)',
     agent: 'none',
     rule: 'none',
-    class: 'none',
+    group: 'none',
     'added-after': 'none',
     'closed-after': 'none',
     limit: '`25` (at most `100`)',
     cursor: 'none',
   },
-  'judging-queue dismiss': {
+  'expert-queue dismiss': {
     project: "the tenant's Default project",
     reason: 'none',
   },
-  'judging-queue reopen': {
+  'expert-queue reopen': {
     project: "the tenant's Default project",
   },
-  'eval-runs start': {
+  'test-runs start': {
     project: 'required',
     agent: 'required: one of `--agent`, `--flow`',
     'agent-version': 'the latest version',
@@ -922,44 +937,31 @@ export const CLI_DEFAULTS = {
     reads: '`recorded`',
     repetitions: '`1`',
     k: '`10`',
-    'class-weights': '`as-recorded`',
+    'group-weights': '`as-recorded`',
   },
-  'eval-runs list': {
+  'test-runs list': {
     agent: 'none',
     cursor: 'none',
     limit: '`25` (at most `100`)',
     status: 'none',
-    suite: 'none',
+    'test-set': 'none',
   },
-  'eval-runs rescore': {
+  'test-runs rescore': {
     project: 'none',
   },
-  'eval-suites list': {
+  'test-sets list': {
     cursor: 'none',
     kind: 'none',
     limit: '`25` (at most `100`)',
     project: 'none',
   },
-  'eval-suites show': {
-    'suite-version': 'the latest version',
+  'test-sets show': {
+    'test-set-version': 'the latest version',
   },
-  'eval-suites from-judgments': {
-    agent: 'required: one of `--agent`, `--flow`',
-    'agent-version': 'none',
-    class: 'none',
-    description: 'none',
-    flow: 'required: one of `--agent`, `--flow`',
-    'min-judgments': '`1`',
-    project: 'required',
-    segment: 'none',
-    since: 'none',
-    'suite-version': 'required',
-    until: 'none',
-  },
-  'eval-suites cases': {
+  'test-sets cases': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
-    'suite-version': 'required',
+    'test-set-version': 'required',
   },
   'blocks list': {
     cursor: 'none',
@@ -989,7 +991,10 @@ export const CLI_DEFAULTS = {
   'blocks reinstate': {
     'block-version': 'required',
   },
-  'gate-policies list': {
+  'blocks pull': {
+    path: 'the current directory',
+  },
+  'release-gates list': {
     agent: 'none',
     cursor: 'none',
     limit: '`25` (at most `100`)',
@@ -997,12 +1002,12 @@ export const CLI_DEFAULTS = {
     project: 'none',
     segment: 'none',
   },
-  'gate-policies publish': {
+  'release-gates publish': {
     agent: 'required',
     description: 'none',
     org: 'required: one of `--tenant`, `--org`, `--project`',
-    'policy-version': 'required',
     project: 'required: one of `--tenant`, `--org`, `--project`',
+    'release-gate-version': 'required',
     segment: 'none',
     spec: 'required',
     tenant: 'required: one of `--tenant`, `--org`, `--project`',
@@ -1302,8 +1307,8 @@ export const CLI_EXAMPLES = {
     },
     {
       purpose:
-        'Promote to prod and make each agent the build carries live there, each through its release gate policy.',
-      line: 'kindgi promote --from=staging --to=prod --make-live --reason="release 12"',
+        'Promote to prod and pin each agent the build carries there, each through its release gate.',
+      line: 'kindgi promote --from=staging --to=prod --pin --reason="release 12"',
     },
     {
       purpose: 'See what would move to prod and which values it lacks, changing nothing.',
@@ -1517,6 +1522,16 @@ export const CLI_EXAMPLES = {
       line: 'kindgi agents unregister acme-ops.reply-drafter 1.2.0',
     },
   ],
+  'agents owner': [
+    {
+      purpose: "Show the agent's owner.",
+      line: 'kindgi agents owner acme-ops.reply-drafter',
+    },
+    {
+      purpose: 'Make a person the owner, replacing the one before.',
+      line: 'kindgi agents owner acme-ops.reply-drafter --set=<user-id>',
+    },
+  ],
   'agents versions': [
     {
       purpose: "List an agent's registered versions.",
@@ -1527,26 +1542,26 @@ export const CLI_EXAMPLES = {
       line: 'kindgi agents versions acme-ops.reply-drafter --include-unregistered',
     },
   ],
-  'agents live-versions': [
+  'agents pinned-versions': [
     {
-      purpose: 'List every scope with a live version of the agent.',
-      line: 'kindgi agents live-versions acme.order-desk',
+      purpose: 'List every scope with a pinned version of the agent.',
+      line: 'kindgi agents pinned-versions acme.order-desk',
     },
   ],
-  'agents gate-policy': [
+  'agents release-gate': [
     {
-      purpose: 'Show the release gate policy for the whole tenant.',
-      line: 'kindgi agents gate-policy acme.order-desk --tenant',
+      purpose: 'Show the release gate for the whole tenant.',
+      line: 'kindgi agents release-gate acme.order-desk --tenant',
     },
     {
-      purpose: 'Show the policy for a segment of a project.',
-      line: 'kindgi agents gate-policy acme.order-desk --project=<project-id> --segment=company:acme',
+      purpose: 'Show the release gate for a segment of a project.',
+      line: 'kindgi agents release-gate acme.order-desk --project=<project-id> --segment=company:acme',
     },
   ],
-  'agents promotions get': [
+  'agents pin-history get': [
     {
-      purpose: "Show one entry of an agent's go-live history.",
-      line: 'kindgi agents promotions get acme.order-desk <promotion-id>',
+      purpose: "Show one entry of an agent's pin history.",
+      line: 'kindgi agents pin-history get acme.order-desk <change-id>',
     },
   ],
   'conversations list': [
@@ -1672,6 +1687,16 @@ export const CLI_EXAMPLES = {
       purpose: 'Fetch a schedule with its next five run times.',
       line: 'kindgi schedules get <schedule-id> --upcoming=5',
     },
+    {
+      purpose: 'Fetch version 2 of a schedule: what it ran, as whom, and when.',
+      line: 'kindgi schedules get <schedule-id> 2',
+    },
+  ],
+  'schedules versions': [
+    {
+      purpose: "List a schedule's versions as a table: when each was made, by whom, and why.",
+      line: 'kindgi schedules versions <schedule-id> --table',
+    },
   ],
   'schedules update': [
     {
@@ -1728,6 +1753,16 @@ export const CLI_EXAMPLES = {
       purpose: 'Show a trigger and the URL its sender posts to.',
       line: 'kindgi webhooks get <trigger-id>',
     },
+    {
+      purpose: 'Fetch version 2 of a trigger: what it ran, and how it checked its sender.',
+      line: 'kindgi webhooks get <trigger-id> 2',
+    },
+  ],
+  'webhooks versions': [
+    {
+      purpose: "List a trigger's versions as a table: when each was made, by whom, and why.",
+      line: 'kindgi webhooks versions <trigger-id> --table',
+    },
   ],
   'webhooks update': [
     {
@@ -1777,6 +1812,16 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Fetch a mail trigger: what it runs, its mailbox and folder, and its status.',
       line: 'kindgi mail-triggers get <trigger-id>',
+    },
+    {
+      purpose: 'Fetch version 2 of a mail trigger: what it ran, and which mailbox it watched.',
+      line: 'kindgi mail-triggers get <trigger-id> 2',
+    },
+  ],
+  'mail-triggers versions': [
+    {
+      purpose: "List a mail trigger's versions as a table: when each was made, by whom, and why.",
+      line: 'kindgi mail-triggers versions <trigger-id> --table',
     },
   ],
   'mail-triggers create': [
@@ -1914,183 +1959,209 @@ export const CLI_EXAMPLES = {
       line: 'kindgi reviewers unregister <reviewer-id>',
     },
   ],
-  'judge-classes list': [
+  'corrections list': [
     {
-      purpose: 'List the judge classes of the whole tenant.',
-      line: 'kindgi judge-classes list --tenant',
-    },
-    {
-      purpose: 'List the classes of one agent in a project.',
-      line: 'kindgi judge-classes list --agent=acme-ops.reply-drafter --project=<project-id>',
+      purpose: "List an agent's corrections that aren't fixed yet, sorted to its owner.",
+      line: 'kindgi corrections list --agent=acme-ops.reply-drafter --status=not-fixed --sorted-to=owner',
     },
   ],
-  'judge-classes set': [
+  'corrections set': [
     {
-      purpose: "Change a class's weight.",
-      line: 'kindgi judge-classes set <judge-class-id> --weight=5',
+      purpose: 'Say a pull request is fixing a correction.',
+      line: 'kindgi corrections set <correction-id> --status=being-fixed --link=https://github.com/acme/agents/pull/7',
     },
     {
-      purpose: 'Limit who may assert the class to senior reviewers.',
-      line: 'kindgi judge-classes set <judge-class-id> --min-reviewer-role=senior',
+      purpose: "Close a correction that won't be fixed, with why.",
+      line: "kindgi corrections set <correction-id> --status=wont-fix --reason='The refund policy changed.'",
+    },
+    {
+      purpose: 'Send a correction to the developer instead.',
+      line: "kindgi corrections set <correction-id> --sorted-to=developer --reason='It needs a new tool.'",
+    },
+  ],
+  'corrector-groups list': [
+    {
+      purpose: 'List the corrector groups of the whole tenant.',
+      line: 'kindgi corrector-groups list --tenant',
+    },
+    {
+      purpose: 'List the groups of one agent in a project.',
+      line: 'kindgi corrector-groups list --agent=acme-ops.reply-drafter --project=<project-id>',
+    },
+  ],
+  'corrector-groups set': [
+    {
+      purpose: "Change a group's weight.",
+      line: 'kindgi corrector-groups set <corrector-group-id> --weight=5',
+    },
+    {
+      purpose: 'Limit who may assert the group to senior reviewers.',
+      line: 'kindgi corrector-groups set <corrector-group-id> --min-reviewer-role=senior',
     },
     {
       purpose: 'Lift the restriction.',
-      line: 'kindgi judge-classes set <judge-class-id> --unrestricted',
+      line: 'kindgi corrector-groups set <corrector-group-id> --unrestricted',
     },
   ],
-  'judge-classes remove': [
+  'corrector-groups remove': [
     {
-      purpose: 'Retire a judge class.',
-      line: 'kindgi judge-classes remove <judge-class-id>',
+      purpose: 'Retire a corrector group.',
+      line: 'kindgi corrector-groups remove <corrector-group-id>',
     },
   ],
-  'judging-rules create': [
+  'queue-rules create': [
     {
       purpose: "Queue a quarter of an agent's completed runs for correction.",
-      line: 'kindgi judging-rules create --name="refund tone" --agent=acme.refunds --sample=0.25',
+      line: 'kindgi queue-rules create --name="refund tone" --agent=acme.refunds --sample=0.25',
     },
     {
       purpose: 'Create a rule and catch it up at once on the last 500 finished runs.',
-      line: 'kindgi judging-rules create --name="all refunds" --agent=acme.refunds --queue-last=500',
+      line: 'kindgi queue-rules create --name="all refunds" --agent=acme.refunds --queue-last=500',
     },
   ],
-  'judging-rules list': [
+  'queue-rules list': [
     {
-      purpose: "List a project's judging rules.",
-      line: 'kindgi judging-rules list --project=<project-id>',
+      purpose: "List a project's queue rules.",
+      line: 'kindgi queue-rules list --project=<project-id>',
     },
   ],
-  'judging-rules show': [
+  'queue-rules show': [
     {
       purpose: "Show a rule's latest version.",
-      line: 'kindgi judging-rules show <rule-id>',
+      line: 'kindgi queue-rules show <rule-id>',
     },
   ],
-  'judging-rules update': [
+  'queue-rules update': [
     {
       purpose: "Raise a rule's open-items cap and enable it.",
-      line: 'kindgi judging-rules update <rule-id> --max-open=50 --enable',
+      line: 'kindgi queue-rules update <rule-id> --max-open=50 --enable',
     },
     {
       purpose: 'Replace what the rule matches and drop its cap.',
-      line: 'kindgi judging-rules update <rule-id> --agent=acme.refunds --clear-max-open',
+      line: 'kindgi queue-rules update <rule-id> --agent=acme.refunds --clear-max-open',
     },
   ],
-  'judging-rules remove': [
+  'queue-rules remove': [
     {
       purpose: 'Unregister a rule so it queues nothing more; its queued items stay.',
-      line: 'kindgi judging-rules remove <rule-id>',
+      line: 'kindgi queue-rules remove <rule-id>',
     },
   ],
-  'judging-rules versions': [
+  'queue-rules versions': [
     {
       purpose: 'List every version of a rule, newest first.',
-      line: 'kindgi judging-rules versions <rule-id>',
+      line: 'kindgi queue-rules versions <rule-id>',
     },
   ],
-  'judging-rules results': [
+  'queue-rules results': [
     {
       purpose:
         "Show a rule's results for runs queued since a date, by the rule's version and the agent's.",
-      line: 'kindgi judging-rules results <rule-id> --since=2026-10-01',
+      line: 'kindgi queue-rules results <rule-id> --since=2026-10-01',
     },
   ],
-  'judging-rules preview': [
+  'queue-rules preview': [
     {
       purpose: 'See how many of the last 200 runs a rule would queue, changing nothing.',
-      line: 'kindgi judging-rules preview --agent=acme.refunds --last=200',
+      line: 'kindgi queue-rules preview --agent=acme.refunds --last=200',
     },
     {
       purpose: 'Preview exactly what an existing rule would take.',
-      line: 'kindgi judging-rules preview --rule=<rule-id>',
+      line: 'kindgi queue-rules preview --rule=<rule-id>',
     },
   ],
-  'judging-rules queue-recent': [
+  'queue-rules queue-recent': [
     {
       purpose: 'Catch a rule up on the last 1,000 finished runs.',
-      line: 'kindgi judging-rules queue-recent <rule-id> --last=1000',
+      line: 'kindgi queue-rules queue-recent <rule-id> --last=1000',
     },
     {
       purpose: 'Queue its matches among runs finished on or after a date.',
-      line: 'kindgi judging-rules queue-recent <rule-id> --since=2026-10-01',
+      line: 'kindgi queue-rules queue-recent <rule-id> --since=2026-10-01',
     },
   ],
-  'judging-queue list': [
+  'expert-queue list': [
     {
       purpose: 'List the runs waiting for a correction, as a table.',
-      line: 'kindgi judging-queue list --state=open --table',
+      line: 'kindgi expert-queue list --state=open --table',
     },
     {
       purpose: 'List the open items one of your corrections would close.',
-      line: 'kindgi judging-queue list --state=open --for-me',
+      line: 'kindgi expert-queue list --state=open --for-me',
     },
   ],
-  'judging-queue dismiss': [
+  'expert-queue dismiss': [
     {
       purpose: 'Dismiss a queued run that needs no correction.',
-      line: 'kindgi judging-queue dismiss <run-id> --reason="not a refund"',
+      line: 'kindgi expert-queue dismiss <run-id> --reason="not a refund"',
     },
   ],
-  'judging-queue reopen': [
+  'expert-queue reopen': [
     {
       purpose: 'Reopen a dismissed item so it waits for a correction again.',
-      line: 'kindgi judging-queue reopen <run-id>',
+      line: 'kindgi expert-queue reopen <run-id>',
     },
   ],
-  'eval-runs list': [
+  'test-runs list': [
     {
-      purpose: 'List the newest eval runs of one suite.',
-      line: 'kindgi eval-runs list --suite=acme.article-picks',
+      purpose: 'List the newest test runs of one test set.',
+      line: 'kindgi test-runs list --test-set=acme.article-picks',
     },
     {
       purpose: 'List failed runs of an agent, ten at a time.',
-      line: 'kindgi eval-runs list --agent=acme-ops.article-picker --status=failed --limit=10',
+      line: 'kindgi test-runs list --agent=acme-ops.article-picker --status=failed --limit=10',
     },
   ],
-  'eval-runs cancel': [
+  'test-runs show': [
     {
-      purpose: 'Cancel a pending or running eval run.',
-      line: 'kindgi eval-runs cancel <run-id>',
+      purpose: "Show a test run's status and, once it's done, its summary.",
+      line: 'kindgi test-runs show <test-run-id>',
     },
   ],
-  'eval-runs rescore': [
+  'test-runs cancel': [
+    {
+      purpose: 'Cancel a pending or running test run.',
+      line: 'kindgi test-runs cancel <test-run-id>',
+    },
+  ],
+  'test-runs rescore': [
     {
       purpose: 'Rescore a completed run on the test cases and wait for the new run.',
-      line: 'kindgi eval-runs rescore <run-id> --wait',
+      line: 'kindgi test-runs rescore <test-run-id> --wait',
     },
     {
       purpose: 'Rescore against a runtime that does not record the project on the run.',
-      line: 'kindgi eval-runs rescore <run-id> --project=<project-id>',
+      line: 'kindgi test-runs rescore <test-run-id> --project=<project-id>',
     },
   ],
-  'eval-suites list': [
+  'test-sets list': [
     {
-      purpose: 'List the judged suites of a project.',
-      line: 'kindgi eval-suites list --project=<project-id> --kind=judged',
+      purpose: 'List the accuracy test sets of a project.',
+      line: 'kindgi test-sets list --project=<project-id> --kind=accuracy',
     },
     {
-      purpose: 'List suites including retired ones.',
-      line: 'kindgi eval-suites list --include-retired',
-    },
-  ],
-  'eval-suites show': [
-    {
-      purpose: "Show a suite's latest version.",
-      line: 'kindgi eval-suites show acme.article-picks',
-    },
-    {
-      purpose: 'Show one version of a suite.',
-      line: 'kindgi eval-suites show acme.article-picks --suite-version=1.0.0',
+      purpose: 'List test sets including retired ones.',
+      line: 'kindgi test-sets list --include-retired',
     },
   ],
-  'eval-suites cases': [
+  'test-sets show': [
+    {
+      purpose: "Show a test set's latest version.",
+      line: 'kindgi test-sets show acme.article-picks',
+    },
+    {
+      purpose: 'Show one version of a test set.',
+      line: 'kindgi test-sets show acme.article-picks --test-set-version=1.0.0',
+    },
+  ],
+  'test-sets cases': [
     {
       purpose: 'List the first page of the test cases.',
-      line: 'kindgi eval-suites cases acme.article-picks --suite-version=1.0.0',
+      line: 'kindgi test-sets cases acme.article-picks --test-set-version=1.0.0',
     },
     {
       purpose: 'Fetch the next page of cases.',
-      line: 'kindgi eval-suites cases acme.article-picks --suite-version=1.0.0 --limit=50 --cursor=<cursor>',
+      line: 'kindgi test-sets cases acme.article-picks --test-set-version=1.0.0 --limit=50 --cursor=<cursor>',
     },
   ],
   'blocks list': [
@@ -2135,42 +2206,52 @@ export const CLI_EXAMPLES = {
       line: 'kindgi blocks reinstate acme.reply-style --block-version=1.0.0',
     },
   ],
-  'gate-policies list': [
+  'blocks pull': [
     {
-      purpose: 'List the release gate policies of one agent.',
-      line: 'kindgi gate-policies list --agent=acme.order-desk --table',
+      purpose: "Write the newest running version of each of the pack's blocks into its file.",
+      line: 'kindgi blocks pull',
     },
     {
-      purpose: 'List the policies set for the whole tenant.',
-      line: 'kindgi gate-policies list --tenant',
-    },
-  ],
-  'gate-policies show': [
-    {
-      purpose: "Show a policy's latest active version.",
-      line: 'kindgi gate-policies show acme.order-desk-release',
-    },
-    {
-      purpose: 'Show one version of a policy.',
-      line: 'kindgi gate-policies show acme.order-desk-release 1.0.0',
+      purpose: 'Pull one block, in a pack in another directory.',
+      line: 'kindgi blocks pull acme.reply-style --path=./support-pack',
     },
   ],
-  'gate-policies versions': [
+  'release-gates list': [
     {
-      purpose: "List a policy's versions, unregistered ones too.",
-      line: 'kindgi gate-policies versions acme.order-desk-release --table',
+      purpose: 'List the release gates of one agent.',
+      line: 'kindgi release-gates list --agent=acme.order-desk --table',
+    },
+    {
+      purpose: 'List the release gates set for the whole tenant.',
+      line: 'kindgi release-gates list --tenant',
     },
   ],
-  'gate-policies unregister': [
+  'release-gates show': [
     {
-      purpose: 'Unregister a release gate policy version.',
-      line: 'kindgi gate-policies unregister acme.order-desk-release 1.0.0',
+      purpose: "Show a release gate's latest active version.",
+      line: 'kindgi release-gates show acme.order-desk-release',
+    },
+    {
+      purpose: 'Show one version of a release gate.',
+      line: 'kindgi release-gates show acme.order-desk-release 1.0.0',
     },
   ],
-  'gate-policies reinstate': [
+  'release-gates versions': [
     {
-      purpose: 'Reinstate an unregistered release gate policy version.',
-      line: 'kindgi gate-policies reinstate acme.order-desk-release 1.0.0',
+      purpose: "List a release gate's versions, unregistered ones too.",
+      line: 'kindgi release-gates versions acme.order-desk-release --table',
+    },
+  ],
+  'release-gates unregister': [
+    {
+      purpose: 'Unregister a release gate version.',
+      line: 'kindgi release-gates unregister acme.order-desk-release 1.0.0',
+    },
+  ],
+  'release-gates reinstate': [
+    {
+      purpose: 'Reinstate an unregistered release gate version.',
+      line: 'kindgi release-gates reinstate acme.order-desk-release 1.0.0',
     },
   ],
   'tokens get': [
@@ -2487,6 +2568,7 @@ export const CLI_GROUP_SEE_ALSO = {
   'mcp-launch': ['guides/tools/mcp-servers'],
   deployments: ['hosted/deploy-your-agent', 'guides/secrets/pack-env'],
   projects: ['guides/projects/organize-by-org-and-project'],
+  'test-sets': ['guides/improve/build-a-test-set', 'guides/improve/compare-an-agent-version'],
   connections: ['deploy/people-and-keys'],
   'connection-apps': ['guides/secrets/store-a-secret', 'deploy/people-and-keys'],
   tenant: ['guides/projects/organize-by-org-and-project'],
@@ -2500,6 +2582,6 @@ export const CLI_GROUP_SEE_ALSO = {
   health: ['deploy/self-hosted/operate'],
   version: ['start/install'],
   usage: ['guides/observability/cost-per-run', 'guides/projects/organize-by-org-and-project'],
-  'judging-rules': ['guides/evals/judge-a-runs-output', 'guides/evals/judging-reference'],
-  'judging-queue': ['guides/evals/judge-a-runs-output', 'guides/evals/judging-reference'],
+  'queue-rules': ['guides/improve/correct-a-runs-output', 'guides/improve/expert-queue-reference'],
+  'expert-queue': ['guides/improve/correct-a-runs-output', 'guides/improve/expert-queue-reference'],
 };

@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.8"
+version: "0.4.13"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -101,6 +101,23 @@ export default defined.value;
   ids in its provider's form (`acme__verify-citation` for Anthropic and
   OpenAI-compatible models), and `acme.verify-citation` in the
   instructions can make it call a name it wasn't given.
+  - **From a prompt block:** `instructions: { prompt: 'acme.reply-prompt', version: '^1.0.0' }`
+    takes them from a block in the pack's `blocks/` folder
+    (`blocks/**/*.json`, deployed with the pack before its agents):
+    `{ "id": "acme.reply-prompt", "version": "1.0.0", "kind": "prompt", "content": { "template": "…" } }`,
+    or `"templateFile": "reply-prompt.liquid"` beside it for a long one.
+    The block brings its parameters, so the agent declares none.
+    People can then change the wording without a deploy, and Improve can
+    try rewrites: each is a suggested change a person checks and pins.
+    Rules that must always hold stay in code.
+- **`settings`** — settings blocks the instructions and tools read, by
+  range: `settings: [{ id: 'acme.reply-style', version: '^1.0.0' }]`.
+  A settings block's file holds `values` and a JSON `schema`; the
+  template reads `{{ settings["acme.reply-style"].maxSentences }}`. Mark
+  a key Improve may change with `"x-kindgi-tunable": true` in the
+  schema, on a number with `minimum` and `maximum` or an `enum` of two
+  or more values. Leave it off a key that guards a rule: a limit, a
+  window, a cap.
 - **`capabilities`** — declares the resource kinds the agent needs at
   runtime. `{feature: 'tool-use'}` is standard for tool-calling
   agents. The router picks the concrete LLM provider at turn time.
@@ -111,10 +128,12 @@ export default defined.value;
 - **`guardrails`** — array of guardrail `id` strings. Resolved at turn
   start against the guardrails bound for the run (the tenant's
   registered guardrails). If a guardrail id isn't registered, the turn
-  fails with `unresolved-guardrail`. Guardrails are evaluated once per
-  turn, on the final response before it is stored — a blocking
-  (`halt`) violation fails the turn and the response is never written
-  to the conversation.
+  fails with `unresolved-guardrail`. Guardrails check the final
+  response before it is stored — a blocking (`halt`) violation fails
+  the turn and the response is never written to the conversation; a
+  `retry` one sends the response back to the model for a new one, up
+  to `retry.maxAttempts` answers in all (default 2); then the turn
+  fails with `guardrail-violation`.
 - **`parameters`** — typed inputs the caller supplies at invoke time.
   UI builds a "configure agent" form from these; runtime validates
   each required parameter is provided.
@@ -129,6 +148,19 @@ export default defined.value;
   `(provider, model)` tuples whose model matches. To require a model
   rather than prefer it, add a hard requirement to the capability:
   `capabilities: [{ needs: [{ feature: 'tool-use' }, { models: { allow: ['gemini-3.8-flash'] } }] }]`.
+- **`modelSettings`** — optional: a model-settings block by range,
+  `{ id: 'acme.reply-model', version: '^1.0.0' }`. It's a settings block,
+  such as `blocks/reply-model.json`, whose values may set `temperature`,
+  `maxOutputTokens` and `thinking`:
+  `{ "id": "acme.reply-model", "version": "1.0.0", "kind": "settings", "content": { "values": { "thinking": "low" } } }`.
+  **How much the model thinks** (runtime 0.3.0 or later; an older one
+  refuses a block with `thinking`): the block's `thinking` (`lowest`,
+  `minimal`, `low`, `medium`, `high`, `xhigh` or `max`); else the
+  `thinking.default` the model's provider registration gives it (see
+  `kindgi-authoring-providers`); else no level, and the model thinks as its
+  vendor sets. A level the model doesn't take goes as the next one up that
+  it takes, or its highest, with a `thinking-level-adjusted` warning. A
+  guardrail's model judge, or a test run's judging model, asks for `lowest`.
 - **`conversationPolicy`** — optional. Absent = each turn loads the
   conversation's full history and no HITL gates apply. `historyLimit`
   caps how many prior messages are loaded; `hitl` configures approval
@@ -162,6 +194,16 @@ export default defined.value;
   retries the turn fails as before, with `toolRetries` on the error. A
   tenant's `tool-errors` policy can lower these (fewer retries, fewer
   kinds), never raise them.
+- **`parallelToolCalls`** — optional, default on. When a model step asks for
+  several calls at once, calls to read-only tools (`mutating: false`, no
+  changing effect) that come one after another run at the same time, up to 8
+  of them, and a call to any other tool runs on its own, in the order the
+  model asked. A call that may wait, for another system's answer or for the
+  person who started the run to connect an app, runs on its own too. Once a
+  call needs an approval, the step's calls that haven't started run one at a
+  time. The results reach the conversation and the model in the model's order
+  either way. `false` runs every call on its own, for read-only tools that
+  mustn't overlap (a rate-limited API, say).
 - **`retrieval`** — what the agent reads from memory before each turn.
   Empty = no memory. Each intent is
   `{ types: ['acme.preference'], scope, mode?, limit? }`, with `scope`
@@ -188,8 +230,8 @@ export default defined.value;
   person's approval. Remembering is a tool call, so use a model with
   reliable tool calling. `{ instructionTypes: ['acme.policy'] }` turns a
   retrieved, verified fact of those types into an instruction
-  ("Policies (verified)"). See
-  https://docs.kindgi.com/v0.1/guides/agents/give-an-agent-memory/.
+  ("Policies (verified)"). "Give an agent memory" has the rest:
+  https://docs.kindgi.com/v0.3/guides/agents/give-an-agent-memory/
 
 ## What a turn receives
 
@@ -245,6 +287,10 @@ publishes to a durable production registry that enforces the
 immutable `(id, version)` contract. Both surfaces are deploy-time
 concerns, not author-time.
 
+**After it ships**, people correct its runs, and every correction is a
+case in the agent's test set. `kindgi-fix-corrections` takes them to a
+fix: a setting or wording as a suggested change, a rule in code.
+
 ## Common mistakes
 
 1. **Adding an agent without asking what it should do.** The most
@@ -282,7 +328,7 @@ concerns, not author-time.
 
 - Type surface: `hover any @kindgi/sdk/define export` in your editor
   for full JSDoc.
-- API reference: https://docs.kindgi.com/v0.1/reference/typescript/sdk/kindgi/sdk/define/ (every `define*` spec, field by field).
+- API reference: https://docs.kindgi.com/v0.3/reference/typescript/sdk/kindgi/sdk/define/ (every `define*` spec, field by field).
 - Common patterns: the `sample` template's `agents/echo-agent`
   demonstrates the smallest tool-calling shape.
 

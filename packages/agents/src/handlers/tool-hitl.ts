@@ -90,18 +90,23 @@ function canonicalStringify(value: unknown): string {
 export const TOOL_GATE_RECORD_PREFIX = 'tool-hitl-gate:';
 
 /**
- * Deterministic waitpoint token for a tool-call gate. Includes both
- * the model-generated call id (unique per iteration) AND the args hash
- * so kernel flow replay lands on the same token, and a re-issued
- * tool-call in a later iteration gets its own gate.
+ * Deterministic waitpoint token for a tool-call gate: call `callId` of run
+ * `runId`, with arguments hashed to `argsHash`, in the step `stepScope` when
+ * the step has one. A model's call id is unique only within one answer, so
+ * two loop iterations may share one: with the step scope, a call a later
+ * iteration makes again, with the same arguments, waits for an answer of its
+ * own instead of finding the earlier one's. A replay of the call lands on the
+ * same token.
  */
 export function computeToolCallWaitToken(input: {
   readonly runId: string;
+  readonly stepScope?: string;
   readonly callId: string;
   readonly argsHash: string;
 }): string {
+  const step = input.stepScope === undefined ? '' : `${input.stepScope}:`;
   return createHash('sha256')
-    .update(`tool-call:${input.runId}:${input.callId}:${input.argsHash}`)
+    .update(`tool-call:${input.runId}:${step}${input.callId}:${input.argsHash}`)
     .digest('hex')
     .slice(0, 40);
 }

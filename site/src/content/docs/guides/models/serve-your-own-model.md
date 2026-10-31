@@ -116,6 +116,14 @@ Fields the adapter sets itself can't be set this way: `model`, `messages`,
 Error [invalid-request]: `adapter_config` values must be strings, numbers or booleans (extraBody).
 ```
 
+A key that's neither `baseURL`, `api` nor an `extraBody.` field is refused
+too, naming the ones the adapter takes. So a misspelled `extraBdy.` key is
+caught when you register, not left unsent:
+
+```text
+  ✗ /adapter_config/extraBdy.chat_template_kwargs.enable_thinking: adapter_config.extraBdy.chat_template_kwargs.enable_thinking isn't a setting of this adapter: it takes baseURL, api, extraBody.<field>.
+```
+
 Your server must also call tools the OpenAI way for an agent that has tools:
 turn tool calling on in its settings, and serve a model that supports it.
 

@@ -91,7 +91,7 @@ async function dispatch(setup: Setup = {}) {
       conversationId: 'conv-1',
       agent,
       principal: PRINCIPAL,
-      ...(setup.replay === true && { replay: { of: 'run-past', evalRunId: 'eval-1' } }),
+      ...(setup.replay === true && { replay: { of: 'run-past', testRunId: 'eval-1' } }),
     },
     bindings: {
       conversationBinding: {

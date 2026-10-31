@@ -30,10 +30,12 @@
 import type { BlockDefinition } from '@kindgi/agents';
 import type { ProjectId, TenantId } from '@kindgi/types';
 
+import type { PinActor } from './agent-pin-binding.js';
 import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
 import { type BlockPublishIssue, continuityIssues, withCarriedSchema } from './block-publish.js';
-import { canonical } from './judged-items.js';
+import { canonical } from './corrected-items.js';
 import { PublishRefused } from './publish-refused.js';
+import type { RollbackAction } from './routes/deployments.js';
 
 /** A pack's block as the deploy publishes it, and whether the registry holds it already. */
 export interface PlannedBlock {
@@ -122,23 +124,34 @@ export function withPackVersions(
 
 /**
  * Publish the pack's blocks into the deploy's project, each new one with
- * an unregister in `rolled`. Throws `PublishRefused` for one the registry
- * refuses, or one whose version was published with other content since
- * it was checked.
+ * an unregister in `rolled`, as published by the deploy's caller from
+ * the deployment `deploymentId`: the versions it published (a kept one
+ * isn't). Throws `PublishRefused` for one the registry refuses, or one
+ * whose version was published with other content since it was checked.
  */
 export async function publishPackBlocks(input: {
   readonly blocks: BlockRegistryBinding;
   readonly tenantId: TenantId;
   readonly projectId: ProjectId;
   readonly planned: readonly PlannedBlock[];
-  readonly rolled: (() => Promise<void>)[];
-}): Promise<void> {
-  const { blocks, tenantId, projectId } = input;
+  readonly rolled: RollbackAction[];
+  readonly publishedBy: PinActor;
+  readonly deploymentId: string;
+}): Promise<readonly BlockDefinition[]> {
+  const { blocks, tenantId, projectId, publishedBy } = input;
+  const source = { kind: 'deploy', id: input.deploymentId } as const;
+  const published: BlockDefinition[] = [];
   for (const { block, isNew } of input.planned) {
-    const outcome = await blocks.publish({ tenantId, projectId, block });
+    const outcome = await blocks.publish({ tenantId, projectId, block, publishedBy, source });
     if (outcome.kind === 'ok') {
-      input.rolled.push(async () => {
-        await blocks.unregister({ tenantId, blockId: block.id, version: block.version });
+      published.push(block);
+      input.rolled.push({
+        primitive: 'block',
+        id: `${block.id}@${block.version}`,
+        undo: 'unregister',
+        run: async () => {
+          await blocks.unregister({ tenantId, blockId: block.id, version: block.version });
+        },
       });
     } else if (outcome.kind === 'already-registered') {
       if (!isNew) continue;
@@ -156,6 +169,7 @@ export async function publishPackBlocks(input: {
       throw new PublishRefused('block', `${block.id}@${block.version}`, outcome);
     }
   }
+  return published;
 }
 
 /** Why the pack's block can't keep the version the registry holds under its number; `undefined` when it can. */

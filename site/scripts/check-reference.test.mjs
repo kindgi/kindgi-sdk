@@ -167,7 +167,7 @@ test('an error entry\'s own "see also" links each item, or stops naming the one 
 });
 
 test('headingId and operationSlug follow Starlight and starlight-openapi', () => {
-  assert.equal(headingId('kindgi agents promote'), 'kindgi-agents-promote');
+  assert.equal(headingId('kindgi agents pin'), 'kindgi-agents-pin');
   assert.equal(headingId('KINDGI_API_URL'), 'kindgi_api_url');
   assert.equal(headingId('run-not-found'), 'run-not-found');
   assert.equal(operationSlug('agents.get'), 'agentsget');
@@ -175,10 +175,10 @@ test('headingId and operationSlug follow Starlight and starlight-openapi', () =>
 });
 
 test('commandOf finds the longest command a line runs', () => {
-  const commands = new Set(['agents', 'agents promote', 'runs', 'runs start']);
+  const commands = new Set(['agents', 'agents pin', 'runs', 'runs start']);
   assert.equal(
-    commandOf('kindgi agents promote acme.order-desk 1.0.0 --tenant', commands),
-    'agents promote',
+    commandOf('kindgi agents pin acme.order-desk 1.0.0 --tenant', commands),
+    'agents pin',
   );
   assert.equal(
     commandOf('$ npx --yes @kindgi/cli runs start --agent=acme.order-desk', commands),

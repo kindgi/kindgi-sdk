@@ -70,6 +70,29 @@ pnpm exec kindgi artifacts download <blob-id> -o report.pdf
 - `download` writes the file under its own name in this directory, unless
   `-o` names one. It keeps a file that's already there, unless you add
   `--force`.
+- `download` first writes to a new file next to the one it saves, and moves
+  it into place only once the whole file has arrived and its sha256 is the
+  one the server sent. A download that fails leaves no file, and with
+  `--force` the file already there stays as it was.
+- One Ctrl-C (or `SIGTERM`) stops `download`, whether it's still waiting
+  for the server or part way through the file. As after a failure, it leaves
+  no file, and a file already there stays as it was. It says
+  `kindgi artifacts download stopped: no file was written.` and exits with
+  code 130.
+- Ended at once, by a second Ctrl-C or `kill -9`, `download` can leave that
+  new file behind: the file's name, then 8 hex digits, then `.partial`, such
+  as `report.pdf.1a2b3c4d.partial`. You can delete it.
+
+A download is checked against the sha256 and size kept for the artifact. If
+its bytes were changed in their store outside the runtime, on disk or in the
+bucket, the download stops part way: the runtime closes the connection
+before the last of its `Content-Length` bytes. `download` then fails with
+`the download stopped part way (…): report.pdf wasn't written`, and writes
+no file. In TypeScript, reading `download`'s body throws. The runtime logs
+each one at `ERROR`, as
+`Artifact <blob-id>'s stored bytes aren't the ones put; the read was stopped`,
+with its tenant, where its bytes are kept, the sha256 and size kept for it,
+and what was read. The log line never holds the file's content.
 
 With [authorization](../../../deploy/authorization/) on, listing and
 downloading need `read` on the artifact's project, and uploading and deleting

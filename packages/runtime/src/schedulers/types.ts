@@ -25,6 +25,13 @@ export interface TriggerFireContext {
    */
   readonly input: unknown;
   readonly source: TriggerSource;
+  /**
+   * The trigger's version this fire starts its run under
+   * (`TriggerVersionRecord`), the newest when it fires. The binding passes
+   * it as the run's `trigger.version`, so the run keeps it whatever later
+   * edits make.
+   */
+  readonly triggerVersion?: number;
 }
 
 /** Discriminated origin of the run spawn, useful for provenance / audit. */

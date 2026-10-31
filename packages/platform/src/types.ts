@@ -137,6 +137,21 @@ export interface Project {
    * `ProjectBinding.setProduction`.
    */
   readonly productionSince?: Timestamp;
+  /**
+   * `true` sorts end users' corrections (an app's, for a `participantId`,
+   * and not an expert's) like the others, and a schedule counting everyone's
+   * counts them. Absent or `false`: they're listed and become test cases,
+   * but stay open and unsorted, and never start Improve. Admin on the
+   * project sets it (`ProjectPatch`).
+   */
+  readonly sortEndUserCorrections?: boolean;
+  /**
+   * The company-wide GitHub connection the project opens its block
+   * changes' pull requests through; absent while none is set. Set and
+   * cleared by `ProjectBinding.setRepoConnection`. The connection may be
+   * gone since: a reader treats that as none.
+   */
+  readonly repoConnectionId?: string;
   readonly createdAt: Timestamp;
   readonly updatedAt: Timestamp;
 }
@@ -163,6 +178,8 @@ export interface ProjectPatch {
    * `undefined` leaves the FK untouched.
    */
   readonly orgId?: OrgId | null;
+  /** `Project.sortEndUserCorrections`; `undefined` leaves it as it is. */
+  readonly sortEndUserCorrections?: boolean;
 }
 
 /**

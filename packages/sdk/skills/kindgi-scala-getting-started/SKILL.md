@@ -17,7 +17,7 @@ description: >
   kindgi-scala-authoring-flows; models by kindgi-authoring-providers.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.4"
+version: "0.1.7"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -78,6 +78,21 @@ One `kindgi dev` per pack. When one is already running (the person's
 terminal, say), `kindgi dev` exits with code 3 and prints where it is
 (its pid, the console and the API): use that one. Don't start another,
 and don't stop theirs.
+
+Each linked git worktree runs its own `kindgi dev`, side by side, with its
+own dev tenant, user and token. In the bundled Postgres it has its own
+database too, `kindgi_<project>__<worktree>`, and its tenant and user are
+named from it; with your own (`--database-url` or `KINDGI_DATABASE_URL`),
+it uses that one. Its `.kindgirc.json`, which `kindgi init` keeps out of
+git, keeps the token, the tenant and the user. When port 4000 is taken
+(another worktree's `kindgi dev`), it takes the next free one and says so,
+`⚠ port 4000 is in use (another kindgi dev?): using 4001`; that
+worktree's `.kindgirc.json` records it, so the CLI there follows. Read the
+API URL from the banner or `.kindgirc.json`, never assume 4000. A
+`--port` that's taken is refused. The providers the config declares are
+registered in each worktree as it starts. One registered by hand belongs
+to one worktree, and so does an env file git doesn't track, such as
+`.env.local`: copy it into a new worktree.
 
 `kindgi dev` needs Docker and Postgres. It starts Postgres in Docker unless
 `KINDGI_DATABASE_URL` points at yours. It compiles through sbt's server
@@ -252,7 +267,7 @@ Show it in the app's own UI. **Never:**
   runtime Kindgi hosts gives no database access.
 - **link users to Kindgi's console**, or any Kindgi UI, for this data.
 
-Docs: https://docs.kindgi.com/v0.1/guides/runs/show-runs-in-your-app/
+Docs: https://docs.kindgi.com/v0.3/guides/runs/show-runs-in-your-app/
 
 ## Build an image
 
@@ -279,22 +294,22 @@ doesn't have yet, then serving. Migrations only go forward: an upgrade
 starts with a backup of the database, and going back means restoring it and
 running the older version on it.
 
-- **On Cloud Run, a small dev deployment** (`network_mode = "none"`, on
-  runtime 0.1.8 or later): the Cloud Run module's `./upgrade.sh`, as of the
-  `@kindgi/sdk@<version>` tag of the release you're upgrading to, since it
-  knows the steps up to its own release. Run `./upgrade.sh --dry-run` first:
-  it changes nothing, and lists what a real run would change. Its plan also
-  reads every `*.auto.tfvars.json` in the module's folder (the pack's env),
-  and `yes` applies exactly the saved plan it showed. The module README's
-  Upgrading section has the rest:
+- **On Cloud Run, a deployment of the module** (on runtime 0.1.8 or later,
+  in any `network_mode`; before the `@kindgi/sdk@0.3.0` tag, `"none"` only):
+  the module's `./upgrade.sh`, as of the `@kindgi/sdk@<version>` tag of the
+  release you're upgrading to, since it knows the steps up to its own
+  release. It takes a `--var-file` for each file the deployment's variables
+  are in. Run `./upgrade.sh --dry-run` first: it changes nothing, and lists
+  what a real run would change. A real run's `yes` applies exactly the
+  saved plan it showed. The module README's Upgrading section has the rest:
   https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#upgrading
 - **Any other Cloud Run deployment:** by hand, staging first, as the Cloud
   Run page's "Upgrade by hand" section says:
-  https://docs.kindgi.com/v0.1/deploy/self-hosted/cloud-run/#upgrade-by-hand
-- **On Azure Container Apps:** the "Operate it" section of its page,
-  https://docs.kindgi.com/v0.1/deploy/self-hosted/azure-container-apps/#operate-it.
-- **Otherwise:** the operate page's upgrade steps,
-  https://docs.kindgi.com/v0.1/deploy/self-hosted/operate/#upgrade-the-runtime.
+  https://docs.kindgi.com/v0.3/deploy/self-hosted/cloud-run/#upgrade-by-hand
+- **On Azure Container Apps:** the "Operate it" section of its page:
+  https://docs.kindgi.com/v0.3/deploy/self-hosted/azure-container-apps/#operate-it
+- **Otherwise:** the operate page's upgrade steps:
+  https://docs.kindgi.com/v0.3/deploy/self-hosted/operate/#upgrade-the-runtime
 
 An upgrade changes a running deployment: give the person the commands to run
 in their own terminal (`./upgrade.sh` waits for them to type `yes`).

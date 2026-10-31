@@ -56,6 +56,9 @@ export interface SessionStoreBinding {
    * The middleware passes the session's own tenant. A store without
    * `resolveToken` must also honor the sentinel `MULTI_TENANT_LOOKUP`,
    * as `get` does.
+   *
+   * If it rejects, the request doesn't wait on it: the middleware logs a
+   * warning, and the session's next request touches again.
    */
   readonly touch?: (input: SessionTouchInput) => Promise<SessionTouchOutcome>;
   /**

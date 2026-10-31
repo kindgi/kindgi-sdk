@@ -19,7 +19,11 @@
         "name": "us.anthropic.claude-sonnet-5-5",
         "contextWindow": 1000000,
         "maxOutputTokens": 16000,
-        "thinking": { "mode": "adaptive", "lowest": "between_tools" },
+        "thinking": {
+          "mode": "adaptive",
+          "lowest": "between_tools",
+          "levels": ["low", "medium", "high", "max"]
+        },
         "sampling": false,
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {
@@ -81,7 +85,7 @@
         "name": "us.openai.gpt-6-luna",
         "contextWindow": 1050000,
         "maxOutputTokens": 128000,
-        "thinking": { "mode": "adaptive", "lowest": "none" },
+        "thinking": { "mode": "adaptive", "lowest": "low" },
         "sampling": false,
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {

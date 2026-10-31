@@ -80,13 +80,13 @@ def test_an_unlisted_403_is_forbidden_and_401_unauthenticated() -> None:
 @pytest.mark.parametrize(
     "code",
     [
-        "eval-suite-already-registered",
+        "test-set-already-registered",
         "policy-already-registered",
         "version-already-exists",
-        "gate-policy-already-registered",
-        "gate-policy-needs-pin",
-        "gate-policy-descendant-unpinned",
-        "promotion-superseded",
+        "release-gate-already-registered",
+        "release-gate-needs-pin",
+        "release-gate-descendant-unpinned",
+        "pin-superseded",
         "legal-hold",
         "erasure-in-progress",
     ],
@@ -122,6 +122,16 @@ def test_a_guardrail_config_invalid_is_an_invalid_request_with_its_issues() -> N
     assert type(error) is InvalidRequestError
     assert error.server_code == "guardrail-config-invalid"
     assert error.issues == [issue]
+
+
+def test_a_guardrail_violation_carries_the_answers_a_retry_ran_out_after() -> None:
+    error = from_wire(body("guardrail-violation", violations=[], attempts=2), 422)
+    assert type(error) is GuardrailViolationError
+    assert error.attempts == 2
+    # A halt says none, and anything but a whole number isn't a count.
+    assert from_wire(body("guardrail-violation", violations=[]), 422).attempts is None  # type: ignore[attr-defined]
+    for odd in ("2", 1.5, True, None):
+        assert from_wire(body("guardrail-violation", attempts=odd), 422).attempts is None  # type: ignore[attr-defined]
 
 
 # The family a documented code belongs in: its HTTP status's (`x-error-codes` in
