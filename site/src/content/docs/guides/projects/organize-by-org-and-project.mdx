@@ -22,7 +22,7 @@ An agent, flow, tool or set of test cases belongs to the project its first versi
 was published into, and never moves. Publishing a version of it into another
 project is refused with a `409`, and nothing is written. Its code names the
 kind, such as `agent-project-mismatch`, `flow-…`, `tool-…` or
-`eval-suite-project-mismatch`.
+`test-set-project-mismatch`.
 The refusal doesn't name the project it belongs to, since you may not be
 able to read that project. A deploy that includes one is refused whole and
 deploys nothing, even when that agent or flow is unchanged. Publish new
@@ -280,8 +280,8 @@ What a deploy into a project does, with the runtime 0.1.8 or later:
 - **A project of another tenant, or none,** is `404 project-not-found`.
 - **A suspended project** takes no deploy, where the runtime suspends
   projects: `409 project-suspended`, before anything is written. No run
-  starts in it either: `POST /v1/runs` answers the same, as do an eval run
-  started in it and an Improve run for one of its agents. An eval run
+  starts in it either: `POST /v1/runs` answers the same, as do a test run
+  started in it and an Improve run for one of its agents. A test run
   or an Improve run already going stops at its next case and ends `cancelled`, with
   `project-suspended` in its `cancelReason`. A delivery to one of its
   webhook triggers is answered `202` and skipped, with nothing recorded on

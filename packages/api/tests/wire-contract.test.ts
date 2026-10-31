@@ -23,13 +23,13 @@ import { createApp } from '../src/index.js';
 import type {
   AgentRegistryBinding,
   CreateAppInput,
-  EvalRunBinding,
-  EvalSuiteRegistryBinding,
   FlowRegistryBinding,
   GuardrailRegistryBinding,
   IdentityDirectoryBinding,
   InvokeAgentBindingInput,
   RunHandlerBinding,
+  TestRunBinding,
+  TestSetRegistryBinding,
   TokenResolver,
   ToolRegistryBinding,
   UserRecord,
@@ -214,7 +214,7 @@ describe('publish / register bodies — every body the route accepts validates',
     expect(validateAgainst('RegisterGuardrailBody', body)).toEqual([]);
   });
 
-  test('PublishEvalSuiteBody', async () => {
+  test('PublishTestSetBody', async () => {
     const body = {
       id: 'acme.drafting-accuracy',
       version: '1.0.0',
@@ -225,21 +225,21 @@ describe('publish / register bodies — every body the route accepts validates',
       },
       projectId,
     };
-    const evalSuiteRegistry = {
-      publish: async () => ({ kind: 'ok', suiteId: body.id, version: body.version }),
-    } as unknown as EvalSuiteRegistryBinding;
-    expect(await post({ evalSuiteRegistry }, '/v1/eval-suites', body)).toBe(201);
-    expect(validateAgainst('PublishEvalSuiteBody', body)).toEqual([]);
+    const testSetRegistry = {
+      publish: async () => ({ kind: 'ok', testSetId: body.id, version: body.version }),
+    } as unknown as TestSetRegistryBinding;
+    expect(await post({ testSetRegistry }, '/v1/test-sets', body)).toBe(201);
+    expect(validateAgainst('PublishTestSetBody', body)).toEqual([]);
   });
 
-  test('StartEvalRunBody', async () => {
+  test('StartTestRunBody', async () => {
     const body = { projectId, agentRef: { agentId: 'acme.drafting', version: '1.0.0' } };
-    const evalRunBinding = {
+    const testRunBinding = {
       start: async () => ({ kind: 'ok', runId: randomUUID() }),
-    } as unknown as EvalRunBinding;
-    expect(
-      await post({ evalRunBinding }, '/v1/eval-suites/acme.drafting-accuracy/runs', body),
-    ).toBe(201);
-    expect(validateAgainst('StartEvalRunBody', body)).toEqual([]);
+    } as unknown as TestRunBinding;
+    expect(await post({ testRunBinding }, '/v1/test-sets/acme.drafting-accuracy/runs', body)).toBe(
+      201,
+    );
+    expect(validateAgainst('StartTestRunBody', body)).toEqual([]);
   });
 });

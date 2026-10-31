@@ -263,6 +263,25 @@ describe('what the Responses path sends', () => {
     });
   });
 
+  test("a call that sets no cap is sent its model's registered maxOutputTokens; the call's own wins", async () => {
+    const endpoint = fakeEndpoint(response([textMessage('ok')]));
+    const provider = openAICompatAdapterFactory({
+      metadata: {
+        ...metadata,
+        models: metadata.models.map((m) =>
+          m.name === 'gpt-6.1-sol' ? { ...m, maxOutputTokens: 1024 } : m,
+        ),
+      },
+      config: { baseURL: BASE_URLS.OPENAI },
+      fetch: endpoint.fetch,
+    });
+    await provider.invoke(ask());
+    await provider.invoke({ ...ask(), maxOutputTokens: 64 });
+    await provider.invoke(ask('hello', 'gpt-6-luna'));
+    expect(endpoint.seen.map((s) => s.body.max_output_tokens)).toEqual([1024, 64, undefined]);
+    expect(endpoint.seen[2]?.body).not.toHaveProperty('max_output_tokens');
+  });
+
   test('the conversation as input items: system as developer, tool calls and their outputs', async () => {
     const endpoint = fakeEndpoint(response([textMessage('done')]));
     const messages: ModelMessage[] = [

@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { describe, expect, test } from 'vitest';
 
+import { userPrincipal } from '@kindgi/authz';
 import type { ProjectId, TenantId, TriggerId, UserId } from '@kindgi/types';
 import { createInMemoryTriggerRegistry, createStubAppBindings } from '../src/testing/index.js';
 
@@ -85,7 +86,7 @@ describe('registering a schedule', () => {
     expect(body).not.toHaveProperty('agentId');
   });
 
-  test('an agent schedule, at a version or live, with its own policies', async () => {
+  test('an agent schedule, at a version or the pinned one, with its own policies', async () => {
     const { built } = app();
     const res = await built.request(
       '/v1/schedules',
@@ -133,123 +134,163 @@ describe('registering a schedule', () => {
   });
 });
 
-const ACME = { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] };
 const hourly = {
-  improve: { agentId: 'acme.scorer', scope: ACME },
+  improve: { agentId: 'acme.scorer', projectId: PROJECT },
   config: { cronExpression: '0 * * * *' },
 };
 
+/** Registers `body`, answering its schedule id. */
+async function registerOn(built: ReturnType<typeof app>['built'], body: unknown) {
+  const res = await built.request('/v1/schedules', send('POST', body));
+  expect(res.status).toBe(201);
+  return ((await res.json()) as { scheduleId: string }).scheduleId;
+}
+
 describe('an improve schedule', () => {
-  test("registers in its scope's project, with the pass options' defaults kept on it", async () => {
+  test("registers in the project it improves, with its input's defaults kept on it", async () => {
     const { built } = app();
     const res = await built.request('/v1/schedules', send('POST', hourly));
     expect(res.status).toBe(201);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toMatchObject({
-      improve: { agentId: 'acme.scorer', scope: ACME },
+      improve: { agentId: 'acme.scorer', projectId: PROJECT },
       projectId: PROJECT,
-      input: {
-        tiers: ['settings'],
-        objective: 'weightedYesShare',
-        budget: { maxCostUsd: 5, maxCandidates: 30 },
-        threshold: { judgments: 5, runs: 3, judges: 2 },
-        monthlyCapUsd: 20,
-      },
+      input: { corrections: 5, from: 'experts', runCapUsd: 5, monthCapUsd: 20 },
     });
-    // classWeights is not defaulted onto the schedule: it's resolved against
-    // the project each time the schedule fires, so naming a restricted judge class
-    // later flips the default without editing the schedule.
-    expect(body.input).not.toHaveProperty('classWeights');
+    // No tiers or model unless named: each Improve run takes its own defaults.
+    expect(body.input).not.toHaveProperty('tiers');
+    expect(body.input).not.toHaveProperty('model');
     expect(body).not.toHaveProperty('agentId');
     expect(body).not.toHaveProperty('flowId');
+    expect(body).not.toHaveProperty('pausedUntil');
   });
 
-  test('a schedule keeps an explicit classWeights instead of resolving it later', async () => {
-    const res = await app().built.request(
-      '/v1/schedules',
-      send('POST', {
-        ...hourly,
-        config: { cronExpression: '0 * * * *', input: { classWeights: 'as-recorded' } },
-      }),
-    );
-    expect(res.status).toBe(201);
-    expect(((await res.json()) as { input: unknown }).input).toMatchObject({
-      classWeights: 'as-recorded',
-    });
-  });
-
-  test('a prompt improve schedule keeps its model, and its own threshold and cap', async () => {
-    const res = await app().built.request(
-      '/v1/schedules',
-      send('POST', {
-        ...hourly,
-        config: {
-          cronExpression: '0 */6 * * *',
-          input: {
-            tiers: ['prompt'],
-            model: { providerId: 'acme-llm', model: 'm-1' },
-            threshold: { judgments: 10, runs: 4, judges: 3 },
-            monthlyCapUsd: 50,
-          },
-        },
-      }),
-    );
-    expect(res.status).toBe(201);
-    expect(((await res.json()) as { input: unknown }).input).toMatchObject({
+  test('a prompt improve schedule keeps its model, and its own count and caps', async () => {
+    const input = {
+      corrections: 10,
+      from: 'everyone',
+      runCapUsd: 2,
+      monthCapUsd: 50,
       tiers: ['prompt'],
       model: { providerId: 'acme-llm', model: 'm-1' },
-      candidates: 3,
-      threshold: { judgments: 10, runs: 4, judges: 3 },
-      monthlyCapUsd: 50,
-    });
+    };
+    const res = await app().built.request(
+      '/v1/schedules',
+      send('POST', { ...hourly, config: { cronExpression: '0 */6 * * *', input } }),
+    );
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { input: unknown }).input).toEqual(input);
   });
 
+  const withInput = (input: unknown) => ({
+    ...hourly,
+    config: { cronExpression: '0 * * * *', input },
+  });
   test.each([
     [{ ...hourly, agentId: 'acme.digest' }, 'one of them'],
-    [{ ...hourly, improve: { agentId: 'acme.scorer' } }, '`improve.scope`'],
+    [{ ...hourly, improve: { agentId: 'acme.scorer' } }, '`improve: { agentId, projectId }`'],
+    [
+      { ...hourly, improve: { agentId: 'acme.scorer', projectId: 'nope' } },
+      '`improve: { agentId, projectId }`',
+    ],
+    [
+      { ...hourly, improve: { ...hourly.improve, scope: { kind: 'tenant' } } },
+      '`improve: { agentId, projectId }`',
+    ],
     [{ ...hourly, agentVersion: '1.0.0' }, "don't go with it"],
+    [{ ...hourly, projectId: randomUUID() }, 'in the project it improves'],
+    [withInput({ corrections: 0 }), '`corrections`'],
+    [withInput({ from: 'anyone' }), '`from`'],
+    [withInput({ runCapUsd: 0 }), '`runCapUsd`'],
+    [withInput({ monthCapUsd: 0 }), '`monthCapUsd`'],
     [
-      { ...hourly, improve: { agentId: 'acme.scorer', scope: { kind: 'org', orgId: PROJECT } } },
-      'promote to the org by hand after review',
+      withInput({ tiers: ['settings'], model: { providerId: 'acme-llm', model: 'm-1' } }),
+      '`model` is for the prompt tier',
     ],
-    [
-      { ...hourly, improve: { agentId: 'acme.scorer', scope: { kind: 'tenant' } } },
-      "a pass's evidence must cover the scope it changes",
-    ],
-    [{ ...hourly, projectId: randomUUID() }, "in the schedule's project"],
-    [
-      {
-        ...hourly,
-        config: { cronExpression: '0 * * * *', input: { threshold: { judgments: 2, runs: 3 } } },
-      },
-      '`threshold`',
-    ],
-    [
-      { ...hourly, config: { cronExpression: '0 * * * *', input: { tiers: ['prompt'] } } },
-      '`model` is required',
-    ],
-    [
-      { ...hourly, config: { cronExpression: '0 * * * *', input: { monthlyCapUsd: 0 } } },
-      '`monthlyCapUsd`',
-    ],
-    [
-      { ...hourly, config: { cronExpression: '0 * * * *', input: { suiteId: 'x' } } },
-      "`suiteId` isn't an option",
-    ],
+    [withInput({ threshold: { corrections: 2 } }), "`threshold` isn't an option"],
+    [withInput({ monthlyCapUsd: 20 }), "`monthlyCapUsd` isn't an option"],
+    [withInput({ groupWeights: 'as-recorded' }), "`groupWeights` isn't an option"],
+    [withInput({ testSetId: 'x' }), "`testSetId` isn't an option"],
   ])('a bad improve body is a 400: %j', async (body, message) => {
     const res = await app().built.request('/v1/schedules', send('POST', body));
     expect(res.status).toBe(400);
     expect(JSON.stringify(await res.json())).toContain(message);
   });
 
-  test('its fires show the pass each started; a skipped fire says which count was short', async () => {
+  test('a second one for the agent and project is 409 schedule-exists, paused or not', async () => {
+    const { built } = app();
+    const first = await registerOn(built, hourly);
+    await built.request(`/v1/schedules/${first}/pause`, send('POST'));
+    const second = await built.request('/v1/schedules', send('POST', hourly));
+    expect(second.status).toBe(409);
+    expect(((await second.json()) as { error: unknown }).error).toMatchObject({
+      code: 'schedule-exists',
+      details: { scheduleId: first },
+    });
+    // Another agent in the project, or the agent in another project, is its own.
+    await registerOn(built, { ...hourly, improve: { agentId: 'acme.digest', projectId: PROJECT } });
+    const elsewhere = { agentId: 'acme.scorer', projectId: randomUUID() };
+    await registerOn(built, { ...hourly, improve: elsewhere });
+    // Once the first is unregistered, the agent and project can have one again.
+    await built.request(`/v1/schedules/${first}/unregister`, send('POST'));
+    await registerOn(built, hourly);
+  });
+
+  test('retargeting a schedule to an agent and project that have one is 409 schedule-exists', async () => {
+    const { built } = app();
+    const first = await registerOn(built, hourly);
+    const other = await registerOn(built, {
+      ...hourly,
+      improve: { agentId: 'acme.digest', projectId: PROJECT },
+    });
+    const moved = await built.request(
+      `/v1/schedules/${other}`,
+      send('PATCH', { improve: hourly.improve }),
+    );
+    expect(moved.status).toBe(409);
+    expect(((await moved.json()) as { error: unknown }).error).toMatchObject({
+      code: 'schedule-exists',
+      details: { scheduleId: first },
+    });
+    // Its own target again is no second schedule.
+    const same = await built.request(
+      `/v1/schedules/${first}`,
+      send('PATCH', { improve: hourly.improve }),
+    );
+    expect(same.status).toBe(200);
+  });
+
+  test('one whose month reached its cap shows when it starts again, and stays active', async () => {
     const { built, registry } = app();
-    const id = (
-      (await (await built.request('/v1/schedules', send('POST', hourly))).json()) as {
-        scheduleId: string;
-      }
-    ).scheduleId;
-    const passId = randomUUID();
+    const id = await registerOn(built, hourly);
+    const pausedUntil = '2026-11-01T00:00:00.000Z';
+    const capped = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      triggerRegistry: {
+        ...registry,
+        get: async (input) => {
+          const row = await registry.get(input);
+          return row === null || row.kind !== 'cron'
+            ? row
+            : { ...row, pausedUntil, pausedReason: 'month-cap' as const };
+        },
+      },
+    });
+    const res = await capped.request(`/v1/schedules/${id}`, send('GET'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      status: 'active',
+      pausedUntil,
+      pausedReason: 'month-cap',
+    });
+  });
+
+  test('its fires show the Improve run each started; a skipped fire says why', async () => {
+    const { built, registry } = app();
+    const id = await registerOn(built, hourly);
+    const improveRunId = randomUUID();
     registry.recordFire({
       triggerId: id as TriggerId,
       kind: 'schedule',
@@ -257,7 +298,7 @@ describe('an improve schedule', () => {
       firedAt: '2026-10-07T10:00:01.000Z',
       outcome: 'skipped',
       detail:
-        "Not enough new experts' corrections since Improve last ran (2026-10-07T09:00:00.000Z): 4 of 5 answers experts marked wrong (enough: 3 runs, 2 experts).",
+        "Not enough open corrections sorted to improve from the project's experts since the last Improve run started (2026-10-07T09:00:00.000Z): 4 of 5.",
     });
     registry.recordFire({
       triggerId: id as TriggerId,
@@ -265,7 +306,7 @@ describe('an improve schedule', () => {
       scheduledFor: '2026-10-07T11:00:00.000Z',
       firedAt: '2026-10-07T11:00:01.000Z',
       outcome: 'started',
-      passId,
+      improveRunId,
     });
     const fires = (await (
       await built.request(`/v1/schedules/${id}/fires`, send('GET'))
@@ -273,7 +314,7 @@ describe('an improve schedule', () => {
       data: Record<string, unknown>[];
     };
     expect(fires.data.map((f) => f.outcome).sort()).toEqual(['skipped', 'started']);
-    expect(fires.data.find((f) => f.outcome === 'started')).toMatchObject({ passId });
+    expect(fires.data.find((f) => f.outcome === 'started')).toMatchObject({ improveRunId });
     expect(fires.data.find((f) => f.outcome === 'skipped')?.detail).toContain('4 of 5');
   });
 
@@ -299,7 +340,7 @@ describe('an improve schedule', () => {
     expect(fires.data[0]).toMatchObject({ outcome: 'refused', countsTowardPause: false });
   });
 
-  test('retargeting an agent schedule to improve needs pass options, not a user message', async () => {
+  test('retargeting an agent schedule to improve needs its input, not a user message', async () => {
     const { built } = app();
     const created = await built.request(
       '/v1/schedules',
@@ -316,14 +357,23 @@ describe('an improve schedule', () => {
     );
     expect(kept.status).toBe(400);
     expect(JSON.stringify(await kept.json())).toContain("`userMessage` isn't an option");
+    const away = await built.request(
+      `/v1/schedules/${id}`,
+      send('PATCH', {
+        improve: { agentId: 'acme.scorer', projectId: randomUUID() },
+        config: { input: {} },
+      }),
+    );
+    expect(away.status).toBe(400);
+    expect(JSON.stringify(await away.json())).toContain('in the project it improves');
     const moved = await built.request(
       `/v1/schedules/${id}`,
       send('PATCH', { improve: hourly.improve, config: { input: {} } }),
     );
     expect(moved.status).toBe(200);
     expect(await moved.json()).toMatchObject({
-      improve: { agentId: 'acme.scorer' },
-      input: { threshold: { judgments: 5, runs: 3, judges: 2 } },
+      improve: { agentId: 'acme.scorer', projectId: PROJECT },
+      input: { corrections: 5, from: 'experts', runCapUsd: 5, monthCapUsd: 20 },
     });
   });
 });
@@ -507,7 +557,7 @@ describe('what each route asks the authorizer', () => {
     return { r, id, checked };
   }
 
-  test('registering an improve schedule: write on the project and publish on the agent', async () => {
+  test('registering an improve schedule: write on the project, then publish on the agent', async () => {
     const checked: string[] = [];
     const r = new Hono<AppEnv>();
     r.use('*', async (c, next) => {
@@ -585,6 +635,282 @@ describe('what each route asks the authorizer', () => {
       }),
     });
     expect(checked).toEqual(expected.map((e) => (e.includes(' ') ? e : `${e} project:${PROJECT}`)));
+  });
+
+  test.each([
+    ['GET', '', undefined, [`read project:${PROJECT}`]],
+    ['PATCH', '', { label: 'x' }, [`write project:${PROJECT}`, 'publish agent:acme.scorer']],
+    ['POST', '/pause', undefined, [`write project:${PROJECT}`, 'publish agent:acme.scorer']],
+    ['POST', '/unregister', undefined, [`write project:${PROJECT}`, 'publish agent:acme.scorer']],
+  ])('an improve schedule: %s %s → %j', async (method, path, body, expected) => {
+    const checked: string[] = [];
+    const r = new Hono<AppEnv>();
+    r.use('*', async (c, next) => {
+      c.set('tenantId' as never, tenantId as never);
+      c.set('requestId' as never, 'req-schedules' as never);
+      return next();
+    });
+    r.route(
+      '/',
+      schedulesRouter(
+        createInMemoryTriggerRegistry({ defaultProjectId: PROJECT }),
+        recordingAuthorizer(checked),
+      ),
+    );
+    const created = await r.request('/', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(hourly),
+    });
+    const id = ((await created.json()) as { scheduleId: string }).scheduleId;
+    checked.length = 0;
+    await r.request(`/${id}${path}`, {
+      method,
+      ...(body !== undefined && {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    });
+    expect(checked).toEqual(expected);
+  });
+});
+
+describe("an improve schedule's owner, its readers, and a retarget to another kind", () => {
+  const OWNER = randomUUID();
+  const OTHER = randomUUID();
+  const SCORER = 'publish agent:acme.scorer';
+  const DIGEST = 'execute agent:acme.digest';
+  const WRITE = `write project:${PROJECT}`;
+  const ADMIN = `admin project:${PROJECT}`;
+
+  /** Allows only what `grants()` holds (`<action> <type>:<id>`), recording every check, `can` too. */
+  function granting(grants: () => readonly string[], checked: string[]): Authorizer {
+    const allows = (action: string, r: { type: string; id: string }) => {
+      const asked = `${action} ${r.type}:${r.id}`;
+      checked.push(asked);
+      return grants().includes(asked);
+    };
+    return {
+      authorize: (action, getResource) => async (c, next) =>
+        allows(action, await getResource(c))
+          ? next()
+          : c.json({ error: { code: 'forbidden', message: 'refused' } }, 403),
+      can: async (_c, action, r) => allows(action, r),
+      canFor: async () => {
+        throw new Error('unused');
+      },
+      check: async () => {
+        throw new Error('unused');
+      },
+      filterByCan: async () => [],
+    };
+  }
+
+  /**
+   * An improve schedule for acme.scorer, registered with `publish` on it and
+   * `write` on the project by `registrant` (a person; absent, there's no
+   * principal, so it's shared), then called by `caller` (the registrant
+   * unless named) holding `granted`.
+   */
+  async function asked(opts: { registrant?: string; caller?: string; granted: readonly string[] }) {
+    const registry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT });
+    const checked: string[] = [];
+    let who = opts.registrant;
+    let grants: readonly string[] = [WRITE, SCORER];
+    const r = new Hono<AppEnv>();
+    r.use('*', async (c, next) => {
+      c.set('tenantId' as never, tenantId as never);
+      c.set('requestId' as never, 'req-schedules' as never);
+      if (who !== undefined) c.set('principal' as never, userPrincipal(who, tenantId) as never);
+      return next();
+    });
+    r.route(
+      '/',
+      schedulesRouter(
+        registry,
+        granting(() => grants, checked),
+      ),
+    );
+    const created = await r.request('/', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(hourly),
+    });
+    expect(created.status).toBe(201);
+    const id = ((await created.json()) as { scheduleId: string }).scheduleId;
+    who = opts.caller ?? opts.registrant;
+    grants = opts.granted;
+    checked.length = 0;
+    const call = (method: string, path = '', body?: unknown) =>
+      r.request(`/${id}${path}`, {
+        method,
+        ...(body !== undefined && {
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        }),
+      });
+    // The schedule as stored: a cron record, whose target the tests read.
+    const stored = async () => {
+      const record = await registry.get({ tenantId, triggerId: id as TriggerId });
+      return record?.kind === 'cron' ? record : undefined;
+    };
+    return { call, checked, stored };
+  }
+
+  test.each([
+    ['only publish on the agent', [SCORER]],
+    ['only write on the project', [WRITE]],
+  ])('registering one with %s is refused', async (_name, granted) => {
+    const registry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT });
+    const r = new Hono<AppEnv>();
+    r.use('*', async (c, next) => {
+      c.set('tenantId' as never, tenantId as never);
+      c.set('requestId' as never, 'req-schedules' as never);
+      c.set('principal' as never, userPrincipal(OWNER, tenantId) as never);
+      return next();
+    });
+    r.route(
+      '/',
+      schedulesRouter(
+        registry,
+        granting(() => granted, []),
+      ),
+    );
+    const res = await r.request('/', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(hourly),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  test.each([
+    ['only publish on the agent', [SCORER]],
+    ['only write on the project', [WRITE]],
+  ])(
+    'its owner with %s changes, resumes, fires, pauses and deletes nothing',
+    async (_name, granted) => {
+      const { call, stored } = await asked({ registrant: OWNER, granted });
+      const before = await stored();
+      expect((await call('PATCH', '', { label: 'nightly scorer' })).status).toBe(403);
+      expect((await call('PATCH', '', { config: { input: { corrections: 8 } } })).status).toBe(403);
+      expect((await call('POST', '/resume')).status).toBe(403);
+      expect((await call('POST', '/run-now')).status).toBe(403);
+      expect((await call('POST', '/pause')).status).toBe(403);
+      expect((await call('POST', '/unregister')).status).toBe(403);
+      expect(await stored()).toEqual(before);
+    },
+  );
+
+  test('its owner, with publish on the agent and write on the project, changes, pauses, resumes, fires and deletes it', async () => {
+    const { call } = await asked({ registrant: OWNER, granted: [SCORER, WRITE] });
+    expect((await call('PATCH', '', { label: 'nightly scorer' })).status).toBe(200);
+    expect((await call('PATCH', '', { config: { input: { corrections: 8 } } })).status).toBe(200);
+    expect((await call('POST', '/pause')).status).toBe(200);
+    expect((await call('POST', '/resume')).status).toBe(200);
+    expect((await call('POST', '/run-now')).status).toBe(202);
+    expect((await call('POST', '/unregister')).status).toBe(200);
+  });
+
+  test("another person with publish on the agent and write on the project can't change the owner's; a project admin can", async () => {
+    const other = await asked({ registrant: OWNER, caller: OTHER, granted: [SCORER, WRITE] });
+    expect((await other.call('PATCH', '', { label: 'mine now' })).status).toBe(403);
+    // Write on the project, publish on the agent, then the project admin it isn't.
+    expect(other.checked).toEqual([WRITE, SCORER, ADMIN]);
+    expect((await other.stored())?.label ?? undefined).toBeUndefined();
+
+    const admin = await asked({
+      registrant: OWNER,
+      caller: OTHER,
+      granted: [SCORER, WRITE, ADMIN],
+    });
+    expect((await admin.call('PATCH', '', { label: 'renamed' })).status).toBe(200);
+    expect((await admin.stored())?.label).toBe('renamed');
+  });
+
+  test.each([
+    ['a personal one, by its owner', OWNER],
+    ['a shared one', undefined],
+  ])(
+    '%s: retargeting it to an agent asks write on the project, as registering one does',
+    async (_name, registrant) => {
+      const retarget = {
+        agentId: 'acme.digest',
+        agentVersion: '1.0.0',
+        config: { input: { userMessage: 'Digest the night.' } },
+      };
+      const without = await asked({
+        ...(registrant !== undefined && { registrant }),
+        granted: [SCORER, DIGEST],
+      });
+      expect((await without.call('PATCH', '', retarget)).status).toBe(403);
+      expect(without.checked).toContain(WRITE);
+      expect((await without.stored())?.target).toEqual({
+        kind: 'improve',
+        agentId: 'acme.scorer',
+        projectId: PROJECT,
+      });
+
+      // A shared one's new target is also a project admin's, as for any schedule.
+      const granted =
+        registrant === undefined ? [SCORER, DIGEST, WRITE, ADMIN] : [SCORER, DIGEST, WRITE];
+      const withWrite = await asked({ ...(registrant !== undefined && { registrant }), granted });
+      const res = await withWrite.call('PATCH', '', retarget);
+      expect(res.status, await res.text()).toBe(200);
+      expect((await withWrite.stored())?.target).toMatchObject({
+        kind: 'agent',
+        agentId: 'acme.digest',
+      });
+    },
+  );
+
+  test('reading one takes read on its project or on its agent', async () => {
+    for (const [granted, status] of [
+      [[`read project:${PROJECT}`], 200],
+      [['read agent:acme.scorer'], 200],
+      [[], 403],
+    ] as const) {
+      const { call } = await asked({ registrant: OWNER, caller: OTHER, granted });
+      expect((await call('GET')).status, JSON.stringify(granted)).toBe(status);
+      expect((await call('GET', '/fires')).status, JSON.stringify(granted)).toBe(status);
+    }
+  });
+
+  test.each([
+    ['a personal one', OWNER],
+    ['a shared one', undefined],
+  ])(
+    "%s: its project's admin, without publish on the agent, pauses and unregisters it, and changes nothing else",
+    async (_name, registrant) => {
+      const admin = await asked({
+        ...(registrant !== undefined && { registrant }),
+        caller: OTHER,
+        granted: [ADMIN],
+      });
+      const before = (await admin.stored())?.config;
+      expect((await admin.call('PATCH', '', { label: 'renamed' })).status).toBe(403);
+      expect(
+        (await admin.call('PATCH', '', { config: { input: { monthCapUsd: 100 } } })).status,
+      ).toBe(403);
+      expect((await admin.call('POST', '/run-now')).status).toBe(403);
+      expect((await admin.stored())?.config).toEqual(before);
+      expect((await admin.stored())?.label ?? undefined).toBeUndefined();
+
+      expect((await admin.call('POST', '/pause')).status).toBe(200);
+      expect((await admin.stored())?.status).toBe('paused');
+      // Resuming it is a change: `publish` on the agent.
+      expect((await admin.call('POST', '/resume')).status).toBe(403);
+      expect((await admin.stored())?.status).toBe('paused');
+      expect((await admin.call('POST', '/unregister')).status).toBe(200);
+    },
+  );
+
+  test("write on the project alone doesn't stop one: pausing it takes publish on the agent too, or the project's admin", async () => {
+    const writer = await asked({ registrant: OWNER, caller: OTHER, granted: [WRITE] });
+    expect((await writer.call('POST', '/pause')).status).toBe(403);
+    expect(writer.checked).toEqual([WRITE, SCORER, ADMIN]);
+    expect((await writer.call('POST', '/unregister')).status).toBe(403);
+    expect((await writer.stored())?.status).toBe('active');
   });
 });
 

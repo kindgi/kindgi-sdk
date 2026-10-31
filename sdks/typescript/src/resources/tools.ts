@@ -17,7 +17,7 @@ import { type PinnedVersionsClient, makePinnedVersionsClient } from './pinned-ve
  * separate `manifests` endpoint have no API routes.
  *
  * Versioned CRUD mirroring the pattern used by
- * agents/flows/policies/eval-suites. Tools carry an
+ * agents/flows/policies/test-sets. Tools carry an
  * exact semver `version`; agent bindings reference tools by a semver
  * range; the server resolves the range at run start.
  */
