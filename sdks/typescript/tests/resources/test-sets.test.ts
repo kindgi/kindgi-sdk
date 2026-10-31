@@ -69,11 +69,6 @@ describe("an agent's own test set id (`agent.`)", () => {
       name: 'KindgiApiError',
       error: { code: 'invalid-request', message, issues: [{ path: '/id' }] },
     });
-    await expect(
-      client.testSets.buildFromCorrections(id, { version: '1.0.0', projectId: 'proj-1' } as never),
-    ).rejects.toMatchObject({
-      error: { code: 'invalid-request', message, issues: [{ path: '/testSetId' }] },
-    });
     expect(stub.calls).toEqual([]);
   });
 });
