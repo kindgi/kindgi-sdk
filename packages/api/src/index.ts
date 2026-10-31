@@ -107,6 +107,7 @@ export type {
   SystemDeploymentsOptions,
   SystemDeploymentMissing,
   SystemDeploymentToRetire,
+  SystemDeploymentToServe,
   SystemPackEnvOptions,
   SystemPackEnvServed,
 } from './routes/system-deployments.js';
@@ -1226,6 +1227,8 @@ export {
 } from './pack-service-name.js';
 export {
   DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
+  DEPLOYMENT_KEPT_FOR_KINDS,
+  DEPLOYMENT_KEPT_FOR_PAGE_LIMIT,
   SYSTEM_DEPLOYMENT_RETIRE_REASONS,
 } from './deployment-binding.js';
 export type {
@@ -1244,6 +1247,9 @@ export type {
   DeploymentEndpointProblem,
   DeploymentEndpointProblemCode,
   DeploymentEndpointStatus,
+  DeploymentKeptBuilds,
+  DeploymentKeptFor,
+  DeploymentKeptForKind,
   DeploymentPrimitiveCounts,
   DeploymentPromoteInput,
   DeploymentPromoteOutcome,
@@ -1285,6 +1291,12 @@ export type {
 } from './signing-key-binding.js';
 export type {
   EnvBinding,
+  EnvCloudSecretBinding,
+  EnvCloudSecretListInput,
+  EnvCloudSecretListPage,
+  EnvCloudSecretRecord,
+  EnvCloudSecretSetInput,
+  EnvCloudSecretSetOutcome,
   EnvDeleteInput,
   EnvDeleteOutcome,
   EnvError,

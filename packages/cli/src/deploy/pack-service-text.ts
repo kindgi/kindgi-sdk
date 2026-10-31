@@ -25,7 +25,9 @@ const PACK_SERVICE_PROBLEMS: Readonly<Record<string, string>> = {
   'pack-env-missing': "a name the pack needs in its env isn't set",
   'pack-env-secret-not-yet': 'a name the pack reads from its env is set only as a secret',
   'pack-env-ambiguous':
-    'a name the pack reads from its env is set both as a secret and as a plain value',
+    'a name the pack reads from its env is set more than one way: as a plain value, a secret or a cloud secret',
+  'pack-env-cloud-secret-unsupported':
+    "a name the pack reads from its env is set to a cloud secret, which this pack service's host can't mount: set it as a value or a secret instead, or ask your operator",
   'pack-env-secret-capacity':
     'a name the pack reads from its env is set as a secret, and there is no room for a pack service that can be given one just now',
   'pack-env-secret-too-large':

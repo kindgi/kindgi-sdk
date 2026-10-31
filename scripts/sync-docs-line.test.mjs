@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: none
 
 /**
  * Tests for `scripts/sync-docs-line.mjs`: which files follow the docs line

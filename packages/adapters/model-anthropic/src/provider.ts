@@ -20,6 +20,7 @@ import { headerValueProblem } from '@kindgi/types';
 
 import { withPromptCache } from './cache.js';
 import { type CostRates, computeCostUsd, toFrameworkUsage } from './cost.js';
+import { typedFailure } from './errors.js';
 import {
   decodeToolName,
   encodeToolName,
@@ -213,18 +214,22 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       const thinking = anthropicThinking(modelInfo, input);
 
       const counted = await attempts.count(() =>
-        client.messages.create(
-          {
-            model: input.model,
-            max_tokens: maxTokens,
-            ...(system !== undefined && { system }),
-            messages,
-            ...(tools !== undefined && { tools }),
-            ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
-            ...thinking.fields,
-          },
-          requestOptions,
-        ),
+        client.messages
+          .create(
+            {
+              model: input.model,
+              max_tokens: maxTokens,
+              ...(system !== undefined && { system }),
+              messages,
+              ...(tools !== undefined && { tools }),
+              ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
+              ...thinking.fields,
+            },
+            requestOptions,
+          )
+          .catch((error: unknown) => {
+            throw typedFailure(error);
+          }),
       );
       const response = counted.value;
 

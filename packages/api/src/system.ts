@@ -73,6 +73,12 @@ export const SYSTEM_SCOPES = [
    * deployments key can't read a value.
    */
   'system:pack-env',
+  /**
+   * Setting an env name to a cloud secret, which the pack service's cloud
+   * reads as the pack account: what every pack service may read. On a key
+   * of its own: the orchestrator's key reads values and sets none.
+   */
+  'system:env-refs',
   /** Usage across tenants: counts and sums only. */
   'system:usage:read',
   /** The deployment's license: reading it, for its renewal. */
@@ -101,23 +107,25 @@ export const ONE_TENANT_SYSTEM_SCOPES: readonly SystemScope[] = ['system:license
 /**
  * The system scopes a key can hold besides, on a runtime serving one
  * tenant that runs a pack service per deployment (`systemDeployments`):
- * its orchestrator's. A key holding them reaches the routes
- * `isOneTenantDeploymentRoute` names under `/v1/system/*`, nothing else
- * there.
+ * its orchestrator's, and the operator's that sets an env name to a cloud
+ * secret (`system:env-refs`), which only a pack service is given. A key
+ * holding them reaches the routes `isOneTenantDeploymentRoute` names under
+ * `/v1/system/*`, nothing else there.
  */
 export const ONE_TENANT_DEPLOYMENT_SCOPES: readonly SystemScope[] = [
   'system:deployments',
   'system:pack-env',
+  'system:env-refs',
 ];
 
-/** The system scopes a key can hold serving one tenant: the license's, and the orchestrator's when it `servesDeployments`. */
+/** The system scopes a key can hold serving one tenant: the license's, and `ONE_TENANT_DEPLOYMENT_SCOPES` when it `servesDeployments`. */
 export function oneTenantSystemScopes(servesDeployments: boolean): readonly SystemScope[] {
   return servesDeployments
     ? [...ONE_TENANT_SYSTEM_SCOPES, ...ONE_TENANT_DEPLOYMENT_SCOPES]
     : ONE_TENANT_SYSTEM_SCOPES;
 }
 
-/** The orchestrator's routes under `/v1/system/*`, as a runtime serving one tenant mounts them. */
+/** The orchestrator's and cloud secrets' routes under `/v1/system/*`, as a runtime serving one tenant mounts them. */
 const ONE_TENANT_DEPLOYMENT_ROUTES: readonly {
   readonly methods: readonly string[];
   readonly path: RegExp;
@@ -134,14 +142,17 @@ const ONE_TENANT_DEPLOYMENT_ROUTES: readonly {
     path: /^\/v1\/system\/tenants\/[^/]+\/deployments\/[^/]+\/endpoint\/problem$/,
   },
   { methods: ['GET', 'PUT'], path: /^\/v1\/system\/tenants\/[^/]+\/deployments\/[^/]+\/pack-env$/ },
+  { methods: ['GET'], path: /^\/v1\/system\/tenants\/[^/]+\/env$/ },
+  { methods: ['PUT', 'DELETE'], path: /^\/v1\/system\/tenants\/[^/]+\/env\/[^/]+$/ },
 ];
 
 /**
  * Whether `method` and `path` are one of the routes a pack service's
  * orchestrator calls under `/v1/system/*`: the deployments to serve and
  * retire, each one's endpoint, its problem and its pack env, and the
- * orchestrator's round. Serving one tenant, a system key reaches these
- * alone there, and each still checks its own scope.
+ * orchestrator's round; or the operator's, setting env names to a cloud
+ * secret. Serving one tenant, a system key reaches these alone there, and
+ * each still checks its own scope.
  */
 export function isOneTenantDeploymentRoute(method: string, path: string): boolean {
   return ONE_TENANT_DEPLOYMENT_ROUTES.some((r) => r.methods.includes(method) && r.path.test(path));

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: sdks/java/pom.xml sdks/java/mvnw sdks/java/.mvn/**
 
 /**
  * A Java pack under `kindgi dev`: its JDK and Maven, the builder's parsing,
