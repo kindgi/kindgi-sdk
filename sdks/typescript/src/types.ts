@@ -3026,7 +3026,10 @@ export interface CorrectionSorted {
   readonly at: import('@kindgi/types').Timestamp;
 }
 
-/** The work fixing a correction, while it's `being-fixed`. */
+/**
+ * The work fixing a correction, while it's `being-fixed`. An Improve run or
+ * a suggested change is named by its id, without its prefix.
+ */
 export type CorrectionLink =
   | { readonly kind: 'improve-run'; readonly id: string }
   | { readonly kind: 'suggested-change'; readonly id: string }
@@ -3281,7 +3284,7 @@ export interface CreateCorrectionInput {
 export interface ChangeCorrectionInput {
   readonly sortedTo?: CorrectionSortedTo;
   readonly status?: 'open' | 'being-fixed' | 'wont-fix';
-  /** With `status: 'being-fixed'`: a pull request URL, an Improve run (`ir-…`) or a suggested change (`sc-…`). */
+  /** With `status: 'being-fixed'`: a pull request URL, an Improve run (`ir-<its id>`) or a suggested change (`sc-<its id>`). */
   readonly link?: string;
   /** Required for `wont-fix`; with `open`, why it went back. Otherwise the re-sort's reason. */
   readonly reason?: string;

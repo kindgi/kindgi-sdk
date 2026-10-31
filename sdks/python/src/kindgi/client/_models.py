@@ -2328,6 +2328,9 @@ class CorrectionLink1(BaseModel):
     )
     kind: Literal["improve-run", "suggested-change"]
     id: str
+    """
+    The Improve run's or suggested change's id, without its prefix.
+    """
 
 
 class CorrectionLink2(BaseModel):
@@ -2387,7 +2390,7 @@ class ChangeCorrectionBody(BaseModel):
     """
     link: str | None = None
     """
-    With `status: "being-fixed"`: a pull request URL, an Improve run (`ir-…`) or a suggested change (`sc-…`).
+    With `status: "being-fixed"`: a pull request URL, an Improve run (`ir-<its id>`) or a suggested change (`sc-<its id>`).
     """
     reason: Annotated[str | None, Field(max_length=4000, min_length=1)] = None
     """
