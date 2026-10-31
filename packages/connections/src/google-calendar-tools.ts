@@ -261,10 +261,11 @@ const googleCalendarEventCreateSpec = (
   },
   handler: async (input, ctx) => {
     const span = eventSpan(input.start, input.end);
+    // A second guard after `record`: the call's key as the event's id,
+    // so a create that got through before a crash isn't made twice.
+    const id = ctx.idempotencyKey === undefined ? undefined : eventIdOf(ctx.idempotencyKey);
     const event = {
-      // A second guard after `record`: the call's key as the event's id,
-      // so a create that got through before a crash isn't made twice.
-      ...(ctx.idempotencyKey !== undefined && { id: eventIdOf(ctx.idempotencyKey) }),
+      ...(id !== undefined && { id }),
       summary: input.title,
       start: googleTime(span.start),
       end: googleTime(span.end),
@@ -279,7 +280,7 @@ const googleCalendarEventCreateSpec = (
         method: 'POST',
         body: event,
       });
-      if (res.status === 409 && event.id !== undefined) return madeBefore(ctx, event.id);
+      if (res.status === 409 && id !== undefined) return madeBefore(ctx, id);
       if (!res.ok) throw await refusal(res, "Google Calendar didn't add the event");
       return written(await res.json());
     };
@@ -482,7 +483,7 @@ function googlePatch(input: GoogleCalendarEventUpdateInput): Readonly<Record<str
   const span = updatedSpan(input.start, input.end);
   const patch = {
     ...(input.title !== undefined && { summary: input.title }),
-    ...(span !== undefined && { start: googleTime(span.start), end: googleTime(span.end) }),
+    ...(span !== undefined && { start: patchedTime(span.start), end: patchedTime(span.end) }),
     ...(input.location !== undefined && { location: input.location }),
     ...(input.description !== undefined && { description: input.description }),
     ...(input.attendees !== undefined && {
@@ -499,11 +500,30 @@ function googleTime(t: EventTime): { readonly dateTime: string } | { readonly da
 }
 
 /**
- * The call's key as an event id: Google takes base32hex (`a`-`v`, `0`-`9`),
- * 5 to 1,024 characters, and a UUID's hex digits are among them.
+ * A start or an end as an update sends it. Google merges a patch's objects
+ * into the event's, so the key it doesn't use goes as `null`: a time that
+ * becomes a day, or a day that becomes a time, keeps no stale key.
  */
-function eventIdOf(key: string): string {
-  return key.toLowerCase().replace(/[^0-9a-v]/g, '');
+function patchedTime(
+  t: EventTime,
+):
+  | { readonly dateTime: string; readonly date: null }
+  | { readonly date: string; readonly dateTime: null } {
+  return t.kind === 'time'
+    ? { dateTime: t.at.toISOString(), date: null }
+    : { date: t.day, dateTime: null };
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The call's key as an event id: Google takes base32hex (`a`-`v`, `0`-`9`),
+ * 5 to 1,024 characters, and a UUID's 32 hex digits are among them, one id
+ * for each key. A key of another shape gives none, so it can neither break
+ * a create nor share an id with another key.
+ */
+function eventIdOf(key: string): string | undefined {
+  return UUID.test(key) ? key.toLowerCase().replaceAll('-', '') : undefined;
 }
 
 /**

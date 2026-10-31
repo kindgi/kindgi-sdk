@@ -7,13 +7,14 @@
  * subpath: the tools' subpaths export the types.
  */
 
+import type { ConnectionNeed } from '@kindgi/tools';
 import type { AppToolOptions } from './app-tool.js';
 import { MAIL_PERSON } from './mail-schema.js';
 import { LIST_MAX, clipText, clippedPerson } from './mail-text.js';
 import type { MailPerson } from './mail.js';
 
-/** Whose calendar a calendar tool uses. */
-export type CalendarOwner = 'person' | 'company';
+/** Whose calendar a calendar tool uses: `'person'` or `'company'`, as a connection's `as`. */
+export type CalendarOwner = ConnectionNeed['as'];
 
 /** What a pack gives one of the calendar tools: its id, and whose calendar it uses. */
 export interface CalendarToolOptions extends AppToolOptions {

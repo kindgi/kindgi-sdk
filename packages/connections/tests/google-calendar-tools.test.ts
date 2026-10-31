@@ -331,6 +331,24 @@ describe('google calendar event create', () => {
     });
   });
 
+  it('a key that is not a UUID gives the event no id, and a 409 is a refusal', async () => {
+    const sent = googleAnswering(
+      () => Response.json({ id: 'c0ffee' }),
+      () => Response.json({ error: { code: 409, message: 'Conflict.' } }, { status: 409 }),
+    );
+    const kinds: string[] = [];
+    for (const key of ['ab-1', `${randomUUID()}-2`, 'v'.repeat(32)]) {
+      const ctx = { connections: { calendar: calendar() }, idempotencyKey: key };
+      kinds.push((await invokeToolForTest(create, EVENT, ctx)).kind);
+    }
+    expect(kinds).toEqual(['ok', 'err', 'err']);
+    expect(sent.map((s) => [s.method, 'id' in (s.body as object)])).toEqual([
+      ['POST', false],
+      ['POST', false],
+      ['POST', false],
+    ]);
+  });
+
   it('an all-day event goes as days', async () => {
     const sent = googleAnswering(() => Response.json({ id: 'day1' }));
     await invokeToolForTest(
@@ -427,10 +445,36 @@ describe('google calendar event update', () => {
       ['PATCH', `${EVENTS}/ev1_20261103T090000Z?sendUpdates=all`],
     ]);
     expect(sent[1]?.body).toEqual({
-      start: { dateTime: '2026-11-03T10:00:00.000Z' },
-      end: { dateTime: '2026-11-03T10:30:00.000Z' },
+      start: { dateTime: '2026-11-03T10:00:00.000Z', date: null },
+      end: { dateTime: '2026-11-03T10:30:00.000Z', date: null },
       attendees: [{ email: 'bo@acme.test' }, { email: 'cy@acme.test' }],
     });
+  });
+
+  it('switches an event between a time and a day, sending the key it drops as null', async () => {
+    const sent = googleAnswering(() => Response.json({ id: 'ev1' }));
+    const ctx = { connections: { calendar: calendar() } };
+    const toDays = await invokeToolForTest(
+      update,
+      { eventId: 'ev1', start: '2026-11-03', end: '2026-11-04' },
+      ctx,
+    );
+    const toTimes = await invokeToolForTest(
+      update,
+      { eventId: 'ev1', start: '2026-11-03T09:00:00+01:00', end: '2026-11-03T10:00:00+01:00' },
+      ctx,
+    );
+    expect([toDays.kind, toTimes.kind]).toEqual(['ok', 'ok']);
+    expect(sent.filter((s) => s.method === 'PATCH').map((s) => s.body)).toEqual([
+      {
+        start: { date: '2026-11-03', dateTime: null },
+        end: { date: '2026-11-04', dateTime: null },
+      },
+      {
+        start: { dateTime: '2026-11-03T08:00:00.000Z', date: null },
+        end: { dateTime: '2026-11-03T09:00:00.000Z', date: null },
+      },
+    ]);
   });
 
   it('never changes a whole series', async () => {

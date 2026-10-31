@@ -3,7 +3,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { type ToolConnection, invokeToolForTest } from '@kindgi/tools';
+import { type ToolConnection, invokeToolForTest, toolContextForTest } from '@kindgi/tools';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -340,6 +340,37 @@ describe('outlook calendar event update', () => {
     });
   });
 
+  it('switches an event between a time and a day, saying which with isAllDay', async () => {
+    const sent = graphAnswering(
+      () => Response.json({ type: 'singleInstance' }),
+      () => Response.json({ id: 'AAMk=' }),
+    );
+    const ctx = { connections: { calendar: calendar() } };
+    const toDays = await invokeToolForTest(
+      update,
+      { eventId: 'AAMk=', start: '2026-11-03', end: '2026-11-04' },
+      ctx,
+    );
+    const toTimes = await invokeToolForTest(
+      update,
+      { eventId: 'AAMk=', start: '2026-11-03T09:00:00+01:00', end: '2026-11-03T10:00:00+01:00' },
+      ctx,
+    );
+    expect([toDays.kind, toTimes.kind]).toEqual(['ok', 'ok']);
+    expect(sent.filter((s) => s.method === 'PATCH').map((s) => s.body)).toEqual([
+      {
+        start: { dateTime: '2026-11-03T00:00:00', timeZone: 'UTC' },
+        end: { dateTime: '2026-11-04T00:00:00', timeZone: 'UTC' },
+        isAllDay: true,
+      },
+      {
+        start: { dateTime: '2026-11-03T08:00:00', timeZone: 'UTC' },
+        end: { dateTime: '2026-11-03T09:00:00', timeZone: 'UTC' },
+        isAllDay: false,
+      },
+    ]);
+  });
+
   it('never changes a whole series', async () => {
     const sent = graphAnswering(() => Response.json({ type: 'seriesMaster' }));
     const r = await invokeToolForTest(
@@ -364,5 +395,23 @@ describe('outlook calendar event update', () => {
       { connections: { calendar: calendar() } },
     );
     expect(r.kind === 'err' && r.error.message).toContain('Outlook found no such event');
+  });
+
+  it('refuses a start without its end, or nothing to change, and calls nothing', async () => {
+    const sent = graphAnswering(() => Response.json({ type: 'singleInstance' }));
+    for (const input of [
+      { eventId: 'AAMk=', start: '2026-11-03T10:00:00Z' },
+      { eventId: 'AAMk=' },
+    ]) {
+      const r = await invokeToolForTest(update, input, { connections: { calendar: calendar() } });
+      expect(r.kind === 'err' && r.error.code).toBe('handler-error');
+    }
+    await expect(
+      update.handler(
+        { eventId: '../../calendars', title: 'x' },
+        toolContextForTest({ connections: { calendar: calendar() } }),
+      ),
+    ).rejects.toThrow("isn't an event id");
+    expect(sent).toHaveLength(0);
   });
 });
