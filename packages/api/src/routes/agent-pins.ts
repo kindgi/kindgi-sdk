@@ -49,7 +49,12 @@ import type { ReleaseGate } from '../release-gate-binding.js';
 import type { TestRun, TestRunBinding } from '../test-run-binding.js';
 import type { TestSetFreezeBinding } from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
-import { type WhatRuns, whatRuns } from '../what-runs.js';
+import {
+  type ProjectOnLatest,
+  type WhatRuns,
+  projectsPinTakesOffLatest,
+  whatRuns,
+} from '../what-runs.js';
 import { agentPinScopeToWire, parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
@@ -242,7 +247,10 @@ export function mountAgentPinRoutes(
         ...(parsed.value.reason !== undefined && { reason: parsed.value.reason }),
         ...(parsed.value.testRunId !== undefined && { testRunId: parsed.value.testRunId }),
       },
-      { log: c.get('log') },
+      {
+        log: c.get('log'),
+        ...(parsed.value.stopFollowingLatest === true && { stopFollowingLatest: true }),
+      },
     );
     return pinResponse(c, outcome);
   });
@@ -437,14 +445,26 @@ export type PinRequestOutcome =
       /** The test runs it checks its projects with, and what a reused one changed. */
       readonly runs: PinTestRuns;
     }
-  | { readonly kind: 'err'; readonly error: { code: string; message: string } }
+  | {
+      readonly kind: 'err';
+      readonly error: {
+        code: string;
+        message: string;
+        /** `pin-stops-latest`'s: the projects that follow Latest now, which the pin would take off it. */
+        readonly projects?: readonly ProjectOnLatest[];
+      };
+    }
   | { readonly kind: 'gate-unsupported'; readonly releaseGate: ReleaseGate };
 
 /**
  * Request that `version` be pinned for `scope`, through the scope's gate:
  * the binding records it as pinned, waiting for approval, or refused
  * (`pin.status`). Without gated requests in this deployment, an
- * ungated scope pins as before and a gated one is unsupported.
+ * ungated scope pins as before and a gated one is unsupported. A pin that
+ * would take a project off Latest (`projectsPinTakesOffLatest`) is refused
+ * with `pin-stops-latest` before its gate runs, unless the caller asks for
+ * that (`stopFollowingLatest`); then it's recorded with
+ * `stoppedFollowingLatest`.
  */
 export async function requestPin(
   registry: AgentRegistryBinding,
@@ -464,6 +484,12 @@ export async function requestPin(
     readonly draftedEligibleAtRole?: (role: ReviewerRole) => Promise<boolean>;
     /** Where a project whose test run didn't start or apply is logged; the pin still answers. */
     readonly log?: Pick<Logger, 'warn'>;
+    /**
+     * The caller asks to take projects that follow Latest off it: the
+     * body's `stopFollowingLatest: true`, or a promotion's pins, which
+     * `--pin` asks for.
+     */
+    readonly stopFollowingLatest?: boolean;
   } = {},
 ): Promise<PinRequestOutcome> {
   // Every way a pin is asked for comes through here (the route, a
@@ -475,6 +501,9 @@ export async function requestPin(
     input.scope,
   );
   if (outOfScope !== undefined) return { kind: 'err', error: outOfScope };
+  const asked = await offLatestAsked(agentPins, deps, input, options.stopFollowingLatest === true);
+  if (asked.kind === 'err') return asked;
+  const { pin } = asked;
   const releaseGate = await releaseGateFor(agentPins, input.tenantId, input.agentId, input.scope);
   if (agentPins.changes.request === undefined) {
     if (releaseGate !== null) return { kind: 'gate-unsupported', releaseGate };
@@ -490,7 +519,7 @@ export async function requestPin(
     }
     // No gate, and a binding from before gates: pin as before.
     const moves = await pinMoves(agentPins, deps, input, options.log);
-    const outcome = await agentPins.changes.pin(input);
+    const outcome = await agentPins.changes.pin(pin);
     return outcome.kind === 'err'
       ? { kind: 'err', error: outcome.error }
       : { kind: 'ok', pin: outcome.value, runs: await moves.check(outcome.value) };
@@ -500,7 +529,7 @@ export async function requestPin(
   const approval = await resolveApproval(gate.result.approval, options);
   const moves = await pinMoves(agentPins, deps, input, options.log);
   const outcome = await agentPins.changes.request({
-    ...input,
+    ...pin,
     gate: {
       releaseGate:
         releaseGate === null ? null : { id: releaseGate.id, version: releaseGate.version },
@@ -519,6 +548,44 @@ export async function requestPin(
         checks: gate.result.checks,
         runs: await moves.check(outcome.value),
       };
+}
+
+/**
+ * The pin as it's recorded: with `stoppedFollowingLatest` when it takes a
+ * project that follows Latest off it (`projectsPinTakesOffLatest`), and
+ * the caller asked for that; refused with `pin-stops-latest` when it
+ * didn't.
+ */
+async function offLatestAsked(
+  agentPins: AgentPinBindings,
+  deps: Pick<AgentPinGateDeps, 'projects'>,
+  input: AgentPinInput,
+  asked: boolean,
+): Promise<
+  { readonly kind: 'ok'; readonly pin: AgentPinInput } | Extract<PinRequestOutcome, { kind: 'err' }>
+> {
+  const offLatest = await projectsPinTakesOffLatest(agentPins, deps.projects, input);
+  if (offLatest.length === 0) return { kind: 'ok', pin: input };
+  return asked
+    ? { kind: 'ok', pin: { ...input, stoppedFollowingLatest: true } }
+    : { kind: 'err', error: pinStopsLatest(offLatest) };
+}
+
+/** `pin-stops-latest`: the pin would take `projects` off Latest, and the caller didn't ask for that. */
+export function pinStopsLatest(projects: readonly ProjectOnLatest[]): {
+  code: string;
+  message: string;
+  projects: readonly ProjectOnLatest[];
+} {
+  const named = projects
+    .map((p) => `${p.projectId as unknown as string} (${p.version as unknown as string})`)
+    .join(', ');
+  const one = projects.length === 1;
+  return {
+    code: 'pin-stops-latest',
+    message: `${one ? 'Project' : 'Projects'} ${named} ${one ? 'follows' : 'follow'} Latest, and this pin would take ${one ? 'it' : 'them'} off it: ${one ? 'it' : 'they'} would run the pinned version and no longer take each new Latest. Send \`stopFollowingLatest: true\` to pin anyway.`,
+    projects,
+  };
 }
 
 /**
@@ -714,7 +781,13 @@ function optionalText(
 async function readPinBody(c: Ctx): Promise<
   | {
       kind: 'ok';
-      value: { version: Semver; scope: AgentPinScope; testRunId?: string; reason?: string };
+      value: {
+        version: Semver;
+        scope: AgentPinScope;
+        testRunId?: string;
+        reason?: string;
+        stopFollowingLatest?: boolean;
+      };
     }
   | { kind: 'err'; message: string }
 > {
@@ -727,9 +800,18 @@ async function readPinBody(c: Ctx): Promise<
   }
   const text = optionalText(body, ['reason', 'testRunId']);
   if (text.kind === 'err') return text;
+  const stop = body.stopFollowingLatest;
+  if (stop !== undefined && typeof stop !== 'boolean') {
+    return { kind: 'err', message: '`stopFollowingLatest` must be a boolean' };
+  }
   return {
     kind: 'ok',
-    value: { version: body.version as Semver, scope: scope.scope, ...text.value },
+    value: {
+      version: body.version as Semver,
+      scope: scope.scope,
+      ...text.value,
+      ...(stop !== undefined && { stopFollowingLatest: stop }),
+    },
   };
 }
 
@@ -966,5 +1048,8 @@ export function serializePin(p: Pin): Record<string, unknown> {
     ...(p.checks !== undefined && { checks: p.checks }),
     ...(p.approvalId !== undefined && { approvalId: p.approvalId }),
     ...(p.resolvedAt !== undefined && { resolvedAt: p.resolvedAt as unknown as string }),
+    ...(p.stoppedFollowingLatest !== undefined && {
+      stoppedFollowingLatest: p.stoppedFollowingLatest,
+    }),
   };
 }

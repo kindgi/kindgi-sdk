@@ -72,13 +72,15 @@ export interface SuggestedChangesClient {
    * A pin of its version for its project, through the project's gate: the
    * pin as `agents.pinned.pin` answers it, with the suggested change,
    * `pinned` or `waiting-for-second-person`. A gate refusal throws
-   * (`gate-failed`, with the checks).
+   * (`gate-failed`, with the checks). A project on Latest throws
+   * `pin-stops-latest` (409) unless `stopFollowingLatest` is set; it
+   * takes the change as its Latest instead (`addAsLatest`).
    *
    * @wire `POST /v1/suggested-changes/{suggestedChangeId}/pin`
    */
   pin(
     id: SuggestedChangeId | string,
-    input?: SuggestedChangeReasonInput,
+    input?: SuggestedChangePinInput,
   ): Promise<SuggestedChangePinAnswer>;
 
   /**
@@ -127,6 +129,15 @@ export type CreateSuggestedChangeInput = {
 export interface SuggestedChangeReasonInput {
   readonly reason?: string;
   readonly idempotencyKey?: string;
+}
+
+export interface SuggestedChangePinInput extends SuggestedChangeReasonInput {
+  /**
+   * Pin even when its project follows Latest now: the project then runs
+   * the pinned version, not each new Latest. Without it, that pin throws
+   * `pin-stops-latest` (409).
+   */
+  readonly stopFollowingLatest?: boolean;
 }
 
 export interface WithdrawInput {

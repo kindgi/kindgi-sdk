@@ -50,7 +50,12 @@ import {
 import { refusesCandidates, refusesScope } from './registry-read-only.js';
 import type { ReviewerRegistryBinding } from './reviewer-binding.js';
 import { agentPinScopeToWire } from './routes/agent-pin-scope-wire.js';
-import { type AgentPinGateDeps, type PinRequestOutcome, requestPin } from './routes/agent-pins.js';
+import {
+  type AgentPinGateDeps,
+  type PinRequestOutcome,
+  pinStopsLatest,
+  requestPin,
+} from './routes/agent-pins.js';
 import {
   SUGGESTED_CHANGE_ACTIONS,
   type SuggestedChangeAction,
@@ -86,7 +91,7 @@ import type {
   TestRunStartOutcome,
 } from './test-run-binding.js';
 import type { FrozenTestSet, TestSetFreezeBinding } from './test-set-binding.js';
-import { type WhatRuns, whatRuns } from './what-runs.js';
+import { type WhatRuns, projectsPinTakesOffLatest, whatRuns } from './what-runs.js';
 
 /**
  * The suggested-change lifecycle, from the bindings it runs on: what
@@ -1394,6 +1399,8 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       readonly reason?: string;
       /** Where a project whose test run didn't start or apply is logged. */
       readonly log?: Pick<Logger, 'warn'>;
+      /** The caller asks to take a project that follows Latest off it (`requestPin`). */
+      readonly stopFollowingLatest?: boolean;
     }): Promise<
       SuggestedChangeOutcome<{
         suggestedChange: StoredSuggestedChange;
@@ -1405,19 +1412,27 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       if (refused !== undefined) return err(refused);
       const projectId = projectOfCard(suggestedChange);
       if (projectId === undefined) return err(notForAProject(suggestedChange, 'pin'));
-      // A project on Latest takes a change as its Latest (`add-as-latest`).
+      // A project on Latest is pinned only when the caller asks to take it
+      // off Latest; else it takes the change as its Latest (`add-as-latest`).
+      // Asked before a rebuild, so a refused pin changes nothing.
+      if (input.stopFollowingLatest !== true) {
+        const offLatest = await projectsPinTakesOffLatest(deps.agentPins, deps.projects, {
+          tenantId,
+          agentId: suggestedChange.agentId as unknown as string,
+          scope: suggestedChange.scope,
+        });
+        if (offLatest.length > 0) {
+          return err({
+            ...pinStopsLatest(offLatest),
+            suggestedChangeId: suggestedChange.id as unknown as string,
+          });
+        }
+      }
       const runs = await whatRuns(deps.agentPins, {
         tenantId,
         agentId: suggestedChange.agentId as unknown as string,
         projectId,
       });
-      if (runs?.follows !== 'pin') {
-        return err({
-          code: 'suggested-change-project-on-latest',
-          message: `Project ${projectId as unknown as string} runs ${suggestedChange.agentId as unknown as string}'s Latest, not a pin: add the change as its Latest instead`,
-          suggestedChangeId: suggestedChange.id as unknown as string,
-        });
-      }
       const moved = await refuseMoved(suggestedChange, input.actor, projectId, runs);
       if (moved !== undefined) return err(moved);
       const { candidate, evaluation } = suggestedChange;
@@ -1458,7 +1473,11 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
           reason: input.reason ?? `Suggested change ${suggestedChange.id as unknown as string}`,
           testRunId: evaluation.testRunId,
         },
-        { ...drafterApproval, ...(input.log !== undefined && { log: input.log }) },
+        {
+          ...drafterApproval,
+          ...(input.log !== undefined && { log: input.log }),
+          ...(input.stopFollowingLatest === true && { stopFollowingLatest: true }),
+        },
       );
       if (outcome.kind !== 'ok') return { kind: 'ok', value: { suggestedChange, pin: outcome } };
       const recorded = await record(suggestedChange, {

@@ -181,8 +181,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
       tenant, an org or a segment can only be withdrawn;
     - `suggested-change-nothing-to-check` (`ConflictError`): the project's
       test set has no cases;
-    - `suggested-change-project-on-latest` (`ConflictError`): a pin, for a
-      project that runs Latest;
+    - `pin-stops-latest` (`ConflictError`): a pin that would take a project
+      that follows Latest off it, without `stopFollowingLatest`;
     - `suggested-change-project-pinned` (`ConflictError`): an add as Latest,
       for a project that runs a pin;
     - `suggested-change-check-unsupported` (`ServerError`, a 501): the

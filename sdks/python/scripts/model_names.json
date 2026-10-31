@@ -1007,6 +1007,7 @@
   "SuggestedChangeNote": ["SuggestedChangeNote"],
   "SuggestedChangePin": [],
   "SuggestedChangePinAnswer": ["SuggestedChangePinAnswer"],
+  "SuggestedChangePinBody": ["SuggestedChangePinBody"],
   "SuggestedChangePromotion": [],
   "SuggestedChangeReasonBody": ["SuggestedChangeReasonBody"],
   "Suite": [],

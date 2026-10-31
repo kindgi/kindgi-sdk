@@ -182,6 +182,10 @@ export interface AgentPinnedClient {
    * `reopened`, or one started, whose outcome changes the corrections
    * when it ends.
    *
+   * A pin that would take a project that follows Latest now off it throws
+   * `pin-stops-latest` (409), with each such project in the details,
+   * unless `stopFollowingLatest` is set.
+   *
    * @wire POST /v1/agents/:agentId/pinned/pin
    */
   pin(
@@ -285,6 +289,13 @@ export interface AgentPinInput {
   readonly reason?: string;
   /** The test run behind the decision, kept on the record. */
   readonly testRunId?: string;
+  /**
+   * Pin even when it takes a project that follows Latest now off it: the
+   * project then runs the pinned version, not each new Latest, and the pin
+   * records `stoppedFollowingLatest`. Without it, such a pin throws
+   * `pin-stops-latest` (409). `check` ignores it.
+   */
+  readonly stopFollowingLatest?: boolean;
 }
 
 export interface AgentUnpinInput {

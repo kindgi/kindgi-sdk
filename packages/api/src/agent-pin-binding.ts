@@ -152,6 +152,12 @@ export interface Pin {
   readonly approvalId?: string;
   /** When a `pending-approval` pin reached its final state. */
   readonly resolvedAt?: Timestamp;
+  /**
+   * A `pin`'s: `true` when it took a project that followed Latest off
+   * it (`AgentPinInput.stoppedFollowingLatest`). Absent otherwise, and on
+   * a pin recorded before it was kept.
+   */
+  readonly stoppedFollowingLatest?: boolean;
 }
 
 export type PinErrorCode =
@@ -217,6 +223,12 @@ export interface AgentPinInput {
   readonly requestedBy: PinActor;
   readonly reason?: string;
   readonly testRunId?: string;
+  /**
+   * The pin takes a project that follows Latest off it, as the caller
+   * asked (`requestPin`'s `stopFollowingLatest`): kept on the change
+   * (`Pin.stoppedFollowingLatest`). Absent otherwise.
+   */
+  readonly stoppedFollowingLatest?: boolean;
 }
 
 /**

@@ -326,7 +326,7 @@ const pin: LeafCommand = {
   kind: 'leaf',
   name: 'pin',
   description:
-    "Pin a suggested change's version for its project, through the project's release gate with its check. The suggested change is `pinned`, or `waiting-for-second-person` (a reviewer decides the approval: `kindgi approvals complete`); a refusal by the release gate lists every check, and leaves it `ready`. Allowed when `ready`, for a project that runs a pin. Needs `pin` on the agent.",
+    "Pin a suggested change's version for its project, through the project's release gate with its check. It prints the pin's answer: the pin, its test runs, and the suggested change under `suggestedChange`, `pinned` or `waiting-for-second-person` (a reviewer decides the approval: `kindgi approvals complete`). A refusal by the release gate lists every check, and leaves it `ready`. Allowed when `ready`, for a project that runs a pin. Needs `pin` on the agent.",
   usage: 'kindgi suggested-changes pin <suggested-change-id> [--reason=<text>]',
   optionSpec: {
     reason: { type: 'string', description: 'Why, kept on the request to pin it.' },

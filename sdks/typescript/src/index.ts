@@ -65,6 +65,7 @@ export type {
 export type {
   CreateSuggestedChangeInput,
   SuggestedChangePinAnswer,
+  SuggestedChangePinInput,
   SuggestedChangeReasonInput,
   SuggestedChangesClient,
   SuggestedChangesListInput,

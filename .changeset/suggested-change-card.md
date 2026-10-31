@@ -36,18 +36,17 @@
 
   `fromVersion`, `scope`, `tier`, `change`, `evidence`, `candidate`, `evaluation`, `promotion` and `rolledBack` are gone.
 - **Listing.** `GET /v1/suggested-changes` filters by `agentId`, `projectId`, `status` and `madeBy` (one of its kinds). The `tier` and scope filters are gone.
-- **Pinning.** `POST /v1/suggested-changes/{suggestedChangeId}/pin` pins its version for its project, through the project's release gate policy, as before. It's refused for a project that runs Latest (`409 suggested-change-project-on-latest`).
+- **Pinning.** `POST /v1/suggested-changes/{suggestedChangeId}/pin` pins its version for its project, through the project's release gate policy, as before. For a project that runs Latest it's refused (`409 pin-stops-latest`) unless the body has `stopFollowingLatest: true`, which takes the project off Latest.
 - **If the project moves first.** A suggested change built on a version its project no longer runs is rebuilt on the version the project runs now: its block change made again there (a prompt keeps its wording; settings keep the values it changed and take every other value from what runs now), a new version, and a new check. `builtOn.rebuiltAt` says when.
   - Pinning one (not waiting for a second person) or adding one as Latest rebuilds the project's other `ready` and `check-failed` ones for the agent at once.
   - Checking one again rebuilds it first when its project moved.
   - Pinning or adding one whose project moved is refused (`409 suggested-change-out-of-date`), and starts its rebuild (`details.rebuilding`). One the project's version already has, or whose block it no longer uses, isn't rebuilt (`rebuilding: false`).
 - **Adding it as Latest.** `POST /v1/suggested-changes/{suggestedChangeId}/add-as-latest` is new. It makes its version its project's Latest, now, for a project on Latest, with no gate. `reason` is kept on its `addedAsLatest`. It's refused for a project that runs a pin (`409 suggested-change-project-pinned`). It needs `promote` on the agent, and it's allowed from `ready`.
 - **One made before this change.** One made for a tenant, an org or a segment reads with the project its version was made in, when that's known. It can only be withdrawn: checking or pinning it is `409 suggested-change-not-for-a-project`.
-- **Errors.** Six codes are new:
+- **Errors.** Five codes are new:
   - `suggested-change-not-for-a-project` (409);
   - `suggested-change-check-unsupported` (501): the runtime freezes no test set;
   - `suggested-change-nothing-to-check` (409): the project's test set has no cases;
-  - `suggested-change-project-on-latest` (409);
   - `suggested-change-project-pinned` (409);
   - `suggested-change-out-of-date` (409).
 - **Audit events.** Making one, pinning it, adding it as Latest and withdrawing it are recorded, in its project, with the caller as the actor: `suggested-change-created`, `suggested-change-pinned` (with its promotion, and whether it's pinned or waits for a second person), `suggested-change-added-as-latest` and `suggested-change-withdrawn`. Each names the suggested change, its agent, block, versions and who made it, never its content, its `why` or a reason. The same change sent again records nothing. `EVIDENCE_KINDS` lists the four kinds. The `kind` examples in `compliance-evidence.schema.json` list them too, with the block version and provider kinds.

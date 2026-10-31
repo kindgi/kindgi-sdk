@@ -436,6 +436,9 @@ function pinsFake(agents: ReturnType<typeof agentBinding>) {
           toVersion: input.version,
           requestedBy: input.requestedBy,
           status: 'pinned',
+          ...(input.stoppedFollowingLatest !== undefined && {
+            stoppedFollowingLatest: input.stoppedFollowingLatest,
+          }),
         });
         setPin(input.agentId, input.scope, input.version, change.id);
         return { kind: 'ok', value: change };
@@ -468,6 +471,9 @@ function pinsFake(agents: ReturnType<typeof agentBinding>) {
           releaseGate: input.gate.releaseGate,
           checks: input.gate.checks,
           ...(status === 'pending-approval' && { approvalId: 'appr-1' }),
+          ...(input.stoppedFollowingLatest !== undefined && {
+            stoppedFollowingLatest: input.stoppedFollowingLatest,
+          }),
         });
         if (status === 'pinned') {
           setPin(input.agentId, input.scope, input.version, change.id);
@@ -1574,19 +1580,66 @@ describe('POST /v1/suggested-changes/:id/pin', () => {
     expect(again.body.note).toBeUndefined();
   });
 
-  test('a project on Latest takes no pin (409 suggested-change-project-on-latest), and nothing is requested', async () => {
-    const { call, testRuns, pinStore } = await harness();
-    const res = await call('POST', '/v1/suggested-changes', CARD);
+  /** A ready suggested change for the project, which follows Latest (nothing pinned). */
+  async function readyOnLatest() {
+    const h = await harness();
+    const res = await h.call('POST', '/v1/suggested-changes', CARD);
     expect(res.status, JSON.stringify(res.body)).toBe(201);
-    await testRuns.finish(res.body.check.with.testRunId, { delta: 0.1 });
-    await testRuns.finish(res.body.check.now.testRunId, { delta: 0 });
-    const pin = await call('POST', `/v1/suggested-changes/${res.body.id}/pin`, {});
+    await h.testRuns.finish(res.body.check.with.testRunId, { delta: 0.1 });
+    await h.testRuns.finish(res.body.check.now.testRunId, { delta: 0 });
+    return { ...h, id: res.body.id as string, card: res.body };
+  }
+
+  test('a project on Latest takes no pin unless the body asks (409 pin-stops-latest, with what it runs), and nothing changes', async () => {
+    const { call, pinStore, id, card } = await readyOnLatest();
+    const pin = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
     expect(pin.status, JSON.stringify(pin.body)).toBe(409);
     expect(pin.body.error).toMatchObject({
-      code: 'suggested-change-project-on-latest',
-      details: { suggestedChangeId: res.body.id },
+      code: 'pin-stops-latest',
+      details: {
+        projects: [{ projectId, version: card.builtOn.version }],
+        suggestedChangeId: id,
+      },
     });
     expect(pinStore.calls).toEqual([]);
+    expect((await call('GET', `/v1/suggested-changes/${id}`)).body).toMatchObject({
+      status: 'ready',
+      builtOn: card.builtOn,
+    });
+  });
+
+  test('with stopFollowingLatest it pins, and the pin records that the project stopped following Latest', async () => {
+    const { call, pinStore, id } = await readyOnLatest();
+    const pin = await call('POST', `/v1/suggested-changes/${id}/pin`, {
+      stopFollowingLatest: true,
+    });
+    expect(pin.status, JSON.stringify(pin.body)).toBe(201);
+    const requested = pinStore.calls.find((c) => c.method === 'request')?.input;
+    expect(requested).toMatchObject({ stoppedFollowingLatest: true });
+    expect(pin.body.pin).toMatchObject({
+      toVersion: (requested as { version: string }).version,
+      stoppedFollowingLatest: true,
+    });
+    expect(pin.body.suggestedChange.status).toBe('pinned');
+  });
+
+  test('a stopFollowingLatest that is not a boolean → 400, nothing requested', async () => {
+    const { call, pinStore, id } = await readyOnLatest();
+    const pin = await call('POST', `/v1/suggested-changes/${id}/pin`, {
+      stopFollowingLatest: 'yes',
+    });
+    expect(pin.status, JSON.stringify(pin.body)).toBe(400);
+    expect(pinStore.calls).toEqual([]);
+  });
+
+  test('a pinned project is pinned without stopFollowingLatest, and the pin records nothing about Latest', async () => {
+    const { id, call, pinStore } = await checked();
+    const pin = await call('POST', `/v1/suggested-changes/${id}/pin`, {});
+    expect(pin.status, JSON.stringify(pin.body)).toBe(201);
+    expect(pin.body.pin.stoppedFollowingLatest).toBeUndefined();
+    expect(pinStore.calls.find((c) => c.method === 'request')?.input).not.toHaveProperty(
+      'stoppedFollowingLatest',
+    );
   });
 
   test('one made for the whole tenant before suggested changes were for a project is not pinned (409 suggested-change-not-for-a-project)', async () => {

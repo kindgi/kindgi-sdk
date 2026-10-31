@@ -375,18 +375,18 @@ export function suggestedChangesRouter(
       scope: ready.suggestedChange.scope,
     });
     if (spans !== undefined) return spans;
-    const reason = optionalText(ready.body, 'reason');
-    if (reason.kind === 'err') return badInput(c, reason.message);
+    const body = readPinBody(ready.body);
+    if (body.kind === 'err') return badInput(c, body.message);
     const outcome = await service.pin({
       tenantId: c.get('tenantId') as TenantId,
       suggestedChange: ready.suggestedChange,
       actor: actorOf(c),
-      ...(reason.value !== undefined && { reason: reason.value }),
+      ...body.value,
       log: c.get('log'),
     });
     if (outcome.kind === 'err') return refuse(c, outcome.error);
     const { suggestedChange, pin } = outcome.value;
-    if (pin.kind !== 'ok') return pinResponse(c, pin);
+    if (pin.kind !== 'ok') return pinResponse(c, pin, refusedPinExtra(pin, suggestedChange));
     if (pin.pin.status === 'refused') {
       return pinResponse(c, pin, {
         suggestedChangeId: suggestedChange.id as unknown as string,
@@ -740,6 +740,41 @@ function parseCreateBody(b: Record<string, unknown>): CreateBody | string {
     why: b.why,
     ...(fixes !== undefined && { fixes: fixes as string[] }),
   };
+}
+
+/** A pin's body (`SuggestedChangePinBody`): `reason` and `stopFollowingLatest`, each optional. */
+function readPinBody(
+  body: Record<string, unknown>,
+):
+  | { kind: 'ok'; value: { reason?: string; stopFollowingLatest?: true } }
+  | { kind: 'err'; message: string } {
+  const reason = optionalText(body, 'reason');
+  if (reason.kind === 'err') return reason;
+  const stop = body.stopFollowingLatest;
+  if (stop !== undefined && typeof stop !== 'boolean') {
+    return { kind: 'err', message: '`stopFollowingLatest` must be a boolean' };
+  }
+  return {
+    kind: 'ok',
+    value: {
+      ...(reason.value !== undefined && { reason: reason.value }),
+      ...(stop === true && { stopFollowingLatest: true }),
+    },
+  };
+}
+
+/**
+ * What a refused pin's error adds: `pin-stops-latest` names the suggested
+ * change, as the service's own refusal does (its project went onto Latest
+ * after the service asked); others answer as the agent pin route's.
+ */
+function refusedPinExtra(
+  pin: Exclude<PinRequestOutcome, { kind: 'ok' }>,
+  suggestedChange: StoredSuggestedChange,
+): Readonly<Record<string, unknown>> {
+  return pin.kind === 'err' && pin.error.code === 'pin-stops-latest'
+    ? { suggestedChangeId: suggestedChange.id as unknown as string }
+    : {};
 }
 
 function optionalText(

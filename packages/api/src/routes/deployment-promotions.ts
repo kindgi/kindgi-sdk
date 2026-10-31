@@ -652,7 +652,9 @@ async function pinCarried(
         requestedBy: actorOf(c),
         ...(reason !== undefined && { reason }),
       },
-      { log: c.get('log') },
+      // `--pin` is the ask: a project on Latest in the target goes off it
+      // with no 409, and the pin records that it did.
+      { log: c.get('log'), stopFollowingLatest: true },
     );
     // What the pre-checks leave is answered with the pins already made, so
     // the caller sees what was pinned.

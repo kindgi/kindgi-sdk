@@ -5102,6 +5102,18 @@ class SuggestedChangeReasonBody(BaseModel):
     reason: Annotated[str | None, Field(max_length=2000, min_length=1)] = None
 
 
+class SuggestedChangePinBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    reason: Annotated[str | None, Field(max_length=2000, min_length=1)] = None
+    stop_following_latest: Annotated[bool | None, Field(alias="stopFollowingLatest")] = None
+    """
+    Pin even when its project follows Latest now: the project then runs the pinned version, not each new Latest. Without it, that pin is refused (`409 pin-stops-latest`).
+    """
+
+
 class WithdrawSuggestedChangeBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -13777,6 +13789,10 @@ class Pin(BaseModel):
     """
     When a `pending-approval` pin reached its final state.
     """
+    stopped_following_latest: Annotated[bool | None, Field(alias="stoppedFollowingLatest")] = None
+    """
+    A `pin`'s: `true` when it took a project that followed Latest off it, as its request asked (`stopFollowingLatest`) or as a promotion's pin does. Absent otherwise.
+    """
 
 
 class PinPage(BaseModel):
@@ -14108,6 +14124,10 @@ class AgentPinBody(BaseModel):
     test_run_id: Annotated[str | None, Field(alias="testRunId")] = None
     """
     The comparison behind this pin.
+    """
+    stop_following_latest: Annotated[bool | None, Field(alias="stopFollowingLatest")] = None
+    """
+    Pin even when it takes a project that follows Latest now off it: the project then runs the pinned version, not each new Latest. Without it, such a pin is refused (`409 pin-stops-latest`). `POST …/pinned/check` ignores it.
     """
 
 
