@@ -309,7 +309,8 @@ const exportCorrections: LeafCommand = {
     project: { type: 'string', description: 'Only corrections in this project.' },
     format: {
       type: 'string',
-      description: '`csv` (the default) or `jsonl`: one correction per line, as `list` prints it.',
+      description:
+        "`csv` (the default) or `jsonl`: one correction per line, as each one in `list`'s `data`.",
     },
     status: {
       type: 'string',
@@ -427,7 +428,8 @@ async function wholeText(
  * download` writes one. With `force`, it is renamed over `target`; without,
  * it takes the name only while nothing has it (`placeNew`). Otherwise that
  * file is removed, and `target` is as it was: the stop (`stop`, a Ctrl+C)
- * ends the stream as a cut connection does. Returns the bytes written.
+ * ends the stream as a cut connection does. The file is readable by its
+ * owner only, since it holds people's words. Returns the bytes written.
  */
 async function saveExport(
   body: ReadableStream<Uint8Array>,
@@ -436,7 +438,7 @@ async function saveExport(
   stop: AbortSignal | undefined,
 ): Promise<number> {
   const partial = `${target}.${randomBytes(4).toString('hex')}.partial`;
-  const file = await open(partial, 'wx').catch(async (err: unknown) => {
+  const file = await open(partial, 'wx', 0o600).catch(async (err: unknown) => {
     await body.cancel();
     throw err;
   });

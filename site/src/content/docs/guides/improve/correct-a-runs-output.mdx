@@ -395,7 +395,7 @@ lines, for a script:
 
 ```sh
 pnpm exec kindgi corrections export --agent=<agent-id> --since=2026-10-01 --until=2026-11-01 --out=october.csv
-pnpm exec kindgi corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=open.jsonl
+pnpm exec kindgi corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=not-fixed.jsonl
 ```
 
 </TabItem>
@@ -403,7 +403,7 @@ pnpm exec kindgi corrections export --agent=<agent-id> --format=jsonl --status=n
 
 ```sh
 uv run kindgi corrections export --agent=<agent-id> --since=2026-10-01 --until=2026-11-01 --out=october.csv
-uv run kindgi corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=open.jsonl
+uv run kindgi corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=not-fixed.jsonl
 ```
 
 </TabItem>
@@ -411,7 +411,7 @@ uv run kindgi corrections export --agent=<agent-id> --format=jsonl --status=not-
 
 ```sh
 ./kindgiw corrections export --agent=<agent-id> --since=2026-10-01 --until=2026-11-01 --out=october.csv
-./kindgiw corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=open.jsonl
+./kindgiw corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=not-fixed.jsonl
 ```
 
 </TabItem>
@@ -419,18 +419,23 @@ uv run kindgi corrections export --agent=<agent-id> --format=jsonl --status=not-
 
 ```sh
 ./kindgiw corrections export --agent=<agent-id> --since=2026-10-01 --until=2026-11-01 --out=october.csv
-./kindgiw corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=open.jsonl
+./kindgiw corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=not-fixed.jsonl
 ```
 
 </TabItem>
 </Tabs>
 
-- `<agent-id>` is the agent whose corrections you export. It takes the
-  list's filters: `--project`, `--status` and `--sorted-to` (each
-  repeatable), `--from`, `--since` and `--until`.
-- `--out` names the file. It takes that name only once the whole export has
-  arrived, and an existing file is kept unless you add `--force`. Without
-  `--out`, the export is printed.
+- `<agent-id>` is the agent whose corrections you export. It filters as
+  the clients' `corrections.list` does: `--project`, `--status` and
+  `--sorted-to` (each repeatable), `--from` (`experts`, `end-users` or
+  `all`), `--since` and `--until`. A date, such as `2026-10-01`, is
+  midnight UTC.
+- Like `list`, it leaves out replaced corrections, and removed ones unless
+  `--status=removed` asks for them.
+- `--out` names the file, which only you can read. It takes that name only
+  once the whole export has arrived, and an existing file is kept unless
+  you add `--force`. Then it prints the agent, the format, the file and its
+  size in bytes, as JSON. Without `--out`, the export is printed.
 - Each correction comes only when you may read its project.
 
 The CSV has a header row, then one correction per line: `id`, `projectId`,
@@ -439,9 +444,11 @@ The CSV has a header row, then one correction per line: `id`, `projectId`,
 two as JSON), `answer`, `shouldSay`, `why`, `sortedTo`, `status`, `fixedIn` (the
 version that fixed it) and `createdAt`. A field that starts with `=`, `+`,
 `-`, `@`, a tab or a carriage return gets a leading `'`, so a spreadsheet
-shows it rather than running it as a formula. JSON lines have one
-correction per line, as `list` prints it. Neither has the run's own input
-or output, only the run's id.
+shows it rather than running it as a formula. Where a spreadsheet's list
+separator is `;`, import the file with a comma as the separator rather than
+opening it directly. JSON lines have one correction per line, as each one
+in `list`'s `data`. Neither has the run's own input or output, only the
+run's id.
 
 Every export is in the audit log, with who exported, the filters and how
 many rows went out. In the clients it's `corrections.export`: TypeScript's

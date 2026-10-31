@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -362,7 +362,7 @@ describe('kindgi corrections', () => {
     expect(calls[0]?.[1]).toMatchObject({ format: 'jsonl' });
   });
 
-  test('--out writes the file once the whole export has arrived, and leaves no partial', async () => {
+  test("--out writes the file, its owner's only, once the whole export has arrived, and leaves no partial", async () => {
     const { rec } = recorder();
     const out = await run(['corrections', 'export', '--agent=a', '--out=october.csv'], {
       corrections: { export: rec('export', body(CSV).stream) },
@@ -371,6 +371,7 @@ describe('kindgi corrections', () => {
     const file = join(cwd, 'october.csv');
     expect(await readFile(file, 'utf8')).toBe(CSV.join(''));
     expect(await readdir(cwd)).toEqual(['october.csv']);
+    if (process.platform !== 'win32') expect((await stat(file)).mode & 0o777).toBe(0o600);
     expect(JSON.parse(out.stdout)).toEqual({
       agentId: 'a',
       format: 'csv',
