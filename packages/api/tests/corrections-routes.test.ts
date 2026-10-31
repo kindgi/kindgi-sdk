@@ -1939,24 +1939,34 @@ describe('GET /v1/corrections/export', () => {
     expect(res.headers.get('content-disposition')).toBe('attachment; filename="corrections.jsonl"');
     const text = await res.text();
     expect(text.endsWith('\n')).toBe(true);
-    const exported = text.trimEnd().split('\n').map((l) => JSON.parse(l));
+    const exported = text
+      .trimEnd()
+      .split('\n')
+      .map((l) => JSON.parse(l));
     const list = await h.call('GET', '/v1/corrections?agentId=acme.matcher');
     expect(exported).toEqual(list.body.data);
   });
 
   test("the list's filters apply: status, and a project scope", async () => {
     const { h, ids } = await exportable();
-    const fixed = await h.get('/v1/corrections/export?agentId=acme.matcher&status=fixed&format=jsonl');
-    expect((await fixed.text()).trimEnd().split('\n').map((l) => JSON.parse(l).id)).toEqual([
-      ids.right,
-    ]);
+    const fixed = await h.get(
+      '/v1/corrections/export?agentId=acme.matcher&status=fixed&format=jsonl',
+    );
+    expect(
+      (await fixed.text())
+        .trimEnd()
+        .split('\n')
+        .map((l) => JSON.parse(l).id),
+    ).toEqual([ids.right]);
     const inA = await h.get(
       `/v1/corrections/export?agentId=acme.matcher&scopeKind=project&scopeId=${projectA}&format=jsonl`,
     );
-    expect((await inA.text()).trimEnd().split('\n').map((l) => JSON.parse(l).id)).toEqual([
-      ids.right,
-      ids.wrong,
-    ]);
+    expect(
+      (await inA.text())
+        .trimEnd()
+        .split('\n')
+        .map((l) => JSON.parse(l).id),
+    ).toEqual([ids.right, ids.wrong]);
   });
 
   test("rows of a project the caller can't read are left out, and a scope it can't read is a 403", async () => {
@@ -1966,10 +1976,12 @@ describe('GET /v1/corrections/export', () => {
 
     const res = await h.get('/v1/corrections/export?agentId=acme.matcher&format=jsonl');
     expect(res.status).toBe(200);
-    expect((await res.text()).trimEnd().split('\n').map((l) => JSON.parse(l).id)).toEqual([
-      ids.right,
-      ids.wrong,
-    ]);
+    expect(
+      (await res.text())
+        .trimEnd()
+        .split('\n')
+        .map((l) => JSON.parse(l).id),
+    ).toEqual([ids.right, ids.wrong]);
     expect((await recorded(audit)).ended?.payload).toMatchObject({ doc: { rows: 2 } });
 
     const refused = await h.call(

@@ -346,7 +346,6 @@ describe('kindgi corrections', () => {
           from: 'end-users',
           since: '2026-10-01T00:00:00.000Z',
           until: '2026-11-01T00:00:00.000Z',
-          format: 'csv',
         },
       ],
     ]);
