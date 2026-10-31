@@ -48,7 +48,7 @@ upgrading across.** From 0.1.8 on, they're in each release's notes, which
 [Release notes](../../../releases/) lists newest first;
 [0.1.10's](../../../releases/0.1.10/#upgrade-steps),
 [0.1.9's](../../../releases/0.1.9/#upgrade-steps) and
-[0.1.8's](../../../releases/0.1.8/#upgrade-steps) are the first three.
+[0.1.8's](../../../releases/0.1.8/#upgrade-steps) are the oldest three.
 Up to 0.1.7, they're on this page, from
 [From 0.1.6 to 0.1.7](#from-016-to-017) down.
 
