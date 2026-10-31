@@ -3,7 +3,7 @@
 
 import { createHash } from 'node:crypto';
 
-import type { CorrectedTestCase } from './eval-case-binding.js';
+import type { CorrectedTestCase } from './frozen-case-binding.js';
 import type { TestRunSample } from './test-run-binding.js';
 
 /** Where a case falls in `[0, 1)` for a seed: the same for the same seed and case, always. */
