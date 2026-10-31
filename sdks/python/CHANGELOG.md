@@ -44,9 +44,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `ImproveRunOutcomeFailed` (`message`), and `ImproveRunOutcomeUnrecognized`
   for a kind a newer runtime adds; the `ImproveRunOutcome` model is gone. A
   comparison's `part` can be `all`, for the proof. An improve schedule's
-  `ImproveScheduleTarget` has `project_id` in place of `scope`, one schedule
-  per agent and project (a `ConflictError` whose `server_code` is
-  `schedule-exists`, with `details["scheduleId"]` and `details["triggerId"]`).
+  `ImproveScheduleTarget` has `project_id` in place of `scope` (registering
+  or changing one takes an `ImproveScheduleTargetInput`, where `agent_id` and
+  `project_id` are both required), one schedule per agent and project (a
+  `ConflictError` whose `server_code` is `schedule-exists`, with
+  `details["scheduleId"]` and `details["triggerId"]`).
   Its input is `corrections` (how many new corrections start a run), `from_`
   (`experts` or `everyone`), `run_cap_usd`, `month_cap_usd` (was
   `monthly_cap_usd`), `tiers` and `model`. Its `threshold`, `budget`,

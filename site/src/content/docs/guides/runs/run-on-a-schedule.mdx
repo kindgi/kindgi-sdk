@@ -568,7 +568,9 @@ FIRED                     FOR      OUTCOME          STARTED                     
   one without `publish` on the agent, as its Improve runs count toward the
   project's month. Changing, resuming or firing one still takes both.
 - **Who may read it:** reading one, or its fires, takes `read` on its
-  project or on the agent, as reading an Improve run does.
+  project or on the agent, as reading an Improve run does. The list shows a
+  schedule only to readers of its project: with `read` on the agent alone,
+  get it by its id.
 
 `list --table` shows each one's agent and project under `RUNS`, such as
 `improve acme.rank.scorer (project <project-id>)`, and under `STATUS` a
