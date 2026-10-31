@@ -39,7 +39,6 @@ import {
   laterEnvironment,
 } from './environment-entry.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
-import { rescoreRefusal, rescoreStart } from './eval-rescore.js';
 import type { GateApproval } from './gate.js';
 import {
   type ReferenceScopeBinding,
@@ -84,6 +83,7 @@ import type {
   TestRunComparison,
   TestRunStartOutcome,
 } from './test-run-binding.js';
+import { rescoreRefusal, rescoreStart } from './test-run-rescore.js';
 import {
   type FrozenTestSet,
   type TestSetFreezeBinding,
@@ -1241,7 +1241,8 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
     /**
      * Publish the suggested change's block version and derive its agent version
      * (once: an evaluation again reuses them), then start the comparison.
-     * Needs a writable agent registry and a tenant-wide pinned version.
+     * Needs a writable agent registry. The version it makes is made for its
+     * project, and is Latest nowhere until someone adds it.
      */
     async evaluate(
       input: EvaluateSuggestedChangeInput,
@@ -1253,14 +1254,6 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       if (refused !== undefined) return err(refused);
       const readOnly = readOnlyRefusal(suggestedChange.scope);
       if (readOnly !== undefined) return err(readOnly);
-      // A version pinned nowhere is still the agent's latest, and the
-      // latest serves every scope nothing is pinned for.
-      if ((await deps.agentPins.pinned.resolve({ tenantId, agentId })) === null) {
-        return err({
-          code: 'suggested-change-needs-pin',
-          message: `${agentId} has no pinned version for the whole tenant, so a new version of it would serve every scope nothing is pinned for. Pin its current version for the tenant first (scope { "kind": "tenant" }), then evaluate.`,
-        });
-      }
       if (suggestedChange.candidate === undefined) {
         const made = await makeCandidate(suggestedChange, input.actor);
         if (made.kind === 'err') return made;

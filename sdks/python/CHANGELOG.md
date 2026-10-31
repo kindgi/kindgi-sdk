@@ -13,6 +13,45 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **An Improve run works in a project, checks it's ready first, and
+  keeps a change only when it passes more of the cases and fails none that
+  passed. An Improve schedule runs on new corrections, within a run cap and a
+  month cap.** This is a breaking change, and no old name is kept.
+  `StartImproveRunBody` needs `project_id`, and its `scope`, `test_set_id` and
+  `from_version` are gone. `improve_runs.start` refuses a start that isn't
+  ready with a `ConflictError` whose `server_code` is `improve-not-ready`
+  (`details["items"]`, the missing ones) or `improve-run-running`
+  (`details["improveRunId"]`). `improve_runs.check` answers an
+  `ImproveRunCheck` with `ready`, `starts_from` (an `ImproveRunStart`), `items`
+  (each an `ImproveReadinessItem`, a missing one with its `fix`), `estimate`
+  and `month`; its `estimated_cost_usd`, `max_cost_usd` and `basis` are
+  `estimate.cost_usd`, `estimate.max_cost_usd` and `estimate.basis`.
+  `estimate.basis` gains `proof_replays`, the proof's share of `replays`, and
+  `estimate.cost_usd` caps only the search's share at `max_cost_usd`.
+  `improve_runs.list` takes `project_id` and `status`. An `ImproveRun`'s
+  `candidates_evaluated` is `tried`, and it gains `project_id`, `starts_from`
+  (an `ImproveRunStart`), `test_set_version`, `set_aside` and `takes`; its
+  `from_version`, `scope` and `test_set_id` are gone, and its `group_weights`
+  is always set. Its `outcome` is a union
+  by `kind`: `ImproveRunOutcomeSuggested` (was `proposed`),
+  `ImproveRunOutcomeNothingBetter` (was `nothing-found`, with `reason` and
+  `hold_out`), `ImproveRunOutcomeCostCap` (`spent_usd`, new) and
+  `ImproveRunOutcomeFailed` (`message`), and `ImproveRunOutcomeUnrecognized`
+  for a kind a newer runtime adds; the `ImproveRunOutcome` model is gone. A
+  comparison's `part` can be `all`, for the proof. An improve schedule's
+  `ImproveScheduleTarget` has `project_id` in place of `scope` (registering
+  or changing one takes an `ImproveScheduleTargetInput`, where `agent_id` and
+  `project_id` are both required), one schedule per agent and project (a
+  `ConflictError` whose `server_code` is `schedule-exists`, with
+  `details["scheduleId"]` and `details["triggerId"]`).
+  Its input is `corrections` (how many new corrections start a run), `from_`
+  (`experts` or `everyone`), `run_cap_usd`, `month_cap_usd` (was
+  `monthly_cap_usd`), `tiers` and `model`. Its `threshold`, `budget`,
+  `objective`, `group_weights` and `candidates` are gone, and the models
+  `Threshold` and `Budget3` with them. A schedule at its month's cap says
+  until when (`paused_until`, with `paused_reason` `month-cap`), and one whose
+  owner lost `publish` on the agent is paused at its next fire, with
+  `status_reason` `owner-lost-publish`.
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
   judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
   judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator

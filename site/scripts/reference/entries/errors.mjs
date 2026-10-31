@@ -17,16 +17,11 @@
 export const ERROR_ENTRIES = {
   'validation-failed': {
     description:
-      "The request body is well-formed JSON but fails validation, for example an agent, flow, tool, policy or test set definition that breaks the rules, or a version pin that can't be resolved. Fix the entries in `details.issues` and resend. On `POST /v1/improve-runs`, a version with nothing for the Improve run to work on is refused with no issues, and `details.reason` says what it lacks.",
+      "The request body is well-formed JSON but fails validation, for example an agent, flow, tool, policy or test set definition that breaks the rules, or a version pin that can't be resolved. Fix the entries in `details.issues` and resend.",
     details: [
       {
         key: 'issues',
         meaning: 'list of problems, each with a path to the offending field and a message',
-      },
-      {
-        key: 'reason',
-        meaning:
-          "on `POST /v1/improve-runs`, why the version has nothing for the Improve run to work on: `no-tunable-keys`, or `no-pinned-prompt-block` for a run on the agent's instructions (the `prompt` tier); other refusals leave it out",
       },
     ],
   },
@@ -1512,11 +1507,6 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'suggested-change-needs-pin': {
-    description:
-      'The agent has no pinned version for the whole tenant, so a new version would serve every scope nothing is pinned for. Pin its current version for the tenant first, then retry.',
-    details: [],
-  },
   'suggested-change-not-for-a-project': {
     description:
       "The suggested change was made for a tenant, an org or a segment, before suggested changes were for one project, so it can't be checked, pinned or added as Latest. Withdraw it, and suggest the change for a project.",
@@ -1610,6 +1600,29 @@ export const ERROR_ENTRIES = {
         meaning: 'the status the Improve run ended with',
       },
     ],
+  },
+  'improve-not-ready': {
+    description:
+      "Something the Improve run needs is missing, so it didn't start. `details.items` lists every missing item at once, as `POST /v1/improve-runs/check` does, each with where it's fixed and how. Fix them, check again, then start it.",
+    details: [
+      {
+        key: 'items',
+        meaning:
+          "the missing readiness items, each with its `key` (`wording`, `settings`, `test-cases`, `permission`, `one-at-a-time` or `project`) and its `fix`: `where` (`repo`, in the agent's code, then a deploy; `kindgi`, in Kindgi) and `text`",
+      },
+    ],
+    seeAlso: ['guides/improve/improve-an-agent'],
+  },
+  'improve-run-running': {
+    description:
+      'The agent already has a running Improve run in this project: one runs at a time. Wait for it to end, or cancel it, then start again.',
+    details: [
+      {
+        key: 'improveRunId',
+        meaning: 'the running Improve run',
+      },
+    ],
+    seeAlso: ['POST /v1/improve-runs/{improveRunId}/cancel'],
   },
   'version-already-exists': {
     description: "The API doesn't send this code.",
@@ -3841,6 +3854,21 @@ export const ERROR_ENTRIES = {
     description:
       "This deployment doesn't support the operation on triggers, such as listing a schedule's fire history or running it now.",
     details: [],
+  },
+  'schedule-exists': {
+    description:
+      'The agent and project have an Improve schedule already: an agent has one Improve schedule per project. Change that one instead.',
+    details: [
+      {
+        key: 'scheduleId',
+        meaning: 'the Improve schedule the agent and project have',
+      },
+      {
+        key: 'triggerId',
+        meaning: "the same schedule's trigger id",
+      },
+    ],
+    seeAlso: ['guides/runs/run-on-a-schedule'],
   },
   'webhook-refused': {
     description:

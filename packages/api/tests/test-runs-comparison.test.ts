@@ -32,7 +32,7 @@ import { inMemoryCaseStore } from './support/in-memory-cases.js';
 import { inMemoryCorrections } from './support/in-memory-corrections.js';
 
 const tenantId = randomUUID() as TenantId;
-const TOKEN = 'eval-comparison-token';
+const TOKEN = 'test-run-comparison-token';
 const resolveToken: TokenResolver = async (token) => (token === TOKEN ? { tenantId } : null);
 const unused = async () => ({
   kind: 'err' as const,

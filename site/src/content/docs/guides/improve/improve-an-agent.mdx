@@ -1,36 +1,38 @@
 ---
 title: Improve an agent
-description: An Improve run tries the settings Improve may change on an agent version, or drafts the agent's instructions, on the test cases within a budget, and writes its best candidate as a suggested change a person reviews.
+description: An Improve run tries new wording for an agent's prompt block, or new values for the settings Improve may tune, on a project's test cases within a budget, and writes a change that does better as a suggested change a person reviews.
 sidebar:
   order: 7
 ---
 
-This guide has an Improve run search for better settings or better
-instructions for an agent version, within a budget, and write its best
-candidate as a suggested change a person reviews.
+This guide has an Improve run look for better wording or better settings for
+an agent in a project, within a budget, and write a change that does better as
+a suggested change a person reviews.
 
 An **Improve run** does the search a [suggested change](../suggest-a-change/)
-starts from. It tries candidates on part of the test cases, within a budget,
-proves the best one on the rest, and writes it as a suggested change only
-when it's better. A person still decides: the suggested change waits for a
-reviewer.
+starts from. It works in one project: it starts from the version the project
+runs, learns from the project's corrections, and tries candidates on the
+project's test cases. It keeps a change only when the change passes more of
+the cases and fails none that passed, and writes it as a suggested change. A
+person still decides: the suggested change waits for a reviewer.
 
 ## Before you start
 
-An Improve run needs what a suggested change does, as
-[Suggest a change, and test it](../suggest-a-change/#before-you-start)
-lists:
+- **an agent whose wording or settings are data blocks:** its instructions
+  in a [prompt block](../change-a-prompt-or-setting/), or a settings block
+  with keys [Improve may change](#mark-what-improve-may-change);
+- **test cases in the project,** [built from corrections](../build-a-test-set/);
+- **a version of the agent running in the project,** pinned there or its
+  Latest;
+- **a deployed runtime,** with Kindgi 0.4's CLI. Under `kindgi dev`, an
+  Improve run is refused with `409 registry-read-only`, as a suggested change
+  is: its change is for one project, and the pack's files serve every project
+  ([Under `kindgi dev`](../suggest-a-change/#under-kindgi-dev));
+- **`publish` on the agent.** For an agent more than one project serves, also
+  `write` where its versions are made.
 
-- **an agent whose instructions or settings are data blocks;**
-- **test cases built from corrections;**
-- **a pinned version of the agent for the whole tenant.** Without one, the
-  Improve run is refused with `suggested-change-needs-pin`;
-- **a runtime: `kindgi dev`, or a deployed one,** with Kindgi 0.2's CLI.
-  Under `kindgi dev`, pinning a suggested change writes it into the pack's
-  files,
-  as [Under `kindgi dev`](../suggest-a-change/#under-kindgi-dev) shows;
-- **`publish` on the agent,** to start one, and `write` on the project it
-  works in when that isn't the agent version's.
+[Check it's ready](#check-its-ready) says what's missing, if anything, and how
+to fix it.
 
 ## Mark what Improve may change
 
@@ -58,11 +60,10 @@ Here Improve may try other sentence limits and tones, and never touches the
 refund limit. Publish the schema with the block's next version, with
 `kindgi blocks publish … --schema=@reply-style.schema.json`, as
 [Publish the blocks](../change-a-prompt-or-setting/#publish-the-blocks)
-shows. A version that pins no block with a marked key has nothing Improve may
-change, and the Improve run is refused, saying so: `validation-failed`, with
-`details.reason` `no-tunable-keys`.
+shows. A version with no marked key has no settings for Improve to try: the
+readiness check lists `settings` as missing, and says how to fix it.
 
-### Let it try a cheaper model or another temperature
+### Let it try another model or temperature
 
 Improve changes the agent's model-settings block (the one it names as
 `modelSettings`) the same way: mark its keys. It takes `temperature` (0 to 2),
@@ -86,9 +87,9 @@ An Improve run tries each marked key within these bounds, kept inside what model
 settings allow. A level the model doesn't take is rounded, or not sent to a
 model that doesn't think, as
 [Temperature and thinking](../../models/#temperature-and-thinking) describes.
-It compares what the replays cost at the models' registered
-prices, as a [budget](../../agents/budgets/) counts them, so list models
-registered with their prices. List ones your registered providers serve,
+Its replays count toward its budget at the models' registered prices, as a
+[budget](../../agents/budgets/) counts them, so list models registered with
+their prices. List ones your registered providers serve,
 too: a preference never excludes, so a model none of them serves replays on
 the next one in line.
 
@@ -98,100 +99,140 @@ the next one in line.
   both places is refused when it's published or deployed, and so is a version derived to
   pin such a block (a suggested change's candidate). When the agent sets
   `preferredModel` or `preferredProvider`, an Improve run doesn't try `model` or
-  `providerId`, and says why.
-- **The decisions must stay right.** A change to this block is kept only when
-  no [correction](../correct-a-runs-output/) the current version gets right
-  goes wrong: the tool calls an expert said the agent should have made,
-  graded on each replay. The Improve run checks one on the part it searches and
-  again on the part that proves its best change, and the split puts cases
-  that carry a correction in both parts only when there are two or more. So
-  at least two of the test cases need a correction that names the tool calls;
-  without them, nothing is kept, and the Improve run says why.
-- **Better, or no worse and cheaper.** Such a change is kept when it's better,
-  as any candidate is. Or when it's no worse than the current version (beyond
-  the spread of the current version's repeated runs) and costs less, by more
-  than the spread of what those runs cost. A temperature change is usually
-  the first kind, a cheaper model the second.
+  `providerId`.
+- **Kept by the same rule.** A new model or temperature is kept only when it
+  does better, as any change is ([How it decides](#how-it-decides)). There's
+  no cheaper path: a model that does as well for less isn't kept. To move to
+  one, change the block yourself and [test it](../suggest-a-change/).
 
-To hold its best change to that, the Improve run also replays the current
-version on the cases it didn't learn from, twice for a spread. That counts in
-the Improve run's cost, like the best change's own run on those cases, but the
-budget doesn't stop it (see [the budget](#start-an-improve-run)). The
-suggested change's `evaluation` says which rule
-kept it (`"rule": "cheaper"`), what each side cost
-(`costUsd`), and how the corrections went (`decisions`):
+## Check it's ready
 
-```json
-"evaluation": {
-  "rule": "cheaper",
-  "costUsd": { "current": 0.42, "candidate": 0.26 },
-  "decisions": { "checked": 15, "held": 12, "broken": 0, "stillWrong": 3 },
-  …
-}
+Before you start, `--check` asks whether an Improve run is ready, and what it's
+estimated to cost. It starts nothing:
+
+```sh
+pnpm exec kindgi improve runs start --agent=acme.rank.scorer --project=<project-id> --check --table
 ```
+
+```text
+ITEM             STATUS   FIX
+───────────────  ───────  ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+wording          missing  Improve rewrites a prompt block's wording with a model. If the instructions are written in code, not in a prompt block, ask your coding agent to move them into one, then deploy. If no model is named to write it, give the run a provider and model, or name them in the version's model-settings block. (in the agent's code, then a deploy)
+settings         ok
+test-cases (25)  ok
+permission       ok
+one-at-a-time    ok
+project          ok
+
+Ready: yes
+Starts from: 1.0.0 (pinned in the project)
+Estimate: $0.84, its search stops at $5.00 (200 replays, 60 of them the proof's)
+This month: $3.10 of the Improve schedule's $20.00
+```
+
+- **The items,** in this order: `wording` (a prompt block to reword, and a model to draft it),
+  `settings` (settings marked Improve may tune), `test-cases` (the project's
+  active cases for the agent, and how many), `permission` (`publish` on the
+  agent), `one-at-a-time` (no Improve run of the agent already running in the
+  project) and `project` (a version of the agent runs in the project, and the
+  project isn't suspended). A missing one says where it's fixed, in the
+  agent's code (then a deploy) or in Kindgi, and how.
+- **Ready** when `wording` or `settings` is there, and every other item is.
+  With `--tier`, each tier named needs its own: `--tier=prompt` needs
+  `wording`.
+- **Starts from:** the version the project runs, pinned there or the agent's
+  latest.
+- **The estimate:** the replays the Improve run would make, times the
+  version's mean cost over its recent completed runs. The search's share is
+  at most `--max-cost`, and the proof's comes on top, as
+  [the budget](#start-an-improve-run) says. None when the version has no
+  cost history. Here, of 25 cases it sets 5
+  aside and searches on 20. The settings marked in
+  [the example above](#mark-what-improve-may-change), at `maxSentences` 3 and
+  `tone` `friendly`, give 5 candidates to try first (`maxSentences` at 1, 2, 4
+  and 6, and `tone` at `formal`). The search replays the 20 cases twice for
+  the version it starts from and once for each candidate: 20 × (2 + 5) = 140.
+  The proof replays every case twice for the best change, and the 5 set aside
+  twice for the version it starts from: (25 + 5) × 2 = 60, the answer's
+  `basis.proofReplays`. That's 200 replays; at a mean of $0.0042 a run,
+  $0.84. When it tries new wording too, each draft is a candidate.
+- **Treat it as an approximation:** a candidate can cost more or less per run
+  than that mean, drafting new wording costs more, and a second round of
+  settings or a retried draft adds replays the estimate can't know of, so an
+  Improve run can cost more than its estimate. [The budget](#start-an-improve-run)
+  stops its search; the proof runs after it and isn't capped by it.
+- **This month:** with an [Improve schedule](#run-improve-on-a-schedule) on
+  the agent and project, what their Improve runs spent this month (UTC), by
+  hand or by the schedule, against the schedule's month cap. Only the schedule
+  stops at the cap.
+
+`--check` exits 3 when it isn't ready. Without `--table`, it prints the
+answer as JSON: `ready`, `startsFrom`, `items`, `estimate` and `month`. In the
+API, it's `POST /v1/improve-runs/check`, with the body an Improve run would
+start from.
 
 ## Start an Improve run
 
-An Improve run searches for a better version of the settings Improve may
-change:
-
 ```sh
-pnpm exec kindgi improve runs start --agent=acme.rank.scorer --tenant --test-set=acme.rank-prompt-52080 --max-candidates=4 --wait
+pnpm exec kindgi improve runs start --agent=acme.rank.scorer --project=<project-id> --max-candidates=4 --wait
 ```
 
-- **The agent and scope:** `--agent` and `--tenant`, or another scope flag.
-- **The version** is the one serving the scope, unless `--from-version` names
-  another.
-- **The project:** an Improve run works in one project and learns from its
-  runs. Its version and test cases must be ones
-  [that project's runs can use](../../projects/organize-by-org-and-project/#what-a-projects-runs-can-use),
-  and its test runs run there. With `--project`, it's that project. With
-  `--tenant` or `--org`, it's `--run-project=<project-id>`, else the agent
-  version's. A project other than the version's needs `write` there. In the
-  API and the clients, it's `projectId` (`project_id` in Python). The Improve
-  run's project needs runtime 0.2.0 or later: an earlier one refuses
-  `--run-project`, and its Improve run works in the agent version's project.
-- **The test cases:** `--test-set`, built from corrections.
+- **The agent and the project:** `--agent`, and `--project`, the project it
+  works in. In the API and the clients, they're `agentId` and `projectId`
+  (`project_id` in Python).
+- **The version** is the one the project runs: pinned there, else the
+  agent's latest. The Improve run's `startsFrom` says which.
+- **The corrections:** when it starts, it takes the project's open corrections
+  [sorted to Improve](../fix-what-experts-corrected/#sort-each-correction),
+  and `takes` lists their ids. [Whose corrections it learns from](#whose-corrections-it-learns-from)
+  says whose count.
+- **The test cases:** the project's test cases for the agent, at the version
+  it freezes when it starts (`testSetVersion`).
+- **What it tries:** `--tier=prompt`, new wording for the prompt block, or
+  `--tier=settings`, new values for the settings it may tune. Repeat `--tier`
+  for both. Left out, it tries every tier that's ready.
 - **The budget:** `--max-cost` in US dollars, 5 by default and at most 100,
-  and `--max-candidates`, 30 by default and at most 200. An Improve run stops
-  at whichever it reaches first. It checks the cost between runs on the test
-  cases, so the one already running can take it a little over `--max-cost`.
-  Its cost counts every run on the test cases it starts, the ones that prove
-  its best candidate on the cases it didn't search too. Those run after the
-  search, so the budget doesn't stop them, and they can take an Improve run
-  past `--max-cost`.
-- **What better means:** `--objective`, `passRate` by default or
-  `weightedPrecisionAtK`, as in a
-  [run on the test cases](../compare-an-agent-version/#read-the-result).
-- **How it decides:** it searches on 70% of the test cases and proves its
-  best candidate on the other 30% (the cases it didn't learn from), a split
-  fixed for the Improve run. On the 70%, a candidate has to beat the current
-  version by more than the spread between the current version's own repeated
-  runs. On the 30%, the best one has to beat the recorded outputs, and only
-  then does it become a suggested change, which carries both figures: the
-  recorded outputs' score and the candidate's. A change to the model-settings block is
-  also held to the current version replayed on each part, and can instead be
-  kept as no worse and cheaper:
-  [Let it try a cheaper model or another temperature](#let-it-try-a-cheaper-model-or-another-temperature).
+  and `--max-candidates`, 30 by default and at most 200. They cap the search,
+  which stops at whichever it reaches first. It checks its cost before each
+  run on the test cases, so the one already running can take it a little over
+  `--max-cost`. Its cost counts every run on the test cases it starts, the
+  proof of its best change too. The proof runs after the search, so the
+  budget doesn't stop it, and it can take an Improve run past `--max-cost`.
+- **How candidates that pass equally are ranked:** `--objective`,
+  `passRate` by default or `weightedPrecisionAtK`, as in a
+  [run on the test cases](../compare-an-agent-version/#read-the-result). The
+  candidate that passes the most cases is the best; between ones that pass as
+  many, the better score wins, then the one that changes fewer settings.
 
-Before you start, you can ask what an Improve run would cost: `POST
-/v1/improve-runs/check`, with the body an Improve run would start from,
-answers `estimatedCostUsd` — the replay count times the version's mean cost
-over its recent completed runs, capped at `--max-cost` — and starts nothing.
-Treat it as an approximation: a candidate can cost more or less per run than
-that mean, and an Improve run on the instructions also pays to draft them, so
-it can cost more than it estimates; what stops it is the budget above. An
-estimate equal to `--max-cost` means the Improve run is expected to spend its
-whole budget.
+A start that isn't ready is refused with `409 improve-not-ready`, listing every
+missing item with its fix, as `--check` does. While the agent has an Improve
+run going in the project, another is refused with `409 improve-run-running`,
+naming it: one runs at a time.
+
+### How it decides
+
+It sets about a fifth of the test cases aside (`setAside` says how many, of
+how many), and searches on the rest: each candidate runs on those cases, and
+the best one is the change it may suggest. Then it proves that change on every
+case of the test set, the ones set aside too, as many times each as the
+version it started from ran. With fewer than five cases, it sets none aside,
+and searches and proves on all of them. The change is kept only when its
+proof passes more cases than the version it started from, and fails none that
+passed. That's the only rule: a change that does as well for less, or does
+better on some cases and worse on others, isn't kept.
+
+### What it found
 
 It answers at once with the Improve run. `--wait` waits for its outcome, at
-most 30 minutes, and prints it:
+most 30 minutes, and prints it. An Improve run is `running`, then
+`completed`, `failed` or `cancelled`, and its `outcome` is one of:
 
-- **`suggested`**, with the suggested change it wrote, which a person decides:
+- **`suggested`**, with the suggested change it wrote (`suggestedChangeId`),
+  which a person decides:
   the Improve run asks for its review itself, in the name of whoever started
   it, so the suggested change waits in reviewers' approvals. An
   Improve run's suggested change always waits for a reviewer, because Improve,
-  not a person, drafted it. Who may approve it depends on the scope's
+  not a person, drafted it. Who may approve it depends on the project's
   [release gate](../release-an-agent-version/#gate-a-pin):
   - **No `approvals`:** someone other than you, when there's another active
     reviewer who can see the approval. If there isn't, you can approve it
@@ -199,49 +240,42 @@ most 30 minutes, and prints it:
   - **`approvals`:** someone other than you, with its role or a higher one.
     With `"separateApprover": false`, that holds only while there's such a
     reviewer; if there isn't, you can approve it yourself.
-- **`nothing-found`**, with why. Nothing Improve tried beat the current version
-  by more than the spread of the current version's repeated runs on the 70%.
-  Or the best one didn't beat the recorded outputs on the 30%, and the
-  outcome's run on those cases gives both figures there.
-  Or a model-settings change wasn't
-  [kept under its rule](#let-it-try-a-cheaper-model-or-another-temperature).
-  Or the best one is a change an existing suggested change already holds. Or
-  nothing could be measured: an Improve run scores only the items of an output
-  that corrections cover (a ranking's entries, say). So a changed free-text
-  answer is a new answer no one has corrected yet and has nothing to score,
-  and then you
-  [correct the new answers, then check again](../suggest-a-change/#check-it-again).
-  The reason also says if the Improve run ran out of budget before trying the
-  rest.
-- **`failed`**, with the reason.
+- **`nothing-better`**, with why (`reason`). No change it tried was kept. When
+  one got as far as its proof, `holdOut` has the proof's numbers: the version
+  it started from (`baseline`), the change (`candidate`), and the difference
+  (`delta`).
+- **`cost-cap`**, with what it spent (`spentUsd`). It reached `--max-cost`
+  before it kept a change.
+- **`failed`**, with why (`message`).
 
-An Improve run is `running`, then `completed`, `failed` or `cancelled`. Here
-one tried four settings. On the cases it learned from, setting `fit` to 0
-scored best, but an earlier suggested change already held that change, so it
-wrote none. The cost is 0 on `dev-echo`, which costs nothing:
+Here one tried four settings. Setting `fit` to 0 scored best on the cases it
+searched, and its proof passed more cases than version 1.0.0 and failed none
+that passed, so it wrote a suggested change. The cost is 0 on `dev-echo`,
+which costs nothing:
 
 ```json
 {
   "id": "46209449-8d69-42aa-8cdd-78a514d9c848",
+  "agentId": "acme.rank.scorer",
+  "projectId": "8f1e8a52-3c5d-4a5e-9b8e-0d6c2a7f4e11",
+  "startsFrom": { "version": "1.0.0", "follows": "pin" },
+  "testSetVersion": "1.0.0",
+  "setAside": { "cases": 5, "of": 25 },
+  "tiers": ["settings"],
   …
-  "budget": {
-    "maxCostUsd": 5,
-    "maxCandidates": 4
-  },
-  "requestedBy": "user:62e1ffe2-30f4-4dff-948e-ae774107a7db",
   "status": "completed",
-  "candidatesEvaluated": 4,
+  "tried": 4,
   "costUsd": "0",
   "outcome": {
-    "kind": "nothing-found",
-    "reason": "The best change Improve tried is already suggested change 19b0f480-146a-4545-bd6b-37742b592dfe, which is evaluated."
+    "kind": "suggested",
+    "suggestedChangeId": "19b0f480-146a-4545-bd6b-37742b592dfe"
   },
   "comparisons": [
     {
       "role": "reference",
       "part": "search",
       "testRunId": "6c4d6ce7-6838-4eb1-b2ec-d7992ed86278",
-      "score": 0.5714285714285714
+      "score": 0.55
     },
     {
       "role": "candidate",
@@ -251,7 +285,7 @@ wrote none. The cost is 0 on `dev-echo`, which costs nothing:
         "fit": 0
       },
       "testRunId": "7a0ba425-57dc-43aa-83ce-0e37b9d5b9f4",
-      "score": 1
+      "score": 0.9
     },
     …
   ],
@@ -259,21 +293,23 @@ wrote none. The cost is 0 on `dev-echo`, which costs nothing:
 }
 ```
 
-`kindgi improve runs get <improve-run-id>` reads the same Improve run back later.
+`comparisons` are its runs on the test cases, each a test run you can open:
+the version it started from on each part (`reference`), each candidate on the
+cases it searched (`candidate`), and the proof on all of them (`proof`, part
+`all`). `kindgi improve runs get <improve-run-id>` reads the same Improve run
+back later.
 
 ### Whose corrections it learns from
 
-By default, once your test cases' project, its tenant, or the agent you're
-improving there has an [expert group](../correct-a-runs-output/#restrict-who-may-correct-as-a-group),
+By default, once the project, its tenant, or the agent in the project has an
+[expert group](../correct-a-runs-output/#restrict-who-may-correct-as-a-group),
 an Improve run counts only the corrections recorded under one
-(`groupWeights: "experts-only"`), so who may steer Improve is a choice
-you make. That's the test cases' project, which can differ from the one the
-agent is made in. Until then it counts every correction, each by its group's
-weight (`groupWeights: "as-recorded"`), since counting only expert
-groups would count nothing. A group restricted for a different agent,
-or in a different project, doesn't count. Set it with the `--group-weights`
-flag, or `groupWeights` in the API or the clients, to choose either,
-whatever groups exist.
+(`groupWeights: "experts-only"`), so who may steer Improve is a choice you
+make. Until then it counts every correction, each by its group's weight
+(`groupWeights: "as-recorded"`), since counting only expert groups would count
+nothing. A group restricted for a different agent, or in a different project,
+doesn't count. Set it with the `--group-weights` flag, or `groupWeights` in the
+API or the clients, to choose either, whatever groups exist.
 
 The suggested change an Improve run writes names the corrections on the cases
 it learned from, never on the rest: the ones its runs on the test
@@ -283,29 +319,31 @@ lists up to 100 of them: first the ones the drafter was shown, case by case,
 each case's corrections with calls right after its items marked wrong; then
 the ones behind items marked wrong, then the others. When there are more,
 `evidence.correctionCount` gives how many. Its runs on the test cases also
-grade a correction's calls on each replay and show the result, and that
-result decides only whether a change to the model settings is kept
-([the decisions must stay right](#let-it-try-a-cheaper-model-or-another-temperature)).
+grade a correction's calls on each replay and show the result.
 An Improve run on test cases built before correction ids (`correctionIds`)
 names none.
 
 ## Draft the agent's instructions instead
 
-An Improve run can also draft the agent's instructions. The agent version
-must take its instructions from a [prompt block](../change-a-prompt-or-setting/)
-it pins. Otherwise the Improve run is refused with `details.reason`
-`no-pinned-prompt-block`. Start an Improve run on the instructions with
+An Improve run can also draft the agent's instructions. The agent version must
+take its instructions from a [prompt block](../change-a-prompt-or-setting/) it
+pins, and a model must draft them: the run's `--provider` and `--model`, or
+the provider and model the version's
+[model-settings block](#let-it-try-another-model-or-temperature) names
+(`providerId` and `model`). If either is missing, the readiness check lists
+`wording` as missing. Start an Improve run on the instructions with
 `--tier=prompt`:
 
 ```sh
-pnpm exec kindgi improve runs start --agent=acme-ops.reply-drafter --tenant \
-  --test-set=acme.reply-cases --tier=prompt \
-  --provider=anthropic --model=claude-sonnet-5-5 --drafts=3
+pnpm exec kindgi improve runs start --agent=acme-ops.reply-drafter --project=<project-id> \
+  --tier=prompt --provider=anthropic --model=claude-sonnet-5-5 --drafts=3
 ```
 
 - `--tier=prompt` drafts the agent's instructions.
 - `--provider` and `--model` are the provider and model of yours that draft
-  them, given together.
+  them, given together. Left out, the provider and model the version's
+  model-settings block names draft them; with neither, the prompt tier isn't
+  ready.
 - `--drafts` is how many drafts of the instructions it makes: 1 to 5, 3 by
   default.
 
@@ -315,10 +353,11 @@ In the API and the clients, they're `tiers: ["prompt"]`, `model` and
 ```sh
 curl -X POST "$KINDGI_API_URL/v1/improve-runs" \
   -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
-  -d '{"agentId":"acme-ops.reply-drafter","scope":{"kind":"tenant"},"testSetId":"acme.reply-cases","tiers":["prompt"],"model":{"providerId":"anthropic","model":"claude-sonnet-5-5"},"candidates":3}'
+  -d '{"agentId":"acme-ops.reply-drafter","projectId":"<project-id>","tiers":["prompt"],"model":{"providerId":"anthropic","model":"claude-sonnet-5-5"},"candidates":3}'
 ```
 
 - `$KINDGI_API_URL` and `$KINDGI_API_TOKEN` are your runtime's URL and API token.
+- `<project-id>` is the project it works in.
 
 It answers at once (`202`) with the Improve run, as the CLI does without `--wait`.
 
@@ -388,13 +427,15 @@ it is pinned.
 ## Read Improve runs back, or stop one
 
 ```sh
-pnpm exec kindgi improve runs list --table
+pnpm exec kindgi improve runs list --project=<project-id> --table
 pnpm exec kindgi improve runs get <improve-run-id>
 pnpm exec kindgi improve runs cancel <improve-run-id>
 ```
 
-- `list --table` prints each Improve run's agent version, scope, status, the
-  candidates tried, the cost and the outcome.
+- `list --table` prints each Improve run's agent and the version it started
+  from, its project, status, the candidates it tried, its cost, what it found
+  and when it started. `--agent`, `--project` and `--status` (`running`,
+  `completed`, `failed` or `cancelled`) narrow it.
 - `get` adds its runs on the test cases, each a test run you can open.
   `<improve-run-id>` is the Improve run's `id`.
 - `cancel` stops a running Improve run: it ends `cancelled` and writes no
@@ -407,8 +448,9 @@ run when it ends ([Webhook events and deliveries](../../webhooks/webhook-events/
 
 ## Run Improve on a schedule
 
-A schedule can start an Improve run when enough new corrections have come in,
-counted the way the Improve run will count them, as
+A schedule can start an Improve run on an agent in a project when there are
+enough new corrections since the schedule's last Improve run, and stop for the
+month at its cap, as
 [Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule)
 shows.
 
@@ -420,15 +462,15 @@ suggested change it writes shows its verdict and the figures from its run on
 the test cases, under **Evidence** the corrections it learned from, each with
 its verdict and reason and a link to its run, and an **Ask to pin it**
 button to send it for a decision. **Schedule Improve**, on the same page,
-makes a schedule that starts Improve runs for the agent, as
+makes a schedule that starts Improve runs for the agent in a project, as
 [Schedule Improve in the console](../../runs/run-on-a-schedule/#schedule-improve-in-the-console)
 shows.
 
 An agent's own page shows the loop for that agent after its **Recent runs**,
 each section with its newest five: **Corrected runs**, the runs people
 corrected, with **To correct** for its answers waiting in the
-[Quality section](../expert-queue-reference/#to-correct); **Test cases**, gathered
-from them, with **All test cases**; **Improve runs**; and **Suggested
+[Quality section](../expert-queue-reference/#to-correct); **Test sets**, gathered
+from them, with **All test sets**; **Improve runs**; and **Suggested
 changes**, with **All suggested changes and Improve runs**, which opens the
 page above.
 

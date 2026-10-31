@@ -711,15 +711,15 @@ export type {
   StatusSetByHand,
 } from './correction-sorting.js';
 export type {
-  EvalCaseListInput,
-  EvalCasePage,
-  EvalCasePutInput,
-  EvalCaseStoreBinding,
+  FrozenCaseListInput,
+  FrozenCasePage,
+  FrozenCasePutInput,
+  FrozenCaseStoreBinding,
   TestCaseExpectedDecisions,
   CorrectedTestCase,
   CorrectedItemSummary,
   CorrectedReason,
-} from './eval-case-binding.js';
+} from './frozen-case-binding.js';
 export { segmentsStartWith } from './routes/segments.js';
 export { MAX_CORRECTED_HISTORY } from './routes/correction-context.js';
 export type {
@@ -1108,14 +1108,15 @@ export type {
 export type {
   CheckImproveRunInput,
   ImproveScheduleInput,
-  ImproveThreshold,
   ImprovementBudget,
   ImprovementModel,
   ImproveRun,
   ImproveRunBinding,
+  ImproveRunCheck,
   ImproveRunComparison,
   ImproveRunCheckBasis,
   ImproveRunOutcome,
+  ImproveRunStart,
   ImproveRunStatus,
   ImprovementTier,
   ListImproveRunsInput,
@@ -1128,7 +1129,7 @@ export {
   projectHasExpertClass,
   serializeImproveRun,
 } from './routes/improve-runs.js';
-export { sampleCases } from './eval-sample.js';
+export { sampleCases } from './test-run-sample.js';
 export type { TestRunOverrides, TestRunSample } from './test-run-binding.js';
 export {
   DRAFTED_SUGGESTED_CHANGE_APPROVAL,

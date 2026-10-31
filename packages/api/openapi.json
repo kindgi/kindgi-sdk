@@ -148,7 +148,7 @@
     },
     {
       "name": "test-sets",
-      "description": "Test set catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: test-run execution + per-kind grader dispatch live on the `test-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `corrections`). The cases of a `corrections` test set are copies of corrected runs, built before an agent's corrections were its test set (`/v1/agents/{agentId}/test-set`); they're read at `GET .../versions/{version}/cases` (`EvalCaseStoreBinding`), and `GET /v1/test-sets` doesn't list them. Runs against these test sets are started through the `test-runs` tag. Caller-plugged via `TestSetRegistryBinding`."
+      "description": "Test set catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: test-run execution + per-kind grader dispatch live on the `test-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `corrections`). The cases of a `corrections` test set are copies of corrected runs, built before an agent's corrections were its test set (`/v1/agents/{agentId}/test-set`); they're read at `GET .../versions/{version}/cases` (`FrozenCaseStoreBinding`), and `GET /v1/test-sets` doesn't list them. Runs against these test sets are started through the `test-runs` tag. Caller-plugged via `TestSetRegistryBinding`."
     },
     {
       "name": "blocks",
@@ -356,7 +356,6 @@
           "signing-key-store-error": 500,
           "suggested-change-not-found": 404,
           "suggested-change-invalid-state-transition": 409,
-          "suggested-change-needs-pin": 409,
           "suggested-change-not-for-a-project": 409,
           "suggested-change-check-unsupported": 501,
           "suggested-change-nothing-to-check": 409,
@@ -366,6 +365,8 @@
           "improve-unsupported": 501,
           "improve-run-not-found": 404,
           "improve-run-finished": 409,
+          "improve-not-ready": 409,
+          "improve-run-running": 409,
           "version-already-exists": 409,
           "supervisor-header-missing": 400,
           "blob-not-found": 404,
@@ -610,6 +611,7 @@
           "trigger-update-failed": 500,
           "trigger-lifecycle-failed": 500,
           "trigger-operation-unsupported": 501,
+          "schedule-exists": 409,
           "webhook-refused": 401,
           "webhook-gone": 410,
           "webhook-body-too-large": 413,
@@ -11877,31 +11879,44 @@
           }
         }
       },
-      "ImproveRunOutcome": {
+      "ImproveRunOutcomeSuggested": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "kind"
+          "kind",
+          "suggestedChangeId"
         ],
-        "description": "What a finished Improve run found. `suggested`: its best candidate beat the current values on the test set's hold-out part, so it wrote a suggested change (`suggestedChangeId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.",
+        "description": "A change passed more cases than the version the run started from, and failed none that passed: the run wrote it as a suggested change for a reviewer to decide.",
         "properties": {
           "kind": {
             "type": "string",
-            "enum": [
-              "suggested",
-              "nothing-found",
-              "failed"
-            ]
+            "const": "suggested"
           },
           "suggestedChangeId": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "ImproveRunOutcomeNothingBetter": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "reason"
+        ],
+        "description": "No change the run tried did better: `reason` says why, and `holdOut` has the best change's numbers when one got that far.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "nothing-better"
           },
           "reason": {
             "type": "string"
           },
           "holdOut": {
             "type": "object",
+            "description": "The best change's proof numbers, when one got that far: on every case, or on the set-aside part for a run stored before that.",
             "additionalProperties": false,
             "required": [
               "baseline",
@@ -11931,28 +11946,102 @@
                 "type": "number"
               }
             }
+          }
+        }
+      },
+      "ImproveRunOutcomeCostCap": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "spentUsd"
+        ],
+        "description": "The run reached its budget with nothing kept.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "cost-cap"
+          },
+          "spentUsd": {
+            "type": "string",
+            "description": "What it spent, in US dollars."
+          }
+        }
+      },
+      "ImproveRunOutcomeFailed": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "message"
+        ],
+        "description": "The run failed: `message` says why.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "failed"
           },
           "message": {
             "type": "string"
           }
         }
       },
+      "ImproveRunOutcome": {
+        "description": "What a finished Improve run found, by `kind`. `suggested`: the best change, proven on every case of the test set at the reference's repetitions, passed more cases than the version it started from and failed none that passed, so it wrote a suggested change (`suggestedChangeId`) for a reviewer to decide. `nothing-better`: no change it tried did better (`reason`; `holdOut` has the best change's numbers when one got that far). `cost-cap`: it reached its budget with nothing kept (`spentUsd`, US dollars). `failed`: `message` says why.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ImproveRunOutcomeSuggested"
+          },
+          {
+            "$ref": "#/components/schemas/ImproveRunOutcomeNothingBetter"
+          },
+          {
+            "$ref": "#/components/schemas/ImproveRunOutcomeCostCap"
+          },
+          {
+            "$ref": "#/components/schemas/ImproveRunOutcomeFailed"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind"
+        }
+      },
+      "ImproveRunStart": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "follows"
+        ],
+        "description": "The version an Improve run starts from: the one the project runs, pinned there (`pin`) or the agent's latest (`latest`).",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "follows": {
+            "type": "string",
+            "enum": [
+              "pin",
+              "latest"
+            ]
+          }
+        }
+      },
       "ImproveRun": {
         "type": "object",
         "additionalProperties": false,
-        "description": "An Improve run: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes a suggested change.",
+        "description": "An Improve run: the runtime looking for better wording or settings values for an agent in a project, on the project's test set, within a budget. A candidate that does better becomes a suggested change.",
         "required": [
           "id",
           "agentId",
-          "fromVersion",
-          "scope",
-          "testSetId",
+          "startsFrom",
           "tiers",
           "objective",
+          "groupWeights",
           "budget",
           "requestedBy",
           "status",
-          "candidatesEvaluated",
+          "tried",
           "costUsd",
           "createdAt",
           "updatedAt"
@@ -11965,16 +12054,36 @@
           "agentId": {
             "type": "string"
           },
-          "fromVersion": {
+          "projectId": {
             "type": "string",
-            "description": "The version whose settings it tunes."
+            "format": "uuid",
+            "description": "The project it works in. Absent from older servers, and on a run started for a tenant or an org before Improve runs worked in a project."
           },
-          "scope": {
-            "$ref": "#/components/schemas/AgentPinScope"
+          "startsFrom": {
+            "$ref": "#/components/schemas/ImproveRunStart"
           },
-          "testSetId": {
+          "testSetVersion": {
             "type": "string",
-            "description": "The test set it searches and proves on."
+            "description": "The version of the project's test set it searches and proves on; absent until it's frozen."
+          },
+          "setAside": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "cases",
+              "of"
+            ],
+            "description": "The test set's cases set aside for the proof: `cases` of `of`. None with fewer than five. Absent from older servers.",
+            "properties": {
+              "cases": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "of": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
           },
           "tiers": {
             "type": "array",
@@ -11984,7 +12093,8 @@
                 "settings",
                 "prompt"
               ]
-            }
+            },
+            "description": "The tiers it tries, the prompt tier first."
           },
           "objective": {
             "type": "string",
@@ -11999,7 +12109,7 @@
               "as-recorded",
               "experts-only"
             ],
-            "description": "Which corrections its comparisons count. Absent from older servers: `experts-only`."
+            "description": "Which corrections its comparisons count."
           },
           "model": {
             "type": "object",
@@ -12008,7 +12118,7 @@
               "providerId",
               "model"
             ],
-            "description": "For a prompt Improve run: the provider and model that drafts the templates.",
+            "description": "For the prompt tier: the provider and model that drafts the templates.",
             "properties": {
               "providerId": {
                 "type": "string"
@@ -12022,13 +12132,14 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 5,
-            "description": "For a prompt Improve run: how many templates it drafts."
+            "description": "For the prompt tier: how many templates it drafts."
           },
           "budget": {
             "$ref": "#/components/schemas/ImprovementBudget"
           },
           "requestedBy": {
-            "type": "string"
+            "type": "string",
+            "description": "`user:<id>` or `service:<id>`."
           },
           "status": {
             "type": "string",
@@ -12039,9 +12150,10 @@
               "cancelled"
             ]
           },
-          "candidatesEvaluated": {
+          "tried": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Candidates tried so far."
           },
           "costUsd": {
             "type": "string",
@@ -12050,13 +12162,20 @@
           "outcome": {
             "$ref": "#/components/schemas/ImproveRunOutcome"
           },
+          "takes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The ids of the corrections it took when it started. Absent from older servers."
+          },
           "cancelReason": {
             "type": "string",
             "description": "Why a `cancelled` Improve run stopped when nobody cancelled it: a comparison's test run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no suggested change. Absent when it was cancelled."
           },
           "comparisons": {
             "type": "array",
-            "description": "Its comparisons so far, each a test run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the suggested change, on the hold-out part). Absent from older servers.",
+            "description": "Its comparisons so far, each a test run to open: `reference` (the version as it is, on each part: what the proof is held to, case by case), each `candidate` (the block and the values it changed, on the search part: what picks the change to suggest), and the `proof` (the suggested change, on `all` the cases at the reference's repetitions: what keeps it or not; an Improve run from before 0.4 ran its proof on the hold-out part). Absent from older servers.",
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -12081,7 +12200,8 @@
                   "type": "string",
                   "enum": [
                     "search",
-                    "hold-out"
+                    "hold-out",
+                    "all"
                   ]
                 },
                 "blockId": {
@@ -12185,29 +12305,17 @@
         "additionalProperties": false,
         "required": [
           "agentId",
-          "scope",
-          "testSetId"
+          "projectId"
         ],
-        "description": "Start an Improve run.",
+        "description": "Start an Improve run for an agent in a project, or check one first. It starts from the version the project runs, learns from the project's corrections, and searches and proves on the project's test set. A field not listed here is refused (`400 bad-input`, naming it).",
         "properties": {
           "agentId": {
             "type": "string"
           },
-          "fromVersion": {
-            "type": "string",
-            "description": "The version whose settings it tunes. Default: the one serving `scope`."
-          },
           "projectId": {
             "type": "string",
             "format": "uuid",
-            "description": "The project the Improve run works in: `testSetId` must be a test set it reaches, the version must reach it, and the Improve run's test runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there."
-          },
-          "scope": {
-            "$ref": "#/components/schemas/AgentPinScope"
-          },
-          "testSetId": {
-            "type": "string",
-            "description": "The test set (a corrections test set). The Improve run splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part."
+            "description": "The project the Improve run works in."
           },
           "tiers": {
             "type": "array",
@@ -12219,11 +12327,9 @@
               ]
             },
             "minItems": 1,
-            "maxItems": 1,
-            "default": [
-              "settings"
-            ],
-            "description": "`['settings']`: values for the tunable settings keys. `['prompt']`: a model drafts templates for the prompt block (needs `model`); a template that reads or names anything the agent doesn't have is refused, and a drafted suggested change always waits for a reviewer."
+            "maxItems": 2,
+            "uniqueItems": true,
+            "description": "What it tries: `prompt` (a model drafts new wording for the prompt block; a template that reads or names anything the agent doesn't have is refused, and a drafted suggested change always waits for a reviewer) and `settings` (values for the settings Improve may tune). Omit it for every tier that's ready."
           },
           "model": {
             "type": "object",
@@ -12232,7 +12338,7 @@
               "providerId",
               "model"
             ],
-            "description": "For a prompt Improve run: the tenant's provider and model that drafts the templates.",
+            "description": "For the prompt tier: the tenant's provider and model that drafts the templates. Omit it for the model of the version's own model-settings block.",
             "properties": {
               "providerId": {
                 "type": "string"
@@ -12246,8 +12352,7 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 5,
-            "default": 3,
-            "description": "For a prompt Improve run: how many templates it drafts."
+            "description": "For the prompt tier: how many templates it drafts. Omit it for the runtime's default."
           },
           "groupWeights": {
             "type": "string",
@@ -12255,7 +12360,7 @@
               "as-recorded",
               "experts-only"
             ],
-            "description": "Which corrections the Improve run learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the Improve run reads its corrections from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has an expert group, then only corrections recorded under one (`experts-only`)."
+            "description": "Which corrections the Improve run learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project, or the agent in the project has an expert group, then only corrections recorded under one (`experts-only`)."
           },
           "objective": {
             "type": "string",
@@ -12284,39 +12389,142 @@
           }
         }
       },
-      "ImproveRunCheck": {
+      "ImproveReadinessItem": {
         "type": "object",
         "additionalProperties": false,
-        "description": "What an Improve run this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.",
         "required": [
-          "maxCostUsd",
-          "basis"
+          "key",
+          "missing"
         ],
+        "description": "One thing an Improve run needs. In this order: `wording` (a prompt block to reword), `settings` (settings marked Improve may tune), `test-cases` (the project's active cases for the agent, `count`), `permission` (`publish` on the agent), `one-at-a-time` (no Improve run of the agent running in the project) and `project` (a version of the agent runs in the project, and it isn't suspended).",
         "properties": {
-          "estimatedCostUsd": {
+          "key": {
             "type": "string",
-            "description": "The estimate (US dollars): `basis.replays` times `basis.meanRunCostUsd`, or `maxCostUsd` when that's smaller. Absent when the version has no cost history."
+            "enum": [
+              "wording",
+              "settings",
+              "test-cases",
+              "permission",
+              "one-at-a-time",
+              "project"
+            ]
           },
-          "maxCostUsd": {
+          "missing": {
+            "type": "boolean"
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "For `test-cases`: the project's active cases for the agent."
+          },
+          "improveRunId": {
             "type": "string",
-            "description": "The budget cap the estimate is clamped to (`budget.maxCostUsd`, US dollars)."
+            "format": "uuid",
+            "description": "For a missing `one-at-a-time`: the running Improve run."
           },
-          "basis": {
+          "fix": {
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "replays"
+              "where",
+              "text"
             ],
-            "description": "What the estimate is built from.",
+            "description": "For a missing item: where it's fixed (`repo`: in the agent's code, then a deploy; `kindgi`: in Kindgi) and how, in plain words.",
             "properties": {
-              "replays": {
-                "type": "integer",
-                "minimum": 0,
-                "description": "How many replay runs the Improve run's comparisons would make."
-              },
-              "meanRunCostUsd": {
+              "where": {
                 "type": "string",
-                "description": "The version's mean cost over its recent completed runs (US dollars). Absent with no cost history."
+                "enum": [
+                  "repo",
+                  "kindgi"
+                ]
+              },
+              "text": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "ImproveRunCheck": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Whether the Improve run this input would start is ready, and what it's estimated to cost. It's ready when no item it needs is missing: with no `tiers` named, `wording` or `settings` is enough; a named tier needs its own.",
+        "required": [
+          "ready",
+          "items",
+          "estimate"
+        ],
+        "properties": {
+          "ready": {
+            "type": "boolean"
+          },
+          "startsFrom": {
+            "$ref": "#/components/schemas/ImproveRunStart"
+          },
+          "items": {
+            "type": "array",
+            "description": "Every item, missing or not, in its order.",
+            "items": {
+              "$ref": "#/components/schemas/ImproveReadinessItem"
+            }
+          },
+          "estimate": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "maxCostUsd",
+              "basis"
+            ],
+            "description": "What it's estimated to cost: the budget, which caps its search, and, when the version has cost history, the estimate itself.",
+            "properties": {
+              "costUsd": {
+                "type": "string",
+                "description": "The estimate (US dollars): the search's replays (`basis.replays` less `basis.proofReplays`) times `basis.meanRunCostUsd`, at most `maxCostUsd`, plus the proof's replays times the same mean, which the budget doesn't cap. Without `basis.proofReplays`, every replay counts as the search's. Absent when the version has no cost history."
+              },
+              "maxCostUsd": {
+                "type": "string",
+                "description": "The budget (`budget.maxCostUsd`, US dollars): it caps the search's share of the estimate, and the proof's comes on top."
+              },
+              "basis": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "replays"
+                ],
+                "description": "What the estimate is built from.",
+                "properties": {
+                  "replays": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "How many replay runs the Improve run's comparisons would make, its search's and its proof's."
+                  },
+                  "proofReplays": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Of `replays`, the proof's: the best change on every test case, and the version it starts from on the set-aside ones. The budget caps the search, not the proof. Absent when the runtime doesn't count them apart."
+                  },
+                  "meanRunCostUsd": {
+                    "type": "string",
+                    "description": "The version's mean cost over its recent completed runs (US dollars). Absent with no cost history."
+                  }
+                }
+              }
+            }
+          },
+          "month": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "spentUsd",
+              "capUsd"
+            ],
+            "description": "With an Improve schedule on the agent and project: this UTC month's spend on their Improve runs, started by hand or by the schedule, against the schedule's monthly cap (US dollars). Only the schedule stops at the cap; a run started by hand isn't refused.",
+            "properties": {
+              "spentUsd": {
+                "type": "string"
+              },
+              "capUsd": {
+                "type": "string"
               }
             }
           }
@@ -24030,7 +24238,7 @@
           },
           "improve": {
             "$ref": "#/components/schemas/ImproveScheduleTarget",
-            "description": "A schedule that starts Improve runs: on this agent, for this scope, when enough answers have been marked wrong since its last Improve run (`input`: the threshold, the monthly cap and the Improve options)."
+            "description": "A schedule that starts Improve runs: on this agent, in this project (the schedule's), when the project has enough new corrections sorted to improve since its last Improve run (`input`: how many, whose, and what a run and the month may cost). An agent and project have one at most."
           },
           "projectId": {
             "type": "string",
@@ -24085,7 +24293,19 @@
           },
           "statusReason": {
             "type": "string",
-            "description": "Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count."
+            "description": "Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count. For an Improve schedule, `owner-lost-publish` pauses it at once: its owner no longer has `publish` on the agent. Saving it with a new owner resumes it."
+          },
+          "pausedUntil": {
+            "type": "string",
+            "format": "date-time",
+            "description": "For an Improve schedule whose month's Improve runs have reached its monthly cap (`input.monthCapUsd`): when it starts again by itself, the 1st of next month (UTC). It stays `active`, and its fires until then are `skipped`. Absent otherwise."
+          },
+          "pausedReason": {
+            "type": "string",
+            "enum": [
+              "month-cap"
+            ],
+            "description": "Why it waits until `pausedUntil`: its month's cap."
           },
           "version": {
             "type": "integer",
@@ -24208,7 +24428,7 @@
               "refused",
               "failed"
             ],
-            "description": "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or Improve run started; its run or Improve run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either."
+            "description": "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (enough new corrections since its last Improve run, or room under its month's cap); the target's project is suspended (`project-suspended`), so no run or Improve run started; its run or Improve run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either."
           },
           "runId": {
             "type": "string",
@@ -24291,7 +24511,7 @@
       "RegisterScheduleBody": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Name what it runs: `flowId` with `flowVersion`, `agentId` (with an optional `agentVersion`), or `improve` (Improve runs). Registering needs `write` on the project and `execute` on what it runs (`publish` on the agent for `improve`); its runs act as the caller.",
+        "description": "Name what it runs: `flowId` with `flowVersion`, `agentId` (with an optional `agentVersion`), or `improve` (Improve runs). Registering needs `write` on the project and `execute` on what it runs; an `improve` schedule needs `publish` on the agent for that, and is in the project it improves. Its runs act as the caller.",
         "required": [
           "config"
         ],
@@ -24315,13 +24535,13 @@
             "minLength": 1
           },
           "improve": {
-            "$ref": "#/components/schemas/ImproveScheduleTarget",
-            "description": "Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `publish` on the agent."
+            "$ref": "#/components/schemas/ImproveScheduleTargetInput",
+            "description": "Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `write` on the project and `publish` on the agent. An agent and project have one improve schedule at most (`409 schedule-exists`)."
           },
           "projectId": {
             "type": "string",
             "format": "uuid",
-            "description": "The schedule's project. Absent → the tenant's default project."
+            "description": "The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the tenant's default project."
           },
           "runAsServiceAccountId": {
             "type": "string",
@@ -24392,7 +24612,7 @@
       "PatchScheduleBody": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), when, or its policies.",
+        "description": "Change what it runs (the target fields, as at registration, which also needs what registering it needs on the new target; a new `improve` target stays in the schedule's project), when, or its policies.",
         "properties": {
           "flowId": {
             "type": "string",
@@ -24413,8 +24633,8 @@
             "minLength": 1
           },
           "improve": {
-            "$ref": "#/components/schemas/ImproveScheduleTarget",
-            "description": "Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `publish` on the agent."
+            "$ref": "#/components/schemas/ImproveScheduleTargetInput",
+            "description": "Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `write` on the project and `publish` on the agent."
           },
           "config": {
             "type": "object",
@@ -25509,7 +25729,7 @@
           },
           "improve": {
             "$ref": "#/components/schemas/ImproveScheduleTarget",
-            "description": "A schedule that starts Improve runs: on this agent, for this scope, when enough answers have been marked wrong since its last Improve run (`input`: the threshold, the monthly cap and the Improve options)."
+            "description": "A schedule that starts Improve runs: on this agent, in this project (the schedule's), when the project has enough new corrections sorted to improve since its last Improve run (`input`: how many, whose, and what a run and the month may cost). An agent and project have one at most."
           },
           "projectId": {
             "type": "string",
@@ -27334,25 +27554,76 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "agentId",
-          "scope"
+          "agentId"
         ],
-        "description": "What an improve schedule works on: the agent, and the pinned scope its Improve runs suggest changes for and count corrections in.",
+        "description": "What an improve schedule works on: the agent, in the project its Improve runs work in (the schedule's own).",
         "properties": {
           "agentId": {
             "type": "string",
             "minLength": 1
           },
-          "scope": {
-            "$ref": "#/components/schemas/AgentPinScope"
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The schedule's own project. Absent from older servers, and on a schedule registered for a tenant or an org before Improve schedules worked in a project: its fires are refused until its target is saved with the schedule's project."
+          }
+        }
+      },
+      "ImproveScheduleTargetInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agentId",
+          "projectId"
+        ],
+        "description": "What an improve schedule works on, as registering or changing one names it: the agent, and the project its Improve runs work in (the schedule's own).",
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The schedule's own project."
           }
         }
       },
       "ImproveScheduleInput": {
         "type": "object",
         "additionalProperties": false,
-        "description": "An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `groupWeights` counts them: by default everyone's corrections until a restricted (experts') corrector group is named, then experts' only. When there are enough, across enough runs and correctors, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.",
+        "description": "An improve schedule's `config.input`. Each fire counts the project's open corrections sorted to improve, from `from`, made or sorted since its last Improve run started. With `corrections` of them, and room under `monthCapUsd`, it starts an Improve run that takes every open one; otherwise the fire is `skipped`, saying which was short. An Improve run that suggests a change asks for the review at once.",
         "properties": {
+          "corrections": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 5,
+            "description": "How many new corrections start a run."
+          },
+          "from": {
+            "type": "string",
+            "enum": [
+              "experts",
+              "everyone"
+            ],
+            "default": "experts",
+            "description": "Whose corrections count: the project's experts', or everyone's."
+          },
+          "runCapUsd": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 100,
+            "default": 5,
+            "description": "The most one run's search may cost, in US dollars; never more than what's left of the month's cap. The run's proof comes after its search, on top."
+          },
+          "monthCapUsd": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1000,
+            "default": 20,
+            "description": "The cap on what the agent and project's Improve runs (by hand or by the schedule) cost in a calendar month (UTC), in US dollars. It holds their searches, not their proofs, so a proof can take the month past it. At the cap, the schedule waits for the next month (`pausedUntil`)."
+          },
           "tiers": {
             "type": "array",
             "items": {
@@ -27361,21 +27632,11 @@
                 "settings",
                 "prompt"
               ]
-            }
-          },
-          "objective": {
-            "type": "string",
-            "enum": [
-              "passRate",
-              "weightedPrecisionAtK"
-            ]
-          },
-          "groupWeights": {
-            "type": "string",
-            "enum": [
-              "experts-only",
-              "as-recorded"
-            ]
+            },
+            "minItems": 1,
+            "maxItems": 2,
+            "uniqueItems": true,
+            "description": "What each run tries. Absent: every tier that's ready."
           },
           "model": {
             "type": "object",
@@ -27384,6 +27645,7 @@
               "providerId",
               "model"
             ],
+            "description": "For the prompt tier: what drafts the templates. Absent: the version's own model.",
             "properties": {
               "providerId": {
                 "type": "string"
@@ -27392,56 +27654,6 @@
                 "type": "string"
               }
             }
-          },
-          "candidates": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 5
-          },
-          "budget": {
-            "type": "object",
-            "additionalProperties": false,
-            "description": "Each Improve run's budget (default $5 and 30 candidates), never more than what's left of the month's cap.",
-            "properties": {
-              "maxCostUsd": {
-                "type": "number",
-                "exclusiveMinimum": 0,
-                "maximum": 100
-              },
-              "maxCandidates": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 200
-              }
-            }
-          },
-          "threshold": {
-            "type": "object",
-            "additionalProperties": false,
-            "description": "Default 5 corrections, across 3 runs, from 2 correctors.",
-            "properties": {
-              "corrections": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 1000
-              },
-              "runs": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 1000
-              },
-              "correctors": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 1000
-              }
-            }
-          },
-          "monthlyCapUsd": {
-            "type": "number",
-            "exclusiveMinimum": 0,
-            "maximum": 1000,
-            "description": "The most its Improve runs may cost in a calendar month (UTC). Default 20."
           }
         }
       },
@@ -43851,7 +44063,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body, `validation-failed` (with `details.reason` when the version has nothing for the Improve run to work on: `no-tunable-keys` or `no-pinned-prompt-block`), or a project or segment scope that isn't in `projectId`. Or `reference-out-of-scope`: a project or segment scope doesn't reach the agent, the version doesn't reach the Improve run's project (`/fromVersion`), or the test set isn't one that project reaches (`details.issues`).",
+            "description": "Malformed request body (`bad-input`): no `projectId`, or a field the body doesn't have (`scope`, `testSetId` and `fromVersion` among them), named in the message.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43871,7 +44083,7 @@
             }
           },
           "404": {
-            "description": "`fromVersion` (or the version serving the scope) is not an active version; or the body's `projectId` names no project of this tenant (`project-not-found`).",
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -43881,7 +44093,7 @@
             }
           },
           "409": {
-            "description": "`registry-read-only` (under `kindgi dev`, also a scope narrower than the whole tenant), `suggested-change-needs-pin`, or `project-suspended`: the Improve run's project is suspended. Or Idempotency-Key was reused with a different body.",
+            "description": "`improve-not-ready`: something the Improve run needs is missing (`details.items`, as `POST /v1/improve-runs/check` lists them). `improve-run-running`: the agent has a running Improve run in the project (`details.improveRunId`); one runs at a time. Or `registry-read-only`: under `kindgi dev`, an Improve run is refused, as any suggested change is: run Improve on a deployed runtime. Or Idempotency-Key was reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43931,7 +44143,7 @@
             }
           }
         },
-        "description": "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the Improve run, `running`. The Improve run works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the Improve run's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the Improve run to work on (`400 validation-failed`, with `details.reason`): for a settings Improve run, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt Improve run, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions an Improve run makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a pinned version for the whole tenant (`409 suggested-change-needs-pin`). No Improve run starts in a suspended project (`409 project-suspended`), and an Improve run going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.",
+        "description": "Starts an Improve run for an agent in a project. From the version the project runs (pinned there, else its Latest), it looks for better wording (the prompt tier) or settings values (the settings tier) on the project's test set, learning from the project's open corrections sorted to improve, within the budget. Its best change is proven on every case of the test set, at the reference's repetitions: when it passes more cases than that version and fails none that passed, it becomes a suggested change for a reviewer. It answers at once with the Improve run, `running`. The readiness check (`POST /v1/improve-runs/check`) runs first: when something the Improve run needs is missing, it's refused with `409 improve-not-ready`, listing every missing item at once (`details.items`, each with its fix); while the agent has a running Improve run in the project, with `409 improve-run-running` (`details.improveRunId`). An Improve run going when its project is suspended ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -43977,6 +44189,16 @@
               }
             }
           },
+          "400": {
+            "description": "`bad-input`: `projectId` is not a UUID, or `status` is not a status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
             "content": {
@@ -44008,7 +44230,7 @@
             }
           }
         },
-        "description": "Newest first, only the Improve runs of agents the caller can read. `?agentId=` narrows them.",
+        "description": "Newest first, only the Improve runs of agents the caller can read. `?agentId=`, `?projectId=` and `?status=` narrow them.",
         "parameters": [
           {
             "name": "limit",
@@ -44038,6 +44260,31 @@
               "type": "string"
             },
             "required": false
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "Only the Improve runs in this project."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "running",
+                "completed",
+                "failed",
+                "cancelled"
+              ]
+            },
+            "required": false,
+            "description": "Only the Improve runs with this status."
           }
         ],
         "security": [
@@ -44056,7 +44303,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The estimated cost.",
+            "description": "Its readiness, and the estimate.",
             "content": {
               "application/json": {
                 "schema": {
@@ -44066,7 +44313,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body (`bad-input`), or a project or segment scope that isn't in `projectId`. Or `reference-out-of-scope`: a project or segment scope doesn't reach the agent, the version doesn't reach the Improve run's project (`/fromVersion`), or the test set isn't one that project reaches (`details.issues`).",
+            "description": "Malformed request body (`bad-input`): no `projectId`, or a field the body doesn't have (`scope`, `testSetId` and `fromVersion` among them), named in the message.",
             "content": {
               "application/json": {
                 "schema": {
@@ -44086,7 +44333,17 @@
             }
           },
           "404": {
-            "description": "`fromVersion` (or the version serving the scope) is not an active version (`agent-version-not-found`); or the body's `projectId` names no project of this tenant (`project-not-found`).",
+            "description": "The body's `projectId` names no project of this tenant (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`registry-read-only`: under `kindgi dev`, an Improve run is refused, as any suggested change is: run Improve on a deployed runtime.",
             "content": {
               "application/json": {
                 "schema": {
@@ -44116,7 +44373,7 @@
             }
           }
         },
-        "description": "What an Improve run this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/improve-runs`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the Improve run's project doesn't reach answers `400 reference-out-of-scope`, exactly as starting one would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count times the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt Improve run's one-off drafting of its templates — an Improve run can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the Improve run is expected to spend its whole budget; the Improve run checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no Improve run starts) and takes no Idempotency-Key. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.",
+        "description": "Whether the Improve run this input would start is ready, and what it's estimated to cost, before you start it. The body is the start body of `POST /v1/improve-runs`. `items` lists everything an Improve run needs, in a fixed order, missing or not; each missing one says where it's fixed (`repo`: in the agent's code, then a deploy; `kindgi`: in Kindgi) and how. `estimate.costUsd` prices each replay at the version's mean cost over its recent completed runs: the search's replays at most `budget.maxCostUsd`, plus the proof's (`estimate.basis.proofReplays`), which the budget doesn't cap. It's absent when the version has no cost history; `estimate.basis` gives the inputs. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and it leaves out a prompt Improve run's one-off drafting of its templates: an Improve run can cost more than the estimate. The Improve run checks its cost before each comparison, so the one already running can take it a little over, and its search starts no more once the cost reaches `budget.maxCostUsd`. It proves its best change after that, uncapped. With an Improve schedule on the agent and project, `month` is this UTC month's spend on their Improve runs against the schedule's monthly cap; only the schedule stops at the cap. It changes nothing (no Improve run starts) and takes no Idempotency-Key. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.",
         "requestBody": {
           "required": true,
           "content": {
@@ -65405,7 +65662,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: no `write` on the schedule's project or no `execute` on what it runs; or no `admin` on the project where it's needed, for `toolsAllowedUnattended` or `runAsProject`; or no `act_as` on the account `runAsServiceAccountId` names.",
+            "description": "`permission-denied`: no `write` on the schedule's project or no `execute` on what it runs (for an `improve` schedule, `publish` on the agent); or no `admin` on the project where it's needed, for `toolsAllowedUnattended` or `runAsProject`; or no `act_as` on the account `runAsServiceAccountId` names.",
             "content": {
               "application/json": {
                 "schema": {
@@ -65415,7 +65672,7 @@
             }
           },
           "409": {
-            "description": "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the schedule runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the schedule runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). Or an idempotency conflict.",
+            "description": "`runAsServiceAccountId` names an unregistered account (`service-account-unregistered`), a project's own account (`service-account-project-owned`: name it with `runAsProject`), or one that can't run what the schedule runs (`trigger-owner-cannot-run-target`). Or, with `runAsProject`, the project's own account can't run what the schedule runs either (`trigger-owner-cannot-run-target`; the account stays, for the next `runAsProject`), or an active account someone made already has the project account's name, `project-<projectId>` (`service-account-name-taken`: a tenant admin can unregister it). `schedule-exists`: the agent has an Improve schedule in the project already (`details.scheduleId`). Or an idempotency conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -65465,7 +65722,7 @@
             }
           }
         },
-        "description": "Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
+        "description": "Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. An `improve` schedule is in the project it improves, one per agent and project (a second is `409 schedule-exists`), and needs `publish` on the agent as well as `write` on the project. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -65698,7 +65955,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner.",
             "content": {
               "application/json": {
                 "schema": {
@@ -65718,7 +65975,7 @@
             }
           },
           "409": {
-            "description": "A new target the schedule's owner can't run (`trigger-owner-cannot-run-target`), with an authorization store. Or an Idempotency-Key reused with a different body.",
+            "description": "A new target the schedule's owner can't run (`trigger-owner-cannot-run-target`), with an authorization store. `schedule-exists`: a new `improve` target whose agent has another Improve schedule in the project (`details.scheduleId`). Or an Idempotency-Key reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -65837,7 +66094,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner.",
             "content": {
               "application/json": {
                 "schema": {
@@ -65887,7 +66144,7 @@
             }
           }
         },
-        "description": "Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner or a project admin pauses it; a shared one, any writer of its project.",
+        "description": "Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner or a project admin pauses it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may pause it without `publish`.",
         "parameters": [
           {
             "name": "triggerId",
@@ -65956,7 +66213,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner.",
             "content": {
               "application/json": {
                 "schema": {
@@ -66006,7 +66263,7 @@
             }
           }
         },
-        "description": "Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner or a project admin resumes it; a shared one, any writer of its project.",
+        "description": "Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner or a project admin resumes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent.",
         "parameters": [
           {
             "name": "triggerId",
@@ -66075,7 +66332,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner.",
             "content": {
               "application/json": {
                 "schema": {
@@ -66115,7 +66372,7 @@
             }
           }
         },
-        "description": "Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project.",
+        "description": "Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.",
         "parameters": [
           {
             "name": "triggerId",
@@ -66462,7 +66719,7 @@
             }
           },
           "403": {
-            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project is refused first, and learns nothing of its owner.",
+            "description": "`permission-denied`: the schedule is personal and the caller is neither its owner nor a project admin (the message names the owner), or it's shared and changing what it runs takes a project admin. A caller without `write` on its project (for an `improve` schedule, `publish` on the agent) is refused first, and learns nothing of its owner.",
             "content": {
               "application/json": {
                 "schema": {
