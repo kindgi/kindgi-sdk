@@ -48,6 +48,8 @@ export interface ResponseSpec {
    * Defaults to `application/json`.
    */
   readonly contentType?: string | readonly string[];
+  /** A JSON body the status may carry instead of `contentType`'s (`application/json`). */
+  readonly orJson?: JsonSchema;
 }
 
 export interface OperationSpec {
@@ -11942,6 +11944,97 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '503': ErrorResponse(
         "`tenant-state-unavailable`: the run's tenant's state couldn't be read, so the answer wasn't taken. `Retry-After` says when to send it again.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/tool-files',
+    openapiPath: '/v1/tool-files',
+    operationId: 'toolFiles.store',
+    senderOnly:
+      "A pack service stores a file for a tool's call with the tool files the call carries (pack protocol 2.10.0); a Kindgi client stores files with `POST /v1/artifacts`.",
+    summary: "Store a file for a pack tool's call",
+    description:
+      "A pack tool that declares `storesFiles` gets the call's tool files with each call, and its pack service posts each file the tool stores here. No API key: `Authorization: Bearer` carries the call's token (`kgi_tf_…`), which names one call of one run and what it may do: store files for that call, read files its run may be shown (`GET /v1/tool-files/{artifactId}`), or both. The body is the file's bytes, at most 10 MB read; `Content-Type` is the type its source declares, and `Kindgi-File-Name` its name, percent-encoded UTF-8 (an empty name is stored as `unnamed`). The runtime checks the bytes, and only they decide the type. The stored file is owned by the call's run, in its project. The same bytes again in the same call, a re-run of it included, answer the first file. A call stores at most 10 files. The token closes when the call answers, when its time passes, or when its run ends.",
+    tags: ['runs'],
+    security: 'public',
+    parameters: [
+      {
+        name: 'Kindgi-File-Name',
+        in: 'header',
+        required: false,
+        description: "The file's name, percent-encoded UTF-8. Absent or empty: `unnamed`.",
+        schema: { type: 'string' },
+      },
+    ],
+    requestBody: {
+      required: true,
+      description: "The file's bytes, with the type its source declares as `Content-Type`.",
+      schema: { type: 'string', format: 'binary' },
+      contentType: '*/*',
+    },
+    responses: {
+      '200': {
+        description:
+          "The stored file (`file`), for the tool to return in its result's top-level `files`; or nothing stored, and why (`notStored`): `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit, or a body past 10 MB, not read to its end), `limit` (the call has stored 10 files), `storage` (the tenant's storage is full).",
+        schema: ref('ToolFileStoreAnswer'),
+      },
+      '400': ErrorResponse('`bad-input`: `Kindgi-File-Name` is not percent-encoded UTF-8.'),
+      '404': ErrorResponse(
+        "`tool-file-token-not-found`: no tool call's files match the bearer (none sent, an unknown token, a wrong secret, and a call that doesn't store files alike), or this runtime stores no files.",
+      ),
+      '409': ErrorResponse(
+        '`tool-file-token-closed`: the call has answered, its time has passed, or its run has ended. `tenant-closing`, `tenant-suspended` (`details.state`) or `project-suspended`: nothing runs where the run is, so nothing was stored. Told only for a token that matches.',
+      ),
+      '429': ErrorResponse(
+        '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was stored. `Retry-After` says when to store the file again.',
+      ),
+      '503': ErrorResponse(
+        "`tenant-state-unavailable`: the run's tenant's state couldn't be read, so nothing was stored. `tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was stored. `Retry-After` says when to store the file again.",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/tool-files/:artifactId',
+    openapiPath: '/v1/tool-files/{artifactId}',
+    operationId: 'toolFiles.read',
+    senderOnly:
+      "A pack service reads a file for a tool's call with the token the call carries (pack protocol 2.10.0); a Kindgi client reads files with `GET /v1/artifacts/{blobId}`.",
+    summary: "Read a file for a pack tool's call",
+    description:
+      "A pack tool that declares `readsFiles` gets the call's tool files with each call, and its pack service reads each file the tool asks for here, by its file value's `artifactId`. No API key: `Authorization: Bearer` carries the call's token (`kgi_tf_…`). The call reads a file its run may be shown, such as one in the run's input, in its conversation, or one a tool stored in it, with the bytes it was stored with, never a copy made for a model. A read isn't refused for a closing or suspended tenant or a suspended project: it changes nothing. The token closes when the call answers, when its time passes, or when its run ends.",
+    tags: ['runs'],
+    security: 'public',
+    parameters: [
+      {
+        name: 'artifactId',
+        in: 'path',
+        required: true,
+        description: "The file value's `artifactId`.",
+        schema: { type: 'string' },
+      },
+    ],
+    responses: {
+      '200': {
+        description:
+          "The file's bytes, as it was stored (`application/octet-stream`, as an attachment, never sniffed); or no bytes, and why, as JSON (`notRead`).",
+        contentType: 'application/octet-stream',
+        schema: { type: 'string', format: 'binary' },
+        orJson: ref('ToolFileNotRead'),
+      },
+      '404': ErrorResponse(
+        "`tool-file-token-not-found`: no tool call's files match the bearer (none sent, an unknown token, a wrong secret, and a call that doesn't read files alike), or this runtime stores no files.",
+      ),
+      '409': ErrorResponse(
+        '`tool-file-token-closed`: the call has answered, its time has passed, or its run has ended.',
+      ),
+      '429': ErrorResponse(
+        '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was read. `Retry-After` says when to read the file again.',
+      ),
+      '503': ErrorResponse(
+        "`tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was read. `database-busy`: the database was too busy to answer in time. `Retry-After` says when to read the file again.",
       ),
     },
   },

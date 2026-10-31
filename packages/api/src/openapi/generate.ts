@@ -444,9 +444,12 @@ function buildResponses(
     if (spec.schema !== undefined) {
       const contentTypes = spec.contentType ?? 'application/json';
       const types = typeof contentTypes === 'string' ? [contentTypes] : contentTypes;
-      entry.content = Object.fromEntries(
-        types.map((type) => [type, { schema: spec.schema as JsonSchema }]),
-      );
+      entry.content = {
+        ...Object.fromEntries(types.map((type) => [type, { schema: spec.schema as JsonSchema }])),
+        ...(spec.orJson !== undefined && {
+          'application/json': { schema: spec.orJson as JsonSchema },
+        }),
+      };
     }
     doc[status] = entry;
   }
