@@ -297,9 +297,14 @@ name.
   a person verifies it.
 - **A person approves first** when the scope is wider than one person
   (`same-project`, `tenant`), or the text reads like an instruction ("always
-  …", "ignore …", a link, a tool name). The approval is a `memory-fact`
-  approval in the reviewers' list; until it's approved, no read sees the
-  fact.
+  …", "ignore …", a link, a tool name). The approval is a `fact` approval
+  in the reviewers' list; until it's approved, no read sees the fact.
+- **The reviewer can edit its text** before approving. The fact then holds
+  their text, checked as the agent's is (more than spaces, up to 2,000
+  characters), and the approval keeps the agent's as its `description`. On
+  the API it's `factText`, with `decision: approve`, on
+  `POST /v1/approvals/{approvalId}/complete` (`approvals.decide` in
+  TypeScript), and the approval's `decision.factText` shows it afterwards.
 
 The agent remembers through a tool call, so it needs a model with reliable
 tool calling. Some small local models write the call as text instead, and

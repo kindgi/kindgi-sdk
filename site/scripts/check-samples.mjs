@@ -181,7 +181,7 @@ export function missingGenerated(dir = docs) {
   return GENERATED.filter((folder) => !existsSync(join(dir, folder)));
 }
 
-/** The `SKILL.md` of every skill whose samples are checked. */
+/** The markdown files of every skill whose samples are checked: its `SKILL.md` and those beside it. */
 function skillFiles() {
   const sources = JSON.parse(readFileSync(join(site, 'skills-sources.json'), 'utf8'));
   for (const [name, skill] of Object.entries(sources.skills)) {
@@ -196,7 +196,12 @@ function skillFiles() {
   }
   return Object.entries(sources.skills)
     .filter(([, skill]) => skill.samples === 'checked')
-    .map(([name]) => join(skills, name, 'SKILL.md'));
+    .flatMap(([name]) =>
+      readdirSync(join(skills, name), { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+        .map((entry) => join(skills, name, entry.name))
+        .sort(),
+    );
 }
 
 /**

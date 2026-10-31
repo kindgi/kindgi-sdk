@@ -78,10 +78,10 @@ function isTrackedPath(path) {
   return trackedSet.has(clean) || tracked.some((f) => f.startsWith(`${clean}/`));
 }
 
-/** `.claude/skills/<name>/SKILL.md` or `.agents/skills/<name>/SKILL.md` in a user's project, installed from `packages/sdk/skills/`. */
+/** A skill's file in a user's project, `.claude/skills/<name>/<file>` or `.agents/skills/…`, installed from `packages/sdk/skills/`. */
 function installedSkill(ref) {
-  const name = /^\.(?:claude|agents)\/skills\/([\w.-]+)\/SKILL\.md$/.exec(ref)?.[1];
-  return name !== undefined && trackedSet.has(`packages/sdk/skills/${name}/SKILL.md`);
+  const file = /^\.(?:claude|agents)\/skills\/([\w.-]+\/[\w.-]+\.md)$/.exec(ref)?.[1];
+  return file !== undefined && trackedSet.has(`packages/sdk/skills/${file}`);
 }
 
 function resolves(from, ref) {

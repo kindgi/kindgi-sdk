@@ -2,11 +2,12 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * `adapter_config.thinkingLevels` on a Vertex AI registration: the provider
- * the factory builds sends each named model its level. The SDK class is
- * replaced by one that records what each call asks for, so no Google
- * credentials or network are needed (the Developer API's wire is in
- * `thinking-levels.test.ts`).
+ * How much a model thinks on a Vertex AI registration: the provider the
+ * factory builds sends each model its `thinking.default` when a call asks
+ * none, and a stored `adapter_config.thinkingLevels` isn't read. The SDK
+ * class is replaced by one that records what each call asks for, so no
+ * Google credentials or network are needed (the Developer API's wire is
+ * in `thinking-levels.test.ts`).
  */
 
 import type {
@@ -14,6 +15,7 @@ import type {
   GenerateContentResponse,
   GoogleGenAIOptions,
 } from '@google/genai';
+import type { ThinkingLevel } from '@kindgi/capabilities';
 import { describe, expect, test, vi } from 'vitest';
 
 import { geminiAdapterFactory } from '../src/index.js';
@@ -41,30 +43,40 @@ vi.mock('@google/genai', async (importOriginal) => ({
   },
 }));
 
-const model = (name: string, lowest: string) => ({
+const model = (name: string, lowest: string, level?: ThinkingLevel) => ({
   name,
   contextWindow: 1_048_576,
   features: ['tool-use' as const],
   cost: { promptUsdPer1kTokens: 0.00075, completionUsdPer1kTokens: 0.00375 },
-  thinking: { mode: 'adaptive' as const, lowest },
+  thinking: { mode: 'adaptive' as const, lowest, ...(level !== undefined && { default: level }) },
 });
 
-describe('adapter_config.thinkingLevels on Vertex AI', () => {
-  test('a registered provider sends each named model its level, and none to the others', async () => {
+describe('how much a model thinks on Vertex AI', () => {
+  test("each model is sent its default; a stored thinkingLevels isn't read", async () => {
     const provider = geminiAdapterFactory({
       metadata: {
         id: 'acme-gemini',
         region: 'global',
-        models: [model('gemini-3.8-flash', 'low'), model('gemini-3.5-flash-lite', 'minimal')],
+        models: [
+          model('gemini-3.8-flash', 'low', 'high'),
+          model('gemini-3.5-flash-lite', 'minimal'),
+        ],
       },
-      config: { project: 'acme-project', thinkingLevels: 'gemini-3.8-flash=low' },
+      config: { project: 'acme-project', thinkingLevels: 'gemini-3.5-flash-lite=low' },
     });
+    const results = [];
     for (const name of ['gemini-3.8-flash', 'gemini-3.5-flash-lite']) {
-      await provider.invoke({ model: name, messages: [{ role: 'user', content: 'hi' }] });
+      results.push(
+        await provider.invoke({ model: name, messages: [{ role: 'user', content: 'hi' }] }),
+      );
     }
     expect(built).toMatchObject([{ vertexai: true, project: 'acme-project', location: 'global' }]);
     expect(calls.map((c) => c.config?.thinkingConfig)).toEqual([
-      { thinkingLevel: 'LOW' },
+      { thinkingLevel: 'HIGH' },
+      undefined,
+    ]);
+    expect(results.map((r) => r.thinking)).toEqual([
+      { level: 'high', sent: { thinkingLevel: 'HIGH' } },
       undefined,
     ]);
   });

@@ -13,6 +13,7 @@
 import { TenantBudgetError } from '@kindgi/bounds';
 import { route } from '@kindgi/capabilities';
 import type { ProviderRegistry, RouteInput, TenantPolicy } from '@kindgi/capabilities';
+import type { Guardrail } from '@kindgi/guardrails';
 import type { HitlSpec, ToolErrorsSpec } from '@kindgi/policy-contract';
 import type { ToolRegistry } from '@kindgi/tools';
 import type { TenantId } from '@kindgi/types';
@@ -24,6 +25,7 @@ import { mergeTenantPolicies } from '../tenant-policy.js';
 import type { Conversation } from '../types.js';
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { guardrailPointFaults } from './guardrail-points.js';
 import { withRememberTool } from './remember-tool.js';
 import { type PinnedBlockVersions, resolveTurnBlocks } from './resolve-blocks.js';
 import { resolveTurnTools } from './resolve-tools.js';
@@ -74,34 +76,52 @@ export interface PinnedRoute {
 export type PinnedToolVersions = Readonly<Record<string, string>>;
 
 /**
+ * The turn's guardrails as `setup` resolved them, as it journals them:
+ * each one's declaration. A resumed turn runs these, whatever the
+ * registry holds by then.
+ */
+export type PinnedGuardrails = readonly Guardrail[];
+
+/**
  * Resolve the turn's guardrails, tools, tenant policy, tool-error policy
  * and model onto `ctx`. With `pinned`, the route is that provider and
  * model, still under the tenant's current policy; one no longer
  * registered or allowed fails the turn. With `pinnedTools`, each tool is
  * that exact version, not its range resolved again; one no longer
- * registered fails the turn.
+ * registered fails the turn. With `pinnedGuardrails`, the guardrails are
+ * those, not resolved again: one bound, changed or unregistered in the
+ * middle of a turn applies from the next turn. Either way, each
+ * guardrail's point is checked against its check as the registry holds
+ * it now (`ctx.guardrailPointFaults`), since that's the check that runs.
  */
 export async function resolveTurnEnvironment(
   ctx: TurnContext,
   pinned?: PinnedRoute,
   pinnedTools?: PinnedToolVersions,
   pinnedBlocks?: PinnedBlockVersions,
+  pinnedGuardrails?: PinnedGuardrails,
 ): Promise<
   PinnedRoute & {
     readonly toolCount: number;
     readonly toolVersions: PinnedToolVersions;
     readonly blockVersions?: PinnedBlockVersions;
+    readonly guardrails: PinnedGuardrails;
   }
 > {
-  const invResolution = resolveGuardrails(ctx.input.agent, ctx.bindings);
-  if (invResolution.missing.length > 0) {
-    throwAgentTurnFailure({
-      code: 'unresolved-guardrail',
-      message: `Agent "${ctx.input.agent.id}" references guardrails not in the registry: ${invResolution.missing.join(', ')}`,
-      guardrailIds: invResolution.missing,
-    });
+  if (pinnedGuardrails !== undefined) {
+    ctx.guardrails = pinnedGuardrails;
+  } else {
+    const invResolution = resolveGuardrails(ctx.input.agent, ctx.bindings);
+    if (invResolution.missing.length > 0) {
+      throwAgentTurnFailure({
+        code: 'unresolved-guardrail',
+        message: `Agent "${ctx.input.agent.id}" references guardrails not in the registry: ${invResolution.missing.join(', ')}`,
+        guardrailIds: invResolution.missing,
+      });
+    }
+    ctx.guardrails = invResolution.resolved;
   }
-  ctx.guardrails = invResolution.resolved;
+  ctx.guardrailPointFaults = guardrailPointFaults(ctx.guardrails, ctx.bindings.checks);
 
   const turnTools = await turnToolRegistry(ctx);
   ctx.tools = withRememberTool(ctx, resolveTurnTools(turnTools, ctx.input.agent, pinnedTools));
@@ -168,6 +188,7 @@ export async function resolveTurnEnvironment(
       [...ctx.tools.byName].map(([id, binding]) => [id, binding.resolvedVersion]),
     ),
     ...(blocks !== undefined && { blockVersions: blocks.versions }),
+    guardrails: ctx.guardrails,
   };
 }
 

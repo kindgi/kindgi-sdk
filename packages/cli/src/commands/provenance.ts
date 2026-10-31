@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { ListPage, ProvenanceRecordMetadata } from '@kindgi/client';
+import type { ProvenancePage, ProvenanceRecordMetadata } from '@kindgi/client';
 
 import { UsageError } from '../errors.js';
 import {
@@ -15,7 +15,7 @@ import {
 import type { Command, LeafCommand } from './types.js';
 
 /** `provenance list --table`. */
-const PROVENANCE_TABLE: TableSpec<ListPage<ProvenanceRecordMetadata>, ProvenanceRecordMetadata> = {
+const PROVENANCE_TABLE: TableSpec<ProvenancePage, ProvenanceRecordMetadata> = {
   rows: (page) => page.data,
   columns: [
     { header: 'RUN', get: (p) => String(p.runId) },
@@ -31,12 +31,14 @@ const PROVENANCE_TABLE: TableSpec<ListPage<ProvenanceRecordMetadata>, Provenance
 const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: 'List provenance records, one per run: what ran, in what order, with what.',
+  description:
+    "List provenance records, one per run, an agent turn's or a flow run's: what ran, in what order, with what.",
   usage:
-    'kindgi provenance list [--run=<run-id>] [--agent=<agent-id>] [--created-after=<iso>] [--project=<project-id> | --org=<org-id>] [--limit=<n>] [--cursor=<c>]',
+    'kindgi provenance list [--run=<run-id>] [--agent=<agent-id>] [--flow=<flow-id>] [--created-after=<iso>] [--project=<project-id> | --org=<org-id>] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     run: { type: 'string', description: "Only this run's record." },
     agent: { type: 'string', description: "Only the records of this agent's runs." },
+    flow: { type: 'string', description: "Only the records of this flow's runs." },
     'created-after': {
       type: 'string',
       description:
@@ -65,18 +67,27 @@ const list: LeafCommand = {
         }
         const runId = stringFlag(ctx, 'run');
         const agentId = stringFlag(ctx, 'agent');
+        const flowId = stringFlag(ctx, 'flow');
         const createdAfter = timeFlag(ctx, 'created-after');
         const limit = integerFlag(ctx, 'limit');
         const cursor = stringFlag(ctx, 'cursor');
-        return await ctx.client().provenance.query({
+        const page = await ctx.client().provenance.query({
           ...(project !== undefined && { scope: { kind: 'project', projectId: project } }),
           ...(org !== undefined && { scope: { kind: 'org', orgId: org } }),
           ...(runId !== undefined && { runId: runId as never }),
           ...(agentId !== undefined && { agentId: agentId as never }),
+          ...(flowId !== undefined && { flowId: flowId as never }),
           ...(createdAfter !== undefined && { createdAfter: createdAfter as never }),
           ...(limit !== undefined && { limit }),
           ...(cursor !== undefined && { cursor: cursor as never }),
         });
+        // A runtime that doesn't list records by flow ignores the filter and lists them all.
+        if (flowId !== undefined && page.flowId !== flowId) {
+          throw new Error(
+            '--flow needs a runtime that lists records by flow: this one ignored it and listed every record.',
+          );
+        }
+        return page;
       },
       PROVENANCE_TABLE,
     ),
@@ -85,7 +96,8 @@ const list: LeafCommand = {
 const get: LeafCommand = {
   kind: 'leaf',
   name: 'get',
-  description: "A run's provenance record: its graph of what ran, in what order, with what.",
+  description:
+    "A run's provenance record, an agent turn's or a flow run's: its graph of what ran, in what order, with what. A flow run's is written just after it ends; until then, the error says the record's state.",
   usage: 'kindgi provenance get <run-id>',
   run: (ctx) =>
     runSdk(ctx, 'provenance get', async () => {
@@ -127,6 +139,7 @@ const exportCmd: LeafCommand = {
 export const provenanceCommand: Command = {
   kind: 'group',
   name: 'provenance',
-  description: "Provenance records: each run's graph of what ran (list / get / export, signed).",
+  description:
+    "Provenance records: each agent turn's or flow run's graph of what ran (list / get / export, signed).",
   subcommands: [list, get, exportCmd],
 };

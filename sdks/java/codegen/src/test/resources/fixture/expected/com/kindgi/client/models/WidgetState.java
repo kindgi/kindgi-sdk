@@ -6,6 +6,7 @@ package com.kindgi.client.models;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -14,7 +15,7 @@ import java.util.Objects;
  *
  * <p>One of the values below, or one this client doesn't know yet: {@link #of} keeps any value, and {@link #value()} is {@code UNRECOGNIZED} for an unknown one. Switch on {@link #value()}.
  */
-public final class WidgetState {
+public final class WidgetState implements OpenEnum {
     /**
      * <code>draft</code>
      */
@@ -41,6 +42,8 @@ public final class WidgetState {
         Map.entry("archived", ARCHIVED),
         Map.entry("run.finished", RUN_FINISHED));
 
+    private static final List<String> knownValues = List.of("draft", "live", "archived", "run.finished");
+
     private final String raw;
 
     private final Value value;
@@ -62,6 +65,7 @@ public final class WidgetState {
     /**
      * The value as the API spells it.
      */
+    @Override
     @JsonValue
     public String asString() {
         return raw;
@@ -77,8 +81,17 @@ public final class WidgetState {
     /**
      * Whether this client knows the value.
      */
+    @Override
     public boolean isKnown() {
         return value != Value.UNRECOGNIZED;
+    }
+
+    /**
+     * The values this client knows, as the API spells them.
+     */
+    @Override
+    public List<String> knownValues() {
+        return knownValues;
     }
 
     @Override

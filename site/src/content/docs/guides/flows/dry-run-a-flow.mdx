@@ -149,7 +149,9 @@ uv run kindgi runs start --flow=acme.check-order-stock --input='{"orderId":"A-20
   ran.
 - **An agent step** runs its turn without calling the model: its answer is
   `[dry-run: model call skipped]`, and it costs nothing. The steps after it get
-  that text, so the dry run shows the wiring, not the agent's judgment.
+  that text, so the dry run shows the wiring, not the agent's judgment. The
+  agent's guardrails at the final answer judge that text: a `halt` or `retry`
+  guardrail that fails it fails the step, as in any run.
 
 So a dry run is only as safe as the tools' declarations. Declare
 `mutating: false` on every tool that only reads, and never on one that writes.

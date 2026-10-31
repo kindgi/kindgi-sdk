@@ -7,6 +7,7 @@ import { KindgiApiError, notYetWired } from '../errors.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type { GetLatestOptions, Tool } from '../types.js';
+import { type PinnedVersionsClient, makePinnedVersionsClient } from './pinned-versions.js';
 
 /**
  * Tools resource — discovery + versioned lifecycle.
@@ -16,7 +17,7 @@ import type { GetLatestOptions, Tool } from '../types.js';
  * separate `manifests` endpoint have no API routes.
  *
  * Versioned CRUD mirroring the pattern used by
- * agents/flows/policies/eval-suites. Tools carry an
+ * agents/flows/policies/test-sets. Tools carry an
  * exact semver `version`; agent bindings reference tools by a semver
  * range; the server resolves the range at run start.
  */
@@ -84,6 +85,15 @@ export interface ToolsClient {
     version: string,
     options?: { readonly idempotencyKey?: string },
   ): Promise<UnregisterToolVersionResult>;
+
+  /**
+   * Pinned versions: which version an agent or flow version made in a
+   * project locks the tool at, per project, org or tenant. Without a pin
+   * covering the project, it locks the newest version (an agent: the
+   * newest in its reference's range). A version already made keeps its
+   * lock.
+   */
+  readonly pinned: PinnedVersionsClient;
 
   /**
    * @unwired No `POST /v1/tools/{toolId}/invoke` route; tools run
@@ -296,6 +306,17 @@ export function makeToolsClient(transport: Transport): ToolsClient {
     getVersion: (id, version) => versions.get(id, version),
     reinstateVersion: (id, version, options) => versions.reinstate(id, version, options),
     unregisterVersion: (id, version, options) => versions.unregister(id, version, options),
+
+    pinned: makePinnedVersionsClient(transport, (id) => {
+      const tool = encodeURIComponent(id);
+      return {
+        resolve: { path: `/v1/tools/${tool}/pinned` },
+        list: { path: `/v1/tools/${tool}/pinned-versions` },
+        pin: { path: `/v1/tools/${tool}/pinned/pin` },
+        unpin: { path: `/v1/tools/${tool}/pinned/unpin` },
+        history: { path: `/v1/tools/${tool}/pin-history` },
+      };
+    }),
 
     async invoke(_id, _input) {
       throw new KindgiApiError(

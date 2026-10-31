@@ -4,7 +4,7 @@
 /**
  * One rule picks a version from a range, wherever Kindgi resolves one:
  * a range picks the highest version it allows, a prerelease only when
- * the range names one; no range picks the latest, a prerelease included.
+ * the range names one; no range picks the highest, a prerelease included.
  * The in-process registry a turn resolves against picks the same way
  * (tool versions themselves are plain `major.minor.patch`).
  */
@@ -16,7 +16,7 @@ import type { ToolId } from '@kindgi/types';
 import { defineTool } from '../src/define.js';
 import { createToolRegistry } from '../src/registry.js';
 import type { AnyTool } from '../src/types.js';
-import { latestVersion, nextVersion, pickVersion } from '../src/versions.js';
+import { highestVersion, nextVersion, pickVersion } from '../src/versions.js';
 
 const available = ['1.0.0', '1.2.0', '1.3.0-beta.1', '2.0.0', 'not-a-version'];
 
@@ -35,17 +35,17 @@ describe('pickVersion', () => {
     });
   });
 
-  test('no range picks the latest, a prerelease included', () => {
+  test('no range picks the highest, a prerelease included', () => {
     expect(pickVersion(available)).toEqual({ kind: 'ok', version: '2.0.0' });
     expect(pickVersion(['1.0.0', '1.1.0-rc.1'])).toEqual({ kind: 'ok', version: '1.1.0-rc.1' });
-    expect(latestVersion(['0.1.0', '0.10.0', '0.9.0'])).toBe('0.10.0');
+    expect(highestVersion(['0.1.0', '0.10.0', '0.9.0'])).toBe('0.10.0');
   });
 
   test('an invalid range, or none satisfied, says which', () => {
     expect(pickVersion(available, 'not a range')).toEqual({ kind: 'invalid-range' });
     expect(pickVersion(available, '^3.0.0')).toEqual({ kind: 'not-satisfiable' });
     expect(pickVersion([])).toEqual({ kind: 'not-satisfiable' });
-    expect(latestVersion([])).toBeUndefined();
+    expect(highestVersion([])).toBeUndefined();
   });
 });
 

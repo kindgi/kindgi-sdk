@@ -29,7 +29,7 @@ const FLOW = {
   nodes: [{ id: 'extract', kind: 'tool', ref: 'inline' }],
   edges: [],
 };
-const PAGE = { data: [FLOW], hasMore: false, items: [FLOW] };
+const PAGE = { data: [FLOW], hasMore: false };
 
 async function flows(argv: readonly string[]) {
   const calls: unknown[][] = [];

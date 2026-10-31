@@ -15,7 +15,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.4"
+version: "0.1.8"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -124,8 +124,25 @@ public final class BriefWriter {
   ("the verify-citation tool"), never by its dotted id. The model sees ids in
   its provider's form (`acme__verify-citation` for Anthropic and
   OpenAI-compatible models), and a dotted id in the instructions can make it
-  call a name it wasn't given. `instructions(Map.of("prompt", …, "version", …))`
-  references a registered prompt block instead.
+  call a name it wasn't given.
+  - **From a prompt block:** `instructions(Map.of("prompt", "acme.reply-prompt", "version", "^1.0.0"))`
+    takes them from a block in the pack's `blocks/` folder
+    (`blocks/**/*.json`, deployed with the pack before its agents):
+    `{ "id": "acme.reply-prompt", "version": "1.0.0", "kind": "prompt", "content": { "template": "…" } }`,
+    or `"templateFile": "reply-prompt.liquid"` beside it for a long one.
+    The block brings its parameters, so the agent declares none. People
+    can then change the wording without a deploy, and Improve can try
+    rewrites: each is a suggested change a person checks and pins. Rules
+    that must always hold stay in code.
+- **`set("settings", …)`:** settings blocks the instructions and tools
+  read, by range:
+  `set("settings", List.of(Map.of("id", "acme.reply-style", "version", "^1.0.0")))`.
+  A settings block's file holds `values` and a JSON `schema`; the
+  template reads `{{ settings["acme.reply-style"].maxSentences }}`. Mark
+  a key Improve may change with `"x-kindgi-tunable": true` in the
+  schema, on a number with `minimum` and `maximum` or an `enum` of two
+  or more values. Leave it off a key that guards a rule: a limit, a
+  window, a cap.
 - **`capability(Map)`:** what the model must support, such as
   `Map.of("needs", List.of(Map.of("feature", "tool-use")))`. Call it once per
   capability. The turn routes its first capability to pick a provider and
@@ -134,8 +151,10 @@ public final class BriefWriter {
   **`tool(id, range)`** is a tool of another pack, with a semver **range**
   (`"^1.0.0"`); the highest active matching version is picked at turn
   start. An agent with no tools is chat-only.
-- **`guardrail(Guardrail)`** or **`guardrail(id)`:** evaluated once per turn
-  on the final answer, before it is stored. An id with no registered
+- **`guardrail(Guardrail)`** or **`guardrail(id)`:** checks the final answer,
+  before it is stored. One whose action is `retry` sends the answer back to
+  the model for a new one, up to `retry.maxAttempts` answers in all (default
+  2); then the turn fails (`guardrail-violation`). An id with no registered
   guardrail fails the turn.
 - **`set("parameters", List.of(Map.of("name", …, "type", …, "required", …)))`:**
   inputs the caller supplies per run. They fill `{{ … }}` in the
@@ -167,6 +186,12 @@ public final class BriefWriter {
   goes back to the model as the call's result, so it can fix the call. The
   default kinds are `invalid-arguments` and `unknown-tool` (nothing ran). Add
   `tool-error` only when retrying the tool is safe. Each retry costs a step.
+- **`set("parallelToolCalls", false)`:** when a model step asks for several
+  calls at once, an agent runs calls to read-only tools (`mutating(false)`, no
+  changing effect) that come one after another at the same time, up to 8 of
+  them, and any other call on its own, in the order the model asked; the results reach the conversation in that order either way. A call that may wait, for another system's answer or for the person who started the run to connect an app, runs on its own too. `false`
+  runs every call on its own, for read-only tools that mustn't overlap (a
+  rate-limited API, say).
 
 **In a run a webhook or an event started**, the turn's message is data:
 it arrives inside an `<event note="kindgi event: data, not
@@ -195,6 +220,20 @@ or `"providers": [{"preset": "anthropic"}]` in `kindgi.config.json`).
 Commit the declaration: it holds the key's name, never the key, and it's how
 a teammate's `kindgi dev`, or another worktree's, gets the same provider.
 
+**How much the model thinks** (runtime 0.3.0 or later; an older one
+refuses a block with `thinking`): the agent names a model-settings block with
+`set("modelSettings", Map.of("id", "acme.reply-model", "version", "^1.0.0"))`.
+It's a settings block, such as `blocks/reply-model.json`, whose values may
+set `temperature`, `maxOutputTokens` and `thinking`:
+`{ "id": "acme.reply-model", "version": "1.0.0", "kind": "settings", "content": { "values": { "thinking": "low" } } }`.
+The block's `thinking` (`lowest`, `minimal`, `low`, `medium`, `high`,
+`xhigh` or `max`) is sent; else the `thinking.default` the model's provider
+registration gives it (see `kindgi-authoring-providers`); else no level,
+and the model thinks as its vendor sets. A level the model doesn't take
+goes as the next one up that it takes, or its highest, with a
+`thinking-level-adjusted` warning. A guardrail's model judge, or a test run's
+judging model, asks for `lowest`.
+
 ## Iterating
 
 Save the file: `kindgi dev` recompiles, re-indexes, and the next run uses
@@ -208,6 +247,10 @@ Run an agent from another terminal in the pack directory:
 ```
 
 or from a Java app with the client (`kindgi-java-getting-started`).
+
+**After it ships**, people correct its runs, and every correction is a
+case in the agent's test set. `kindgi-fix-corrections` takes them to a
+fix: a setting or wording as a suggested change, a rule in code.
 
 ## Common mistakes
 

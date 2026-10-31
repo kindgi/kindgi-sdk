@@ -35,7 +35,7 @@ export const OBJECT_TYPES = [
   'flow',
   'tool',
   'guardrail',
-  'eval_suite',
+  'test_set',
   'trigger',
   'conversation',
   // Config (polymorphic scope)
@@ -59,7 +59,8 @@ export const ACTIONS = [
   'rotate',
   'fire',
   'cancel',
-  'promote',
+  // Pinning an agent, flow or tool version for a scope (the version in use there).
+  'pin',
   // Delegation: naming a principal as the one a trigger's runs act as.
   'act_as',
   // Running an agent in a project: asked of the project only
@@ -80,7 +81,7 @@ export const ACTION_TO_RELATION: Record<Action, string> = {
   rotate: 'can_rotate',
   fire: 'can_fire',
   cancel: 'can_cancel',
-  promote: 'can_promote',
+  pin: 'can_pin',
   act_as: 'can_act_as',
   call: 'can_call',
 };
@@ -98,11 +99,11 @@ export const OBJECT_ACTIONS: Record<ObjectType, readonly Action[]> = {
   // here — the account's lifecycle is its binding's, not an authz object's.
   service_account: ['act_as'],
 
-  agent: ['read', 'write', 'delete', 'admin', 'execute', 'publish', 'promote'],
-  flow: ['read', 'write', 'delete', 'admin', 'execute', 'publish'],
-  tool: ['read', 'write', 'delete', 'admin', 'invoke'],
+  agent: ['read', 'write', 'delete', 'admin', 'execute', 'publish', 'pin'],
+  flow: ['read', 'write', 'delete', 'admin', 'execute', 'publish', 'pin'],
+  tool: ['read', 'write', 'delete', 'admin', 'invoke', 'pin'],
   guardrail: ['read', 'write', 'delete', 'admin'],
-  eval_suite: ['read', 'write', 'delete', 'admin', 'execute', 'publish'],
+  test_set: ['read', 'write', 'delete', 'admin', 'execute', 'publish'],
   trigger: ['read', 'write', 'delete', 'admin', 'fire'],
   conversation: ['read', 'write', 'delete', 'admin'],
 
@@ -121,10 +122,10 @@ export const OBJECT_ACTIONS: Record<ObjectType, readonly Action[]> = {
  * action added there is a change on the wire.
  *
  * A project's `call` and `execute` are what running an agent, a flow or
- * an eval suite asks of the project the run is in, when the item is
+ * a test set asks of the project the run is in, when the item is
  * served by more than one project: `call` (an editor or a caller of the
  * project) for an agent, `execute` (an editor or an executor) for a flow
- * or a suite. They're the rights an item inherits from its project as
+ * or a test set. They're the rights an item inherits from its project as
  * `execute`, asked of the project itself.
  */
 export const CHECK_ONLY_ACTIONS: Partial<Record<ObjectType, readonly Action[]>> = {

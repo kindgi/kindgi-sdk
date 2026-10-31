@@ -311,7 +311,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SEED_USER_ID',
     description:
-      "The user the runtime's API token (`KINDGI_API_TOKEN`) acts as, made a tenant admin at every boot. Unset: the user that token had at an earlier boot (kept by the token's hash), or a new one the first time a token is used. Set it to keep one user across token changes.",
+      "The id, a UUID (read in lower case), of the user the runtime's API token (`KINDGI_API_TOKEN`) acts as, made a tenant admin at every boot. Unset: the user that token had at an earlier boot (kept by the token's hash), or a new one the first time a token is used. Set it to keep one user across token changes.",
     example: '00000000-0000-4000-8000-000000000002',
     required: false,
     appliesTo: appliesToServer,
@@ -821,7 +821,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_RUN_LEASE_MS',
     description:
-      "How long a run's executor lease lasts without renewal, in milliseconds. Every unfinished run and every running eval run holds one, renewed every quarter of this by the server executing it. When a server stops without a shutdown (killed, out of memory, a crash), their leases run out, and a server's sweep fails them: a run sending `run.finished`, an eval run ending `failed`, interrupted, with its finished cases kept. Default 300000 (5 minutes); at least 10000, or the server refuses to start. A shorter lease finds such runs sooner, at the cost of more renewals.",
+      "How long a run's executor lease lasts without renewal, in milliseconds. Every unfinished run and every running test run holds one, renewed every quarter of this by the server executing it. When a server stops without a shutdown (killed, out of memory, a crash), their leases run out, and a server's sweep fails them: a run sending `run.finished`, a test run ending `failed`, interrupted, with its finished cases kept. Default 300000 (5 minutes); at least 10000, or the server refuses to start. A shorter lease finds such runs sooner, at the cost of more renewals.",
     example: '300000',
     required: false,
     appliesTo: appliesToServer,
@@ -830,7 +830,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_RUN_SWEEP_INTERVAL_MS',
     description:
-      'How often each server sweeps for runs and eval runs whose executor lease ran out, in milliseconds. A run or eval run whose server stopped without a shutdown is failed within about `KINDGI_RUN_LEASE_MS` plus this. Default 60000; at least 1000, and shorter than `KINDGI_RUN_LEASE_MS`, or the server refuses to start.',
+      'How often each server sweeps for runs and test runs whose executor lease ran out, in milliseconds. A run or test run whose server stopped without a shutdown is failed within about `KINDGI_RUN_LEASE_MS` plus this. Default 60000; at least 1000, and shorter than `KINDGI_RUN_LEASE_MS`, or the server refuses to start.',
     example: '60000',
     required: false,
     appliesTo: appliesToServer,

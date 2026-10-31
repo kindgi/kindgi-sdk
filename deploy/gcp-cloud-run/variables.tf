@@ -57,7 +57,7 @@ variable "server_public" {
 }
 
 variable "server_min_instances" {
-  description = "Minimum server instances. At least 1: runs started with wait:false, improvement passes and eval runs keep running after the response, and need an instance (and CPU) to finish on."
+  description = "Minimum server instances. At least 1: runs started with wait:false, Improve runs and test runs keep running after the response, and need an instance (and CPU) to finish on."
   type        = number
   default     = 1
 
@@ -310,7 +310,7 @@ variable "database_point_in_time_days" {
 }
 
 variable "database_deletion_protection" {
-  description = "Keep Terraform from deleting Kindgi's database instance (Terraform's own deletion_protection). It doesn't stop a delete from the console, gcloud or the Cloud SQL API. With database_host_instance set there is no instance of our own, so this instead sets the deletion_policy of Kindgi's database object on the host instance: true keeps the data (ABANDON on a destroy or a database_name change), false deletes it (DELETE)."
+  description = "Keep Kindgi's database instance from being deleted. true sets both Terraform's own deletion_protection and Google's (settings.deletion_protection_enabled), which refuses a delete from the console, gcloud or the Cloud SQL API too. To take the instance down, set false and apply first: the apply turns Google's off, in place. With database_host_instance set there is no instance of our own, so this instead sets the deletion_policy of Kindgi's database object on the host instance: true keeps the data (ABANDON on a destroy or a database_name change), false deletes it (DELETE)."
   type        = bool
   default     = true
 }
