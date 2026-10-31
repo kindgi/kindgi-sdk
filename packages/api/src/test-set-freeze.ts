@@ -14,8 +14,8 @@ import {
 import type {
   CorrectedItemSummary,
   CorrectedTestCase,
-  EvalCaseStoreBinding,
-} from './eval-case-binding.js';
+  FrozenCaseStoreBinding,
+} from './frozen-case-binding.js';
 import type { TestCase } from './test-case-binding.js';
 import {
   type FreezeTestSetInput,
@@ -32,7 +32,7 @@ export interface CreateTestSetFreezeOptions {
   /** Where the frozen versions are published. */
   readonly testSets: TestSetRegistryBinding;
   /** Where a frozen version's cases are stored. */
-  readonly cases: EvalCaseStoreBinding;
+  readonly cases: FrozenCaseStoreBinding;
 }
 
 /**
@@ -210,7 +210,7 @@ async function answersAgain(
   newest: TestSetRecord,
   input: FreezeTestSetInput,
   fingerprint: string,
-  cases: EvalCaseStoreBinding,
+  cases: FrozenCaseStoreBinding,
   live: readonly TestCase[],
 ): Promise<boolean> {
   assertAgentsOwn(newest, input.agentId, input.projectId);
@@ -219,7 +219,7 @@ async function answersAgain(
 
 /** A version made for these cases has them, unless storing them failed after it was published. */
 async function hasCases(
-  cases: EvalCaseStoreBinding,
+  cases: FrozenCaseStoreBinding,
   record: TestSetRecord,
   live: readonly TestCase[],
 ): Promise<boolean> {

@@ -148,7 +148,7 @@
     },
     {
       "name": "test-sets",
-      "description": "Test set catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: test-run execution + per-kind grader dispatch live on the `test-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `corrections`). The cases of a `corrections` test set are copies of corrected runs, built before an agent's corrections were its test set (`/v1/agents/{agentId}/test-set`); they're read at `GET .../versions/{version}/cases` (`EvalCaseStoreBinding`), and `GET /v1/test-sets` doesn't list them. Runs against these test sets are started through the `test-runs` tag. Caller-plugged via `TestSetRegistryBinding`."
+      "description": "Test set catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: test-run execution + per-kind grader dispatch live on the `test-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `corrections`). The cases of a `corrections` test set are copies of corrected runs, built before an agent's corrections were its test set (`/v1/agents/{agentId}/test-set`); they're read at `GET .../versions/{version}/cases` (`FrozenCaseStoreBinding`), and `GET /v1/test-sets` doesn't list them. Runs against these test sets are started through the `test-runs` tag. Caller-plugged via `TestSetRegistryBinding`."
     },
     {
       "name": "blocks",

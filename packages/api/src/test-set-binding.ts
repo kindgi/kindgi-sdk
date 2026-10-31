@@ -108,7 +108,7 @@ export const TEST_SET_KINDS = [
   'human-review',
   'benchmark',
   'custom',
-  /** Built from corrections of past runs: cases are copies of corrected runs (`EvalCaseStoreBinding`). */
+  /** Built from corrections of past runs: cases are copies of corrected runs (`FrozenCaseStoreBinding`). */
   'corrections',
 ] as const;
 export type TestSetKind = (typeof TEST_SET_KINDS)[number];
