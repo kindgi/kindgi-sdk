@@ -402,9 +402,7 @@ saved:
 - **Nothing wrong** is `fixed`, as `recorded-right`.
 
 To sort your users' corrections like the others, turn on the project's
-`sortEndUserCorrections`, with `admin` on the project. A schedule that counts
-every correction (`groupWeights` `as-recorded`) then counts them toward its
-threshold too. It applies to corrections saved after you turn it on:
+`sortEndUserCorrections`, with `admin` on the project:
 
 ```sh
 curl -X PATCH "$KINDGI_API_URL/v1/projects/<project-id>" \
@@ -416,6 +414,11 @@ In TypeScript, that's
 `kindgi.projects.update(projectId, { sortEndUserCorrections: true })`, and in
 Python, `kindgi.projects.update(project_id, sort_end_user_corrections=True)`.
 A project reads it back as `sortEndUserCorrections`, `false` until it's on.
+
+Sorting applies to the corrections saved after you turn it on. A schedule
+that counts every correction (`groupWeights` `as-recorded`) counts your
+users' corrections while it's on: at its next check, every one since its
+last run, older ones included. While it's off, the schedule leaves them out.
 
 A person then moves it on. With `publish` on the agent,
 `corrections.change` re-sorts it, changes its status, or both. Here a

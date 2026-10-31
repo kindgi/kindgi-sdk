@@ -18,7 +18,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   (`sortEndUserCorrections`), off by default, and
   `projects.update(project_id, sort_end_user_corrections=True)` turns it on (admin on
   the project). While it's on, an end user's correction saved after that is sorted
-  like the others, and a schedule counting every correction counts it.
+  like the others, and a schedule counting every correction counts end users'
+  corrections: at its next check, every one since its last run, older ones included.
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
   judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
   judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator

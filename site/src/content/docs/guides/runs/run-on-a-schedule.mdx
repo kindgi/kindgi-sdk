@@ -558,6 +558,8 @@ note would say "answers marked wrong" and "people who corrected".
   threshold only when the project sorts them like the others
   ([`sortEndUserCorrections`](../../improve/correct-a-runs-output/#where-a-correction-goes))
   and the schedule counts every correction (`groupWeights` `as-recorded`).
+  The count follows the setting: once it's on, the next check counts every
+  one since the schedule's last run, older ones included.
 - **A monthly cap:** once the schedule's Improve runs this month, in UTC,
   have cost `monthlyCapUsd`, its fires are skipped until the next month. An
   Improve run's budget is never more than what's left of it. Its cost counts
