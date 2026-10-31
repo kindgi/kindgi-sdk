@@ -117,12 +117,16 @@ createServer(async (req, res) => {
     res.writeHead(401).end();
     return;
   }
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
-  const { runId, up, why } = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<
-    string,
-    unknown
-  >;
+  let body: { readonly runId?: unknown; readonly up?: unknown; readonly why?: unknown };
+  try {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk as Buffer);
+    body = JSON.parse(Buffer.concat(chunks).toString('utf8')) ?? {};
+  } catch {
+    res.writeHead(400).end(); // not JSON
+    return;
+  }
+  const { runId, up, why } = body;
   if (typeof runId !== 'string' || typeof up !== 'boolean' || !shownTo.get(userId)?.has(runId)) {
     res.writeHead(400).end();
     return;
@@ -135,8 +139,12 @@ createServer(async (req, res) => {
       ...(typeof why === 'string' && why !== '' && { why }),
     });
   } catch (err) {
-    if (!(err instanceof KindgiApiError) || err.error.code !== 'invalid-request') throw err;
-    res.writeHead(422).end(err.error.message); // a thumbs down with no words, say
+    if (err instanceof KindgiApiError && err.error.code === 'invalid-request') {
+      res.writeHead(422).end(err.error.message); // a thumbs down with no words, say
+    } else {
+      console.error(err);
+      res.writeHead(502).end();
+    }
     return;
   }
   res.writeHead(204).end();
@@ -245,7 +253,7 @@ shows.
 ## See the thumbs
 
 Your users' thumbs are corrections like any other. In the console, a run's
-**Corrections** tab lists them, each with its `participantId`. From the CLI,
+**Corrections** tab lists them as from an end user in your app. From the CLI,
 `kindgi corrections list --participant=<your-user-id>` lists one user's.
 [See the corrections](../correct-a-runs-output/#see-the-corrections) has the
 other filters.
