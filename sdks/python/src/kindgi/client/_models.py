@@ -336,7 +336,7 @@ class Cases(BaseModel):
     """
     no_new_failures: Annotated[bool | None, Field(alias="noNewFailures")] = None
     """
-    No case that passed before fails: none of the comparison's corrections that are `fixed` now fails it.
+    No case that passed before fails: none of the comparison's corrections that are `fixed` now fails it. One the comparison didn't grade isn't counted; the check's message says how many of the cases fixed now it graded.
     """
 
 

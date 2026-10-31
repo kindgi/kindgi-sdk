@@ -59,7 +59,8 @@ export interface ReleaseGateSpec {
     readonly minPassing?: number;
     /**
      * No case that passed before fails: none of the comparison's
-     * corrections that are `fixed` now fails it.
+     * corrections that are `fixed` now fails it. One the comparison
+     * didn't grade isn't counted.
      */
     readonly noNewFailures?: boolean;
   };

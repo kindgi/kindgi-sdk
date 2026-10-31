@@ -454,11 +454,12 @@ function noNewFailuresCheck(
         "The test run doesn't say how each case did (it was recorded before that was kept): run it again.",
     };
   }
-  const { checked, caseIds } = newlyFailing(graded?.results ?? [], new Set(passedBefore));
+  const before = new Set(passedBefore);
+  const { checked, caseIds } = newlyFailing(graded?.results ?? [], before);
   return {
     name,
     passed: caseIds.length === 0,
-    message: noNewFailuresMessage(checked, caseIds),
+    message: noNewFailuresMessage(checked, before.size, caseIds),
     value: caseIds.length,
     threshold: 0,
     caseIds,
@@ -484,15 +485,21 @@ function newlyFailing(
   return { checked: checked.size, caseIds: [...failing] };
 }
 
-function noNewFailuresMessage(checked: number, caseIds: readonly string[]): string {
+/**
+ * What the check found, always with how many of the cases fixed now the
+ * run graded: one it didn't grade isn't counted either way.
+ */
+function noNewFailuresMessage(checked: number, fixed: number, caseIds: readonly string[]): string {
+  if (fixed === 0) return 'No case is fixed now, so none that passed before can fail.';
+  const of = `${checked === 0 ? 'none' : checked} of the ${count(fixed, 'case')} fixed now`;
   if (caseIds.length > 0) {
     const listed = caseIds.slice(0, LISTED_CASES).join(', ');
     const more = caseIds.length - LISTED_CASES;
     const verb = caseIds.length === 1 ? 'fails' : 'fail';
-    return `${count(caseIds.length, 'case')} that passed before ${verb} now: ${listed}${more > 0 ? `, and ${more} more` : ''}.`;
+    return `${count(caseIds.length, 'case')} that passed before ${verb} now: ${listed}${more > 0 ? `, and ${more} more` : ''}. The test run checked ${of}.`;
   }
-  if (checked === 0) return 'The test run checked no case that passed before.';
-  return `${count(checked, 'case')} that passed before ${checked === 1 ? 'still passes' : 'all still pass'}.`;
+  if (checked === 0) return `The test run checked ${of}.`;
+  return `The test run checked ${of}, and ${checked === 1 ? 'it still passes' : 'they all still pass'}.`;
 }
 
 function metricLabel(name: GateMetricName, metric: ComparisonMetric): string {

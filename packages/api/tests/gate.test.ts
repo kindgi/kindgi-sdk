@@ -330,7 +330,8 @@ describe('cases', () => {
     expect(check(r, 'cases.noNewFailures')).toEqual({
       name: 'cases.noNewFailures',
       passed: false,
-      message: '1 case that passed before fails now: c-2.',
+      message:
+        '1 case that passed before fails now: c-2. The test run checked 2 of the 3 cases fixed now.',
       value: 1,
       threshold: 0,
       caseIds: ['c-2'],
@@ -345,7 +346,7 @@ describe('cases', () => {
     );
     expect(check(one, 'cases.noNewFailures')).toMatchObject({
       passed: true,
-      message: '1 case that passed before still passes.',
+      message: 'The test run checked 1 of the 1 case fixed now, and it still passes.',
       caseIds: [],
     });
     const many = gate(
@@ -353,7 +354,7 @@ describe('cases', () => {
       { summary: graded(passes(['c-1', 'c-2'])), passedBefore: ['c-1', 'c-2'] },
     );
     expect(check(many, 'cases.noNewFailures')?.message).toBe(
-      '2 cases that passed before all still pass.',
+      'The test run checked 2 of the 2 cases fixed now, and they all still pass.',
     );
     const none = gate(
       { cases: { noNewFailures: true } },
@@ -361,8 +362,32 @@ describe('cases', () => {
     );
     expect(check(none, 'cases.noNewFailures')).toMatchObject({
       passed: true,
-      message: 'The test run checked no case that passed before.',
+      message: 'The test run checked none of the 1 case fixed now.',
       caseIds: [],
+    });
+  });
+
+  test("noNewFailures: a case fixed now that the run didn't grade isn't counted, and the message says how many it graded", () => {
+    const ungraded = gate({ cases: { noNewFailures: true } }, { passedBefore: ['c-1', 'c-2'] });
+    expect(check(ungraded, 'cases.noNewFailures')).toMatchObject({
+      passed: true,
+      message: 'The test run checked none of the 2 cases fixed now.',
+      caseIds: [],
+    });
+    const some = gate(
+      { cases: { noNewFailures: true } },
+      { summary: graded(passes(['c-1'])), passedBefore: ['c-1', 'c-2', 'c-3'] },
+    );
+    expect(check(some, 'cases.noNewFailures')?.message).toBe(
+      'The test run checked 1 of the 3 cases fixed now, and it still passes.',
+    );
+    const nothingFixed = gate(
+      { cases: { noNewFailures: true } },
+      { summary: graded(fails(['c-1'])), passedBefore: [] },
+    );
+    expect(check(nothingFixed, 'cases.noNewFailures')).toMatchObject({
+      passed: true,
+      message: 'No case is fixed now, so none that passed before can fail.',
     });
   });
 
@@ -387,7 +412,8 @@ describe('cases', () => {
       { summary: graded(fails(ids)), passedBefore: ids },
     );
     expect(check(r, 'cases.noNewFailures')).toMatchObject({
-      message: '7 cases that passed before fail now: c-1, c-2, c-3, c-4, c-5, and 2 more.',
+      message:
+        '7 cases that passed before fail now: c-1, c-2, c-3, c-4, c-5, and 2 more. The test run checked 7 of the 7 cases fixed now.',
       caseIds: ids,
     });
   });
