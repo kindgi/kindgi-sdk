@@ -232,7 +232,7 @@ import type { SessionStoreBinding } from './session-store-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from './signing-key-binding.js';
 import type { SiteBinding } from './site-binding.js';
 import type { SupervisorBinding } from './supervisor-binding.js';
-import { ONE_TENANT_SYSTEM_SCOPES } from './system.js';
+import { oneTenantSystemScopes } from './system.js';
 import type { TenantHostAccess } from './tenant-host-access.js';
 import type { TokenAdmin } from './token-admin.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
@@ -649,12 +649,15 @@ export interface CreateAppInput {
   readonly systemKeys?: SystemKeysBinding;
   /**
    * Optional. Each deployment's own pack service (per-deployment routing):
-   * `GET /v1/system/deployments` for whatever runs those services, and,
-   * under each tenant, its deployments' endpoint, problem and pack
-   * suspension. Only a system principal reaches them, so on a runtime
-   * serving one tenant nothing does (its server refuses per-deployment
-   * routing there). Mounted only with `systemTenantDirectory` too;
-   * without them the routes aren't mounted (404).
+   * `GET /v1/system/deployments` and its round for whatever runs those
+   * services, and, under each tenant, its deployments' endpoint, problem,
+   * pack env and pack suspension. Only a system principal reaches them.
+   * Serving one tenant, that's a system key holding the orchestrator's
+   * scopes, which the deployment's own token mints then; the pack
+   * suspension takes `system:suspend`, which it never mints, and the fence
+   * lets no key reach it. The access record (`systemAccessAudit`) is
+   * required. Mounted only with `systemTenantDirectory` too; without them
+   * the routes aren't mounted (404).
    */
   readonly systemDeployments?: SystemDeploymentsOptions;
   /**
@@ -1454,6 +1457,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       "createApp: a runtime serving many tenants needs systemAccessAudit, the record of every request the operator's system keys make",
     );
   }
+  // Serving one tenant, the orchestrator's key records endpoints: on record too.
+  if (input.systemDeployments !== undefined && input.systemAccessAudit === undefined) {
+    throw new Error(
+      "createApp: systemDeployments needs systemAccessAudit, the record of every request the orchestrator's system key makes",
+    );
+  }
   // A limit that isn't one would refuse every policy, or none.
   for (const [domain, limit] of Object.entries(input.retentionLimits ?? {})) {
     if (domain === '*' || !(RETENTION_DOMAINS as readonly string[]).includes(domain)) {
@@ -1562,6 +1571,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
 
   // ---------- authenticated `/v1/*` routes ----------
   const v1 = new Hono<AppEnv>();
+  // Whether each deployment's pack service is run by an orchestrator through `/v1/system/*`.
+  const deploymentsMounted =
+    input.systemDeployments !== undefined && input.systemTenantDirectory !== undefined;
   const sessionCfg = input.session;
   const inactivityTimeoutMs = sessionCfg?.inactivityTimeout;
   v1.use(
@@ -1615,6 +1627,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.systemAccessAudit !== undefined && { audit: input.systemAccessAudit }),
       ...(authorizer !== undefined && { authorizer }),
       ...(input.tenancy !== undefined && { tenancy: input.tenancy }),
+      servesDeployments: deploymentsMounted,
     }),
   );
   // A closing or suspended tenant reads, exports and deletes; nothing else.
@@ -1959,8 +1972,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route(
       '/system/keys',
       systemKeysRouter(input.systemKeys, authorizer, {
-        // Serving one tenant, a system key is the license renewal's alone.
-        ...(input.tenancy !== 'multi' && { mintable: ONE_TENANT_SYSTEM_SCOPES }),
+        // Serving one tenant, a system key is the license renewal's, or,
+        // with a pack service per deployment, its orchestrator's.
+        ...(input.tenancy !== 'multi' && { mintable: oneTenantSystemScopes(deploymentsMounted) }),
       }),
     );
   }
