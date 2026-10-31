@@ -19,6 +19,9 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$HERE/../upgrade.sh"
 [[ -f $SCRIPT ]] || { echo "can't find $SCRIPT" >&2; exit 1; }
+# The module's declarations, which the terraform stub's console checks the
+# var files against.
+export STUB_MODULE_DIR="$HERE/.."
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -86,9 +89,34 @@ STUB
 cat >"$BIN/terraform" <<'STUB'
 #!/usr/bin/env bash
 printf 'terraform %s\n' "$*" >>"${STUB_CALLS_LOG:-/dev/null}"
+# Real terraform console prints a warning on stdout, ahead of the value, for
+# each variable a var file sets that its config ($2) doesn't declare. Each is
+# logged to STUB_WARNED as "<$1> <name>".
+warn_undeclared() {
+  local read="$1" decl="$2" f n names; shift 2
+  for f in "$@"; do
+    if [[ $f == *.json ]]; then names="$(jq -r 'keys[]' "$f")"
+    else names="$(sed -nE 's/^([A-Za-z_][A-Za-z0-9_-]*)[[:space:]]*=.*/\1/p' "$f")"; fi
+    for n in $names; do
+      if grep -qE "^variable \"$n\" " "$decl"/*.tf; then continue; fi
+      printf '%s %s\n' "$read" "$n" >>"${STUB_WARNED:-/dev/null}"
+      printf '\nWarning: Value for undeclared variable\n\nThe root module does not declare a variable named "%s" but a value was\nfound in file "%s". If you meant to use this value, add a "variable" block\nto the configuration.\n\nTo silence these warnings, use TF_VAR_... environment variables to provide\ncertain "global" settings to all configurations in your organization. To\nreduce the verbosity of these warnings, use the -compact-warnings option.\n' "$n" "$f"
+    done
+  done
+}
 case "${1:-}" in
   output) printf '%s' "${STUB_TF_OUTPUTS:-}"; exit 0 ;;
-  console) cat >/dev/null; printf '%s\n' "${STUB_TF_VARS_RAW:-}"; exit 0 ;;
+  console)
+    # From the module's directory: the files Terraform loads on its own, then
+    # each -var-file.
+    shift; cat >/dev/null
+    files=()
+    for f in terraform.tfvars terraform.tfvars.json *.auto.tfvars *.auto.tfvars.json; do
+      if [[ -f $f ]]; then files+=("$f"); fi
+    done
+    for a in "$@"; do files+=("${a#-var-file=}"); done
+    warn_undeclared console "$STUB_MODULE_DIR" ${files[@]+"${files[@]}"}
+    printf '%s\n' "${STUB_TF_VARS_RAW:-}"; exit 0 ;;
   -chdir=*)
     # The variables 0.4.0 took out, read in a config of their own that only
     # declares them: from the files given, by absolute path (the config is
@@ -117,6 +145,7 @@ case "${1:-}" in
         if [[ -n $p ]]; then vals="$(jq -c --arg p "$p" '.pack_image = $p' <<<"$vals")"; fi
       fi
     done
+    warn_undeclared removed "$dir" "${@#-var-file=}"
     jq -n --argjson v "$vals" '$v | tojson'
     exit 0 ;;
   plan)
@@ -265,6 +294,7 @@ reset_env() {
   export STUB_JOBS_LOG="$CASE_DIR/jobs.log"
   export STUB_JOB_ENV_SAW="$CASE_DIR/job-env"
   export STUB_CALLS_LOG="$CASE_DIR/calls.log"
+  export STUB_WARNED="$CASE_DIR/warned"
   export STUB_REMOVED_SAW="$CASE_DIR/removed-saw"
   export DOCKER_CONFIG="$CASE_DIR/docker"
   mkdir -p "$DOCKER_CONFIG"
@@ -1788,6 +1818,24 @@ run "yes" --dry-run
 assert_rc 0 "a dry run exits 0"
 if grep -qxF "console -var-file=$CASE_DIR/dev.tfvars" "$STUB_REMOVED_SAW"; then pass
 else fail "the removed variables' read didn't get an absolute path: $(cat "$STUB_REMOVED_SAW")"; fi
+
+# 81. Real terraform console prints a warning on stdout, ahead of the value,
+# for each variable a var file sets that its config doesn't declare: on a
+# switch, the module's read warns for pack_image, and the removed variables'
+# read for the module's own. The value is console's last line, so the switch
+# reaches its plan.
+case_start "a switch whose var file still sets pack_image, past console's warnings"
+reset_env "$OLD_PACK"; unset STUB_PACK_BEFORE
+export STUB_TAGS="0.3.1" STUB_PLAN_CHANGES="$SWITCH_PLAN" STUB_SERVER_ENV="$SWITCH_SERVER_ENV"
+run "yes"
+assert_rc 0 "it runs"
+assert_file_has "$STUB_WARNED" "console pack_image" "the module's read warned"
+assert_file_has "$STUB_WARNED" "removed project_id" "the removed variables' read warned"
+assert_file_has "$STUB_WARNED" "removed server_image" "the removed variables' read warned"
+if grep -q "^removed pack_image" "$STUB_WARNED"; then fail "the removed variables' read warned for pack_image"; else pass; fi
+assert_file_has "$STUB_PLAN_SAW" "$NEW_IMAGE" "the plan read the new image"
+assert_out "nothing to build: the apply deletes the one pack service"
+assert_out "plan check: it changes the image(s), and only what the releases crossed change."
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

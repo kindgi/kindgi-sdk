@@ -564,11 +564,13 @@ KEY_VAULT="$(jq -r '.key_vault_name.value // empty' "$TF_OUT")"
 
 # One terraform console call returns the variables, and the ids the az
 # calls need, as a JSON object. console renders jsonencode()'s string with
-# HCL quoting, so `jq fromjson` unwraps it.
+# HCL quoting, so `jq fromjson` unwraps it. Its warnings, such as one for
+# each variable a var file sets that the module doesn't declare, come on
+# stdout ahead of the value, so the value is its last line.
 VARS_EXPR='jsonencode({subscription_id=var.subscription_id, resource_group_name=var.resource_group_name, name_prefix=var.name_prefix, database_name=var.database_name, database_url_version=var.database_url_version, server_image=var.server_image, pack_image=var.pack_image, vault_uri=azurerm_key_vault.kindgi.vault_uri, server_identity=azurerm_user_assigned_identity.server.id, environment_id=azurerm_container_app_environment.kindgi.id, workspace_id=azurerm_log_analytics_workspace.kindgi.workspace_id, database_subnet_id=local.database_subnet_id, database_dns_zone_id=local.database_dns_zone_id})'
 VARS_RAW="$(terraform console "${TF_VAR_FILE_ARGS[@]}" <<<"$VARS_EXPR" 2>"$WORK/console.err")" \
   || die "couldn't read the module's variables with 'terraform console'. $(cat "$WORK/console.err")"
-VARS="$(jq 'fromjson' <<<"$VARS_RAW")" \
+VARS="$(jq 'fromjson' <<<"${VARS_RAW##*$'\n'}")" \
   || die "couldn't parse the module's variables from terraform console."
 
 SUBSCRIPTION="$(jq -r '.subscription_id' <<<"$VARS")"

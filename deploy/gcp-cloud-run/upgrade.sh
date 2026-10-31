@@ -579,10 +579,13 @@ SERVER_URL="$(jq -r '.server_url.value // empty' "$TF_OUT")"
 
 # One terraform console call returns the variables as a JSON object. console
 # renders jsonencode()'s string with HCL quoting, so `jq fromjson` unwraps it.
+# Its warnings, such as one for each variable a var file sets that the module
+# doesn't declare, come on stdout ahead of the value, so the value is its
+# last line.
 VARS_EXPR='jsonencode({project_id=var.project_id, region=var.region, name_prefix=var.name_prefix, network_mode=var.network_mode, vpc_connector=var.vpc_connector, database_private_network=var.database_private_network, database_host_instance=var.database_host_instance, database_name=var.database_name, secrets_backend=var.secrets_backend, secrets_aad_key_version=var.secrets_aad_key_version, tenancy=var.tenancy, seed_tenant_id=var.seed_tenant_id, server_image=var.server_image, database_instance=var.database_instance, orchestrator_key_version=var.orchestrator_key_version, server_env_names=keys(var.server_env), server_secret_env_names=keys(var.server_secret_env), pack_endpoint_hosts=lookup(var.server_env, "KINDGI_PACK_ENDPOINT_HOSTS", "")})'
 VARS_RAW="$(terraform console "${TF_VAR_FILE_ARGS[@]}" <<<"$VARS_EXPR" 2>"$WORK/console.err")" \
   || die "couldn't read the module's variables with 'terraform console'. $(cat "$WORK/console.err")"
-VARS="$(jq 'fromjson' <<<"$VARS_RAW")" \
+VARS="$(jq 'fromjson' <<<"${VARS_RAW##*$'\n'}")" \
   || die "couldn't parse the module's variables from terraform console."
 
 PROJECT="$(jq -r '.project_id' <<<"$VARS")"
@@ -613,7 +616,9 @@ SERVER_SERVICE="${NAME_PREFIX}-server"
 # terraform.tfvars.json and the *.auto.tfvars(.json) files in name order, then
 # each --var-file. Terraform only warns about a file's value for a variable
 # the config doesn't declare, so the module's own plan takes the same files.
-# pack_env's names alone are read, never its values.
+# Here those warnings come every time, for the module's own variables, and
+# the value is again console's last line. pack_env's names alone are read,
+# never its values.
 REMOVED_DIR="$WORK/removed-variables"
 mkdir "$REMOVED_DIR"
 cat >"$REMOVED_DIR/variables.tf" <<'EOT'
@@ -655,7 +660,7 @@ REMOVED_RAW="$(terraform -chdir="$REMOVED_DIR" console "${REMOVED_ARGS[@]}" \
   <<<'jsonencode({pack_image=var.pack_image, pack_min_instances=var.pack_min_instances, pack_env_names=keys(var.pack_env), pack_secret_env=var.pack_secret_env})' \
   2>"$WORK/removed.err")" \
   || die "couldn't read the variables 0.4.0 took out (pack_image, pack_min_instances, pack_env, pack_secret_env) with 'terraform console'. $(cat "$WORK/removed.err")"
-REMOVED="$(jq 'fromjson' <<<"$REMOVED_RAW")" \
+REMOVED="$(jq 'fromjson' <<<"${REMOVED_RAW##*$'\n'}")" \
   || die "couldn't parse the variables 0.4.0 took out from terraform console."
 OLD_PACK_IMAGE="$(jq -r '.pack_image' <<<"$REMOVED")"
 OLD_PACK_MIN_INSTANCES="$(jq -r '.pack_min_instances' <<<"$REMOVED")"

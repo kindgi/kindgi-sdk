@@ -1387,13 +1387,14 @@ names in them and never a value. By hand, along with steps 5 to 8 above:
   `KINDGI_ENV_CLOUD_SECRETS`. Its plan refuses them there. Leave the four
   pack variables in the var file until the second apply (step 2 below).
   With `"multi"`, stop your own orchestrator.
-- **The plan** deletes the pack service, its token's secret and their
-  grants. It makes the orchestrator's account, its grants and its key's
-  secret, the server's right to invoke the project's services, and, with
-  `secrets_backend = "none"`, the KMS key the pack services' tokens are
-  sealed under. In the server's env, the routing settings take the place
-  of `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and
-  `KINDGI_PACK_SERVICE_AUTH`.
+- **The plan**, with the one pack service, deletes it, its token's
+  secret and their grants. It makes the orchestrator's account, its grants
+  and its key's secret, the server's right to invoke the project's
+  services, and, with `secrets_backend = "none"`, the KMS key the pack
+  services' tokens are sealed under. In the server's env, the module's
+  routing settings take the place of `KINDGI_PACK_SERVICE_URL`,
+  `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` (with
+  `"multi"`, of the ones you took out of `server_env`).
 - **From the apply until each pack is deployed again,** calls to a
   deployed pack's tools are refused: `pack-route-missing`, then, for about
   a minute, `pack-endpoint-pending`. Pick a quiet hour.
