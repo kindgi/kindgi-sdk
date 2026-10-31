@@ -9267,32 +9267,34 @@ class PackEnvProblem(BaseModel):
     """
 
 
-class DeploymentEndpoint(BaseModel):
+class DeploymentKeptFor(BaseModel):
     """
-    Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise, and for a deployment that ships nothing a pack service serves (no tool, and no guardrail check but built-in ones: a pack of agents and flows only), which needs none. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); it carries `waiting` or `retired` to say whether it comes back. Carries no URL and no token.
+    One thing a build's pack service is kept for. To let the build go, unregister it: `kindgi tools|agents|flows unregister <id> <version>`, `kindgi guardrails unregister <id>`.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    status: Annotated[Literal["pending", "ready", "cleared"] | str, _open.OPEN]
-    since: AwareDatetime
+    kind: str
     """
-    When the status last changed.
+    `tool`: a tool version this build is the newest into its project to route, still registered or held; a tool deployed without a version has no `version` and neither flag, and is kept until a newer deployment into the project ships the tool. `agent`, `flow`: a version this build is the newest into its project to ship or carry, still registered or held. `guardrail`: a registered guardrail that runs a pack check this build is the newest into its project to route; it has no `version`. A later runtime may add kinds, so treat an unknown one as a kind not yet named.
     """
-    problem: DeploymentEndpointProblem | None = None
-    waiting: Literal[True] | None = None
+    id: str
     """
-    `cleared` only: a pack service is wanted for it again, as once a suspension that took its service down is lifted, and it lists as needing one; `problem` says why it isn't back yet. A `cleared` endpoint carries this or `retired`, never both. Absent from older servers, which send neither.
+    The tool, agent, flow or guardrail id.
     """
-    retired: str | None = None
+    version: str | None = None
     """
-    `cleared` only: why no pack service is wanted for it now. `superseded` is for good: newer deployments ship every tool version and check it does, so no new call reaches it; a tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.
+    The version kept for. Absent for a guardrail, or a tool deployed without one.
     """
-    pack_env_problem: Annotated[PackEnvProblem | None, Field(alias="packEnvProblem")] = None
+    registered: Literal[True] | None = None
     """
-    `ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say, or a secret can't be given), or didn't start (`pack-env-update-failed`). Gone once they can, or do. For a name that can't be given, `GET /v1/deployments/{deploymentId}/pack-env` names it. Absent from older servers.
+    The version (or guardrail) is registered.
+    """
+    held: Literal[True] | None = None
+    """
+    A pin or a run that hasn't finished uses the version. Unregistering it then lets the build go only once the pin's own version is unregistered or the run finishes. Sent beside `registered` when both are true.
     """
 
 
@@ -16706,6 +16708,43 @@ class DeploymentContents(BaseModel):
     """
 
 
+class DeploymentEndpoint(BaseModel):
+    """
+    Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise, and for a deployment that ships nothing a pack service serves (no tool, and no guardrail check but built-in ones: a pack of agents and flows only), which needs none. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`); it carries `waiting` or `retired` to say whether it comes back. Carries no URL and no token.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    status: Annotated[Literal["pending", "ready", "cleared"] | str, _open.OPEN]
+    since: AwareDatetime
+    """
+    When the status last changed.
+    """
+    problem: DeploymentEndpointProblem | None = None
+    waiting: Literal[True] | None = None
+    """
+    `cleared` only: a pack service is wanted for it again, as once a suspension that took its service down is lifted, and it lists as needing one; `problem` says why it isn't back yet. A `cleared` endpoint carries this or `retired`, never both. Absent from older servers, which send neither.
+    """
+    retired: str | None = None
+    """
+    `cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: each tool version, pack check, agent and flow version it serves is unregistered and not held (a check: no registered guardrail runs it), or a newer deployment into its project serves it. Registering one of its versions again makes it needed again (from Kindgi 0.4.0; before, it was for good: newer deployments shipped every tool version and check it does). A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.
+    """
+    pack_env_problem: Annotated[PackEnvProblem | None, Field(alias="packEnvProblem")] = None
+    """
+    `ready` only: the pack service runs on the values it was last given, because the newest can't be given to it (a required one was removed, say, or a secret can't be given), or didn't start (`pack-env-update-failed`). Gone once they can, or do. For a name that can't be given, `GET /v1/deployments/{deploymentId}/pack-env` names it. Absent from older servers.
+    """
+    kept_for: Annotated[list[DeploymentKeptFor] | None, Field(alias="keptFor")] = None
+    """
+    What keeps this build's pack service, whatever its status, in kind, id, then version order. `[]` when nothing does: it's retired (`superseded`), or retired next. A suspended build has `retired` and still lists what keeps it, since its service comes back when the suspension lifts. On a list page, the first 20 entries, with `keptForTotal`; a get of one deployment gives them all. Absent when builds aren't counted (one service serves every build), and from a runtime before Kindgi 0.4.0.
+    """
+    kept_for_total: Annotated[int | None, Field(alias="keptForTotal", ge=0)] = None
+    """
+    On a list page, with `keptFor`: how many entries there are, of which `keptFor` holds the first 20. A get of one deployment doesn't send it.
+    """
+
+
 class DeploymentRecord(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -16869,6 +16908,10 @@ class DeploymentCollectionPage(BaseModel):
     pack_id: Annotated[str | None, Field(alias="packId")] = None
     """
     The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `packId` and lists them all.
+    """
+    kept_builds: Annotated[int | None, Field(alias="keptBuilds", ge=0)] = None
+    """
+    How many builds keep a pack service among the deployments the project filter selects, whatever the page and the other filters: those whose `endpoint.keptFor` isn't empty. With `?projectId=`, that project's (the Default's counts the deployments that name no project); without, the total over the tenant's projects the caller may read. Absent when builds aren't counted (one service serves every build), and from a runtime before Kindgi 0.4.0.
     """
 
 
