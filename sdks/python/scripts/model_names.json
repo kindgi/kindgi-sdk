@@ -660,6 +660,7 @@
   "PackEnvScope": ["PackEnvScope"],
   "PackEnvSecretValue": ["PackEnvSecretValue"],
   "PackSuspension": ["PackSuspension"],
+  "Parts": ["ComparisonCaseResultCorrection.parts"],
   "PatchMailTriggerBody": ["PatchMailTriggerBody"],
   "PatchMailTriggerBodyConfig": ["PatchMailTriggerBodyConfig"],
   "PatchScheduleBody": ["PatchScheduleBody"],
