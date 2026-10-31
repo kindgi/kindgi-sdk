@@ -82,11 +82,7 @@ export type {
   ProposalsListInput,
   WithdrawInput,
 } from './resources/proposals.js';
-export type {
-  ObservationFilter,
-  ObservationsClient,
-  PatternsInput,
-} from './resources/observations.js';
+export type { ObservationFilter, ObservationsClient } from './resources/observations.js';
 export type { Transport, TransportRequest } from './transport.js';
 export type {
   ApprovalFilter,
