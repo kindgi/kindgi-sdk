@@ -1,6 +1,6 @@
 ---
 title: Run a pack service for each deployment on Cloud Run
-description: Give each deployment its own Cloud Run pack service with kindgi-runtime packs orchestrate. What one pass does, its settings, what its account calls, and what every pack service shares.
+description: Give each deployment its own Cloud Run pack service with kindgi-runtime packs orchestrate. What one pass does, how to run it once a minute, its settings, the roles to grant, and what every pack service shares.
 sidebar:
   order: 3.95
 ---
@@ -51,8 +51,35 @@ describes by hand.
    destroyed.
 6. **Ends the round.**
 
-Each pass stops sending anything a minute before its round ends. What it
-didn't reach, the next pass does.
+A round is held for ten minutes. In its last minute a pass sends nothing,
+waits for nothing and starts nothing, so it has returned before another pass
+can claim the round. A Cloud Run operation still running then is left: the
+next pass finishes or replaces what it made. What a pass didn't reach, the
+next one does.
+
+## Running it once a minute
+
+As a Cloud Run Job, from the runtime image, run by Cloud Scheduler:
+
+```sh
+gcloud run jobs create kindgi-pack-orchestrator --region=<region> \
+  --image="<the runtime image>@sha256:<digest>" \
+  --service-account=<the Job's account> \
+  --args=packs,orchestrate --task-timeout=600s --max-retries=0 \
+  --set-env-vars=KINDGI_ORCHESTRATOR_RUNTIME_URL=<runtime URL>,KINDGI_ORCHESTRATOR_PROJECT=<project>,KINDGI_ORCHESTRATOR_REGION=<region>,KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT=<pack service account> \
+  --set-secrets=KINDGI_ORCHESTRATOR_SYSTEM_KEY=<system key secret>:latest
+gcloud scheduler jobs create http kindgi-pack-orchestrator --location=<region> \
+  --schedule="* * * * *" --http-method=POST \
+  --uri="https://run.googleapis.com/v2/projects/<project>/locations/<region>/jobs/kindgi-pack-orchestrator:run" \
+  --oauth-service-account-email=<an account that may run the Job>
+```
+
+- **The task timeout** is a backstop: a pass returns by itself before its
+  round ends. Leave retries off: next minute's run is the retry.
+- **The scheduler's account** needs `roles/run.invoker` on the Job.
+- **Elsewhere:** cron or a systemd timer that runs
+  `kindgi-runtime packs orchestrate` every minute works the same. Runs that
+  overlap are fine: the round keeps one pass at a time.
 
 ## Its settings
 
@@ -84,20 +111,36 @@ Every field is optional. `egress` is `subnet` (with `subnetwork` and
 field and its default. A setting that's missing or wrong stops the pass
 before it calls anything, naming the setting but never its value.
 
-## What its account calls
+## The roles to grant the Job's account
 
-- **Cloud Run:** creates, reads, updates, lists and deletes the project's
-  services. It acts as the pack service account (`iam.serviceAccounts.actAs`
-  on that account alone). It never sets an IAM policy.
-- **Secret Manager:** creates secrets and their versions, destroys versions,
-  and deletes secrets, all named `kp-…`. It also lists the project's secrets,
-  names and labels only, to find the ones a stopped pass left. It never reads
-  a value. The values come from the runtime.
+- **Cloud Run:** `roles/run.developer` on the project. It creates, reads,
+  updates, lists and deletes the project's services, and reads a service's
+  policy, but never sets one.
+- **Acting as the pack service account:** `roles/iam.serviceAccountUser` on
+  that account alone.
+- **Secret Manager:** a custom role on the project with
+  `secretmanager.secrets.create`, `.get`, `.list` and `.delete`, and
+  `secretmanager.versions.add`, `.list` and `.destroy`; or
+  `roles/secretmanager.admin`, which grants more than it needs. It works only
+  on secrets named `kp-…`, and lists the project's secrets (names and labels
+  only) to find the ones a stopped pass left. It never reads a value: the
+  values come from the runtime.
+
+The Cloud Run role lets the account delete any service in the project. The
+orchestrator touches a service only when its name is one it derives from a
+deployment, its labels name that deployment, and it runs as the pack service
+account. A secret that exists already is used only when its labels name the
+deployment and it's held in the region alone. So run one installation per
+project, and give no other service or secret a name that begins with `kp-`.
+
+A service made as an earlier pack service account isn't taken for one of
+the orchestrator's after the account changes. Its deployment waits, with
+`service-start-failed` for its tenant and a log line naming the service,
+until you delete the service by hand.
 
 Grant the pack service account
 `roles/secretmanager.secretAccessor` on the `kp-` secrets alone, with the
 condition `resource.name.startsWith("projects/<project number>/secrets/kp-")`.
-Give no other secret a name that begins with `kp-`.
 
 ## What every pack service shares
 
