@@ -721,7 +721,7 @@ export function fullAppInput(): CreateAppInput {
     testRunBinding: noopTestRunBinding,
     correctionRegistry: noopCorrectionRegistry,
     expertQueue: noopExpertQueue,
-    evalCaseStore: noopFrozenCaseStore,
+    frozenCaseStore: noopFrozenCaseStore,
     sessionStore: noopSessionStore,
     session: { cookie: { allowedOrigins: ['https://console.example.com'] }, tokenSignIn: true },
     identityProvider: noopIdentityProvider,

@@ -991,7 +991,7 @@ export interface CreateAppInput {
    * from corrections before an agent's corrections were its test set:
    * `GET /v1/test-sets/:testSetId/versions/:version/cases`.
    */
-  readonly evalCaseStore?: FrozenCaseStoreBinding;
+  readonly frozenCaseStore?: FrozenCaseStoreBinding;
   /**
    * Optional. Pinned versions of agents per scope, each project's Latest
    * (`latest`), and their pin changes (`/v1/agents/{id}/pinned`,
@@ -2361,8 +2361,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       }),
     );
   }
-  if (input.testSetRegistry !== undefined && input.evalCaseStore !== undefined) {
-    v1.route('/test-sets', correctedTestSetsRouter(input.evalCaseStore, authorizer, itemRights));
+  if (input.testSetRegistry !== undefined && input.frozenCaseStore !== undefined) {
+    v1.route('/test-sets', correctedTestSetsRouter(input.frozenCaseStore, authorizer, itemRights));
   }
   // ---------- platform hierarchy ----------
   // Mounts are independent: `/v1/orgs`, `/v1/teams`, `/v1/projects`,
