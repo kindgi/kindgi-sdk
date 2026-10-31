@@ -7096,7 +7096,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'testRuns.start',
     summary: 'Start a test run against a test set',
     description:
-      'Dispatches a test run against the latest version of the test set. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.',
+      "Dispatches a test run against the latest version of the test set. An agent's own test set (`agent.<agentId>.<projectId>`, read at `GET /v1/agents/{agentId}/test-set`) is frozen first, as a suggested change's check freezes it, and the run records the frozen version as `testSetVersion`; a dry run freezes it too; it runs only its agent, in its project. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.",
     tags: ['test-runs'],
     security: 'bearer',
     parameters: [TestSetIdPathParam, IdempotencyKeyParam],
@@ -7105,15 +7105,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Test run started.', schema: ref('StartTestRunResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the test set, the agent or flow, or an agent or tool a flow candidate's `versions` names, isn't registered in `projectId`'s project, its org or the tenant; or a version named (by `agentRef`, `flowRef` or `versions.agents`) isn't one `projectId`'s project runs (`details.issues`, each at the path it was named, whose message names the version). Nothing runs.",
+        "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the test set, the agent or flow, or an agent or tool a flow candidate's `versions` names, isn't registered in `projectId`'s project, its org or the tenant; or a version named (by `agentRef`, `flowRef` or `versions.agents`) isn't one `projectId`'s project runs (`details.issues`, each at the path it was named, whose message names the version). Or `bad-input` for an agent's own test set run with another agent, in another project, or with `flowRef`: the message names the test set this run's agent and project have. Nothing runs.",
       ),
       '404': ErrorResponse(
         'No test set with that id under this tenant; or `projectId` names no project of this tenant (`project-not-found`).',
       ),
       '409': ErrorResponse(
-        '`project-suspended`: the project is suspended, so no test run starts in it. Or Idempotency-Key was reused with a different body.',
+        "`project-suspended`: the project is suspended, so no test run starts in it. Or `suggested-change-nothing-to-check`: an agent's own test set has no cases in the project (`details.projectId`), as a suggested change's check answers. Or Idempotency-Key was reused with a different body.",
       ),
       '422': ErrorResponse('No dispatcher registered for the test set kind.'),
+      '501': ErrorResponse(
+        "`suggested-change-check-unsupported`: an agent's own test set, on a runtime that doesn't freeze a project's test set.",
+      ),
     },
   },
   {

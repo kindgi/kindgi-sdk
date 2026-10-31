@@ -20,8 +20,8 @@ export interface RegistryReadOnly {
   readonly reason: string;
   /**
    * Set (on an agent registry) when it still takes Improve's candidates:
-   * an Improve run runs, an evaluation derives its candidate version (kept to be
-   * evaluated, never served by range), and a pin makes one pinned by
+   * a suggested change's evaluation derives its candidate version (kept to
+   * be evaluated, never served by range), and a pin makes one pinned by
    * writing it where the definitions come from (under `kindgi dev`, the
    * pack's files). Of the agents router's writes, only `POST …/pinned/pin`
    * and `…/pinned/check` get through. Unpinning stays
