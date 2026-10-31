@@ -308,9 +308,7 @@ def test_parse_event_reads_an_improve_run_finished() -> None:
         ({"kind": "kindgi-test-kind", "later": True}, models.ImproveRunOutcomeUnrecognized),
     ],
 )
-def test_an_improve_runs_outcome_is_read_by_its_kind(
-    outcome: dict[str, Any], kind: type
-) -> None:
+def test_an_improve_runs_outcome_is_read_by_its_kind(outcome: dict[str, Any], kind: type) -> None:
     event = webhooks.parse_event(improve_run_finished({**IMPROVE_RUN, "outcome": outcome}))
     assert isinstance(event, models.ImproveRunFinishedEvent)
     assert isinstance(event.data.improve_run.outcome, kind)
