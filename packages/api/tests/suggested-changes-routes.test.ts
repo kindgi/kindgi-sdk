@@ -2128,7 +2128,10 @@ describe('the cards a deploy makes (madeBy: deploy)', () => {
   }
 
   /** The service a deploy makes its cards with, as the app wires it; `readOnly`: a pack's registry. */
-  function cardsOf(h: Harness, opts: { readOnly?: boolean; freezes?: boolean } = {}) {
+  function cardsOf(
+    h: Harness,
+    opts: { readOnly?: boolean; freezes?: boolean; corrections?: CorrectionRegistryBinding } = {},
+  ) {
     return createSuggestedChangeService({
       store: h.suggestedChanges,
       agents:
@@ -2139,6 +2142,7 @@ describe('the cards a deploy makes (madeBy: deploy)', () => {
       testRuns: h.testRuns.binding,
       agentPins: h.pinStore.bindings,
       ...(opts.freezes !== false && { testSets: h.freeze.binding }),
+      ...(opts.corrections !== undefined && { corrections: opts.corrections }),
     });
   }
 
@@ -2268,6 +2272,23 @@ describe('the cards a deploy makes (madeBy: deploy)', () => {
     const check = await h.call('POST', `/v1/suggested-changes/${id}/check`, {});
     expect(check.status, JSON.stringify(check.body)).toBe(409);
     expect(check.body.error.code).toBe('suggested-change-nothing-to-check');
+  });
+
+  test('with corrections and no case in the project, the card is made unchecked with nothing frozen', async () => {
+    const h = await harness();
+    h.pinStore.pin(PROJECT, '1.0.0');
+    await registered(h, '1.1.0');
+    const noCase = {
+      listCases: async () => ({ data: [], hasMore: false }),
+    } as unknown as CorrectionRegistryBinding;
+    const freezes = h.freeze.calls.length;
+    const out = await deploy(h, '1.1.0', cardsOf(h, { corrections: noCase }));
+    expect(out.made).toHaveLength(1);
+    expect(h.freeze.calls).toHaveLength(freezes);
+    expect(h.testRuns.started).toHaveLength(0);
+    const id = out.made[0]?.id as unknown as string;
+    const card = (await h.call('GET', `/v1/suggested-changes/${id}`)).body;
+    expect(card).toMatchObject({ status: 'check-failed', version: '1.1.0' });
   });
 
   test("a version the deploy didn't leave active is named in failed, and the deploy's other cards are still made", async () => {

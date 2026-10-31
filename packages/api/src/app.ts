@@ -2681,6 +2681,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       input.projectSuspended,
       itemRights,
       input.testSetFreeze,
+      input.correctionRegistry,
     );
     v1.route('/test-sets', testRuns.start);
     v1.route('/test-runs', testRuns.readback);

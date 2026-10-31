@@ -38,6 +38,7 @@ import {
   type FrozenTestSet,
   type TestSetFreezeBinding,
   agentTestSetId,
+  projectHasCases,
 } from './test-set-binding.js';
 import { type WhatRuns, whatRunsByProject } from './what-runs.js';
 
@@ -179,7 +180,10 @@ async function tookEffectIn(
     frozen = await activeCases(deps, tenantId, change, projectId);
     if (frozen === undefined) return;
     if (await reuseNamed(deps, tenantId, change, projectId, frozen, found)) return;
-  } else if (!(await hasCases(deps, tenantId, change.agentId as AgentId, projectId))) return;
+  } else {
+    const agentId = change.agentId as AgentId;
+    if (!(await projectHasCases(deps.corrections, { tenantId, agentId, projectId }))) return;
+  }
   const own = await ownRuns(deps, tenantId, change, projectId);
   if (own.length > 0) await applyOwn(deps, tenantId, projectId, own, found);
   else if (q.mayStart && frozen !== undefined) {
@@ -436,25 +440,10 @@ async function frozenWithCases(
   agentId: AgentId,
   projectId: ProjectId,
 ): Promise<FrozenTestSet | undefined> {
-  if (!(await hasCases(deps, tenantId, agentId, projectId))) return undefined;
+  if (!(await projectHasCases(deps.corrections, { tenantId, agentId, projectId })))
+    return undefined;
   const frozen = await deps.testSets.freezeTestSet({ tenantId, agentId, projectId });
   return frozen.cases.length === 0 ? undefined : frozen;
-}
-
-/** Whether the project has a case of the agent: one read, no freeze. */
-async function hasCases(
-  deps: Pick<PinTestRunDeps, 'corrections'>,
-  tenantId: TenantId,
-  agentId: AgentId,
-  projectId: ProjectId,
-): Promise<boolean> {
-  const some = await deps.corrections.listCases({
-    tenantId,
-    agentId: agentId as unknown as string,
-    projectId,
-    limit: 1,
-  });
-  return some.data.length > 0;
 }
 
 /**
