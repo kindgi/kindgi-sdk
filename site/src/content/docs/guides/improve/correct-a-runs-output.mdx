@@ -452,8 +452,10 @@ in `list`'s `data`. Neither has the run's own input or output, only the
 run's id.
 
 Every export is in the audit log, with who exported, the filters and how
-many rows went out. In the clients it's `corrections.export`: TypeScript's
-returns the body as a stream, and Python's yields it in chunks.
+many rows went out. In the TypeScript and Python clients it's
+`corrections.export`: TypeScript's returns the body as a stream, and
+Python's yields it in chunks. The Java client has no method for it, so
+call the route, or use the CLI.
 
 ## Where a correction goes
 
