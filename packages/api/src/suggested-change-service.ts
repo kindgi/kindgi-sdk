@@ -39,7 +39,6 @@ import {
   laterEnvironment,
 } from './environment-entry.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
-import { rescoreRefusal, rescoreStart } from './eval-rescore.js';
 import type { GateApproval } from './gate.js';
 import {
   type ReferenceScopeBinding,
@@ -84,6 +83,7 @@ import type {
   TestRunComparison,
   TestRunStartOutcome,
 } from './test-run-binding.js';
+import { rescoreRefusal, rescoreStart } from './test-run-rescore.js';
 import {
   type FrozenTestSet,
   type TestSetFreezeBinding,

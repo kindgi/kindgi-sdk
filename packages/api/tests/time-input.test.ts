@@ -99,7 +99,7 @@ const app = createApp({
   memoryErasures: unreachable,
   correctionRegistry: unreachable,
   testSetRegistry: unreachable,
-  evalCaseStore: unreachable,
+  frozenCaseStore: unreachable,
   deploymentRegistry: unreachable,
   signingKeyRegistry: unreachable,
   imageRegistry: unreachable,
