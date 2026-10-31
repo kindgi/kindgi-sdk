@@ -7389,7 +7389,7 @@ export const ModelInfoSchema: JsonSchema = {
       type: 'integer',
       minimum: 1,
       description:
-        'Fallback cap on output tokens. Adapters that require `max_tokens` on every request (e.g. Anthropic) use this when `ModelCallInput.maxOutputTokens` is unset.',
+        "The default cap on a call's output tokens: what a call asks for when it sets none. A call's own `ModelCallInput.maxOutputTokens` (its agent's `maxOutputTokens`) replaces it. Not the model's own maximum, which its vendor sets.",
     },
     sampling: {
       type: 'boolean',
