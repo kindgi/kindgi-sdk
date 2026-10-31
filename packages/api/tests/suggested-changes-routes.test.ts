@@ -3817,6 +3817,17 @@ describe('POST /v1/improve-runs/check', () => {
     });
   });
 
+  test("counts no search below zero when a basis's proof replays outnumber its replays", async () => {
+    const improveRuns = inMemoryImproveRuns({
+      basis: { replays: 4, proofReplays: 6, meanRunCostUsd: '1' },
+    });
+    const h = await harness({ improveRuns: improveRuns.binding });
+    const res = await h.call('POST', CHECK, { ...IMPROVE, budget: { maxCostUsd: 20 } });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    // The search's share is none, not -2 × $1; the proof's 6 × $1 stays.
+    expect(res.body.estimate).toMatchObject({ costUsd: '6', maxCostUsd: '20' });
+  });
+
   test("clamps the whole estimate to the budget when the runtime doesn't count the proof's replays apart", async () => {
     const improveRuns = inMemoryImproveRuns({ basis: { replays: 1000, meanRunCostUsd: '1' } });
     const h = await harness({ improveRuns: improveRuns.binding });

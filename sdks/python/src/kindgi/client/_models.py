@@ -11863,7 +11863,23 @@ class ImproveScheduleTarget(BaseModel):
     agent_id: Annotated[str, Field(alias="agentId", min_length=1)]
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    Required to register one: the schedule's own project. Absent from older servers, and on a schedule registered for a tenant or an org before Improve schedules worked in a project: its fires are refused until its target is saved with the schedule's project.
+    The schedule's own project. Absent from older servers, and on a schedule registered for a tenant or an org before Improve schedules worked in a project: its fires are refused until its target is saved with the schedule's project.
+    """
+
+
+class ImproveScheduleTargetInput(BaseModel):
+    """
+    What an improve schedule works on, as registering or changing one names it: the agent, and the project its Improve runs work in (the schedule's own).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId", min_length=1)]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    The schedule's own project.
     """
 
 
@@ -16749,7 +16765,7 @@ class RegisterScheduleBody(BaseModel):
     Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
-    improve: ImproveScheduleTarget | None = None
+    improve: ImproveScheduleTargetInput | None = None
     """
     Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `write` on the project and `publish` on the agent. An agent and project have one improve schedule at most (`409 schedule-exists`).
     """
@@ -16811,7 +16827,7 @@ class PatchScheduleBody(BaseModel):
     Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
-    improve: ImproveScheduleTarget | None = None
+    improve: ImproveScheduleTargetInput | None = None
     """
     Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `write` on the project and `publish` on the agent.
     """

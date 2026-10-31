@@ -461,6 +461,7 @@
   "ImproveScheduleInput": ["ImproveScheduleInput"],
   "ImproveScheduleInputModel": ["ImproveScheduleInputModel"],
   "ImproveScheduleTarget": ["ImproveScheduleTarget"],
+  "ImproveScheduleTargetInput": ["ImproveScheduleTargetInput"],
   "ImprovementBudget": ["ImprovementBudget"],
   "ImprovementPass": [],
   "ImprovementPassCollectionPage": [],
