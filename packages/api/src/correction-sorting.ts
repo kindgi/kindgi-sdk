@@ -173,10 +173,20 @@ export function planChange(
   };
 }
 
-/** A link from its wire form: a URL is a pull request, `ir-…` an Improve run, `sc-…` a suggested change. */
+const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const IMPROVE_RUN_LINK = new RegExp(`^ir-(${UUID})$`, 'i');
+const SUGGESTED_CHANGE_LINK = new RegExp(`^sc-(${UUID})$`, 'i');
+
+/**
+ * A link from its wire form: a URL is a pull request, `ir-` and an id an
+ * Improve run, `sc-` and an id a suggested change. The link keeps the id
+ * alone, as the Improve run's and suggested change's routes take it.
+ */
 export function parseCorrectionLink(raw: string): CorrectionLink | undefined {
-  if (/^ir-[A-Za-z0-9_-]+$/.test(raw)) return { kind: 'improve-run', id: raw };
-  if (/^sc-[A-Za-z0-9_-]+$/.test(raw)) return { kind: 'suggested-change', id: raw };
+  const run = IMPROVE_RUN_LINK.exec(raw)?.[1];
+  if (run !== undefined) return { kind: 'improve-run', id: run.toLowerCase() };
+  const change = SUGGESTED_CHANGE_LINK.exec(raw)?.[1];
+  if (change !== undefined) return { kind: 'suggested-change', id: change.toLowerCase() };
   try {
     const url = new URL(raw);
     return url.protocol === 'https:' || url.protocol === 'http:'
