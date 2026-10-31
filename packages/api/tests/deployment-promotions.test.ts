@@ -15,7 +15,9 @@
  *     value named; the check lists the same ones and writes nothing;
  *   - a repeat answers the target's own deployment, and records only the
  *     edits made since;
- *   - a signed `deployment-promoted` event for each promotion that wrote.
+ *   - a signed `deployment-promoted` event for each promotion that wrote;
+ *   - with `pin`, a stop when a newer version of one of the build's blocks
+ *     runs in the target, unless `replace` names it.
  */
 
 import { createHash, randomUUID } from 'node:crypto';
@@ -26,6 +28,7 @@ import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import { generateEd25519KeyPair, signEd25519 } from '@kindgi/crypto';
 import type {
+  AgentId,
   AgentPinScope,
   Cursor,
   EnvName,
@@ -44,11 +47,13 @@ import { agentTestSetId, createApp, resolveAtScope, scopeOfRecorded } from '../s
 import type {
   AgentPinBindings,
   AgentPinInput,
+  BlockUse,
   CarriedVersion,
   Deployment,
   DeploymentBinding,
   DeploymentContents,
   DeploymentEndpoint,
+  LatestInProject,
   Pin,
   PinRequestInput,
   PinVersionInput,
@@ -218,13 +223,14 @@ function ledger(seeded: readonly Deployment[], opts: { promotes?: boolean } = {}
       }
       seq += 1;
       minute += 1;
-      const { projectId: _from, endpoint: _endpoint, ...copied } = source;
+      const { projectId: _from, endpoint: _endpoint, replaced: _source, ...copied } = source;
       const deployment: Deployment = {
         ...copied,
         deploymentId: `promoted-${seq}`,
         activatedAt: new Date(Date.UTC(2026, 9, 1, 10, minute)).toISOString(),
         ...(input.projectId !== undefined && { projectId: input.projectId }),
         promotedFromDeploymentId: source.deploymentId,
+        ...(input.replaced !== undefined && { replaced: input.replaced }),
       };
       rows.push(deployment);
       carried.set(deployment.deploymentId, [...input.carried]);
@@ -419,6 +425,30 @@ function agentPinBinding(
   };
 }
 
+/** What runs, for a promotion's check against it (`harness`'s `runs`). */
+interface Runs {
+  /** Each agent's Latest by project. */
+  readonly latest: Readonly<Record<string, readonly LatestInProject[]>>;
+  /** The agent versions that pin each block. */
+  readonly uses: Readonly<Record<string, readonly BlockUse[]>>;
+}
+
+/** The agent pin bindings, their Latest by project from `runs`, and the block uses binding, wired only with `runs`. */
+function pinsAndRuns(releases: AgentPinBindings | undefined, runs: Runs | undefined) {
+  if (releases === undefined) return {};
+  if (runs === undefined) return { agentPins: releases };
+  return {
+    agentPins: {
+      ...releases,
+      latest: {
+        ...noLatest,
+        byProject: async (q: { agentId: string }) => runs.latest[q.agentId] ?? [],
+      },
+    },
+    blockUse: { pinningBlock: async (q: { blockId: string }) => runs.uses[q.blockId] ?? [] },
+  };
+}
+
 function harness(
   opts: {
     readonly rows?: readonly Deployment[];
@@ -451,6 +481,8 @@ function harness(
     readonly flowPins?: { readonly errorOn?: readonly string[] };
     /** Wire suggested changes (`cardBindings`): the carried agent runs `pinned` in S2. */
     readonly cards?: { readonly pinned: string };
+    /** What runs, for a promotion's check against it (`pinsAndRuns`). */
+    readonly runs?: Runs;
   } = {},
 ) {
   const deployments = ledger(opts.rows ?? [built({ id: 'dep-s1', projectId: S1 })], {
@@ -557,7 +589,7 @@ function harness(
     } as never,
     secretsBinding: secretsBinding as never,
     environmentOrders: environmentOrders(opts.orders ?? [ORDER]),
-    ...(agentPins !== undefined && { agentPins: agentPins.releases }),
+    ...pinsAndRuns(agentPins?.releases, opts.runs),
     ...cards?.bindings,
     ...flowPins.bindings,
     ...(items !== undefined && { itemProjects: items }),
@@ -1410,6 +1442,7 @@ describe('pinning the carried agents in the target (pin)', () => {
     expect(res.body.error.message).toContain(
       'Promote a build that ships a version of it, then pin it. If this version came from a suggested change',
     );
+    expect(res.body.error.message).toContain('then promote this build again');
     expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
     expect(h.pinned).toEqual([]);
   });
@@ -1552,5 +1585,169 @@ describe('the cards a promotion makes in the target', () => {
     const res = await h.promoteAndPin('dep-s1', S2);
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(h.cardsNow()).toHaveLength(0);
+  });
+});
+
+describe('a promotion that pins, against what runs in the target', () => {
+  const AGENT = 'acme.matcher';
+  const TONE = 'acme.tone';
+  /** The build ships the matcher 1.0.0, which pins tone 1.0.0. */
+  const withBlocks = (): Deployment =>
+    built({
+      id: 'dep-s1',
+      projectId: S1,
+      contents: { ...SHIPS, blocks: [{ id: TONE, version: '1.0.0' }] },
+    });
+  const uses = (version: string): BlockUse => ({
+    agentId: AGENT as AgentId,
+    version,
+    as: 'prompt',
+    blockVersion: version,
+  });
+  /** The matcher runs 2.0.0, which pins tone 2.0.0, as Latest in `projectId`. */
+  const newerIn = (projectId: ProjectId) => ({
+    latest: { [AGENT]: [{ projectId, version: '2.0.0' as Semver }] },
+    uses: { [TONE]: [uses('1.0.0'), uses('2.0.0')] },
+  });
+  const promotions = '/v1/deployments/dep-s1/promotions';
+
+  test('a newer version of a block running in the target stops it before anything moves: 409, each block in details.blocks', async () => {
+    const h = harness({ agentPins: true, rows: [withBlocks()], runs: newerIn(S2) });
+    const res = await h.promoteAndPin('dep-s1', S2);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('deploy-would-put-back-older-blocks');
+    expect(res.body.error.message).toContain(
+      'This promotion would put back older versions of blocks than run now: acme.tone (1.0.0 in the files, 2.0.0 runs now). Promote a build whose files have the newer versions, or name each block in `replace`, with a reason.',
+    );
+    expect(res.body.error.details.blocks).toEqual([
+      {
+        blockId: TONE,
+        inFiles: '1.0.0',
+        runs: { version: '2.0.0', projectId: S2, follows: 'latest' },
+      },
+    ]);
+    // Nothing moved, nothing pinned, nothing recorded.
+    expect(h.deployments.rows.map((d) => d.deploymentId)).toEqual(['dep-s1']);
+    expect(h.pinned).toEqual([]);
+    expect(h.appended).toEqual([]);
+  });
+
+  test("only the target's runs count, and without pin nothing is checked", async () => {
+    const elsewhere = harness({ agentPins: true, rows: [withBlocks()], runs: newerIn(PROD) });
+    const pinned = await elsewhere.promoteAndPin('dep-s1', S2);
+    expect(pinned.status).toBe(201);
+    expect(pinned.body.blockCheck).toEqual({ checked: true, replaced: [], notNeeded: [] });
+
+    const unpinned = harness({ agentPins: true, rows: [withBlocks()], runs: newerIn(S2) });
+    const moved = await unpinned.promote('dep-s1', S2);
+    expect(moved.status).toBe(201);
+    expect(moved.body.blockCheck).toBeUndefined();
+  });
+
+  test('replace puts the block back on purpose: the answer says which, the new deployment keeps its own, and the audit log records each', async () => {
+    // The source put a block back in its own project: that stays with it.
+    const source: Deployment = {
+      ...withBlocks(),
+      replaced: [
+        {
+          blockId: 'acme.rules',
+          from: '3.0.0',
+          to: '2.0.0',
+          reason: 'from the deploy',
+          by: { kind: 'user', id: 'usr-ana' },
+        },
+      ],
+    };
+    const h = harness({ agentPins: true, rows: [source], runs: newerIn(S2) });
+    const body = {
+      toProjectId: S2,
+      pin: true,
+      replace: [
+        { blockId: TONE, reason: 'v2 was a try' },
+        { blockId: 'acme.rules', reason: 'v2 was a try' },
+      ],
+    };
+    const res = await h.call(promotions, body);
+    expect(res.status).toBe(201);
+    // Its own, by the promoter: never the source's `acme.rules` by usr-ana.
+    const own = [
+      {
+        blockId: TONE,
+        from: '2.0.0',
+        to: '1.0.0',
+        reason: 'v2 was a try',
+        by: { kind: 'user', id: 'user-1' },
+      },
+    ];
+    expect(res.body.deployment.replaced).toEqual(own);
+    expect(res.body.blockCheck).toEqual({
+      checked: true,
+      replaced: [{ blockId: TONE, from: '2.0.0', to: '1.0.0' }],
+      notNeeded: ['acme.rules'],
+    });
+    expect(h.pinned).toHaveLength(1);
+    const replaced = h.appended.filter((e) => e.kind === 'deployment-replaced-block');
+    expect(replaced).toHaveLength(1);
+    expect(replaced[0]).toMatchObject({
+      outcome: 'succeeded',
+      projectId: S2,
+      payload: {
+        doc: {
+          deploymentId: res.body.deployment.deploymentId,
+          blockId: TONE,
+          from: '2.0.0',
+          to: '1.0.0',
+          reason: 'v2 was a try',
+        },
+      },
+    });
+
+    // A repeat finds the build there (200): its deployment stays as it is,
+    // and the audit log records each block the repeat's pins put back.
+    const again = await h.call(promotions, body);
+    expect(again.status).toBe(200);
+    expect(again.body.deployment.replaced).toEqual(own);
+    expect(h.appended.filter((e) => e.kind === 'deployment-replaced-block')).toHaveLength(
+      1 + (again.body.blockCheck.replaced as unknown[]).length,
+    );
+  });
+
+  test('a build deployed before deployments kept their blocks is not compared, and the answer says so', async () => {
+    const h = harness({ agentPins: true, runs: newerIn(S2) });
+    const res = await h.promoteAndPin('dep-s1', S2);
+    expect(res.status).toBe(201);
+    expect(res.body.blockCheck).toEqual({ checked: false, replaced: [], notNeeded: [] });
+  });
+
+  test("a runtime that doesn't read what runs doesn't check, and says nothing of it", async () => {
+    const h = harness({ agentPins: true, rows: [withBlocks()] });
+    const res = await h.promoteAndPin('dep-s1', S2);
+    expect(res.status).toBe(201);
+    expect(res.body.blockCheck).toBeUndefined();
+  });
+
+  test('replace goes with pin, and each entry says why', async () => {
+    const h = harness({ agentPins: true, rows: [withBlocks()], runs: newerIn(S2) });
+    const unpinned = await h.call(promotions, {
+      toProjectId: S2,
+      replace: [{ blockId: TONE, reason: 'v2 was a try' }],
+    });
+    expect(unpinned.status).toBe(400);
+    expect(unpinned.body.error.message).toBe(
+      '`replace` goes with `pin`: only the pins put a block back to an older version.',
+    );
+    const noReason = await h.call(promotions, {
+      toProjectId: S2,
+      pin: true,
+      replace: [{ blockId: TONE }],
+    });
+    expect(noReason.status).toBe(400);
+    expect(noReason.body.error.message).toBe(
+      'replace[0].reason must say why, in 1 to 500 characters with no control characters.',
+    );
+    const check = await h.call(`${promotions}/check`, { toProjectId: S2, replace: [] });
+    expect(check.status).toBe(400);
+    expect(check.body.error.message).toBe('Unknown field `replace`.');
+    expect(h.deployments.rows.map((d) => d.deploymentId)).toEqual(['dep-s1']);
   });
 });

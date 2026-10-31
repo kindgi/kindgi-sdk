@@ -450,110 +450,203 @@ describe('kindgi suggested-changes list / get', () => {
 const IMPROVE_RUN = {
   id: 'run-1',
   agentId: 'acme.scorer',
-  fromVersion: '1.4.0',
-  scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
-  testSetId: 'acme.judged',
-  tiers: ['settings'],
+  projectId: PROJECT,
+  startsFrom: { version: '1.4.0', follows: 'pin' },
+  setAside: { cases: 5, of: 27 },
+  tiers: ['prompt', 'settings'],
   objective: 'passRate',
+  groupWeights: 'experts-only',
   budget: { maxCostUsd: 5, maxCandidates: 30 },
   requestedBy: 'user:alice',
   status: 'running',
-  candidatesEvaluated: 0,
+  tried: 0,
   costUsd: '0.00',
+  takes: ['c-312', 'c-301'],
   createdAt: '2026-10-07T10:00:00.000Z',
   updatedAt: '2026-10-07T10:00:00.000Z',
 };
 
+const CHECK = {
+  ready: false,
+  startsFrom: { version: '13', follows: 'pin' },
+  items: [
+    {
+      key: 'wording',
+      missing: true,
+      fix: {
+        where: 'repo',
+        text: "Improve rewrites a prompt block's wording with a model. If the instructions are written in code, not in a prompt block, ask your coding agent to move them into one, then deploy. If no model is named to write it, give the run a provider and model, or name them in the version's model-settings block.",
+      },
+    },
+    { key: 'settings', missing: false },
+    { key: 'test-cases', missing: false, count: 9 },
+    { key: 'permission', missing: false },
+    { key: 'one-at-a-time', missing: false },
+    { key: 'project', missing: false },
+  ],
+  estimate: {
+    costUsd: '1.90',
+    maxCostUsd: '3',
+    basis: { replays: 22, proofReplays: 6, meanRunCostUsd: '0.086' },
+  },
+  month: { spentUsd: '12', capUsd: '50' },
+};
+
+/** `improve runs start` for the agent in the project, with `extra` flags. */
+const startIn = (...extra: string[]) => [
+  'improve',
+  'runs',
+  'start',
+  '--agent=acme.scorer',
+  `--project=${PROJECT}`,
+  ...extra,
+];
+
 describe('kindgi improve runs start', () => {
-  test('starts an Improve run for a scope, with a budget', async () => {
+  test('starts an Improve run in a project, with a budget', async () => {
     const { calls, rec } = recorder();
-    const out = await run(
-      [
-        'improve',
-        'runs',
-        'start',
-        '--agent=acme.scorer',
-        `--project=${PROJECT}`,
-        '--segment=company:acme',
-        '--test-set=acme.judged',
-        '--max-cost=2.5',
-        '--max-candidates=12',
-      ],
-      { improveRuns: { start: rec('start', IMPROVE_RUN) } },
-    );
+    const out = await run(startIn('--max-cost=2.5', '--max-candidates=12'), {
+      improveRuns: { start: rec('start', IMPROVE_RUN) },
+    });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
       [
         'start',
         {
           agentId: 'acme.scorer',
-          scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
-          testSetId: 'acme.judged',
+          projectId: PROJECT,
           budget: { maxCostUsd: 2.5, maxCandidates: 12 },
         },
       ],
     ]);
   });
 
-  test('--run-project: the project a tenant-scoped Improve run works in; left out, the API decides', async () => {
+  test('--agent and --project are required, and the old scope and test set flags are gone', async () => {
     const { calls, rec } = recorder();
-    const improve = rec('start', IMPROVE_RUN);
-    const named = await run(
-      [
-        'improve',
-        'runs',
-        'start',
-        '--agent=acme.scorer',
-        '--tenant',
-        '--test-set=acme.prod-judged',
-        `--run-project=${PROJECT}`,
-      ],
-      { improveRuns: { start: improve } },
-    );
-    expect(named.exitCode, named.stderr).toBe(0);
-    const left = await run(
-      ['improve', 'runs', 'start', '--agent=acme.scorer', '--tenant', '--test-set=acme.judged'],
-      { improveRuns: { start: improve } },
-    );
-    expect(left.exitCode, left.stderr).toBe(0);
+    const client = { improveRuns: { start: rec('start') } };
+    const noProject = await run(['improve', 'runs', 'start', '--agent=acme.scorer'], client);
+    expect(noProject.exitCode).toBe(2);
+    expect(noProject.stderr).toContain('--project is required');
+    const noAgent = await run(['improve', 'runs', 'start', `--project=${PROJECT}`], client);
+    expect(noAgent.exitCode).toBe(2);
+    expect(noAgent.stderr).toContain('--agent is required');
+    for (const flag of [
+      '--tenant',
+      '--test-set=acme.judged',
+      '--run-project=p-2',
+      '--from-version=1.0.0',
+      '--segment=company:acme',
+    ]) {
+      const out = await run(startIn(flag), client);
+      expect(out.exitCode, flag).toBe(2); // an unknown flag
+      expect(out.stderr, flag).toContain(`Unknown option '${flag.split('=')[0]}'`);
+    }
+    expect(calls).toEqual([]);
+  });
+
+  test('--check asks whether it is ready and what it would cost, and starts nothing', async () => {
+    const { calls, rec } = recorder();
+    const client = { improveRuns: { check: rec('check', CHECK), start: rec('start') } };
+    const out = await run(startIn('--check', '--tier=prompt'), client);
+    expect(out.exitCode).toBe(3); // not ready: the answer is no
+    expect(JSON.parse(out.stdout)).toEqual(CHECK);
+    const ready = await run(startIn('--check'), {
+      improveRuns: { check: rec('check', { ...CHECK, ready: true }) },
+    });
+    expect(ready.exitCode, ready.stderr).toBe(0);
     expect(calls).toEqual([
-      [
-        'start',
-        {
-          agentId: 'acme.scorer',
-          scope: { kind: 'tenant' },
-          testSetId: 'acme.prod-judged',
-          projectId: PROJECT,
-        },
-      ],
-      ['start', { agentId: 'acme.scorer', scope: { kind: 'tenant' }, testSetId: 'acme.judged' }],
+      ['check', { agentId: 'acme.scorer', projectId: PROJECT, tiers: ['prompt'] }],
+      ['check', { agentId: 'acme.scorer', projectId: PROJECT }],
     ]);
+  });
+
+  test('--check --table lists the items with their fixes, the estimate and the month', async () => {
+    const out = await run(startIn('--check', '--table'), {
+      improveRuns: { check: async () => CHECK },
+    });
+    expect(out.exitCode).toBe(3);
+    expect(out.stdout).toMatch(
+      /wording\s+missing\s+Improve rewrites a prompt block's wording with a model\. .+ name them in the version's model-settings block\. \(in the agent's code, then a deploy\)/,
+    );
+    expect(out.stdout).toMatch(/test-cases \(9\)\s+ok/);
+    expect(out.stdout).toContain('Ready: no');
+    expect(out.stdout).toContain('Starts from: 13 (pinned in the project)');
+    expect(out.stdout).toContain(
+      "Estimate: $1.90, its search stops at $3.00 (22 replays, 6 of them the proof's)",
+    );
+    expect(out.stdout).toContain("This month: $12.00 of the Improve schedule's $50.00");
+  });
+
+  test('--check goes without --wait and --idempotency-key: it starts nothing', async () => {
+    const { calls, rec } = recorder();
+    for (const flag of ['--wait', '--idempotency-key=k']) {
+      const out = await run(startIn('--check', flag), {
+        improveRuns: { check: rec('check', CHECK) },
+      });
+      expect(out.exitCode, flag).toBe(2); // a usage error
+      expect(out.stderr, flag).toContain('--check starts nothing');
+    }
+    expect(calls).toEqual([]);
+  });
+
+  test("a start that isn't ready is refused, listing each missing item with its fix", async () => {
+    const out = await run(startIn(), {
+      improveRuns: {
+        start: async () => {
+          throw new KindgiApiError({
+            code: 'conflict',
+            reason: 'improve-not-ready',
+            message:
+              "acme.scorer isn't ready for an Improve run in this project: wording, settings missing (`items` says how to fix each)",
+            fields: {
+              items: [
+                {
+                  key: 'wording',
+                  missing: true,
+                  fix: { where: 'repo', text: 'Move the instructions into a prompt block.' },
+                },
+                {
+                  key: 'settings',
+                  missing: true,
+                  fix: { where: 'repo', text: 'Mark the settings Improve may tune.' },
+                },
+              ],
+            },
+          } as never);
+        },
+      },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('Error [improve-not-ready]');
+    expect(out.stderr).toContain(
+      "✗ wording: Move the instructions into a prompt block. (in the agent's code, then a deploy)",
+    );
+    expect(out.stderr).toContain(
+      "✗ settings: Mark the settings Improve may tune. (in the agent's code, then a deploy)",
+    );
   });
 
   test('--wait reads the Improve run until it is no longer running', async () => {
     const reads = [
-      { ...IMPROVE_RUN, candidatesEvaluated: 3 },
+      { ...IMPROVE_RUN, tried: 3 },
       {
         ...IMPROVE_RUN,
         status: 'completed',
-        candidatesEvaluated: 7,
+        tried: 7,
         costUsd: '0.84',
         outcome: { kind: 'suggested', suggestedChangeId: 'prop-9' },
       },
     ];
     const gets: string[] = [];
-    const out = await run(
-      ['improve', 'runs', 'start', '--agent=a', '--tenant', '--test-set=s', '--wait'],
-      {
-        improveRuns: {
-          start: async () => IMPROVE_RUN,
-          get: async (id: string) => {
-            gets.push(id);
-            return reads.shift();
-          },
+    const out = await run(startIn('--wait'), {
+      improveRuns: {
+        start: async () => IMPROVE_RUN,
+        get: async (id: string) => {
+          gets.push(id);
+          return reads.shift();
         },
       },
-    );
+    });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(gets).toEqual(['run-1', 'run-1']);
     expect(JSON.parse(out.stdout)).toMatchObject({
@@ -564,32 +657,23 @@ describe('kindgi improve runs start', () => {
   test('a budget that is not a positive number is refused before any call', async () => {
     const { calls, rec } = recorder();
     for (const flag of ['--max-cost=0', '--max-cost=cheap', '--max-candidates=1.5']) {
-      const out = await run(
-        ['improve', 'runs', 'start', '--agent=a', '--tenant', '--test-set=s', flag],
-        { improveRuns: { start: rec('start') } },
-      );
+      const out = await run(startIn(flag), { improveRuns: { start: rec('start') } });
       expect(out.exitCode, flag).toBe(2); // a usage error
     }
     expect(calls).toEqual([]);
   });
 
-  test('passes the prompt Improve run tuning flags through', async () => {
+  test('passes the tiers and the drafting flags through', async () => {
     const { calls, rec } = recorder();
     const out = await run(
-      [
-        'improve',
-        'runs',
-        'start',
-        '--agent=acme.scorer',
-        `--project=${PROJECT}`,
-        '--segment=company:acme',
-        '--test-set=acme.judged',
+      startIn(
         '--tier=prompt',
+        '--tier=settings',
         '--group-weights=as-recorded',
         '--provider=openai',
         '--model=gpt-4o',
         '--drafts=4',
-      ],
+      ),
       { improveRuns: { start: rec('start', IMPROVE_RUN) } },
     );
     expect(out.exitCode, out.stderr).toBe(0);
@@ -598,9 +682,8 @@ describe('kindgi improve runs start', () => {
         'start',
         {
           agentId: 'acme.scorer',
-          scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
-          testSetId: 'acme.judged',
-          tiers: ['prompt'],
+          projectId: PROJECT,
+          tiers: ['prompt', 'settings'],
           groupWeights: 'as-recorded',
           model: { providerId: 'openai', model: 'gpt-4o' },
           candidates: 4,
@@ -609,49 +692,44 @@ describe('kindgi improve runs start', () => {
     ]);
   });
 
+  test('with no --tier, the drafting flags go through: every ready tier is tried', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(startIn('--drafts=2'), {
+      improveRuns: { start: rec('start', IMPROVE_RUN) },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['start', { agentId: 'acme.scorer', projectId: PROJECT, candidates: 2 }],
+    ]);
+  });
+
   test('--provider and --model must come together', async () => {
     const { calls, rec } = recorder();
     for (const flag of ['--provider=openai', '--model=gpt-4o']) {
-      const out = await run(
-        ['improve', 'runs', 'start', '--agent=a', '--tenant', '--test-set=s', flag],
-        { improveRuns: { start: rec('start') } },
-      );
+      const out = await run(startIn(flag), { improveRuns: { start: rec('start') } });
       expect(out.exitCode, flag).toBe(2); // a usage error
     }
     expect(calls).toEqual([]);
   });
 
-  test('--tier only accepts settings or prompt', async () => {
+  test('--tier only accepts prompt or settings, each once', async () => {
     const { calls, rec } = recorder();
-    const out = await run(
-      ['improve', 'runs', 'start', '--agent=a', '--tenant', '--test-set=s', '--tier=bogus'],
-      { improveRuns: { start: rec('start') } },
-    );
-    expect(out.exitCode).toBe(2); // a usage error
+    for (const flags of [['--tier=bogus'], ['--tier=prompt', '--tier=prompt']]) {
+      const out = await run(startIn(...flags), { improveRuns: { start: rec('start') } });
+      expect(out.exitCode, flags.join(' ')).toBe(2); // a usage error
+    }
     expect(calls).toEqual([]);
   });
 
-  test('--tier=prompt needs --provider and --model', async () => {
+  test('--provider, --model and --drafts are for the prompt tier', async () => {
     const { calls, rec } = recorder();
-    const out = await run(
-      ['improve', 'runs', 'start', '--agent=a', '--tenant', '--test-set=s', '--tier=prompt'],
-      { improveRuns: { start: rec('start') } },
-    );
-    expect(out.exitCode).toBe(2); // a usage error
-    expect(out.stderr).toContain('--tier=prompt needs --provider and --model.');
-    expect(calls).toEqual([]);
-  });
-
-  test('--provider, --model and --drafts are for a prompt Improve run', async () => {
-    const { calls, rec } = recorder();
-    const settingsRun = ['improve', 'runs', 'start', '--agent=a', '--tenant', '--test-set=s'];
     for (const extra of [['--provider=openai', '--model=gpt-4o'], ['--drafts=3']]) {
-      const out = await run([...settingsRun, ...extra], {
+      const out = await run(startIn('--tier=settings', ...extra), {
         improveRuns: { start: rec('start') },
       });
       expect(out.exitCode, extra.join(' ')).toBe(2); // a usage error
       expect(out.stderr, extra.join(' ')).toContain(
-        '--provider, --model and --drafts are for --tier=prompt.',
+        '--provider, --model and --drafts are for the prompt tier',
       );
     }
     expect(calls).toEqual([]);
@@ -659,14 +737,14 @@ describe('kindgi improve runs start', () => {
 });
 
 describe('kindgi improve runs', () => {
-  test('list as a table: candidates, cost, and what each found', async () => {
+  test('list as a table: the version, project, candidates tried, cost, and what each found', async () => {
     const { calls, rec } = recorder();
     const page = {
       data: [
         {
           ...IMPROVE_RUN,
           status: 'completed',
-          candidatesEvaluated: 7,
+          tried: 7,
           costUsd: '0.84',
           outcome: { kind: 'suggested', suggestedChangeId: 'prop-9' },
         },
@@ -674,24 +752,53 @@ describe('kindgi improve runs', () => {
           ...IMPROVE_RUN,
           id: 'run-2',
           status: 'completed',
-          outcome: { kind: 'nothing-found', reason: 'no candidate beat the noise' },
+          outcome: { kind: 'nothing-better', reason: 'No change passed more cases.' },
         },
-        { ...IMPROVE_RUN, id: 'run-3' },
-        { ...IMPROVE_RUN, id: 'run-4', status: 'cancelled', cancelReason: 'project-suspended' },
+        {
+          ...IMPROVE_RUN,
+          id: 'run-3',
+          status: 'completed',
+          outcome: { kind: 'cost-cap', spentUsd: '3.02' },
+        },
+        { ...IMPROVE_RUN, id: 'run-4' },
+        { ...IMPROVE_RUN, id: 'run-5', status: 'cancelled', cancelReason: 'project-suspended' },
       ],
       hasMore: false,
     };
-    const out = await run(['improve', 'runs', 'list', '--agent=acme.scorer', '--table'], {
-      improveRuns: { list: rec('list', page) },
-    });
+    const out = await run(
+      [
+        'improve',
+        'runs',
+        'list',
+        '--agent=acme.scorer',
+        `--project=${PROJECT}`,
+        '--status=completed',
+        '--table',
+      ],
+      { improveRuns: { list: rec('list', page) } },
+    );
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(calls).toEqual([['list', { agentId: 'acme.scorer' }]]);
+    expect(calls).toEqual([
+      ['list', { agentId: 'acme.scorer', projectId: PROJECT, status: 'completed' }],
+    ]);
+    expect(out.stdout).toMatch(/TRIED/);
+    expect(out.stdout).toContain(`acme.scorer@1.4.0  ${PROJECT}`);
     expect(out.stdout).toContain('suggested prop-9');
     expect(out.stdout).toContain('nothing better');
+    expect(out.stdout).toContain('cost cap ($3.02)');
     expect(out.stdout).toContain('$0.84');
     expect(out.stdout).toContain('$0.00');
     expect(out.stdout).toContain('running');
     expect(out.stdout).toContain('project-suspended');
+  });
+
+  test('list --status takes only a status', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(['improve', 'runs', 'list', '--status=done'], {
+      improveRuns: { list: rec('list') },
+    });
+    expect(out.exitCode).toBe(2); // a usage error
+    expect(calls).toEqual([]);
   });
 
   test('get and cancel name the Improve run', async () => {

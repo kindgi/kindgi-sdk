@@ -233,7 +233,7 @@ const flowSchedule = () =>
 const improveSchedule = () =>
   schedule({
     agentId: undefined,
-    improve: { agentId: AGENT, scope: { kind: 'project', projectId: PROJECT } },
+    improve: { agentId: AGENT, projectId: PROJECT },
     config: { cronExpression: '0 2 * * *' },
   });
 const webhook = (over: Record<string, unknown> = {}) => ({
@@ -453,7 +453,7 @@ describe('retarget: the owner must be able to run the new target', () => {
     const h = harness([`bot execute agent:${AGENT}`]);
     const id = await botSchedule(h);
     const res = await h.call('PATCH', `/v1/schedules/${id}`, {
-      improve: { agentId: AGENT, scope: { kind: 'project', projectId: PROJECT } },
+      improve: { agentId: AGENT, projectId: PROJECT },
       config: { input: {} },
     });
     expect(res.status, JSON.stringify(res.body)).toBe(409);

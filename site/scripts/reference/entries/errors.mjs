@@ -17,16 +17,11 @@
 export const ERROR_ENTRIES = {
   'validation-failed': {
     description:
-      "The request body is well-formed JSON but fails validation, for example an agent, flow, tool, policy or test set definition that breaks the rules, or a version pin that can't be resolved. Fix the entries in `details.issues` and resend. On `POST /v1/improve-runs`, a version with nothing for the Improve run to work on is refused with no issues, and `details.reason` says what it lacks.",
+      "The request body is well-formed JSON but fails validation, for example an agent, flow, tool, policy or test set definition that breaks the rules, or a version pin that can't be resolved. Fix the entries in `details.issues` and resend.",
     details: [
       {
         key: 'issues',
         meaning: 'list of problems, each with a path to the offending field and a message',
-      },
-      {
-        key: 'reason',
-        meaning:
-          "on `POST /v1/improve-runs`, why the version has nothing for the Improve run to work on: `no-tunable-keys`, or `no-pinned-prompt-block` for a run on the agent's instructions (the `prompt` tier); other refusals leave it out",
       },
     ],
   },
@@ -1512,11 +1507,6 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'suggested-change-needs-pin': {
-    description:
-      'The agent has no pinned version for the whole tenant, so a new version would serve every scope nothing is pinned for. Pin its current version for the tenant first, then retry.',
-    details: [],
-  },
   'suggested-change-not-for-a-project': {
     description:
       "The suggested change was made for a tenant, an org or a segment, before suggested changes were for one project, so it can't be checked, pinned or added as Latest. Withdraw it, and suggest the change for a project.",
@@ -1600,6 +1590,29 @@ export const ERROR_ENTRIES = {
         meaning: 'the status the Improve run ended with',
       },
     ],
+  },
+  'improve-not-ready': {
+    description:
+      "Something the Improve run needs is missing, so it didn't start. `details.items` lists every missing item at once, as `POST /v1/improve-runs/check` does, each with where it's fixed and how. Fix them, check again, then start it.",
+    details: [
+      {
+        key: 'items',
+        meaning:
+          "the missing readiness items, each with its `key` (`wording`, `settings`, `test-cases`, `permission`, `one-at-a-time` or `project`) and its `fix`: `where` (`repo`, in the agent's code, then a deploy; `kindgi`, in Kindgi) and `text`",
+      },
+    ],
+    seeAlso: ['guides/improve/improve-an-agent'],
+  },
+  'improve-run-running': {
+    description:
+      'The agent already has a running Improve run in this project: one runs at a time. Wait for it to end, or cancel it, then start again.',
+    details: [
+      {
+        key: 'improveRunId',
+        meaning: 'the running Improve run',
+      },
+    ],
+    seeAlso: ['POST /v1/improve-runs/{improveRunId}/cancel'],
   },
   'version-already-exists': {
     description: "The API doesn't send this code.",
@@ -1689,11 +1702,12 @@ export const ERROR_ENTRIES = {
   },
   'invalid-provider': {
     description:
-      "The provider's metadata is invalid, for example an empty id, an empty region or no models. The message says which.",
+      "The provider's metadata is invalid, for example an empty id, an empty region, no models, or a field the metadata or a model doesn't take (a misspelled one). The message says which.",
     details: [
       {
         key: 'reason',
-        meaning: 'short code for the problem, such as empty-id or empty-region',
+        meaning:
+          'short code for the problem, such as empty-id, empty-region or unknown-model-field',
       },
       {
         key: 'providerId',
@@ -1848,6 +1862,11 @@ export const ERROR_ENTRIES = {
         meaning: 'the version looked up; present only when a version was requested',
       },
     ],
+  },
+  'runs-in-unsupported': {
+    description:
+      "This runtime doesn't read the agents' pins and Latest, so it can't say where a block's versions run (`GET /v1/blocks/{blockId}/runs-in`).",
+    details: [],
   },
   'block-already-registered': {
     description:
@@ -3147,6 +3166,22 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
+  'deploy-would-put-back-older-blocks': {
+    description:
+      "A newer version of one of the pack's data blocks than its files' runs now in a project of one of the pack's agents: a project's own version, added there from a suggested change or pinned, or a segment pin inside one. The deploy would put the older one back without anyone choosing to, so nothing was deployed. Bring the newer version into the files (`kindgi blocks pull <block>`, or merge the pull request opened for it) and deploy again, or deploy with `--replace=<block> --reason=<text>` to put the older one back on purpose: the deployment records it, and the audit log keeps one `deployment-replaced-block` event for each block. Every project counts, whoever deploys; one you can't read is named by the version only. `POST /v1/deployments/check` answers the same, writing nothing. A promotion with `pin` answers it too, against what runs in the target project only, with nothing moved: promote a build whose files have the newer versions, or name each block in its `replace` (`kindgi promote --pin --replace=<block> --reason=<text>`).",
+    details: [
+      {
+        key: 'blocks',
+        meaning:
+          "each block: its `blockId`, the files' version (`inFiles`), the newest that `runs` (its `version`, and in a project you read its `projectId`, `follows` `pin` or `latest`, the `segment` path, who made it run there `by` and when `at`), and the pull request opened for it (`pr.url`), when one was",
+      },
+    ],
+    seeAlso: [
+      'POST /v1/deployments',
+      'POST /v1/deployments/check',
+      'POST /v1/deployments/{deploymentId}/promotions',
+    ],
+  },
   'deployment-not-found': {
     description:
       "No deployment with that id exists under the tenant. A promotion of a deployment in a project you can't read is answered the same way.",
@@ -3416,6 +3451,22 @@ export const ERROR_ENTRIES = {
     description:
       "This server's projects can't be put in production: its project store has no production setting. Every run there is a staging run.",
     details: [],
+  },
+  'repo-connection-not-company-github': {
+    description:
+      "The connection named for the project's repo connection isn't a company-wide GitHub connection. Pull requests for a project's block changes are opened through the company's GitHub connection: connect GitHub for the company, then name that connection.",
+    details: [
+      { key: 'connectionId', meaning: 'the connection named' },
+      { key: 'app', meaning: 'the app entry it was made through' },
+      { key: 'owner', meaning: 'who owns it: `member` or `company`' },
+    ],
+    seeAlso: ['PUT /v1/projects/{projectId}/repo-connection', 'GET /v1/connections'],
+  },
+  'repo-connection-unsupported': {
+    description:
+      "This server can't connect a project to a repo: its project store keeps no repo connection, or, to set one, it has no connections. `kindgi blocks pull` still writes the versions that run into the pack's block files.",
+    details: [],
+    seeAlso: ['PUT /v1/projects/{projectId}/repo-connection'],
   },
   'team-membership-not-found': {
     description: "The user isn't a member of the team.",
@@ -3865,6 +3916,21 @@ export const ERROR_ENTRIES = {
     description:
       "This deployment doesn't support the operation on triggers, such as listing a schedule's fire history or running it now.",
     details: [],
+  },
+  'schedule-exists': {
+    description:
+      'The agent and project have an Improve schedule already: an agent has one Improve schedule per project. Change that one instead.',
+    details: [
+      {
+        key: 'scheduleId',
+        meaning: 'the Improve schedule the agent and project have',
+      },
+      {
+        key: 'triggerId',
+        meaning: "the same schedule's trigger id",
+      },
+    ],
+    seeAlso: ['guides/runs/run-on-a-schedule'],
   },
   'webhook-refused': {
     description:

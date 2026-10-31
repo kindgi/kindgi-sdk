@@ -3,10 +3,10 @@
 
 import type { Cursor } from '@kindgi/types';
 
-import type { CorrectedTestCase, EvalCaseStoreBinding } from '../../src/index.js';
+import type { CorrectedTestCase, FrozenCaseStoreBinding } from '../../src/index.js';
 
 /** An in-memory case store; the cursor is an offset. */
-export function inMemoryCaseStore(): EvalCaseStoreBinding {
+export function inMemoryCaseStore(): FrozenCaseStoreBinding {
   const sets = new Map<string, readonly CorrectedTestCase[]>();
   const key = (testSetId: string, version: string) => `${testSetId}@${version}`;
   return {

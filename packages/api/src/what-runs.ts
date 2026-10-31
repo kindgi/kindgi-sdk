@@ -49,6 +49,8 @@ export interface WhatRunsInProject {
   readonly segments: readonly {
     readonly path: readonly ScopeSegment[];
     readonly version: Semver;
+    /** The segment's pin: when it was set, and by which pin change. */
+    readonly pin: AgentPinnedVersion;
   }[];
 }
 
@@ -83,7 +85,7 @@ export async function whatRunsByProject(
     const covering = pin === null ? undefined : pins.find((p) => samePinScope(p.scope, pin.scope));
     const segments = pins.flatMap((p) =>
       p.scope.kind === 'segment' && p.scope.projectId === projectId
-        ? [{ path: p.scope.path, version: p.version }]
+        ? [{ path: p.scope.path, version: p.version, pin: p }]
         : [],
     );
     rows.push({ projectId, runs, ...(covering !== undefined && { pin: covering }), segments });

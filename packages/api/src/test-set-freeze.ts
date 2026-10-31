@@ -14,8 +14,8 @@ import {
 import type {
   CorrectedItemSummary,
   CorrectedTestCase,
-  EvalCaseStoreBinding,
-} from './eval-case-binding.js';
+  FrozenCaseStoreBinding,
+} from './frozen-case-binding.js';
 import type { TestCase } from './test-case-binding.js';
 import {
   type FreezeTestSetInput,
@@ -32,7 +32,7 @@ export interface CreateTestSetFreezeOptions {
   /** Where the frozen versions are published. */
   readonly testSets: TestSetRegistryBinding;
   /** Where a frozen version's cases are stored. */
-  readonly cases: EvalCaseStoreBinding;
+  readonly cases: FrozenCaseStoreBinding;
 }
 
 /**
@@ -210,7 +210,7 @@ async function answersAgain(
   newest: TestSetRecord,
   input: FreezeTestSetInput,
   fingerprint: string,
-  cases: EvalCaseStoreBinding,
+  cases: FrozenCaseStoreBinding,
   live: readonly TestCase[],
 ): Promise<boolean> {
   assertAgentsOwn(newest, input.agentId, input.projectId);
@@ -219,7 +219,7 @@ async function answersAgain(
 
 /** A version made for these cases has them, unless storing them failed after it was published. */
 async function hasCases(
-  cases: EvalCaseStoreBinding,
+  cases: FrozenCaseStoreBinding,
   record: TestSetRecord,
   live: readonly TestCase[],
 ): Promise<boolean> {
@@ -251,7 +251,11 @@ async function runCopiesOf(
   return out;
 }
 
-/** A case as frozen: its run's copy and what it expects, with the run it came from. */
+/**
+ * A case as frozen: its run's copy and what it expects, with the run it
+ * came from. An expert's case (`TestCase.expert`) is marked so on the
+ * case, its `corrections` entry and its items' `expert` sums.
+ */
 function frozenCase(
   testCase: TestCase,
   agentId: AgentId,
@@ -270,12 +274,16 @@ function frozenCase(
   }
   const { expect } = testCase;
   const decisions = expect.decisions;
+  // An expert's case counts in an `experts-only` test run: on the case, its
+  // decisions and its items alike.
+  const expert = testCase.expert === true;
   const correction: Pick<CorrectedTestCase, 'corrections'> =
     decisions?.verdict === 'wrong'
       ? {
           corrections: [
             {
               correctionId: testCase.id,
+              ...(expert && { expert: true as const }),
               calls: decisions.shouldCall ?? [],
               notCalled: decisions.mustNotCall ?? [],
             },
@@ -289,21 +297,25 @@ function frozenCase(
     ...(run.context !== undefined && { context: run.context }),
     output: run.output,
     ...(run.segments !== undefined && { segments: run.segments }),
-    items: (expect.items ?? []).map(
-      (item): CorrectedItemSummary => ({
+    items: (expect.items ?? []).map((item): CorrectedItemSummary => {
+      const yesWeight = item.verdict === 'right' ? 1 : 0;
+      const totalWeight = 1;
+      return {
         key: item.key,
         ...(item.pointer !== undefined && { pointer: item.pointer }),
         ...(item.rank !== undefined && { rank: item.rank }),
         yes: item.verdict === 'right' ? 1 : 0,
         no: item.verdict === 'wrong' ? 1 : 0,
-        yesWeight: item.verdict === 'right' ? 1 : 0,
-        totalWeight: 1,
+        yesWeight,
+        totalWeight,
+        ...(expert && { expert: { yesWeight, totalWeight, correctionIds: [testCase.id] } }),
         correctionIds: [testCase.id],
         reasons: [],
-      }),
-    ),
+      };
+    }),
     ...correction,
     expect,
+    ...(expert && { expert: true as const }),
     runId: testCase.runId,
   };
 }

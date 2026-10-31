@@ -111,7 +111,7 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   retention:
     "Deleted rows' retention (scheduled, sweep) — part of the admin control plane. Deleting most things is a tombstone; a `retention` policy per domain (see `policies`) sets how long tombstones stay before a sweep purges them for good. `scheduled` lists what's due and when; `sweep` purges what's past its grace. Nothing sweeps on its own: call `sweep` from a schedule. Caller-plugged via `RetentionBinding`.",
   'test-sets':
-    "Test set catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: test-run execution + per-kind grader dispatch live on the `test-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `corrections`). The cases of a `corrections` test set are copies of corrected runs, built before an agent's corrections were its test set (`/v1/agents/{agentId}/test-set`); they're read at `GET .../versions/{version}/cases` (`EvalCaseStoreBinding`), and `GET /v1/test-sets` doesn't list them. Runs against these test sets are started through the `test-runs` tag. Caller-plugged via `TestSetRegistryBinding`.",
+    "Test set catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: test-run execution + per-kind grader dispatch live on the `test-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `corrections`). The cases of a `corrections` test set are copies of corrected runs, built before an agent's corrections were its test set (`/v1/agents/{agentId}/test-set`); they're read at `GET .../versions/{version}/cases` (`FrozenCaseStoreBinding`), and `GET /v1/test-sets` doesn't list them. Runs against these test sets are started through the `test-runs` tag. Caller-plugged via `TestSetRegistryBinding`.",
   blocks:
     "Data blocks: versioned prompts and settings an agent version pins when it's published (list, get, versions, publish, unregister, reinstate). A version never changes, nor does a block's kind; a settings block's values satisfy its schema and the latest version's. A block belongs to one project and is authorized through it: `read` on the project to read, `write` to publish, unregister or reinstate. Caller-plugged via `BlockRegistryBinding`.",
   corrections:
@@ -392,6 +392,7 @@ function buildOperation(op: OperationSpec): Record<string, unknown> {
   };
   if (op.description !== undefined) doc.description = op.description;
   if (op.senderOnly !== undefined) doc['x-kindgi-sender-only'] = true;
+  if (op.streamed === true) doc['x-kindgi-streamed'] = true;
   if (op.parameters !== undefined && op.parameters.length > 0) {
     doc.parameters = op.parameters.map(buildParameter);
   }
@@ -441,8 +442,11 @@ function buildResponses(
   for (const [status, spec] of Object.entries(responses)) {
     const entry: Record<string, unknown> = { description: spec.description };
     if (spec.schema !== undefined) {
-      const contentType = spec.contentType ?? 'application/json';
-      entry.content = { [contentType]: { schema: spec.schema as JsonSchema } };
+      const contentTypes = spec.contentType ?? 'application/json';
+      const types = typeof contentTypes === 'string' ? [contentTypes] : contentTypes;
+      entry.content = Object.fromEntries(
+        types.map((type) => [type, { schema: spec.schema as JsonSchema }]),
+      );
     }
     doc[status] = entry;
   }

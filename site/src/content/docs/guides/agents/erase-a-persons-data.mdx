@@ -239,6 +239,10 @@ before it starts: `409 legal-hold`, with the held facts in `details.factIds`.
   explains.
 - **Signed exports already made**, such as an approval's audit bundle.
 - **A webhook receiver's copy** of a delivery that was already sent.
+- **Kindgi's draft pull requests** already opened in your repository. When a
+  block version is pinned in a project, or added as the latest version, the
+  draft pull request Kindgi opens names who pinned or added it and who
+  approved it. An erasure doesn't edit them.
 - **An Improve run's drafted instructions and the `why` of each change it
   suggests.** A draft that quotes eight or more words in a row of a test
   case is refused, and such quotes are cut from a `why`, so they hold a

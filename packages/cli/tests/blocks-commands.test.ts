@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -168,5 +168,101 @@ describe('kindgi blocks', () => {
       ['versions.unregister', 'acme.weights', '1.0.0'],
       ['versions.reinstate', 'acme.weights', '1.0.0'],
     ]);
+  });
+});
+
+describe('kindgi blocks pull', () => {
+  /** A pack in `cwd` with a prompt block at 1.0.0 and a settings block at 2.0.0. */
+  async function pack() {
+    await mkdir(join(cwd, 'blocks'), { recursive: true });
+    const tone = {
+      id: 'acme.tone',
+      version: '1.0.0',
+      kind: 'prompt',
+      description: 'How replies sound',
+      content: { template: 'Be brief.' },
+    };
+    const weights = {
+      id: 'acme.weights',
+      version: '2.0.0',
+      kind: 'settings',
+      content: { values: {} },
+    };
+    await writeFile(join(cwd, 'blocks/tone.json'), `${JSON.stringify(tone, null, 2)}\n`);
+    await writeFile(join(cwd, 'blocks/weights.json'), `${JSON.stringify(weights, null, 2)}\n`);
+  }
+  const row = (blockVersion: string) => ({
+    projectId: 'p-1',
+    agentId: 'acme.desk',
+    agentVersion: '1.0.0',
+    blockVersion,
+    follows: 'pin',
+  });
+  async function pull(argv: readonly string[], client: Record<string, unknown>) {
+    return runCli({
+      argv: ['blocks', 'pull', ...argv, '--url=https://x', '--token=t'],
+      env: {},
+      cwd,
+      home,
+      clientFactory: () => client as never,
+      buildConfigLoader: async () => ({ pack: { id: 'acme.app', version: '1.0.0' } }),
+    });
+  }
+
+  test('writes the newest version running anywhere where it is newer than the file', async () => {
+    await pack();
+    const { calls, rec } = recorder();
+    const runsIn = async (blockId: string) => {
+      calls.push(['runsIn', blockId]);
+      return { data: blockId === 'acme.tone' ? [row('1.1.0'), row('1.2.0')] : [row('1.0.0')] };
+    };
+    const out = await pull([], {
+      blocks: {
+        runsIn,
+        versions: { get: rec('versions.get', { content: { template: 'Be brief and kind.' } }) },
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['runsIn', 'acme.tone'],
+      ['versions.get', 'acme.tone', '1.2.0'],
+      ['runsIn', 'acme.weights'],
+    ]);
+    expect(JSON.parse(out.stdout)).toEqual({
+      wrote: [{ blockId: 'acme.tone', from: '1.0.0', to: '1.2.0', file: 'blocks/tone.json' }],
+      // 2.0.0 in the file is newer than anything that runs: it's left as it is.
+      unchanged: [{ blockId: 'acme.weights', version: '2.0.0', runs: '1.0.0' }],
+    });
+    expect(JSON.parse(await readFile(join(cwd, 'blocks/tone.json'), 'utf8'))).toEqual({
+      id: 'acme.tone',
+      version: '1.2.0',
+      kind: 'prompt',
+      description: 'How replies sound',
+      content: { template: 'Be brief and kind.' },
+    });
+  });
+
+  test('only the blocks named, and a block that runs nowhere is left', async () => {
+    await pack();
+    const { calls, rec } = recorder();
+    const out = await pull(['acme.weights'], {
+      blocks: { runsIn: rec('runsIn', { data: [] }) },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['runsIn', 'acme.weights']]);
+    expect(JSON.parse(out.stdout)).toEqual({
+      wrote: [],
+      unchanged: [{ blockId: 'acme.weights', version: '2.0.0' }],
+    });
+  });
+
+  test("a block the pack doesn't have is a usage error, before any call", async () => {
+    await pack();
+    const { calls, rec } = recorder();
+    const out = await pull(['acme.nothing'], { blocks: { runsIn: rec('runsIn') } });
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain("Not among the pack's blocks");
+    expect(out.stderr).toContain('acme.nothing');
+    expect(calls).toEqual([]);
   });
 });

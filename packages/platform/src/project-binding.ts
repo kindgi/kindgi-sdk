@@ -130,6 +130,19 @@ export interface ProjectBinding {
     projectId: ProjectId,
     production: boolean,
   ): Promise<ProjectProductionOutcome>;
+  /**
+   * Set the project's repo connection (`connectionId`), or clear it
+   * (`null`). Optional: without it, the repo-connection routes answer 501
+   * `repo-connection-unsupported`. The caller checks the connection; the
+   * binding keeps its id only, with no reference to it, so a connection
+   * removed later leaves the id in place. Setting what's already set
+   * answers `changed: false`.
+   */
+  setRepoConnection?(
+    tenantId: TenantId,
+    projectId: ProjectId,
+    connectionId: string | null,
+  ): Promise<ProjectRepoConnectionOutcome>;
 }
 
 /**
@@ -195,6 +208,20 @@ export type ProjectCreateOutcome =
        */
       readonly kind: 'org-not-found';
       readonly orgId: OrgId;
+    };
+
+/** What `ProjectBinding.setRepoConnection` did. */
+export type ProjectRepoConnectionOutcome =
+  | {
+      readonly kind: 'ok';
+      /** The connection now set; `null` once cleared. */
+      readonly repoConnectionId: string | null;
+      /** `false` when it was already so, and nothing was written. */
+      readonly changed: boolean;
+    }
+  | {
+      /** No project with this id in the tenant. */
+      readonly kind: 'project-not-found';
     };
 
 /** What `ProjectBinding.setProduction` did. */

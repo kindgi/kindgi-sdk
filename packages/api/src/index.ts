@@ -570,6 +570,23 @@ export {
   latestMoved,
   pinTookEffect,
 } from './pin-test-runs.js';
+export {
+  CHECK_LIST_MAX,
+  type DeployCheck,
+  type DeployCheckActor,
+  type DeployCheckBody,
+  type DeployCheckDeps,
+  type DeployCheckInput,
+  type DeployCheckStop,
+  REPLACE_REASON_MAX,
+  type ReplaceBlock,
+  type ReplacedBlock,
+  type RunsNewer,
+  checkAgainstRuns,
+  parseCheckBody,
+  parseReplace,
+} from './deploy-check.js';
+export type { DeployCheckBindings } from './routes/deploy-check-deps.js';
 export type { RegistryReadOnly } from './registry-read-only.js';
 // A pack agent's block pins where the pack's own versions are the only ones (`kindgi dev`).
 export { type BlockPins, type BlockVersionReads, resolveBlockPins } from './block-pins.js';
@@ -734,15 +751,15 @@ export type {
   StatusSetByHand,
 } from './correction-sorting.js';
 export type {
-  EvalCaseListInput,
-  EvalCasePage,
-  EvalCasePutInput,
-  EvalCaseStoreBinding,
+  FrozenCaseListInput,
+  FrozenCasePage,
+  FrozenCasePutInput,
+  FrozenCaseStoreBinding,
   TestCaseExpectedDecisions,
   CorrectedTestCase,
   CorrectedItemSummary,
   CorrectedReason,
-} from './eval-case-binding.js';
+} from './frozen-case-binding.js';
 export { segmentsStartWith } from './routes/segments.js';
 export { MAX_CORRECTED_HISTORY } from './routes/correction-context.js';
 export type {
@@ -811,6 +828,12 @@ export type {
   TestSetCounts,
   TestSetOfInput,
 } from './test-case-binding.js';
+export type {
+  AnswerCheck,
+  AnswerCheckBinding,
+  AnswerCheckInput,
+  TestRunJudging,
+} from './answer-check-binding.js';
 export { resolvePointer } from './routes/corrections.js';
 export type {
   BlockGetInput,
@@ -829,6 +852,11 @@ export type {
   BlockVersionInput,
   BlockVersionSource,
 } from './block-binding.js';
+export type {
+  BlockVersionPullRequest,
+  BlockVersionPullRequestBinding,
+  BlockVersionPullRequestInput,
+} from './block-version-pr-binding.js';
 export type {
   AgentPinBindings,
   AgentPinInput,
@@ -958,6 +986,7 @@ export type {
   CorrectedCaseResult,
   CorrectedComparisonSummary,
   CorrectedDispatcherOptions,
+  CorrectionGraded,
   ReplayRunReader,
 } from './corrected-dispatcher.js';
 export {
@@ -1135,14 +1164,15 @@ export type {
 export type {
   CheckImproveRunInput,
   ImproveScheduleInput,
-  ImproveThreshold,
   ImprovementBudget,
   ImprovementModel,
   ImproveRun,
   ImproveRunBinding,
+  ImproveRunCheck,
   ImproveRunComparison,
   ImproveRunCheckBasis,
   ImproveRunOutcome,
+  ImproveRunStart,
   ImproveRunStatus,
   ImprovementTier,
   ListImproveRunsInput,
@@ -1155,7 +1185,7 @@ export {
   projectHasExpertClass,
   serializeImproveRun,
 } from './routes/improve-runs.js';
-export { sampleCases } from './eval-sample.js';
+export { sampleCases } from './test-run-sample.js';
 export type { TestRunOverrides, TestRunSample } from './test-run-binding.js';
 export {
   DRAFTED_SUGGESTED_CHANGE_APPROVAL,
@@ -1218,6 +1248,8 @@ export type {
   DeploymentPromoteOutcome,
   DeploymentRegisterInput,
   DeploymentRegisterOutcome,
+  DeploymentReplacedBlock,
+  DeploymentSource,
   PromotedToolSecretScopes,
   SystemDeploymentRetireReason,
 } from './deployment-binding.js';

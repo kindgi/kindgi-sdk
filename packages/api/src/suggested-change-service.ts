@@ -29,6 +29,7 @@ import type {
 
 import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.js';
 import type { AgentPinBindings, AgentPinnedVersion, Pin, PinActor } from './agent-pin-binding.js';
+import type { TestRunJudging } from './answer-check-binding.js';
 import { approvalResourceRef, projectOfScope } from './approval-resource.js';
 import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
 import { type BlockEdit, blockEditDefinition, publishBlockEdit } from './block-publish.js';
@@ -40,7 +41,6 @@ import {
   laterEnvironment,
 } from './environment-entry.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
-import { rescoreRefusal, rescoreStart } from './eval-rescore.js';
 import type { GateApproval } from './gate.js';
 import {
   type ReferenceScopeBinding,
@@ -90,7 +90,12 @@ import type {
   TestRunComparison,
   TestRunStartOutcome,
 } from './test-run-binding.js';
-import type { FrozenTestSet, TestSetFreezeBinding } from './test-set-binding.js';
+import { rescoreRefusal, rescoreStart } from './test-run-rescore.js';
+import {
+  type FrozenTestSet,
+  type TestSetFreezeBinding,
+  nothingToCheck,
+} from './test-set-binding.js';
 import { type WhatRuns, projectsPinTakesOffLatest, whatRuns } from './what-runs.js';
 
 /**
@@ -260,6 +265,13 @@ export interface EvaluateSuggestedChangeInput {
     readonly rule: SuggestedChangeRule;
     readonly reference: { readonly testRunId: string };
   };
+  /**
+   * Whose model checks the test run's answers (`TestRunStartInput.judging`).
+   * Improve names the model it was asked to judge with, else the version it
+   * starts from, and starts the `reference` run with the same, so one model
+   * judges both sides. Absent: the candidate version's own model.
+   */
+  readonly judging?: TestRunJudging;
   /** Who it's done for: what the derived version records as `by`. */
   readonly actor: PinActor;
 }
@@ -690,11 +702,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
   ): Promise<SuggestedChangeOutcome<FrozenTestSet>> {
     const frozen = await testSets.freezeTestSet({ tenantId, agentId, projectId });
     if (frozen.cases.length > 0) return { kind: 'ok', value: frozen };
-    return err({
-      code: 'suggested-change-nothing-to-check',
-      message: `Project ${projectId as unknown as string} has no corrections of ${agentId as unknown as string} to check a change on: correct some of its conversations first`,
-      projectId: projectId as unknown as string,
-    });
+    return err(nothingToCheck(agentId, projectId));
   }
 
   /**
@@ -728,6 +736,8 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       });
     }
     const correlationId = `suggested-change:${suggestedChange.id as unknown as string}`;
+    // Both sides' answers are checked by the version it's built on, so one model judges both.
+    const judging = { version: builtOn(suggestedChange) };
     const start = (version: string) =>
       deps.testRuns.start({
         tenantId,
@@ -736,6 +746,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         testSetVersion: frozen.testSetVersion,
         agentRef: { agentId: suggestedChange.agentId, version: version as Semver },
         correlationId,
+        judging,
       });
     const withIt = await start(candidate.agentVersion);
     if (withIt.kind !== 'ok') return err(startError(withIt));
@@ -1254,7 +1265,8 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
     /**
      * Publish the suggested change's block version and derive its agent version
      * (once: an evaluation again reuses them), then start the comparison.
-     * Needs a writable agent registry and a tenant-wide pinned version.
+     * Needs a writable agent registry. The version it makes is made for its
+     * project, and is Latest nowhere until someone adds it.
      */
     async evaluate(
       input: EvaluateSuggestedChangeInput,
@@ -1266,14 +1278,6 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       if (refused !== undefined) return err(refused);
       const readOnly = readOnlyRefusal(suggestedChange.scope);
       if (readOnly !== undefined) return err(readOnly);
-      // A version pinned nowhere is still the agent's latest, and the
-      // latest serves every scope nothing is pinned for.
-      if ((await deps.agentPins.pinned.resolve({ tenantId, agentId })) === null) {
-        return err({
-          code: 'suggested-change-needs-pin',
-          message: `${agentId} has no pinned version for the whole tenant, so a new version of it would serve every scope nothing is pinned for. Pin its current version for the tenant first (scope { "kind": "tenant" }), then evaluate.`,
-        });
-      }
       if (suggestedChange.candidate === undefined) {
         const made = await makeCandidate(suggestedChange, input.actor);
         if (made.kind === 'err') return made;
@@ -1317,6 +1321,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         agentRef: { agentId: suggestedChange.agentId, version: candidate.agentVersion as Semver },
         correlationId: `suggested-change:${suggestedChange.id as unknown as string}`,
         ...(input.comparison !== undefined && { comparison: input.comparison }),
+        ...(input.judging !== undefined && { judging: input.judging }),
       });
       if (started.kind !== 'ok') return err(startError(started));
       return record(suggestedChange, {

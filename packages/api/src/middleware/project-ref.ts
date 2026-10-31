@@ -35,6 +35,7 @@ export const PROJECT_REF_ROUTES: readonly string[] = [
   '/improve-runs/check',
   '/blocks',
   '/deployments',
+  '/deployments/check',
   '/schedules',
   '/webhooks',
   '/mail-triggers',

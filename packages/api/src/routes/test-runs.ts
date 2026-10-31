@@ -10,7 +10,6 @@ import type { Cursor, FlowId, ProjectId, RunId, Semver, TenantId, Timestamp } fr
 
 import { VERSIONS_NEED_A_FLOW } from '../corrected-dispatcher.js';
 import { statusFor, toWireError } from '../errors.js';
-import { rescoreRefusal, rescoreStart } from '../eval-rescore.js';
 import { type ItemRights, filterOwned, ownProject, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import {
@@ -30,14 +29,25 @@ import {
   type TestRunStatus,
 } from '../test-run-binding.js';
 import { RESERVED_CORRELATION_PREFIXES, isReservedCorrelation } from '../test-run-outcome.js';
+import { rescoreRefusal, rescoreStart } from '../test-run-rescore.js';
+import {
+  type TestSetFreezeBinding,
+  agentTestSetId,
+  isAgentTestSetId,
+  nothingToCheck,
+} from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
-import { parseComparison } from './eval-comparison.js';
-import { type SettingsOverridesCheck, checkSettingsOverrides } from './eval-overrides.js';
-import { type FlowVersionsCheck, checkFlowVersions, versionsReferences } from './eval-versions.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
 import { formatSseFrame, pause, readingOf } from './sse.js';
+import { parseComparison } from './test-run-comparison.js';
+import { type SettingsOverridesCheck, checkSettingsOverrides } from './test-run-overrides.js';
+import {
+  type FlowVersionsCheck,
+  checkFlowVersions,
+  versionsReferences,
+} from './test-run-versions.js';
 import { parseTimeInput } from './time-input.js';
 
 /**
@@ -93,6 +103,11 @@ export function testRunsRouters(
    * has one project.
    */
   itemRights?: ItemRights,
+  /**
+   * Freezes an agent's own test set (`agent.<agentId>.<projectId>`) for a
+   * run of it. Absent: such a run answers 501, as a suggested change's check does.
+   */
+  testSetFreeze?: TestSetFreezeBinding,
 ): TestRunsRouters {
   return {
     start: startRouter(
@@ -103,6 +118,7 @@ export function testRunsRouters(
       referenceScope,
       projectSuspended,
       itemRights,
+      testSetFreeze,
     ),
     readback: readbackRouter(binding, authorizer, itemRights),
   };
@@ -165,6 +181,66 @@ async function overridesRefusal(
   };
 }
 
+/**
+ * Why a run can't take an agent's own test set (`agent.<agentId>.<projectId>`):
+ * it's frozen for each run of it, so it runs only its agent, in its
+ * project. `undefined` when the run is its agent's in its project, and for
+ * any other test set.
+ */
+function ownSetMismatch(
+  testSetId: string,
+  agentRef: AgentRef | undefined,
+  projectId: ProjectId,
+): string | undefined {
+  if (!isAgentTestSetId(testSetId)) return undefined;
+  if (agentRef === undefined) {
+    return `"${testSetId}" is an agent's own test set: run it with \`agentRef\`, for its agent in its project`;
+  }
+  const ownId = agentTestSetId(agentRef.agentId, projectId);
+  return testSetId === ownId
+    ? undefined
+    : `"${testSetId}" is an agent's own test set, and this run's agent and project have "${ownId}"`;
+}
+
+/**
+ * An agent's own test set as it is now, for a run of it (`ownSetMismatch`
+ * passed): frozen first, as a suggested change's check freezes it, so the
+ * run records that version as its `testSetVersion`. Refused with 501 when
+ * nothing freezes it, and with the check's 409 when it has no cases.
+ * `undefined` for any other test set, which runs its latest version.
+ */
+async function frozenFor(
+  testSetFreeze: TestSetFreezeBinding | undefined,
+  tenantId: TenantId,
+  testSetId: string,
+  agentRef: AgentRef | undefined,
+  projectId: ProjectId,
+): Promise<
+  | { readonly kind: 'frozen'; readonly version: string }
+  | {
+      readonly kind: 'refused';
+      readonly error: { readonly code: string; readonly message: string };
+    }
+  | undefined
+> {
+  if (!isAgentTestSetId(testSetId) || agentRef === undefined) return undefined;
+  const { agentId } = agentRef;
+  if (testSetFreeze === undefined) {
+    return {
+      kind: 'refused',
+      error: {
+        code: 'suggested-change-check-unsupported',
+        message:
+          "This runtime can't run an agent's test set: it doesn't freeze a project's test set",
+      },
+    };
+  }
+  const frozen = await testSetFreeze.freezeTestSet({ tenantId, agentId, projectId });
+  return frozen.cases.length === 0
+    ? { kind: 'refused', error: nothingToCheck(agentId, projectId) }
+    : { kind: 'frozen', version: frozen.testSetVersion };
+}
+
 function startRouter(
   binding: TestRunBinding,
   versionsCheck?: FlowVersionsCheck,
@@ -173,6 +249,7 @@ function startRouter(
   referenceScope?: ReferenceScopeBinding,
   projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>,
   itemRights?: ItemRights,
+  testSetFreeze?: TestSetFreezeBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -219,6 +296,12 @@ function startRouter(
       return c.json(toWireError(parsed.error, requestId));
     }
     const { projectId, agentRef, flowRef } = parsed.value;
+    const own = isAgentTestSetId(testSetId);
+    const notOwn = ownSetMismatch(testSetId, agentRef, projectId);
+    if (notOwn !== undefined) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: notOwn }, requestId));
+    }
     const target =
       agentRef !== undefined
         ? { kind: 'agent' as const, id: agentRef.agentId as unknown as string }
@@ -226,9 +309,17 @@ function startRouter(
     // Running the test set takes `execute` on it (an editor of its project, or
     // an executor), whichever project the run lands in; its results land
     // in that project, which takes `write`. A test set or target more than one
-    // project serves, run in one of them: that project's right instead.
+    // project serves, run in one of them: that project's right instead. An
+    // agent's own test set is its project's, and has no object until its first
+    // freeze: `write` there and running the agent cover it.
     const refused =
-      (await runRefusal(c, { kind: 'test_set', id: testSetId }, projectId as unknown as string)) ??
+      (own
+        ? undefined
+        : await runRefusal(
+            c,
+            { kind: 'test_set', id: testSetId },
+            projectId as unknown as string,
+          )) ??
       (await deniedBy(authorizer, c, 'write', ref('project', projectId as unknown as string))) ??
       (await runRefusal(c, target, projectId as unknown as string));
     if (refused !== undefined) return refused;
@@ -237,7 +328,7 @@ function startRouter(
     // case replays that version in the run's project. That holds for a flow
     // candidate's `versions` too, each at its own path.
     const outOfScope = await referencesOutOfScope(referenceScope, tenantId, projectId, [
-      { path: '/testSetId', kind: 'test-set', id: testSetId },
+      ...(own ? [] : [{ path: '/testSetId', kind: 'test-set' as const, id: testSetId }]),
       agentRef !== undefined
         ? {
             path: '/agentRef/agentId',
@@ -275,10 +366,17 @@ function startRouter(
       return c.json(toWireError(refusal, requestId));
     }
 
+    const frozen = await frozenFor(testSetFreeze, tenantId, testSetId, agentRef, projectId);
+    if (frozen?.kind === 'refused') {
+      c.status(statusFor(frozen.error.code) as never);
+      return c.json(toWireError(frozen.error, requestId));
+    }
+
     const outcome = await binding.start({
       tenantId,
       projectId: parsed.value.projectId,
       testSetId,
+      ...(frozen?.kind === 'frozen' && { testSetVersion: frozen.version }),
       ...(parsed.value.agentRef !== undefined && { agentRef: parsed.value.agentRef }),
       ...(parsed.value.flowRef !== undefined && { flowRef: parsed.value.flowRef }),
       ...(parsed.value.dryRun !== undefined && { dryRun: parsed.value.dryRun }),
