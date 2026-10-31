@@ -63,6 +63,14 @@ without a release gate (`409 project-suspended` when the project is
 suspended). Deploy or publish a version into the project first; into a
 later environment, promote a build that ships one.
 
+A pin that would take a project that follows Latest off it asks first. A
+project or segment pin of such a project, or a tenant or org pin over one, is
+refused with `409 pin-stops-latest`, whether or not the version changes, and
+nothing is recorded. `details.projects` lists each project with the version it
+runs now. Send `stopFollowingLatest: true` to pin anyway: the pin goes on, and
+the change records `stoppedFollowingLatest: true`. A deployment promotion's
+`pin` is the ask itself, so its pins are never refused this way.
+
 `client.agents.projects(agentId)` (`GET /v1/agents/{agentId}/projects`) says
 what a run in each project gets and why: `follows` is `pin` with the pinned
 version that covers the project, or `latest` with its Latest, since when and
