@@ -1407,9 +1407,11 @@ names in them and never a value. By hand, along with steps 5 to 8 above:
   routing settings take the place of `KINDGI_PACK_SERVICE_URL`,
   `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` (with
   `"multi"`, of the ones you took out of `server_env`).
-- **From the apply until each pack is deployed again,** calls to a
-  deployed pack's tools are refused: `pack-route-missing`, then, for about
-  a minute, `pack-endpoint-pending`. Pick a quiet hour.
+- **With the one pack service, from the apply until each pack is deployed
+  again,** calls to a deployed pack's tools are refused:
+  `pack-route-missing`, then, for about a minute, `pack-endpoint-pending`.
+  Pick a quiet hour. With `"multi"`, the services your orchestrator made
+  keep serving until each tenant deploys again (step 5 below).
 
 After the apply:
 
