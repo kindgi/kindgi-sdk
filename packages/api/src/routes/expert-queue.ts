@@ -377,6 +377,8 @@ const JUDGEABLE: readonly ExpertQueueRunStatus[] = ['completed'];
 const MAX_PREVIEW = 500;
 const MAX_LIST = 50;
 const MAX_TEXT = 200;
+/** A `when.versions` entry: an exact agent or flow version, or `pinned`. */
+const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const MAX_OPEN = 10_000;
 
 /** The query's rule fields, as a spec body (`preview`). */
@@ -436,6 +438,9 @@ function parseSpec(raw: unknown, mode: 'create' | 'patch' | 'preview'): QueueRul
       }
       if (name === 'status' && v.some((x) => !JUDGEABLE.includes(x as ExpertQueueRunStatus))) {
         return 'Only a completed run can be corrected, so `when.status` takes `completed` only';
+      }
+      if (name === 'versions' && v.some((x) => x !== 'pinned' && !EXACT_VERSION.test(x))) {
+        return '`when.versions` takes exact versions, such as `1.2.0`, or `pinned`';
       }
       parsed[name] = [...new Set(v as string[])];
     }

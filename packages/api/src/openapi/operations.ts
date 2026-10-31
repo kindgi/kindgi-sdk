@@ -364,7 +364,7 @@ const TEST_CASE_WRITE_RIGHTS =
 const NEWEST_VISIBLE_DESCRIPTION =
   'An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.';
 
-const LiveProjectQueryParam: ParameterSpec = {
+const AgentPinProjectQueryParam: ParameterSpec = {
   name: 'projectId',
   in: 'query',
   required: false,
@@ -381,7 +381,7 @@ const SegmentQueryParam: ParameterSpec = {
   segmentPath: true,
 };
 
-const PromotionScopeKindQueryParam: ParameterSpec = {
+const PinScopeKindQueryParam: ParameterSpec = {
   name: 'scopeKind',
   in: 'query',
   required: false,
@@ -390,8 +390,8 @@ const PromotionScopeKindQueryParam: ParameterSpec = {
   schema: { type: 'string', enum: ['tenant', 'org', 'project', 'segment'] },
 };
 
-const PromotionIdPathParam: ParameterSpec = {
-  name: 'promotionId',
+const PinChangeIdPathParam: ParameterSpec = {
+  name: 'changeId',
   in: 'path',
   required: true,
   schema: { type: 'string', format: 'uuid' },
@@ -441,19 +441,19 @@ const LastEventIdParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
-const GatePolicyIdPathParam: ParameterSpec = {
-  name: 'policyId',
+const ReleaseGateIdPathParam: ParameterSpec = {
+  name: 'releaseGateId',
   in: 'path',
   required: true,
-  description: 'The gate policy id.',
+  description: 'The release gate id.',
   schema: { type: 'string' },
 };
 
-const GatePolicyVersionPathParam: ParameterSpec = {
+const ReleaseGateVersionPathParam: ParameterSpec = {
   name: 'version',
   in: 'path',
   required: true,
-  description: 'A semver version of the gate policy.',
+  description: 'A semver version of the release gate.',
   schema: { type: 'string' },
 };
 
@@ -1273,11 +1273,8 @@ const TestSetKindFilterQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    "Filter to test sets of a single kind. `corrections` isn't listed: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).",
-  schema: {
-    type: 'string',
-    enum: ['accuracy', 'pairwise', 'regression', 'human-review', 'benchmark', 'custom'],
-  },
+    "Filter to test sets of a single kind. `corrections` is listed only when asked for here: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`), and its frozen versions are `corrections` test sets.",
+  schema: { $ref: '#/components/schemas/TestSetKind' },
 };
 
 const TestSetNameFilterQueryParam: ParameterSpec = {
@@ -3776,38 +3773,6 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
-    method: 'post',
-    honoPath: '/v1/agents/:agentId/versions',
-    openapiPath: '/v1/agents/{agentId}/versions',
-    operationId: 'agents.deriveVersion',
-    summary: 'Derive an agent version with data-block pins swapped',
-    description:
-      "An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent. In a tenant with environment orders, the new version is made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted; the agent's project doesn't change. It doesn't become the project's Latest by itself: a run that names no version gets it only where a pin names it.",
-    tags: ['agents'],
-    security: 'bearer',
-    parameters: [AgentIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('DeriveAgentVersionBody') },
-    responses: {
-      '200': {
-        description:
-          'An active version already holds this definition and these pins (the same swap derived before, or a deploy that registered it): that version, unchanged.',
-        schema: ref('Agent'),
-      },
-      '201': { description: 'The derived agent version.', schema: ref('Agent') },
-      ...CommonMutationErrors,
-      '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `agent-project-mismatch`: the agent belongs to another project than the body's `projectId` (agents never move; the message doesn't name the project). Or `environment-takes-promotions`: the body's `projectId` is a later environment of an environment order, where no new version is made; leave it out, or name the order's first environment (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
-      ),
-      '400': ErrorResponse(
-        "`validation-failed`: `from` has no pins, a swap names a block it doesn't reference, or a version that isn't published, active or the right kind (see `details.issues`); or `projectId` isn't a project id (a UUID).",
-      ),
-      '404': ErrorResponse(
-        '`agent-not-found`: no agent at `from`; or `projectId` names no project of this tenant (`project-not-found`).',
-      ),
-      '429': SCHEMA_COMPILE_BUDGET,
-    },
-  },
-  {
     method: 'get',
     honoPath: '/v1/agents/:agentId/versions/:version',
     openapiPath: '/v1/agents/{agentId}/versions/{version}',
@@ -3975,7 +3940,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Unregistered.', schema: ref('UnregisterAgentResult') },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `agent-version-live`: the version is the live version of the scopes in `details.scopes`; roll back, unpin, or promote another version there first.",
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `agent-version-pinned`: the version is the pinned version of the scopes in `details.scopes`; unpin, or pin another version there first.",
       ),
       '404': ErrorResponse('No agent at that (id, version) under this tenant.'),
     },
@@ -4005,17 +3970,17 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
-    honoPath: '/v1/agents/:agentId/live',
-    openapiPath: '/v1/agents/{agentId}/live',
-    operationId: 'agents.live.resolve',
+    honoPath: '/v1/agents/:agentId/pinned',
+    openapiPath: '/v1/agents/{agentId}/pinned',
+    operationId: 'agents.pinned.resolve',
     summary: 'The version a run would use',
     description:
-      "Resolves the version a run of this agent would use for a project and segment path: the most specific live version (segment path, project, org, tenant), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.",
+      "Resolves the version a run of this agent would use for a project and segment path: the most specific pinned version (segment path, project, org, tenant), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.",
     tags: ['agents'],
     security: 'bearer',
-    parameters: [AgentIdPathParam, LiveProjectQueryParam, SegmentQueryParam],
+    parameters: [AgentIdPathParam, AgentPinProjectQueryParam, SegmentQueryParam],
     responses: {
-      '200': { description: 'The resolved version.', schema: ref('LiveVersionResolution') },
+      '200': { description: 'The resolved version.', schema: ref('AgentPinnedVersionResolution') },
       ...CommonAuthErrors,
       '400': ErrorResponse('A malformed project id or segment, or a segment without a project.'),
       '404': ErrorResponse(
@@ -4025,36 +3990,36 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
-    honoPath: '/v1/agents/:agentId/live-versions',
-    openapiPath: '/v1/agents/{agentId}/live-versions',
-    operationId: 'agents.live.list',
-    summary: "List an agent's live versions",
-    description: 'Every scope with a live version pinned, and the promotion that set it.',
+    honoPath: '/v1/agents/:agentId/pinned-versions',
+    openapiPath: '/v1/agents/{agentId}/pinned-versions',
+    operationId: 'agents.pinned.list',
+    summary: "List an agent's pinned versions",
+    description: 'Every scope with a pinned version, and the pin change that set it.',
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam],
     responses: {
-      '200': { description: 'The pins.', schema: ref('LivePinList') },
+      '200': { description: 'The pins.', schema: ref('AgentPinnedVersionList') },
       ...CommonAuthErrors,
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/agents/:agentId/promotions',
-    openapiPath: '/v1/agents/{agentId}/promotions',
-    operationId: 'agents.promotions.create',
-    summary: 'Make a version live for a scope',
+    honoPath: '/v1/agents/:agentId/pinned/pin',
+    openapiPath: '/v1/agents/{agentId}/pinned/pin',
+    operationId: 'agents.pinned.pin',
+    summary: 'Pin a version for a scope',
     description:
-      "Pins `version` live for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every promotion is recorded, with who asked and why. Needs `promote` on the agent.\n\nWith a gate policy for the scope (`GET …/gate-policy`), the promotion is checked first against the comparison named by `testRunId`: `201` promoted; `202` the gate passed and the policy wants a reviewer's approval (a HITL approval, subject `agent-promotion`; the live version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.promotionId`, `details.policy` and every check in `details.checks`. A refused promotion is recorded too.\n\nA pin in place skips the gate: when the scope has no live version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is promoted (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 promotion-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: making a version live writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole tenant, which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its suggested change changed, or another block's file a version not older), or the block left the pack, `409 promotion-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way.",
+      "Pins `version` for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every pin is recorded, with who asked and why. Needs `pin` on the agent.\n\nWith a release gate for the scope (`GET …/release-gate`), the pin is checked first against the comparison named by `testRunId`: `201` pinned; `202` the gate passed and wants a reviewer's approval (a HITL approval, subject `agent-pin`; the pinned version moves once it's approved, if nothing changed meanwhile); `422 gate-failed` with `details.changeId`, `details.releaseGate` and every check in `details.checks`. A refused pin is recorded too.\n\nA pin in place skips the gate: when the scope has no pinned version of its own and already serves exactly `version` (from a scope above, or as the latest), pinning it there changes nothing any run gets, so it is pinned (`201`) with one passing `pinInPlace` check, no comparison and no approval, its reason starting `pin-in-place`. It is re-checked as it is written; if the scope moved meanwhile, `409 pin-superseded`: check again.\n\nUnder `kindgi dev`, nothing is pinned, since the pack's files are what runs: pinning a version writes the data blocks it changes into the pack's own files (each block's new version and content, and a prompt's template into its template file), and the dev server reloads them. Only for the whole tenant, which the pack's files serve. If one of those files changed since the version was made (the changed block's file holds another version than the one its suggested change changed, or another block's file a version not older), or the block left the pack, `409 pin-superseded`, and the message names the file; an approval's decision settles it `superseded` the same way.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('PromoteBody') },
+    requestBody: { required: true, schema: ref('AgentPinBody') },
     responses: {
-      '201': { description: 'Promoted.', schema: ref('Promotion') },
+      '201': { description: 'Pinned.', schema: ref('Pin') },
       '202': {
-        description: 'The gate passed; the promotion waits for an approval (`approvalId`).',
-        schema: ref('Promotion'),
+        description: 'The gate passed; the pin waits for an approval (`approvalId`).',
+        schema: ref('Pin'),
       },
       ...CommonMutationErrors,
       '400': ErrorResponse(
@@ -4064,33 +4029,33 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The version is not registered, or was unregistered; or the test run is not found.',
       ),
       '409': ErrorResponse(
-        "`nothing-runs-in-scope`: no version of the agent runs in the scope yet (no pin covers it, and it has no Latest), so there's nothing to measure the version against; deploy or publish a version into the project first (into a later environment, promote a build that ships one). `project-suspended`: nothing runs there because the scope's project is suspended. `promotion-superseded`: the scope's live version changed while the gate ran; check again. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `live-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `promotion-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
+        "`nothing-runs-in-scope`: no version of the agent runs in the scope yet (no pin covers it, and it has no Latest), so there's nothing to measure the version against; deploy or publish a version into the project first (into a later environment, promote a build that ships one). `project-suspended`: nothing runs there because the scope's project is suspended. `pin-superseded`: the scope's pinned version changed while the gate ran; check again. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `pin-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `pin-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
       ),
       '422': ErrorResponse(
-        '`gate-failed`: the gate refused it. `details.checks` has every check; the refusal is recorded (`details.promotionId`).',
+        '`gate-failed`: the gate refused it. `details.checks` has every check; the refusal is recorded (`details.changeId`).',
       ),
       '429': ErrorResponse(
         "`approvals-pending-limit`: the gate wants an approval, and the tenant's approvals waiting for a decision are at its limit (set by the runtime's operator). Nothing is recorded.",
       ),
       '501': ErrorResponse(
-        "`promotion-gate-unsupported`: a gate policy applies, and the deployment can't record a gated promotion.",
+        "`pin-gate-unsupported`: a release gate applies, and the deployment can't record a gated pin.",
       ),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/agents/:agentId/promotions/check',
-    openapiPath: '/v1/agents/{agentId}/promotions/check',
-    operationId: 'agents.promotions.check',
-    summary: 'Check a promotion against its gate',
+    honoPath: '/v1/agents/:agentId/pinned/check',
+    openapiPath: '/v1/agents/{agentId}/pinned/check',
+    operationId: 'agents.pinned.check',
+    summary: 'Check a pin against its gate',
     description:
-      'What `POST …/promotions` with the same body would do, with nothing recorded: `would-promote`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, promote. Needs `read` on the agent.',
+      'What `POST …/pinned/pin` with the same body would do, with nothing recorded: `would-pin`, `needs-approval` (with the approval it needs) or `gate-failed`, with every check. For a pipeline: evaluate, check, pin. Needs `read` on the agent.',
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam],
-    requestBody: { required: true, schema: ref('PromoteBody') },
+    requestBody: { required: true, schema: ref('AgentPinBody') },
     responses: {
-      '200': { description: "The gate's answer.", schema: ref('PromotionCheck') },
+      '200': { description: "The gate's answer.", schema: ref('PinCheck') },
       ...CommonAuthErrors,
       '400': ErrorResponse(
         "Malformed body, or the test run is not a finished comparison. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
@@ -4103,35 +4068,30 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
-    honoPath: '/v1/agents/:agentId/gate-policy',
-    openapiPath: '/v1/agents/{agentId}/gate-policy',
-    operationId: 'agents.gatePolicy.resolve',
-    summary: 'The gate policy for a scope',
+    honoPath: '/v1/agents/:agentId/release-gate',
+    openapiPath: '/v1/agents/{agentId}/release-gate',
+    operationId: 'agents.releaseGate.resolve',
+    summary: 'The release gate for a scope',
     description:
-      "The gate policy a promotion of the agent for the scope would be checked against: the most specific scope with an active policy (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `policy: null` when none applies.",
+      "The release gate a pin of the agent for the scope would be checked against: the most specific scope with an active gate (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `releaseGate: null` when none applies.",
     tags: ['agents'],
     security: 'bearer',
-    parameters: [
-      AgentIdPathParam,
-      PromotionScopeKindQueryParam,
-      ScopeIdQueryParam,
-      SegmentQueryParam,
-    ],
+    parameters: [AgentIdPathParam, PinScopeKindQueryParam, ScopeIdQueryParam, SegmentQueryParam],
     responses: {
-      '200': { description: 'The policy, or null.', schema: ref('GatePolicyResolution') },
+      '200': { description: 'The release gate, or null.', schema: ref('ReleaseGateResolution') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Missing or malformed scope.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/gate-policies',
-    openapiPath: '/v1/gate-policies',
-    operationId: 'gatePolicies.list',
-    summary: 'List gate policies',
+    honoPath: '/v1/release-gates',
+    openapiPath: '/v1/release-gates',
+    operationId: 'releaseGates.list',
+    summary: 'List release gates',
     description:
-      "Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.",
-    tags: ['gate-policies'],
+      "Each release gate's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.",
+    tags: ['release-gates'],
     security: 'bearer',
     parameters: [
       LimitQueryParam,
@@ -4140,200 +4100,179 @@ export const OPERATIONS: readonly OperationSpec[] = [
         name: 'agentId',
         in: 'query',
         required: false,
-        description: 'Only the policies gating this agent.',
+        description: 'Only the release gates of this agent.',
         schema: { type: 'string' },
       },
-      PromotionScopeKindQueryParam,
+      PinScopeKindQueryParam,
       ScopeIdQueryParam,
       SegmentQueryParam,
     ],
     responses: {
-      '200': { description: 'Page of gate policies.', schema: ref('GatePolicyPage') },
+      '200': { description: 'Page of release gates.', schema: ref('ReleaseGatePage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed scope or cursor.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/gate-policies',
-    openapiPath: '/v1/gate-policies',
-    operationId: 'gatePolicies.publish',
-    summary: 'Publish a gate policy',
+    honoPath: '/v1/release-gates',
+    openapiPath: '/v1/release-gates',
+    operationId: 'releaseGates.publish',
+    summary: 'Publish a release gate',
     description:
-      "Registers a gate policy, or a new version of one: what a promotion of `agentId` for `scope` must show. One policy per agent and scope: another policy id for a scope that has one is refused with `409 gate-policy-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 gate-policy-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may promote can't loosen their own gate.",
-    tags: ['gate-policies'],
+      "Registers a release gate, or a new version of one: what a pin of `agentId` for `scope` must show. One gate per agent and scope: another gate id for a scope that has one is refused with `409 release-gate-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 release-gate-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may pin can't loosen their own gate.",
+    tags: ['release-gates'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('PublishGatePolicyBody') },
+    requestBody: { required: true, schema: ref('PublishReleaseGateBody') },
     responses: {
-      '201': { description: 'Gate policy published.', schema: ref('GatePolicy') },
+      '201': { description: 'Release gate published.', schema: ref('ReleaseGate') },
       ...CommonMutationErrors,
       '400': ErrorResponse('Validation failed (see `details.issues`).'),
       '409': ErrorResponse(
-        '`gate-policy-already-registered`: that (id, version) exists. `gate-policy-scope-taken`: another policy gates the agent for the scope (`details.heldBy`). `gate-policy-scope-changed`: the version would change the agent or scope. `gate-policy-scope-unpinned`: the scope has no live version of its own; a gated scope holds its own pin (a pin above it is not enough, since a promotion there would change this scope ungated), so pin a version for the scope first.',
+        '`release-gate-already-registered`: that (id, version) exists. `release-gate-scope-taken`: another release gate gates the agent for the scope (`details.heldBy`). `release-gate-scope-changed`: the version would change the agent or scope. `release-gate-scope-unpinned`: the scope has no pinned version of its own; a gated scope holds its own pin (a pin above it is not enough, since a pin there would change this scope ungated), so pin a version for the scope first.',
       ),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/gate-policies/:policyId',
-    openapiPath: '/v1/gate-policies/{policyId}',
-    operationId: 'gatePolicies.get',
-    summary: 'Get a gate policy',
-    description: "The policy's latest active version.",
-    tags: ['gate-policies'],
+    honoPath: '/v1/release-gates/:releaseGateId',
+    openapiPath: '/v1/release-gates/{releaseGateId}',
+    operationId: 'releaseGates.get',
+    summary: 'Get a release gate',
+    description: "The release gate's latest active version.",
+    tags: ['release-gates'],
     security: 'bearer',
-    parameters: [GatePolicyIdPathParam],
+    parameters: [ReleaseGateIdPathParam],
     responses: {
-      '200': { description: 'The gate policy.', schema: ref('GatePolicy') },
+      '200': { description: 'The release gate.', schema: ref('ReleaseGate') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No active gate policy with that id.'),
+      '404': ErrorResponse('No active release gate with that id.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/gate-policies/:policyId/versions',
-    openapiPath: '/v1/gate-policies/{policyId}/versions',
-    operationId: 'gatePolicies.versions.list',
-    summary: "List a gate policy's versions",
+    honoPath: '/v1/release-gates/:releaseGateId/versions',
+    openapiPath: '/v1/release-gates/{releaseGateId}/versions',
+    operationId: 'releaseGates.versions.list',
+    summary: "List a release gate's versions",
     description: 'Every version, oldest first, unregistered ones too (with `unregisteredAt`).',
-    tags: ['gate-policies'],
+    tags: ['release-gates'],
     security: 'bearer',
-    parameters: [GatePolicyIdPathParam],
+    parameters: [ReleaseGateIdPathParam],
     responses: {
-      '200': { description: 'The versions.', schema: ref('GatePolicyPage') },
+      '200': { description: 'The versions.', schema: ref('ReleaseGatePage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No gate policy with that id.'),
+      '404': ErrorResponse('No release gate with that id.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/gate-policies/:policyId/versions/:version',
-    openapiPath: '/v1/gate-policies/{policyId}/versions/{version}',
-    operationId: 'gatePolicies.versions.get',
-    summary: 'Get a gate policy version',
-    tags: ['gate-policies'],
+    honoPath: '/v1/release-gates/:releaseGateId/versions/:version',
+    openapiPath: '/v1/release-gates/{releaseGateId}/versions/{version}',
+    operationId: 'releaseGates.versions.get',
+    summary: 'Get a release gate version',
+    tags: ['release-gates'],
     security: 'bearer',
-    parameters: [GatePolicyIdPathParam, GatePolicyVersionPathParam],
+    parameters: [ReleaseGateIdPathParam, ReleaseGateVersionPathParam],
     responses: {
-      '200': { description: 'The version.', schema: ref('GatePolicy') },
+      '200': { description: 'The version.', schema: ref('ReleaseGate') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No such version.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/gate-policies/:policyId/versions/:version/unregister',
-    openapiPath: '/v1/gate-policies/{policyId}/versions/{version}/unregister',
-    operationId: 'gatePolicies.versions.unregister',
-    summary: 'Unregister a gate policy version',
+    honoPath: '/v1/release-gates/:releaseGateId/versions/:version/unregister',
+    openapiPath: '/v1/release-gates/{releaseGateId}/versions/{version}/unregister',
+    operationId: 'releaseGates.versions.unregister',
+    summary: 'Unregister a release gate version',
     description:
-      "The version stops applying; the policy's latest remaining active version applies, or, with none, the scope above's policy. Promotions keep the version they were checked against. Needs `admin` on the tenant.",
-    tags: ['gate-policies'],
+      "The version stops applying; the gate's latest remaining active version applies, or, with none, the scope above's gate. Pins keep the version they were checked against. Needs `admin` on the tenant.",
+    tags: ['release-gates'],
     security: 'bearer',
-    parameters: [GatePolicyIdPathParam, GatePolicyVersionPathParam],
+    parameters: [ReleaseGateIdPathParam, ReleaseGateVersionPathParam],
     responses: {
-      '200': { description: 'The unregistered version.', schema: ref('GatePolicy') },
+      '200': { description: 'The unregistered version.', schema: ref('ReleaseGate') },
       ...CommonMutationErrors,
       '404': ErrorResponse('No such version.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/gate-policies/:policyId/versions/:version/reinstate',
-    openapiPath: '/v1/gate-policies/{policyId}/versions/{version}/reinstate',
-    operationId: 'gatePolicies.versions.reinstate',
-    summary: 'Reinstate a gate policy version',
+    honoPath: '/v1/release-gates/:releaseGateId/versions/:version/reinstate',
+    openapiPath: '/v1/release-gates/{releaseGateId}/versions/{version}/reinstate',
+    operationId: 'releaseGates.versions.reinstate',
+    summary: 'Reinstate a release gate version',
     description: 'Needs `admin` on the tenant.',
-    tags: ['gate-policies'],
+    tags: ['release-gates'],
     security: 'bearer',
-    parameters: [GatePolicyIdPathParam, GatePolicyVersionPathParam],
+    parameters: [ReleaseGateIdPathParam, ReleaseGateVersionPathParam],
     responses: {
-      '200': { description: 'The reinstated version.', schema: ref('GatePolicy') },
+      '200': { description: 'The reinstated version.', schema: ref('ReleaseGate') },
       ...CommonMutationErrors,
       '404': ErrorResponse('No such version.'),
       '409': ErrorResponse(
-        '`gate-policy-scope-taken`: another policy gates the agent for the scope now (`details.heldBy`). `gate-policy-scope-unpinned`: the scope has no live version of its own; pin one first.',
+        '`release-gate-scope-taken`: another release gate gates the agent for the scope now (`details.heldBy`). `release-gate-scope-unpinned`: the scope has no pinned version of its own; pin one first.',
       ),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/agents/:agentId/promotions',
-    openapiPath: '/v1/agents/{agentId}/promotions',
-    operationId: 'agents.promotions.list',
-    summary: "List an agent's promotions",
+    honoPath: '/v1/agents/:agentId/pin-history',
+    openapiPath: '/v1/agents/{agentId}/pin-history',
+    operationId: 'agents.pinned.history',
+    summary: "List an agent's pin history",
     description:
-      'The history of live-version changes (promotions, rollbacks, unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.',
+      'The history of pinned-version changes (pins and unpins), newest first. `scopeKind` (`tenant`, `org`, `project`, `segment`) with `scopeId` and `segment` narrows it to one scope.',
     tags: ['agents'],
     security: 'bearer',
     parameters: [
       AgentIdPathParam,
       LimitQueryParam,
       CursorQueryParam,
-      PromotionScopeKindQueryParam,
+      PinScopeKindQueryParam,
       ScopeIdQueryParam,
       SegmentQueryParam,
     ],
     responses: {
-      '200': { description: 'Page of promotions.', schema: ref('PromotionPage') },
+      '200': { description: 'Page of pin changes.', schema: ref('PinPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed scope or cursor.'),
     },
   },
   {
     method: 'get',
-    honoPath: '/v1/agents/:agentId/promotions/:promotionId',
-    openapiPath: '/v1/agents/{agentId}/promotions/{promotionId}',
-    operationId: 'agents.promotions.get',
-    summary: 'Get a promotion',
+    honoPath: '/v1/agents/:agentId/pin-history/:changeId',
+    openapiPath: '/v1/agents/{agentId}/pin-history/{changeId}',
+    operationId: 'agents.pinned.getChange',
+    summary: 'Get a pin change',
     tags: ['agents'],
     security: 'bearer',
-    parameters: [AgentIdPathParam, PromotionIdPathParam],
+    parameters: [AgentIdPathParam, PinChangeIdPathParam],
     responses: {
-      '200': { description: 'The promotion.', schema: ref('Promotion') },
+      '200': { description: 'The pin change.', schema: ref('Pin') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No such promotion for this agent.'),
+      '404': ErrorResponse('No such pin change for this agent.'),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/agents/:agentId/live/rollback',
-    openapiPath: '/v1/agents/{agentId}/live/rollback',
-    operationId: 'agents.live.rollback',
-    summary: 'Roll a scope back to its previous live version',
+    honoPath: '/v1/agents/:agentId/pinned/unpin',
+    openapiPath: '/v1/agents/{agentId}/pinned/unpin',
+    operationId: 'agents.pinned.unpin',
+    summary: "Remove a scope's pinned version",
     description:
-      "Back to the scope's previous live version, or `toVersion`. Recorded like a promotion. Needs `promote` on the agent.",
+      "Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a pin. Needs `pin` on the agent.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('RollbackBody') },
+    requestBody: { required: true, schema: ref('AgentUnpinBody') },
     responses: {
-      '200': { description: 'Rolled back.', schema: ref('Promotion') },
-      ...CommonMutationErrors,
-      '404': ErrorResponse('`toVersion` is not registered, or was unregistered.'),
-      '409': ErrorResponse(
-        "`not-pinned`: the scope has no pin of its own. `nothing-to-roll-back`: no earlier version to go back to. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `live-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide rollback would act in every environment of the order at once; roll back a project (or a segment of it) instead. Or `registry-read-only`: under `kindgi dev`, a version made live was written into the pack's files; undo it there, with git.",
-      ),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/agents/:agentId/live/unpin',
-    openapiPath: '/v1/agents/{agentId}/live/unpin',
-    operationId: 'agents.live.unpin',
-    summary: "Remove a scope's live version",
-    description:
-      "Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a promotion. Needs `promote` on the agent.",
-    tags: ['agents'],
-    security: 'bearer',
-    parameters: [AgentIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('UnpinBody') },
-    responses: {
-      '200': { description: 'Unpinned.', schema: ref('Promotion') },
+      '200': { description: 'Unpinned.', schema: ref('Pin') },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "`not-pinned`: the scope has no pin of its own. `gate-policy-needs-pin`: the scope has a gate policy of its own, and a gated scope keeps its own pin; unregister the policy first, or roll back instead. `gate-policy-descendant-unpinned`: the change would also move a narrower scope a gate policy applies to, which has no live version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. Or `registry-read-only`: under `kindgi dev`, a version made live was written into the pack's files; undo it there, with git.",
+        "`not-pinned`: the scope has no pin of its own. `release-gate-needs-pin`: the scope has a release gate of its own, and a gated scope keeps its own pin; unregister the gate first, or pin an earlier version instead. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. Or `registry-read-only`: under `kindgi dev`, a pinned version was written into the pack's files; undo it there, with git.",
       ),
     },
   },
@@ -5265,7 +5204,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'improveRuns.start',
     summary: 'Start an Improve run',
     description:
-      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the Improve run, `running`. The Improve run works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the Improve run's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the Improve run to work on (`400 validation-failed`, with `details.reason`): for a settings Improve run, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt Improve run, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions an Improve run makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a live version for the whole tenant (`409 suggested-change-needs-pin`). No Improve run starts in a suspended project (`409 project-suspended`), and an Improve run going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.",
+      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the Improve run, `running`. The Improve run works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the Improve run's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the Improve run to work on (`400 validation-failed`, with `details.reason`): for a settings Improve run, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt Improve run, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions an Improve run makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a pinned version for the whole tenant (`409 suggested-change-needs-pin`). No Improve run starts in a suspended project (`409 project-suspended`), and an Improve run going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.",
     tags: ['improve-runs'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5396,7 +5335,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'suggestedChanges.pin',
     summary: "Pin a suggested change's version for its project",
     description:
-      "A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/promotions` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `promote` on the agent. Allowed from `ready`.",
+      "A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `pin` on the agent. Allowed from `ready`.",
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
@@ -5431,7 +5370,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'suggestedChanges.addAsLatest',
     summary: "Add a suggested change's version as its project's Latest",
     description:
-      'Makes its version Latest in its project, now, so the project runs it. Only for a project on Latest, which takes each new Latest without a gate; a pinned project takes a pin of the change instead. `reason` is kept on its `addedAsLatest`. Needs `promote` on the agent. Allowed from `ready`.',
+      'Makes its version Latest in its project, now, so the project runs it. Only for a project on Latest, which takes each new Latest without a gate; a pinned project takes a pin of the change instead. `reason` is kept on its `addedAsLatest`. Needs `pin` on the agent. Allowed from `ready`.',
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
@@ -5612,7 +5551,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'license.usage',
     summary: 'How much the deployment was used since a time',
     description:
-      "What a free license key's renewal carries (`kindgi license renew --runtime`): the runs started since `since` (not dry runs, replays, evals or child runs), the distinct people who started runs or decided approvals (counted in each tenant and summed, so a person in two tenants counts twice), the projects in production when the runtime can put projects in production (`PUT /v1/projects/{projectId}/production`), and the runtime's version. Counts only: no content, names or ids. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, reads it; anyone else is refused (`license-operator-only`), and the refusal recorded, before `since` is read. A deployment that doesn't report it answers 404.",
+      "What a free license key's renewal carries (`kindgi license renew --runtime`): the runs started since `since` (not dry runs, replays, test runs or child runs), the distinct people who started runs or decided approvals (counted in each tenant and summed, so a person in two tenants counts twice), the projects in production when the runtime can put projects in production (`PUT /v1/projects/{projectId}/production`), and the runtime's version. Counts only: no content, names or ids. Only the deployment's own token (`KINDGI_API_TOKEN`), or a system key holding `system:license`, reads it; anyone else is refused (`license-operator-only`), and the refusal recorded, before `since` is read. A deployment that doesn't report it answers 404.",
     tags: ['system'],
     security: 'bearer',
     parameters: [LicenseUsageSinceQueryParam],
@@ -6822,7 +6761,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'testSets.list',
     summary: 'List tenant test sets',
     description:
-      "Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated. A test set built from corrections (`kind: corrections`) isn't listed, though it's still read by id: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).",
+      "Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated. A `corrections` test set (an agent's frozen versions, and those built from corrections before) is listed only with `?kind=corrections`: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).",
     tags: ['test-sets'],
     security: 'bearer',
     parameters: [
@@ -6906,7 +6845,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'testSets.publish',
     summary: 'Publish a test set',
     description:
-      "Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).",
+      "Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201). An id that starts with `agent.` is refused with `400 bad-input`: those are agents' own test sets, whose versions only a check or a test run makes.",
     tags: ['test-sets'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6915,7 +6854,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Test set published.', schema: ref('PublishTestSetResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
+        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID); or the id starts with `agent.` (`bad-input`), an agent's own test set.",
       ),
       '409': ErrorResponse(
         "`test-set-already-registered`: that (id, version) is taken. Or `test-set-project-mismatch`: the test set's versions live in another project (a test set belongs to the project its first version was published into and never moves; the message doesn't name the project).",
@@ -6937,7 +6876,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     security: 'bearer',
     parameters: [TestSetIdPathParam, TestSetVersionPathParam, LimitQueryParam, CursorQueryParam],
     responses: {
-      '200': { description: 'Page of cases.', schema: ref('CorrectedEvalCaseCollectionPage') },
+      '200': { description: 'Page of cases.', schema: ref('CorrectedTestCaseCollectionPage') },
       ...CommonAuthErrors,
       '404': ErrorResponse('No test set with that id.'),
     },
@@ -8257,7 +8196,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.promote',
     summary: 'Promote a deployment to the next environment',
     description:
-      "Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `makeLive`, the move commits first; then each carried agent is made live through its target scope's gate, and each carried flow is pinned. A gate that refuses or holds an agent isn't an error: its `live` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.live` and `details.pinnedFlows`.",
+      "Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `pin`, the move commits first; then each carried agent is pinned through its target scope's release gate, and each carried flow is pinned. A release gate that refuses or holds an agent isn't an error: its `pinned` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.pinned` and `details.pinnedFlows`.",
     tags: ['deployments'],
     security: 'bearer',
     parameters: [
@@ -8285,20 +8224,20 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed body (`bad-input`). Or `signature-invalid`: the deployment's signature doesn't verify over the fields it keeps.",
       ),
       '403': ErrorResponse(
-        "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the tenant's trust list (`details.signerKeyId`). With `makeLive`, after the move: no right to make a carried agent live, or to pin a carried flow, in the target; nothing is pinned.",
+        "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the tenant's trust list (`details.signerKeyId`). With `pin`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.",
       ),
       '404': ErrorResponse(
         "`deployment-not-found`: no deployment with that id in this tenant, or one in a project you don't read.",
       ),
       '409': ErrorResponse(
-        "`promotion-not-next-environment`: the target isn't the next environment of the deployment's order, or the deployment's environment is last or in no order (`details.position`, the next environment's place; `details.nextProjectId`, when you can read it). `promotion-values-not-ready`: values the build needs aren't ready in the target, each in `details.values` (`DeploymentValue`). `deployment-superseded`: the deployment no longer serves its environment, or the target's copy no longer serves there: newer deployments serve every tool version it ships (`details.environment`, `source` or `target`; `details.newerDeploymentId`). `project-suspended`, `pack-suspended`, `tenant-suspended` or `tenant-closing`: a suspension of the source or the target (`details.environment`). Nothing is written for any of these. With `makeLive`, after the move has committed: `nothing-runs-in-scope`, a carried agent has no version running in the target yet (the message names it); or `promotion-superseded` or `gate-policy-descendant-unpinned`, as `POST /v1/agents/{agentId}/promotions` answers them. The carried agents pinned before it are in `details.live`; it, the ones after it and the carried flows aren't pinned.",
+        "`promotion-not-next-environment`: the target isn't the next environment of the deployment's order, or the deployment's environment is last or in no order (`details.position`, the next environment's place; `details.nextProjectId`, when you can read it). `promotion-values-not-ready`: values the build needs aren't ready in the target, each in `details.values` (`DeploymentValue`). `deployment-superseded`: the deployment no longer serves its environment, or the target's copy no longer serves there: newer deployments serve every tool version it ships (`details.environment`, `source` or `target`; `details.newerDeploymentId`). `project-suspended`, `pack-suspended`, `tenant-suspended` or `tenant-closing`: a suspension of the source or the target (`details.environment`). Nothing is written for any of these. With `pin`, after the move has committed: `nothing-runs-in-scope`, a carried agent has no version running in the target yet (the message names it); or `pin-superseded` or `release-gate-descendant-unpinned`, as `POST /v1/agents/{agentId}/pinned/pin` answers them. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
       ),
       '429': ErrorResponse(
-        "`approvals-pending-limit`, with `makeLive`, after the move has committed: a carried agent's gate wants an approval, and the tenant's approvals waiting for a decision are at its limit. The carried agents pinned before it are in `details.live`; it, the ones after it and the carried flows aren't pinned.",
+        "`approvals-pending-limit`, with `pin`, after the move has committed: a carried agent's release gate wants an approval, and the tenant's approvals waiting for a decision are at its limit. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
       ),
       '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
       '501': ErrorResponse(
-        "`promotions-unsupported`: this runtime's deployment ledger can't promote. With `makeLive`, after the move: `promotions-unsupported` when this runtime can't make versions live, or `promotion-gate-unsupported` when a gate policy applies to a carried agent's scope and the runtime can't record a gated promotion; nothing is pinned.",
+        "`promotions-unsupported`: this runtime's deployment ledger can't promote. With `pin`, after the move: `promotions-unsupported` when this runtime can't pin versions, or `pin-gate-unsupported` when a release gate applies to a carried agent's scope and the runtime can't record a gated pin; nothing is pinned.",
       ),
     },
   },
@@ -8385,7 +8324,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         in: 'query',
         required: false,
         description:
-          'Filter by evidence kind (any `EvidenceKind`). A kind the classifier does not mark exportable yields an empty page.',
+          'Filter by evidence kind: a built-in `EvidenceKind`, or a kind the classifier names. Any other kind is a 400. A kind the classifier does not mark exportable yields an empty page.',
         schema: { $ref: '#/components/schemas/EvidenceKind' },
       },
       {
@@ -8410,7 +8349,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonAuthErrors,
       ...TenantAdminErrors,
-      '400': ErrorResponse('Malformed cursor, `from`, or `to`.'),
+      '400': ErrorResponse(
+        'Malformed cursor, `from` or `to`, or a `kind` that is no evidence kind.',
+      ),
     },
   },
   {
@@ -9306,7 +9247,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         name: 'versions',
         in: 'query',
         required: false,
-        description: 'Comma-separated; `live` for the live version.',
+        description: 'Comma-separated; `pinned` for the pinned version.',
         schema: { type: 'string' },
       },
       {
@@ -9758,7 +9699,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.pinnedVersions.list',
     summary: 'List the pinned versions that cover a project',
     description:
-      "Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/live-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.",
+      "Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/pinned-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [ProjectIdPathParam, LimitQueryParam, CursorQueryParam],

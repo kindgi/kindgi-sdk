@@ -75,13 +75,15 @@ export interface TestCaseExpectedDecisions extends ExpectedDecisions {
 }
 
 /** One case of a `corrections` test set: a copy of a corrected run and what people said about it. */
-export interface CorrectedEvalCase {
+export interface CorrectedTestCase {
   /**
    * The case's id. A frozen case of an agent's test set has its
    * correction's id, or a `case-` id when it was added by hand. A
    * `corrections` test set built before 0.4.0 used the corrected run's id.
    */
   readonly caseId: string;
+  /** The run the case was copied from. */
+  readonly runId: string;
   /** What ran: the agent or flow at a version (the baseline when comparing to the recording). */
   readonly subject: CorrectedSubject;
   readonly input: unknown;
@@ -117,19 +119,11 @@ export interface CorrectedEvalCase {
   readonly erased?: true;
 }
 
-/**
- * A case to store, with the run it was copied from when its id isn't the
- * run's (a frozen case is named for its correction, and one run can have
- * several). The store keeps `runId` for an erasure to find the case by its
- * run, and never answers it on a read.
- */
-export type EvalCaseToStore = CorrectedEvalCase & { readonly runId?: string };
-
 export interface EvalCasePutInput {
   readonly tenantId: TenantId;
   readonly testSetId: string;
   readonly version: string;
-  readonly cases: readonly EvalCaseToStore[];
+  readonly cases: readonly CorrectedTestCase[];
 }
 
 export interface EvalCaseListInput {
@@ -141,7 +135,7 @@ export interface EvalCaseListInput {
 }
 
 export interface EvalCasePage {
-  readonly data: readonly CorrectedEvalCase[];
+  readonly data: readonly CorrectedTestCase[];
   readonly hasMore: boolean;
   readonly nextCursor?: Cursor;
 }

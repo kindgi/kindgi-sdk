@@ -3,7 +3,7 @@
 
 package com.kindgi.client;
 
-import com.kindgi.client.models.EvalKind;
+import com.kindgi.client.models.TestSetKind;
 import com.kindgi.client.models.TestRun;
 import com.kindgi.client.models.CorrectedComparisonResult;
 import java.util.List;
@@ -35,7 +35,7 @@ public final class Comparisons {
   public static Optional<CorrectedComparisonResult> comparisonOf(TestRun run) {
     Objects.requireNonNull(run, "run");
     Map<String, Object> result = run.result();
-    if (run.kind().value() != EvalKind.Value.CORRECTIONS
+    if (run.kind().value() != TestSetKind.Value.CORRECTIONS
         || result == null
         || result.get("summary") == null
         || !(result.get("perCase") instanceof List<?>)) {

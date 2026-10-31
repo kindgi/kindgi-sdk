@@ -85,7 +85,7 @@ describe('registering a schedule', () => {
     expect(body).not.toHaveProperty('agentId');
   });
 
-  test('an agent schedule, at a version or live, with its own policies', async () => {
+  test('an agent schedule, at a version or the pinned one, with its own policies', async () => {
     const { built } = app();
     const res = await built.request(
       '/v1/schedules',
@@ -150,7 +150,7 @@ describe('an improve schedule', () => {
       projectId: PROJECT,
       input: {
         tiers: ['settings'],
-        objective: 'weightedYesShare',
+        objective: 'passRate',
         budget: { maxCostUsd: 5, maxCandidates: 30 },
         threshold: { corrections: 5, runs: 3, correctors: 2 },
         monthlyCapUsd: 20,

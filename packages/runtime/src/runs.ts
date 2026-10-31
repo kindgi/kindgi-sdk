@@ -72,7 +72,7 @@ export interface KernelRunRecord {
   readonly flowPinnedScope?: PinScope;
   /**
    * The segment path the run was started with (ordered, coarse to fine),
-   * which picks live agent versions: the run's own, and its agent steps'
+   * which picks pinned agent versions: the run's own, and its agent steps'
    * when it is a flow run. Absent when it was started without one.
    */
   readonly segments?: readonly ScopeSegment[];

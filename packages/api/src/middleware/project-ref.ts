@@ -25,7 +25,6 @@ export const PROJECT_REF_ROUTES: readonly string[] = [
   '/runs',
   '/tokens',
   '/agents',
-  '/agents/:agentId/versions',
   '/flows',
   '/tools',
   '/guardrails',

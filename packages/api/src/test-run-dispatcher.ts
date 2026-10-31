@@ -10,12 +10,12 @@ import type { ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
 import type {
   AgentRef,
-  EvalComparison,
   FlowRef,
   TestRun,
   TestRunBinding,
   TestRunCancelInput,
   TestRunCancelOutcome,
+  TestRunComparison,
   TestRunGetInput,
   TestRunListInput,
   TestRunPage,
@@ -24,7 +24,7 @@ import type {
   TestRunStatus,
 } from './test-run-binding.js';
 import { TEST_RUN_STATUSES } from './test-run-binding.js';
-import type { EvalKind, TestSet, TestSetRegistryBinding } from './test-set-binding.js';
+import type { TestSet, TestSetKind, TestSetRegistryBinding } from './test-set-binding.js';
 
 /**
  * Reference test-run dispatcher — proves the pattern end-to-end for
@@ -64,7 +64,7 @@ export interface TestRunSubjectInvokeInput {
   readonly replay?: RunReplayRef;
   /** The conversation before the past turn, oldest first: a replayed turn starts from it. */
   readonly history?: readonly unknown[];
-  /** A flow target's agents and tools at other exact versions (`EvalComparison.versions`). */
+  /** A flow target's agents and tools at other exact versions (`TestRunComparison.versions`). */
   readonly versions?: FlowVersionOverrides;
 }
 
@@ -111,7 +111,7 @@ export interface TestRunSubjectInvokeOutcome {
  * `RunHandlerBinding.invokeAgent` / `invokeFlow` (the same surface
  * `/v1/runs` uses); tests pass a synchronous stub.
  */
-export interface EvalSubjectInvoker {
+export interface TestRunSubjectInvoker {
   invoke(input: TestRunSubjectInvokeInput): Promise<TestRunSubjectInvokeOutcome>;
 }
 
@@ -146,11 +146,11 @@ export interface DispatchContext {
   readonly target: AgentRef | FlowRef;
   readonly dryRun: boolean;
   readonly abortSignal: AbortSignal;
-  readonly subject: EvalSubjectInvoker;
+  readonly subject: TestRunSubjectInvoker;
   /** The test run's project. */
   readonly projectId?: ProjectId;
   /** A comparison test run's baseline, reads and repetitions. */
-  readonly comparison?: EvalComparison;
+  readonly comparison?: TestRunComparison;
   onProgress(perCase: Readonly<Record<string, unknown>>): void;
 }
 
@@ -162,11 +162,11 @@ export interface DispatchResult {
 }
 
 export interface TestRunDispatcher {
-  readonly kind: EvalKind;
+  readonly kind: TestSetKind;
   validate?(
     testSet: TestSet,
     target: AgentRef | FlowRef,
-    comparison?: EvalComparison,
+    comparison?: TestRunComparison,
   ): { kind: 'ok' } | { kind: 'err'; message: string };
   dispatch(ctx: DispatchContext): Promise<DispatchResult>;
 }
@@ -178,7 +178,7 @@ export interface AccuracyDispatcherOptions {
 }
 
 /**
- * Reference dispatcher for `EvalKind === 'accuracy'`. Reads
+ * Reference dispatcher for `TestSetKind === 'accuracy'`. Reads
  * `spec.cases` from the registered test set; for each case, invokes the
  * subject with `case.input`, grades `(caseInput, actualOutput,
  * case.expected ?? case.expectedOutput)` through the injected
@@ -313,8 +313,8 @@ function extractExpected(c: EvalCase): unknown {
 
 export interface InProcessTestRunBindingOptions {
   readonly testSetRegistry: TestSetRegistryBinding;
-  readonly subject: EvalSubjectInvoker;
-  readonly dispatchers: Partial<Record<EvalKind, TestRunDispatcher>>;
+  readonly subject: TestRunSubjectInvoker;
+  readonly dispatchers: Partial<Record<TestSetKind, TestRunDispatcher>>;
   /**
    * Optional clock override — tests inject a monotonic stub so
    * timestamps are deterministic. Defaults to `() => new Date()`.

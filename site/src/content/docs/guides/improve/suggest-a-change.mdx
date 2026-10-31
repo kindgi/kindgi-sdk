@@ -1,0 +1,478 @@
+---
+title: Suggest a change, and test it
+description: Suggest new settings or new instructions for what a project runs, check them against the version it runs on the project's test cases, and pin them through the project's release gate, or add them as the project's Latest.
+sidebar:
+  order: 6
+---
+
+This guide suggests new settings or new instructions for what a project
+runs, checks them against the version it runs on the project's test cases,
+and pins them for the project through its release gate, or adds them as
+the project's Latest.
+
+A **suggested change** is new content for one data block, in what one
+project runs: new settings values, or new instructions. You make it. Kindgi
+builds it on the agent version the project runs: it publishes the block
+version and makes the agent version that pins it. Then it checks the new
+version and the one it's built on, on the same test cases. The new versions
+serve nothing until you pin the suggested change, and a pinned suggested
+change is a pin like any other, which `kindgi agents unpin` removes.
+
+A deploy makes suggested changes too, for its new code:
+[A deploy's suggested changes](#a-deploys-suggested-changes) says how.
+
+## Before you start
+
+- **An agent that keeps its instructions or settings as data blocks,** as
+  [Change a prompt or a setting without a deploy](../change-a-prompt-or-setting/)
+  shows.
+- **Corrections of the agent's runs in the project,** as
+  [Correct some runs](../build-a-test-set/#correct-some-runs) shows. The
+  runtime keeps a test set for each agent: its corrections are its cases,
+  with the cases added by hand. A project's test set is its cases from that
+  project, and a suggested change is checked on it. Without cases, making
+  one is refused with
+  `409 suggested-change-nothing-to-check`.
+- **A version of the agent that the project runs.** A suggested change is
+  built on it. To pin one, the project needs a pinned version, its own or
+  one that covers it, as
+  [Pin a version](../release-an-agent-version/#pin-a-version) shows. Where the agent runs nothing, making one is refused with
+  `409 nothing-runs-in-scope`.
+- **The order's first environment,** for a project in an environment order.
+  In a later environment, making one is refused with
+  `409 environment-takes-promotions`: the new version reaches the later
+  environments when a build is promoted.
+- **A deployed runtime that keeps a project's test set.** One that doesn't
+  refuses a suggested change with `501 suggested-change-check-unsupported`.
+  Under `kindgi dev`, making one is refused, as
+  [Under `kindgi dev`](#under-kindgi-dev) shows.
+- **`publish` on the agent** to make, check and withdraw, and **`pin`** to
+  pin or add as Latest. For an agent that several projects serve, it's
+  `write` on the project where its versions are made, and `admin` in the
+  suggested change's project to pin or add as Latest.
+
+## Make one
+
+A suggested change says what to change, for which project, and why:
+
+```sh
+pnpm exec kindgi suggested-changes create --agent=acme.rank.scorer --project=<project-id> \
+  --block=acme.rank.weights --values='{"recency":0.2,"fit":0.8}' \
+  --why="Fit matters more than recency for acme rankings"
+```
+
+- **What it changes:** `--agent` and `--project` name the agent and the
+  project it's for. It's built on the version the project runs. `--block`
+  names a block that version pins. `--values` gives a settings block's new
+  values, and `--template` the agent's new instructions. Either takes a file
+  as `@<file>`.
+- **Why:** `--why` says what the change should fix, and why. Its first line
+  starts the suggested change's `title`. Each `--fixes=<correction-id>`
+  names a correction it fixes, kept in its `fixes`. Repeat it for several.
+
+It publishes the block version, makes the agent version that pins it, and
+starts the check. It prints the suggested change, `checking`:
+
+```json
+{
+  "id": "3bca94f1-61a4-48b5-a3d7-f3664e466613",
+  "agentId": "acme.rank.scorer",
+  "projectId": "aa0cf701-a8f7-40e5-b5d9-bec1a1cb1723",
+  "title": "Fit matters more than recency for acme rankings: acme.rank.weights v1.0.0 → v1.0.1",
+  "madeBy": {
+    "kind": "person",
+    "userId": "62e1ffe2-30f4-4dff-948e-ae774107a7db"
+  },
+  "builtOn": {
+    "version": "1.0.0"
+  },
+  "version": "1.0.1",
+  "changes": [
+    {
+      "kind": "block",
+      "blockId": "acme.rank.weights",
+      "from": "1.0.0",
+      "to": "1.0.1"
+    }
+  ],
+  "why": "Fit matters more than recency for acme rankings",
+  "fixes": [],
+  "check": {
+    "status": "running",
+    "testSetId": "agent.acme.rank.scorer.aa0cf701-a8f7-40e5-b5d9-bec1a1cb1723",
+    "now": { "testRunId": "941582fc-9e32-41bb-b148-767712664c6b" },
+    "with": { "testRunId": "aefcafd1-53df-480e-b01d-05ae55724507" },
+    "startedAt": "2026-10-09T13:24:24.401Z"
+  },
+  "status": "checking",
+  "createdAt": "2026-10-09T13:24:23.787Z",
+  "updatedAt": "2026-10-09T13:24:24.512Z"
+}
+```
+
+- `builtOn.version` is the agent version the project ran when it was made,
+  or when it was last rebuilt (`builtOn.rebuiltAt`), and `version` the agent
+  version it made. `changes[].from` is the block
+  version that `builtOn` pins, and `to` the one it published.
+- The content is checked as publishing that block version would be, and
+  content equal to what the version pins is refused.
+- The same change on the same version for the same project returns the
+  suggested change made before, unless it was withdrawn, with the header
+  `X-Suggested-Change-Deduped: true`. That one isn't checked again.
+- If its check can't start, the suggested change is still made. The error
+  names it in `suggestedChangeId`, and it's `check-failed` until you
+  [check it again](#check-it-again).
+
+Through the API, it's `POST /v1/suggested-changes` with `agentId`,
+`projectId`, `block`, `values` or `template`, `why` and `fixes`. It answers
+`201`.
+
+## Its check
+
+The check runs the suggested change's version (`with`) and the version it's
+built on (`now`) on the same cases: the project's test set for the agent,
+frozen as a version when the check starts. Each side is a run on the test
+cases, which `kindgi test-runs show <test-run-id>` shows case by case.
+
+The suggested change is `checking` while either run is queued or running,
+then:
+
+- `ready`: both finished, and `check` says how each did;
+- `check-failed`: either failed or was cancelled.
+
+`get` shows it:
+
+```sh
+pnpm exec kindgi suggested-changes get <suggested-change-id>
+```
+
+```json
+{
+  "id": "3bca94f1-61a4-48b5-a3d7-f3664e466613",
+  …
+  "changes": [
+    {
+      "kind": "block",
+      "blockId": "acme.rank.weights",
+      "from": "1.0.0",
+      "to": "1.0.1",
+      "before": { "values": { "fit": 0.5, "recency": 0.5 } },
+      "after": { "values": { "fit": 0.8, "recency": 0.2 } }
+    }
+  ],
+  …
+  "check": {
+    "status": "done",
+    "testSetId": "agent.acme.rank.scorer.aa0cf701-a8f7-40e5-b5d9-bec1a1cb1723",
+    "testSetVersion": "1.0.4",
+    "now": {
+      "testRunId": "941582fc-9e32-41bb-b148-767712664c6b",
+      "passing": 23,
+      "of": 27,
+      "costPerConversation": "0.0031"
+    },
+    "with": {
+      "testRunId": "aefcafd1-53df-480e-b01d-05ae55724507",
+      "passing": 25,
+      "of": 27,
+      "costPerConversation": "0.0031"
+    },
+    "newlyFailing": ["46b82ad4-1c2a-45f8-a593-a9c912964fd3"],
+    "startedAt": "2026-10-09T13:24:24.401Z"
+  },
+  "status": "ready",
+  …
+}
+```
+
+- **`passing` of `of`:** the corrections each version passed, of those it
+  was checked on. With repetitions, a correction counts as passed when every
+  repetition passed it. Here the change passes 25 of 27, and the version it's
+  built on 23.
+- **`newlyFailing`:** the corrections `now` passes and `with` fails, by id.
+  Here the change fixed three corrections and broke one.
+- **`costPerConversation`:** what a side's replays cost in model calls per
+  case, in US dollars. It's absent when the runtime reported no cost.
+- **`get` adds the block's content** before and after the change.
+- **A correction in `fixes` its author has replaced since** (by correcting
+  the run again): `fixes` keeps the id it names, and the CLI's `get` names
+  the live one that replaced it on stderr, for example
+  `<fixed-id> (in fixes) was replaced by <live-id>, now open.` When the
+  runtime answers an error for one, its line says it couldn't be checked,
+  and why.
+
+`ready` says the check finished, not that the change is better. The release
+gate decides when you [pin it](#pin-it).
+
+### Check it again
+
+A check counts the corrections in the test set when it started. Check the
+suggested change again so that corrections made since count:
+
+```sh
+pnpm exec kindgi suggested-changes check <suggested-change-id> --wait
+```
+
+- The project's test set is frozen again, as a new version when its cases
+  changed, and both versions run on it. Nothing new is published: it's the
+  same version.
+- The new check replaces the one before on the suggested change. The runs
+  of the one before stay as they were.
+- When its project now runs another version than the one it's built on,
+  it's [rebuilt on that version](#if-the-project-moves-first) first, and the
+  check runs on the new version.
+- `--wait` waits for the check, at most 30 minutes, and prints the suggested
+  change. Without it, it prints the suggested change, `checking`.
+- Checking again is allowed when it's `ready` or `check-failed`, and needs
+  `publish` on the agent. Through the API, it's
+  `POST /v1/suggested-changes/{suggestedChangeId}/check`, with no body, and
+  it answers `202`.
+
+## Pin it
+
+Pinning it pins the suggested change's version for its project, through the
+project's release gate, with its check's run (`with`) as the run on the test
+cases:
+
+```sh
+pnpm exec kindgi suggested-changes pin <suggested-change-id> --reason="Fit first: 25 of 27 against 23."
+```
+
+`--reason` is kept with the request to pin it.
+[Gate a pin](../release-an-agent-version/#gate-a-pin) describes the release
+gate. Pinning is allowed when the suggested change is `ready`, whatever its
+check says: the release gate decides. Then:
+
+- it's `pinned`: its version runs in the project, and `pinned` says which
+  version, who pinned it and when;
+- it's `waiting-for-second-person`: the release gate passed, and a
+  reviewer decides the approval in `approvalId`, with
+  `kindgi approvals complete`. Approved, it's `pinned`;
+- or the release gate refused it, with `422 gate-failed`, listing
+  every check.
+
+```json
+{
+  "id": "3bca94f1-61a4-48b5-a3d7-f3664e466613",
+  …
+  "status": "pinned",
+  "pinned": {
+    "version": "1.0.1",
+    "by": { "kind": "user", "id": "62e1ffe2-30f4-4dff-948e-ae774107a7db" },
+    "at": "2026-10-09T13:31:02.118Z"
+  },
+  …
+}
+```
+
+A pin that doesn't go through leaves the suggested change `ready`, with a
+`note` that says why: `gate-refused`, `rejected` by the second person,
+`expired` when nobody decided the approval in time, or `superseded` when the
+project's version or its release gate changed before the approval.
+`pinChangeId` names that request in the agent's pin history. You can ask
+again.
+
+- **A project that runs its [Latest](../pinned-versions-reference/#latest)**
+  takes no pin: the request is refused with
+  `409 suggested-change-project-on-latest`.
+  [Add it as Latest](#add-it-as-latest) instead.
+- **A project that runs another version** than the one the suggested change
+  is built on takes no pin of it either: it's
+  [rebuilt](#if-the-project-moves-first) first.
+- **A suggested change an [Improve run](../improve-an-agent/) made,** rather
+  than a person, always waits for a reviewer, even where the project's
+  release gate asks for no approval. While another reviewer could approve
+  it, someone other than whoever asked to pin it must, even where the
+  release gate's `approvals` sets `"separateApprover": false`.
+- **Unpinning, or pinning another version,** moves the project off it, as
+  [Unpin](../release-an-agent-version/#unpin) shows. The suggested change
+  stays `pinned`.
+- **Pinning needs `pin` on the agent.** Through the API, it's
+  `POST /v1/suggested-changes/{suggestedChangeId}/pin`, which answers `201`
+  when it's pinned and `202` when it waits for a second person.
+
+## Add it as Latest
+
+A project that runs its [Latest](../pinned-versions-reference/#latest) takes a
+suggested change as its Latest instead: from then on, the project runs the
+suggested change's version, until its Latest moves again. There's no release
+gate here: a project on Latest takes each new Latest as it comes.
+
+```sh
+pnpm exec kindgi suggested-changes add-as-latest <suggested-change-id> --reason="Fit first for acme."
+```
+
+- `--reason` is kept on its `addedAsLatest`.
+- Through the API, it's
+  `POST /v1/suggested-changes/{suggestedChangeId}/add-as-latest`, with an
+  optional `reason`, and it answers `200`. From your app, it's
+  `suggestedChanges.addAsLatest` in the TypeScript client, and
+  `suggested_changes.add_as_latest` in the Python client.
+- It's allowed when the suggested change is `ready`, and needs `pin` on
+  the agent. For an agent that several projects serve, it's `admin` in the
+  suggested change's project.
+- Then it's `added-as-latest`, and its `addedAsLatest` says which version,
+  who added it, when, and the `reason`.
+- **A project that runs a pin** takes a pin instead: adding it is refused
+  with `409 suggested-change-project-pinned`. [Pin it](#pin-it).
+- **A project whose Latest moved** since the suggested change was built
+  takes it once it's [rebuilt](#if-the-project-moves-first).
+
+## If the project moves first
+
+A suggested change is built on the version its project runs when it's
+made. When the project moves to another version first, because another
+suggested change was pinned or added as Latest, or the project was pinned
+another way, the suggested change is rebuilt on the version the project
+runs now:
+
+- Its block change is made again on that version. A prompt keeps its
+  wording. Settings keep the values the suggested change changed, and take
+  every other value from the version the project runs now.
+- That's a new version, and its check starts again: it's `checking`.
+- `builtOn.version` is the version it's built on now, and
+  `builtOn.rebuiltAt` says when it was rebuilt.
+
+```json
+{
+  "id": "8d2f3c07-5b8e-4c1d-9a3e-2f6b7c1d0e94",
+  …
+  "builtOn": { "version": "1.0.1", "rebuiltAt": "2026-10-09T13:31:03.204Z" },
+  "version": "1.0.3",
+  "status": "checking",
+  …
+}
+```
+
+When a suggested change is pinned without waiting for a second person, or
+added as Latest, the project's other suggested changes for the agent that
+are `ready` or `check-failed` are rebuilt on its version at once. Any other one is rebuilt when it's checked
+again, pinned or added as Latest:
+
+- Pinning it, or adding it as Latest, is refused with
+  `409 suggested-change-out-of-date`, and its rebuild starts.
+  `details.rebuilding` is `true`. Ask again once it's `ready`.
+- When the version the project runs already has the change, or doesn't use
+  its block, it isn't rebuilt: `details.rebuilding` is `false`, and it stays
+  as it was. Withdraw it.
+
+## A deploy's suggested changes
+
+A deploy that registers a new agent version makes a suggested change for it
+in each project that runs a pinned other version of the agent. A project on
+Latest runs the new version at once, and gets none. With environment
+orders, the version reaches the next project when the deployment is
+promoted into it, and the suggested change is made then. A promotion that
+pins the version there makes none.
+
+- `madeBy` is `deploy`, with the deployment and who deployed or promoted it.
+- Its one change is the code: `kind` is `code`, with the deployment and its
+  image digest.
+- Its version is the deploy's version, and it's never rebuilt. When the
+  project moves to another version first, pinning it is refused with
+  `409 suggested-change-out-of-date`, and `details.rebuilding` is `false`.
+  Withdraw it.
+
+Its check runs its version on the project's test set, as any other
+suggested change's does. What the project runs isn't run again: `now` is
+the newest finished run of that version on the same frozen cases, when there
+is one. When there's none, the check has no `now`, and its `note` says so:
+
+```json
+{
+  "id": "5e1a7c3b-2d4f-4b8e-9c61-0a7f3e2d1b58",
+  …
+  "madeBy": {
+    "kind": "deploy",
+    "deploymentId": "c41f8e2a-7b3d-4e19-a6c5-2d8f0b9e7a13",
+    "by": { "kind": "user", "id": "user-1" }
+  },
+  "builtOn": { "version": "1.0.0" },
+  "version": "1.1.0",
+  "changes": [
+    { "kind": "code", "deploymentId": "c41f8e2a-7b3d-4e19-a6c5-2d8f0b9e7a13", "imageDigest": "sha256:9f2c…" }
+  ],
+  "status": "ready",
+  "note": { "kind": "not-running", "version": "1.0.0" },
+  …
+}
+```
+
+When the project's test set has no cases yet, it's made without a check:
+it's `check-failed`, and `check` checks it once the set has cases. A deploy
+never fails because a suggested change couldn't be made.
+
+## Withdraw it
+
+A withdrawal closes a suggested change while it's `checking`,
+`check-failed` or `ready`. Not while a second person decides its pin: they
+reject it instead.
+
+```sh
+pnpm exec kindgi suggested-changes withdraw <suggested-change-id> --reason="Superseded by a better draft"
+```
+
+It prints the suggested change, now `withdrawn`, and its `withdrawn` says
+who, why and when. `--reason` is required, and withdrawing needs `publish` on
+the agent. Its versions stay published, and serve nothing.
+
+An older suggested change made for a tenant, an org or a segment can only be
+withdrawn: checking or pinning it is refused with
+`409 suggested-change-not-for-a-project`. Its `projectId` is the project its
+version was made in, when that's known.
+
+## Under `kindgi dev`
+
+Under `kindgi dev`, the pack's files are what runs, and they serve every
+project. A suggested change is for one project, so making one is refused
+with `409 registry-read-only`, before anything is made.
+
+Change the block's file instead, as
+[Keep them in the pack](../change-a-prompt-or-setting/#keep-them-in-the-pack)
+shows, and suggest changes on a deployed runtime.
+
+## Find them
+
+```sh
+pnpm exec kindgi suggested-changes list --agent=acme.rank.scorer --project=<project-id> --table
+pnpm exec kindgi suggested-changes get <suggested-change-id>
+```
+
+- `--agent` and `--project` list one agent's suggested changes, and one
+  project's. `--status` keeps one status. It applies after the page is read,
+  so a page can hold fewer than `--limit`. `--cursor` reads the next page,
+  from `nextCursor`.
+- `--table` prints a table with the columns ID, AGENT (the agent and the
+  version it's built on), PROJECT, CHANGE (the block and the version it
+  changes, or the deploy whose code it is), STATUS, CHECK and CREATED. CHECK says how its version did, then
+  the version it's built on: `25/27 (now 23/27)`. Before either has a
+  score, it shows the check's `status`.
+- `get` shows the block's content before and after, the check and the pin.
+
+Through the API, `GET /v1/suggested-changes` also filters by `madeBy`: who or
+what made it, one of `improve-run`, `person`, `service`, `deploy` or
+`offer`.
+
+Suggested changes are authorized on their agent: `read` to see one. For an
+agent that several projects serve, it's `read` on the agent or on any of its
+projects. A suggested change you can't read answers `404`, as one that
+doesn't exist.
+
+| Status | What it means |
+| --- | --- |
+| `checking` | Its check's runs are queued or running. |
+| `check-failed` | Its check failed or was cancelled, or never started (`check.status` is `not-started`). |
+| `ready` | Its check finished: `check` says how each version did. A pin that didn't go through leaves it here, with a `note`. |
+| `waiting-for-second-person` | Asked to pin it; the release gate passed, and the approval in `approvalId` is open. |
+| `pinned` | Its version was pinned for its project. |
+| `added-as-latest` | Its version was added as its project's Latest. |
+| `withdrawn` | Withdrawn. |
+
+From your app, the clients have the same calls: `suggestedChanges.create`,
+`list`, `get`, `check`, `pin`, `addAsLatest` and `withdraw`.
+
+## Next
+
+- [Improve an agent](../improve-an-agent/)
+- [Release an agent version](../release-an-agent-version/)
+- [Decide an approval](../../approvals/decide-an-approval/)

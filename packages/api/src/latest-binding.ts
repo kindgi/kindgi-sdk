@@ -3,7 +3,7 @@
 
 import type { ProjectId, Semver, TenantId } from '@kindgi/types';
 
-import type { PromotionActor } from './live-version-binding.js';
+import type { PinActor } from './agent-pin-binding.js';
 
 /** Whose Latest: an agent, and the project asking. */
 export interface LatestQuestion {
@@ -31,7 +31,7 @@ export interface LatestAnswer {
   /** The deployment that made it Latest, when one did. */
   readonly deploymentId?: string;
   /** The person who published it or added it as the latest version, when one did. */
-  readonly by?: PromotionActor;
+  readonly by?: PinActor;
 }
 
 /** One project's Latest (`LatestBinding.byProject`). */

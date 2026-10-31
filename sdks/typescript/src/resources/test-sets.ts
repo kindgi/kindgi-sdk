@@ -12,16 +12,17 @@
  * a specific version (soft-delete tombstone).
  */
 
+import { type InvalidRequestError, KindgiApiError } from '../errors.js';
 import type {
-  CorrectedEvalCase,
-  CorrectedEvalCaseCollectionPage,
-  EvalKind,
+  CorrectedTestCase,
+  CorrectedTestCaseCollectionPage,
   PublishTestSetBody,
   PublishTestSetResult,
   ReinstateTestSetVersionResult,
   ScopeKind,
   TestSet,
   TestSetCollectionPage,
+  TestSetKind,
   UnregisterTestSetResult,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
@@ -44,8 +45,8 @@ export type UnregisterTestSetVersionResult = UnregisterTestSetResult;
 // (test-set-scoped, though the route path is versioned).
 
 /** One case of a `corrections` test set: a copy of a corrected run with its items' corrections summed up. */
-export type TestSetCase = CorrectedEvalCase;
-export type TestSetCasePage = CorrectedEvalCaseCollectionPage;
+export type TestSetCase = CorrectedTestCase;
+export type TestSetCasePage = CorrectedTestCaseCollectionPage;
 
 export interface ListTestSetCasesQuery {
   readonly limit?: number;
@@ -61,8 +62,12 @@ export interface PublishTestSetOptions {
 export interface ListTestSetsFilter {
   readonly limit?: number;
   readonly cursor?: string;
-  /** `corrections` isn't listed: an agent's corrections are its test set (`agents.testSet`). */
-  readonly kind?: Exclude<EvalKind, 'corrections'>;
+  /**
+   * One kind only. `corrections` is listed only when asked for here: an
+   * agent's corrections are its test set (`agents.testSet`), and its frozen
+   * versions are `corrections` test sets.
+   */
+  readonly kind?: TestSetKind;
   readonly name?: string;
   readonly scopeKind?: ScopeKind;
   readonly scopeId?: string;
@@ -88,7 +93,9 @@ export interface TestSetsClient {
   /**
    * Publish a test set version into a project (`options.projectId`, sent
    * next to the test set fields in the request body; `400 bad-input` when
-   * it does not name a project in the tenant).
+   * it does not name a project in the tenant). An `id` starting `agent.`
+   * is an agent's own test set, which the API refuses to publish: it's
+   * refused here with `invalid-request`, and no request is sent.
    *
    * @wire POST /v1/test-sets
    */
@@ -132,10 +139,25 @@ export interface TestSetVersionsClient {
   ): Promise<ReinstateTestSetVersionResult>;
 }
 
+/** How every agent's test set id starts: the API refuses to publish one (`400 bad-input`). */
+const AGENT_TEST_SET_ID_PREFIX = 'agent.';
+
+/** Refuses an agent's test set id before a request is sent, with the API's words. */
+function refuseAgentTestSetId(testSetId: string, path: string): void {
+  if (!testSetId.startsWith(AGENT_TEST_SET_ID_PREFIX)) return;
+  const error: InvalidRequestError = {
+    code: 'invalid-request',
+    message: `Test set ids starting \`${AGENT_TEST_SET_ID_PREFIX}\` are agents' own test sets, and only a test run or a suggested change's check makes their versions. Publish "${testSetId}" under another id.`,
+    issues: [{ path, message: "reserved for agents' own test sets" }],
+  };
+  throw new KindgiApiError(error);
+}
+
 export function makeTestSetsClient(transport: Transport): TestSetsClient {
   const seg = (s: string): string => encodeURIComponent(s);
   return {
     async publish(input, options) {
+      refuseAgentTestSetId(input.id, '/id');
       return transport.request<PublishTestSetResult>({
         method: 'POST',
         path: '/v1/test-sets',

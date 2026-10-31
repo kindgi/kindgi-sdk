@@ -25,8 +25,8 @@ import { validateAgainst } from './support/openapi-schema.js';
 
 import { createApp } from '../src/index.js';
 import type {
+  AgentPinBindings,
   AgentRegistryBinding,
-  AgentReleaseBindings,
   FlowRegistryBinding,
   RunHandlerBinding,
   ServiceAccountBinding,
@@ -75,7 +75,7 @@ function decision(principal: unknown, action: Action, resource: ResourceRef): De
 // a loop body's tool, a fan-out branch and a subflow's tool; at 2.0.0 only
 // `acme.refund`. `acme.helper`'s highest calls a tool its pinned version
 // doesn't. `acme.digest`'s highest calls `acme.archive`; its 1.0.0, which is
-// Latest in PROJECT (`releases`), doesn't. `acme.daily@1.0.0` runs
+// Latest in PROJECT (`agentPins`), doesn't. `acme.daily@1.0.0` runs
 // `acme.digest` at no version: no step names one, and it pins none.
 // `acme.daily@2.0.0` runs it too, and `acme.weekly` (Latest nowhere) inside
 // the subflow `acme.weekly-sub`, neither at a version.
@@ -149,14 +149,14 @@ const flowRegistry = {
 } as unknown as FlowRegistryBinding;
 
 /** No pins; `acme.digest`'s Latest is 1.0.0 in PROJECT, and nothing elsewhere. */
-const releases = {
-  live: { resolve: async () => null, list: async () => [] },
+const agentPins = {
+  pinned: { resolve: async () => null, list: async () => [] },
   latest: {
     latest: async ({ agentId, projectId }: { agentId: string; projectId?: ProjectId }) =>
       agentId === 'acme.digest' && projectId === PROJECT ? { version: '1.0.0' as Semver } : null,
     byProject: async () => [],
   },
-} as unknown as AgentReleaseBindings;
+} as unknown as AgentPinBindings;
 
 const serviceAccountBinding = {
   get: async ({ serviceAccountId }: { serviceAccountId: string }) =>
@@ -165,7 +165,7 @@ const serviceAccountBinding = {
       : null,
 } as unknown as ServiceAccountBinding;
 
-function harness(opts: { registries?: boolean; releases?: boolean } = {}) {
+function harness(opts: { registries?: boolean; agentPins?: boolean } = {}) {
   // Every event, in the order written (a query orders same-millisecond
   // events by their random ids).
   const written: AuditEvent[] = [];
@@ -183,7 +183,7 @@ function harness(opts: { registries?: boolean; releases?: boolean } = {}) {
     runHandler: {} as RunHandlerBinding,
     triggerRegistry: createInMemoryTriggerRegistry({ defaultProjectId: PROJECT }),
     ...(opts.registries !== false && { agentRegistry, flowRegistry }),
-    ...(opts.releases === true && { agentReleases: releases }),
+    ...(opts.agentPins === true && { agentPins }),
     auditEvents,
     serviceAccountBinding,
     authz: {
@@ -283,7 +283,7 @@ describe('which tools a target calls', () => {
   });
 
   test("with pins and Latest wired, an agent that names no version: what runs in the trigger's project, not its highest", async () => {
-    const deps = { agents: agentRegistry, flows: flowRegistry, releases };
+    const deps = { agents: agentRegistry, flows: flowRegistry, agentPins };
     const at = (projectId: ProjectId | undefined, target: Record<string, unknown>) =>
       toolsTargetCanCall(deps, triggerScope(tenantId, projectId), target as never).then((s) =>
         s === undefined
@@ -316,7 +316,7 @@ describe('which tools a target calls', () => {
   });
 
   test("a flow whose agent at no version has none running: a tool it calls by itself passes, another can't be checked and says why", async () => {
-    const deps = { agents: agentRegistry, flows: flowRegistry, releases };
+    const deps = { agents: agentRegistry, flows: flowRegistry, agentPins };
     const daily = { kind: 'flow', flowId: 'acme.daily', flowVersion: '1.0.0' } as never;
     const problem = (projectId: ProjectId, tools: string[]) =>
       toolsAllowedUnattendedProblem(deps, triggerScope(tenantId, projectId), daily, tools);
@@ -338,7 +338,7 @@ describe('which tools a target calls', () => {
   });
 
   test('a flow with several agents at no version, one in a subflow: the 400 names each', async () => {
-    const deps = { agents: agentRegistry, flows: flowRegistry, releases };
+    const deps = { agents: agentRegistry, flows: flowRegistry, agentPins };
     const daily = { kind: 'flow', flowId: 'acme.daily', flowVersion: '2.0.0' } as never;
     const why = await toolsAllowedUnattendedProblem(
       deps,
@@ -464,7 +464,7 @@ describe('a schedule', () => {
   });
 
   test("with pins and Latest wired: an agent's list is checked against what runs in the schedule's project", async () => {
-    const h = harness({ releases: true });
+    const h = harness({ agentPins: true });
     // 1.0.0 is Latest in PROJECT: the highest's `acme.archive` isn't called there.
     const res = await h.call(
       'POST',

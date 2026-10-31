@@ -11,7 +11,7 @@ correction** so the mistake can't come back:
   pack's tests the way that skill shows — `kindgi test` wraps `vitest` for a
   Node pack; a Python, Java or Scala pack runs its own test runner.
 - **A setting:** decide the key, its limits and its default, and publish the
-  settings block (Step 4, `publish-and-promote.md`). Add a test that the tool
+  settings block (Step 4, `publish-and-pin.md`). Add a test that the tool
   reads the setting and acts on it.
 - **Instructions for Improve:** you don't write the prompt — you make sure the
   corrected cases are in the test cases, then let an Improve run try wordings

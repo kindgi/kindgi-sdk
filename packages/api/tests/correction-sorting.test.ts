@@ -384,14 +384,24 @@ describe('planRunOutcome (a test run of the version a project now runs)', () => 
 });
 
 describe('parseCorrectionLink', () => {
+  const id = '3bca94f1-61a4-4c2e-9d0b-7f5e2a8c1d36';
+
   test('an Improve run, a suggested change, or a pull request URL; nothing else', () => {
-    expect(parseCorrectionLink('ir-12')).toEqual({ kind: 'improve-run', id: 'ir-12' });
-    expect(parseCorrectionLink('sc-3')).toEqual({ kind: 'suggested-change', id: 'sc-3' });
+    expect(parseCorrectionLink(`ir-${id}`)).toEqual({ kind: 'improve-run', id });
+    expect(parseCorrectionLink(`sc-${id}`)).toEqual({ kind: 'suggested-change', id });
     expect(parseCorrectionLink('https://github.com/acme/app/pull/7')).toEqual({
       kind: 'pull-request',
       url: 'https://github.com/acme/app/pull/7',
     });
     expect(parseCorrectionLink('ftp://example.com/x')).toBeUndefined();
     expect(parseCorrectionLink('PR 7')).toBeUndefined();
+  });
+
+  test('an Improve run or a suggested change keeps its id alone, as its routes take it', () => {
+    expect(parseCorrectionLink(`sc-${id.toUpperCase()}`)).toEqual({ kind: 'suggested-change', id });
+    expect(parseCorrectionLink('sc-41')).toBeUndefined();
+    expect(parseCorrectionLink('ir-12')).toBeUndefined();
+    expect(parseCorrectionLink(id)).toBeUndefined();
+    expect(parseCorrectionLink(`sc-${id}-x`)).toBeUndefined();
   });
 });

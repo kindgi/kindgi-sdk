@@ -67,7 +67,7 @@
       "samples": "fragments"
     },
     "kindgi-fix-corrections": {
-      "pages": ["guides/evals/fix-what-experts-corrected"],
+      "pages": ["guides/improve/fix-what-experts-corrected"],
       "samples": "none"
     },
     "kindgi-framework-feedback": {
@@ -256,8 +256,8 @@
         "guides/approvals/approvals-reference",
         "guides/approvals/decide-an-approval",
         "guides/connections/use-a-connection",
-        "guides/evals/judge-a-runs-output",
-        "guides/evals/expert-queue-reference",
+        "guides/improve/correct-a-runs-output",
+        "guides/improve/expert-queue-reference",
         "guides/observability/cost-per-run",
         "guides/runs/list-runs",
         "guides/runs/read-the-journal",

@@ -5,7 +5,7 @@
 **Freezing an agent's test set.** `createTestSetFreeze({ corrections, testSets, cases })` is a `TestSetFreezeBinding` built over the bindings, for a runtime to pass as `testSetFreeze`.
 
 - **What it freezes.** It freezes a project's active cases of an agent's test set, oldest added first, as a version `1.0.<n>` of the test set `agent.<agentId>.<projectId>` (kind `corrections`).
-  - Each case is a copy of its run (its segment path included), with what it expects.
+  - Each case is a copy of its run (its segment path included), with what it expects and the run it was copied from (`runId`). Two people's corrections of one run are two cases with that run.
   - A case whose run's copy is gone, or whose run was erased, is frozen `erased`.
 - **When it makes a version.** A new version is made only when the cases changed: a hash of their ids and `updatedAt` decides. Otherwise the newest version is answered again.
 - **Whose test set it writes into.** It writes nothing into a test set whose newest version doesn't name the agent and project in its `spec`. It throws instead.
@@ -16,4 +16,3 @@
 - **A frozen case.**
   - A case gains an optional `expect` (`TestCaseExpect`): what it expects of a run. A grader reads it when it's present, and `items` and `corrections` otherwise.
   - A case gains an optional `segments`: the segment path its run was started with, from the run's copy.
-  - A case to store (`EvalCaseToStore`) can carry the run it was copied from (`runId`), for an erasure to find it by. The store never answers it on a read.

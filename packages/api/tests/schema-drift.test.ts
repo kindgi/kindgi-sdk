@@ -49,6 +49,7 @@ import {
   ToolSpecSchema,
   TypedNeedsSchema,
 } from '../src/openapi/schemas.js';
+import { TEST_SET_KINDS } from '../src/test-set-binding.js';
 
 interface JsonSchemaLike {
   readonly required?: readonly string[];
@@ -97,12 +98,11 @@ describe('OpenAPI ↔ specs drift — aligned pairs (required[] identical)', () 
   });
 
   test('TestSet', async () => {
-    // The spec file keeps its old name until the schemas are renamed.
-    assertRequiredIdentical(
-      'eval-suite',
-      await loadSpec('eval-suite'),
-      TestSetSchema as JsonSchemaLike,
-    );
+    const spec = await loadSpec('test-set');
+    assertRequiredIdentical('test-set', spec, TestSetSchema as JsonSchemaLike);
+    // The spec's closed `kind` enum is the API's list of test set kinds.
+    const kind = spec.properties?.kind as { readonly enum?: readonly string[] } | undefined;
+    expect(kind?.enum).toEqual([...TEST_SET_KINDS]);
   });
 
   test('Flow', async () => {

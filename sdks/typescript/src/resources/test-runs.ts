@@ -11,11 +11,11 @@
 
 import type {
   CorrectedComparisonResult,
+  StartTestRunBody,
+  StartTestRunResult,
   TestRun,
   TestRunCollectionPage,
   TestRunStatus,
-  StartTestRunBody,
-  StartTestRunResult,
 } from '../generated/api.js';
 import { readSse, unwrapSseData } from '../streaming.js';
 import type { Transport } from '../transport.js';

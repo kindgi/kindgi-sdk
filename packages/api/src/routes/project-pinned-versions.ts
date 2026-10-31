@@ -11,7 +11,7 @@
  * A caller sees a pin only with all three of: `read` on the project (the
  * guard below, before the cursor, the limit or the 501); `read` on the
  * pin's agent, as the agents list asks it; and the pin's version, as
- * `GET /v1/agents/:agentId/live-versions` shows it (`seenPins`). So it shows
+ * `GET /v1/agents/:agentId/pinned-versions` shows it (`seenPins`). So it shows
  * no pin that route doesn't already show its caller, and only the scopes
  * that cover this project. The filter runs on the page the binding read, so
  * a page can come back short, or empty, with `hasMore: true`: page on the
@@ -25,12 +25,12 @@ import { ref } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
+import type { AgentPinnedVersionBinding } from '../agent-pin-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { ItemRights } from '../item-rights.js';
-import type { LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
-import { seenPins, serializeLivePin } from './agent-releases.js';
+import { seenPins, serializeAgentPinnedVersion } from './agent-pins.js';
 import { deniedBy } from './denied.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
@@ -38,13 +38,13 @@ import { clampLimit } from './pagination.js';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function projectPinnedVersionsRouter(deps: {
-  readonly live: LiveVersionBinding;
+  readonly agentPinned: AgentPinnedVersionBinding;
   readonly projects: ProjectBinding;
   readonly authorizer?: Authorizer;
   /** Rights on an agent more than one project serves (`item-rights.ts`); absent → the agent's own. */
   readonly itemRights?: ItemRights;
 }): Hono<AppEnv> {
-  const { live, projects, authorizer, itemRights } = deps;
+  const { agentPinned, projects, authorizer, itemRights } = deps;
   const r = new Hono<AppEnv>();
 
   // The project first, as the expert queue routes guard theirs: nothing else is
@@ -64,7 +64,7 @@ export function projectPinnedVersionsRouter(deps: {
   });
 
   r.get('/:projectId/pinned-versions', async (c) => {
-    if (live.listCovering === undefined) {
+    if (agentPinned.listCovering === undefined) {
       return fail(
         c,
         'pinned-versions-not-supported',
@@ -72,9 +72,9 @@ export function projectPinnedVersionsRouter(deps: {
       );
     }
     const cursor = c.req.query('cursor');
-    const unissued = refuseUnissuedCursor(c, live, 'covering', cursor);
+    const unissued = refuseUnissuedCursor(c, agentPinned, 'covering', cursor);
     if (unissued !== undefined) return unissued;
-    const page = await live.listCovering({
+    const page = await agentPinned.listCovering({
       tenantId: c.get('tenantId') as TenantId,
       projectId: c.req.param('projectId') as ProjectId,
       limit: clampLimit(c.req.query('limit')),
@@ -93,7 +93,7 @@ export function projectPinnedVersionsRouter(deps: {
             });
     const pins = await seenPins(itemRights, c, readable);
     return c.json({
-      data: pins.map(serializeLivePin),
+      data: pins.map(serializeAgentPinnedVersion),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });

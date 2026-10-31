@@ -15,6 +15,8 @@
   - A proposal's `evidence.judgmentIds` is `evidence.fixes`.
   - These counts are renamed: `judgmentCount` to `correctionCount`, `minJudgments` to `minCorrections`, `runsWithJudgments` to `runsWithCorrections`, and `anyJudgment` to `anyCorrection`.
   - A response's `judgments` is `corrections`.
+  - A comparison summary's `corrections.judgments` is `corrections.results`.
+  - A comparison case's `judgedItems`, on its `baseline` and each `candidate`, is `correctedItems`, and a `changes.new` entry's `judged` is `corrected`.
   - A suite built from corrections has `source: 'corrections'`.
   - The improve schedule's `threshold.judges` and `threshold.judgments` are `threshold.correctors` and `threshold.corrections`.
 - **Schemas and types.**

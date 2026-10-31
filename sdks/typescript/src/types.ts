@@ -435,7 +435,7 @@ export type SuggestedChangeContent =
   | { readonly template: string };
 
 /** The metric that says whether a candidate is better. */
-export type SuggestedChangeObjective = 'weightedYesShare' | 'weightedPrecisionAtK';
+export type SuggestedChangeObjective = 'passRate' | 'weightedPrecisionAtK';
 
 /** A user, or a service token. */
 export interface SuggestedChangeActor {
@@ -528,7 +528,8 @@ export interface SuggestedChange {
   readonly note?:
     | {
         readonly kind: 'gate-refused' | 'rejected' | 'expired' | 'superseded';
-        readonly promotionId: string;
+        /** That pin's change in the agent's pin history. */
+        readonly pinChangeId: string;
       }
     | { readonly kind: 'not-running'; readonly version: string };
   readonly pinned?: {
@@ -3029,7 +3030,10 @@ export interface CorrectionSorted {
   readonly at: import('@kindgi/types').Timestamp;
 }
 
-/** The work fixing a correction, while it's `being-fixed`. */
+/**
+ * The work fixing a correction, while it's `being-fixed`. An Improve run or
+ * a suggested change is named by its id, without its prefix.
+ */
 export type CorrectionLink =
   | { readonly kind: 'improve-run'; readonly id: string }
   | { readonly kind: 'suggested-change'; readonly id: string }
@@ -3284,7 +3288,7 @@ export interface CreateCorrectionInput {
 export interface ChangeCorrectionInput {
   readonly sortedTo?: CorrectionSortedTo;
   readonly status?: 'open' | 'being-fixed' | 'wont-fix';
-  /** With `status: 'being-fixed'`: a pull request URL, an Improve run (`ir-…`) or a suggested change (`sc-…`). */
+  /** With `status: 'being-fixed'`: a pull request URL, an Improve run (`ir-<its id>`) or a suggested change (`sc-<its id>`). */
   readonly link?: string;
   /** Required for `wont-fix`; with `open`, why it went back. Otherwise the re-sort's reason. */
   readonly reason?: string;

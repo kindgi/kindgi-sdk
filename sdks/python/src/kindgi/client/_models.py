@@ -113,45 +113,7 @@ class ScopeSegment(BaseModel):
     value: Annotated[str, Field(max_length=256, min_length=1)]
 
 
-class LiveScopeTenant(BaseModel):
-    """
-    The agent's default for the whole tenant.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["tenant"]
-
-
-class LiveScopeOrg(BaseModel):
-    """
-    An org's projects.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["org"]
-    org_id: Annotated[UUID, Field(alias="orgId")]
-
-
-class LiveScopeProject(BaseModel):
-    """
-    One project.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["project"]
-    project_id: Annotated[UUID, Field(alias="projectId")]
-
-
-class LiveScopeSegment(BaseModel):
+class PinScopeSegment(BaseModel):
     """
     A segment path within a project: it covers every run whose path starts with it.
     """
@@ -176,7 +138,7 @@ class AgentProjectSegmentPin(BaseModel):
 
 class AgentHighestVersion(BaseModel):
     """
-    The agent's highest active version, which numbers the next one. It isn't what a project runs: that's each project's `runs`. Absent when the caller can't see it, or when the server has no live versions.
+    The agent's highest active version, which numbers the next one. It isn't what a project runs: that's each project's `runs`. Absent when the caller can't see it, or when the server doesn't pin versions.
     """
 
     model_config = ConfigDict(
@@ -248,7 +210,7 @@ class PinActor(BaseModel):
 
 class GateCheck(BaseModel):
     """
-    One of a gate's checks, as the promotion records it.
+    One of a gate's checks, as the pin records it.
     """
 
     model_config = ConfigDict(
@@ -257,18 +219,18 @@ class GateCheck(BaseModel):
     )
     name: str
     """
-    Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a promotion it supersedes, to say what changed since the check.
+    Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsPinned`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a pin it supersedes, to say what changed since the check.
     """
     passed: bool
     message: str
     """
-    A plain sentence: what was found against what the policy asks.
+    A plain sentence: what was found against what the gate asks.
     """
     value: float | str | None = None
     threshold: float | str | None = None
 
 
-class GatePolicyRef(BaseModel):
+class ReleaseGateRef(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -279,7 +241,7 @@ class GatePolicyRef(BaseModel):
 
 class GateApproval(BaseModel):
     """
-    The approval a passing promotion waits for.
+    The approval a passing pin waits for.
     """
 
     model_config = ConfigDict(
@@ -290,7 +252,7 @@ class GateApproval(BaseModel):
     count: Annotated[int, Field(ge=1)]
     separate_approver: Annotated[bool, Field(alias="separateApprover")]
     """
-    Whoever asked for the promotion may not approve it.
+    Whoever asked for the pin may not approve it.
     """
 
 
@@ -312,9 +274,7 @@ class Metric(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    name: Annotated[
-        Literal["weightedYesShare", "judgedCoverage", "weightedPrecisionAtK"] | str, _open.OPEN
-    ]
+    name: Annotated[Literal["passRate", "caseCoverage", "weightedPrecisionAtK"] | str, _open.OPEN]
     k: Annotated[int | None, Field(ge=1, le=100)] = None
     """
     `weightedPrecisionAtK` only: the summary's `k` must be this.
@@ -322,7 +282,7 @@ class Metric(BaseModel):
     min_candidate: Annotated[float | None, Field(alias="minCandidate", ge=0.0, le=1.0)] = None
     max_drop: Annotated[float | None, Field(alias="maxDrop", ge=0.0, le=1.0)] = None
     """
-    How far the candidate may fall below the baseline (the live version).
+    How far the candidate may fall below the baseline (the pinned version).
     """
 
 
@@ -346,7 +306,7 @@ class Replay(BaseModel):
 
 class Approvals(BaseModel):
     """
-    A passing promotion waits for a reviewer.
+    A passing pin waits for a reviewer.
     """
 
     model_config = ConfigDict(
@@ -363,19 +323,19 @@ class Approvals(BaseModel):
     """
 
 
-class PromotionCheck(BaseModel):
+class PinCheck(BaseModel):
     """
-    What the gate would say about a promotion. Nothing is recorded.
+    What the gate would say about a pin. Nothing is recorded.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    outcome: Annotated[Literal["would-promote", "needs-approval", "gate-failed"] | str, _open.OPEN]
-    policy: GatePolicyRef | None
+    outcome: Annotated[Literal["would-pin", "needs-approval", "gate-failed"] | str, _open.OPEN]
+    release_gate: Annotated[ReleaseGateRef | None, Field(alias="releaseGate")]
     """
-    The policy that applies; null when none does.
+    The release gate that applies; null when none does.
     """
     checks: list[GateCheck]
     approval: GateApproval | None = None
@@ -526,7 +486,7 @@ class StartRunBody1(BaseModel):
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion")] = None
     """
-    Semver. Omit → the conversation's own version for a follow-up turn, else the version live for the run's scope, else the latest.
+    Semver. Omit → the conversation's own version for a follow-up turn, else the version pinned for the run's scope, else the latest.
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
@@ -534,7 +494,7 @@ class StartRunBody1(BaseModel):
     """
     segments: Annotated[list[ScopeSegment] | None, Field(max_length=8)] = None
     """
-    The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version live on a prefix of it serves the run.
+    The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version pinned on a prefix of it serves the run.
     """
     input: Any
     """
@@ -566,7 +526,7 @@ class StartRunBody2(BaseModel):
     """
     segments: Annotated[list[ScopeSegment] | None, Field(max_length=8)] = None
     """
-    The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version live on a prefix of it serves the run.
+    The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version pinned on a prefix of it serves the run.
     """
     input: Any
     """
@@ -2038,7 +1998,7 @@ class LicenseUsage(BaseModel):
     """
     runs: Annotated[int, Field(ge=0)]
     """
-    Runs started in the period: not dry runs, replays, evals or child runs.
+    Runs started in the period: not dry runs, replays, test runs or child runs.
     """
     people: Annotated[int, Field(ge=0)]
     """
@@ -2370,6 +2330,9 @@ class CorrectionLink1(BaseModel):
     )
     kind: Literal["improve-run", "suggested-change"]
     id: str
+    """
+    The Improve run's or suggested change's id, without its prefix.
+    """
 
 
 class CorrectionLink2(BaseModel):
@@ -2429,7 +2392,7 @@ class ChangeCorrectionBody(BaseModel):
     """
     link: str | None = None
     """
-    With `status: "being-fixed"`: a pull request URL, an Improve run (`ir-…`) or a suggested change (`sc-…`).
+    With `status: "being-fixed"`: a pull request URL, an Improve run (`ir-<its id>`) or a suggested change (`sc-<its id>`).
     """
     reason: Annotated[str | None, Field(max_length=4000, min_length=1)] = None
     """
@@ -3171,7 +3134,7 @@ class VersionDerivation(BaseModel):
         Literal["pins-changed", "unpinned", "version-taken", "edited"] | str, _open.OPEN
     ]
     """
-    `pins-changed`: a block it uses has a new version; `unpinned`: the definition's version was published before pins existed; `version-taken`: the definition's version holds another definition; `edited`: derived from `version` with some data-block pins swapped (`POST /v1/agents/{agentId}/versions`).
+    `pins-changed`: a block it uses has a new version; `unpinned`: the definition's version was published before pins existed; `version-taken`: the definition's version holds another definition; `edited`: derived from `version` with some data-block pins swapped: a suggested change's version (`suggestedChangeId`), or an earlier hand edit's (`label`, `by`).
     """
     label: str | None = None
     """
@@ -3183,32 +3146,13 @@ class VersionDerivation(BaseModel):
     """
     suggested_change_id: Annotated[str | None, Field(alias="suggestedChangeId")] = None
     """
-    For `edited`: the suggested change it was derived for. Such a version serves no scope until a promotion makes it live.
-    """
-
-
-class AgentPinSwaps(BaseModel):
-    """
-    The data-block pins to swap, by block id → exact version. Only blocks the version already references; tool pins come from code.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    prompts: dict[str, str] | None = None
-    """
-    Prompt block id → exact version.
-    """
-    settings: dict[str, str] | None = None
-    """
-    Settings block id → exact version.
+    For `edited`: the suggested change it was derived for. Such a version serves no scope until a pin makes it serve.
     """
 
 
 class FlowPins(BaseModel):
     """
-    The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the tenant), else to its latest version then; each agent it runs at no named version resolves once to its version live for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's gate policies set on a segment covers runs the agent's version live for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version live for the run, else its latest.
+    The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the tenant), else to its latest version then; each agent it runs at no named version resolves once to its version pinned for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's release gates set on a segment covers runs the agent's version pinned for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version pinned for the run, else its latest.
     """
 
     model_config = ConfigDict(
@@ -4814,7 +4758,7 @@ class SuggestedChangeCheck(BaseModel):
 
 class SuggestedChangeNote(BaseModel):
     """
-    Why a `ready` suggested change's pin didn't go through: `gate-refused`, `rejected` (a second person), `expired` (the approval), or `superseded` (its project's version or policy changed before the approval). `promotionId` is that pin's promotion. Or, on a deploy's suggested change, `not-running`: the version its project runs (`version`) isn't running to be checked against, and has no finished run on the same cases, so its check has no `now`.
+    Why a `ready` suggested change's pin didn't go through: `gate-refused`, `rejected` (a second person), `expired` (the approval), or `superseded` (its project's version or release gate changed before the approval). `pinChangeId` is that pin's change in the pin history. Or, on a deploy's suggested change, `not-running`: the version its project runs (`version`) isn't running to be checked against, and has no finished run on the same cases, so its check has no `now`.
     """
 
     model_config = ConfigDict(
@@ -4825,7 +4769,7 @@ class SuggestedChangeNote(BaseModel):
         Literal["gate-refused", "rejected", "expired", "superseded", "not-running"] | str,
         _open.OPEN,
     ]
-    promotion_id: Annotated[str | None, Field(alias="promotionId")] = None
+    pin_change_id: Annotated[str | None, Field(alias="pinChangeId")] = None
     version: str | None = None
 
 
@@ -7048,9 +6992,9 @@ class TestRunFlowRef(BaseModel):
     version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
 
 
-class EvalBaseline1(BaseModel):
+class TestRunBaseline1(BaseModel):
     """
-    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version pinned in a scope (`{ pinned: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
 
     model_config = ConfigDict(
@@ -7061,7 +7005,7 @@ class EvalBaseline1(BaseModel):
     version: str
 
 
-class Live(BaseModel):
+class Pinned1(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -7069,20 +7013,20 @@ class Live(BaseModel):
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     segments: Annotated[list[ScopeSegment] | None, Field(max_length=8)] = None
     """
-    A segment path in `projectId`, coarse to fine, as live versions resolve it. Needs `projectId`.
+    A segment path in `projectId`, coarse to fine, as pinned versions resolve it. Needs `projectId`.
     """
 
 
-class EvalBaseline2(BaseModel):
+class TestRunBaseline2(BaseModel):
     """
-    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version pinned in a scope (`{ pinned: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    live: Live
+    pinned: Pinned1
 
 
 class Prompts(BaseModel):
@@ -7093,9 +7037,9 @@ class Prompts(BaseModel):
     template: str
 
 
-class EvalOverrides(BaseModel):
+class TestRunOverrides(BaseModel):
     """
-    For an agent candidate: block content its replays run instead of the version's pinned content (an Improve run's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a promotion.
+    For an agent candidate: block content its replays run instead of the version's pinned content (an Improve run's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a pin.
     """
 
     model_config = ConfigDict(
@@ -7106,9 +7050,9 @@ class EvalOverrides(BaseModel):
     prompts: Annotated[dict[str, Prompts] | None, Field(max_length=1)] = None
 
 
-class EvalSample(BaseModel):
+class TestRunSample(BaseModel):
     """
-    Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a "no" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).
+    Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a "no" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A release gate refuses a comparison on the search part (`comparison.sample`).
     """
 
     model_config = ConfigDict(
@@ -7120,7 +7064,7 @@ class EvalSample(BaseModel):
     hold_out_share: Annotated[float, Field(alias="holdOutShare", ge=0.1, le=0.9)]
 
 
-class EvalComparison(BaseModel):
+class TestRunComparison(BaseModel):
     """
     A comparison test run's settings (a `corrections` test set).
     """
@@ -7129,9 +7073,9 @@ class EvalComparison(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    baseline: Annotated[Literal["recorded"] | str, _open.OPEN] | EvalBaseline1 | EvalBaseline2
+    baseline: Annotated[Literal["recorded"] | str, _open.OPEN] | TestRunBaseline1 | TestRunBaseline2
     """
-    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version pinned in a scope (`{ pinned: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
     reads: Annotated[Literal["recorded", "live"] | str, _open.OPEN]
     """
@@ -7147,8 +7091,8 @@ class EvalComparison(BaseModel):
     """
     Which corrections count: each at its group's weight (`as-recorded`, the default), or only those recorded while their group was restricted (`Correction.expert`), the others weighing 0 (`experts-only`).
     """
-    overrides: EvalOverrides | None = None
-    sample: EvalSample | None = None
+    overrides: TestRunOverrides | None = None
+    sample: TestRunSample | None = None
     rescore_of: Annotated[str | None, Field(alias="rescoreOf")] = None
     """
     Rescore that comparison test run instead of replaying: its replays' outputs are scored again, with the corrections recorded on them since (a changed answer corrected on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/test-runs/{testRunId}/rescore`.
@@ -7191,8 +7135,8 @@ class Metrics(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    weighted_yes_share: Annotated[ComparisonMetric, Field(alias="weightedYesShare")]
-    judged_coverage: Annotated[ComparisonMetric, Field(alias="judgedCoverage")]
+    pass_rate: Annotated[ComparisonMetric, Field(alias="passRate")]
+    case_coverage: Annotated[ComparisonMetric, Field(alias="caseCoverage")]
     weighted_precision_at_k: Annotated[ComparisonMetric, Field(alias="weightedPrecisionAtK")]
 
 
@@ -7207,7 +7151,7 @@ class Result(BaseModel):
 
 class Corrections(BaseModel):
     """
-    Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.
+    Corrections graded across the cases: shown for a release gate, not enforced. Absent when the test set carries no corrections.
     """
 
     model_config = ConfigDict(
@@ -7408,7 +7352,7 @@ class TestRun(BaseModel):
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
     result: dict[str, Any] | None = None
     """
-    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `corrections` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.
+    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `corrections` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`passRate`, `caseCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.
     """
     error: str | None = None
     cancel_reason: Annotated[str | None, Field(alias="cancelReason")] = None
@@ -7416,7 +7360,7 @@ class TestRun(BaseModel):
     Why a `cancelled` run stopped when nobody cancelled it: its project or tenant took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.
     """
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
-    comparison: EvalComparison | None = None
+    comparison: TestRunComparison | None = None
 
 
 class TestRunCollectionPage(BaseModel):
@@ -7447,10 +7391,13 @@ class StartTestRunBody(BaseModel):
     dry_run: Annotated[bool | None, Field(alias="dryRun")] = None
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
     baseline: (
-        Annotated[Literal["recorded"] | str, _open.OPEN] | EvalBaseline1 | EvalBaseline2 | None
+        Annotated[Literal["recorded"] | str, _open.OPEN]
+        | TestRunBaseline1
+        | TestRunBaseline2
+        | None
     ) = None
     """
-    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version pinned in a scope (`{ pinned: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
     reads: Literal["recorded", "live"] | None = None
     repetitions: Annotated[int | None, Field(ge=1, le=10)] = None
@@ -7462,8 +7409,8 @@ class StartTestRunBody(BaseModel):
     """
     Which corrections count: each at its group's weight (`as-recorded`, the default), or only those recorded while their group was restricted (`Correction.expert`), the others weighing 0 (`experts-only`).
     """
-    overrides: EvalOverrides | None = None
-    sample: EvalSample | None = None
+    overrides: TestRunOverrides | None = None
+    sample: TestRunSample | None = None
 
 
 class RescoreTestRunBody(BaseModel):
@@ -8287,7 +8234,7 @@ class QueueRuleWhen(BaseModel):
     )
     versions: Annotated[list[str] | None, Field(max_length=50, min_length=1)] = None
     """
-    These versions exactly, or `live`: runs that got the agent's live version, not one the caller named. Runs from before the runtime recorded how their version was chosen never match `live`.
+    These versions exactly, or `pinned`: runs that got the agent's pinned version, not one the caller named. Runs from before the runtime recorded how their version was chosen never match `pinned`.
     """
     status: Annotated[
         list[Annotated[Literal["completed", "failed", "cancelled"] | str, _open.OPEN]] | None,
@@ -8757,7 +8704,7 @@ class RoleActions(BaseModel):
     project: list[Annotated[Literal["read", "write", "admin", "delete"] | str, _open.OPEN]]
     agent: list[
         Annotated[
-            Literal["read", "write", "delete", "admin", "execute", "publish", "promote"] | str,
+            Literal["read", "write", "delete", "admin", "execute", "publish", "pin"] | str,
             _open.OPEN,
         ]
     ]
@@ -9026,9 +8973,9 @@ class DeploymentPromotionBody(BaseModel):
     """
     Why, kept in the `deployment-promoted` audit record.
     """
-    make_live: Annotated[bool | None, Field(alias="makeLive")] = None
+    pin: bool | None = None
     """
-    Make every agent version the promotion carries live in the target project, each through its scope's gate, and pin every flow version it carries there (the project's pin), so a run there that names no version takes it. The answer's `live` reports each agent and `pinnedFlows` each flow. An error answered after some were already pinned lists those in `error.details.live` and `error.details.pinnedFlows`, in the answer's shapes.
+    Pin every agent version the promotion carries in the target project, each through its scope's release gate, and every flow version it carries (the project's pin), so a run there that names no version takes it. The answer's `pinned` reports each agent and `pinnedFlows` each flow. An error answered after some were already pinned lists those in `error.details.pinned` and `error.details.pinnedFlows`, in the answer's shapes.
     """
 
 
@@ -9073,20 +9020,19 @@ class LeftBehindVersion(BaseModel):
     """
 
 
-class DeploymentLivePinGate(BaseModel):
+class DeploymentPinGate(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     status: Annotated[
-        Literal["promoted", "pending-approval", "refused", "superseded", "rejected", "expired"]
-        | str,
+        Literal["pinned", "pending-approval", "refused", "superseded", "rejected", "expired"] | str,
         _open.OPEN,
     ]
-    promotion_id: Annotated[UUID, Field(alias="promotionId")]
-    policy: GatePolicyRef | None = None
+    change_id: Annotated[UUID, Field(alias="changeId")]
+    release_gate: Annotated[ReleaseGateRef | None, Field(alias="releaseGate")] = None
     """
-    The gate policy that applied; null when none did.
+    The release gate that applied; null when none did.
     """
     approval_id: Annotated[str | None, Field(alias="approvalId")] = None
     """
@@ -9095,7 +9041,7 @@ class DeploymentLivePinGate(BaseModel):
     checks: list[GateCheck] | None = None
 
 
-class DeploymentLivePin(BaseModel):
+class DeploymentPinnedAgent(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -9104,9 +9050,9 @@ class DeploymentLivePin(BaseModel):
     version: str
     pinned: bool
     """
-    Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).
+    Pinned now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).
     """
-    gate: DeploymentLivePinGate | None = None
+    gate: DeploymentPinGate | None = None
 
 
 class DeploymentPinnedFlow(BaseModel):
@@ -9259,11 +9205,10 @@ class EvidenceKind(RootModel[str]):
                 "hitl-decision",
                 "wait-token-completed",
                 "wait-token-discarded",
-                "agent-promotion",
-                "agent-promotion-refused",
-                "agent-rollback",
-                "agent-live-unpinned",
-                "agent-live-pin-inactive",
+                "agent-pinned",
+                "agent-pin-refused",
+                "agent-unpinned",
+                "agent-pin-inactive",
                 "flow-pinned",
                 "flow-unpinned",
                 "flow-pin-inactive",
@@ -9444,11 +9389,10 @@ class ComplianceEvidence(BaseModel):
                 "hitl-decision",
                 "wait-token-completed",
                 "wait-token-discarded",
-                "agent-promotion",
-                "agent-promotion-refused",
-                "agent-rollback",
-                "agent-live-unpinned",
-                "agent-live-pin-inactive",
+                "agent-pinned",
+                "agent-pin-refused",
+                "agent-unpinned",
+                "agent-pin-inactive",
                 "flow-pinned",
                 "flow-unpinned",
                 "flow-pin-inactive",
@@ -9557,11 +9501,10 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "hitl-decision",
                 "wait-token-completed",
                 "wait-token-discarded",
-                "agent-promotion",
-                "agent-promotion-refused",
-                "agent-rollback",
-                "agent-live-unpinned",
-                "agent-live-pin-inactive",
+                "agent-pinned",
+                "agent-pin-refused",
+                "agent-unpinned",
+                "agent-pin-inactive",
                 "flow-pinned",
                 "flow-unpinned",
                 "flow-pin-inactive",
@@ -9647,11 +9590,10 @@ class Filter(BaseModel):
                 "hitl-decision",
                 "wait-token-completed",
                 "wait-token-discarded",
-                "agent-promotion",
-                "agent-promotion-refused",
-                "agent-rollback",
-                "agent-live-unpinned",
-                "agent-live-pin-inactive",
+                "agent-pinned",
+                "agent-pin-refused",
+                "agent-unpinned",
+                "agent-pin-inactive",
                 "flow-pinned",
                 "flow-unpinned",
                 "flow-pin-inactive",
@@ -10770,7 +10712,7 @@ class MailTriggerRecord(BaseModel):
     flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
     agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
     """
-    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     project_id: Annotated[UUID, Field(alias="projectId")]
@@ -10891,7 +10833,7 @@ class RegisterMailTriggerBody(BaseModel):
     flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
     agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
     """
-    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
@@ -10935,7 +10877,7 @@ class PatchMailTriggerBody(BaseModel):
     flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
     agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
     """
-    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     config: PatchMailTriggerBodyConfig | None = None
@@ -11021,7 +10963,7 @@ class MailTriggerDefinition(BaseModel):
     flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
     agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
     """
-    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     project_id: Annotated[UUID, Field(alias="projectId")]
@@ -12482,7 +12424,7 @@ class MCPPromptMessageContentImage(BaseModel):
 
 class Overrides(BaseModel):
     """
-    The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.
+    The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a pin. Absent otherwise.
     """
 
     model_config = ConfigDict(
@@ -12507,11 +12449,11 @@ class ComparisonCandidateAgent(BaseModel):
     version: str
     pins_digest: Annotated[str | None, Field(alias="pinsDigest")] = None
     """
-    The version's pinsDigest: what it ran, as a promotion gate checks. Absent for a version published before pins, and from a comparison recorded before it.
+    The version's pinsDigest: what it ran, as a release gate checks. Absent for a version published before pins, and from a comparison recorded before it.
     """
     overrides: Overrides | None = None
     """
-    The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.
+    The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a pin. Absent otherwise.
     """
 
 
@@ -12566,8 +12508,8 @@ class CorrectedComparisonSummaryBaselineVersion(BaseModel):
     kind: Literal["version"]
     agent_id: Annotated[str, Field(alias="agentId")]
     version: str
-    via: Literal["explicit", "live"]
-    live_scope: Annotated[dict[str, Any] | None, Field(alias="liveScope")] = None
+    via: Literal["explicit", "pinned"]
+    pinned_scope: Annotated[dict[str, Any] | None, Field(alias="pinnedScope")] = None
 
 
 class CallDifferenceCount(BaseModel):
@@ -12839,7 +12781,7 @@ class RunWaitingTokenTool(BaseModel):
     """
 
 
-class GatePolicySpecComparisonTestSet(BaseModel):
+class ReleaseGateSpecComparisonTestSet(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -12911,7 +12853,7 @@ class CorrectedRunContextFlow(BaseModel):
     """
 
 
-class CorrectedEvalCaseCorrection(BaseModel):
+class CorrectedTestCaseCorrection(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -13242,6 +13184,21 @@ class AccessPathUnrecognized(BaseModel):
     """
 
 
+class AgentPinScopeUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
 class CodeArtifactRefUnrecognized(BaseModel):
     """
     A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
@@ -13378,21 +13335,6 @@ class HttpRequestBodySpecUnrecognized(BaseModel):
 
 
 class IdentityProviderConfigUnrecognized(BaseModel):
-    """
-    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: str
-    """
-    The `kind` it came with.
-    """
-
-
-class LiveScopeUnrecognized(BaseModel):
     """
     A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
     """
@@ -13637,7 +13579,7 @@ class RunWaitingToken(BaseModel):
     """
 
 
-class LiveVersionResolution(BaseModel):
+class AgentPinnedVersionResolution(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -13647,58 +13589,58 @@ class LiveVersionResolution(BaseModel):
     """
     The version a run would use (semver).
     """
-    via: Annotated[Literal["live", "latest"] | str, _open.OPEN]
+    via: Annotated[Literal["pinned", "latest"] | str, _open.OPEN]
     """
-    A live pin chose it, or nothing is live on the way up and it is the project's Latest.
+    A pin chose it, or nothing is pinned on the way up and it is the project's Latest.
     """
-    live_scope: Annotated[
+    pinned_scope: Annotated[
         Annotated[
-            LiveScopeTenant
-            | LiveScopeOrg
-            | LiveScopeProject
-            | LiveScopeSegment
-            | LiveScopeUnrecognized,
-            _open.OpenUnion("kind", LiveScopeUnrecognized),
+            PinScopeTenant
+            | PinScopeOrg
+            | PinScopeProject
+            | PinScopeSegment
+            | AgentPinScopeUnrecognized,
+            _open.OpenUnion("kind", AgentPinScopeUnrecognized),
         ]
         | None,
-        Field(alias="liveScope"),
+        Field(alias="pinnedScope"),
     ] = None
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
 
 
-class LivePin(BaseModel):
+class AgentPinnedVersion(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     agent_id: Annotated[str, Field(alias="agentId")]
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
     version: str
-    promotion_id: Annotated[UUID, Field(alias="promotionId")]
+    change_id: Annotated[UUID, Field(alias="changeId")]
     """
-    The promotion that set it.
+    The pin change that set it.
     """
     set_at: Annotated[AwareDatetime, Field(alias="setAt")]
 
 
-class LivePinList(BaseModel):
+class AgentPinnedVersionList(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[LivePin]
+    data: list[AgentPinnedVersion]
 
 
 class ProjectPinnedVersionPage(BaseModel):
@@ -13706,7 +13648,7 @@ class ProjectPinnedVersionPage(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    data: list[LivePin]
+    data: list[AgentPinnedVersion]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
@@ -13733,30 +13675,30 @@ class AgentProjectRuns(BaseModel):
     """
     With `follows: latest`: the deployment into the project that made it Latest, when one did.
     """
-    live_scope: Annotated[
+    pinned_scope: Annotated[
         Annotated[
-            LiveScopeTenant
-            | LiveScopeOrg
-            | LiveScopeProject
-            | LiveScopeSegment
-            | LiveScopeUnrecognized,
-            _open.OpenUnion("kind", LiveScopeUnrecognized),
+            PinScopeTenant
+            | PinScopeOrg
+            | PinScopeProject
+            | PinScopeSegment
+            | AgentPinScopeUnrecognized,
+            _open.OpenUnion("kind", AgentPinScopeUnrecognized),
         ]
         | None,
-        Field(alias="liveScope"),
+        Field(alias="pinnedScope"),
     ] = None
     """
     With `follows: pin`: the pin that covers the project.
     """
-    promotion_id: Annotated[str | None, Field(alias="promotionId")] = None
+    pin_change_id: Annotated[str | None, Field(alias="pinChangeId")] = None
     """
-    With `follows: pin`: the promotion that set the pin.
+    With `follows: pin`: the pin change that set the pin, in the agent's pin history.
     """
 
 
-class Promotion(BaseModel):
+class Pin(BaseModel):
     """
-    One change of a scope's live version, kept for good: what was live before, what is after, who asked and why.
+    One change of a scope's pinned version, kept for good: what was pinned before, what is after, who asked and why.
     """
 
     model_config = ConfigDict(
@@ -13766,17 +13708,17 @@ class Promotion(BaseModel):
     id: UUID
     agent_id: Annotated[str, Field(alias="agentId")]
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
-    action: Annotated[Literal["promote", "rollback", "unpin"] | str, _open.OPEN]
+    action: Annotated[Literal["pin", "unpin"] | str, _open.OPEN]
     from_version: Annotated[str | None, Field(alias="fromVersion")]
     """
     The scope's own pin before; null when it had none.
@@ -13794,36 +13736,36 @@ class Promotion(BaseModel):
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     status: (
         Annotated[
-            Literal["promoted", "pending-approval", "refused", "superseded", "rejected", "expired"]
+            Literal["pinned", "pending-approval", "refused", "superseded", "rejected", "expired"]
             | str,
             _open.OPEN,
         ]
         | None
     ) = None
     """
-    A `promote` row's state: it changes once, from `pending-approval` to its final state. Absent on rollback and unpin rows, and on promotions made before gates (`promoted`).
+    A `pin` row's state: it changes once, from `pending-approval` to its final state. Absent on unpin rows, and on pins made before gates (`pinned`).
     """
-    policy: GatePolicyRef | None = None
+    release_gate: Annotated[ReleaseGateRef | None, Field(alias="releaseGate")] = None
     """
-    The gate policy that applied; null when none did. Absent before gates.
+    The release gate that applied; null when none did. Absent before gates.
     """
     checks: list[GateCheck] | None = None
     approval_id: Annotated[str | None, Field(alias="approvalId")] = None
     """
-    The approval a `pending-approval` promotion waits on (kept once decided).
+    The approval a `pending-approval` pin waits on (kept once decided).
     """
     resolved_at: Annotated[AwareDatetime | None, Field(alias="resolvedAt")] = None
     """
-    When a `pending-approval` promotion reached its final state.
+    When a `pending-approval` pin reached its final state.
     """
 
 
-class PromotionPage(BaseModel):
+class PinPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Promotion]
+    data: list[Pin]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
@@ -13970,12 +13912,12 @@ class Comparison(BaseModel):
         populate_by_name=True,
     )
     max_age_hours: Annotated[float | None, Field(alias="maxAgeHours", gt=0.0)] = None
-    test_set: Annotated[GatePolicySpecComparisonTestSet | None, Field(alias="testSet")] = None
+    test_set: Annotated[ReleaseGateSpecComparisonTestSet | None, Field(alias="testSet")] = None
 
 
-class GatePolicySpec(BaseModel):
+class ReleaseGateSpec(BaseModel):
     """
-    What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.
+    What a pin must show. Every part is optional; an empty spec checks nothing. A pin must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.
     """
 
     model_config = ConfigDict(
@@ -13994,7 +13936,7 @@ class GatePolicySpec(BaseModel):
     """
     approvals: Approvals | None = None
     """
-    A passing promotion waits for a reviewer.
+    A passing pin waits for a reviewer.
     """
     only_expert_groups: Annotated[bool | None, Field(alias="onlyExpertGroups")] = None
     """
@@ -14002,7 +13944,7 @@ class GatePolicySpec(BaseModel):
     """
 
 
-class GatePolicy(BaseModel):
+class ReleaseGate(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -14011,33 +13953,33 @@ class GatePolicy(BaseModel):
     version: str
     agent_id: Annotated[str, Field(alias="agentId")]
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
-    spec: GatePolicySpec
+    spec: ReleaseGateSpec
     description: str | None = None
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
 
 
-class GatePolicyPage(BaseModel):
+class ReleaseGatePage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[GatePolicy]
+    data: list[ReleaseGate]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class PublishGatePolicyBody(BaseModel):
+class PublishReleaseGateBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -14049,96 +13991,73 @@ class PublishGatePolicyBody(BaseModel):
     version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
     agent_id: Annotated[str, Field(alias="agentId")]
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
-    spec: GatePolicySpec
+    spec: ReleaseGateSpec
     description: str | None = None
 
 
-class GatePolicyResolution(BaseModel):
+class ReleaseGateResolution(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    policy: GatePolicy | None
+    release_gate: Annotated[ReleaseGate | None, Field(alias="releaseGate")]
     """
-    The policy that gates a promotion for the scope; null when none does.
+    The release gate that checks a pin for the scope; null when none does.
     """
 
 
-class PromoteBody(BaseModel):
+class AgentPinBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     version: str
     """
-    The agent version to make live (registered, active).
+    The agent version to pin (registered, active).
     """
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
     reason: Annotated[str | None, Field(max_length=2000)] = None
     test_run_id: Annotated[str | None, Field(alias="testRunId")] = None
     """
-    The comparison behind this promotion.
+    The comparison behind this pin.
     """
 
 
-class RollbackBody(BaseModel):
+class AgentUnpinBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
-    """
-    to_version: Annotated[str | None, Field(alias="toVersion")] = None
-    """
-    An earlier version to go back to; omit → the scope's previous live version.
-    """
-    reason: Annotated[str | None, Field(max_length=2000)] = None
-
-
-class UnpinBody(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
-    ]
-    """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
     reason: Annotated[str | None, Field(max_length=2000)] = None
 
@@ -14872,7 +14791,7 @@ class CorrectedRunCopy(BaseModel):
     captured_at: Annotated[AwareDatetime, Field(alias="capturedAt")]
 
 
-class CorrectedEvalCase(BaseModel):
+class CorrectedTestCase(BaseModel):
     """
     One case of a `corrections` test set: a copy of a corrected run with its items' corrections summed up.
     """
@@ -14885,6 +14804,10 @@ class CorrectedEvalCase(BaseModel):
     """
     The case's id. A frozen case of an agent's test set has its correction's id, or a `case-` id when it was added by hand. A `corrections` test set built before 0.4.0 used the corrected run's id.
     """
+    run_id: Annotated[str | None, Field(alias="runId")] = None
+    """
+    The run the case was copied from. Absent from older servers: there a case of a `corrections` test set built before 0.4.0 has the run's id as its `caseId`.
+    """
     subject: CorrectedSubject
     input: Any
     context: CorrectedRunContext | None = None
@@ -14894,7 +14817,7 @@ class CorrectedEvalCase(BaseModel):
     The segment path its run was started with, coarse to fine (empty: none). Set on a frozen case of an agent's test set when its run's copy has it.
     """
     items: list[CorrectedItemSummary]
-    corrections: list[CorrectedEvalCaseCorrection] | None = None
+    corrections: list[CorrectedTestCaseCorrection] | None = None
     """
     Experts' expected decisions carried onto this case from its corrections, each graded on the replay. Empty or absent when none. `experts-only` keeps only the entries whose correction was restricted.
     """
@@ -14908,12 +14831,12 @@ class CorrectedEvalCase(BaseModel):
     """
 
 
-class CorrectedEvalCaseCollectionPage(BaseModel):
+class CorrectedTestCaseCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[CorrectedEvalCase]
+    data: list[CorrectedTestCase]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
     Opaque cursor. Treat as opaque on the client.
@@ -14992,30 +14915,6 @@ class Agent(BaseModel):
     owner: AgentOwner | None = None
     """
     `GET /v1/agents/{agentId}` only: the agent's owner, absent until one is set (`PUT /v1/agents/{agentId}/owner`).
-    """
-
-
-class DeriveAgentVersionBody(BaseModel):
-    """
-    Derive a new agent version from a pinned one with some data-block pins swapped: an expert's edit reaching an agent with no code change.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    from_: Annotated[str, Field(alias="from")]
-    """
-    The version to derive from (it must be pinned).
-    """
-    pins: AgentPinSwaps
-    label: str | None = None
-    """
-    A short label for the new version.
-    """
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    """
-    The agent's project, when the runtime doesn't record it on the version.
     """
 
 
@@ -15185,22 +15084,22 @@ class ImproveRun(BaseModel):
     The version whose settings it tunes.
     """
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
     test_set_id: Annotated[str, Field(alias="testSetId")]
     """
     The test set it searches and proves on.
     """
     tiers: list[Annotated[Literal["settings", "prompt"] | str, _open.OPEN]]
-    objective: Annotated[Literal["weightedYesShare", "weightedPrecisionAtK"] | str, _open.OPEN]
+    objective: Annotated[Literal["passRate", "weightedPrecisionAtK"] | str, _open.OPEN]
     group_weights: Annotated[
         Annotated[Literal["as-recorded", "experts-only"] | str, _open.OPEN] | None,
         Field(alias="groupWeights"),
@@ -15271,15 +15170,15 @@ class StartImproveRunBody(BaseModel):
     The project the Improve run works in: `testSetId` must be a test set it reaches, the version must reach it, and the Improve run's test runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.
     """
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
     test_set_id: Annotated[str, Field(alias="testSetId")]
     """
@@ -15305,7 +15204,7 @@ class StartImproveRunBody(BaseModel):
     """
     Which corrections the Improve run learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the Improve run reads its corrections from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has an expert group, then only corrections recorded under one (`experts-only`).
     """
-    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
+    objective: Literal["passRate", "weightedPrecisionAtK"] | None = "passRate"
     budget: Budget2 | None = None
     """
     Default: $5 and 30 candidates.
@@ -15623,7 +15522,7 @@ class Sampling(BaseModel):
 
 class CorrectedComparisonSummary(BaseModel):
     """
-    What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a promotion gate reads.
+    What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a release gate reads.
     """
 
     model_config = ConfigDict(
@@ -15682,7 +15581,7 @@ class CorrectedComparisonSummary(BaseModel):
     """
     Which corrections counted. Absent from a comparison recorded before expert groups: `as-recorded`.
     """
-    sample: EvalSample | None = None
+    sample: TestRunSample | None = None
     """
     The part of the test set it ran. Absent: every case.
     """
@@ -15691,7 +15590,7 @@ class CorrectedComparisonSummary(BaseModel):
     metrics: Metrics
     corrections: Corrections | None = None
     """
-    Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.
+    Corrections graded across the cases: shown for a release gate, not enforced. Absent when the test set carries no corrections.
     """
     cost_usd: Annotated[CorrectedComparisonCost | None, Field(alias="costUsd")] = None
 
@@ -16083,13 +15982,13 @@ class DeploymentPromotion(BaseModel):
     """
     Edits of the build's agents and flows that stay behind; absent when none.
     """
-    live: list[DeploymentLivePin] | None = None
+    pinned: list[DeploymentPinnedAgent] | None = None
     """
-    Each carried agent pinned live in the target; present only when `makeLive` was asked.
+    Each carried agent's pin in the target, done or held by its gate; present only when `pin` was asked.
     """
     pinned_flows: Annotated[list[DeploymentPinnedFlow] | None, Field(alias="pinnedFlows")] = None
     """
-    Each carried flow version pinned in the target (the project's pin); present only when `makeLive` was asked of a runtime that pins flows.
+    Each carried flow version pinned in the target (the project's pin); present only when `pin` was asked of a runtime that pins flows.
     """
 
 
@@ -17103,7 +17002,7 @@ class ImproveRunFinishedEvent(BaseModel):
 
 class ImproveScheduleTarget(BaseModel):
     """
-    What an improve schedule works on: the agent, and the live scope its Improve runs suggest changes for and count corrections in.
+    What an improve schedule works on: the agent, and the pinned scope its Improve runs suggest changes for and count corrections in.
     """
 
     model_config = ConfigDict(
@@ -17112,15 +17011,15 @@ class ImproveScheduleTarget(BaseModel):
     )
     agent_id: Annotated[str, Field(alias="agentId", min_length=1)]
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
 
 
@@ -17134,7 +17033,7 @@ class ImproveScheduleInput(BaseModel):
         populate_by_name=True,
     )
     tiers: list[Literal["settings", "prompt"]] | None = None
-    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = None
+    objective: Literal["passRate", "weightedPrecisionAtK"] | None = None
     group_weights: Annotated[
         Literal["experts-only", "as-recorded"] | None, Field(alias="groupWeights")
     ] = None
@@ -17202,27 +17101,27 @@ class RunAgent(BaseModel):
     conversation_id: Annotated[UUID, Field(alias="conversationId")]
     via: (
         Annotated[
-            Literal["explicit", "flow-pin", "conversation", "live", "latest"] | str, _open.OPEN
+            Literal["explicit", "flow-pin", "conversation", "pinned", "latest"] | str, _open.OPEN
         ]
         | None
     ) = None
     """
-    Why this version ran: named by the caller (`explicit`); held by the flow version a flow's agent step runs in (`flow-pin`: the node's `config.version`, else the version the flow version pinned when it was published); the conversation's own (`conversation`); the version live for the run's scope (`live`); or the latest, nothing being live (`latest`). Absent on runs from before Kindgi 0.1.4.
+    Why this version ran: named by the caller (`explicit`); held by the flow version a flow's agent step runs in (`flow-pin`: the node's `config.version`, else the version the flow version pinned when it was published); the conversation's own (`conversation`); the version pinned for the run's scope (`pinned`); or the latest, nothing being pinned (`latest`). Absent on runs from before Kindgi 0.1.4.
     """
-    live_scope: Annotated[
+    pinned_scope: Annotated[
         Annotated[
-            LiveScopeTenant
-            | LiveScopeOrg
-            | LiveScopeProject
-            | LiveScopeSegment
-            | LiveScopeUnrecognized,
-            _open.OpenUnion("kind", LiveScopeUnrecognized),
+            PinScopeTenant
+            | PinScopeOrg
+            | PinScopeProject
+            | PinScopeSegment
+            | AgentPinScopeUnrecognized,
+            _open.OpenUnion("kind", AgentPinScopeUnrecognized),
         ]
         | None,
-        Field(alias="liveScope"),
+        Field(alias="pinnedScope"),
     ] = None
     """
-    The pin that chose the version, when `via` is `live`.
+    The pin that chose the version, when `via` is `pinned`.
     """
 
 
@@ -17255,7 +17154,7 @@ class AgentProject(BaseModel):
     project_id: Annotated[UUID, Field(alias="projectId")]
     follows: Annotated[Literal["pin", "latest"] | str, _open.OPEN] | None = None
     """
-    Why `runs` runs there: `pin`, a pin that covers the project (its own, its org's or the tenant's); `latest`, no pin covers it, so it runs its Latest. Absent when neither has a version the caller can see, or when the server has no live versions.
+    Why `runs` runs there: `pin`, a pin that covers the project (its own, its org's or the tenant's); `latest`, no pin covers it, so it runs its Latest. Absent when neither has a version the caller can see, or when the server doesn't pin versions.
     """
     runs: AgentProjectRuns | None = None
     segments: list[AgentProjectSegmentPin] | None = None
@@ -17373,7 +17272,7 @@ class Run(BaseModel):
     versions: FlowVersionOverrides | None = None
     segments: list[ScopeSegment] | None = None
     """
-    The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.
+    The segment path the run was started with (coarse to fine), which picks pinned agent versions. A child run has its parent's. Absent when there was none.
     """
     trace_id: Annotated[str | None, Field(alias="traceId", pattern="^[0-9a-f]{32}$")] = None
     """
@@ -17488,7 +17387,7 @@ class Datum(BaseModel):
     versions: FlowVersionOverrides | None = None
     segments: list[ScopeSegment] | None = None
     """
-    The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.
+    The segment path the run was started with (coarse to fine), which picks pinned agent versions. A child run has its parent's. Absent when there was none.
     """
     trace_id: Annotated[str | None, Field(alias="traceId", pattern="^[0-9a-f]{32}$")] = None
     """
@@ -18000,7 +17899,7 @@ class ScheduleRecord(BaseModel):
     flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
     agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
     """
-    A schedule that runs an agent: the agent, at `agentVersion`, else its version live for the schedule's project (else the latest), as a run that names none.
+    A schedule that runs an agent: the agent, at `agentVersion`, else its version pinned for the schedule's project (else the latest), as a run that names none.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     improve: ImproveScheduleTarget | None = None
@@ -18102,7 +18001,7 @@ class RegisterScheduleBody(BaseModel):
     flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
     agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
     """
-    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     improve: ImproveScheduleTarget | None = None
@@ -18164,7 +18063,7 @@ class PatchScheduleBody(BaseModel):
     flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
     agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
     """
-    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     improve: ImproveScheduleTarget | None = None
@@ -18215,7 +18114,7 @@ class ScheduleDefinition(BaseModel):
     flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
     agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
     """
-    A schedule that runs an agent: the agent, at `agentVersion`, else its version live for the schedule's project (else the latest), as a run that names none.
+    A schedule that runs an agent: the agent, at `agentVersion`, else its version pinned for the schedule's project (else the latest), as a run that names none.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     improve: ImproveScheduleTarget | None = None

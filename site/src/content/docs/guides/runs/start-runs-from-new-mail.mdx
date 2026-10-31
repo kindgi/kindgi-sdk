@@ -48,7 +48,7 @@ in it:
 pnpm exec kindgi mail-triggers create --agent=acme.support-desk --mailbox=google --label="support inbox"
 ```
 
-- **What it runs:** `--agent` runs the agent's live version, or else its
+- **What it runs:** `--agent` runs the agent's pinned version, or else its
   latest. `--agent-version` pins one. `--flow` runs a flow, and needs
   `--flow-version`. There's no `--input`: each run's input is the mail
   that started it.
@@ -517,7 +517,7 @@ Mail already there doesn't run: it starts from now." It asks for:
 - **Gmail label** or **Outlook folder:** empty for the inbox, else the
   label's id, such as `Label_12`, or the folder's id or well-known name,
   such as `archive`.
-- **Starts:** an agent (its live version, or its project's Latest), or a flow, at
+- **Starts:** an agent (its pinned version, or its project's Latest), or a flow, at
   its latest version that isn't retired, which the trigger then keeps
   starting. To start another of its versions, create the trigger with the
   CLI's `--flow-version` ([Create one](#create-one)).

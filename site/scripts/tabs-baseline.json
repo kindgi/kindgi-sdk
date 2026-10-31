@@ -3,15 +3,15 @@
     "Java": 1,
     "Scala": 1
   },
-  "guides/evals/build-a-test-set": {
+  "guides/improve/build-a-test-set": {
     "Java": 1,
     "Scala": 1
   },
-  "guides/evals/change-a-prompt-or-setting": {
+  "guides/improve/change-a-prompt-or-setting": {
     "Java": 1,
     "Scala": 1
   },
-  "guides/evals/release-an-agent-version": {
+  "guides/improve/release-an-agent-version": {
     "Java": 2,
     "Scala": 2
   }

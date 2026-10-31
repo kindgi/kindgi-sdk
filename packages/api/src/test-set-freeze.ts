@@ -12,10 +12,9 @@ import {
   RUN_COPIES_MAX,
 } from './correction-binding.js';
 import type {
-  CorrectedEvalCase,
   CorrectedItemSummary,
+  CorrectedTestCase,
   EvalCaseStoreBinding,
-  EvalCaseToStore,
 } from './eval-case-binding.js';
 import type { TestCase } from './test-case-binding.js';
 import {
@@ -257,7 +256,7 @@ function frozenCase(
   testCase: TestCase,
   agentId: AgentId,
   run: CorrectedRunCopy | undefined,
-): EvalCaseToStore {
+): CorrectedTestCase {
   if (run === undefined) {
     return {
       caseId: testCase.id,
@@ -271,7 +270,7 @@ function frozenCase(
   }
   const { expect } = testCase;
   const decisions = expect.decisions;
-  const correction: Pick<CorrectedEvalCase, 'corrections'> =
+  const correction: Pick<CorrectedTestCase, 'corrections'> =
     decisions?.verdict === 'wrong'
       ? {
           corrections: [

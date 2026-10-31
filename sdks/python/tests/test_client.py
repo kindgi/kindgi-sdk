@@ -126,25 +126,22 @@ def test_a_body_as_a_mapping_or_a_model() -> None:
 
 
 def test_a_field_named_for_a_keyword_takes_a_trailing_underscore() -> None:
-    # `from` is a Python keyword: `from_=` sends it, as does a mapping.
-    derived = {
-        "id": "acme.intake",
-        "version": "1.4.1",
-        "name": "Intake",
-        "instructions": {"prompt": "acme.intake-prompt", "version": "^1.0.0"},
+    # `for` is a Python keyword: `for_=` sends it, as does a mapping.
+    minted = {
+        "tokenId": "6ccd0eca-40b4-4b86-b8f5-24b0900ddd01",
+        "token": "kgi_ak_secret",
+        "principal": {"kind": "service-account", "id": "sa-1"},
+        "role": "member",
         "capabilities": [],
-        "tools": [],
-        "retrieval": [],
-        "guardrails": [],
-        "derivedFrom": {"version": "1.4.0", "reason": "edited", "by": "user:u-1"},
+        "createdAt": "2026-10-07T00:00:00.000Z",
     }
-    api, seen = client(lambda r: httpx.Response(201, json=derived))
-    pins = {"prompts": {"acme.intake-prompt": "1.1.0"}}
-    agent = api.agents.derive_version("acme.intake", from_="1.4.0", pins=pins)
-    api.agents.derive_version("acme.intake", {"from": "1.4.0", "pins": pins})
-    assert agent.derived_from is not None and agent.derived_from.reason == "edited"
-    assert [r.url for r in seen] == ["http://kindgi.test/v1/agents/acme.intake/versions"] * 2
-    assert [json.loads(r.content) for r in seen] == [{"from": "1.4.0", "pins": pins}] * 2
+    api, seen = client(lambda r: httpx.Response(201, json=minted))
+    principal = {"kind": "service-account", "id": "sa-1"}
+    key = api.tokens.mint(for_=principal, label="ci")
+    api.tokens.mint({"for": principal, "label": "ci"})
+    assert key.principal is not None and key.principal.id == "sa-1"
+    assert [r.url for r in seen] == ["http://kindgi.test/v1/tokens"] * 2
+    assert [json.loads(r.content) for r in seen] == [{"for": principal, "label": "ci"}] * 2
 
 
 def test_a_field_set_to_none_is_sent_as_null() -> None:
@@ -287,11 +284,11 @@ def test_a_segment_path_is_its_steps_written_in_order() -> None:
         lambda r: httpx.Response(
             200,
             json={"agentId": "acme.drafter", "version": "1.1.0", "via": "latest"}
-            if r.url.path.endswith("/live")
+            if r.url.path.endswith("/pinned")
             else {"data": [], "hasMore": False},
         )
     )
-    resolved = api.agents.live.resolve(
+    resolved = api.agents.pinned.resolve(
         "acme.drafter",
         project_id=project,
         segments=[
@@ -302,14 +299,14 @@ def test_a_segment_path_is_its_steps_written_in_order() -> None:
     assert resolved.via == "latest"
     assert seen[0].url.params.get_list("segment") == ["company:acme", "role:counsel"]
     assert seen[0].url.params["projectId"] == project
-    api.agents.promotions.list(
+    api.agents.pinned.history(
         "acme.drafter",
         scope_kind="segment",
         scope_id=project,
         segments=[{"key": "company", "value": "acme"}],
     )
     assert seen[1].url.params.get_list("segment") == ["company:acme"]
-    api.agents.live.resolve("acme.drafter", project_id=project)
+    api.agents.pinned.resolve("acme.drafter", project_id=project)
     assert "segment" not in seen[2].url.params
 
 
@@ -342,14 +339,9 @@ def test_a_segment_path_is_its_steps_written_in_order() -> None:
             lambda e: e.server_code == "registry-read-only",
         ),
         (
-            error(409, "nothing-to-roll-back"),
+            error(409, "agent-version-pinned"),
             ConflictError,
-            lambda e: e.server_code == "nothing-to-roll-back",
-        ),
-        (
-            error(409, "agent-version-live"),
-            ConflictError,
-            lambda e: e.server_code == "agent-version-live",
+            lambda e: e.server_code == "agent-version-pinned",
         ),
         (
             error(404, "agent-version-not-found"),
@@ -1451,8 +1443,8 @@ def test_a_queue_rule_takes_its_when_in_python_or_wire_case() -> None:
         "ruleId": "6f1d9a0e-2b8c-4f4e-9d61-0c2a7e5b3f10",
         "projectId": project,
         "version": 1,
-        "name": "Live refund runs",
-        "when": {"agentIds": ["acme.refunds"], "versions": ["live"]},
+        "name": "Pinned refund runs",
+        "when": {"agentIds": ["acme.refunds"], "versions": ["pinned"]},
         "sample": 0.05,
         "maxOpen": 20,
         "enabled": True,
@@ -1461,16 +1453,16 @@ def test_a_queue_rule_takes_its_when_in_python_or_wire_case() -> None:
     api, seen = client(lambda r: httpx.Response(201, json=rule))
     made = api.projects.queue_rules.create(
         project,
-        name="Live refund runs",
-        when={"agent_ids": ["acme.refunds"], "versions": ["live"]},
+        name="Pinned refund runs",
+        when={"agent_ids": ["acme.refunds"], "versions": ["pinned"]},
         sample=0.05,
         max_open=20,
     )
     api.projects.queue_rules.create(
         project,
         {
-            "name": "Live refund runs",
-            "when": {"agentIds": ["acme.refunds"], "versions": ["live"]},
+            "name": "Pinned refund runs",
+            "when": {"agentIds": ["acme.refunds"], "versions": ["pinned"]},
             "sample": 0.05,
             "maxOpen": 20,
         },
@@ -1490,7 +1482,7 @@ def test_a_queue_rule_change_sends_null_to_remove_the_cap() -> None:
         "ruleId": rule_id,
         "projectId": project,
         "version": 2,
-        "name": "Live refund runs",
+        "name": "Pinned refund runs",
         "when": {},
         "sample": 0.05,
         "enabled": True,

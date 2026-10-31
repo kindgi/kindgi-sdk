@@ -10,9 +10,9 @@ import type {
   CorrectedCaseResult,
   CorrectedComparisonSummary,
   CorrectedDispatcherOptions,
-  CorrectedEvalCase,
+  CorrectedTestCase,
   DispatchContext,
-  EvalComparison,
+  TestRunComparison,
   TestRunSubjectInvokeInput,
   TestRunSubjectInvokeOutcome,
   TestSet,
@@ -49,8 +49,9 @@ const item = (key: string, yesWeight: number, totalWeight: number, extra: object
   ...extra,
 });
 
-const caseA: CorrectedEvalCase = {
+const caseA: CorrectedTestCase = {
   caseId: 'case-a',
+  runId: 'case-a',
   subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
   input: 'find acme',
   context: { history: [{ role: 'user', content: 'earlier' }] },
@@ -62,8 +63,9 @@ const caseA: CorrectedEvalCase = {
   ],
 };
 
-const caseB: CorrectedEvalCase = {
+const caseB: CorrectedTestCase = {
   caseId: 'case-b',
+  runId: 'case-b',
   subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
   input: 'find b',
   output: turn('B.'),
@@ -96,11 +98,11 @@ const answers: Record<string, TestRunSubjectInvokeOutcome> = {
 };
 
 async function compare(options: {
-  readonly comparison?: EvalComparison;
+  readonly comparison?: TestRunComparison;
   readonly agents?: CorrectedDispatcherOptions['agents'];
   readonly answer?: (input: TestRunSubjectInvokeInput, call: number) => TestRunSubjectInvokeOutcome;
   readonly dryRun?: boolean;
-  readonly cases?: readonly CorrectedEvalCase[];
+  readonly cases?: readonly CorrectedTestCase[];
 }) {
   const cases = inMemoryCaseStore();
   await cases.putCases({
@@ -176,13 +178,23 @@ describe('a comparison test run', () => {
     expect(invoked.map((i) => [i.input, i.replay, i.history, i.projectId])).toEqual([
       [
         'find acme',
-        { of: 'case-a', testRunId: 'eval-1' },
+        { of: 'case-a', caseId: 'case-a', testRunId: 'eval-1' },
         [{ role: 'user', content: 'earlier' }],
         'p-run',
       ],
-      ['find b', { of: 'case-b', testRunId: 'eval-1' }, [], 'p-run'],
+      ['find b', { of: 'case-b', caseId: 'case-b', testRunId: 'eval-1' }, [], 'p-run'],
     ]);
     expect(invoked[0]?.target).toEqual({ agentId: 'acme.agent', version: '2.0.0' });
+  });
+
+  test("a case named for its correction replays the case's run, and names the case", async () => {
+    const { invoked } = await compare({
+      cases: [{ ...caseA, caseId: 'corr-1', runId: 'run-7' }],
+      answer: () => answers['case-a'] as TestRunSubjectInvokeOutcome,
+    });
+    expect(invoked.map((i) => i.replay)).toEqual([
+      { of: 'run-7', caseId: 'corr-1', testRunId: 'eval-1' },
+    ]);
   });
 
   test('the summary: baseline beside candidate, with the evidence behind each', async () => {
@@ -206,10 +218,10 @@ describe('a comparison test run', () => {
       repetitions: 1,
       sampling: { models: [{ providerId: 'p', model: 'm', runs: 2 }] },
     });
-    const { weightedYesShare, judgedCoverage, weightedPrecisionAtK } = summary.metrics;
+    const { passRate, caseCoverage, weightedPrecisionAtK } = summary.metrics;
     // Baseline: A 3 of 4, B 0 of 1. Candidate: A the same answer and items (3 of 4); B's answer
     // changed, so it has no corrected items.
-    expect(weightedYesShare).toMatchObject({
+    expect(passRate).toMatchObject({
       baseline: 0.6,
       candidate: 0.75,
       n: 1,
@@ -218,15 +230,15 @@ describe('a comparison test run', () => {
       baselineWeight: 5,
       direction: 'higher',
     });
-    expect(weightedYesShare.delta).toBeCloseTo(0.15);
+    expect(passRate.delta).toBeCloseTo(0.15);
     // Baseline: every item corrected. Candidate: 3 of A's 4 (m9 is new), none of B's 1.
-    expect(judgedCoverage).toMatchObject({ baseline: 1, candidate: 0.6, n: 2, baselineN: 2 });
+    expect(caseCoverage).toMatchObject({ baseline: 1, candidate: 0.6, n: 2, baselineN: 2 });
     // The ranked items: m1 (2/2) and m2 (0/1), in either order.
     expect(weightedPrecisionAtK).toMatchObject({ k: 10, n: 1, weight: 3, baselineN: 1 });
     expect(weightedPrecisionAtK.baseline).toBeCloseTo(2 / 3);
     expect(weightedPrecisionAtK.candidate).toBeCloseTo(2 / 3);
     expect(weightedPrecisionAtK.delta).toBeCloseTo(0);
-    expect(weightedYesShare).not.toHaveProperty('spread');
+    expect(passRate).not.toHaveProperty('spread');
   });
 
   test('k decides how far down the ranked items precision looks', async () => {
@@ -299,8 +311,8 @@ describe('a comparison test run', () => {
     expect(invoked).toHaveLength(4);
     expect(perCase[0]?.runIds).toEqual(['run-a', 'run-a']);
     // Pass 1: A 3/4 → 0.75. Pass 2: A answer 1/1 + m2 0/1 → 0.5.
-    expect(summary.metrics.weightedYesShare.candidate).toBeCloseTo(0.625);
-    expect(summary.metrics.weightedYesShare.spread).toBeCloseTo(0.25);
+    expect(summary.metrics.passRate.candidate).toBeCloseTo(0.625);
+    expect(summary.metrics.passRate.spread).toBeCloseTo(0.25);
     expect(summary.repetitions).toBe(2);
   });
 
@@ -314,7 +326,7 @@ describe('a comparison test run', () => {
     expect(someFail.summary).toMatchObject({ status: 'partial', errors: 1, cases: 2 });
     expect(someFail.perCase[1]).toMatchObject({ error: 'agent-not-found', runIds: ['run-x'] });
     // Errored cases leave both sides: the baseline counts case A alone.
-    expect(someFail.summary.metrics.weightedYesShare.baselineN).toBe(1);
+    expect(someFail.summary.metrics.passRate.baselineN).toBe(1);
 
     const allFail = await compare({
       answer: () => {
@@ -365,8 +377,9 @@ describe('a comparison test run', () => {
 });
 
 describe('an erased case (T273 M-5)', () => {
-  const erasedB: CorrectedEvalCase = {
+  const erasedB: CorrectedTestCase = {
     caseId: 'case-b',
+    runId: 'case-b',
     subject: caseB.subject,
     input: null,
     output: null,
@@ -459,7 +472,7 @@ describe('groupWeights (T200)', () => {
   const expertSums = (yesWeight: number, totalWeight: number) => ({
     expert: { yesWeight, totalWeight },
   });
-  const caseARestricted: CorrectedEvalCase = {
+  const caseARestricted: CorrectedTestCase = {
     ...caseA,
     items: [
       item('answer', 1, 1, { pointer: '/appended/3/content', ...expertSums(1, 1) }),
@@ -471,7 +484,7 @@ describe('groupWeights (T200)', () => {
   test('as recorded by default, and the summary says so', async () => {
     const { summary } = await compare({ cases: [caseARestricted, caseB] });
     expect(summary.groupWeights).toBe('as-recorded');
-    expect(summary.metrics.weightedYesShare).toMatchObject({ baseline: 0.6, baselineWeight: 5 });
+    expect(summary.metrics.passRate).toMatchObject({ baseline: 0.6, baselineWeight: 5 });
   });
 
   test('experts-only counts only what expert groups corrected', async () => {
@@ -483,13 +496,13 @@ describe('groupWeights (T200)', () => {
     const { summary } = result;
     expect(summary.groupWeights).toBe('experts-only');
     // Baseline: A's answer (1 of 1) and m2 (0 of 1); m1 and all of B uncorrected.
-    expect(summary.metrics.weightedYesShare).toMatchObject({
+    expect(summary.metrics.passRate).toMatchObject({
       baseline: 0.5,
       baselineN: 1,
       baselineWeight: 2,
     });
     // Coverage: A has 2 of its 3 items corrected, B none of its 1.
-    expect(summary.metrics.judgedCoverage.baseline).toBeCloseTo(0.5);
+    expect(summary.metrics.caseCoverage.baseline).toBeCloseTo(0.5);
   });
 });
 
@@ -535,8 +548,9 @@ describe('what a comparison takes', () => {
 
 describe('a comparison of a flow version', () => {
   const flowOutput = (matches: unknown[]) => ({ matches });
-  const flowCase = (caseId: string, matches: unknown[]): CorrectedEvalCase => ({
+  const flowCase = (caseId: string, matches: unknown[]): CorrectedTestCase => ({
     caseId,
+    runId: caseId,
     subject: { kind: 'flow', id: 'acme.intake', version: '1.0.0' },
     input: { ticket: caseId },
     output: flowOutput(matches),
@@ -628,7 +642,7 @@ describe('a comparison of a flow version', () => {
       versions: [{ flowId: 'acme.intake', version: '1.0.0', cases: 2 }],
     });
     // Same items, reordered: m1 (1/1) and m2 (0/1) in both.
-    expect(summary.metrics.weightedYesShare).toMatchObject({ baseline: 0.5, candidate: 0.5, n: 2 });
+    expect(summary.metrics.passRate).toMatchObject({ baseline: 0.5, candidate: 0.5, n: 2 });
     expect(summary.metrics.weightedPrecisionAtK.candidate).toBeCloseTo(0.5);
   });
 
@@ -664,7 +678,7 @@ describe('a comparison of a flow version', () => {
       diverged: 0,
     });
     // Only run-f1 counts, on both sides: m1 kept (1/1).
-    expect(summary.metrics.weightedYesShare).toMatchObject({
+    expect(summary.metrics.passRate).toMatchObject({
       baseline: 0.5,
       candidate: 1,
       n: 1,
@@ -686,7 +700,7 @@ describe('a comparison of a flow version', () => {
       replay: { of: 'x' as RunId, testRunId: 'eval-f', tools: [refusedSend] },
     }));
     expect(stoppedAll.summary).toMatchObject({ status: 'completed', stopped: 2, errors: 0 });
-    expect(stoppedAll.summary.metrics.weightedYesShare).toMatchObject({ candidate: null, n: 0 });
+    expect(stoppedAll.summary.metrics.passRate).toMatchObject({ candidate: null, n: 0 });
     const erroredAll = await compareFlow(() => ({ error: 'flow-not-found: no such version' }));
     expect(erroredAll.summary).toMatchObject({ status: 'failed', stopped: 0, errors: 2 });
   });
@@ -702,7 +716,7 @@ describe('a rescore: the replays scored again, with what people corrected on the
     correct: (j: ReturnType<typeof inMemoryCorrections>) => Promise<void>,
     options: { groupWeights?: 'experts-only'; gone?: readonly string[] } = {},
   ) {
-    const comparison: EvalComparison = {
+    const comparison: TestRunComparison = {
       ...DEFAULT_COMPARISON,
       ...(options.groupWeights !== undefined && { groupWeights: options.groupWeights }),
     };
@@ -818,9 +832,9 @@ describe('a rescore: the replays scored again, with what people corrected on the
       },
     ]);
     expect(r.summary).toMatchObject({ rescoreOf: 'eval-1', cases: 2 });
-    expect(r.summary.metrics.weightedYesShare.freshWeight).toBe(1);
-    expect(r.summary.metrics.weightedYesShare.candidate).not.toBe(
-      r.first.summary.metrics.weightedYesShare.candidate,
+    expect(r.summary.metrics.passRate.freshWeight).toBe(1);
+    expect(r.summary.metrics.passRate.candidate).not.toBe(
+      r.first.summary.metrics.passRate.candidate,
     );
     expect(r.summary.metrics.weightedPrecisionAtK).not.toHaveProperty('freshWeight');
     expect(wireErrors(r)).toEqual([]);
@@ -894,7 +908,7 @@ describe('corrections graded on the replay', () => {
   });
 
   test('a matching correction passes, a differing one fails and names the difference', async () => {
-    const corrected: CorrectedEvalCase = {
+    const corrected: CorrectedTestCase = {
       ...caseA,
       caseId: 'case-c',
       corrections: [
@@ -938,7 +952,7 @@ describe('corrections graded on the replay', () => {
   });
 
   test('a refused call then a real retry is counted twice, and the difference names the refused one', async () => {
-    const corrected: CorrectedEvalCase = {
+    const corrected: CorrectedTestCase = {
       ...caseA,
       caseId: 'case-c',
       corrections: [
@@ -976,7 +990,7 @@ describe('corrections graded on the replay', () => {
   });
 
   test('a correction passes only when every repetition passes (k of n)', async () => {
-    const corrected: CorrectedEvalCase = {
+    const corrected: CorrectedTestCase = {
       ...caseA,
       caseId: 'case-c',
       corrections: [
@@ -1017,7 +1031,7 @@ describe('corrections graded on the replay', () => {
   });
 
   test('experts-only grades only the corrections recorded under an expert group', async () => {
-    const corrected: CorrectedEvalCase = {
+    const corrected: CorrectedTestCase = {
       ...caseA,
       caseId: 'case-c',
       corrections: [

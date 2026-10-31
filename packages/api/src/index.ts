@@ -719,9 +719,8 @@ export type {
   EvalCasePage,
   EvalCasePutInput,
   EvalCaseStoreBinding,
-  EvalCaseToStore,
   TestCaseExpectedDecisions,
-  CorrectedEvalCase,
+  CorrectedTestCase,
   CorrectedItemSummary,
   CorrectedReason,
 } from './eval-case-binding.js';
@@ -812,28 +811,26 @@ export type {
   BlockVersionSource,
 } from './block-binding.js';
 export type {
-  AgentReleaseBindings,
+  AgentPinBindings,
+  AgentPinInput,
+  AgentPinResolution,
+  AgentPinResolveInput,
+  AgentPinnedVersion,
+  AgentPinnedVersionBinding,
+  AgentUnpinInput,
   ListCoveringPinsInput,
-  ListPromotionsInput,
-  LivePin,
-  LiveResolution,
-  LiveResolveInput,
-  LiveVersionBinding,
-  PromoteInput,
-  Promotion,
-  PromotionAction,
-  PromotionActor,
-  PromotionBinding,
-  PromotionError,
-  PromotionErrorCode,
-  PromotionRequestInput,
-  PromotionStatus,
-  RollbackInput,
-  UnpinInput,
-} from './live-version-binding.js';
+  ListPinHistoryInput,
+  Pin,
+  PinAction,
+  PinActor,
+  PinBinding,
+  PinError,
+  PinErrorCode,
+  PinRequestInput,
+  PinStatus,
+} from './agent-pin-binding.js';
 export type {
   ListPinnedVersionChangesInput,
-  PinActor,
   PinVersionInput,
   PinVersionOutcome,
   PinnedResolution,
@@ -849,27 +846,32 @@ export type {
 export type {
   GateMetricName,
   GateMetricSpec,
-  GatePolicy,
-  GatePolicyBinding,
-  GatePolicyError,
-  GatePolicyErrorCode,
-  GatePolicyListInput,
-  GatePolicyPublishInput,
-  GatePolicyRef,
-  GatePolicySpec,
-  GatePolicyVersionInput,
-} from './gate-policy-binding.js';
-export { GATE_METRICS } from './gate-policy-binding.js';
+  ReleaseGate,
+  ReleaseGateBinding,
+  ReleaseGateError,
+  ReleaseGateErrorCode,
+  ReleaseGateListInput,
+  ReleaseGatePublishInput,
+  ReleaseGateRef,
+  ReleaseGateSpec,
+  ReleaseGateVersionInput,
+} from './release-gate-binding.js';
+export { GATE_METRICS } from './release-gate-binding.js';
 export type { GateApproval, GateCheck, GateInput, GateResult } from './gate.js';
 export { evaluateGate, gateApproval } from './gate.js';
-export type { AgentReleaseGateDeps } from './routes/agent-releases.js';
-export { coordinatesOf as liveScopeCoordinates } from './routes/agent-releases.js';
+export type { AgentPinGateDeps } from './routes/agent-pins.js';
+export { coordinatesOf as agentPinScopeCoordinates } from './routes/agent-pins.js';
 export type { GuardrailConfigCheck } from './routes/guardrails.js';
-export { agentTestSetId, EVAL_KINDS } from './test-set-binding.js';
+export {
+  AGENT_TEST_SET_ID_PREFIX,
+  agentTestSetId,
+  isAgentTestSetId,
+  TEST_SET_KINDS,
+} from './test-set-binding.js';
 export { createTestSetFreeze } from './test-set-freeze.js';
 export type { CreateTestSetFreezeOptions } from './test-set-freeze.js';
 export type {
-  EvalKind,
+  TestSetKind,
   TestSet,
   TestSetGetInput,
   TestSetGetVersionInput,
@@ -891,10 +893,10 @@ export type {
 export { TEST_RUN_STATUSES } from './test-run-binding.js';
 export type {
   AgentRef,
-  EvalBaseline,
-  EvalGroupWeights,
-  EvalComparison,
-  EvalReads,
+  TestRunBaseline,
+  TestRunGroupWeights,
+  TestRunComparison,
+  TestRunReads,
   TestRun,
   TestRunBinding,
   TestRunCancelInput,
@@ -923,7 +925,7 @@ export type {
   TestRunDispatcher,
   TestRunSubjectInvokeInput,
   TestRunSubjectInvokeOutcome,
-  EvalSubjectInvoker,
+  TestRunSubjectInvoker,
   InProcessTestRunBindingOptions,
 } from './test-run-dispatcher.js';
 export {
@@ -1135,7 +1137,7 @@ export {
   serializeImproveRun,
 } from './routes/improve-runs.js';
 export { sampleCases } from './eval-sample.js';
-export type { EvalOverrides, EvalSample } from './test-run-binding.js';
+export type { TestRunOverrides, TestRunSample } from './test-run-binding.js';
 export {
   DRAFTED_SUGGESTED_CHANGE_APPROVAL,
   createSuggestedChangeService,

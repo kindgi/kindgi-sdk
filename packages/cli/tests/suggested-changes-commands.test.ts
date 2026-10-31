@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `kindgi suggested-changes …`: suggested changes (evals step 5). */
+/** `kindgi suggested-changes …`: suggested changes. */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { KindgiApiError } from '@kindgi/client';
+import { KindgiApiError, fromWire } from '@kindgi/client';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { runCli } from '../src/main.js';
@@ -353,6 +353,71 @@ describe('kindgi suggested-changes list / get', () => {
     expect(calls).toEqual([['get', 'prop-1']]);
   });
 
+  /** A stub client: the suggested change fixes `fixes`, read from `corrections`. */
+  function fixing(fixes: readonly string[], read: string[]) {
+    const correction = (id: string, status: string, supersededBy?: string) => ({
+      id,
+      status,
+      ...(supersededBy !== undefined && { supersededBy }),
+    });
+    const corrections: Record<string, unknown> = {
+      'c-1': correction('c-1', 'being-fixed', 'c-4'),
+      'c-4': correction('c-4', 'open', 'c-5'),
+      'c-5': correction('c-5', 'open'),
+      'c-2': correction('c-2', 'being-fixed'),
+      'c-3': correction('c-3', 'with-owner', 'c-6'),
+      'c-9': correction('c-9', 'being-fixed', 'c-10'),
+    };
+    return {
+      suggestedChanges: { get: async () => ({ ...SUGGESTED_CHANGE, fixes }) },
+      corrections: {
+        get: async (id: string) => {
+          read.push(id);
+          if (id === 'c-8' || id === 'c-10') {
+            throw new KindgiApiError(
+              fromWire({ code: 'unavailable', message: 'The runtime is restarting' }, 503),
+            );
+          }
+          const found = corrections[id];
+          if (found === undefined) {
+            throw new KindgiApiError(
+              fromWire({ code: 'not-found', message: `Correction ${id} not found` }, 404),
+            );
+          }
+          return found;
+        },
+      },
+    };
+  }
+
+  test('get names each correction it fixes that was replaced since, and the live one', async () => {
+    const read: string[] = [];
+    const fixes = ['c-1', 'c-2', 'c-3', 'c-7', 'c-8', 'c-9'];
+    const out = await run(['suggested-changes', 'get', 'prop-1'], fixing(fixes, read));
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(JSON.parse(out.stdout).fixes).toEqual(fixes);
+    expect(out.stderr).toBe(
+      [
+        'c-1 (in fixes) was replaced by c-5, now open.',
+        'c-3 (in fixes) was replaced by c-6.',
+        "c-8 (in fixes): couldn't check whether it was replaced: The runtime is restarting",
+        "c-9 (in fixes): couldn't check whether it was replaced: The runtime is restarting",
+        '',
+      ].join('\n'),
+    );
+    expect(read.sort()).toEqual(
+      ['c-1', 'c-10', 'c-2', 'c-3', 'c-4', 'c-5', 'c-6', 'c-7', 'c-8', 'c-9'].sort(),
+    );
+  });
+
+  test('get --quiet reads no corrections', async () => {
+    const read: string[] = [];
+    const out = await run(['suggested-changes', 'get', 'prop-1', '--quiet'], fixing(['c-1'], read));
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toBe('');
+    expect(read).toEqual([]);
+  });
+
   test('is wired: help lists the group', async () => {
     const out = await run(['suggested-changes', '--help'], {});
     expect(out.exitCode).toBe(0);
@@ -367,7 +432,7 @@ const IMPROVE_RUN = {
   scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
   testSetId: 'acme.judged',
   tiers: ['settings'],
-  objective: 'weightedYesShare',
+  objective: 'passRate',
   budget: { maxCostUsd: 5, maxCandidates: 30 },
   requestedBy: 'user:alice',
   status: 'running',

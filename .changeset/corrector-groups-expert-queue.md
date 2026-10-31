@@ -20,4 +20,8 @@
 - **Schemas and types.** `JudgeClass*` names are `CorrectorGroup*`, `JudgingRule*` names are `QueueRule*`, and the judging queue's `Judging*` names are `ExpertQueue*`.
 - **TypeScript client.** `client.judgeClasses` is `client.correctorGroups`, `client.projects.judgingQueue` is `client.projects.expertQueue`, and `client.projects.judgingRules` is `client.projects.queueRules`.
 - **CLI.** `kindgi judge-classes` is `kindgi corrector-groups`, `kindgi judging-queue` is `kindgi expert-queue`, and `kindgi judging-rules` is `kindgi queue-rules`. `--class` is `--group`, `--clear-class` is `--clear-group`, and `--class-weights` is `--group-weights`.
-- **Docs.** The judging reference page is now the expert queue reference, at `guides/evals/expert-queue-reference/`.
+- **Docs.** The guides under `guides/evals/` are now under `guides/improve/`, with no redirects, so old links to them don't resolve. Four of them also have new names:
+  - `judge-a-runs-output` is `correct-a-runs-output`.
+  - `propose-a-change` is `suggest-a-change`.
+  - `judging-reference` is `expert-queue-reference`: the judging reference page is now the expert queue reference, at `guides/improve/expert-queue-reference/`.
+  - `live-versions-reference` is `pinned-versions-reference`.

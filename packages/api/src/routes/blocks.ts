@@ -6,13 +6,13 @@ import { type Context, Hono } from 'hono';
 import {
   BLOCK_KINDS,
   type BlockKind,
+  type SettingsBlockContent,
   modelNamedTwice,
   modelSettingsIssues,
-  type SettingsBlockContent,
   validateBlock,
 } from '@kindgi/agents';
-import { ref } from '@kindgi/authz';
 import type { AuditEventBinding } from '@kindgi/audit-events';
+import { ref } from '@kindgi/authz';
 import { emitAuditEvent } from '@kindgi/compliance';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
@@ -32,8 +32,8 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { AppEnv } from '../types.js';
+import { actorOf } from './agent-pins.js';
 import { clampLimit } from './pagination.js';
-import { actorOf } from './agent-releases.js';
 import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
 import { isRegistryVersionsCursor } from './versions-cursor.js';
