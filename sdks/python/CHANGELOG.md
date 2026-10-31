@@ -359,7 +359,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   raises `FileStoreError`. The pack service posts a store's bytes to the
   call's tool files link and gets a read's from under it, and the handler
   never sees the link or its token. A call from a runtime before pack protocol
-  2.10.0 carries no tool files, and `ctx.files` is `None`. The pack's index
+  2.10.0 carries no tool files, and `ctx.files` is `None`. The pack's index (1.8.0)
   carries them as `storesFiles` and `readsFiles`, and the client's `Tool`
   gains `stores_files` and `reads_files`.
 

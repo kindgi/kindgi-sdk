@@ -349,12 +349,12 @@ export interface IndexedTool {
    */
   readonly pauses?: boolean;
   /**
-   * The tool's declared `storesFiles` (schema-version 1.7.0+): each call
+   * The tool's declared `storesFiles` (schema-version 1.8.0+): each call
    * gets tool files, and its handler `files.store`. Absent means `false`.
    */
   readonly storesFiles?: boolean;
   /**
-   * The tool's declared `readsFiles` (schema-version 1.7.0+): each call
+   * The tool's declared `readsFiles` (schema-version 1.8.0+): each call
    * gets tool files, and its handler `files.read`. Absent means `false`.
    */
   readonly readsFiles?: boolean;
