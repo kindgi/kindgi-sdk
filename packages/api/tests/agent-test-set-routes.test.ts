@@ -220,6 +220,8 @@ describe("an agent's test set", () => {
       expect: { answer: { verdict: 'wrong', shouldSay: 'Final sale: no refund.' } },
       addedBy: { kind: 'user' },
     });
+    // A correction recorded outside a restricted group isn't an expert's case.
+    expect(byId[open]).not.toHaveProperty('expert');
     expect(byId[owner].expect).toEqual({
       decisions: {
         verdict: 'wrong',
@@ -321,6 +323,8 @@ describe('a case added by hand', () => {
       madeOn: '2.0.0',
       expect: { answer: { verdict: 'wrong', shouldSay: 'Final sale: no refund.' } },
       addedBy: { kind: 'user', id: 'user-1' },
+      // Adding one takes publish on the agent: a hand case is an expert's.
+      expert: true,
     });
     expect(added.body.id).toMatch(/^case-/);
     expect(added.body.status).toBeUndefined();

@@ -87,6 +87,7 @@ export function inMemoryCorrections(): CorrectionRegistryBinding & {
             addedBy: j.madeBy,
             addedAt: j.createdAt,
             updatedAt: j.createdAt,
+            ...(j.expert === true && { expert: true }),
           }),
         ),
       ...handCases
@@ -391,6 +392,9 @@ export function inMemoryCorrections(): CorrectionRegistryBinding & {
         addedBy: madeBy,
         addedAt: at,
         updatedAt: at,
+        // Adding a case is fixing, which needs publish on the agent (or write on its
+        // project when more than one project serves it): every hand case is an expert's.
+        expert: true,
       };
       handCases.push({ tenantId, agentId: run.subject.id, testCase });
       return testCase;
