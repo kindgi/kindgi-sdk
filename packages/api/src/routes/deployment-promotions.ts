@@ -683,7 +683,7 @@ function carriedRefusal(
     ...outcome,
     error: {
       ...outcome.error,
-      message: `The build moved, but agent "${agent.id}" ${agent.version} wasn't pinned: no version of it runs in the target project yet (no pin, and no Latest; a version made for a project isn't Latest by being carried). Promote a build that ships a version of it, then pin it. If this version came from a suggested change, and the project it was made in runs Latest, adding it as Latest there from that change also makes it Latest in the target project.`,
+      message: `The build moved, but agent "${agent.id}" ${agent.version} wasn't pinned: no version of it runs in the target project yet (no pin, and no Latest; a version made for a project isn't Latest by being carried). Promote a build that ships a version of it, then pin it. If this version came from a suggested change, and the project it was made in runs Latest, add it as Latest there from that change, then promote this build again: a promotion counts a carried version only when it was already Latest where it was made.`,
     },
   };
 }
