@@ -11,8 +11,8 @@ finds it, downloads it and deletes it.
 A file kept in the runtime is an **artifact**, such as a report a run's
 output became, a document your app sent in, or an export. Each one belongs to
 a project, and can name the run it came from. Its name, type, size and sha256
-are kept in the runtime's database. Its bytes are kept on disk or in a
-Google Cloud Storage bucket.
+are kept in the runtime's database. Its bytes are kept on disk, in a
+Google Cloud Storage bucket, or in an S3 bucket.
 
 ## Before you start
 
@@ -119,10 +119,16 @@ go:
 - `gcs:<bucket>[/<prefix>]`: a Google Cloud Storage bucket, reached with the
   runtime's own Google identity, its Application Default Credentials. So
   there's no key to store.
+- `s3:<bucket>[/<prefix>]` (runtime 0.3.0 or later): an S3 bucket, on AWS
+  with the runtime's own AWS identity, or in an S3-compatible store such as
+  MinIO or Cloudflare R2.
 
 Without it, the runtime serves no artifacts. `kindgi dev` keeps them in the
 pack's `.kindgi/dev/artifacts`. `KINDGI_ARTIFACT_MAX_BYTES` sets the upload
 cap. The startup output says where artifacts go, or that they're off.
+[Choose where the runtime keeps files](../../../deploy/self-hosted/store-files/)
+has each one's settings and permissions, and what the runtime checks at
+startup.
 
 ## Next
 
