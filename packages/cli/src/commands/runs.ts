@@ -243,7 +243,8 @@ const start: LeafCommand = {
     },
     'flow-version': {
       type: 'string',
-      description: "The flow's version to run (default: its latest).",
+      description:
+        "The flow's version to run (default: the version pinned for the run's project, its org or the tenant, else its latest).",
     },
     input: {
       type: 'string',

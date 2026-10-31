@@ -475,7 +475,7 @@ const erasuresResume: LeafCommand = {
   kind: 'leaf',
   name: 'resume',
   description:
-    'Try an erasure again now; --force stops one waiting on a run in a flow that serves other people (that run is cancelled).',
+    "Try an erasure again now; --force stops one waiting on a run in a flow that serves other people, or on a test run with a case from the person's runs (that run is cancelled).",
   usage: 'kindgi memory erasures resume <erasure-id> [--force]',
   optionSpec: {
     force: {

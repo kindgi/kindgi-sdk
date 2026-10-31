@@ -474,6 +474,12 @@ const PER_DEPLOYMENT = {
     binding: {} as never,
     endpointHostAllowed: () => false,
   },
+  // Each request the orchestrator's key makes is on record; these tests make none.
+  systemAccessAudit: {
+    record: async () => undefined,
+    begin: async () => 'a',
+    finish: async () => undefined,
+  },
 } as const;
 
 function makeInMemoryAgentRegistry(

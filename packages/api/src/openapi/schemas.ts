@@ -2332,6 +2332,49 @@ export const RecordDeploymentProblemBodySchema: JsonSchema = {
   },
 };
 
+const ORCHESTRATOR_CLAIMANT: JsonSchema = {
+  type: 'string',
+  pattern: '^[\\x21-\\x7e]{1,128}$',
+  description: "The pass's own id: 1 to 128 printable characters, no spaces.",
+};
+
+export const ClaimOrchestratorRoundBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['claimant', 'holdSeconds'],
+  properties: {
+    claimant: ORCHESTRATOR_CLAIMANT,
+    holdSeconds: {
+      type: 'integer',
+      minimum: 30,
+      maximum: 3600,
+      description:
+        'How long the pass holds the round. A claim is never renewed: the pass ends within it, or its claim lapses and the next pass takes the round over.',
+    },
+  },
+};
+
+export const OrchestratorRoundSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['claimant', 'heldUntil'],
+  properties: {
+    claimant: ORCHESTRATOR_CLAIMANT,
+    heldUntil: {
+      type: 'string',
+      format: 'date-time',
+      description: "When the claim lapses, by the server's clock.",
+    },
+  },
+};
+
+export const EndOrchestratorRoundBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['claimant'],
+  properties: { claimant: ORCHESTRATOR_CLAIMANT },
+};
+
 export const SetPackSuspendedBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -6562,7 +6605,7 @@ const ErasureStatusSchema: JsonSchema = {
   type: 'string',
   enum: ['pending', 'running', 'waiting-on-run', 'completed', 'failed'],
   description:
-    "`waiting-on-run`: a turn of the person's sits in a flow that serves other people; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.",
+    "`waiting-on-run`: a turn of the person's sits in a flow that serves other people, or a test run still going has a case from their runs; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.",
 };
 
 /** Erase one fact. */
@@ -6678,7 +6721,7 @@ export const MemoryErasureSchema: JsonSchema = {
         until: { type: 'string', format: 'date-time' },
       },
       description:
-        'The run it waits (or waited) for, and until when; kept as the record of the wait.',
+        'The run or test run it waits (or waited) for, and until when; kept as the record of the wait.',
     },
     forced: { type: 'boolean', const: true, description: 'A tenant admin said not to wait.' },
     settleRoundsCapped: {
@@ -6701,7 +6744,7 @@ export const ResumeMemoryErasureBodySchema: JsonSchema = {
     force: {
       type: 'boolean',
       description:
-        "Stop waiting for a run in a flow that serves other people: it's cancelled, and the erasure goes on.",
+        "Stop waiting for a run in a flow that serves other people, or a test run with a case from the person's runs: it's cancelled, and the erasure goes on.",
     },
   },
 };
@@ -17348,6 +17391,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RecordPackEnvBody', RecordPackEnvBodySchema],
   ['PackEnvNames', PackEnvNamesSchema],
   ['RecordDeploymentProblemBody', RecordDeploymentProblemBodySchema],
+  ['ClaimOrchestratorRoundBody', ClaimOrchestratorRoundBodySchema],
+  ['OrchestratorRound', OrchestratorRoundSchema],
+  ['EndOrchestratorRoundBody', EndOrchestratorRoundBodySchema],
   ['SetPackSuspendedBody', SetPackSuspendedBodySchema],
   ['PackSuspension', PackSuspensionSchema],
   ['SystemTenant', SystemTenantSchema],
