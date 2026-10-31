@@ -413,7 +413,7 @@ export const CLI_DEFAULTS = {
     reason: 'none',
     'idempotency-key': 'none',
   },
-  'tools pin-history': {
+  'tools pin-history list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
@@ -590,7 +590,7 @@ export const CLI_DEFAULTS = {
     reason: 'none',
     'idempotency-key': 'none',
   },
-  'flows pin-history': {
+  'flows pin-history list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
@@ -1651,7 +1651,7 @@ export const CLI_EXAMPLES = {
   'tools pinned': [
     {
       purpose:
-        'Show the version of the tool that the next agent or flow version published in a project would lock, and why.',
+        'Show the version of the tool that the next flow version made in a project would lock, and why.',
       line: 'kindgi tools pinned acme.stock-level --project=<project-id>',
     },
   ],
@@ -1673,10 +1673,10 @@ export const CLI_EXAMPLES = {
       line: 'kindgi tools unpin acme.stock-level --project=<project-id>',
     },
   ],
-  'tools pin-history': [
+  'tools pin-history list': [
     {
       purpose: "List the tool's pins and unpins, newest first.",
-      line: 'kindgi tools pin-history acme.stock-level --limit=10',
+      line: 'kindgi tools pin-history list acme.stock-level --limit=10',
     },
   ],
   'guardrails list': [
@@ -1781,10 +1781,10 @@ export const CLI_EXAMPLES = {
       line: 'kindgi flows unpin acme.nightly-digest --project=<project-id>',
     },
   ],
-  'flows pin-history': [
+  'flows pin-history list': [
     {
       purpose: "List the flow's pins and unpins, newest first.",
-      line: 'kindgi flows pin-history acme.nightly-digest --limit=10',
+      line: 'kindgi flows pin-history list acme.nightly-digest --limit=10',
     },
   ],
   'schedules get': [

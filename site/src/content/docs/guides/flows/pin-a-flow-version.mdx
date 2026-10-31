@@ -254,11 +254,16 @@ and how it was chosen:
 To move the pin, pin 1.1.0 for the same scope. Pinning the version the scope
 already pins changes nothing.
 
+From the CLI, `kindgi flows pin acme.process-order 1.0.0 --project=<project-id>`
+pins, and `kindgi flows pinned acme.process-order --project=<project-id>` says
+which version a run there would take, and why.
+
 ## Pin for an org or the whole tenant
 
 A pin's `scope` is `{ kind: 'project', projectId }`, `{ kind: 'org', orgId }`
-or `{ kind: 'tenant' }`. An org's pin covers its projects that have no pin of
-their own, and the tenant's pin covers every project that has neither.
+or `{ kind: 'tenant' }`. On the CLI, the scope is `--project=<project-id>`,
+`--org=<org-id>` or `--tenant`. An org's pin covers its projects that have no
+pin of their own, and the tenant's pin covers every project that has neither.
 
 In a tenant with environment orders (the projects a version goes through on
 its way to production, such as staging, then production), a flow in an order
@@ -275,10 +280,10 @@ or promote with `pin`.
 
 ## Remove a pin
 
-`kindgi.flows.pinned.unpin(flow, { scope })` removes the scope's own pin. The
-scope then follows the next scope up, and with no pin above it, the newest
-version its projects reach. A scope with no pin of its own answers
-`409 not-pinned`.
+`kindgi.flows.pinned.unpin(flow, { scope })` (`kindgi flows unpin` on the
+CLI) removes the scope's own pin. The scope then follows the next scope up,
+and with no pin above it, the newest version its projects reach. A scope with
+no pin of its own answers `409 not-pinned`.
 
 A pinned version can't be unregistered: unregistering it answers
 `409 flow-version-pinned`, with the scopes that pin it in `details.scopes`.
@@ -286,10 +291,11 @@ Move or remove those pins first.
 
 ## Read the pins and their history
 
-`kindgi.flows.pinned.list(flow)` lists every scope with a pin: its version,
-when it was set and by whom. `kindgi.flows.pinned.history(flow)` lists every
-pin and unpin, newest first: the scope, the version before and after, who
-asked, and their reason.
+`kindgi.flows.pinned.list(flow)` (`kindgi flows pinned-versions`) lists every
+scope with a pin: its version, when it was set and by whom.
+`kindgi.flows.pinned.history(flow)` (`kindgi flows pin-history list`) lists
+every pin and unpin, newest first: the scope, the version before and after,
+who asked, and their reason.
 
 Deleting an org removes its pins and records an unpin for each, by the
 deletion. Deleting a project removes its pins.

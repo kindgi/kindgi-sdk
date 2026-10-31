@@ -13,12 +13,12 @@ import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
 import { scopeCell } from './agents.js';
 import { type TableSpec, integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
-import type { LeafCommand, ParseArgsOption } from './types.js';
+import type { Command, LeafCommand, ParseArgsOption } from './types.js';
 
 /**
  * The pinned versions of a flow or a tool: `kindgi flows` and `kindgi
  * tools` each get `pinned`, `pinned-versions`, `pin`, `unpin` and
- * `pin-history`. They mirror the agents' commands, without segments
+ * `pin-history list`. They mirror the agents' commands, without segments
  * (flows and tools pin per project, org or tenant) and without a release
  * gate.
  */
@@ -39,7 +39,7 @@ const WORDS: Readonly<
   flows: {
     noun: 'flow',
     pinned:
-      'Show the version of this flow that a run naming none would use for a project (or an org), and why: a pinned version (with its scope) or the latest.',
+      'Show the version of this flow that a run naming none would use in a project (or an org, or with neither the tenant), and why: a pinned version (with its scope) or the latest.',
     pin: "Pin a version of this flow for a scope, or move the scope's pin to it: its runs that name no version use it, from the next run. Pinning the version already pinned there changes nothing. A tenant- or org-wide pin of a flow in an environment order is refused (`409 pin-scope-spans-environments`): pin it per project.",
     unpin:
       "Remove a scope's own pin of this flow: its runs use the next scope up's pin, or the latest when nothing is pinned.",
@@ -47,10 +47,10 @@ const WORDS: Readonly<
   tools: {
     noun: 'tool',
     pinned:
-      'Show the version of this tool that the next agent or flow version published for a project (or an org) would lock, and why: a pinned version (with its scope) or the latest.',
-    pin: "Pin a version of this tool for a scope, or move the scope's pin to it: the agent and flow versions published there next lock it, and those already published keep theirs. Pinning the version already pinned there changes nothing. Refused: a catalog tool or one the runtime ships (`400 tool-not-pinnable`: reference it with a range); a project that's a later environment of an order (`409 environment-takes-promotions`: pin it in the order's first environment); a tenant- or org-wide pin of a tool in an environment order (`409 pin-scope-spans-environments`).",
+      'Show the version of this tool that the next flow version made in a project (or an org, or with neither the tenant) would lock, and why: a pinned version (with its scope) or the latest. An agent version locks a pinned version only when its range allows it.',
+    pin: "Pin a version of this tool for a scope, or move the scope's pin to it: the flow versions made there next lock it, and the agent versions too when their range allows it; versions already made keep theirs. Pinning the version already pinned there changes nothing. Refused: a catalog tool or one the runtime ships (`400 tool-not-pinnable`: reference it with a range); a project that's a later environment of an order (`409 environment-takes-promotions`: pin it in the order's first environment); a tenant- or org-wide pin of a tool in an environment order (`409 pin-scope-spans-environments`).",
     unpin:
-      "Remove a scope's own pin of this tool: the agent and flow versions published there next lock the next scope up's pin, or the latest when nothing is pinned.",
+      "Remove a scope's own pin of this tool: the agent and flow versions made there next lock the next scope up's pin, or the latest when nothing is pinned.",
   },
 };
 
@@ -136,8 +136,8 @@ const PIN_HISTORY_TABLE: TableSpec<PinnedVersionChangePage, PinnedVersionChange>
   ],
 };
 
-/** `kindgi <group> pinned`, `pinned-versions`, `pin`, `unpin` and `pin-history`. */
-export function pinnedVersionCommands(group: PinnedGroup): readonly LeafCommand[] {
+/** `kindgi <group> pinned`, `pinned-versions`, `pin`, `unpin` and `pin-history list`. */
+export function pinnedVersionCommands(group: PinnedGroup): readonly Command[] {
   const { noun, ...words } = WORDS[group];
   const idLabel = `${noun}-id`;
   const pins = (ctx: CommandContext) => ctx.client()[group].pinned;
@@ -146,7 +146,7 @@ export function pinnedVersionCommands(group: PinnedGroup): readonly LeafCommand[
     kind: 'leaf',
     name: 'pinned',
     description: words.pinned,
-    usage: `kindgi ${group} pinned <${idLabel}> [--project=<project-id>] [--org=<org-id>]`,
+    usage: `kindgi ${group} pinned <${idLabel}> [--project=<project-id> | --org=<org-id>]`,
     optionSpec: {
       project: {
         type: 'string',
@@ -159,6 +159,10 @@ export function pinnedVersionCommands(group: PinnedGroup): readonly LeafCommand[
         const id = requiredPositional(ctx, 0, idLabel);
         const projectId = stringFlag(ctx, 'project');
         const orgId = stringFlag(ctx, 'org');
+        // A given org stands in for the project's own, which no run there does.
+        if (projectId !== undefined && orgId !== undefined) {
+          throw new UsageError('Give --project or --org, not both');
+        }
         return await pins(ctx).resolve(id, {
           ...(projectId !== undefined && { projectId }),
           ...(orgId !== undefined && { orgId }),
@@ -215,19 +219,26 @@ export function pinnedVersionCommands(group: PinnedGroup): readonly LeafCommand[
       }),
   };
 
-  const pinHistory: LeafCommand = {
+  const pinHistoryList: LeafCommand = {
     kind: 'leaf',
-    name: 'pin-history',
+    name: 'list',
     description: `List this ${noun}'s pin history, newest first: every pin and unpin.`,
-    usage: `kindgi ${group} pin-history <${idLabel}> [--limit=<n>] [--cursor=<c>]`,
+    usage: `kindgi ${group} pin-history list <${idLabel}> [--limit=<n>] [--cursor=<c>]`,
     optionSpec: PAGE_FLAGS,
     run: (ctx) =>
       runSdk(
         ctx,
-        `${group} pin-history`,
+        `${group} pin-history list`,
         async () => await pins(ctx).history(requiredPositional(ctx, 0, idLabel), page(ctx)),
         PIN_HISTORY_TABLE,
       ),
+  };
+
+  const pinHistory: Command = {
+    kind: 'group',
+    name: 'pin-history',
+    description: 'The history of what was pinned or unpinned.',
+    subcommands: [pinHistoryList],
   };
 
   return [pinned, pinnedVersions, pin, unpin, pinHistory];

@@ -88,6 +88,17 @@ describe.each(GROUPS)('kindgi %s — pinned versions', (group, id) => {
     ]);
   });
 
+  test('pinned with both --project and --org fails before calling', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      [group, 'pinned', id, `--project=${PROJECT}`, `--org=${ORG}`],
+      clientOf(group, { resolve: rec('resolve') }),
+    );
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('Give --project or --org, not both');
+    expect(calls).toEqual([]);
+  });
+
   test('pin to a project, with a reason and an idempotency key; the change is printed', async () => {
     const { calls, rec } = recorder();
     const pinned = change(id, { reason: 'tried in staging' });
@@ -197,19 +208,19 @@ describe.each(GROUPS)('kindgi %s — pinned versions', (group, id) => {
     expect(row).toContain('user u-1');
   });
 
-  test('pin-history pages with --limit and --cursor', async () => {
+  test('pin-history list pages with --limit and --cursor', async () => {
     const { calls, rec } = recorder();
     const out = await run(
-      [group, 'pin-history', id, '--limit=10', '--cursor=c-2'],
+      [group, 'pin-history', 'list', id, '--limit=10', '--cursor=c-2'],
       clientOf(group, { history: rec('history', { data: [change(id)], hasMore: false }) }),
     );
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['history', id, { limit: 10, cursor: 'c-2' }]]);
   });
 
-  test('pin-history --table shows each pin and unpin', async () => {
+  test('pin-history list --table shows each pin and unpin', async () => {
     const out = await run(
-      [group, 'pin-history', id, '--table'],
+      [group, 'pin-history', 'list', id, '--table'],
       clientOf(group, {
         history: async () => ({
           data: [
