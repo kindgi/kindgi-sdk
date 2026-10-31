@@ -31,13 +31,14 @@ For a dev environment next to an app, with no project of its own: `network_mode 
 
 - **No VPC.** The server and the pack services reach the internet through Cloud Run's own egress; each pack service takes all ingress, closed by IAM (`pack_ingress = "INGRESS_TRAFFIC_ALL"`). There is no static egress IP, and the pack's tools reach only public addresses and the instances in `pack_cloud_sql_instances` — not a private-IP database.
 - **A shared database instance.** With `database_host_instance` set, the module makes no instance of its own: it creates Kindgi's `database_name` database on the named instance, and the operator creates Kindgi's user on that instance (step 3, run against the host). The instance must have a public IP and run **Postgres 16 or later** — before 16 a `CREATEROLE` user, which Kindgi's needs, could take any other role, so the two databases wouldn't be walled off. Run **one Kindgi deployment per host instance** (Kindgi's role and `PUBLIC` connect are instance-wide). The server's account gets `roles/cloudsql.client` on the app's instance, scoped to it by an IAM condition. The app's instance admins can reset Kindgi's database password; only secrets you store through Kindgi's API stay sealed under its key. Backups, point-in-time recovery and deletion protection are the app instance's, not Kindgi's, and the module refuses its backup variables with a host; `database_deletion_protection` instead keeps Kindgi's database object from a Terraform-side drop (`ABANDON`). Choose a host or the module's own instance **at the first apply** — moving later is a dump and restore.
-- **Pack services at zero.** A deployment's pack service scales to zero when idle, and the first tool call after that waits for an instance to start. A pinned version's service stays warm instead: one instance, with CPU only during calls ("The pack services"). The server allows `pack_call_timeout_ms` for a single tool call (default 120 s, `KINDGI_PACK_CALL_TIMEOUT_MS`); raise it if cold starts run near that. The server, unlike the packs, keeps one instance on (`server_min_instances` stays at its default of 1): a run started without waiting, an Improve pass or a test run keeps going after its response returns and needs an instance — and the CPU on it — to finish.
+- **The module's grants reach the app.** They're project-wide: the orchestrator's `roles/run.developer`, the server's `roles/run.invoker` and the orchestrator's `<prefix>_secret_create_list`. In a project with other Cloud Run services, the orchestrator can change and delete them and run the app's Jobs, the runtime can call them, and the orchestrator can create secrets there and list the app's secret names (not their values). Use a project of its own for anything but a trial.
+- **Pack services at zero.** A deployment's pack service scales to zero when idle, and the first tool call after that waits for an instance to start. A service stays warm instead while calls in its project go to it for something always in use, such as a tool version a pinned agent or an unpinned agent's latest version uses: one instance, with CPU only during calls ("The pack services"). The server allows `pack_call_timeout_ms` for a single tool call (default 120 s, `KINDGI_PACK_CALL_TIMEOUT_MS`); raise it if cold starts run near that. The server, unlike the packs, keeps one instance on (`server_min_instances` stays at its default of 1): a run started without waiting, an Improve pass or a test run keeps going after its response returns and needs an instance — and the CPU on it — to finish.
 
 ## Before you start
 
 - Terraform ≥ 1.6, `gcloud`, Docker, `openssl`, `curl`, `jq`, and your pack's `kindgi` CLI (0.1.2 or later, for `kindgi key trust`).
 - **Permission to create the resources:** an Owner, or Editor plus Security Admin and Secret Manager Admin.
-- **A region with Cloud Scheduler:** the orchestrator's schedule is made in `region` ([Cloud Scheduler locations](https://cloud.google.com/scheduler/docs/locations)).
+- **A region with Cloud Scheduler:** the orchestrator's schedule is made in `region` ([Cloud Scheduler locations](https://cloud.google.com/scheduler/docs/locations)). Some Cloud Run regions have none, such as `us-east5`, `europe-north1` and `australia-southeast2`, and the schedule can't be made there.
 - **Pull access to the runtime image** `registry.kindgi.com/kindgi/runtime`, with your license key as the password: `docker login registry.kindgi.com --username kindgi` asks for the key.
 - **A license key** from Kindgi (`KINDGI_LICENSE_KEY`; a non-production key for a pilot).
 - **A TypeScript pack** with an `environments.<env>` block in `kindgi.config.ts` (`registry`, `signingKey`, `signerKeyId`, `tenantId`).
@@ -202,7 +203,7 @@ gcloud logging read 'resource.labels.service_name="'$N'-server" AND textPayload:
 ```
 
 ```
-Pack endpoint KMS probe OK (gcp-cloud-kms): gcp-cloud-kms v1 (encrypt/decrypt round trip, key version 1) (…ms)
+Pack endpoint KMS probe OK (gcp-cloud-kms): gcp-cloud-kms v1 (encrypt/decrypt round trip, key version 1) (160ms)
 KMS probe OK (gcp-cloud-kms): gcp-cloud-kms v1 (encrypt/decrypt round trip, key version 1) (170ms)
 ```
 
@@ -218,13 +219,16 @@ It works with a system key of its own, which only a server that already routes p
 
    ```sh
    URL=$(terraform output -raw server_url)
-   curl -sS -X POST "$URL/v1/system/keys" \
+   KEY=$(curl -sS -X POST "$URL/v1/system/keys" \
      -H @<(printf 'Authorization: Bearer %s\n' "$(gcloud secrets versions access latest --secret=$N-api-token)") \
      -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" \
      -d '{"scopes": ["system:deployments", "system:pack-env"], "label": "pack orchestrator"}' \
-     | jq -j '.token // error(.error.message)' \
-     | gcloud secrets versions add $N-orchestrator-key --data-file=-
+     | jq -j '.token // error(.error.message)') && [ -n "$KEY" ] \
+     && printf '%s' "$KEY" | gcloud secrets versions add $N-orchestrator-key --data-file=-
+   unset KEY
    ```
+
+   The version is added only if a key came back: a refused or failed call prints why and adds none.
 
    Behind Cloud Run IAM (neither `server_public` nor `server_invoker_iam_disabled`), your gcloud account needs `roles/run.invoker` on the server, and the call needs its ID token as well. Add this line after the `curl` line:
 
@@ -350,15 +354,33 @@ server_secret_env = {
 The orchestrator makes each deployment's service, named `kp-…`, with the `pack_*` settings. Every one runs as the one pack account, `$N-pack`, so whatever one pack may read, each may.
 
 - **Size:** 1 vCPU and 1 GiB, with a startup CPU boost.
-- **Scaling:** up to `pack_max_instances` instances (8 by default), each running `pack_concurrency` calls at once (32 by default), both whole numbers from 1 to 1000. A pinned version's service stays warm: one instance, with CPU only during calls. Every other one scales to zero.
+- **Scaling:** up to `pack_max_instances` instances (8 by default), each running `pack_concurrency` calls at once (32 by default), both whole numbers from 1 to 1000. A service stays warm, one instance with CPU only during calls, while calls in its project go to it for something always in use: a tool version a pinned agent, flow or tool version uses, a tool version an unpinned agent's latest version uses, or a pack check a registered guardrail runs. Its first call after a quiet spell doesn't wait for an instance to start. Every other one scales to zero, and its first call waits for an instance.
 - **Timeout:** `pack_timeout`, whole seconds up to `"3600s"` (`"300s"` by default). Keep it above the server's `pack_call_timeout_ms`.
 - **Network:** internal ingress in `direct`; all ingress in `connector` and `none`, with IAM as the guard. In `connector` mode each service uses the connector for private ranges.
 - **Databases:** the Cloud SQL instances in `pack_cloud_sql_instances`, at most 10, mounted at `/cloudsql`. The pack account gets `roles/cloudsql.client`.
 - **Buckets:** `pack_bucket_readers`, read with `roles/storage.objectViewer`, and `pack_bucket_object_prefixes` to narrow a bucket to some prefixes.
 
-**The pack's env.** Terraform doesn't hold it. Each deployment's pack service gets its env from the runtime: the names its pack declares, with the values set through Kindgi, plain ones with `kindgi env set` ([Declare the environment your code reads](https://docs.kindgi.com/guides/secrets/pack-env/#in-a-deployment)). When a value changes, the orchestrator's next pass gives the running service its new env, with no deploy. A required name with no value keeps the service from serving, and `kindgi deployments get <deployment-id>` names it. With `secrets_backend = "none"` a pack gets no secret stored in Kindgi: its plain values, and cloud secrets (below).
+**The pack's env.** Terraform doesn't hold it. Each deployment's pack service gets its env from the runtime: the names its pack declares, with the values set through Kindgi, plain ones with `kindgi env set` ([Declare the environment your code reads](https://docs.kindgi.com/guides/secrets/pack-env/#in-a-deployment)). When a value changes, the orchestrator's next pass gives the running service its new env, with no deploy. While a name the pack requires has no value, a new deployment gets no service, and a running one keeps the values it was last given. `kindgi deployments get <deployment-id>` names what's missing. With `secrets_backend = "none"` a pack gets no secret stored in Kindgi: its plain values, and cloud secrets (below).
 
-**A secret of yours in Secret Manager (`pack_secret_readers`).** A pack's env can name one as a cloud secret, pinned to a version: `kindgi env set <NAME> --cloud-secret projects/<project>/secrets/<secret>/versions/<n> --tenant=<id> --scope=<kind>[:id] --env=<name>`, with a system key (the module turns cloud secrets on: `KINDGI_ENV_CLOUD_SECRETS=on`). List each such secret in `pack_secret_readers`, as `{ secret, project }`: the secret's id, not its path, with `project` left out for this project. The pack account gets `roles/secretmanager.secretAccessor` on each secret alone, in the secret's own project, so whoever applies must be able to grant there. Every pack service runs as that one account, so each pack can read every secret listed. The plan refuses a path, a `kp-` id and a secret named twice.
+**A secret of yours in Secret Manager (`pack_secret_readers`).** A pack's env can name one as a cloud secret, pinned to a version (the module turns cloud secrets on: `KINDGI_ENV_CLOUD_SECRETS=on`). First list each such secret in `pack_secret_readers`, as `{ secret, project }`: the secret's id, not its path, with `project` left out for this project, and apply. The pack account gets `roles/secretmanager.secretAccessor` on each secret alone, in the secret's own project, so whoever applies must be able to grant there. Every pack service runs as that one account, so each pack can read every secret listed. The plan refuses a path, a `kp-` id and a secret named twice.
+
+Then set it: `kindgi env set <NAME> --cloud-secret projects/<project>/secrets/<secret>/versions/<n> --tenant=<id> --scope=<kind>[:id] --env=<name>`. The grant comes first because, once it's set, the orchestrator's next pass gives the service a revision that reads it. Setting one takes a system key holding `system:env-refs`. With one tenant the server refuses the API token there, so mint a key with it as in step 1 of "5. The pack orchestrator", with `"scopes": ["system:env-refs"]` (and the ID token line behind Cloud Run IAM), and set with that key:
+
+```sh
+KEY=$(curl -sS -X POST "$URL/v1/system/keys" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$(gcloud secrets versions access latest --secret=$N-api-token)") \
+  -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"scopes": ["system:env-refs"], "label": "cloud secrets"}' \
+  | jq -j '.token // error(.error.message)') && [ -n "$KEY" ] \
+  && KINDGI_API_TOKEN=$KEY kindgi env set DATABASE_URL --url "$URL" \
+       --cloud-secret projects/acme-app/secrets/acme-app-database-url/versions/3 \
+       --tenant=<id> --scope=tenant --env=<env>
+unset KEY
+```
+
+The key stays valid for the next cloud secret until you revoke it: `POST /v1/system/keys/{keyId}/revoke`, with its id from `GET /v1/system/keys`.
+
+Serving many tenants (`tenancy = "multi"`), the API token holds the full system capability, `kindgi:system`, so set it with the API token in `KINDGI_API_TOKEN`.
 
 **Recording each read.** Secret Manager logs a read of a secret's value only with its Data Access audit logs on. To record each read of a pack's secrets, turn on `DATA_READ` for Secret Manager in the project, and in each project `pack_secret_readers` names ([Cloud Audit Logs: Data Access](https://cloud.google.com/logging/docs/audit/configure-data-access)).
 
@@ -366,13 +388,15 @@ The orchestrator makes each deployment's service, named `kp-…`, with the `pack
 - **The token:** the pack's code fetches a Google ID token for the service's URL from the metadata server and sends it as `Authorization: Bearer`. In Node that's google-auth-library's `getIdTokenClient(url)`; in Python, `google.oauth2.id_token.fetch_id_token`.
 - **The ingress:** the call leaves through the pack service's own egress. In `direct` and `none` that's Cloud Run's internet egress; in `connector`, the connector carries private ranges only. A service with ingress `all` takes the call, with IAM as the guard. A service with internal ingress refuses it, with a 404 (Google's "Page not found" page, not a 403): Cloud Run counts a call from another service as internal only when the caller sends all its traffic through a VPC, and a pack service doesn't in any shape.
 
-**Cost.** A warm pack service bills at Cloud Run's idle rate between calls. At the defaults (1 vCPU, 1 GiB, one instance) that's about $13 a month in a Tier 1 region ([Cloud Run pricing](https://cloud.google.com/run/pricing)). A service at zero bills only while it runs. The Job is billed per second of each pass.
+**Cost.** A warm pack service bills at Cloud Run's idle rate between calls. At the defaults (1 vCPU, 1 GiB, one instance) that's about $13 a month for each warm service in a Tier 1 region ([Cloud Run pricing](https://cloud.google.com/run/pricing)). A service at zero bills only while it runs. The Job is billed per second of each pass.
 
-**How many.** Cloud Run allows 1,000 services per region in a project ([Cloud Run quotas](https://cloud.google.com/run/quotas)), so unregister old versions you don't need.
+**How many.** Cloud Run allows 1,000 services per region in a project, which a quota request can raise ([Cloud Run quotas](https://cloud.google.com/run/quotas)), so unregister old versions you don't need.
 
 ## Many tenants (`tenancy`)
 
 By default (`tenancy = "single"`) the server serves one tenant, `seed_tenant_id`'s. With `"multi"`, on runtime 0.1.8 or later, it serves every tenant created through `POST /v1/system/tenants`, and takes each request's tenant from its key or session. Either way each deployment is a Cloud Run service of its own, which the pack orchestrator makes ("5. The pack orchestrator").
+
+**Every tenant's pack services run as the one pack account,** `$N-pack`. So each tenant's pack code can read every `kp-` secret, other tenants' pack service tokens and secret env values among them, and every secret in `pack_secret_readers`. One installation is for tenants that trust one another's pack code; give tenants that don't an installation each ([Your tools' code](https://docs.kindgi.com/concepts/security/#your-tools-code)).
 
 ```hcl
 tenancy         = "multi"
@@ -425,7 +449,7 @@ server_secret_env = {
   - **What a restore reaches:** any second within the logs' days, or one of the kept daily backups.
   - **On a host or a restored instance:** these set the module's own instance only. With `database_host_instance` they're refused at plan: the host's backups are the app's, set where that instance is managed. An instance `database_instance` names keeps its own.
 - **One server instance** (`server_max_instances = 1`) until several replicas are verified. Migrations run at boot and need a direct database connection (the socket or a private IP, not a transaction pooler).
-- **Rotating a secret:** add a version, then roll a new revision of the server (`gcloud run services update $N-server --update-labels=rotated=$(date +%s)`). The orchestrator's key is pinned: mint a new one as in step 5, add it as a version, set `orchestrator_key_version` to that version and apply. Once the Job runs with it, revoke the old one: `POST /v1/system/keys/{keyId}/revoke`, with its id from `GET /v1/system/keys`.
+- **Rotating a secret:** add a version, then roll a new revision of the server (`gcloud run services update $N-server --update-labels=rotated=$(date +%s)`). The orchestrator's key is pinned: mint a new one as in step 5, add it as a version, set `orchestrator_key_version` to that version and apply. Once a Job execution after the apply has succeeded (`gcloud run jobs executions list --job=$N-pack-orchestrator --region=<region> --limit=1`), revoke the old one: `POST /v1/system/keys/{keyId}/revoke`, with its id from `GET /v1/system/keys`.
 - **Rotating the database's server CA** (private-IP mode): the server trusts the CAs the instance lists at the last apply, so add the new one, apply, and only then rotate. Applying after the rotation is too late: the server refuses the new certificate until it has the new CA.
   1. `gcloud sql ssl server-ca-certs create --instance=$N` adds the upcoming CA.
   2. `terraform apply`: the server's new revision trusts it and the current one. An OpenFGA of yours that checks these CAs gets them again here too (`gcloud sql ssl server-ca-certs list`, as above) and restarts with the new file.

@@ -37,13 +37,17 @@ password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or tr
   ([Turn on the pack orchestrator](#turn-on-the-pack-orchestrator)).
 - **A pack service for each deployment** (`kp-…`): that deployment's
   tools' code ([Your tools' code](../../../concepts/security/#your-tools-code)). Each
-  tool call goes to the newest deployment that shipped the version it names,
-  so an earlier version runs from the deployment that shipped it
+  tool call goes to the newest deployment in the run's project that shipped
+  the version it names, so an earlier version runs from the deployment that
+  shipped it
   ([Agent and tool versions](../../../guides/agents/agent-and-tool-versions/)).
   Internal ingress, and IAM-protected: the runtime calls it with a Google ID
   token and the service's own token. Its CPU is allocated only while a call
-  runs. A pinned version's service keeps one instance warm, billed at Cloud
-  Run's lower idle rate between calls. Every other one scales to zero.
+  runs. A service keeps one instance warm, billed at Cloud Run's lower idle
+  rate between calls, while calls in its project go to it for something
+  always in use, such as a tool version a pinned agent or an unpinned agent's
+  latest version uses ([Your pack services](#your-pack-services)). Every
+  other one scales to zero.
 - **Cloud SQL** (Postgres 16) for the runtime's data, reached through the
   Cloud SQL socket, which encrypts the connection and checks the server
   ([Check the database's certificate](../database-tls/)).
@@ -65,10 +69,11 @@ runtime's API token still guards every call.
 Who calls whom:
 
 - your app calls the runtime, with its API token;
-- the runtime calls each deployment's pack service, with an ID token, and
-  Cloud SQL and model APIs;
+- the runtime calls each deployment's pack service, with a Google ID token
+  and the service's own token, and Cloud SQL and model APIs;
 - the pack orchestrator calls the runtime's system routes, with a key of its
-  own, and Cloud Run, to make and retire the pack services;
+  own, and Cloud Run and Secret Manager, to make and retire the pack services
+  and their tokens;
 - `kindgi deploy` calls the runtime with a signed envelope, and the runtime
   reads the pack's image from Artifact Registry.
 
@@ -81,6 +86,8 @@ Who calls whom:
 - **A region with Cloud Scheduler:** the orchestrator's schedule is made in
   the module's `region`
   ([Cloud Scheduler locations](https://cloud.google.com/scheduler/docs/locations)).
+  Some Cloud Run regions have none, such as `us-east5`, `europe-north1` and
+  `australia-southeast2`, and the schedule can't be made there.
 - **Terraform 1.6 or later, gcloud, Docker** with `buildx`, **jq**, **curl**,
   **openssl**, and your pack's `kindgi` CLI, 0.1.2 or later, which has
   `kindgi key trust`.
@@ -316,7 +323,7 @@ gcloud logging read 'resource.labels.service_name="'$N'-server" AND jsonPayload.
 
 `--limit=1` reads the newest such record, and `jq` prints its `lines`. One
 of them names how the runtime reaches your pack's code
-([How the runtime calls your pack's service](../cloud-run-reference/#how-the-runtime-calls-your-packs-service)):
+([How the runtime calls your pack services](../cloud-run-reference/#how-the-runtime-calls-your-pack-services)):
 
 ```text
 Pack services: one per deployment, at the endpoints recorded through the system API (1 allowed host pattern), each endpoint's token sealed under KINDGI_PACK_ENDPOINT_KMS_KEY's key
@@ -342,7 +349,7 @@ gcloud logging read 'resource.labels.service_name="'$N'-server" AND textPayload:
 ```
 
 ```text
-Pack endpoint KMS probe OK (gcp-cloud-kms): gcp-cloud-kms v1 (encrypt/decrypt round trip, key version 1) (…ms)
+Pack endpoint KMS probe OK (gcp-cloud-kms): gcp-cloud-kms v1 (encrypt/decrypt round trip, key version 1) (160ms)
 KMS probe OK (gcp-cloud-kms): gcp-cloud-kms v1 (encrypt/decrypt round trip, key version 1) (170ms)
 ```
 
@@ -367,19 +374,22 @@ names in them.
 
    ```sh
    URL=$(terraform output -raw server_url)
-   curl -sS -X POST "$URL/v1/system/keys" \
+   KEY=$(curl -sS -X POST "$URL/v1/system/keys" \
      -H @<(printf 'Authorization: Bearer %s\n' "$(gcloud secrets versions access latest --secret=$N-api-token)") \
      -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" \
      -d '{"scopes": ["system:deployments", "system:pack-env"], "label": "pack orchestrator"}' \
-     | jq -j '.token // error(.error.message)' \
-     | gcloud secrets versions add $N-orchestrator-key --data-file=-
+     | jq -j '.token // error(.error.message)') && [ -n "$KEY" ] \
+     && printf '%s' "$KEY" | gcloud secrets versions add $N-orchestrator-key --data-file=-
+   unset KEY
    ```
 
    - `curl` asks the runtime for a system key that may manage each
      deployment's service and read its env, with the API token in a header
      read from a pipe.
-   - `jq -j` passes on only the key, with no newline, or prints the API's
-     error, and then no version is added.
+   - `jq -j` keeps only the key, with no newline, or prints the API's error.
+   - The version is added only if a key came back: a refused or failed call
+     adds none. `printf` is built into the shell, so the key stays off the
+     command line.
 
    With the runtime behind Cloud Run IAM (`server_public = false` without
    `server_invoker_iam_disabled`), your gcloud account needs
@@ -423,10 +433,13 @@ module's `pack_*` settings. Every one runs as the one pack account,
 - **Scaling:** up to `pack_max_instances` instances, 8 by default, each
   running `pack_concurrency` calls at once, 32 by default. Both are whole
   numbers from 1 to 1000.
-- **Warm or at zero:** a pinned version's service keeps one instance warm,
-  with CPU only while a call runs, so its first call after a quiet spell
-  doesn't wait for an instance to start. Every other one scales to zero, and
-  its first call waits for an instance.
+- **Warm or at zero:** a service keeps one instance warm, with CPU only
+  while a call runs, while calls in its project go to it for something
+  always in use: a tool version a pinned agent, flow or tool version uses, a
+  tool version an unpinned agent's latest version uses, or a pack check a
+  registered guardrail runs. Its first call after a quiet spell doesn't wait
+  for an instance to start. Every other one scales to zero, and its first
+  call waits for an instance.
 - **Timeout:** `pack_timeout`, in whole seconds up to `"3600s"`, `"300s"` by
   default. Keep it above the runtime's `pack_call_timeout_ms`, so the runtime
   reports a timeout before Cloud Run cuts the call.
@@ -440,12 +453,14 @@ module's `pack_*` settings. Every one runs as the one pack account,
   and `pack_bucket_object_prefixes` to narrow a bucket to some prefixes.
 
 **What it costs.** A warm service bills at Cloud Run's idle rate between
-calls. At these defaults, with one instance, that's about $13 a month in a
-Tier 1 region ([Cloud Run pricing](https://cloud.google.com/run/pricing)).
+calls. At these defaults, with one instance, that's about $13 a month for
+each warm service in a Tier 1 region
+([Cloud Run pricing](https://cloud.google.com/run/pricing)).
 A service at zero bills only while it runs. The Job is billed per second of
 each pass.
 
-**How many.** Cloud Run allows 1,000 services per region in a project
+**How many.** Cloud Run allows 1,000 services per region in a project,
+which a quota request can raise
 ([Cloud Run quotas](https://cloud.google.com/run/quotas)), and each
 deployment the runtime still serves has one. Unregister the old versions you
 don't need
@@ -460,26 +475,19 @@ through Kindgi, plain ones with `kindgi env set`
 `pnpm exec kindgi env plan --env prod` lists what your pack needs.
 
 When a value changes, the orchestrator's next pass gives the running service
-its new env, with no deploy. While a name the pack requires has no value,
-the service doesn't serve, and `kindgi deployments get <deployment-id>`
-names what's missing. With `secrets_backend = "none"`, a pack gets no secret
-stored in Kindgi: its plain values, and cloud secrets
+its new env, with no deploy. While a name the pack requires has no value, a
+new deployment gets no service, and a running one keeps the values it was
+last given. `kindgi deployments get <deployment-id>` names what's missing.
+With `secrets_backend = "none"`, a pack gets no secret stored in Kindgi: its
+plain values, and cloud secrets
 ([Read a secret of yours](#read-a-secret-of-yours)).
 
 ### Read a secret of yours
 
 A pack's env can name a secret of yours in Secret Manager as a cloud secret,
 pinned to a version (the module turns this on: `KINDGI_ENV_CLOUD_SECRETS=on`).
-Set it with a system key, such as the API token in
-`KINDGI_API_TOKEN` ([5. Trust your key, and deploy](#5-trust-your-key-and-deploy)):
-
-```sh
-pnpm exec kindgi env set DATABASE_URL --tenant=<tenant id> --scope=tenant --env=prod \
-  --url "$URL" --cloud-secret projects/acme-app/secrets/acme-app-database-url/versions/3
-```
-
-Then list the secret in `pack_secret_readers`, by its id, not its path, with
-its `project` when it's in another project:
+First list the secret in `pack_secret_readers`, by its id, not its path, with
+its `project` when it's in another project, and apply:
 
 ```hcl excerpt
 pack_secret_readers = [
@@ -492,6 +500,33 @@ alone, in the secret's own project, so whoever applies must be able to grant
 there. Every pack service runs as that one account, so each pack can read
 every secret listed. The plan refuses a path, a `kp-` id and a secret named
 twice.
+
+Then set it. The grant comes first because, once it's set, the
+orchestrator's next pass gives the service a revision that reads it. Set it
+with a system key holding `system:env-refs`. With one tenant, the runtime
+refuses the API token here, so mint a key with it, as in step 1 of
+[Turn on the pack orchestrator](#turn-on-the-pack-orchestrator), with
+`"scopes": ["system:env-refs"]`, and set with that key:
+
+```sh
+KEY=$(curl -sS -X POST "$URL/v1/system/keys" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$(gcloud secrets versions access latest --secret=$N-api-token)") \
+  -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" \
+  -d '{"scopes": ["system:env-refs"], "label": "cloud secrets"}' \
+  | jq -j '.token // error(.error.message)') && [ -n "$KEY" ] \
+  && KINDGI_API_TOKEN=$KEY pnpm exec kindgi env set DATABASE_URL \
+       --tenant=<tenant id> --scope=tenant --env=prod --url "$URL" \
+       --cloud-secret projects/acme-app/secrets/acme-app-database-url/versions/3
+unset KEY
+```
+
+Behind Cloud Run IAM, add the ID token line after the `curl` line, as in
+step 1. `KINDGI_API_TOKEN=$KEY` gives the key to that one command, off the
+command line. The key stays valid for the next cloud secret until you revoke
+it, `POST /v1/system/keys/{keyId}/revoke`, with its id from
+`GET /v1/system/keys`. Serving many tenants, the API token holds the full system
+capability, `kindgi:system`, so set it with the API token in
+`KINDGI_API_TOKEN` ([Serve many tenants](#serve-many-tenants)).
 
 Secret Manager logs a read of a secret's value only with its Data Access
 audit logs on. To record each read of a pack's secrets, turn on `DATA_READ`
@@ -623,6 +658,13 @@ every tenant created through `POST /v1/system/tenants`, and takes each
 request's tenant from its key or session. Either way each deployment is a
 Cloud Run service of its own, which the pack orchestrator makes
 ([Turn on the pack orchestrator](#turn-on-the-pack-orchestrator)).
+
+Every tenant's pack services run as the one pack account, `$N-pack`. So each
+tenant's pack code can read every `kp-` secret, other tenants' pack service
+tokens and secret env values among them, and every secret in
+`pack_secret_readers`. One installation is for tenants that trust one
+another's pack code. Give tenants that don't an installation each
+([Your tools' code](../../../concepts/security/#your-tools-code)).
 
 ```hcl
 tenancy         = "multi"
@@ -1062,7 +1104,9 @@ to, so set it to the deployment's before any `gcloud` command for it
   The orchestrator's key is pinned: mint a new one as in
   [Turn on the pack orchestrator](#turn-on-the-pack-orchestrator), add it as
   the secret's next version, set `orchestrator_key_version` to it and apply.
-  Once the Job runs with it, revoke the old one,
+  Once a Job execution after the apply has succeeded
+  (`gcloud run jobs executions list --job=$N-pack-orchestrator --region=<region> --limit=1`),
+  revoke the old one,
   `POST /v1/system/keys/{keyId}/revoke`, with the old key's id from
   `GET /v1/system/keys`
   ([Serve many tenants](../serve-many-tenants/)).

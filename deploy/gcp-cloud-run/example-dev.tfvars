@@ -4,7 +4,7 @@
 
 project_id  = "acme-app-dev"
 region      = "northamerica-northeast2"
-name_prefix = "kindgi-dev" # one prefix per environment when environments share a project
+name_prefix = "kindgi-dev" # one installation per project: environments never share one
 kindgi_env  = "dev"
 
 # No VPC: the server reaches the internet and the pack services over Cloud

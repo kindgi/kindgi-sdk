@@ -33,8 +33,10 @@ server_env = {
 }
 
 # A secret of yours that the pack's env names as a cloud secret, pinned to a
-# version there: kindgi env set DATABASE_URL --cloud-secret
-# projects/acme-kindgi-dev/secrets/acme-app-database-url/versions/3
+# version. List it here and apply first, then set it, with a system key
+# holding system:env-refs (README, "The pack services"):
+#   kindgi env set DATABASE_URL --cloud-secret
+#   projects/acme-kindgi-dev/secrets/acme-app-database-url/versions/3
 #   --tenant=<id> --scope=tenant --env=<env>
 # pack_secret_readers = [{ secret = "acme-app-database-url" }]
 

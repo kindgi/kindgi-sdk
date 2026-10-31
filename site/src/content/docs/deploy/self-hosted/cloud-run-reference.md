@@ -157,7 +157,7 @@ that secret comes first, before the services change:
    too. Webhooks, and a workspace's own identity providers, work from then
    on.
 
-## How the runtime calls your pack's service
+## How the runtime calls your pack services
 
 Each deployment of your pack has a Cloud Run service of its own, which the
 pack orchestrator makes, named `kp-…`
@@ -166,8 +166,9 @@ The orchestrator records the service's URL and its token through the
 runtime's system routes. The runtime keeps the token sealed under the
 module's KMS key (`KINDGI_PACK_ENDPOINT_KMS_KEY`).
 
-Each tool call goes to the newest deployment that shipped the tool version
-it names (`KINDGI_PACK_ROUTING=per-deployment`). On every call:
+Each tool call goes to the newest deployment in the run's project that
+shipped the tool version it names (`KINDGI_PACK_ROUTING=per-deployment`). On
+every call:
 
 - **The host has to match.** The runtime calls only a URL whose host matches
   `KINDGI_PACK_ENDPOINT_HOSTS`, which the module sets to
@@ -227,13 +228,15 @@ A tool call the runtime can't route answers with a code of its own:
   the pack account may read every `kp-` secret in it. So two installations
   in one project would reach each other's pack services and secrets.
   `name_prefix` can't be `kp` or start with `kp-`.
-- **1,000 services per region in a project**
-  ([Cloud Run quotas](https://cloud.google.com/run/quotas)). Each deployment
-  the runtime still serves has one, so unregister old versions you don't
-  need.
+- **1,000 services per region in a project**, which a quota request can
+  raise ([Cloud Run quotas](https://cloud.google.com/run/quotas)). Each
+  deployment the runtime still serves has one, so unregister old versions
+  you don't need.
 - **A region with Cloud Scheduler.** The orchestrator's schedule is made in
   the module's `region`
   ([Cloud Scheduler locations](https://cloud.google.com/scheduler/docs/locations)).
+  Some Cloud Run regions have none, such as `us-east5`, `europe-north1` and
+  `australia-southeast2`, and the schedule can't be made there.
 
 ## See also
 

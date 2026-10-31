@@ -253,6 +253,15 @@ Each deployment runs in its own pack service, which you run: an orchestrator,
 or a script, with a `system:deployments` key. The runtime records where each
 service is, and checks it. It never creates or deletes one.
 
+A pack's code may read whatever its service's account may. On
+[Cloud Run](../cloud-run/#serve-many-tenants), every tenant's pack services
+run as the module's one pack account, `$N-pack`. So each tenant's pack code
+can read every `kp-` secret, other tenants' pack service tokens and secret
+env values among them, and every secret in `pack_secret_readers`. One such
+installation is for tenants that trust one another's pack code. Give tenants
+that don't an installation each
+([Your tools' code](../../../concepts/security/#your-tools-code)).
+
 1. **List the deployments that need a service:**
    `GET /v1/system/deployments?endpoint=missing`, oldest first across tenants.
    A deployment needs one while it's routed: it's the newest in its project

@@ -6,7 +6,7 @@
 
 project_id  = "acme-app-dev"
 region      = "northamerica-northeast2"
-name_prefix = "kindgi-dev" # one prefix per environment when environments share a project
+name_prefix = "kindgi-dev" # one installation per project: environments never share one
 kindgi_env  = "dev"
 
 network_mode  = "connector"
@@ -51,8 +51,10 @@ pack_timeout       = "600s"
 pack_call_timeout_ms = 300000
 
 # A secret of yours that the pack's env names as a cloud secret, pinned to a
-# version there: kindgi env set DATABASE_URL --cloud-secret
-# projects/acme-app-dev/secrets/acme-app-reader-database-url/versions/1
+# version. List it here and apply first, then set it, with a system key
+# holding system:env-refs (README, "The pack services"):
+#   kindgi env set DATABASE_URL --cloud-secret
+#   projects/acme-app-dev/secrets/acme-app-reader-database-url/versions/1
 #   --tenant=<id> --scope=tenant --env=<env>
 # pack_secret_readers = [{ secret = "acme-app-reader-database-url" }]
 

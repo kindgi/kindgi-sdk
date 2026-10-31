@@ -928,10 +928,13 @@ run "the_pack_routing_is_the_modules" {
   expect_failures = [google_cloud_run_v2_service.server]
 }
 
+# Its name reads as a secret's, so server_env refuses it already (as a
+# secret by name); server_secret_env, which takes such names, can't set it
+# either.
 run "the_cloud_secrets_switch_is_the_modules" {
   command = plan
   variables {
-    server_env = { KINDGI_ENV_CLOUD_SECRETS = "on" }
+    server_secret_env = { KINDGI_ENV_CLOUD_SECRETS = { secret = "acme-switch", version = "1" } }
   }
   expect_failures = [google_cloud_run_v2_service.server]
 }
@@ -1261,10 +1264,11 @@ run "the_key_steps_mint_the_orchestrators_key_on_the_server" {
     condition = (
       strcontains(output.orchestrator_key_steps, "${google_cloud_run_v2_service.server.uri}/v1/system/keys") &&
       strcontains(output.orchestrator_key_steps, "\"scopes\": [\"system:deployments\", \"system:pack-env\"]") &&
-      strcontains(output.orchestrator_key_steps, "gcloud secrets versions add kindgi-dev-orchestrator-key --data-file=-") &&
+      strcontains(output.orchestrator_key_steps, "| jq -j '.token // error(.error.message)') && [ -n \"$KEY\" ] \\") &&
+      strcontains(output.orchestrator_key_steps, "&& printf '%s' \"$KEY\" | gcloud secrets versions add kindgi-dev-orchestrator-key --data-file=-") &&
       strcontains(output.orchestrator_key_steps, "orchestrator_key_version")
     )
-    error_message = "Until its key is set, the steps mint it on the server, add it as a version and name the variable to set."
+    error_message = "Until its key is set, the steps mint it on the server, add it as a version only if one came back, and name the variable to set."
   }
   assert {
     condition     = toset(keys(output.service_accounts)) == toset(["server", "pack", "orchestrator"]) && output.service_accounts.orchestrator == google_service_account.orchestrator.email

@@ -46,12 +46,16 @@ output "orchestrator_key_steps" {
     1. Mint its system key with the deployment's own token, and keep it as the
        first version of ${google_secret_manager_secret.orchestrator_key.secret_id}${local.server_iam_guarded ? " (the server is behind Cloud Run IAM: your gcloud account needs roles/run.invoker on it)" : ""}:
 
-       curl -sS -X POST "${google_cloud_run_v2_service.server.uri}/v1/system/keys" \${local.mint_id_token_header}
+       KEY=$(curl -sS -X POST "${google_cloud_run_v2_service.server.uri}/v1/system/keys" \${local.mint_id_token_header}
          -H @<(printf 'Authorization: Bearer %s\n' "$(gcloud secrets versions access latest --secret=${google_secret_manager_secret.server["api_token"].secret_id})") \
          -H 'Content-Type: application/json' -H "Idempotency-Key: $(uuidgen)" \
          -d '{"scopes": ["system:deployments", "system:pack-env"], "label": "pack orchestrator"}' \
-         | jq -j '.token // error(.error.message)' \
-         | gcloud secrets versions add ${google_secret_manager_secret.orchestrator_key.secret_id} --data-file=-
+         | jq -j '.token // error(.error.message)') && [ -n "$KEY" ] \
+         && printf '%s' "$KEY" | gcloud secrets versions add ${google_secret_manager_secret.orchestrator_key.secret_id} --data-file=-
+       unset KEY
+
+       The version is added only if a key came back: a refused or failed call
+       prints why and adds none.
 
     2. Set orchestrator_key_version to the version it printed ("1" the first
        time), and apply again: that makes the Job and its schedule.
