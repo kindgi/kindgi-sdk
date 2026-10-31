@@ -190,7 +190,10 @@ export interface ImproveScheduleInput {
   readonly corrections: number;
   /** Whose corrections count: the project's experts only, or everyone's. */
   readonly from: 'experts' | 'everyone';
-  /** The most one run may cost, in US dollars; never more than what's left of the month's cap. */
+  /**
+   * The most one run's search may cost, in US dollars; never more than what's
+   * left of the month's cap. The run's proof comes after its search, on top.
+   */
   readonly runCapUsd: number;
   /**
    * The cap on what the agent and project's Improve runs cost in a calendar

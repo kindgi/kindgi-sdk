@@ -17529,7 +17529,7 @@ class ImproveScheduleInput(BaseModel):
     """
     run_cap_usd: Annotated[float | None, Field(alias="runCapUsd", gt=0.0, le=100.0)] = 5
     """
-    The most one run may cost, in US dollars; never more than what's left of the month's cap.
+    The most one run's search may cost, in US dollars; never more than what's left of the month's cap. The run's proof comes after its search, on top.
     """
     month_cap_usd: Annotated[float | None, Field(alias="monthCapUsd", gt=0.0, le=1000.0)] = 20
     """

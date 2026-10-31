@@ -14349,7 +14349,7 @@ export const ImproveScheduleInputSchema: JsonSchema = {
       maximum: 100,
       default: 5,
       description:
-        "The most one run may cost, in US dollars; never more than what's left of the month's cap.",
+        "The most one run's search may cost, in US dollars; never more than what's left of the month's cap. The run's proof comes after its search, on top.",
     },
     monthCapUsd: {
       type: 'number',

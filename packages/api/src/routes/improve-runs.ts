@@ -720,7 +720,7 @@ export function parseImproveScheduleInput(
   const runCapUsd = o.runCapUsd ?? d.runCapUsd;
   if (typeof runCapUsd !== 'number' || !(runCapUsd > 0 && runCapUsd <= MAX_COST_USD)) {
     return err(
-      `\`runCapUsd\` is the most one run may cost: more than 0, up to ${MAX_COST_USD} (default ${d.runCapUsd})`,
+      `\`runCapUsd\` is the most one run's search may cost: more than 0, up to ${MAX_COST_USD} (default ${d.runCapUsd})`,
     );
   }
   const monthCapUsd = o.monthCapUsd ?? d.monthCapUsd;
