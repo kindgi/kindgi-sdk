@@ -27,7 +27,7 @@ export interface RegistryReadOnly {
    * and `…/pinned/check` get through. Unpinning stays
    * refused, a suggested change's roll back too, with `undoReason`: there's one
    * pinned version, and what undoes a change is where it was written. And
-   * only the whole tenant is improved: an Improve run, a suggested change or its
+   * only the whole tenant is improved: a suggested change or its
    * evaluation for a narrower scope is refused with `scopeReason`, as
    * the binding refuses pinning a version there.
    */

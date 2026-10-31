@@ -594,9 +594,9 @@ export interface CreateAppInput {
    */
   readonly supervisor?: SupervisorBinding;
   /**
-   * Optional. Improve runs (`/v1/improve-runs`): the runtime's search for better settings
-   * values, written as a suggested change. Without it, both answer
-   * `501 improve-unsupported`.
+   * Optional. Improve runs (`/v1/improve-runs`): the runtime's search, on a
+   * project's corrections, for better wording or settings values, written as a
+   * suggested change. Without it, both answer `501 improve-unsupported`.
    */
   readonly improveRuns?: ImproveRunBinding;
   /**
@@ -1912,12 +1912,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     const improveDeps = {
       ...(input.improveRuns !== undefined && { improveRuns: input.improveRuns }),
       agents: input.agentRegistry,
-      blocks: input.blockRegistry,
-      agentPins: input.agentPins,
-      ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
       ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
       ...(input.correctionRegistry !== undefined && { correctorGroups: input.correctionRegistry }),
-      ...(input.testSetRegistry !== undefined && { testSets: input.testSetRegistry }),
     };
     v1.route(
       '/suggested-changes',

@@ -117,9 +117,9 @@ The suggested change is `evaluating`, then:
 
 - `evaluated`: the candidate beat the recorded outputs on the objective by
   more than the spread between the run's repetitions, when `--repetitions` is
-  above 1. Or, kept as `cheaper` (its `evaluation.rule`), it was
-  no worse than the current version on the same cases and cost less
-  ([Let it try a cheaper model or another temperature](../improve-an-agent/#let-it-try-a-cheaper-model-or-another-temperature));
+  above 1. Or, on an older suggested change kept as `cheaper` (its
+  `evaluation.rule`), it was no worse than the current version on the same
+  cases and cost less;
 - `not-better`: it didn't;
 - `evaluation-failed`: the run on the test cases failed or was cancelled.
 
@@ -374,9 +374,13 @@ withdrawing needs `publish` on the agent.
 Under `kindgi dev`, the pack's files are what runs, so a suggested change
 ends in them:
 
-- **An Improve run, a draft and an evaluation** work as on a deployed runtime,
-  for the whole tenant (`--tenant`). The version a suggested change makes is
-  kept for its evaluation only: runs go on using the pack's version.
+- **An Improve run** works in a project, as on a deployed runtime.
+  It counts its corrections, test cases and cost in the project, and drafts
+  its suggested change for the whole tenant, since the pack's files serve
+  every scope.
+- **A draft and an evaluation** work as on a deployed runtime, for the whole
+  tenant (`--tenant`). The version a suggested change makes is kept for its
+  evaluation only: runs go on using the pack's version.
 - **Pinning it writes it into the pack.** A request, or the approval it
   waits for, writes each data block in the suggested change into the block's
   own file: its new version and content, and the agent's new instructions into
@@ -390,9 +394,9 @@ ends in them:
   Commit the change to keep it. A deploy then publishes the block's new
   version, as [Keep them in the pack](../change-a-prompt-or-setting/#keep-them-in-the-pack)
   shows.
-- **For the whole tenant only,** since the pack's files serve every scope. An
-  Improve run, a draft, an evaluation or a request for a project or a segment is
-  refused with `409 registry-read-only`, before anything is made.
+- **For the whole tenant only,** since the pack's files serve every scope. A
+  draft, an evaluation or a request for a project or a segment is refused with
+  `409 registry-read-only`, before anything is made.
 - **The suggested change is `pinned`, with `pinnedNow` false:** nothing is
   pinned.
   The console says it was written into the pack's files.

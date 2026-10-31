@@ -217,6 +217,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'improve-unsupported': 501,
   'improve-run-not-found': 404,
   'improve-run-finished': 409,
+  /** Something an Improve run needs is missing (`details.items`, as `POST /check` lists them). */
+  'improve-not-ready': 409,
+  /** The agent has a running Improve run in the project (`details.improveRunId`): one at a time. */
+  'improve-run-running': 409,
   'version-already-exists': 409,
   'supervisor-header-missing': 400,
   // Artifacts.
@@ -637,6 +641,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'trigger-lifecycle-failed': 500,
   /** The deployment's trigger registry can't do this yet (fire history, run-now, a new owner). */
   'trigger-operation-unsupported': 501,
+  /** The agent and project have an Improve schedule already (`details.scheduleId`). */
+  'schedule-exists': 409,
   // The inbound receiver (`POST /v1/hooks/…`): one answer for any request
   // that doesn't prove its sender, whatever the reason (recorded, not said).
   'webhook-refused': 401,

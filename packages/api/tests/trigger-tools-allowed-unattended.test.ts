@@ -232,7 +232,7 @@ describe('which tools a target calls', () => {
       'acme.archive',
       'acme.send',
     ]);
-    expect(await at({ kind: 'improve', agentId: 'acme.digest' })).toEqual([]);
+    expect(await at({ kind: 'improve', agentId: 'acme.digest', projectId: PROJECT })).toEqual([]);
     expect(await at({ kind: 'agent', agentId: 'acme.nobody' })).toBeUndefined();
     expect(
       await toolsTargetCanCall(undefined, tenantId, {
@@ -365,7 +365,7 @@ describe('a schedule', () => {
   test('an Improve run calls no tools: only `[]`', async () => {
     const h = harness();
     const improve = {
-      improve: { agentId: 'acme.digest', scope: { kind: 'project', projectId: PROJECT } },
+      improve: { agentId: 'acme.digest', projectId: PROJECT },
       config: { cronExpression: '0 3 * * *' },
     };
     const listed = await h.call('POST', '/v1/schedules', {

@@ -3,41 +3,30 @@
 
 import { type Context, Hono } from 'hono';
 
-import { type AgentId, modelSettingsTunableKeys, tunableKeys } from '@kindgi/agents';
 import { type Action, ref } from '@kindgi/authz';
-import type { Cursor, ProjectId, Semver, TenantId } from '@kindgi/types';
+import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
-import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
-import type { AgentPinBindings } from '../agent-pin-binding.js';
-import type { BlockRegistryBinding } from '../block-binding.js';
+import type { AgentRegistryBinding } from '../agent-binding.js';
 import type { CorrectionRegistryBinding, CorrectorGroupScope } from '../correction-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import {
   IMPROVE_SCHEDULE_DEFAULTS,
   type ImproveRun,
   type ImproveRunBinding,
+  type ImproveRunCheck,
+  type ImproveRunStatus,
   type ImproveScheduleInput,
-  type ImproveThreshold,
   type ImprovementBudget,
   type ImprovementModel,
   type ImprovementTier,
 } from '../improve-run-binding.js';
 import { type ItemRights, writeWhereMade } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import {
-  type ReferenceScopeBinding,
-  agentPinScopeOutOfScope,
-  outOfScopeResponse,
-  referencesOutOfScope,
-} from '../reference-scope.js';
-import { refusesCandidates, refusesScope } from '../registry-read-only.js';
+import { refusesCandidates } from '../registry-read-only.js';
 import type { SuggestedChangeObjective } from '../supervisor-binding.js';
 import type { TestRunGroupWeights } from '../test-run-binding.js';
-import type { TestSetRegistryBinding } from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
-import { agentPinScopeToWire, parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
-import { actorOf, coordinatesOf } from './agent-pins.js';
-import { deniedBy } from './denied.js';
+import { actorOf } from './agent-pins.js';
 import { clampLimit } from './pagination.js';
 import { UUID_RE } from './uuid-param.js';
 
@@ -46,30 +35,18 @@ type Ctx = Context<AppEnv>;
 /** What `POST /v1/improve-runs` checks an Improve run against before it starts. */
 export interface ImproveDeps {
   readonly improveRuns?: ImproveRunBinding;
+  /** The agent registry: whether it takes the versions an Improve run makes (`readOnly`). */
   readonly agents: AgentRegistryBinding;
-  readonly blocks: BlockRegistryBinding;
-  readonly agentPins: AgentPinBindings;
-  /** What the agent's project may reach (`reference-scope.ts`); absent → as named. */
-  readonly referenceScope?: ReferenceScopeBinding;
   /** Whether a project is suspended: no Improve run starts in one. Absent: no check. */
   readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
   /**
    * The tenant's corrector groups. The `groupWeights` default counts everyone
    * (`as-recorded`) until an expert group (one with `assertableBy`) is named
-   * in the tenant, the project the Improve run reads its corrections from, or on the
-   * agent improved, then it's `experts-only`. Absent: the default stays
-   * `experts-only`. Only `listGroups` is used.
+   * in the tenant, the Improve run's project, or on the agent improved, then
+   * it's `experts-only`. Absent: the default stays `experts-only`. Only
+   * `listGroups` is used.
    */
   readonly correctorGroups?: Pick<CorrectionRegistryBinding, 'listGroups'>;
-  /**
-   * Test sets, to resolve the project an Improve run reads its corrections from: a
-   * corrections test set's own `spec.projectId`, else the test set's recorded project.
-   * That's the project the `groupWeights` default keys off, not where the
-   * agent is made — the two differ when the test set is an earlier environment's.
-   * Absent, or the test set records no project: the default keys off the agent
-   * version's project. Only `get` is used.
-   */
-  readonly testSets?: Pick<TestSetRegistryBinding, 'get'>;
 }
 
 /**
@@ -135,52 +112,25 @@ export async function projectHasExpertClass(
   return false;
 }
 
-/**
- * The project an Improve run reads its corrections from, which the `groupWeights`
- * default keys off: a corrections test set's own `spec.projectId`, else the test set's
- * recorded project. Undefined when no test set binding is wired or the test set
- * records no project — the caller then falls back to the agent version's
- * project. (The two differ when the test set is an earlier environment's.)
- */
-async function testSetProjectId(
-  deps: ImproveDeps,
-  tenantId: TenantId,
-  testSetId: string,
-): Promise<ProjectId | undefined> {
-  if (deps.testSets === undefined) return undefined;
-  const testSet = await deps.testSets.get({ tenantId, testSetId });
-  if (testSet === null) return undefined;
-  const specProject =
-    testSet.kind === 'corrections'
-      ? (testSet.spec as { projectId?: ProjectId }).projectId
-      : undefined;
-  return specProject ?? testSet.projectId;
-}
-
 export const DEFAULT_BUDGET: ImprovementBudget = { maxCostUsd: 5, maxCandidates: 30 };
 const MAX_COST_USD = 100;
 const MAX_CANDIDATES = 200;
 const OBJECTIVES: readonly SuggestedChangeObjective[] = ['passRate', 'weightedPrecisionAtK'];
+const STATUSES: readonly ImproveRunStatus[] = ['running', 'completed', 'failed', 'cancelled'];
 
 /**
- * `POST /` (under `/v1/improve-runs`): start an Improve run for
- * an agent version and a pin scope. It answers 202 with the Improve run; the
- * Improve run carries on in the background (`GET /v1/improve-runs/:id`).
+ * `POST /` (under `/v1/improve-runs`): start an Improve run for an agent in
+ * a project. It answers 202 with the Improve run; the Improve run carries on
+ * in the background (`GET /v1/improve-runs/:id`). It starts from the version
+ * the project runs, takes the project's corrections and searches and proves
+ * on the project's test set.
  *
- * Checked first, as evaluating its suggested change would be: the version must be
- * active and pinned, it must pin a settings block with tunable keys, the
- * agent registry must take writes, and the agent must have a pinned version
- * for the whole tenant. Needs `publish` on the agent; for an agent more
- * than one project serves, `write` where its new versions are made
+ * The readiness check (`POST /check`) runs first: a run that isn't ready is
+ * refused with `409 improve-not-ready`, listing every missing item at once,
+ * and one while the agent already has a running run in the project with
+ * `409 improve-run-running`. Needs `publish` on the agent; for an agent
+ * more than one project serves, `write` where its new versions are made
  * (`item-rights.ts`).
- *
- * The Improve run works in one project: its test set must be one that project
- * reaches, and its test runs run there. As an improve schedule's: the
- * `projectId` named, else the scope's project, else the agent version's.
- * A project or segment scope must be in it, the version must reach it,
- * and a project other than the version's needs `write` there, as the
- * Improve run's test runs do. Its suggested change's version is made where the agent's
- * versions are, as any suggested change's.
  */
 function mountStartRoutes(
   r: Hono<AppEnv>,
@@ -196,80 +146,46 @@ function mountStartRoutes(
     if (typeof parsed === 'string') return badInput(c, parsed);
     const denied = await deny(c, authorizer, 'publish', parsed.agentId, itemRights);
     if (denied !== undefined) return denied;
-    if (deps.improveRuns === undefined) return unsupported(c);
-    // A read-only registry takes an Improve run only when it takes its candidates.
-    if (deps.agents.readOnly !== undefined && refusesCandidates(deps.agents.readOnly)) {
-      return fail(c, 'registry-read-only', {
-        code: 'registry-read-only',
-        message: deps.agents.readOnly.reason,
-      });
-    }
-    const narrower = refusesScope(deps.agents.readOnly, parsed.scope);
-    if (narrower !== undefined) {
-      return fail(c, 'registry-read-only', { code: 'registry-read-only', message: narrower });
-    }
-    const target = await resolveImproveTarget(c, deps, authorizer, tenantId, parsed);
-    if (target instanceof Response) return target;
-    const { from, projectId } = target;
-    if (
-      projectId !== undefined &&
-      deps.projectSuspended !== undefined &&
-      (await deps.projectSuspended(tenantId, projectId))
-    ) {
-      return fail(c, 'project-suspended', {
-        code: 'project-suspended',
-        message:
-          "The Improve run's project is suspended, so nothing new runs in it until it's restored; the Improve run wasn't started",
-      });
-    }
-    const nothing = await nothingToTune(deps.blocks, tenantId, from, parsed.tiers[0]);
-    if (nothing !== undefined) {
-      return fail(c, 'validation-failed', {
-        code: 'validation-failed',
-        message: nothing.message,
-        reason: nothing.reason,
-        issues: [],
-      });
-    }
-    if ((await deps.agentPins.pinned.resolve({ tenantId, agentId: parsed.agentId })) === null) {
-      return fail(c, 'suggested-change-needs-pin', {
-        code: 'suggested-change-needs-pin',
-        message: `${parsed.agentId} has no pinned version for the whole tenant, so the version an Improve run suggests would serve every scope nothing is pinned for. Pin its current version for the tenant first (scope { "kind": "tenant" }), then start the Improve run.`,
-      });
-    }
-    // The `groupWeights` default keys off the project the Improve run READS its
-    // corrections from — its test set's project — not where the agent is made;
-    // the two differ when the test set is an earlier environment's. Only the
-    // default needs it, so skip the test set read when `groupWeights` is
-    // explicit, or when no corrector-group registry is wired (the default is
-    // fixed at `experts-only` either way).
-    const readProjectId =
-      parsed.groupWeights === undefined && deps.correctorGroups !== undefined
-        ? ((await testSetProjectId(deps, tenantId, parsed.testSetId)) ?? from.projectId)
-        : from.projectId;
-    const improveRun = await deps.improveRuns.start({
+    const improveRuns = deps.improveRuns;
+    if (improveRuns === undefined) return unsupported(c);
+    const groupWeights = await resolveGroupWeights(
+      deps,
       tenantId,
-      ...(projectId !== undefined && { projectId }),
+      parsed.projectId,
+      parsed.agentId,
+      parsed.groupWeights,
+    );
+    const check = await improveRuns.check(checkInput(tenantId, parsed, groupWeights));
+    const readiness = await readinessOf(deps, tenantId, parsed, check);
+    const missing = blocking(readiness.items, parsed.tiers);
+    // The running run alone is `improve-run-running`, with its id; anything else
+    // missing is `improve-not-ready`, listing every missing item at once.
+    if (missing.length === 1 && check.runningId !== undefined) {
+      return running(c, parsed, check.runningId);
+    }
+    if (missing.length > 0) {
+      const keys = missing.map((item) => item.key).join(', ');
+      return fail(c, 'improve-not-ready', {
+        code: 'improve-not-ready',
+        message: `${parsed.agentId} isn't ready for an Improve run in this project: ${keys} missing (\`items\` says how to fix each)`,
+        items: missing,
+      });
+    }
+    const started = await improveRuns.start({
+      tenantId,
+      projectId: parsed.projectId,
       agentId: parsed.agentId,
-      fromVersion: from.version as unknown as string,
-      scope: parsed.scope,
-      testSetId: parsed.testSetId,
-      tiers: parsed.tiers,
+      ...(parsed.tiers !== undefined && { tiers: parsed.tiers }),
       objective: parsed.objective,
-      groupWeights: await resolveGroupWeights(
-        deps,
-        tenantId,
-        readProjectId,
-        parsed.agentId,
-        parsed.groupWeights,
-      ),
+      groupWeights,
       ...(parsed.model !== undefined && { model: parsed.model }),
       ...(parsed.candidates !== undefined && { candidates: parsed.candidates }),
       budget: parsed.budget,
       requestedBy: actorOf(c),
     });
+    if (started.kind === 'running') return running(c, parsed, started.improveRunId);
     c.status(202);
-    return c.json(serializeImproveRun(improveRun));
+    return c.json(serializeImproveRun(started.improveRun));
   });
 
   r.post('/check', async (c) => {
@@ -281,44 +197,179 @@ function mountStartRoutes(
     const denied = await deny(c, authorizer, 'publish', parsed.agentId, itemRights);
     if (denied !== undefined) return denied;
     const improveRuns = deps.improveRuns;
-    if (improveRuns === undefined || improveRuns.checkBasis === undefined) return unsupported(c);
-    // Resolve and reach-check the same body `POST /v1/improve-runs` would, so a bad body
-    // fails the same way here; the estimate is a read, so it stops there and
-    // doesn't take `POST /v1/improve-runs`'s run-gating refusals.
-    const resolved = await resolveImproveTarget(c, deps, authorizer, tenantId, parsed);
-    if (resolved instanceof Response) return resolved;
-    const basis = await improveRuns.checkBasis({
+    if (improveRuns === undefined) return unsupported(c);
+    const groupWeights = await resolveGroupWeights(
+      deps,
       tenantId,
-      agentId: parsed.agentId,
-      fromVersion: resolved.from.version as string,
-      scope: parsed.scope,
-      testSetId: parsed.testSetId,
-      tiers: parsed.tiers,
-      ...(parsed.model !== undefined && { model: parsed.model }),
-      ...(parsed.candidates !== undefined && { candidates: parsed.candidates }),
-    });
-    const estimatedCostUsd =
+      parsed.projectId,
+      parsed.agentId,
+      parsed.groupWeights,
+    );
+    const check = await improveRuns.check(checkInput(tenantId, parsed, groupWeights));
+    const readiness = await readinessOf(deps, tenantId, parsed, check);
+    const { basis } = check;
+    const costUsd =
       basis.meanRunCostUsd === undefined
         ? undefined
         : usd(Math.min(parsed.budget.maxCostUsd, basis.replays * Number(basis.meanRunCostUsd)));
     return c.json({
-      ...(estimatedCostUsd !== undefined && { estimatedCostUsd }),
-      maxCostUsd: usd(parsed.budget.maxCostUsd),
-      basis: {
-        replays: basis.replays,
-        ...(basis.meanRunCostUsd !== undefined && { meanRunCostUsd: basis.meanRunCostUsd }),
+      ready: readiness.ready,
+      ...(check.startsFrom !== undefined && { startsFrom: check.startsFrom }),
+      items: readiness.items,
+      estimate: {
+        ...(costUsd !== undefined && { costUsd }),
+        maxCostUsd: usd(parsed.budget.maxCostUsd),
+        basis: {
+          replays: basis.replays,
+          ...(basis.meanRunCostUsd !== undefined && { meanRunCostUsd: basis.meanRunCostUsd }),
+        },
       },
+      ...(check.month !== undefined && { month: check.month }),
     });
   });
 }
 
+/** What the binding's check reads, from a parsed start body. */
+function checkInput(
+  tenantId: TenantId,
+  parsed: StartImproveRunBody,
+  groupWeights: TestRunGroupWeights,
+) {
+  return {
+    tenantId,
+    projectId: parsed.projectId,
+    agentId: parsed.agentId,
+    ...(parsed.tiers !== undefined && { tiers: parsed.tiers }),
+    ...(parsed.model !== undefined && { model: parsed.model }),
+    ...(parsed.candidates !== undefined && { candidates: parsed.candidates }),
+    groupWeights,
+  };
+}
+
+/** The `409 improve-run-running` refusal: the agent's running run in the project. */
+function running(c: Ctx, parsed: StartImproveRunBody, improveRunId: string) {
+  return fail(c, 'improve-run-running', {
+    code: 'improve-run-running',
+    message: `Improve run ${improveRunId} is running for ${parsed.agentId} in this project: one runs at a time. Wait for it to end, or cancel it.`,
+    improveRunId,
+  });
+}
+
+/** One line of the readiness list (`POST /v1/improve-runs/check`). */
+interface ReadinessItem {
+  readonly key:
+    | 'wording'
+    | 'settings'
+    | 'test-cases'
+    | 'permission'
+    | 'one-at-a-time'
+    | 'project'
+    | 'registry';
+  readonly missing: boolean;
+  /** For `test-cases`: the project's active cases of the agent's test set. */
+  readonly count?: number;
+  /** For a missing `one-at-a-time`: the running Improve run. */
+  readonly improveRunId?: string;
+  /** For a missing item: where it's fixed (the agent's code, or Kindgi) and how. */
+  readonly fix?: { readonly where: 'repo' | 'kindgi'; readonly text: string };
+}
+
 /**
- * `/v1/improve-runs`: start an Improve run (`POST /`), check what one would cost
- * (`POST /check`), read Improve runs back, and cancel one.
+ * The readiness list, in its fixed order, from what the runtime knows
+ * (`check`) and what the route does: the registry and the project's state.
+ * `permission` is never missing here, since both routes refuse a caller
+ * without `publish` first.
+ */
+async function readinessOf(
+  deps: ImproveDeps,
+  tenantId: TenantId,
+  parsed: StartImproveRunBody,
+  check: ImproveRunCheck,
+): Promise<{ readonly ready: boolean; readonly items: readonly ReadinessItem[] }> {
+  const suspended =
+    deps.projectSuspended !== undefined &&
+    (await deps.projectSuspended(tenantId, parsed.projectId));
+  const readOnly = deps.agents.readOnly;
+  const items: ReadinessItem[] = [
+    check.wording
+      ? { key: 'wording', missing: false }
+      : { key: 'wording', missing: true, fix: { where: 'repo', text: FIX.wording } },
+    check.settings
+      ? { key: 'settings', missing: false }
+      : { key: 'settings', missing: true, fix: { where: 'repo', text: FIX.settings } },
+    check.testCases > 0
+      ? { key: 'test-cases', missing: false, count: check.testCases }
+      : {
+          key: 'test-cases',
+          missing: true,
+          count: check.testCases,
+          fix: { where: 'kindgi', text: FIX.testCases },
+        },
+    { key: 'permission', missing: false },
+    check.runningId === undefined
+      ? { key: 'one-at-a-time', missing: false }
+      : {
+          key: 'one-at-a-time',
+          missing: true,
+          improveRunId: check.runningId,
+          fix: {
+            where: 'kindgi',
+            text: `Improve run ${check.runningId} is running for this agent in this project. Wait for it to end, or cancel it.`,
+          },
+        },
+    suspended
+      ? { key: 'project', missing: true, fix: { where: 'kindgi', text: FIX.suspended } }
+      : check.startsFrom === undefined
+        ? { key: 'project', missing: true, fix: { where: 'repo', text: FIX.notRunning } }
+        : { key: 'project', missing: false },
+    readOnly !== undefined && refusesCandidates(readOnly)
+      ? { key: 'registry', missing: true, fix: { where: 'kindgi', text: readOnly.reason } }
+      : { key: 'registry', missing: false },
+  ];
+  return { ready: blocking(items, parsed.tiers).length === 0, items };
+}
+
+/**
+ * The missing items that keep the Improve run from starting. Wording and
+ * settings are its two tiers: with none named, either one is enough; a
+ * named tier needs its own. Every other item is needed.
+ */
+function blocking(
+  items: readonly ReadinessItem[],
+  tiers: readonly ImprovementTier[] | undefined,
+): readonly ReadinessItem[] {
+  const missing = (key: ReadinessItem['key']) => items.some((i) => i.key === key && i.missing);
+  const noTier = missing('wording') && missing('settings');
+  return items.filter((item) => {
+    if (!item.missing) return false;
+    if (item.key === 'wording') return tiers === undefined ? noTier : tiers.includes('prompt');
+    if (item.key === 'settings') return tiers === undefined ? noTier : tiers.includes('settings');
+    return true;
+  });
+}
+
+/** The readiness items' fix texts. None names a file: where the agent's code is isn't known. */
+const FIX = {
+  wording:
+    "Improve rewrites a prompt block's wording with a model. If the instructions are written in code, not in a prompt block, ask your coding agent to move them into one, then deploy. If no model is named to write it, give the run a provider and model, or name them in the version's model-settings block.",
+  settings:
+    'None of its settings is marked "Improve may tune". Ask your coding agent to mark the settings Improve may tune (a number with a minimum and maximum, or a list of choices) in a settings block, then deploy.',
+  testCases:
+    "This project's test set has no active case for the agent yet. Add at least one, then check again.",
+  suspended:
+    "The project is suspended, so nothing new runs in it until it's restored. Restore the project first.",
+  notRunning:
+    'No version of the agent runs in this project. Deploy the agent to the project first.',
+} as const;
+
+/**
+ * `/v1/improve-runs`: start an Improve run (`POST /`), check whether one is
+ * ready and what it would cost (`POST /check`), read Improve runs back, and
+ * cancel one.
  *
  *   POST /                     start an Improve run (202)
- *   POST /check                what one would cost
- *   GET  /                     newest first; `?agentId=` narrows
+ *   POST /check                whether one is ready, and what it would cost
+ *   GET  /                     newest first; `?agentId=`, `?projectId=`, `?status=` narrow
  *   GET  /:improveRunId        one
  *   POST /:improveRunId/cancel stop a running Improve run (it writes no suggested change)
  *
@@ -366,11 +417,21 @@ export function improveRunsRouter(
   r.get('/', async (c) => {
     if (improveRuns === undefined) return unsupported(c);
     const agentId = c.req.query('agentId');
+    const projectId = c.req.query('projectId') || undefined;
+    const status = c.req.query('status') || undefined;
     const cursor = c.req.query('cursor');
+    if (projectId !== undefined && !UUID_RE.test(projectId)) {
+      return badInput(c, '`projectId` must be a project id (a UUID)');
+    }
+    if (status !== undefined && !STATUSES.includes(status as ImproveRunStatus)) {
+      return badInput(c, `\`status\` must be one of ${STATUSES.join(', ')}`);
+    }
     const page = await improveRuns.list({
       tenantId: c.get('tenantId') as TenantId,
       limit: clampLimit(c.req.query('limit')),
       ...(agentId !== undefined && agentId !== '' && { agentId }),
+      ...(projectId !== undefined && { projectId: projectId as ProjectId }),
+      ...(status !== undefined && { status: status as ImproveRunStatus }),
       ...(cursor !== undefined && cursor !== '' && { cursor: cursor as Cursor }),
     });
     const shown =
@@ -427,173 +488,14 @@ export function improveRunsRouter(
   return r;
 }
 
-/**
- * Resolve and reach-check an improve body the way `POST /v1/improve-runs` does before it
- * runs — so `POST /` and `POST /check`, which take the same body,
- * fail it the same way. Resolves the from-version (given, or the one serving
- * the scope), 404s an unknown or inactive one, then the Improve run's project
- * (`runProject`). Returns the version and the project, or the response to
- * send.
- */
-async function resolveImproveTarget(
-  c: Ctx,
-  deps: ImproveDeps,
-  authorizer: Authorizer | undefined,
-  tenantId: TenantId,
-  parsed: StartImproveRunBody,
-): Promise<
-  { readonly from: AgentVersionRecord; readonly projectId: ProjectId | undefined } | Response
-> {
-  const fromVersion =
-    parsed.fromVersion ?? (await servingVersion(deps, tenantId, parsed.agentId, parsed.scope));
-  const from =
-    fromVersion === undefined
-      ? null
-      : await deps.agents.getVersion({
-          tenantId,
-          agentId: parsed.agentId as AgentId,
-          version: fromVersion as Semver,
-        });
-  if (from === null || from.unregisteredAt !== undefined) {
-    return fail(c, 'agent-version-not-found', {
-      code: 'agent-version-not-found',
-      message: `${parsed.agentId} has no active version ${fromVersion ?? '(none is registered)'}`,
-    });
-  }
-  const project = await runProject(c, deps, authorizer, tenantId, parsed, from);
-  if (project instanceof Response) return project;
-  return { from, projectId: project.projectId };
-}
-
-/**
- * The project an Improve run works in, as an improve schedule's (`schedules.ts`):
- * the one named, else the scope's, else the version's. A project or
- * segment scope must be in it; a project other than the version's needs
- * `write` there and must reach the version; it must reach the test set, and
- * the scope the agent. The project, or the refusal. Whether it's suspended
- * is the start route's to ask, since the check starts nothing.
- */
-async function runProject(
-  c: Ctx,
-  deps: ImproveDeps,
-  authorizer: Authorizer | undefined,
-  tenantId: TenantId,
-  parsed: StartImproveRunBody,
-  from: AgentVersionRecord,
-): Promise<{ readonly projectId: ProjectId | undefined } | Response> {
-  const scopeProject = scopeProjectOf(parsed.scope);
-  const projectId = (parsed.projectId as ProjectId | undefined) ?? scopeProject ?? from.projectId;
-  if (scopeProject !== undefined && projectId !== scopeProject) {
-    return badInput(
-      c,
-      "An Improve run's scope must be in its project (`projectId`): it learns from that project's runs",
-    );
-  }
-  const elsewhere = projectId !== undefined && projectId !== from.projectId;
-  if (elsewhere) {
-    const refused = await deniedBy(authorizer, c, 'write', ref('project', projectId as string));
-    if (refused !== undefined) return refused;
-  }
-  // The scope must reach the agent; then the Improve run's project must reach
-  // the version (when it isn't the version's own) and the test set
-  // (`reference-scope.ts`).
-  const outOfScope =
-    (await agentPinScopeOutOfScope(deps.referenceScope, tenantId, parsed.agentId, parsed.scope)) ??
-    (projectId === undefined
-      ? undefined
-      : await referencesOutOfScope(deps.referenceScope, tenantId, projectId, [
-          ...(elsewhere
-            ? [
-                {
-                  path: '/fromVersion',
-                  kind: 'agent' as const,
-                  id: parsed.agentId,
-                  version: from.version as unknown as string,
-                },
-              ]
-            : []),
-          { path: '/testSetId', kind: 'test-set', id: parsed.testSetId },
-        ]));
-  if (outOfScope !== undefined) return outOfScopeResponse(c, c.get('requestId'), outOfScope);
-  return { projectId };
-}
-
-/** A project or segment scope's project; `undefined` for the tenant or an org. */
-function scopeProjectOf(scope: ImproveRun['scope']): ProjectId | undefined {
-  return scope.kind === 'project' || scope.kind === 'segment' ? scope.projectId : undefined;
-}
-
-/** What serves the scope now: its pinned version, else the agent's latest. */
-async function servingVersion(
-  deps: ImproveDeps,
-  tenantId: TenantId,
-  agentId: string,
-  scope: ImproveRun['scope'],
-): Promise<string | undefined> {
-  const pinned = await deps.agentPins.pinned.resolve({
-    tenantId,
-    agentId,
-    ...coordinatesOf(scope),
-  });
-  if (pinned !== null) return pinned.version as unknown as string;
-  const latest = await deps.agents.get({ tenantId, agentId: agentId as AgentId });
-  return latest?.version as unknown as string | undefined;
-}
-
-/**
- * Why an Improve run of a tier has nothing to work on in a version. `reason` is
- * the refusal's `details.reason`, for a client to tell the two apart
- * without reading `message`.
- */
-interface NothingToTune {
-  readonly reason: 'no-pinned-prompt-block' | 'no-tunable-keys';
-  readonly message: string;
-}
-
-/** Why an Improve run of this tier has nothing to work on in this version; `undefined` when it has. */
-async function nothingToTune(
-  blocks: BlockRegistryBinding,
-  tenantId: TenantId,
-  version: AgentVersionRecord,
-  tier: ImprovementTier | undefined,
-): Promise<NothingToTune | undefined> {
-  const named = `${version.id as unknown as string} ${version.version as unknown as string}`;
-  if (tier === 'prompt') {
-    const prompt =
-      typeof version.instructions === 'object' ? version.instructions.prompt : undefined;
-    return prompt !== undefined && version.pins?.prompts[prompt] !== undefined
-      ? undefined
-      : {
-          reason: 'no-pinned-prompt-block',
-          message: `${named} doesn't take its instructions from a pinned prompt block: there's no template for a prompt Improve run to draft. Move the instructions into a prompt block and publish the agent again.`,
-        };
-  }
-  // Why the model-settings block's model keys aren't tried, if they aren't.
-  let skipped: string | undefined;
-  for (const [blockId, pinned] of Object.entries(version.pins?.settings ?? {})) {
-    const block = await blocks.getVersion({ tenantId, blockId, version: pinned });
-    if (block?.kind !== 'settings') continue;
-    const tunable: { readonly keys: readonly unknown[]; readonly skipped?: string } =
-      version.modelSettings?.id === blockId
-        ? modelSettingsTunableKeys(block.content.schema, version)
-        : { keys: tunableKeys(block.content.schema) };
-    if (tunable.keys.length > 0) return undefined;
-    skipped ??= tunable.skipped;
-  }
-  const why = skipped === undefined ? '' : ` In its model-settings block, ${skipped}.`;
-  return {
-    reason: 'no-tunable-keys',
-    message: `${named} pins no settings block with keys marked "x-kindgi-tunable": there's nothing for an Improve run to tune. Mark the keys it may tune in the block's schema (a number or integer with a minimum and maximum, or an enum) and publish it.${why}`,
-  };
-}
-
 export function serializeImproveRun(p: ImproveRun): Record<string, unknown> {
   return {
     id: p.id,
     agentId: p.agentId,
-    fromVersion: p.fromVersion,
-    scope: agentPinScopeToWire(p.scope),
-    testSetId: p.testSetId,
+    ...(p.projectId !== undefined && { projectId: p.projectId }),
+    startsFrom: p.startsFrom,
+    ...(p.testSetVersion !== undefined && { testSetVersion: p.testSetVersion }),
+    setAside: p.setAside,
     tiers: p.tiers,
     objective: p.objective,
     groupWeights: p.groupWeights,
@@ -601,14 +503,15 @@ export function serializeImproveRun(p: ImproveRun): Record<string, unknown> {
     ...(p.candidates !== undefined && { candidates: p.candidates }),
     budget: p.budget,
     requestedBy: p.requestedBy,
+    ...(p.trigger !== undefined && { trigger: p.trigger }),
     status: p.status,
-    candidatesEvaluated: p.candidatesEvaluated,
+    tried: p.tried,
     costUsd: p.costUsd,
     ...(p.outcome !== undefined && { outcome: p.outcome }),
+    takes: p.takes,
     ...(p.status === 'cancelled' &&
       p.cancelReason !== undefined && { cancelReason: p.cancelReason }),
     ...(p.comparisons !== undefined && { comparisons: p.comparisons }),
-    ...(p.trigger !== undefined && { trigger: p.trigger }),
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
     ...(p.finishedAt !== undefined && { finishedAt: p.finishedAt }),
@@ -619,11 +522,8 @@ export function serializeImproveRun(p: ImproveRun): Record<string, unknown> {
 
 interface StartImproveRunBody {
   readonly agentId: string;
-  readonly fromVersion?: string;
-  readonly projectId?: string;
-  readonly scope: ImproveRun['scope'];
-  readonly testSetId: string;
-  readonly tiers: readonly ImprovementTier[];
+  readonly projectId: ProjectId;
+  readonly tiers?: readonly ImprovementTier[];
   readonly objective: SuggestedChangeObjective;
   readonly groupWeights?: TestRunGroupWeights;
   readonly model?: ImprovementModel;
@@ -632,18 +532,28 @@ interface StartImproveRunBody {
 }
 
 const MAX_DRAFTED = 5;
+const TIERS_RULE =
+  "`tiers` is one or both of 'prompt' (drafted prompt templates) and 'settings' (tunable settings values), each once; omit it for every tier that's ready";
 
-/** `model` and `candidates`, for a prompt Improve run only; an error message otherwise. */
-function parsePromptOptions(
-  b: Record<string, unknown>,
-  tier: ImprovementTier,
-): { model?: ImprovementModel; candidates?: number } | string {
-  if (tier !== 'prompt') {
-    return b.model !== undefined || b.candidates !== undefined
-      ? "`model` and `candidates` are for a prompt Improve run (`tiers: ['prompt']`)"
-      : {};
+/** `tiers`: absent (every tier that's ready), or one or both tiers, each once; else the error. */
+function parseTiers(raw: unknown): readonly ImprovementTier[] | undefined | string {
+  if (raw === undefined) return undefined;
+  if (
+    !Array.isArray(raw) ||
+    raw.length < 1 ||
+    raw.length > 2 ||
+    raw.some((t) => t !== 'settings' && t !== 'prompt') ||
+    new Set(raw).size !== raw.length
+  ) {
+    return TIERS_RULE;
   }
-  const m = b.model as Record<string, unknown> | undefined;
+  return raw as ImprovementTier[];
+}
+
+/** `model`: absent (the version's own model), or `{ providerId, model }`; else the error. */
+function parseModel(raw: unknown): ImprovementModel | undefined | string {
+  if (raw === undefined) return undefined;
+  const m = raw as Record<string, unknown> | null;
   if (
     typeof m !== 'object' ||
     m === null ||
@@ -651,9 +561,25 @@ function parsePromptOptions(
     !nonEmpty(m.model) ||
     Object.keys(m).length !== 2
   ) {
-    return "`model` is required for a prompt Improve run: { providerId, model }, the tenant's provider and model that drafts the templates";
+    return "`model` is { providerId, model }: the tenant's provider and model that drafts the templates; omit it for the model of the version's own model-settings block";
   }
-  const candidates = b.candidates ?? 3;
+  return { providerId: m.providerId, model: m.model };
+}
+
+/** `model` and `candidates`, for the prompt tier only; an error message otherwise. */
+function parsePromptOptions(
+  b: Record<string, unknown>,
+  tiers: readonly ImprovementTier[] | undefined,
+): { model?: ImprovementModel; candidates?: number } | string {
+  if (tiers !== undefined && !tiers.includes('prompt')) {
+    return b.model !== undefined || b.candidates !== undefined
+      ? "`model` and `candidates` are for the prompt tier (`tiers` with 'prompt', or no `tiers`)"
+      : {};
+  }
+  const model = parseModel(b.model);
+  if (typeof model === 'string') return model;
+  const candidates = b.candidates;
+  if (candidates === undefined) return model === undefined ? {} : { model };
   if (
     typeof candidates !== 'number' ||
     !Number.isInteger(candidates) ||
@@ -662,7 +588,7 @@ function parsePromptOptions(
   ) {
     return `\`candidates\` is how many templates to draft: 1 to ${MAX_DRAFTED}`;
   }
-  return { model: { providerId: m.providerId, model: m.model }, candidates };
+  return { ...(model !== undefined && { model }), candidates };
 }
 
 function nonEmpty(value: unknown): value is string {
@@ -693,10 +619,7 @@ function parseBudget(raw: unknown): ImprovementBudget | string {
 function parseStartImproveRunBody(b: Record<string, unknown>): StartImproveRunBody | string {
   const known = [
     'agentId',
-    'fromVersion',
     'projectId',
-    'scope',
-    'testSetId',
     'tiers',
     'objective',
     'groupWeights',
@@ -707,46 +630,11 @@ function parseStartImproveRunBody(b: Record<string, unknown>): StartImproveRunBo
   const extra = Object.keys(b).find((k) => !known.includes(k));
   if (extra !== undefined) return `\`${extra}\` isn't a field of improve: { ${known.join(', ')} }`;
   if (!nonEmpty(b.agentId)) return '`agentId` is required';
-  if (b.fromVersion !== undefined && !nonEmpty(b.fromVersion)) {
-    return '`fromVersion` must be a version when given (default: the one serving the scope)';
+  if (typeof b.projectId !== 'string' || !UUID_RE.test(b.projectId)) {
+    return '`projectId` is required: the project the Improve run works in (a UUID)';
   }
-  if (
-    b.projectId !== undefined &&
-    (typeof b.projectId !== 'string' || !UUID_RE.test(b.projectId))
-  ) {
-    return '`projectId` must be a project id (a UUID)';
-  }
-  const scope = parseAgentPinScopeBody(b.scope);
-  if (scope.kind === 'err') return scope.message;
-  if (!nonEmpty(b.testSetId)) return '`testSetId` is required: the test set to search and prove on';
-  const options = parseRunOptions(b);
-  if (typeof options === 'string') return options;
-  return {
-    agentId: b.agentId,
-    ...(typeof b.fromVersion === 'string' && { fromVersion: b.fromVersion }),
-    ...(typeof b.projectId === 'string' && { projectId: b.projectId }),
-    scope: scope.scope,
-    testSetId: b.testSetId,
-    ...options,
-  };
-}
-
-type RunOptions = Pick<
-  StartImproveRunBody,
-  'tiers' | 'objective' | 'groupWeights' | 'model' | 'candidates' | 'budget'
->;
-
-/** An Improve run's options (`tiers`, `objective`, `groupWeights`, `model`, `candidates`, `budget`), defaults applied. */
-function parseRunOptions(b: Record<string, unknown>): RunOptions | string {
-  const tiers = b.tiers ?? ['settings'];
-  if (
-    !Array.isArray(tiers) ||
-    tiers.length !== 1 ||
-    (tiers[0] !== 'settings' && tiers[0] !== 'prompt')
-  ) {
-    return "`tiers` is ['settings'] (tunable settings values) or ['prompt'] (a drafted prompt template)";
-  }
-  const tier = tiers[0] as ImprovementTier;
+  const tiers = parseTiers(b.tiers);
+  if (typeof tiers === 'string') return tiers;
   if (b.objective !== undefined && !OBJECTIVES.includes(b.objective as SuggestedChangeObjective)) {
     return `\`objective\` must be one of ${OBJECTIVES.join(', ')}`;
   }
@@ -758,12 +646,14 @@ function parseRunOptions(b: Record<string, unknown>): RunOptions | string {
   ) {
     return "`groupWeights` is 'experts-only' (trusted corrections) or 'as-recorded' (everyone); omit it for the project's default";
   }
-  const prompt = parsePromptOptions(b, tier);
+  const prompt = parsePromptOptions(b, tiers);
   if (typeof prompt === 'string') return prompt;
   const budget = parseBudget(b.budget);
   if (typeof budget === 'string') return budget;
   return {
-    tiers: [tier],
+    agentId: b.agentId,
+    projectId: b.projectId as ProjectId,
+    ...(tiers !== undefined && { tiers }),
     objective: (b.objective as SuggestedChangeObjective | undefined) ?? 'passRate',
     ...(groupWeights !== undefined && { groupWeights }),
     ...prompt,
@@ -772,13 +662,13 @@ function parseRunOptions(b: Record<string, unknown>): RunOptions | string {
 }
 
 const MAX_MONTHLY_CAP_USD = 1000;
-const MAX_THRESHOLD = 1000;
+const MAX_CORRECTIONS = 1000;
 
 /**
- * An `improve` schedule's input (`config.input`), defaults applied: the
- * Improve run options `improve` takes (no agent, scope or test set: the schedule
- * names those, and each Improve run builds its test set), plus `threshold` and
- * `monthlyCapUsd`.
+ * An `improve` schedule's input (`config.input`), defaults applied
+ * (`IMPROVE_SCHEDULE_DEFAULTS`): how many new corrections start a run, whose
+ * count, what one run and the month may cost, and the run's tiers and model.
+ * The schedule's target names the agent and project.
  */
 export function parseImproveScheduleInput(
   raw: unknown,
@@ -789,61 +679,61 @@ export function parseImproveScheduleInput(
     return err("An improve schedule's `config.input` is an object of Improve run options");
   }
   const o = b as Record<string, unknown>;
-  const known = [
-    'tiers',
-    'objective',
-    'groupWeights',
-    'model',
-    'candidates',
-    'budget',
-    'threshold',
-    'monthlyCapUsd',
-  ];
+  const known = ['corrections', 'from', 'runCapUsd', 'monthCapUsd', 'tiers', 'model'];
   const extra = Object.keys(o).find((k) => !known.includes(k));
   if (extra !== undefined) {
     return err(
       `\`${extra}\` isn't an option of an improve schedule's \`config.input\`: { ${known.join(', ')} }`,
     );
   }
-  const options = parseRunOptions(o);
-  if (typeof options === 'string') return err(options);
-  const threshold = parseThreshold(o.threshold);
-  if (typeof threshold === 'string') return err(threshold);
-  const cap = o.monthlyCapUsd ?? IMPROVE_SCHEDULE_DEFAULTS.monthlyCapUsd;
-  if (typeof cap !== 'number' || !(cap > 0 && cap <= MAX_MONTHLY_CAP_USD)) {
+  const d = IMPROVE_SCHEDULE_DEFAULTS;
+  const corrections = o.corrections ?? d.corrections;
+  if (
+    typeof corrections !== 'number' ||
+    !Number.isInteger(corrections) ||
+    corrections < 1 ||
+    corrections > MAX_CORRECTIONS
+  ) {
     return err(
-      `\`monthlyCapUsd\` is the most its Improve runs may cost a month: more than 0, up to ${MAX_MONTHLY_CAP_USD}`,
+      `\`corrections\` is how many new corrections sorted to improve start a run: 1 to ${MAX_CORRECTIONS} (default ${d.corrections})`,
     );
   }
-  return { kind: 'ok', input: { ...options, threshold, monthlyCapUsd: cap } };
-}
-
-function parseThreshold(raw: unknown): ImproveThreshold | string {
-  const d = IMPROVE_SCHEDULE_DEFAULTS.threshold;
-  if (raw === undefined) return d;
-  const o =
-    typeof raw === 'object' && raw !== null && !Array.isArray(raw)
-      ? (raw as Record<string, unknown>)
-      : undefined;
-  const t = {
-    corrections: o?.corrections ?? d.corrections,
-    runs: o?.runs ?? d.runs,
-    correctors: o?.correctors ?? d.correctors,
-  };
-  const whole = (v: unknown): v is number =>
-    typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= MAX_THRESHOLD;
-  if (
-    o === undefined ||
-    Object.keys(o).some((k) => !['corrections', 'runs', 'correctors'].includes(k)) ||
-    !whole(t.corrections) ||
-    !whole(t.runs) ||
-    !whole(t.correctors) ||
-    t.runs > t.corrections ||
-    t.correctors > t.corrections
-  ) {
-    return `\`threshold\` is { corrections?, runs?, correctors? }: how many answers marked wrong since the last Improve run (default ${d.corrections}), across how many runs (${d.runs}) and from how many correctors (${d.correctors}); runs and correctors at most corrections`;
+  const from = o.from ?? d.from;
+  if (from !== 'experts' && from !== 'everyone') {
+    return err(
+      "`from` is whose corrections count: 'experts' (the project's experts, the default) or 'everyone'",
+    );
   }
-  return t as ImproveThreshold;
+  const runCapUsd = o.runCapUsd ?? d.runCapUsd;
+  if (typeof runCapUsd !== 'number' || !(runCapUsd > 0 && runCapUsd <= MAX_COST_USD)) {
+    return err(
+      `\`runCapUsd\` is the most one run may cost: more than 0, up to ${MAX_COST_USD} (default ${d.runCapUsd})`,
+    );
+  }
+  const monthCapUsd = o.monthCapUsd ?? d.monthCapUsd;
+  if (typeof monthCapUsd !== 'number' || !(monthCapUsd > 0 && monthCapUsd <= MAX_MONTHLY_CAP_USD)) {
+    return err(
+      `\`monthCapUsd\` is the most its runs may cost a month: more than 0, up to ${MAX_MONTHLY_CAP_USD} (default ${d.monthCapUsd})`,
+    );
+  }
+  const tiers = parseTiers(o.tiers);
+  if (typeof tiers === 'string') return err(tiers);
+  if (o.model !== undefined && tiers !== undefined && !tiers.includes('prompt')) {
+    return err("`model` is for the prompt tier (`tiers` with 'prompt', or no `tiers`)");
+  }
+  const model = parseModel(o.model);
+  if (typeof model === 'string') return err(model);
+  return {
+    kind: 'ok',
+    input: {
+      corrections,
+      from,
+      runCapUsd,
+      monthCapUsd,
+      ...(tiers !== undefined && { tiers }),
+      ...(model !== undefined && { model }),
+    },
+  };
 }
 
 async function readBody(c: Ctx): Promise<Record<string, unknown> | undefined> {

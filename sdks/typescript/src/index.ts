@@ -57,6 +57,7 @@ export type {
 export type { SupervisorClient } from './resources/supervisor.js';
 export type {
   CheckImproveRunInput,
+  ImproveReadinessItem,
   ImproveRun,
   ImproveRunCheck,
   ImproveRunsClient,
