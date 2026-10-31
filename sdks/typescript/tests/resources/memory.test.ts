@@ -72,7 +72,7 @@ describe('memory.facts.write / read / list / delete', () => {
       scope: { tenantId: TENANT, projectId: 'proj-1' },
       limit: 50,
     });
-    expect(page.items).toHaveLength(1);
+    expect(page.data).toHaveLength(1);
     const url = new URL(stub.calls[0]?.url);
     expect(url.searchParams.get('type')).toBe('contract-clause');
     expect(url.searchParams.get('limit')).toBe('50');

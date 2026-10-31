@@ -118,6 +118,10 @@ one narrowed to a role or a project, is refused with
 off. API tokens work for the API, the CLI and the SDKs, whatever this
 setting says.
 
+The session ends when its key expires, and when the key is revoked: each
+request on the session checks the key
+([Sessions](../../../guides/sso/sessions/#signing-out)).
+
 The startup output says which ways in the console has. With only the token:
 
 ```text

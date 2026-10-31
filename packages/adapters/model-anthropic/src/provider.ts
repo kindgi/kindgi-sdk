@@ -6,11 +6,13 @@ import Anthropic from '@anthropic-ai/sdk';
 import type {
   ModelCallInput,
   ModelCallResult,
+  ModelCallWarning,
   ModelInfo,
   ModelProvider,
+  ModelThinking,
   ProviderMetadata,
 } from '@kindgi/capabilities';
-import { fileParts, samplingFor } from '@kindgi/capabilities';
+import { fileParts, samplingFor, thinkingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 import { createClientsByKey } from '@kindgi/capabilities/clients-by-key';
 import { nameToolsAsSent, toolIdsBySentName } from '@kindgi/capabilities/tool-names';
@@ -209,7 +211,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       };
       const maxTokens = input.maxOutputTokens ?? modelInfo.maxOutputTokens ?? DEFAULT_MAX_TOKENS;
       const sampling = samplingFor(modelInfo, input);
-      const thinking = input.thinking === 'lowest' ? lowestThinking(modelInfo) : {};
+      const thinking = anthropicThinking(modelInfo, input);
 
       const counted = await attempts.count(() =>
         client.messages
@@ -221,7 +223,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
               messages,
               ...(tools !== undefined && { tools }),
               ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
-              ...thinking,
+              ...thinking.fields,
             },
             requestOptions,
           )
@@ -235,6 +237,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       const message = fromAnthropicResponse(response, toolIdOf);
       const usage = toFrameworkUsage(response.usage);
       const costUsd = computeCostUsd(response.usage, modelInfo.cost);
+      const warnings = [...sampling.warnings, ...thinking.warnings];
 
       return {
         message,
@@ -250,11 +253,46 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
         // An injected client sends with its own fetch: nothing was counted.
         ...(counted.attempts > 0 && { attempts: counted.attempts }),
         rawUsage: { ...response.usage },
-        ...(sampling.warnings.length > 0 && { warnings: sampling.warnings }),
+        ...(thinking.result !== undefined && { thinking: thinking.result }),
+        ...(warnings.length > 0 && { warnings }),
       };
     },
   };
 }
+
+/** What a call sends about thinking, and what it says about it. */
+interface AnthropicThinking {
+  /** The request's fields. Empty: it sends nothing about thinking. */
+  readonly fields: Record<string, unknown>;
+  /** The call's record of them (`ModelCallResult.thinking`). */
+  readonly result?: NonNullable<ModelCallResult['thinking']>;
+  readonly warnings: readonly ModelCallWarning[];
+}
+
+/**
+ * What a call sends about thinking: the call's level, or the model's
+ * `thinking.default` when it asks none, rounded to one the model takes
+ * (`thinkingFor`). `lowest` is the model's least (`lowestThinking`). Any
+ * other level goes as the effort alone, `output_config.effort`, with the
+ * thinking type left at the model's default (adaptive on the 5.5 models),
+ * where the effort sets how much it thinks. A model with no `thinking`
+ * gets nothing.
+ */
+function anthropicThinking(model: ModelInfo, input: ModelCallInput): AnthropicThinking {
+  const { level, warnings } = thinkingFor(model, input);
+  if (level === undefined || model.thinking === undefined) return { fields: {}, warnings };
+  const sent: AnthropicSent =
+    level === 'lowest' ? lowestThinking(model.thinking) : { 'output_config.effort': level };
+  const type = sent['thinking.type'];
+  const fields = {
+    ...(type !== undefined && { thinking: { type } }),
+    output_config: { effort: sent['output_config.effort'] },
+  };
+  return { fields, result: { level, sent }, warnings };
+}
+
+/** The fields a call sends about thinking, by their path in the request. */
+type AnthropicSent = { readonly 'output_config.effort': string; readonly 'thinking.type'?: string };
 
 /**
  * The request fields for a model's least thinking (`ModelCallInput.thinking:
@@ -264,11 +302,10 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
  * the effort alone. The SDK's types predate both fields; the API takes them
  * as sent.
  */
-function lowestThinking(model: ModelInfo): Record<string, unknown> {
-  const lowest = model.thinking?.lowest;
-  if (lowest === undefined) return {};
+function lowestThinking(thinking: ModelThinking): AnthropicSent {
+  const { lowest } = thinking;
   if (lowest === 'disabled' || lowest === 'between_tools') {
-    return { thinking: { type: lowest }, output_config: { effort: 'low' } };
+    return { 'thinking.type': lowest, 'output_config.effort': 'low' };
   }
-  return { output_config: { effort: lowest } };
+  return { 'output_config.effort': lowest };
 }

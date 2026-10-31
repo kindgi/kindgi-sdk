@@ -163,6 +163,8 @@ async function recordJudgeCall(
     ...(trace.conversationId !== undefined && { conversationId: trace.conversationId }),
     providerId: provider.provider.metadata.id,
     model: provider.model.name,
+    // What the call asks for (above): as little as a thinking model allows.
+    ...(provider.model.thinking !== undefined && { thinkingAsked: 'lowest' as const }),
     ...(provider.provider.metadata.fallback === true && { fallback: true }),
     purpose: guardrailId !== undefined ? `guardrail-judge:${guardrailId}` : 'guardrail-judge',
     occurredAt: new Date().toISOString(),

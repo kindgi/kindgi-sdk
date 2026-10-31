@@ -8,7 +8,7 @@ Provide the canonical, branded ID types and reference shapes used across Kindgi,
 
 ## Exports
 
-- **Branded IDs** — `TenantId`, `UserId`, `OrgId`, `TeamId`, `ProjectId`, `ThreadId`, `ConversationId`, `SessionId`, `RunId`, `FlowId`, `NodeId`, `EdgeId`, `AgentId`, `ToolId`, `GuardrailId`, `PolicyId`, `PackId`, `EventId`, `FactId`, `LogEntryId`, `ArtifactId`, `ProvenanceId`, `SubscriptionId`, `ApprovalId`, `ReviewerId`, `SupervisorId`, `ObservationId`, `FixProposalId`, `AuditBundleId`, `ComplianceEvidenceId`, `WaitTokenId`, `DatasetId`, `ScheduleId`, `ProviderId`, `ApiTokenId`, `WebhookId`, `WebhookEndpointId`, `WebhookEventId`, `WebhookDeliveryId`, `InstallationId`, `SigningKeyId`, `TriggerId`.
+- **Branded IDs** — `TenantId`, `UserId`, `OrgId`, `TeamId`, `ProjectId`, `ThreadId`, `ConversationId`, `SessionId`, `RunId`, `FlowId`, `NodeId`, `EdgeId`, `AgentId`, `ToolId`, `GuardrailId`, `PolicyId`, `PackId`, `EventId`, `FactId`, `LogEntryId`, `ArtifactId`, `ProvenanceId`, `SubscriptionId`, `ApprovalId`, `ReviewerId`, `SupervisorId`, `ObservationId`, `SuggestedChangeId`, `AuditBundleId`, `ComplianceEvidenceId`, `WaitTokenId`, `DatasetId`, `ScheduleId`, `ProviderId`, `ApiTokenId`, `WebhookId`, `WebhookEndpointId`, `WebhookEventId`, `WebhookDeliveryId`, `InstallationId`, `SigningKeyId`, `TriggerId`.
 - **Environment names** — `EnvName` (`[a-z][a-z0-9-]{0,62}`) and `makeEnvName(raw)`, which returns the branded value or `null` on a grammar violation.
 - **Brand utility** — `Brand<T, B>` for constructing pack-scoped IDs (e.g. a `MatterId` in a pack that tracks legal matters).
 - **Temporal** — `Timestamp` (ISO 8601 UTC branded string), `DurationMs`, `IsoDuration`.

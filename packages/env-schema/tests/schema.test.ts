@@ -347,6 +347,46 @@ describe('envVarsForTarget — the compliance classifier (T250)', () => {
   });
 });
 
+describe('envVarsForTarget — S3 targets', () => {
+  const S3_VARS = [
+    'KINDGI_S3_REGION',
+    'KINDGI_S3_ENDPOINT',
+    'KINDGI_S3_PATH_STYLE',
+    'KINDGI_S3_CREDENTIALS_PATH',
+  ];
+
+  test("how the server reaches its S3 buckets is the server's, optional, in core", () => {
+    const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
+    for (const name of S3_VARS) {
+      expect(server.get(name)).toMatchObject({ required: false, group: 'core' });
+      expect(server.get(name)?.description).toMatch(/^Used from runtime 0\.3\.0; /);
+    }
+    expect(server.get('KINDGI_S3_REGION')?.description).toContain(
+      'required with any of them, and with any other `KINDGI_S3_*` setting',
+    );
+    expect(server.get('KINDGI_S3_PATH_STYLE')?.allowedValues).toEqual(['true', 'false']);
+    expect(server.get('KINDGI_S3_CREDENTIALS_PATH')?.description).toContain(
+      'with `KINDGI_S3_ENDPOINT` only',
+    );
+    const packService = envVarsForTarget({ component: 'pack-service' }).map((v) => v.name);
+    for (const name of S3_VARS) expect(packService).not.toContain(name);
+  });
+
+  test('each setting that puts files somewhere takes an `s3:` bucket, from runtime 0.3.0', () => {
+    const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
+    for (const name of [
+      'KINDGI_ARTIFACTS',
+      'KINDGI_ERASURE_LEDGER_EXPORT',
+      'KINDGI_TENANT_PURGE_RECORD',
+    ]) {
+      expect(server.get(name)?.description).toContain(
+        'or, from runtime 0.3.0, `s3:<bucket>[/<prefix>]`',
+      );
+      expect(server.get('KINDGI_S3_REGION')?.description).toContain(`\`${name}\``);
+    }
+  });
+});
+
 describe('envVarsForTarget — logging', () => {
   test('the server has the three KINDGI_LOG_* variables, optional, in the logging group', () => {
     const vars = envVarsForTarget({ component: 'server' }).filter((v) => v.group === 'logging');
@@ -372,6 +412,28 @@ describe('envVarsForTarget — the pack service', () => {
   test("component=pack-service is the pack service's vars and none of the server's", () => {
     const names = envVarsForTarget({ component: 'pack-service' }).map((v) => v.name);
     expect(names.sort()).toEqual([...PACK_SERVICE_VARS].sort());
+  });
+
+  const PACK_ORCHESTRATOR_VARS = [
+    'KINDGI_ORCHESTRATOR_RUNTIME_URL',
+    'KINDGI_ORCHESTRATOR_SYSTEM_KEY',
+    'KINDGI_ORCHESTRATOR_PROJECT',
+    'KINDGI_ORCHESTRATOR_REGION',
+    'KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT',
+    'KINDGI_ORCHESTRATOR_PACK_SERVICE',
+  ];
+
+  test("component=pack-orchestrator is the orchestrator's vars, and no other process reads them", () => {
+    const names = envVarsForTarget({ component: 'pack-orchestrator' }).map((v) => v.name);
+    expect(names.sort()).toEqual([...PACK_ORCHESTRATOR_VARS].sort());
+    for (const target of [
+      {},
+      { component: 'server' as const },
+      { component: 'pack-service' as const },
+    ]) {
+      const others = envVarsForTarget(target).map((v) => v.name);
+      for (const name of PACK_ORCHESTRATOR_VARS) expect(others).not.toContain(name);
+    }
   });
 
   test('a server target without a pack transport offers the URL only', () => {

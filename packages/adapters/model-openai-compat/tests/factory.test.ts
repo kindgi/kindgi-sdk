@@ -12,7 +12,7 @@ import type { AddressInfo } from 'node:net';
 
 import { describe, expect, test } from 'vitest';
 
-import type { ProviderMetadata } from '@kindgi/capabilities';
+import type { ModelThinking, ProviderMetadata, ThinkingLevel } from '@kindgi/capabilities';
 
 import {
   BASE_URLS,
@@ -481,5 +481,134 @@ describe("thinking: 'lowest'", () => {
     expect(endpoint.seen[0]?.body.reasoning_effort).toBe('low');
     expect(endpoint.seen[1]?.body).not.toHaveProperty('reasoning_effort');
     expect(endpoint.seen[2]?.body).not.toHaveProperty('reasoning_effort');
+  });
+});
+
+describe('thinking levels on Chat Completions', () => {
+  /** One call to a model with this `thinking`: the reasoning_effort it sent, and what it reported. */
+  const send = async (
+    thinking: ModelThinking | undefined,
+    asked?: ThinkingLevel,
+    config: Record<string, unknown> = {},
+  ) => {
+    const endpoint = fakeEndpoint();
+    const result = await openAICompatAdapterFactory({
+      metadata: {
+        ...metadata,
+        models: [{ ...metadata.models[0]!, ...(thinking !== undefined && { thinking }) }],
+      },
+      config: { baseURL: 'http://llm.test/v1', ...config },
+      resolveApiKey: async () => 'k',
+      fetch: endpoint.fetch,
+    }).invoke({ ...call, ...(asked !== undefined && { thinking: asked }) });
+    return {
+      reasoning_effort: endpoint.seen[0]?.body.reasoning_effort,
+      thinking: result.thinking,
+      warnings: result.warnings,
+    };
+  };
+  const sent = (level: ThinkingLevel, effort: string = level) => ({
+    reasoning_effort: effort,
+    thinking: { level, sent: { reasoning_effort: effort } },
+  });
+  const adjusted = (asked: string, level: string) => [
+    {
+      code: 'thinking-level-adjusted',
+      message: `gpt-test doesn't take thinking level ${asked}, so the call sent ${level}.`,
+    },
+  ];
+  const EVERY: ModelThinking = {
+    mode: 'adaptive',
+    lowest: 'none',
+    levels: ['minimal', 'low', 'medium', 'high', 'xhigh'],
+  };
+
+  test.each(['minimal', 'low', 'medium', 'high', 'xhigh'] as const)(
+    '%s is sent by its name, and reported',
+    async (level) => {
+      expect(await send(EVERY, level)).toEqual({ ...sent(level), warnings: undefined });
+    },
+  );
+
+  test("lowest sends the model's lowest effort", async () => {
+    expect(await send(EVERY, 'lowest')).toEqual({ ...sent('lowest', 'none'), warnings: undefined });
+  });
+
+  test.each([
+    ['above the ceiling, levels', EVERY, 'max', 'xhigh'],
+    ['at the floor, no levels', { mode: 'adaptive', lowest: 'low' }, 'minimal', 'low'],
+    ['above the ceiling, no levels', { mode: 'adaptive', lowest: 'none' }, 'xhigh', 'high'],
+    ['a lowest of medium, no levels', { mode: 'adaptive', lowest: 'medium' }, 'low', 'medium'],
+    [
+      'in a gap, levels',
+      { mode: 'adaptive', lowest: 'none', levels: ['low', 'high'] },
+      'medium',
+      'high',
+    ],
+  ] as const)('rounding %s: asked %s, it sends %s', async (_name, thinking, asked, level) => {
+    expect(await send(thinking, asked)).toEqual({
+      ...sent(level),
+      warnings: adjusted(asked, level),
+    });
+  });
+
+  test("the model's default goes when the call asks none; the call's level beats it", async () => {
+    const thinking: ModelThinking = { mode: 'adaptive', lowest: 'none', default: 'medium' };
+    expect(await send(thinking)).toEqual({ ...sent('medium'), warnings: undefined });
+    expect(await send(thinking, 'high')).toEqual({ ...sent('high'), warnings: undefined });
+  });
+
+  test("a call's level wins over a registration's extraBody.reasoning_effort, which goes otherwise", async () => {
+    const config = { 'extraBody.reasoning_effort': 'high' };
+    const thinking: ModelThinking = { mode: 'adaptive', lowest: 'low' };
+    expect((await send(thinking, 'low', config)).reasoning_effort).toBe('low');
+    expect(await send(thinking, undefined, config)).toEqual({
+      reasoning_effort: 'high',
+      thinking: undefined,
+      warnings: undefined,
+    });
+  });
+
+  test('a model with no thinking is sent no effort, with a warning', async () => {
+    expect(await send(undefined, 'high')).toEqual({
+      reasoning_effort: undefined,
+      thinking: undefined,
+      warnings: [
+        {
+          code: 'thinking-unsupported',
+          message:
+            "gpt-test doesn't think, or how it thinks isn't known, so the call sent no level (it asked for high).",
+        },
+      ],
+    });
+  });
+});
+
+describe('the output cap', () => {
+  test("a call that sets none is sent its model's registered maxOutputTokens as max_tokens; the call's own wins", async () => {
+    const endpoint = fakeEndpoint();
+    const provider = createOpenAICompatModelProvider({
+      baseURL: 'http://llm.test/v1',
+      apiKey: 'k',
+      metadata: {
+        ...metadata,
+        models: [
+          ...metadata.models,
+          {
+            name: 'gpt-capped',
+            contextWindow: 128000,
+            features: ['tool-use'],
+            cost: { promptUsdPer1kTokens: 0.001, completionUsdPer1kTokens: 0.002 },
+            maxOutputTokens: 1024,
+          },
+        ],
+      },
+      clientOptions: { fetch: endpoint.fetch, maxRetries: 0 },
+    });
+    await provider.invoke({ ...call, model: 'gpt-capped' });
+    await provider.invoke({ ...call, model: 'gpt-capped', maxOutputTokens: 64 });
+    await provider.invoke(call);
+    expect(endpoint.seen.map((s) => s.body.max_tokens)).toEqual([1024, 64, undefined]);
+    expect(endpoint.seen[2]?.body).not.toHaveProperty('max_tokens');
   });
 });

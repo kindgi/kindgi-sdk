@@ -43,6 +43,26 @@ describe('fromWire — guardrail-violation', () => {
     });
   });
 
+  it("carries the answers a retry guardrail's attempts ran out after", () => {
+    const err = fromWire({
+      code: 'guardrail-violation',
+      message: "Turn blocked by guardrail 'cite' after 2 answers: No source cited",
+      details: {
+        violations: [
+          { guardrailId: 'cite', result: { passed: false }, action: 'retry', severity: 'warn' },
+        ],
+        evaluationErrors: [],
+        attempts: 2,
+      },
+    });
+    expect(err).toMatchObject({ code: 'guardrail-violation', attempts: 2 });
+    // Anything but a whole number isn't a count: left out.
+    for (const attempts of ['2', 1.5, null]) {
+      const odd = fromWire({ code: 'guardrail-violation', message: 'm', details: { attempts } });
+      expect(odd).not.toHaveProperty('attempts');
+    }
+  });
+
   it('is still a guardrail-violation when the server sends no details', () => {
     expect(
       fromWire({ code: 'guardrail-violation', message: "Turn blocked by guardrail 'no-pii'" }),
@@ -79,13 +99,13 @@ describe('fromWire — conflicts', () => {
     'slug-conflict',
     'project-default-already-exists',
     'registry-read-only',
-    'nothing-to-roll-back',
+    'nothing-runs-in-scope',
     'not-pinned',
-    'agent-version-live',
-    'promotion-superseded',
-    'gate-policy-already-registered',
-    'gate-policy-needs-pin',
-    'gate-policy-descendant-unpinned',
+    'agent-version-pinned',
+    'pin-superseded',
+    'release-gate-already-registered',
+    'release-gate-needs-pin',
+    'release-gate-descendant-unpinned',
     'service-account-name-taken',
     'service-account-unregistered',
     'identity-user-email-taken',
@@ -101,10 +121,10 @@ describe('fromWire — conflicts', () => {
   });
 });
 
-describe('fromWire — live versions', () => {
+describe('fromWire — pinned versions', () => {
   it.each([
     ['agent-version-not-found', 'agent-version'],
-    ['promotion-not-found', 'promotion'],
+    ['pin-not-found', 'pin'],
     ['principal-not-found', 'principal'],
     ['service-account-not-found', 'service-account'],
   ])('a %s is a not-found of a %s', (code, kind) => {
@@ -213,7 +233,7 @@ describe('fromWire — a code this client does not list is read by its HTTP stat
   );
 
   it.each([
-    'eval-suite-already-registered',
+    'test-set-already-registered',
     'policy-already-registered',
     'version-already-exists',
     'approval-already-decided',

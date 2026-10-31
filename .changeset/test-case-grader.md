@@ -1,0 +1,12 @@
+---
+"@kindgi/api": patch
+"@kindgi/client": patch
+---
+
+**A test run grades what each case expects.** A frozen case of an agent's test set is graded on its `expect`, part by part, on each repetition, and has one entry in perCase `corrections` (and the summary's), under the case's id.
+
+- **Decisions.** `decisions: wrong` passes a repetition that calls every `shouldCall` tool (with its `args` where given) and none of `mustNotCall`, exactly, with its differences in `correctionDifferences`. `decisions: right` passes one that calls the same tools the recorded run called, by id, in any order, refused calls included.
+- **The answer.** A judging model checks it, through a new `AnswerCheckBinding` the host passes to `createCorrectedDispatcher` as `answers`. It's called for each repetition in order, and stops at the first answer that fails. A repetition whose decisions failed is still checked; one that errored or stopped fails without a call, and so does every one after it. The judging model's reason, from the first repetition whose answer failed, is the entry's new `why`. A test run stopped before a check leaves the case with no pass. What a check costs (`costUsd`) is added to its repetition's cost, also when it answers `unchecked` after a call whose reply couldn't be read.
+- **Which model judges.** `TestRunStartInput` gains a binding-only `judging` (`TestRunJudging`: `{ version }` or `{ model: { providerId, model } }`), which reaches the dispatcher as `DispatchContext.judging`. It isn't on the wire. Absent, the tested version's own model judges. A suggested change's check starts both of its runs with `judging: { version }` of the version it's built on, and `evaluate` takes `judging` and passes it on, so one model judges both sides.
+- **No pass.** A case that expects only `items` has no entry: its items count toward the metrics as before. Neither does a case with a part that couldn't be checked: no checker, a checker that answers `unchecked`, or `decisions: right` on a recorded run whose tool calls can't be read. A repetition that errored or stopped fails every part, and its answer isn't checked.
+- **Experts' cases.** `TestCase` gains `expert: true`, on a correction's case when the correction was recorded while its group was restricted, and on every case added by hand. The freezer copies it onto the frozen case (`CorrectedTestCase.expert`), its `corrections` entry and its items' `expert` sums. `experts-only` grades the `expect` of an expert's case only.

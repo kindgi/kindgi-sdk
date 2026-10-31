@@ -57,7 +57,7 @@ variable "server_public" {
 }
 
 variable "server_min_instances" {
-  description = "Minimum server instances. At least 1: runs started with wait:false, improvement passes and eval runs keep running after the response, and need an instance (and CPU) to finish on."
+  description = "Minimum server instances. At least 1: runs started with wait:false, Improve runs and test runs keep running after the response, and need an instance (and CPU) to finish on."
   type        = number
   default     = 1
 
@@ -155,15 +155,23 @@ variable "tenancy" {
 }
 
 variable "seed_tenant_id" {
-  description = "KINDGI_TENANT_ID: the tenant the server seeds and reuses. Pin it, or every start seeds a new one. Needed with tenancy = \"single\", refused with \"multi\"."
+  description = "KINDGI_TENANT_ID: the tenant the server seeds and reuses, a uuid. Pin it, or every start seeds a new one. Needed with tenancy = \"single\", refused with \"multi\"."
   type        = string
   default     = null
+  validation {
+    condition     = var.seed_tenant_id == null || can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.seed_tenant_id))
+    error_message = "seed_tenant_id must be a uuid (a tenant id is one), such as `uuidgen | tr 'A-Z' 'a-z'` prints in lower case."
+  }
 }
 
 variable "seed_user_id" {
-  description = "KINDGI_SEED_USER_ID: pinned so the FGA admin@tenant tuple stays stable across revisions. Needed with tenancy = \"single\", refused with \"multi\"."
+  description = "KINDGI_SEED_USER_ID: a uuid, pinned so the FGA admin@tenant tuple stays stable across revisions. Needed with tenancy = \"single\", refused with \"multi\"."
   type        = string
   default     = null
+  validation {
+    condition     = var.seed_user_id == null || can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.seed_user_id))
+    error_message = "seed_user_id must be a uuid (a user id is one), such as `uuidgen | tr 'A-Z' 'a-z'` prints in lower case."
+  }
 }
 
 # ---- the pack service ---------------------------------------------------------
@@ -302,7 +310,7 @@ variable "database_point_in_time_days" {
 }
 
 variable "database_deletion_protection" {
-  description = "Keep Terraform from deleting Kindgi's database instance (Terraform's own deletion_protection). It doesn't stop a delete from the console, gcloud or the Cloud SQL API. With database_host_instance set there is no instance of our own, so this instead sets the deletion_policy of Kindgi's database object on the host instance: true keeps the data (ABANDON on a destroy or a database_name change), false deletes it (DELETE)."
+  description = "Keep Kindgi's database instance from being deleted. true sets both Terraform's own deletion_protection and Google's (settings.deletion_protection_enabled), which refuses a delete from the console, gcloud or the Cloud SQL API too. To take the instance down, set false and apply first: the apply turns Google's off, in place. With database_host_instance set there is no instance of our own, so this instead sets the deletion_policy of Kindgi's database object on the host instance: true keeps the data (ABANDON on a destroy or a database_name change), false deletes it (DELETE)."
   type        = bool
   default     = true
 }

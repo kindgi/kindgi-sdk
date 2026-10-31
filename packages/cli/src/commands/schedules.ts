@@ -4,9 +4,10 @@
 import type { SchedulesClient } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import { type Rendered, renderJson } from '../output.js';
-import { scopeCell } from './agents.js';
 import {
+  TRIGGER_VERSIONS_TABLE,
   type TableSpec,
   allowUnattendedField,
   integerFlag,
@@ -16,8 +17,8 @@ import {
   runSdk,
   runSdkRendered,
   runsAsCell,
-  segmentsFlag,
   stringFlag,
+  triggerVersionPositional,
 } from './helpers.js';
 import type { Command, LeafCommand, ParseArgsOption } from './types.js';
 
@@ -44,10 +45,12 @@ function page(ctx: CommandContext): { limit?: number; cursor?: string } {
   };
 }
 
-/** What a schedule runs, as one cell: `agent acme.digest`, `flow acme.nightly@1.0.0`, or `improve acme.scorer (tenant)`. */
+/** What a schedule runs, as one cell: `agent acme.digest`, `flow acme.nightly@1.0.0`, or `improve acme.scorer (project <id>)`. */
 function runs(s: Schedule): string {
   if (s.improve !== undefined) {
-    return `improve ${s.improve.agentId} (${scopeCell(s.improve.scope as Parameters<typeof scopeCell>[0])})`;
+    // One registered for a tenant or an org before Improve schedules worked in a project names none.
+    const project = s.improve.projectId;
+    return `improve ${s.improve.agentId} (${project !== undefined ? `project ${project}` : 'no project'})`;
   }
   if (s.agentId !== undefined) {
     return `agent ${s.agentId}${s.agentVersion !== undefined ? `@${s.agentVersion}` : ''}`;
@@ -55,14 +58,30 @@ function runs(s: Schedule): string {
   return `flow ${s.flowId ?? '?'}@${s.flowVersion ?? '?'}`;
 }
 
+/**
+ * A schedule's status, as one cell: an Improve schedule at its month's cap
+ * stays `active` and says until when it waits (`pausedUntil`); a paused one
+ * says why the runtime paused it, when it did (`statusReason`).
+ */
+function statusCell(s: Schedule): string {
+  if (s.pausedUntil !== undefined) {
+    return `${s.status}, waits until ${s.pausedUntil} (${s.pausedReason ?? 'month-cap'})`;
+  }
+  if (s.status === 'paused' && s.statusReason !== undefined) {
+    return `paused (${s.statusReason})`;
+  }
+  return s.status;
+}
+
 const SCHEDULES_TABLE: TableSpec<SchedulePage, Schedule> = {
   rows: (p) => p.data,
   columns: [
     { header: 'ID', get: (s) => s.scheduleId },
+    { header: 'VERSION', get: (s) => (s.version !== undefined ? String(s.version) : '') },
     { header: 'RUNS', get: runs },
     { header: 'CRON', get: (s) => s.cronExpression },
     { header: 'TIMEZONE', get: (s) => s.timezone ?? 'UTC' },
-    { header: 'STATUS', get: (s) => s.status },
+    { header: 'STATUS', get: statusCell },
     { header: 'RUNS AS', get: (s) => runsAsCell(s.owner) },
     { header: 'NEXT', get: (s) => s.nextFireAt ?? '' },
     { header: 'LABEL', get: (s) => s.label ?? '' },
@@ -77,7 +96,7 @@ const FIRES_TABLE: TableSpec<FirePage, Fire> = {
     { header: 'OUTCOME', get: (f) => f.outcome },
     {
       header: 'STARTED',
-      get: (f) => f.runId ?? (f.passId !== undefined ? `pass ${f.passId}` : ''),
+      get: (f) => f.runId ?? (f.improveRunId !== undefined ? `Improve run ${f.improveRunId}` : ''),
     },
     {
       header: 'NOTE',
@@ -88,20 +107,17 @@ const FIRES_TABLE: TableSpec<FirePage, Fire> = {
 };
 
 const TARGET_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
-  agent: { type: 'string', description: 'Run this agent (at its live version, else the latest).' },
+  agent: {
+    type: 'string',
+    description: 'Run this agent (at its pinned version, else the latest).',
+  },
   'agent-version': { type: 'string', description: 'With --agent: run this exact version.' },
   flow: { type: 'string', description: 'Run this flow (with --flow-version).' },
   'flow-version': { type: 'string', description: 'With --flow: the flow version to run.' },
   improve: {
     type: 'string',
     description:
-      'Start Improve runs on this agent (instead of running it), when enough new corrections marking answers wrong have come in: for the project (--project), or a segment of it (--segment). `--input` takes the Improve options, `threshold` and `monthlyCapUsd`.',
-  },
-  segment: {
-    type: 'string',
-    multiple: true,
-    description:
-      'With --improve and --project: a segment of the project, `key:value`; repeat it in order, coarse to fine.',
+      "Start Improve runs on this agent in the project (--project, required) instead of running it, when there are enough new corrections since the schedule's last Improve run. An agent and project have one Improve schedule at most. `--input` takes its Improve options: `corrections`, `from`, `runCapUsd`, `monthCapUsd`, `tiers` and `model`.",
   },
 };
 
@@ -117,7 +133,7 @@ const WHEN_FLAGS = {
   input: {
     type: 'string',
     description:
-      'The input each run gets, as JSON or `@<file>`. An agent needs `{"userMessage": "…"}`; a flow takes its own input (default `{}`); --improve takes its Improve options (`{"tiers": ["settings"], "threshold": {"judgments": 5, "runs": 3, "judges": 2}, "monthlyCapUsd": 20}`, the defaults).',
+      'The input each run gets, as JSON or `@<file>`. An agent needs `{"userMessage": "…"}`; a flow takes its own input (default `{}`); --improve takes its Improve options (`{"corrections": 5, "from": "experts", "runCapUsd": 5, "monthCapUsd": 20}`, the defaults, with `tiers` and `model` left out for every tier that\'s ready and the version\'s own model).',
   },
   'catch-up': {
     type: 'string',
@@ -167,20 +183,17 @@ const UPDATE_WHEN_FLAGS: Readonly<Record<keyof typeof WHEN_FLAGS, ParseArgsOptio
 };
 
 /**
- * `--improve`'s scope: `--project` with its `--segment`s. A pass learns
- * from one project's runs, so its scope is that project or a segment of it.
+ * `--improve`'s project: `--project`. An Improve schedule is in the project
+ * it improves, and its Improve runs work there.
  */
-function improveScope(ctx: CommandContext): NonNullable<RegisterInput['improve']>['scope'] {
+function improveProject(ctx: CommandContext): string {
   const project = stringFlag(ctx, 'project');
-  const segments = segmentsFlag(ctx);
   if (project === undefined) {
     throw new Error(
-      '--improve needs its scope: --project=<id> [--segment=<key:value>]… (an Improve run learns from one project; make its suggested change live for the tenant by hand after review)',
+      '--improve needs its project: --project=<id> (an Improve schedule is in the project it improves, one per agent and project)',
     );
   }
-  return segments.length > 0
-    ? { kind: 'segment', projectId: project, path: [...segments] }
-    : { kind: 'project', projectId: project };
+  return project;
 }
 
 /** The target flags as body fields, when any is given. */
@@ -192,7 +205,7 @@ function targetFields(ctx: CommandContext): Partial<RegisterInput> {
     ) {
       throw new Error('--improve starts Improve runs: not with --agent or --flow');
     }
-    return { improve: { agentId: improve, scope: improveScope(ctx) } };
+    return { improve: { agentId: improve, projectId: improveProject(ctx) } };
   }
   const agent = stringFlag(ctx, 'agent');
   const agentVersion = stringFlag(ctx, 'agent-version');
@@ -267,18 +280,26 @@ const list: LeafCommand = {
 const get: LeafCommand = {
   kind: 'leaf',
   name: 'get',
-  description: 'Fetch a schedule, with its next occurrences when asked.',
-  usage: 'kindgi schedules get <schedule-id> [--upcoming=<n>]',
+  description:
+    'Fetch a schedule as it is now, with its next occurrences when asked, or the version given.',
+  usage: 'kindgi schedules get <schedule-id> [<version>] [--upcoming=<n>]',
   optionSpec: {
     upcoming: { type: 'string', description: 'Also show the next N times it runs (1 to 20).' },
   },
   run: (ctx) =>
     runSdk(ctx, 'schedules get', async () => {
       const id = requiredPositional(ctx, 0, 'schedule-id');
+      const version = triggerVersionPositional(ctx, 1);
       const upcoming = integerFlag(ctx, 'upcoming');
-      return await ctx
-        .client()
-        .schedules.get(id, upcoming !== undefined ? { upcoming } : undefined);
+      if (version !== undefined && upcoming !== undefined) {
+        throw new UsageError(
+          "--upcoming doesn't go with a <version>: it shows the schedule's next times as it is now",
+        );
+      }
+      const schedulesClient = ctx.client().schedules;
+      return version === undefined
+        ? await schedulesClient.get(id, upcoming !== undefined ? { upcoming } : undefined)
+        : await schedulesClient.getVersion(id, version);
     }),
 };
 
@@ -291,7 +312,7 @@ const RUN_AS_FLAG: Readonly<Record<string, ParseArgsOption>> = {
   'run-as': {
     type: 'string',
     description:
-      "A service account, by id, or `project`: the schedule's owner, so its runs act as that account from the next fire (not as you). `project` runs it as the project's own account, made the first time, and takes `admin` on the project. The project's own account runs only what the project's editors can. A named account takes `act_as`, and needs a role that runs what the schedule runs (editor on the target's project). Omit it to own the schedule yourself.",
+      "A service account, by id, or `project`: the schedule's owner, so its runs act as that account from the next run that starts (not as you). `project` runs it as the project's own account, made the first time, and takes `admin` on the project. The project's own account runs only what the project's editors can. A named account takes `act_as`, and needs a role that runs what the schedule runs (editor on the target's project). Omit it to own the schedule yourself.",
   },
 };
 
@@ -310,15 +331,16 @@ const create: LeafCommand = {
   kind: 'leaf',
   name: 'create',
   description:
-    "Run an agent or a flow on a schedule, or start Improve runs on an agent (--improve). It's personal: its runs act as you, and only you or a project admin can change it. With `--run-as=project`, it's shared and acts as the project's own account; with `--run-as=<service-account-id>`, as that service account. Who it acts as is checked again at every run; its runs are in your project's runs, naming the schedule.",
+    "Run an agent or a flow on a schedule, or start Improve runs on an agent in a project (--improve), one such schedule per agent and project. It's personal: its runs act as you, and only you or a project admin can change it. With `--run-as=project`, it's shared and acts as the project's own account; with `--run-as=<service-account-id>`, as that service account. Who it acts as is checked again at every run; its runs are in your project's runs, naming the schedule.",
   usage:
-    'kindgi schedules create --cron=<expr> (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…) [--timezone=<tz>] [--input=<json-or-@file>] [--project=<project-id>] [--catch-up=latest|skip] [--overlap=skip|allow] [--starting-deadline=<s>] [--label=<text>] [--run-as=<service-account-id>|project] [--allow-unattended=<tool-id>]…',
+    'kindgi schedules create --cron=<expr> (--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id>) [--timezone=<tz>] [--input=<json-or-@file>] [--project=<project-id>] [--catch-up=latest|skip] [--overlap=skip|allow] [--starting-deadline=<s>] [--label=<text>] [--run-as=<service-account-id>|project] [--allow-unattended=<tool-id>]…',
   optionSpec: {
     ...TARGET_FLAGS,
     ...WHEN_FLAGS,
     project: {
       type: 'string',
-      description: "The schedule's project, by id (default: the tenant's Default project).",
+      description:
+        "The schedule's project, by id (default: the tenant's Default project). With --improve, the project it improves, which it needs.",
     },
     ...RUN_AS_FLAG,
     ...allowUnattendedFlag('register'),
@@ -346,19 +368,24 @@ const update: LeafCommand = {
   description:
     "Change a schedule: when it runs, what it runs, its policies, or the tools its runs may call unattended. A flag left out keeps the schedule's value.",
   usage:
-    'kindgi schedules update <schedule-id> [--cron=<expr>] [--timezone=<tz>] [--input=<json-or-@file>] [--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id> [--segment=<key:value>]…] [--catch-up=…] [--overlap=…] [--starting-deadline=<s>] [--label=<text>] [--allow-unattended=<tool-id>|none]…',
+    'kindgi schedules update <schedule-id> [--cron=<expr>] [--timezone=<tz>] [--input=<json-or-@file>] [--agent=<id> [--agent-version=<v>] | --flow=<id> --flow-version=<v> | --improve=<agent-id> --project=<id>] [--catch-up=…] [--overlap=…] [--starting-deadline=<s>] [--label=<text>] [--allow-unattended=<tool-id>|none]…',
   optionSpec: {
     ...TARGET_FLAGS,
     ...UPDATE_WHEN_FLAGS,
     project: {
       type: 'string',
-      description: "With --improve: the scope's project (the schedule's own).",
+      description: "With --improve: the project it improves, the schedule's own.",
     },
     ...allowUnattendedFlag('update'),
   },
   run: (ctx) =>
     runSdk(ctx, 'schedules update', async () => {
       const id = requiredPositional(ctx, 0, 'schedule-id');
+      if (ctx.options.project !== undefined && ctx.options.improve === undefined) {
+        throw new UsageError(
+          "--project goes with --improve: a schedule's project doesn't change, but an Improve schedule's target names it",
+        );
+      }
       const config = await configFields(ctx);
       return await ctx.client().schedules.update(id, {
         ...targetFields(ctx),
@@ -390,7 +417,7 @@ const takeOwnership: LeafCommand = {
   kind: 'leaf',
   name: 'take-ownership',
   description:
-    "Become a schedule's owner, so its runs act as you from the next fire: for a schedule whose owner left, or to make it shared (--run-as=project, the project's own account becomes the owner; --run-as=<service-account-id>, that service account) or yours. Takes a project admin.",
+    "Become a schedule's owner, so its runs act as you from the next run that starts: for a schedule whose owner left, or to make it shared (--run-as=project, the project's own account becomes the owner; --run-as=<service-account-id>, that service account) or yours. Takes a project admin.",
   usage: 'kindgi schedules take-ownership <schedule-id> [--run-as=<service-account-id>|project]',
   optionSpec: { ...RUN_AS_FLAG },
   run: (ctx) =>
@@ -430,11 +457,28 @@ const fires: LeafCommand = {
     ),
 };
 
+const versions: LeafCommand = {
+  kind: 'leaf',
+  name: 'versions',
+  description:
+    "List a schedule's versions, newest first: when each was made, by whom, and why. `kindgi schedules get <schedule-id> <version>` shows one.",
+  usage: 'kindgi schedules versions <schedule-id> [--limit=<n>] [--cursor=<c>]',
+  optionSpec: PAGE_FLAGS,
+  run: (ctx) =>
+    runSdk(
+      ctx,
+      'schedules versions',
+      async () =>
+        await ctx.client().schedules.versions(requiredPositional(ctx, 0, 'schedule-id'), page(ctx)),
+      TRIGGER_VERSIONS_TABLE,
+    ),
+};
+
 export const schedulesCommand: Command = {
   kind: 'group',
   name: 'schedules',
   description:
-    'Run agents and flows on a schedule: create, list, get, update, pause, resume, run-now, fires, take-ownership, unregister.',
+    'Run agents and flows on a schedule: create, list, get, update, pause, resume, run-now, fires, versions, take-ownership, unregister.',
   subcommands: [
     list,
     get,
@@ -452,6 +496,7 @@ export const schedulesCommand: Command = {
       (s, id) => s.runNow(id),
     ),
     fires,
+    versions,
     takeOwnership,
     byId('unregister', 'Remove a schedule: it stops running.', (s, id) => s.unregister(id)),
   ],

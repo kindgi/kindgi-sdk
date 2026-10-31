@@ -64,7 +64,7 @@ pnpm exec kindgi runs start --flow=my-pack.echo-flow --input='{"name":"Ada"}' --
 ## `kindgi init`
 
 ```sh
-kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|follow-up|python|java|scala] [--path=<dir>]
+kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|follow-up|returns-helper|python|java|scala] [--path=<dir>]
             [--force] [--link-local] [--new-repo] [--pack-id=<id>]
 ```
 
@@ -116,7 +116,7 @@ devDependency) at the running CLI's own version, or linked from a checkout
 | Flag | Purpose |
 |---|---|
 | `<pack-name>` | The pack id: lowercase kebab-case, optionally dot-namespaced (`my-pack`, `acme.legal-basics`). |
-| `--template=<name>` | `minimal` (the default: the folders, no examples), `sample` (three tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store: typed store tools, approvals for large refunds and store changes, and a review of each new order), `drupal` (agents for a Drupal site through its MCP Server: house-style fixes as drafts, each change approved, and a review of each saved article), `follow-up` (an agent that writes a follow-up mail from your notes and sends it from your Gmail once you approve it; its send tool comes from `@kindgi/connections`, under the pack's id), `python` (the sample as a Python pack), `java` (a Java pack, built with Maven; preview) or `scala` (a Scala pack, built with sbt; preview). |
+| `--template=<name>` | `minimal` (the default: the folders, no examples), `sample` (three tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store: typed store tools, approvals for large refunds and store changes, and a review of each new order), `drupal` (agents for a Drupal site through its MCP Server: house-style fixes as drafts, each change approved, and a review of each saved article), `follow-up` (an agent that writes a follow-up mail from your notes and sends it from your Gmail once you approve it; its send tool comes from `@kindgi/connections`, under the pack's id), `returns-helper` (an agent that answers about returns and refunds sample orders, with its instructions, return window and model settings as blocks: to try correcting a run, fixing it and pinning the fix on `kindgi dev`), `python` (the sample as a Python pack), `java` (a Java pack, built with Maven; preview) or `scala` (a Scala pack, built with sbt; preview). |
 | `--path=<dir>` | Where to scaffold. Default: `<pack-name>` under the current directory (for a dot-namespaced id, its last segment). |
 | `--force` | Write into a non-empty directory. Default: refuse. |
 | `--link-local` | Link `@kindgi/*` from the checkout the CLI runs from. |
@@ -862,8 +862,11 @@ Ed25519 signing keys for `kindgi build`, as files under `~/.kindgi/keys/`
 ## `kindgi skills`
 
 `kindgi skills sync [--force] [--dry-run]` refreshes `.claude/skills/` and
-`.agents/skills/` from the skills bundled with this CLI. Skills you edited are
-kept unless `--force`; a skill you deleted comes back. After an upgrade,
+`.agents/skills/` from the skills bundled with this CLI. A skill is a folder:
+its `SKILL.md` and the files beside it. Skills you edited are kept unless
+`--force`; a skill or a file of one you deleted comes back, and a file you
+added to a skill's folder is left as it is, unless a later release ships a
+file by that name: that counts as an edit. After an upgrade,
 `kindgi dev` refreshes them as it starts, the same way without `--force`,
 except that a skill or a skills folder you deleted stays deleted.
 
@@ -920,7 +923,7 @@ Inside a pack that `kindgi dev` runs, they find it on their own (see
 | `connections` | Accounts at other apps that tools act with: `list` (`--project`, `--app`, `--mine`, `--include-removed`), `get`, `connect <app>` (prints the link; at a terminal, waits and says whose account; `--for-company` for tenant admins), `disconnect <id>` (asks first, or `--yes`) |
 | `connection-apps` | The tenant's registrations at other apps (tenant admins): `list` (`--include-removed`), `get`, `add google` / `add microsoft` (`--tenant`) / `add github` / `add linkedin` (secrets by reference, `<env>/<name>`), `remove <id>` (`--with-connections`; asks first, or `--yes`) |
 | `runs` | `list`, `get`, `cancel`, `journal`, `stream` (one JSON event per line), `start`, `resume` |
-| `agents` | `list`, `get <agent-id> [<version>]`, `publish`, `derive`, `unregister <agent-id> <version>`, `versions`; which version runs where: `live`, `live-versions`, `promote`, `rollback`, `unpin`, `promotions` |
+| `agents` | `list`, `get <agent-id> [<version>]`, `publish`, `derive`, `unregister <agent-id> <version>`, `versions`; which version runs where: `pinned`, `pinned-versions`, `pin`, `unpin`, `pin-history` |
 | `tools` | `list`, `get`, `publish`, `unregister`, `versions`, `get-version`, `reinstate` |
 | `flows` | `list`, `get <flow-id> [<version>]`, `publish --spec=<json>`, `versions`, `unregister <flow-id> <version>`, `reinstate <flow-id> <version>` |
 | `guardrails` | `list`, `get`, `register`, `unregister` |
@@ -947,7 +950,7 @@ false`).
 
 `kindgi <command> --help` prints a command's subcommands and flags.
 
-More of the API (superseding and searching memory, proposals,
+More of the API (superseding and searching memory, suggested changes,
 observations and tokens) has commands in progress. They're left out of `--help` until they work; until then, use
 [`@kindgi/client`](../../sdks/typescript) for those resources.
 
@@ -964,9 +967,13 @@ The API URL and token come from, in order:
 
 `kindgi dev` writes `.kindgirc.json` in the pack. For another API, save the
 pair once with `kindgi auth login --url=<url> --token=<token>`, and check it
-with `kindgi auth whoami`. Login writes `~/.kindgi/config.json` `0600`, in a
-`~/.kindgi` that's `0700`, and tightens ones an older CLI left looser (not on
-Windows).
+with `kindgi auth whoami`. Login keeps a login `~/.kindgi/config.json` holds
+for another address, or a key with no address beside it, and exits 2 naming
+it: to use both, skip the login, and set `KINDGI_API_URL` and
+`KINDGI_API_TOKEN` to the new address and its key in the shell you use it
+from. `--force` replaces it, and warns that its key is no
+longer stored. Login writes `~/.kindgi/config.json` `0600`, in a `~/.kindgi`
+that's `0700`, and tightens ones an older CLI left looser (not on Windows).
 
 **In a folder where `kindgi dev` ran, `--hosted` reaches the other API.**
 There, `.kindgirc.json` points every command at the dev runtime, ahead of

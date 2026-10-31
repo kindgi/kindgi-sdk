@@ -157,12 +157,12 @@ After an upgrade, a start that brings the store up to the new version's model
 logs one line for it ([Operate](../self-hosted/operate/#from-013-to-014) has the line).
 
 :::caution[Keep the seed user]
-With authorization on, keep the seed user the same. Set `KINDGI_SEED_USER_ID`,
-or keep `KINDGI_API_TOKEN` unchanged: the runtime then keeps the token's user
-across restarts. Each boot makes its seed user a tenant admin. But what was
-granted to an earlier one stays with that user, such as a project role and
-the keys minted for them. A runtime started with a new token and no
-`KINDGI_SEED_USER_ID` says so when it starts:
+With authorization on, keep the seed user the same. Set `KINDGI_SEED_USER_ID`
+to a UUID, or keep `KINDGI_API_TOKEN` unchanged: the runtime then keeps the
+token's user across restarts. Each boot makes its seed user a tenant admin.
+But what was granted to an earlier one stays with that user, such as a
+project role and the keys minted for them. A runtime started with a new
+token and no `KINDGI_SEED_USER_ID` says so when it starts:
 `⚠ KINDGI_API_TOKEN changed, so it acts as a new user`.
 :::
 
@@ -276,12 +276,11 @@ checks every call.
   set the tenant's own line, `console.readOnlyNotice`, it shows instead,
   such as "Ask Ana Ruiz for edit access."
 - **An editor** may also "run agents and flows, work on agent versions,
-  publish prompts and settings, correct runs, try versions on the test
-  cases", in the console's words. An agent's page offers them **Register new
+  publish prompts and settings, correct runs, try versions on test sets", in
+  the console's words. An agent's page offers them **Register new
   version** and **Start run**, which a viewer's doesn't.
-- **A project admin** may also "make versions live, register agents and
-  tools, build test cases, rescore runs on the test cases, set judge
-  classes", and
+- **A project admin** may also "pin versions, register agents and
+  tools, build test sets, rescore test runs, set corrector groups", and
   changes who works in the project ([Members](#in-the-console-members)).
 - **The tenant's sections** show to those they're for:
   - People, Service accounts, Policies, Webhooks, Sign-in, Access audit and
@@ -300,7 +299,7 @@ lets you do and doesn't. You can have a role directly, through a team, as an
 admin of the org, or as a tenant admin. **The detail** holds your ids and
 what each role allows on each kind of object.
 
-![My access as Eda Brooks: "You're an editor in 1 project." and "Tenant: member. Its people, keys and settings are its admins'."; a table with Support, Editor, directly, and what it lets her do: "run agents and flows, work on agent versions, publish prompts and settings, correct runs, try versions on the test cases; not make versions live, register agents and tools, build test cases, rescore runs on the test cases, set judge classes"; and The detail, closed.](../../../assets/access/my-access.png)
+![My access as Eda Brooks: "You're an editor in 1 project." and "Tenant: member. Its people, keys and settings are its admins'."; a table with Support, Editor, directly, and what it lets her do: "run agents and flows, work on agent versions, publish prompts and settings, correct runs, try versions on the test cases; not pin versions, register agents and tools, build test cases, rescore runs on the test cases, set corrector groups"; and The detail, closed.](../../../assets/access/my-access.png)
 
 ## Project memberships
 
@@ -479,6 +478,12 @@ of the project:
 - **A direct role with `joinedAt`** is a membership: change or remove it with
   `…/memberships/<user-id>`. One without `joinedAt` has no membership behind
   it, such as the creator of a project an older runtime made.
+- **A project made with a service account's key has no creator** (runtime
+  0.3.0 or later). It lists only who was given access to it, and the
+  tenant's admins (and its org's, if it's in one). One an older runtime made
+  lists `00000000-0000-0000-0000-000000000000` as its owner, an id no person
+  has: `kindgi-runtime tenants repair --all` (or `--tenant <id>`) takes it
+  away.
 - **A team's role** is changed on its grant (`…/team-grants/<team-id>`).
 
 Reading it takes `write` on the project: its editors and admins. Emails show
@@ -557,8 +562,8 @@ refused:
 - minting a key with capabilities you don't hold;
 - on the approvals routes, a caller who isn't a reviewer, unless it's a
   tenant admin reading them;
-- a caller who may not correct as a restricted judge class
-  (`judge-class-not-allowed`);
+- a caller who may not correct as an expert group
+  (`corrector-group-not-allowed`);
 - the operator's identity-provider lock (`identity-providers-operator-managed`);
 - reading the deployment's license (`GET /v1/license`) or its use
   (`GET /v1/license/usage`) without its own token or a system key holding

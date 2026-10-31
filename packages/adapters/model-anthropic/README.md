@@ -9,6 +9,10 @@ Translate between the framework's `ModelCallInput` / `ModelCallResult` and a non
 - `system` messages are lifted into the top-level `system` parameter, each its own text block, in order. `tool` messages become `tool_result` blocks folded into user turns, and assistant `toolCalls` become `tool_use` blocks.
 - Tool names are encoded `.` → `__` on send and decoded on receive, because the Messages API rejects dots in tool names (`acme.orders.lookup` ↔ `acme__orders__lookup`). Tool ids must not contain a literal `__`.
 - `max_tokens` is always sent, since Anthropic requires it: `input.maxOutputTokens`, else the model's `ModelInfo.maxOutputTokens`, else `4096`. `temperature` is sent when set, and `abortSignal` is passed to the request.
+- **How much it thinks.** A call's `thinking` goes as `output_config.effort`; a call that asks none is sent the model's `metadata.models[].thinking.default`, when it has one. On the Claude 5.5 models, effort alone moves how much they think, and thinking stays adaptive.
+  - `lowest` sends the model's `thinking.lowest`: a thinking type that turns thinking off (`disabled`, `between_tools`) goes as `thinking.type` with effort `low`, and an effort (`low`) goes alone.
+  - A level the model doesn't take (its `thinking.levels`, or without them `low`, `medium` and `high`) goes as the next one up that it does, or its highest, with a `thinking-level-adjusted` warning. A model with no `thinking` is sent none, with a `thinking-unsupported` warning when the call asked for one.
+  - The result's `thinking` says the level and what was sent, e.g. `{ level: 'lowest', sent: { 'thinking.type': 'between_tools', 'output_config.effort': 'low' } }`.
 - `stop_reason` maps `end_turn` / `stop_sequence` / `pause_turn` → `stop`, `max_tokens` → `length`, `tool_use` → `tool-use`, `refusal` → `content-filter`, anything else → `stop`.
 - Cost accounting that includes prompt caching. Anthropic reports four counters (`input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`), and `costUsd` bills each at its own rate:
   `(input × rate + cacheCreation × rate × creationMultiplier + cacheRead × rate × readMultiplier + output × outputRate) / 1000`.
@@ -22,7 +26,7 @@ Translate between the framework's `ModelCallInput` / `ModelCallResult` and a non
 
 ## Exports
 
-- **`anthropicAdapterEntry`** (`ANTHROPIC_ADAPTER_ID`) — the `AdapterFactoryEntry` a runtime registers. **`anthropicAdapterFactory`** builds the provider from a registration whose `secret_ref` names its Anthropic API key (resolved on every call); without one it throws, and **`anthropicCheckConfig(input)`** reports the same problem (`secret_ref`) without building anything.
+- **`anthropicAdapterEntry`** (`ANTHROPIC_ADAPTER_ID`) — the `AdapterFactoryEntry` a runtime registers. **`anthropicAdapterFactory`** builds the provider from a registration whose `secret_ref` names its Anthropic API key (resolved on every call); without one it throws, and **`anthropicCheckConfig(input)`** reports the same problem (`secret_ref`) without building anything. It takes no `adapter_config` (`configKeys: []`), so a registration with any key is refused, naming it; a stored one builds without it being read.
 - **`createAnthropicProvider(options)`** — returns a `ModelProvider` whose `metadata` is `options.metadata`. `invoke()` throws when `input.model` is not one of `metadata.models[].name`.
 - **`AnthropicProviderOptions`**:
   - `apiKey: string | (() => string | Promise<string>)` — a static key, or a resolver called on every `invoke()`. The SDK client is cached and rebuilt only when the resolved key changes, so a rotated secret takes effect on the next call. A per-tenant registry can register one provider per tenant whose resolver reads that tenant's secret.

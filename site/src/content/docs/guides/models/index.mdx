@@ -337,6 +337,10 @@ Ollama:
   by. Each has its `contextWindow`, its `features` (what agents can require)
   and its `cost`. A model can also set `maxOutputTokens`, `sampling` and
   `thinking`: see [Temperature and thinking](#temperature-and-thinking).
+  A field a model doesn't take is refused, so a misspelled one can't
+  register the model without the setting it meant:
+  `provider "ollama" model "llama3.1" has "thinkng", which isn't a model field: a model takes name, contextWindow, …`.
+  `metadata` refuses a field it doesn't take the same way.
 - **`metadata.defaultModel`** (optional) is the model an agent gets when
   nothing else decides: no preference, and equal weights. Without it, that's
   the first model by name. A name that isn't one of the models is refused:
@@ -394,6 +398,12 @@ Error [invalid-request]: Provider "ollama" doesn't fit adapter @kindgi/adapter-m
 - **A key it needs:** an adapter that takes a key refuses a spec without
   `secret_ref`:
   `✗ /secret_ref: needs secret_ref: its Anthropic API key.`
+- **A setting it doesn't take:** an `adapter_config` key that isn't one of
+  the adapter's settings is refused, naming the ones it takes:
+  `✗ /adapter_config/timeout: adapter_config.timeout isn't a setting of this adapter: it takes baseURL, api, extraBody.<field>.`
+  A setting that moved names its new place. Gemini's `thinkingLevels` is now
+  each model's `thinking.default`:
+  `✗ /adapter_config/thinkingLevels: adapter_config.thinkingLevels isn't read here: its setting is metadata.models[].thinking.default.`
 - **An adapter the runtime doesn't have:**
   `This runtime has no adapter "@kindgi/adapter-model-nope", so it can't build provider "ollama".`
 - **What isn't checked:** whether the key works, whether the endpoint
@@ -422,24 +432,82 @@ Some models think before they answer. A model's `thinking` says how:
 
 - **`"mode"`** is `"adaptive"`, on unless turned down, or `"always"`.
 - **`lowest`** is the vendor's own setting for the least thinking.
+- **`levels`** (optional) are the levels it takes besides `lowest`, least
+  first, from `minimal`, `low`, `medium`, `high`, `xhigh` and `max`. Without
+  them, it takes `low`, `medium` and `high`, plus `minimal` when its `lowest`
+  is `minimal`, and none below its `lowest` when that's `medium` or `high`.
+- **`default`** (optional) is the level a call that asks none is sent:
+  `lowest` or one of its levels. Without it, such a call sends none, and the
+  model thinks as its vendor's default says.
+
+Here, a `metadata.models` entry for Gemini 3.8 Flash whose calls think as
+little as it allows unless an agent asks for more:
+
+```json
+{ "name": "gemini-3.8-flash", "contextWindow": 1048576, "features": ["tool-use"],
+  "cost": { "promptUsdPer1kTokens": 0.00075, "completionUsdPer1kTokens": 0.00375 },
+  "thinking": { "mode": "adaptive", "lowest": "low", "levels": ["low", "medium", "high"], "default": "lowest" } }
+```
+
+A `default` the model doesn't take is refused, and nothing is registered:
+`provider "gemini" model "gemini-3.8-flash" thinking default "max" isn't a level this model takes: it takes lowest, low, medium, high`.
+
+An agent asks for a level with `thinking` in its
+[model settings](../improve/change-a-prompt-or-setting/#use-them-in-an-agent):
+`lowest`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. It wins over
+the model's `default`. A level the model doesn't take goes as the next one up
+that it takes, or as its highest when none is above. The call goes on, and
+the turn carries a `thinking-level-adjusted` warning:
+
+```text
+⚠ gemini-3.8-flash doesn't take thinking level max, so the call sent high.
+```
+
+A level asked of a model without `thinking` sends nothing, and the turn
+carries a `thinking-unsupported` warning. Each model call's cost record names
+the level it asked for, the level it sent and the vendor's fields as they
+went out, as [Cost per run](../observability/cost-per-run/) shows.
+
+| Adapter | A level goes as | `lowest` goes as |
+| --- | --- | --- |
+| `@kindgi/adapter-model-anthropic` | `output_config.effort` | the effort `lowest` names; for `disabled` or `between_tools`, that `thinking.type` with effort `low` |
+| `@kindgi/adapter-model-gemini` | `thinkingConfig.thinkingLevel` | the level `lowest` names |
+| `@kindgi/adapter-model-openai-compat` | `reasoning_effort` on Chat Completions, `reasoning.effort` on the Responses API | the effort `lowest` names |
+| `@kindgi/adapter-model-azure-openai`, `@kindgi/adapter-model-bedrock` | the AI SDK's `reasoning` | the value `lowest` names, with `disabled` as `none` and `between_tools` as `low` |
+
+When the AI SDK doesn't send a level to a model, the call's record says none
+went, and the turn carries a `thinking-unsupported` warning. On Bedrock, it
+sends nothing for `none`, so `lowest` on a model whose `lowest` is `none` or
+`disabled` goes that way, and the model thinks as its default says. The in-process
+adapter's models don't think.
 
 Thinking counts against the call's output cap, `maxOutputTokens`, and bills
-as output, so it's in a turn's tokens and cost. A guardrail's model judge
-asks for the least thinking. It allows 2,048 tokens for thinking, on top of
-the 256 its verdict gets.
+as output, so it's in a turn's tokens and cost. A guardrail's model judge, or
+a test run's judging model, asks for the least thinking. It allows 2,048
+tokens for thinking, on top of the 256 its verdict gets.
 
-| Preset | Model | Takes a temperature | Thinks | Least thinking |
-| --- | --- | --- | --- | --- |
-| `anthropic` | `claude-opus-5-5` | no | always | `low` |
-| | `claude-sonnet-5-5` | no | adaptive | `between_tools` |
-| | `claude-haiku-5-5` | no | adaptive | `disabled` |
-| | `claude-haiku-4-5` | yes | not set | |
-| `openai` | `gpt-6.1-sol` | no | adaptive | `low` |
-| | `gpt-6-astra` | no | adaptive | `low` |
-| | `gpt-6-luna` | no | adaptive | `none` |
-| `gemini`, `gemini-api` | `gemini-3.8-flash` | yes | adaptive | `low` |
-| | `gemini-3.5-flash-lite` | yes | adaptive | `minimal` |
-| `gemini-api` | `gemini-3.1-pro-preview` | yes | not set | |
+| Preset | Model | Takes a temperature | Thinks | Least thinking | Levels |
+| --- | --- | --- | --- | --- | --- |
+| `anthropic` | `claude-opus-5-5` | no | always | `low` | `low` to `max` |
+| | `claude-sonnet-5-5` | no | adaptive | `between_tools` | `low` to `max` |
+| | `claude-haiku-5-5` | no | adaptive | `disabled` | `low` to `max` |
+| | `claude-haiku-4-5` | yes | not set | | |
+| `openai` | `gpt-6.1-sol` | no | adaptive | `low` | `low` to `max` |
+| | `gpt-6-astra` | no | adaptive | `low` | `low` to `max` |
+| | `gpt-6-luna` | no | adaptive | `none` | `low` to `max` |
+| `gemini`, `gemini-api` | `gemini-3.8-flash` | yes | adaptive | `low` | `low` to `high` |
+| | `gemini-3.5-flash-lite` | yes | adaptive | `minimal` | `minimal` to `high` |
+| `gemini-api` | `gemini-3.1-pro-preview` | yes | not set | | |
+
+`low` to `max` is `low`, `medium`, `high`, `xhigh` and `max`. The presets take
+each model's levels from its vendor's pages. `gemini` lists none for its
+models, so they take the ones every thinking model takes, which here are the
+same. On `azure-openai`, the GPT-6 models take `low` to `max`. On `bedrock`,
+Claude Sonnet 5.5 takes `low`, `medium`, `high` and `max`, with no `xhigh`:
+the AI SDK sends `xhigh` to Bedrock as `max`, so Kindgi rounds it up to `max`
+and says so. Bedrock's GPT models list none, so they take `low`, `medium` and
+`high`. Their least thinking is `low`: the AI SDK sends nothing for `none`
+there.
 
 `groq`'s models take a temperature and set no thinking. On `openrouter`,
 `anthropic/claude-sonnet-5.5`, `openai/gpt-6.1-sol` and `openai/gpt-6-luna`
@@ -447,7 +515,9 @@ take no temperature. A model without `thinking` gets nothing sent for it, so
 it thinks, or not, as its vendor's default says.
 
 A registration made from an older preset may lack these settings. To pick
-them up, unregister it and register it again.
+them up, unregister it and register it again. A runtime older than 0.3.0
+takes no levels: there, `kindgi providers register --preset` registers the
+models without them, and says so.
 
 ## Declare them in your pack's config
 
@@ -765,7 +835,19 @@ registration whose `api` doesn't fit:
 
 An empty `issues` means the runtime can build the provider. `checked` is
 `false` for an adapter this runtime has no check for, such as `dev-echo`'s.
-`kindgi doctor` asks this for every provider and names each problem, as
-[Check this machine](../../start/install/#check-this-machine) shows. To fix a
-problem, unregister the provider and register it again with a spec that
-fits.
+
+A stored registration with an `adapter_config` key its adapter doesn't take
+still builds, and the key isn't read. The check lists each such key in
+`warnings`, apart from `issues`, naming what the adapter takes or where the
+setting moved. Here, a Gemini registration stored with `thinkingLevels`:
+
+```json
+{"providerId":"gemini","adapterId":"@kindgi/adapter-model-gemini","checked":true,"issues":[],"warnings":[{"path":"/adapter_config/thinkingLevels","message":"adapter_config.thinkingLevels isn't read here: its setting is metadata.models[].thinking.default."}]}
+```
+
+`warnings` is left out when there are none. `kindgi doctor` asks this for
+every provider and names each problem, as
+[Check this machine](../../start/install/#check-this-machine) shows. A
+provider with only warnings is a warning there, with the steps to register
+it again. To fix either, unregister the provider and register it again with
+a spec that fits.

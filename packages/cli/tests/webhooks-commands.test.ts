@@ -52,6 +52,27 @@ const FIRE = {
   outcome: 'refused',
   detail: 'signature-invalid',
 };
+const VERSIONS = {
+  data: [
+    {
+      triggerId: ID,
+      version: 2,
+      createdAt: '2026-10-11T00:00:00.000Z',
+      createdBy: 'u-1',
+      cause: 'edit',
+      definition: { flowId: 'acme.refund-review', flowVersion: '1.1.0' },
+    },
+    {
+      triggerId: ID,
+      version: 1,
+      createdAt: '2026-10-10T10:00:00.000Z',
+      cause: 'first-fire',
+      definition: { flowId: 'acme.refund-review', flowVersion: '1.0.0' },
+    },
+  ],
+  hasMore: true,
+  nextCursor: 'c-2',
+};
 
 async function webhooks(
   argv: readonly string[],
@@ -81,6 +102,8 @@ async function webhooks(
         webhooks: {
           list: record('list', { data: [trigger], hasMore: false }),
           get: record('get', trigger),
+          getVersion: record('getVersion', VERSIONS.data[0]),
+          versions: record('versions', VERSIONS),
           register: record('register', trigger),
           update: record('update', trigger),
           pause: record('pause', { ...trigger, status: 'paused' }),
@@ -477,5 +500,56 @@ describe('kindgi webhooks: the rest of the group', () => {
     });
     expect(taken.out.stderr).toContain('It keeps its tools allowed unattended (acme.refund)');
     expect(taken.out.stderr).not.toContain('now runs as');
+  });
+});
+
+describe('kindgi webhooks: versions', () => {
+  test("versions: a trigger's versions, paged; the table names who made each, or Kindgi", async () => {
+    const { out, calls } = await webhooks(['versions', ID, '--limit=2', '--cursor=c-1']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['versions', ID, { limit: 2, cursor: 'c-1' }]]);
+    expect(JSON.parse(out.stdout)).toEqual(VERSIONS);
+    const table = await webhooks(['versions', ID, '--table']);
+    expect(table.out.exitCode, table.out.stderr).toBe(0);
+    expect(table.out.stdout).toMatch(/^VERSION\s+CREATED\s+BY\s+CAUSE/);
+    expect(table.out.stdout).toMatch(/2\s+2026-10-11T00:00:00\.000Z\s+u-1\s+edit/);
+    expect(table.out.stdout).toMatch(/1\s+2026-10-10T10:00:00\.000Z\s+Kindgi\s+first-fire/);
+    expect(table.out.stderr).toContain('c-2');
+  });
+
+  test('get <trigger-id> <version> reads that version, without the receive URL', async () => {
+    const { out, calls } = await webhooks(['get', ID, '2']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['getVersion', ID, 2]]);
+    expect(JSON.parse(out.stdout)).toEqual(VERSIONS.data[0]);
+    expect(out.stderr).not.toContain(RECEIVE_URL);
+    const quiet = await webhooks(['get', ID, '2', '--quiet']);
+    expect([quiet.out.stdout, quiet.out.stderr]).toEqual(['', '']);
+    expect((await webhooks(['get', ID])).calls).toEqual([['get', ID]]);
+  });
+
+  test('get: a <version> that is not a whole number from 1 is refused before any call', async () => {
+    for (const bad of ['0', '01', '1.0.0', 'abc', '9007199254740993']) {
+      const { out, calls } = await webhooks(['get', ID, bad]);
+      expect(out.exitCode, bad).not.toBe(0);
+      expect(out.stderr).toContain(`<version> must be a whole number from 1, got "${bad}"`);
+      expect(calls).toEqual([]);
+    }
+  });
+
+  test("list --table: the VERSION column is the trigger's current version, empty before its first", async () => {
+    const versioned = await webhooks(['list', '--table'], { trigger: { ...TRIGGER, version: 3 } });
+    expect(versioned.out.exitCode, versioned.out.stderr).toBe(0);
+    expect(versioned.out.stdout).toMatch(/^ID\s+VERSION\s+FLOW/);
+    expect(versioned.out.stdout).toMatch(
+      new RegExp(`${ID}\\s+3\\s+acme\\.refund-review@1\\.0\\.0`),
+    );
+    const before = await webhooks(['list', '--table']);
+    expect(before.out.stdout).toMatch(new RegExp(`${ID}\\s+acme\\.refund-review@1\\.0\\.0`));
+  });
+
+  test('help lists versions', async () => {
+    const { out } = await webhooks(['--help']);
+    expect(out.stdout).toMatch(/^ {2}versions /m);
   });
 });

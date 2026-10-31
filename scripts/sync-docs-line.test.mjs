@@ -44,11 +44,12 @@ describe('docsLineOf', () => {
 });
 
 describe('followsDocsLine', () => {
-  test('takes every SKILL.md, and what a package or SDK ships from its src/', () => {
+  test("takes every SKILL.md, the files beside a shipped skill's, and what a package or SDK ships from its src/", () => {
     for (const file of [
       ACME_SKILL,
       ACME_CONTRIBUTING,
       'SKILL.md',
+      md('packages/sdk/skills/acme-skill/reference'),
       'packages/cli/src/commands/init.ts',
       md('packages/cli/src/templates/AGENTS'),
       'sdks/python/src/kindgi/client.py',
@@ -64,7 +65,9 @@ describe('followsDocsLine', () => {
       'packages/cli/src/commands/init.test.ts',
       'sdks/java/kindgi-client/src/test/java/com/kindgi/client/DocsLinksTest.java',
       'packages/sdk/README.md',
-      md('packages/sdk/skills/acme-skill/reference'),
+      md('packages/sdk/skills/acme-skill/nested/reference'),
+      md('.claude/skills/acme-skill/reference'),
+      'packages/sdk/skills/acme-skill/diagram.png',
       md('docs/guides/acme'),
       'scripts/check-refs.mjs',
       'src/index.ts',
@@ -79,14 +82,14 @@ describe('moveLinks', () => {
     const text = [
       `See ${V01}guides/connections/use-a-connection#scopes.`,
       `Or [the CLI](${V01}reference/cli) and <${'https://docs.kindgi.com/v1.4/'}deploy>.`,
-      `Already on the line: ${V02}guides/evals.`,
+      `Already on the line: ${V02}guides/improve.`,
       '',
     ].join('\r\n');
     assert.deepEqual(moveLinks(text, V02), {
       text: [
         `See ${V02}guides/connections/use-a-connection#scopes.`,
         `Or [the CLI](${V02}reference/cli) and <${V02}deploy>.`,
-        `Already on the line: ${V02}guides/evals.`,
+        `Already on the line: ${V02}guides/improve.`,
         '',
       ].join('\r\n'),
       moved: 3,
@@ -95,12 +98,12 @@ describe('moveLinks', () => {
 
   test("leaves a link on no line, on a patch version's, or on another host", () => {
     const text = [
-      'https://docs.kindgi.com/guides/evals',
-      'https://docs.kindgi.com/v0.1.10/guides/evals',
-      'https://docs.kindgi.com/next/guides/evals',
+      'https://docs.kindgi.com/guides/improve',
+      'https://docs.kindgi.com/v0.1.10/guides/improve',
+      'https://docs.kindgi.com/next/guides/improve',
       'https://docs.kindgi.com/v0.1',
-      'http://docs.kindgi.com/v0.1/guides/evals',
-      'https://docs.kindgi.com.acme.example/v0.1/guides/evals',
+      'http://docs.kindgi.com/v0.1/guides/improve',
+      'https://docs.kindgi.com.acme.example/v0.1/guides/improve',
       'https://acme.example/docs.kindgi.com/v0.1x/guides',
     ].join('\n');
     assert.deepEqual(moveLinks(text, V02), { text, moved: 0 });
@@ -211,7 +214,7 @@ describe('sync-docs-line', () => {
 
   test("leaves a link on no line, or a patch version's, for check-refs to name", () => {
     const patch =
-      'Pinned: https://docs.kindgi.com/v0.1.10/guides/get-started\nNo line: https://docs.kindgi.com/guides/evals\n';
+      'Pinned: https://docs.kindgi.com/v0.1.10/guides/get-started\nNo line: https://docs.kindgi.com/guides/improve\n';
     const root = repo({ files: { [ACME_SKILL]: patch } });
     const result = run(root);
     assert.equal(result.status, 0, result.stderr);
@@ -222,7 +225,10 @@ describe('sync-docs-line', () => {
       checked.stderr,
       /links https:\/\/docs\.kindgi\.com\/v0\.1\.10\/guides\/get-started; a skill links/,
     );
-    assert.match(checked.stderr, /links https:\/\/docs\.kindgi\.com\/guides\/evals; a skill links/);
+    assert.match(
+      checked.stderr,
+      /links https:\/\/docs\.kindgi\.com\/guides\/improve; a skill links/,
+    );
   });
 
   test("skips a tracked file that's gone from the checkout", () => {
