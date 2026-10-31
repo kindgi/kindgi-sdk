@@ -7336,7 +7336,7 @@ class TestRunComparison(BaseModel):
 
 class ComparisonMetric(BaseModel):
     """
-    One metric, the recorded runs beside the candidate. `null` where a side had no evidence from corrections; `n` / `weight` are the candidate's evidence (cases with corrected items, and the correction weight behind them), `baselineN` / `baselineWeight` the recorded side's.
+    One metric, the recorded runs beside the candidate. `null` where a side had no evidence from corrections: no corrected items, and for `passRate` no graded `expect` either. `n` / `weight` are the candidate's evidence, the cases it rests on and the weight behind them. For `passRate`, those are the cases with corrected items or a graded `expect`, and each graded part of an `expect`, its decisions and its answer, is one check of weight 1 beside the items' correction weight. For `caseCoverage` and `weightedPrecisionAtK`, they're the cases with corrected items only. `baselineN` / `baselineWeight` are the recorded side's.
     """
 
     model_config = ConfigDict(
@@ -13519,6 +13519,19 @@ class ComparisonCaseResultTool(BaseModel):
     reason: str | None = None
 
 
+class Parts(BaseModel):
+    """
+    A case's `expect` only: whether each part the case expects passed on every repetition. Each one is a check in `passRate`. Absent from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    decisions: bool | None = None
+    answer: bool | None = None
+
+
 class ComparisonCaseResultCorrection(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -13539,7 +13552,11 @@ class ComparisonCaseResultCorrection(BaseModel):
     """
     why: str | None = None
     """
-    The judging model's reason, from the first repetition that failed, when it failed on its answer and the model gave one. It can quote the answer, so an erasure clears it. Absent from older servers.
+    The judging model's reason, from the first repetition whose answer failed, when the model gave one. It can quote the answer, so an erasure clears it. Absent from older servers.
+    """
+    parts: Parts | None = None
+    """
+    A case's `expect` only: whether each part the case expects passed on every repetition. Each one is a check in `passRate`. Absent from older servers.
     """
 
 
@@ -16238,7 +16255,7 @@ class ComparisonCaseResult(BaseModel):
     """
     corrections: list[ComparisonCaseResultCorrection] | None = None
     """
-    Each correction graded on this case: its verdict and how many repetitions passed. Shown, not enforced. A case of an agent's test set that carries `expect` has one entry instead, keyed by the case's id: a repetition passes when every part the case expects passed on it. It has none when the case expects only items, or when a part couldn't be checked. Survives an erasure, all but `why` — the differences, which quote values, are in `correctionDifferences`.
+    Each correction graded on this case: its verdict and how many repetitions passed. Shown, not enforced. A case of an agent's test set that carries `expect` has one entry instead, keyed by the case's id: a repetition passes when every part the case expects passed on it, and each part (`parts`) is one check in `passRate`. It has none when the case expects only items, or when a part couldn't be checked. Survives an erasure, all but `why` — the differences, which quote values, are in `correctionDifferences`.
     """
     correction_differences: Annotated[
         list[CorrectionDifference] | None, Field(alias="correctionDifferences")
