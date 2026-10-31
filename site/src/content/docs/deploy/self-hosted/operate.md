@@ -39,9 +39,8 @@ Each way of running the runtime has its own way to upgrade:
 | You run the runtime | How to upgrade | Script |
 | --- | --- | --- |
 | With Docker, as [Self-host Kindgi](../self-host/) sets it up | [With Docker](#with-docker), below: back up, then pull and restart | None |
-| On Cloud Run, as the small dev deployment (`network_mode = "none"`), on 0.1.8 or later | The module's `upgrade.sh`, under [Operate it](../cloud-run/#operate-it) on the Cloud Run page | `upgrade.sh` |
-| On Cloud Run, with `network_mode` `direct` or `connector` | [Upgrade by hand](../cloud-run/#upgrade-by-hand) on the Cloud Run page | None: `upgrade.sh` stops on these |
-| On Azure Container Apps | [Upgrade](../azure-container-apps/#upgrade) on the Azure Container Apps page | None |
+| On Cloud Run | From 0.1.8, in any `network_mode`: the module's `upgrade.sh`, under [Operate it](../cloud-run/#operate-it) on the Cloud Run page. Or [Upgrade by hand](../cloud-run/#upgrade-by-hand), on the same page | `upgrade.sh`, from 0.1.8 |
+| On Azure Container Apps | From 0.1.8, in either network shape: the module's `upgrade.sh`. Or by hand. Both are under [Upgrade](../azure-container-apps/#upgrade) on the Azure Container Apps page | `upgrade.sh`, from 0.1.8 |
 
 **Before you start, read the upgrade steps of each release you're
 upgrading across.** From 0.1.8 on, they're in each release's notes, which

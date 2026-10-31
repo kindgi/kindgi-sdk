@@ -718,7 +718,17 @@ What each setting does, and the ways in: [Turn on sign-in](../sign-in/).
 
 ## Upgrade
 
-No script upgrades this deployment: run these steps by hand, on a staging
+The module's `upgrade.sh` runs these steps for you: a deployment of the
+module on runtime 0.1.8 or later, in either network shape, can run it to
+0.2.0 or later. Use the `upgrade.sh` as of the `@kindgi/sdk@<version>` tag
+of the release you're upgrading to: it knows the steps up to its own
+release. It first came with the `@kindgi/sdk@0.4.0` tag, so to keep the
+module at an earlier release, upgrade by hand. The module's README has
+what it checks and changes, under
+[Upgrading](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/azure-container-apps#upgrading),
+and `./upgrade.sh --help` lists its options.
+
+Upgrade by hand instead if you'd rather: run these steps on a staging
 deployment first if you have one. Run them in the module's folder, as the
 identity that deploys the module. `<rg>` is the resource group, and
 `<name_prefix>` your `name_prefix`.
