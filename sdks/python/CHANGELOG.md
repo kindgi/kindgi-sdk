@@ -19,9 +19,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `projects.update(project_id, sort_end_user_corrections=True)` turns it on (admin on
   the project). While it's on, an end user's correction saved after that is sorted
   like the others, and a schedule counting everyone's corrections
-  (`from_="everyone"`) counts end users' corrections: at its next check, every one
-  since its last run, older ones included. Once it's off, none of them counts, even
-  one sorted while it was on or by a person.
+  (`from_="everyone"`) counts the ones sorted to improve. Once it's off, none of
+  them counts, even one sorted while it was on or by a person.
 - `kindgi`: **corrections export.** `kindgi.corrections.export(agent_id=...)`
   yields an agent's corrections in chunks of bytes, as CSV, or as JSON lines
   with `format="jsonl"`, taking the list's filters. Write the chunks to a file
