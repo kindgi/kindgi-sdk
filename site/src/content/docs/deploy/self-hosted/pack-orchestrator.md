@@ -122,13 +122,19 @@ before it calls anything, naming the setting but never its value.
 - **A runtime behind Cloud Run IAM:** `roles/run.invoker` on the runtime's
   service, so its calls, with the Job's ID token, pass Cloud Run's check
   (`KINDGI_ORCHESTRATOR_RUNTIME_AUTH=google-id-token`).
-- **Secret Manager:** a custom role on the project with
-  `secretmanager.secrets.create`, `.get`, `.list` and `.delete`, and
-  `secretmanager.versions.add`, `.list` and `.destroy`; or
-  `roles/secretmanager.admin`, which grants more than it needs. It works only
-  on secrets named `kp-…`, and lists the project's secrets (names and labels
-  only) to find the ones a stopped pass left. It never reads a value: the
-  values come from the runtime.
+- **Secret Manager:** two custom roles on the project, or
+  `roles/secretmanager.admin`, which grants more than it needs:
+  - `secretmanager.secrets.get` and `.delete`, and
+    `secretmanager.versions.add`, `.list` and `.destroy`, with the condition
+    `resource.name.startsWith("projects/<project number>/secrets/kp-")`;
+  - `secretmanager.secrets.create` and `.list`, with no condition: both name
+    the project, not one secret, so a condition on the secret's name isn't
+    sure to hold for them. A new secret holds no value until a version is
+    added, and a list gives names and labels only, to find the secrets a
+    stopped pass left.
+
+  It works only on secrets named `kp-…`, and never reads a value: the values
+  come from the runtime.
 
 The Cloud Run role lets the account delete any service in the project. The
 orchestrator touches a service only when its name is one it derives from a
