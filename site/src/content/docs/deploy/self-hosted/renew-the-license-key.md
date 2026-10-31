@@ -254,7 +254,8 @@ route refuses it.
 
 Mint it with the runtime's own token. On a runtime serving one tenant
 (runtime 0.1.10 or later), only that token mints system keys, and only ones
-holding `system:license`. The token reaches `curl` as a header file, so it
+holding `system:license`, or, with a pack service per deployment, the
+orchestrator's scopes. The token reaches `curl` as a header file, so it
 never shows in the list of processes:
 
 ```sh

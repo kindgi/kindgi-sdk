@@ -356,6 +356,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'endpoint-retired': 409,
   /** What a pack service runs, recorded over another revision recorded since. */
   'pack-env-conflict': 409,
+  /** The orchestrator's round claimed while another pass's live claim holds it. */
+  'orchestrator-round-held': 409,
+  /** The orchestrator's round ended by a pass whose claim ran out. */
+  'orchestrator-round-not-held': 409,
   /** Creating or renaming a tenant with a slug another tenant has. */
   'tenant-slug-taken': 409,
   /**
@@ -557,6 +561,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // the system routes (`pack-env-unsupported`), and a deployment's names
   // (`pack-env-not-served`), where its pack services take it from how they're run.
   'pack-env-unsupported': 501,
+  // A server that keeps no orchestrator round: whatever runs its pack services keeps one pass at a time itself.
+  'orchestrator-round-unsupported': 501,
   'pack-env-not-served': 501,
   /** Secret values asked for from a server with nowhere to audit them: none is read or given. */
   'pack-env-secrets-unaudited': 501,

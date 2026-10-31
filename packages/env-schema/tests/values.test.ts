@@ -14,6 +14,7 @@ import {
   parseAzureVaultUrl,
   parseCorsOrigins,
   parsePackEndpointHosts,
+  parsePackEndpointKmsKey,
   parsePackRouting,
   parsePackServiceToken,
   parsePackTenantId,
@@ -223,6 +224,78 @@ describe('parsePackRouting', () => {
 
   test('anything else fails at startup, naming the setting', () => {
     expect(() => parsePackRouting('per-tenant')).toThrow('KINDGI_PACK_ROUTING');
+  });
+});
+
+describe('KINDGI_PACK_ENDPOINT_KMS_KEY', () => {
+  test("a Cloud KMS key's full name: its parts, the provider read from the form", () => {
+    expect(
+      parsePackEndpointKmsKey(
+        ' projects/acme-prod/locations/us-central1/keyRings/kindgi/cryptoKeys/pack_endpoints\n',
+      ),
+    ).toEqual({
+      provider: 'gcp',
+      projectId: 'acme-prod',
+      locationId: 'us-central1',
+      keyRingId: 'kindgi',
+      cryptoKeyId: 'pack_endpoints',
+    });
+    expect(
+      parsePackEndpointKmsKey('projects/p/locations/global/keyRings/r/cryptoKeys/k/'),
+    ).toMatchObject({ provider: 'gcp', cryptoKeyId: 'k' });
+  });
+
+  test("a Key Vault key's URL, with a trailing slash dropped", () => {
+    expect(
+      parsePackEndpointKmsKey('https://my-vault.vault.azure.net/keys/kindgi-pack-endpoints/'),
+    ).toEqual({
+      provider: 'azure',
+      keyUrl: 'https://my-vault.vault.azure.net/keys/kindgi-pack-endpoints',
+    });
+  });
+
+  test('unset or blank is undefined', () => {
+    expect(parsePackEndpointKmsKey(undefined)).toBeUndefined();
+    expect(parsePackEndpointKmsKey('  ')).toBeUndefined();
+  });
+
+  test('one version of either key is refused, naming the key without it', () => {
+    expect(() =>
+      parsePackEndpointKmsKey('projects/p/locations/l/keyRings/r/cryptoKeys/k/cryptoKeyVersions/3'),
+    ).toThrow(
+      'KINDGI_PACK_ENDPOINT_KMS_KEY names one version of the key (3). Give the key without it, projects/p/locations/l/keyRings/r/cryptoKeys/k: new tokens are sealed',
+    );
+    expect(() =>
+      parsePackEndpointKmsKey('https://my-vault.vault.azure.net/keys/kindgi/0123abcd'),
+    ).toThrow(
+      'KINDGI_PACK_ENDPOINT_KMS_KEY names one version of the key (0123abcd). Give the key without it, https://my-vault.vault.azure.net/keys/kindgi: new tokens are sealed',
+    );
+  });
+
+  test('any other value is refused, naming both forms', () => {
+    for (const raw of [
+      'kindgi-pack-endpoints',
+      'projects/p/locations/l/keyRings/r',
+      'projects/p/locations/l/keyRings/r/cryptoKeys/k/extra',
+      'projects/p/locations/l/keyRings/r w/cryptoKeys/k',
+      '//cloudkms.googleapis.com/projects/p/locations/l/keyRings/r/cryptoKeys/k',
+      'http://my-vault.vault.azure.net/keys/kindgi',
+    ]) {
+      expect(() => parsePackEndpointKmsKey(raw), raw).toThrow(
+        /^KINDGI_PACK_ENDPOINT_KMS_KEY must be a Cloud KMS key's full name \(projects\/.*\) or a Key Vault key's URL \(https:\/\/.*\), without a version\. Got: /,
+      );
+    }
+    expect(() =>
+      parsePackEndpointKmsKey('https://my-vault.vault.azure.net/secrets/kindgi'),
+    ).toThrow(
+      "KINDGI_PACK_ENDPOINT_KMS_KEY must be a Key Vault key's URL without a version, like https://my-vault.vault.azure.net/keys/kindgi-pack-endpoints.",
+    );
+  });
+
+  test('the secrets key keeps its own name in its errors', () => {
+    expect(() => parseAzureKeyId('https://v.vault.azure.net/keys/k/1')).toThrow(
+      'KINDGI_SECRETS_AZURE_KEY_ID names one version of the key (1). Give the key without it, https://v.vault.azure.net/keys/k: new secrets are wrapped',
+    );
   });
 });
 
