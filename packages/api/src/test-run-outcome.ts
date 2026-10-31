@@ -11,13 +11,15 @@
  * for a pin change, `latest:<agentId>:<projectId>` for Latest moving. A
  * caller can't start a run with either (`isReservedCorrelation`). An
  * outcome applies only while the project still runs the run's version, so
- * a run that a newer change overtook changes nothing. A `pin:` run takes
- * how, who and when from the project's newest pin change as it applies,
- * not from the change that started it.
+ * a run that a newer change overtook changes nothing. A `pin:` run applies
+ * only as its change's own run (`startedThisRun`), and takes how, who and
+ * when from the project's newest pin change as it applies, not from the
+ * change that started it.
  */
 
+import type { ProjectBinding } from '@kindgi/platform';
 import { highestVersion } from '@kindgi/tools';
-import type { ProjectId, RunId, TenantId } from '@kindgi/types';
+import type { AgentId, AgentPinScope, ProjectId, RunId, TenantId } from '@kindgi/types';
 
 import type { AgentPinBindings, Pin } from './agent-pin-binding.js';
 import type { CorrectedCaseResult } from './corrected-dispatcher.js';
@@ -30,6 +32,7 @@ import type {
 } from './correction-binding.js';
 import { type RunOutcomeInput, planRunOutcome } from './correction-sorting.js';
 import type { TestRun, TestRunBinding, TestRunComparison } from './test-run-binding.js';
+import { agentTestSetId } from './test-set-binding.js';
 import { type WhatRuns, type WhatRunsInProject, whatRunsByProject } from './what-runs.js';
 
 const PIN = 'pin:';
@@ -85,6 +88,8 @@ export interface TestRunOutcomeDeps {
   readonly testRuns: Pick<TestRunBinding, 'get'>;
   readonly agentPins: Pick<AgentPinBindings, 'pinned' | 'latest' | 'changes'>;
   readonly corrections: Pick<CorrectionRegistryBinding, 'list' | 'applyRunOutcome'>;
+  /** Whether an org pin's run is of a project in the org (`startedThisRun`). */
+  readonly projects: Pick<ProjectBinding, 'get'>;
 }
 
 /** The corrections a test run's outcome changed. */
@@ -159,7 +164,7 @@ async function applyOne(
   if (now === undefined || runs == null || (runs.version as unknown as string) !== version) {
     return undefined;
   }
-  const moved = await howItMoved(deps.agentPins, tenantId, check, { ...now, runs }, run);
+  const moved = await howItMoved(deps, tenantId, check, { ...now, runs }, run);
   if (moved === undefined) return undefined;
   const passed = new Map([...passedByCorrection(run)].filter(([id]) => !decided.has(id)));
   for (const id of passed.keys()) decided.add(id);
@@ -197,8 +202,9 @@ interface EndedCheck {
 /**
  * The check an ended run was; `undefined` for a run whose end changes no
  * corrections: one not completed, a dry run, not a `corrections` run, one
- * that didn't try the version as published (`asPublished`), or a `latest:`
- * run whose own agent or project isn't its correlation's.
+ * that didn't try the version as published (`asPublished`), one not on its
+ * project's agent test set (`agentTestSetId`), or a `latest:` run whose own
+ * agent or project isn't its correlation's.
  */
 function endedCheck(run: TestRun): EndedCheck | undefined {
   if (run.status !== 'completed' || run.dryRun || run.kind !== 'corrections') return undefined;
@@ -217,6 +223,7 @@ function endedCheck(run: TestRun): EndedCheck | undefined {
   ) {
     return undefined;
   }
+  if (run.testSetId !== agentTestSetId(agentId as AgentId, projectId)) return undefined;
   if (reason.kind === 'latest' && (reason.agentId !== agentId || reason.projectId !== projectId)) {
     return undefined;
   }
@@ -239,13 +246,14 @@ function asPublished(comparison: TestRunComparison): boolean {
 
 /**
  * How the project came to run the checked version, as it applies: a `pin:`
- * run's from the project's newest pin change (`undefined` when none is
- * found), a `latest:` run's from Latest (`undefined` once a pin covers the
- * project, even of the same version), at the time it became Latest or,
- * where nothing records one, the run's start.
+ * run's from the project's newest pin change (`undefined` when the run
+ * isn't its change's own, `startedThisRun`, or no change is found), a
+ * `latest:` run's from Latest (`undefined` once a pin covers the project,
+ * even of the same version), at the time it became Latest or, where
+ * nothing records one, the run's start.
  */
 async function howItMoved(
-  agentPins: Pick<AgentPinBindings, 'changes'>,
+  deps: Pick<TestRunOutcomeDeps, 'agentPins' | 'projects'>,
   tenantId: TenantId,
   check: EndedCheck,
   now: WhatRunsInProject & { readonly runs: WhatRuns },
@@ -257,11 +265,16 @@ async function howItMoved(
     if (runs.follows !== 'latest') return undefined;
     return { how: 'latest', at: runs.since ?? (run.startedAt as unknown as string) };
   }
+  const { agentPins } = deps;
+  const started = await agentPins.changes.get(tenantId, reason.changeId);
+  if (started === null || !(await startedThisRun(deps.projects, tenantId, started, check, run))) {
+    return undefined;
+  }
   const change = await newestChange(agentPins, {
     tenantId,
     agentId: check.agentId,
     projectId: check.projectId,
-    startedBy: reason.changeId,
+    started,
     ...(now.pin !== undefined && { covering: now.pin.changeId }),
   });
   return change === undefined
@@ -283,14 +296,14 @@ async function newestChange(
     readonly tenantId: TenantId;
     readonly agentId: string;
     readonly projectId: ProjectId;
-    readonly startedBy: string;
+    /** The change that started the run. */
+    readonly started: Pin;
     /** The change behind the pin that covers the project, when one does. */
     readonly covering?: string;
   },
 ): Promise<Pin | undefined> {
-  const { tenantId } = q;
-  const [started, covering, own] = await Promise.all([
-    agentPins.changes.get(tenantId, q.startedBy),
+  const { tenantId, started } = q;
+  const [covering, own] = await Promise.all([
     q.covering === undefined ? null : agentPins.changes.get(tenantId, q.covering),
     agentPins.changes.list({
       tenantId,
@@ -302,13 +315,63 @@ async function newestChange(
   const ownNewest = own.data.find(tookEffect);
   const candidates = [
     covering,
-    started !== null && tookEffect(started) ? started : null,
+    tookEffect(started) ? started : null,
     ownNewest?.action === 'unpin' ? ownNewest : null,
   ].filter((c): c is Pin => c !== null);
   return candidates.reduce<Pin | undefined>(
     (newest, c) => (newest === undefined || effectiveAt(c) > effectiveAt(newest) ? c : newest),
     undefined,
   );
+}
+
+/**
+ * Whether `change` is what started this `pin:` run, its own: Kindgi starts
+ * a change's runs once it's recorded, with correlation `pin:<changeId>`,
+ * for the projects inside its scope, on the version a pin makes them run
+ * (an unpin's is what the project follows then, which `applyOne` checks),
+ * each on its project's agent test set (`endedCheck`). The start route
+ * refuses `pin:` from callers, so a run that fails any of these isn't
+ * the change's.
+ */
+async function startedThisRun(
+  projects: Pick<ProjectBinding, 'get'>,
+  tenantId: TenantId,
+  change: Pin,
+  check: EndedCheck,
+  run: TestRun,
+): Promise<boolean> {
+  if (run.correlationId !== pinRunCorrelation(change.id) || change.agentId !== check.agentId) {
+    return false;
+  }
+  if (
+    Date.parse(run.startedAt as unknown as string) <
+    Date.parse(change.createdAt as unknown as string)
+  ) {
+    return false;
+  }
+  if (change.action === 'pin' && (change.toVersion as unknown as string | null) !== check.version) {
+    return false;
+  }
+  return inScope(projects, tenantId, change.scope, check.projectId);
+}
+
+/** Whether `projectId` is inside `scope`. A segment pin starts no run (DESIGN 10.1 step 4). */
+async function inScope(
+  projects: Pick<ProjectBinding, 'get'>,
+  tenantId: TenantId,
+  scope: AgentPinScope,
+  projectId: ProjectId,
+): Promise<boolean> {
+  switch (scope.kind) {
+    case 'tenant':
+      return true;
+    case 'org':
+      return (await projects.get(tenantId, projectId))?.orgId === scope.orgId;
+    case 'project':
+      return scope.projectId === projectId;
+    case 'segment':
+      return false;
+  }
 }
 
 /** How many of the project's own pin changes are read for its newest unpin. */
