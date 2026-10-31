@@ -48,7 +48,7 @@ in it:
 pnpm exec kindgi mail-triggers create --agent=acme.support-desk --mailbox=google --label="support inbox"
 ```
 
-- **What it runs:** `--agent` runs the agent's live version, or else its
+- **What it runs:** `--agent` runs the agent's pinned version, or else its
   latest. `--agent-version` pins one. `--flow` runs a flow, and needs
   `--flow-version`. There's no `--input`: each run's input is the mail
   that started it.
@@ -437,6 +437,59 @@ rest in the mailbox. A `cursor-reset:` row in its fires says so.
   ([Shared or personal](#shared-or-personal)).
 - `kindgi mail-triggers unregister <trigger-id>` removes it.
 
+## Its versions
+
+Each change to a mail trigger makes a **version** of it, which never
+changes after (runtime 0.3.0 or later). Creating it makes version 1. An
+`update` that changes something makes the next, and so does a take-over to
+another owner. An `update` that changes nothing makes none, nor do pausing,
+resuming or removing it. A trigger from before versions has none until its
+next change or its next look at the mailbox.
+
+A mail's run uses the newest version when it starts, and keeps it whatever
+later changes make: the run's `trigger.version` names it. So a change or a
+take-over reaches the next run that starts, never a run already going.
+
+From your app, newest first:
+
+- `GET /v1/mail-triggers/{triggerId}/versions` pages them
+  (`mailTriggers.versions` in TypeScript, `mail_triggers.list_versions` in
+  Python);
+- `GET /v1/mail-triggers/{triggerId}/versions/{version}` reads one
+  (`getVersion`, `get_version`). A version the trigger doesn't have is
+  `404 trigger-version-not-found`.
+
+From the CLI:
+
+```sh
+pnpm exec kindgi mail-triggers versions <trigger-id> --table
+pnpm exec kindgi mail-triggers get <trigger-id> <version>
+```
+
+- `versions` pages them, with `--limit` and `--cursor`. Its table shows
+  each one's number, when it was made, by whom, and why. `Kindgi` stands
+  in the `BY` column for a version the runtime made itself.
+- `get <trigger-id> <version>` reads one. Without a version, `get` is the
+  trigger as it is now, and its `version` is the newest. The `VERSION`
+  column of `list --table` shows it, empty for a trigger that has none
+  yet.
+
+Whoever can read the trigger can read its versions. Each one says when it
+was made (`createdAt`), by whom (`createdBy`), and why (`cause`:
+`register`, `edit` or `owner` for a take-over to another owner). Two
+causes name no one, since the runtime made the version itself: `first-fire`,
+for a trigger from before versions; and `unversioned-edit`, at its next look
+at the mailbox or just before an edit or take-over, after a release from
+before versions changed the trigger during an upgrade. Its `definition` is
+what it ran, as whom, which mailbox and folder it read, at what pace, its
+label and its tools allowed unattended: never its status or where it is in
+the mailbox.
+
+The evidence of a change names the version it made (`version`), on
+`trigger-changed-for-owner`, `trigger-owner-set` and
+`trigger-tools-allowed-unattended-set`, and that version has what the
+entry leaves out.
+
 ## In the console
 
 A project's **Mail triggers** page, under **Run**, lists its mail
@@ -464,7 +517,7 @@ Mail already there doesn't run: it starts from now." It asks for:
 - **Gmail label** or **Outlook folder:** empty for the inbox, else the
   label's id, such as `Label_12`, or the folder's id or well-known name,
   such as `archive`.
-- **Starts:** an agent (its pinned version, or the latest), or a flow, at
+- **Starts:** an agent (its pinned version, or its project's Latest), or a flow, at
   its latest version that isn't retired, which the trigger then keeps
   starting. To start another of its versions, create the trigger with the
   CLI's `--flow-version` ([Create one](#create-one)).

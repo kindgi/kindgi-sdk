@@ -14,7 +14,7 @@ description: >
   kindgi-python-getting-started.
 type: core
 library: "kindgi (Python)"
-version: "0.1.6"
+version: "0.1.7"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -114,7 +114,7 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   system it writes to (an `Idempotency-Key` header, a client reference, a
   unique column) or looks for it there first: a refund never goes out
   twice. A UUID; `None` outside a run and from a runtime before 0.1.6.
-  Docs: https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+  Docs: https://docs.kindgi.com/v0.3/guides/tools/write-a-tool/#make-a-side-effect-happen-once
 - `ctx.project_id`, `ctx.org_id` — the run's project, and that project's
   org (`None` when it has none). The runtime sets them from the run, never
   from the input: to check an org or project id the input names, compare
@@ -138,7 +138,7 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   amounts and outcomes, never what a person typed (a refund's reason, a
   message, an address): the log is read by whoever operates the runtime.
   `ToolContext.for_test(…)` logs nothing unless you pass it `log=`. Docs:
-  https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#log-from-a-tool
+  https://docs.kindgi.com/v0.3/guides/tools/write-a-tool/#log-from-a-tool
 
 ## Configuration and secrets
 
@@ -239,7 +239,7 @@ def send_mail(message: Message, ctx: ToolContext) -> Sent:
 - **Unattended runs:** in a run no person started, a tool that uses a `"person"` connection waits for that person's yes, reads included: `mutating=False` doesn't lift it. The agent's own approval settings can't lift it; only a trigger's `toolsAllowedUnattended` can, which a project admin sets, as for `needs_approval_when_unattended` (below). In a run a new mail started, the mail is a stranger's text, so two more calls wait: a call of a tool that isn't `mutating=False`, and, when the trigger reads the company's mailbox, a read with the company's connection to that app. The mail trigger's `toolsAllowedUnattended` lifts these too.
 - **In a unit test:** `ToolContext.for_test(connections={"mail": ToolConnection(connection_id="c-1", app="google", app_name="Google", access_token="test", account=ConnectionAccount(id="1", label="ana@acme.com"))})`, all from `kindgi`. `ctx.connections` is empty when the tool declares none.
 
-Docs: https://docs.kindgi.com/v0.1/guides/connections/use-a-connection/
+Docs: https://docs.kindgi.com/v0.3/guides/connections/use-a-connection/
 
 ## Errors and output
 
@@ -262,6 +262,15 @@ It also sets the tool's approval default. An agent that turns tool
 approval gates on (`conversation_policy={"hitl": {"tools": {...}}}`)
 and has neither an override for the tool nor a `default` doesn't ask
 before a read-only tool, and asks before any other on first use.
+
+And it decides what runs together: when a model step asks for several calls at
+once, an agent runs calls to read-only tools (no changing effect either) that
+come one after another at the same time, up to 8 of them, and any other call
+on its own, in the order the model asked. A call that may wait, for another
+system's answer or for the person who started the run to connect an app, runs
+on its own too. The results reach the conversation and the model in that order
+either way. `Agent(..., parallel_tool_calls=False)` runs every call on its
+own.
 
 In a run a new mail started, a call of a tool that isn't read-only waits
 for a person's yes, unless the mail trigger's `toolsAllowedUnattended`
@@ -301,7 +310,7 @@ def refund(request: RefundRequest) -> Refunded:
     """Refunds an order."""
 ```
 
-Docs: https://docs.kindgi.com/v0.1/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
+Docs: https://docs.kindgi.com/v0.3/guides/approvals/ask-before-a-tool-runs/#when-no-person-started-the-run
 
 ## Results that are text from outside: `result_is_outside_data`
 
@@ -422,9 +431,10 @@ removed field, a narrower type — not on every save.
    modules — the template's import `tools.x` directly.)
 8. **Blocking inside `async def`.** Use a `def` handler for blocking I/O.
 9. **A read-only tool without `mutating=False`.** A dry run stops at it,
-   and an agent's tool approval gate asks before it on first use.
+   an agent's tool approval gate asks before it on first use, and an
+   agent runs each call to it on its own.
 10. **`mutating=False` on a tool that writes.** A dry run then runs it
-    for real.
+    for real, and an agent may run it at the same time as other calls.
 11. **A package a tool imports, only in a dev group.** The deployed pack
     installs without dev dependencies (`uv sync --no-dev`, or Poetry's
     main group only), so the import works under `kindgi dev` and fails in
@@ -437,7 +447,7 @@ removed field, a narrower type — not on every save.
     folder, `~/.aws`) or any `.env*` file, and gets `EPERM` there. A tool that
     needs a path names it in `pyproject.toml`: `[tool.kindgi.dev.sandbox]` `allowRead = ["~/.aws"]`.
     Never set `KINDGI_DEV_SANDBOX=off` or `dev.sandbox: false` to get past it
-    (https://docs.kindgi.com/v0.1/guides/secrets/dev-sandbox/).
+    (https://docs.kindgi.com/v0.3/guides/secrets/dev-sandbox/).
 
 ## When the framework itself is the problem
 

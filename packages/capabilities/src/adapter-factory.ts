@@ -57,10 +57,76 @@ export interface AdapterFactoryEntry {
    * provider. It must agree with `factory`: build both from the same
    * functions, so a registration the check passes is one the factory
    * accepts, and each problem's message is the error the factory throws.
-   * Absent: the adapter has no check, and registration takes any flat
-   * `adapter_config`.
+   * The keys the entry declares (`configKeys`, `movedConfigKeys`) are
+   * checked beside it at both times (`adapterConfigKeyProblems`), so it
+   * needn't check them, and the factory must ignore a key it doesn't read:
+   * a stored registration with one still builds. Absent: the adapter has
+   * no check of its own, and registration takes any flat `adapter_config`
+   * its declared keys allow.
    */
   readonly checkConfig?: (input: AdapterConfigCheckInput) => readonly AdapterConfigProblem[];
+  /**
+   * The `adapter_config` keys the adapter takes. A registration with any
+   * other is refused, naming it, and a stored one with it builds with a
+   * warning (`adapterConfigKeyProblems`). Absent: any key, so an adapter
+   * that doesn't declare them is unchanged.
+   */
+  readonly configKeys?: readonly string[];
+  /**
+   * Key prefixes it takes besides `configKeys`, each followed by a field
+   * (openai-compat's `extraBody.`, for `extraBody.<field>`). Read only with
+   * `configKeys`: without it any key is taken anyway.
+   */
+  readonly configKeyPrefixes?: readonly string[];
+  /**
+   * Keys it doesn't read, each mapped to where its setting goes: one it no
+   * longer reads, or one that belongs elsewhere (`region`:
+   * `metadata.region`). They're reported with that place, with or without
+   * `configKeys`.
+   */
+  readonly movedConfigKeys?: Readonly<Record<string, string>>;
+}
+
+/**
+ * The `adapter_config` keys a registration sets that its adapter doesn't
+ * take (`AdapterFactoryEntry.configKeys`, `configKeyPrefixes`,
+ * `movedConfigKeys`): one problem per key, at `/adapter_config/<key>`,
+ * naming the key and what the adapter takes, or where a moved key's
+ * setting goes. Keys and places only, never values. Empty when the entry
+ * declares none.
+ *
+ * At registration they refuse it, as `checkConfig`'s problems do. A
+ * stored registration with one still builds, since its factory ignores
+ * the key: the check route and the runtime report them as warnings.
+ */
+export function adapterConfigKeyProblems(
+  entry: Pick<AdapterFactoryEntry, 'configKeys' | 'configKeyPrefixes' | 'movedConfigKeys'>,
+  config: AdapterConfig | undefined,
+): readonly AdapterConfigProblem[] {
+  if (config === undefined) return [];
+  const { configKeys, configKeyPrefixes = [], movedConfigKeys = {} } = entry;
+  const takes = [...(configKeys ?? []), ...configKeyPrefixes.map((prefix) => `${prefix}<field>`)];
+  const problems: AdapterConfigProblem[] = [];
+  for (const key of Object.keys(config)) {
+    const path = `/adapter_config/${key.replace(/~/g, '~0').replace(/\//g, '~1')}`;
+    const place = Object.hasOwn(movedConfigKeys, key) ? movedConfigKeys[key] : undefined;
+    if (place !== undefined) {
+      problems.push({
+        path,
+        message: `adapter_config.${key} isn't read here: its setting is ${place}.`,
+      });
+    } else if (
+      configKeys !== undefined &&
+      !configKeys.includes(key) &&
+      !configKeyPrefixes.some((prefix) => key.length > prefix.length && key.startsWith(prefix))
+    ) {
+      problems.push({
+        path,
+        message: `adapter_config.${key} isn't a setting of this adapter: ${takes.length === 0 ? 'it takes none' : `it takes ${takes.join(', ')}`}.`,
+      });
+    }
+  }
+  return problems;
 }
 
 /** What `AdapterFactoryEntry.checkConfig` reads: a registration, without its secret. */

@@ -20,6 +20,14 @@ starts with `_`. The config is `[tool.kindgi]` in `pyproject.toml`.
   `"openrouter"`) to `pyproject.toml`: `kindgi dev` then registers it
   on every boot, in every worktree. Other providers and per-agent model
   choice: the `kindgi-authoring-providers` skill.
+  How much a model thinks (runtime 0.3.0 or later): `thinking` in the
+  agent's `model_settings` block, else the model's registered
+  `thinking.default`, else its vendor's own.
+- Each git worktree runs its own `kindgi dev`, with its own dev tenant,
+  user and token, and its own database in the bundled Postgres. When port
+  4000 is taken (another worktree's, say), it takes the next free one,
+  prints it and records it in `.kindgirc.json`. The getting-started skill
+  has the details.
 
 ## Skills
 
@@ -37,6 +45,13 @@ pack's code), append an entry to `FEEDBACK.md` at the pack root via
 `kindgi feedback write` — see the `kindgi-framework-feedback` skill.
 Send entries to Kindgi only after the person has seen the preview and said
 yes: `kindgi feedback submit --preview`, then `--yes=<its digest>`.
+
+After the agents ship, people correct their answers, and each correction
+becomes a case in the agent's test set. To fix what they corrected, see the
+`kindgi-fix-corrections` skill: a setting or the wording becomes a
+suggested change, checked on that test set; a rule changes in code, with a
+pack test. Pinning stays with the person, and a correction that would
+loosen a rule goes to the agent's owner.
 
 ## Commands for the person's own terminal
 

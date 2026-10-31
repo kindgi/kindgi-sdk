@@ -870,6 +870,31 @@ curl -X POST "$KINDGI_API_URL/v1/mcp/endpoints/inventory/unregister" \
 Unregistering retires the endpoint's tools. Registering it again brings them
 back.
 
+With more than one replica, another replica's sync can hold one of the
+endpoint's tools when you unregister it. The unregister then answers first,
+the same way, and the tools are retired in the background. It tries again
+after 30 seconds, then waits twice as long each time, for 15 minutes at
+most. Registering the endpoint again stops it, and the new registration's
+sync takes the tools over. A sync that finds a tool held waits the same way.
+The runtime's log says what happened, with the endpoint's id for `<id>`:
+
+- **At `WARN`, once, when it first waits:**
+  `MCP endpoint "<id>" retire waits: another replica's sync holds tool <tool id>'s lock; trying again in 30 s, for 15 minutes at most`.
+  A sync's line says `sync waits` instead.
+- **At `INFO`, when the endpoint was registered again meanwhile:**
+  `MCP endpoint "<id>" was registered again while its tools were retired: its new registration's sync has them now`,
+  or, for a sync,
+  `MCP endpoint "<id>" sync stopped: the endpoint was registered again or unregistered meanwhile, and that has its tools now`.
+- **At `ERROR`, when it gives up after 15 minutes:**
+  `MCP endpoint "<id>" unregistered, but retiring its tools failed: the MCP catalog sync couldn't lock <tool id>: another replica's sync of it held it for over 15 minutes`.
+  The tools it retired stay retired, and the rest stay in the catalog,
+  where a call fails with `mcp-endpoint-not-found`. To retire them, register
+  the endpoint again, then unregister it. A sync that gives up says
+  `sync failed:` with the same reason.
+- **At `WARN`, at a start:**
+  `MCP endpoint "<id>" skipped: another replica's sync holds tool <tool id>'s lock`.
+  That start leaves the endpoint's tools to the sync that holds the lock.
+
 If the server is down when a tool is called, the call fails and the next one
 reconnects:
 

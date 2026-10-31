@@ -70,5 +70,9 @@ These pages apply on Kindgi Cloud and on a runtime you run. Each says, in an
 - **[People, API keys and service accounts](people-and-keys/):** add people
   and give them roles and their own keys, give pipelines service accounts,
   and remove someone in one step.
+- **[Ship a pack from CI](ship-from-ci/):** test on every pull request,
+  deploy to staging from main, and promote the same signed build to prod
+  through its release gate, with keys that reach only what each step
+  needs.
 - **[Run with authorization](authorization/):** what it gives and what it
   doesn't. On a runtime you run, you run OpenFGA next to it.

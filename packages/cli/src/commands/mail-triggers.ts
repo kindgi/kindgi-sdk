@@ -7,6 +7,7 @@ import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
 import { type Rendered, renderJson } from '../output.js';
 import {
+  TRIGGER_VERSIONS_TABLE,
   type TableSpec,
   allowUnattendedField,
   integerFlag,
@@ -16,6 +17,7 @@ import {
   runSdkRendered,
   runsAsCell,
   stringFlag,
+  triggerVersionPositional,
 } from './helpers.js';
 import type { Command, LeafCommand, ParseArgsOption } from './types.js';
 
@@ -56,6 +58,7 @@ const TRIGGERS_TABLE: TableSpec<MailTriggerPage, MailTrigger> = {
   rows: (p) => p.data,
   columns: [
     { header: 'ID', get: (t) => t.triggerId },
+    { header: 'VERSION', get: (t) => (t.version !== undefined ? String(t.version) : '') },
     { header: 'RUNS', get: runs },
     { header: 'MAILBOX', get: (t) => `${t.mailbox.app} ${t.mailbox.as}` },
     { header: 'ACCOUNT', get: (t) => t.account?.label ?? '' },
@@ -79,7 +82,10 @@ const FIRES_TABLE: TableSpec<FirePage, Fire> = {
 };
 
 const TARGET_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
-  agent: { type: 'string', description: 'Run this agent (at its live version, else the latest).' },
+  agent: {
+    type: 'string',
+    description: 'Run this agent (at its pinned version, else the latest).',
+  },
   'agent-version': { type: 'string', description: 'With --agent: run this exact version.' },
   flow: { type: 'string', description: 'Run this flow (with --flow-version).' },
   'flow-version': { type: 'string', description: 'With --flow: the flow version to run.' },
@@ -305,6 +311,20 @@ function byId(
   };
 }
 
+const get: LeafCommand = {
+  kind: 'leaf',
+  name: 'get',
+  description: 'Fetch a mail trigger as it is now, or the version given.',
+  usage: 'kindgi mail-triggers get <trigger-id> [<version>]',
+  run: (ctx) =>
+    runSdk(ctx, 'mail-triggers get', async () => {
+      const id = requiredPositional(ctx, 0, 'trigger-id');
+      const version = triggerVersionPositional(ctx, 1);
+      const client = ctx.client().mailTriggers;
+      return version === undefined ? await client.get(id) : await client.getVersion(id, version);
+    }),
+};
+
 const takeOwnership: LeafCommand = {
   kind: 'leaf',
   name: 'take-ownership',
@@ -349,14 +369,33 @@ const fires: LeafCommand = {
     ),
 };
 
+const versions: LeafCommand = {
+  kind: 'leaf',
+  name: 'versions',
+  description:
+    "List a mail trigger's versions, newest first: when each was made, by whom, and why. `kindgi mail-triggers get <trigger-id> <version>` shows one.",
+  usage: 'kindgi mail-triggers versions <trigger-id> [--limit=<n>] [--cursor=<c>]',
+  optionSpec: PAGE_FLAGS,
+  run: (ctx) =>
+    runSdk(
+      ctx,
+      'mail-triggers versions',
+      async () =>
+        await ctx
+          .client()
+          .mailTriggers.versions(requiredPositional(ctx, 0, 'trigger-id'), page(ctx)),
+      TRIGGER_VERSIONS_TABLE,
+    ),
+};
+
 export const mailTriggersCommand: Command = {
   kind: 'group',
   name: 'mail-triggers',
   description:
-    'Start runs of agents and flows from new mail in a Gmail or Outlook mailbox: create, list, get, update, pause, resume, fires, take-ownership, unregister.',
+    'Start runs of agents and flows from new mail in a Gmail or Outlook mailbox: create, list, get, update, pause, resume, fires, versions, take-ownership, unregister.',
   subcommands: [
     list,
-    byId('get', 'Fetch a mail trigger.', (m, id) => m.get(id)),
+    get,
     create,
     update,
     byId('pause', 'Pause a mail trigger: it stops looking for new mail.', (m, id) => m.pause(id)),
@@ -366,6 +405,7 @@ export const mailTriggersCommand: Command = {
       (m, id) => m.resume(id),
     ),
     fires,
+    versions,
     takeOwnership,
     byId('unregister', 'Remove a mail trigger: it stops looking for new mail.', (m, id) =>
       m.unregister(id),

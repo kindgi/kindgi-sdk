@@ -1109,6 +1109,12 @@ importers:
 
   packages/provenance:
     dependencies:
+      '@kindgi/flow':
+        specifier: workspace:*
+        version: link:../flow
+      '@kindgi/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       '@kindgi/schema':
         specifier: workspace:*
         version: link:../schema
