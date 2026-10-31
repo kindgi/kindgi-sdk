@@ -42,8 +42,8 @@ export interface DeriveAgentVersionInput {
   readonly label?: string;
   /** Who derived it (`user:<id>`). */
   readonly by?: string;
-  /** The improvement proposal it's derived for, recorded in `derivedFrom`. */
-  readonly proposalId?: string;
+  /** The suggested change it's derived for, recorded in `derivedFrom`. */
+  readonly suggestedChangeId?: string;
   /**
    * The project, when the store doesn't record one on the version. A later
    * environment of an environment order is refused
@@ -153,7 +153,9 @@ export async function deriveAgentVersion(
         reason: 'edited',
         ...(input.label !== undefined && { label: input.label }),
         ...(input.by !== undefined && { by: input.by }),
-        ...(input.proposalId !== undefined && { proposalId: input.proposalId }),
+        ...(input.suggestedChangeId !== undefined && {
+          suggestedChangeId: input.suggestedChangeId,
+        }),
       },
     },
   );

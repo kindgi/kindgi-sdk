@@ -325,7 +325,7 @@ never reads `.kindgirc.json`. It's the same lookup as the TypeScript SDK's
   fields as keywords (snake_case or the wire's camelCase); answers are models.
 - A model has its API schema's name (`Flow`, `Tool`). An object inside a
   schema is named after the field that holds it, and after the schema too when
-  that name is another schema's (`JudgedRunContextFlow`). A union's members
+  that name is another schema's (`CorrectedRunContextFlow`). A union's members
   are named by the value that tells them apart (`ScopeTenant`, `ScopeOrg`,
   `ScopeProject`).
 - **Newer runtimes are expected.** An enum in an answer is typed

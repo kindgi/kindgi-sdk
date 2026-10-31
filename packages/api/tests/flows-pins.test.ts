@@ -5,8 +5,8 @@
  * A published flow version is pinned: `POST /v1/flows` pins each tool
  * the flow runs (tool nodes, fanout branches, loop bodies) and each
  * agent it runs at no named version to its latest version, and `GET`
- * returns the pins and their digest. With live versions, such an agent
- * pins to what a run in the flow's project gets: its live version there,
+ * returns the pins and their digest. With pinned versions, such an agent
+ * pins to what a run in the flow's project gets: its pinned version there,
  * else its latest (T268). A tool or agent with no published version
  * refuses the publish. An agent node with its own version keeps it.
  * Without the tool and agent registries, nothing is pinned.
@@ -25,10 +25,10 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
+  AgentPinBindings,
+  AgentPinResolveInput,
   AgentRegistryBinding,
-  AgentReleaseBindings,
   FlowRegistryBinding,
-  LiveResolveInput,
   PinnedResolveInput,
   PinnedVersionBinding,
   RunHandlerBinding,
@@ -95,29 +95,29 @@ function registries(tools: Record<string, readonly string[]>, agents: Record<str
   return { toolRegistry, agentRegistry };
 }
 
-/** Live versions: agent id → the version live for every project; each lookup is recorded. */
-function liveReleases(
-  live: Record<string, string>,
-  asked: LiveResolveInput[],
-): AgentReleaseBindings {
+/** Pinned versions: agent id → the version pinned for every project; each lookup is recorded. */
+function pinnedAgents(
+  pinned: Record<string, string>,
+  asked: AgentPinResolveInput[],
+): AgentPinBindings {
   return {
-    live: {
-      async resolve(input: LiveResolveInput) {
+    pinned: {
+      async resolve(input: AgentPinResolveInput) {
         asked.push(input);
-        const version = live[input.agentId];
+        const version = pinned[input.agentId];
         return version === undefined
           ? null
           : { version: version as Semver, scope: { kind: 'tenant' as const } };
       },
       list: unused,
     },
-    promotions: {},
-  } as unknown as AgentReleaseBindings;
+    changes: {},
+  } as unknown as AgentPinBindings;
 }
 
 function makeApp(
   pinning?: ReturnType<typeof registries>,
-  agentReleases?: AgentReleaseBindings,
+  agentPins?: AgentPinBindings,
   pinnedVersions?: PinnedVersionBinding,
 ) {
   const flows = flowBinding();
@@ -127,7 +127,7 @@ function makeApp(
     runHandler,
     flowRegistry: flows,
     ...pinning,
-    ...(agentReleases !== undefined && { agentReleases }),
+    ...(agentPins !== undefined && { agentPins }),
     ...(pinnedVersions !== undefined && { pinnedVersions }),
   });
   return { app, flows };
@@ -217,15 +217,15 @@ describe('POST /v1/flows pins the version', () => {
     expect(flows.stored()).toEqual([]);
   });
 
-  test("with live versions, an agent with no version of its own pins to what's live for the flow's project (T268)", async () => {
-    // The gated case: 1.0.0 was promoted, 1.4.1 is the latest and was never let go live.
-    const asked: LiveResolveInput[] = [];
+  test("with pinned versions, an agent with no version of its own pins to what's pinned for the flow's project (T268)", async () => {
+    // The pinned case: 1.0.0 is pinned, 1.4.1 is the latest and was never pinned.
+    const asked: AgentPinResolveInput[] = [];
     const { app } = makeApp(
       registries(
         { 'acme.score': ['1.1.0'], 'acme.lookup': ['0.2.0'] },
         { 'acme.matcher': '1.4.1', 'acme.auditor': '1.0.0' },
       ),
-      liveReleases({ 'acme.matcher': '1.0.0', 'acme.auditor': '0.5.0' }, asked),
+      pinnedAgents({ 'acme.matcher': '1.0.0', 'acme.auditor': '0.5.0' }, asked),
     );
     const projectId = randomUUID();
     expect((await publish(app, projectId)).status).toBe(201);
@@ -237,13 +237,13 @@ describe('POST /v1/flows pins the version', () => {
     expect(asked).toEqual([{ tenantId, agentId: 'acme.matcher', projectId }]);
   });
 
-  test('with live versions but none pinned on the way up, the agent pins to its latest', async () => {
+  test('with pinned versions but none pinned on the way up, the agent pins to its latest', async () => {
     const { app } = makeApp(
       registries(
         { 'acme.score': ['1.1.0'], 'acme.lookup': ['0.2.0'] },
         { 'acme.matcher': '1.4.1', 'acme.auditor': '1.0.0' },
       ),
-      liveReleases({}, []),
+      pinnedAgents({}, []),
     );
     expect((await publish(app)).status).toBe(201);
     expect((await pinsOf(app))?.agents).toEqual({ 'acme.matcher': '1.4.1' });

@@ -33,7 +33,7 @@ export interface MemoryScope {
   readonly sessionId?: SessionId;
   /**
    * An app's end user, by the app's own opaque id (as conversations and
-   * judgments name them): a fact about or for one person who isn't a
+   * corrections name them): a fact about or for one person who isn't a
    * Kindgi user. A participant's facts are private to that participant's
    * runs. Needs `projectId`: an app's end users belong to a project.
    */

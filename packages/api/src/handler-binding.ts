@@ -89,13 +89,13 @@ export interface InvokeAgentBindingInput {
   readonly agentId: AgentId;
   /**
    * Omit → the binding chooses: the conversation's own version for a
-   * follow-up turn, else the version live for the run's scope, else the
+   * follow-up turn, else the version pinned for the run's scope, else the
    * latest registered.
    */
   readonly agentVersion?: Semver;
   /**
    * The run's segment path below its project, coarse to fine (an
-   * app-defined finer scope, e.g. company then role): a live version
+   * app-defined finer scope, e.g. company then role): a pinned version
    * pinned on a prefix of it serves the run.
    */
   readonly segments?: readonly ScopeSegment[];
@@ -156,7 +156,7 @@ export interface InvokeFlowBindingInput {
   readonly projectId?: ProjectId;
   readonly flowId: FlowId;
   readonly flowVersion?: Semver;
-  /** The run's segment path, as for an agent run: its agent steps resolve live versions with it. */
+  /** The run's segment path, as for an agent run: its agent steps resolve pinned versions with it. */
   readonly segments?: readonly ScopeSegment[];
   readonly input: unknown;
   readonly dryRun?: boolean;

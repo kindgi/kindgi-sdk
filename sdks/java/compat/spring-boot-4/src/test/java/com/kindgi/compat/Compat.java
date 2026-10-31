@@ -7,8 +7,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.kindgi.client.Kindgi;
 import com.kindgi.client.KindgiJson;
-import com.kindgi.client.models.EvalBaseline;
-import com.kindgi.client.models.LiveScope;
+import com.kindgi.client.models.TestRunBaseline;
+import com.kindgi.client.models.AgentPinScope;
 import com.kindgi.client.models.PatchScheduleBody;
 import com.kindgi.client.models.Run;
 import com.sun.net.httpserver.HttpServer;
@@ -32,9 +32,9 @@ final class Compat {
     Run run = KindgiJson.read(RUN, Run.class);
     assertThat(run.status().value()).isEqualTo(Run.Status.Value.UNRECOGNIZED);
     assertThat(run.createdAt().getOffset().getTotalSeconds()).isEqualTo(7200);
-    assertThat(KindgiJson.read("{\"kind\":\"galaxy\"}", LiveScope.class)).isInstanceOf(LiveScope.Unrecognized.class);
-    assertThat(KindgiJson.read("\"recorded\"", EvalBaseline.class)).isEqualTo(EvalBaseline.RECORDED);
-    assertThat(KindgiJson.read("{\"live\":{}}", EvalBaseline.class)).isInstanceOf(EvalBaseline.WithLive.class);
+    assertThat(KindgiJson.read("{\"kind\":\"galaxy\"}", AgentPinScope.class)).isInstanceOf(AgentPinScope.Unrecognized.class);
+    assertThat(KindgiJson.read("\"recorded\"", TestRunBaseline.class)).isEqualTo(TestRunBaseline.RECORDED);
+    assertThat(KindgiJson.read("{\"pinned\":{}}", TestRunBaseline.class)).isInstanceOf(TestRunBaseline.WithPinned.class);
     assertThat(KindgiJson.write(PatchScheduleBody.builder().label(null).build())).isEqualTo("{\"label\":null}");
   }
 

@@ -7,7 +7,7 @@
  * @wire /v1/blocks/*  (packages/api/src/routes/blocks.ts)
  * @generated Wire shapes from `../generated/api.js`.
  *
- * The versioned-registry shape of tools and eval suites: publish a new
+ * The versioned-registry shape of tools and test sets: publish a new
  * version (into a project), list, get the latest, list versions, and
  * unregister or reinstate a version. A version never changes.
  */

@@ -3,8 +3,8 @@
 
 import { createHash } from 'node:crypto';
 
-import type { JudgedEvalCase } from './eval-case-binding.js';
-import type { EvalSample } from './eval-run-binding.js';
+import type { CorrectedTestCase } from './eval-case-binding.js';
+import type { TestRunSample } from './test-run-binding.js';
 
 /** Where a case falls in `[0, 1)` for a seed: the same for the same seed and case, always. */
 function position(seed: string, caseId: string): number {
@@ -14,9 +14,9 @@ function position(seed: string, caseId: string): number {
 
 /**
  * A case's stratum: whether it carries a correction, else whether anyone
- * judged one of its items "no".
+ * said "no" to one of its items.
  */
-function stratum(c: JudgedEvalCase): 'correction' | 'no' | 'yes' {
+function stratum(c: CorrectedTestCase): 'correction' | 'no' | 'yes' {
   if ((c.corrections?.length ?? 0) > 0) return 'correction';
   return c.items.some((item) => item.yesWeight < item.totalWeight) ? 'no' : 'yes';
 }
@@ -31,9 +31,9 @@ function stratum(c: JudgedEvalCase): 'correction' | 'no' | 'yes' {
  * seed and test set split the same way.
  */
 export function sampleCases(
-  cases: readonly JudgedEvalCase[],
-  sample: EvalSample,
-): JudgedEvalCase[] {
+  cases: readonly CorrectedTestCase[],
+  sample: TestRunSample,
+): CorrectedTestCase[] {
   const holdOut = new Set<string>();
   for (const s of ['correction', 'no', 'yes'] as const) {
     const ordered = cases

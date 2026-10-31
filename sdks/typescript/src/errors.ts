@@ -289,7 +289,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'conversation-not-found':
     case 'approval-not-found':
     case 'reviewer-not-found':
-    case 'proposal-not-found':
+    case 'suggested-change-not-found':
     case 'provenance-not-found':
     case 'observation-not-found':
     case 'blob-not-found':
@@ -303,7 +303,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'capability-not-found':
     case 'token-not-found':
     case 'agent-version-not-found':
-    case 'promotion-not-found':
+    case 'pin-not-found':
     case 'principal-not-found':
     case 'service-account-not-found':
       return notFound(code, message, details);
@@ -320,34 +320,33 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'flow-already-registered':
     case 'conversation-closed':
     case 'provider-already-registered':
-    case 'proposal-invalid-state-transition':
+    case 'suggested-change-invalid-state-transition':
     case 'approval-not-decided':
     case 'slug-conflict':
     case 'project-default-already-exists':
     case 'registry-read-only':
     case 'policy-scope-taken':
     case 'policy-scope-changed':
-    case 'nothing-to-roll-back':
     case 'not-pinned':
-    case 'agent-version-live':
-    case 'eval-suite-already-registered':
+    case 'agent-version-pinned':
+    case 'test-set-already-registered':
     case 'policy-already-registered':
     case 'mcp-endpoint-already-registered':
     case 'identity-provider-already-registered':
     case 'version-already-exists':
-    case 'eval-run-already-terminal':
+    case 'test-run-already-terminal':
     case 'approval-already-decided':
-    case 'judge-class-name-taken':
-    case 'promotion-superseded':
-    case 'gate-policy-already-registered':
-    case 'gate-policy-scope-taken':
-    case 'gate-policy-scope-changed':
-    case 'gate-policy-scope-unpinned':
-    case 'gate-policy-needs-pin':
+    case 'corrector-group-name-taken':
+    case 'pin-superseded':
+    case 'release-gate-already-registered':
+    case 'release-gate-scope-taken':
+    case 'release-gate-scope-changed':
+    case 'release-gate-scope-unpinned':
+    case 'release-gate-needs-pin':
     case 'fact-changed':
     case 'legal-hold':
     case 'erasure-in-progress':
-    case 'gate-policy-descendant-unpinned':
+    case 'release-gate-descendant-unpinned':
     case 'service-account-name-taken':
     case 'service-account-unregistered':
     case 'identity-user-email-taken':

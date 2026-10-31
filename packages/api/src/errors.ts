@@ -94,14 +94,13 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'agent-already-registered': 409,
   'agent-project-mismatch': 409,
   'registry-read-only': 409,
-  'live-scope-spans-environments': 409,
-  /** A flow or tool pinned wider than one project, for an item in an environment order. */
+  /** An agent, flow or tool pinned wider than one project, for an item in an environment order. */
   'pin-scope-spans-environments': 409,
   'agent-gone': 410,
   'run-erased': 410,
   'flow-gone': 410,
   'policy-gone': 410,
-  'eval-suite-gone': 410,
+  'test-set-gone': 410,
   'tool-gone': 410,
   'tool-already-registered': 409,
   'tool-project-mismatch': 409,
@@ -209,15 +208,15 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'signing-key-revoked': 409,
   'signing-key-algorithm-unsupported': 400,
   'signing-key-store-error': 500,
-  // Improvement proposals.
-  'proposal-not-found': 404,
-  'proposal-invalid-state-transition': 409,
+  // suggested changes.
+  'suggested-change-not-found': 404,
+  'suggested-change-invalid-state-transition': 409,
   // Evaluating would make a version that serves every unpinned scope.
-  'proposal-needs-pin': 409,
-  // Improvement passes.
+  'suggested-change-needs-pin': 409,
+  // Improve runs.
   'improve-unsupported': 501,
-  'improvement-pass-not-found': 404,
-  'improvement-pass-finished': 409,
+  'improve-run-not-found': 404,
+  'improve-run-finished': 409,
   'version-already-exists': 409,
   'supervisor-header-missing': 400,
   // Artifacts.
@@ -242,49 +241,49 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'policy-scope-changed': 409,
   /** A retention policy that keeps its domain's rows longer than the server's limit allows (`retentionLimits`), or holds them. */
   'retention-over-limit': 400,
-  // Admin plane — eval suites.
+  // Admin plane — test sets.
   'block-not-found': 404,
   'block-already-registered': 409,
   'block-project-mismatch': 409,
-  'eval-suite-not-found': 404,
-  'eval-suite-already-registered': 409,
-  'eval-suite-project-mismatch': 409,
-  // Admin plane — eval-run dispatch.
-  'eval-run-not-found': 404,
-  'eval-run-not-rescorable': 409,
-  // Judgments (yes/no on a run's output items) and judge classes.
-  'judgment-not-found': 404,
-  'judge-class-not-found': 404,
-  /** A judging rule that isn't in the project (`/v1/projects/:projectId/judging-rules/:ruleId`). */
-  'judging-rule-not-found': 404,
-  /** A run that isn't in the project's judging queue. */
-  'judging-item-not-found': 404,
+  'test-set-not-found': 404,
+  'test-set-already-registered': 409,
+  'test-set-project-mismatch': 409,
+  // Admin plane — test-run dispatch.
+  'test-run-not-found': 404,
+  'test-run-not-rescorable': 409,
+  // Corrections (whether a run's decisions, answer and items were right) and corrector groups.
+  'correction-not-found': 404,
+  'correction-status-change-not-allowed': 409,
+  'corrector-group-not-found': 404,
+  /** A queue rule that isn't in the project (`/v1/projects/:projectId/queue-rules/:ruleId`). */
+  'queue-rule-not-found': 404,
+  /** A run that isn't in the project's expert queue. */
+  'expert-queue-item-not-found': 404,
   /** Dismissing a queued run that isn't open, or reopening one that wasn't dismissed. */
-  'judging-item-not-open': 409,
-  'judge-class-name-taken': 409,
-  'judge-class-not-applicable': 400,
-  // The judge class is restricted (`assertableBy`), and the caller isn't one who may assert it.
-  'judge-class-not-allowed': 403,
-  // Live versions of agents and their promotions.
+  'expert-queue-item-not-open': 409,
+  'corrector-group-name-taken': 409,
+  'corrector-group-not-applicable': 400,
+  // The corrector group is restricted (`assertableBy`), and the caller isn't one who may assert it.
+  'corrector-group-not-allowed': 403,
+  // Pinned versions of agents and their pin history.
   'agent-version-not-found': 404,
-  'promotion-not-found': 404,
-  'nothing-to-roll-back': 409,
+  'pin-not-found': 404,
   'not-pinned': 409,
-  // The gate (evals step 4b).
+  // The release gate.
   'gate-failed': 422,
-  'promotion-superseded': 409,
-  // The binding can't record a gated promotion, so one a policy applies to is refused.
-  'promotion-gate-unsupported': 501,
+  'pin-superseded': 409,
+  // The binding can't record a gated pin, so one a release gate applies to is refused.
+  'pin-gate-unsupported': 501,
   'separate-approver-required': 403,
   // An approval addressed to one member: someone else who reads it can't decide it.
   'named-approver-required': 403,
-  'gate-policy-not-found': 404,
-  'gate-policy-already-registered': 409,
-  'gate-policy-scope-taken': 409,
-  'gate-policy-scope-changed': 409,
-  'gate-policy-scope-unpinned': 409,
-  'gate-policy-needs-pin': 409,
-  'gate-policy-descendant-unpinned': 409,
+  'release-gate-not-found': 404,
+  'release-gate-already-registered': 409,
+  'release-gate-scope-taken': 409,
+  'release-gate-scope-changed': 409,
+  'release-gate-scope-unpinned': 409,
+  'release-gate-needs-pin': 409,
+  'release-gate-descendant-unpinned': 409,
   // API keys: whom a key acts for, and what it may do.
   /** Mint: the person or service account named doesn't exist. */
   'principal-not-found': 404,
@@ -335,7 +334,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'authz-store-delete-failed': 502,
   /** A runtime whose tenants binding doesn't purge. */
   'tenant-purge-unsupported': 501,
-  /** A deployment, eval run or improvement pass whose project, or pack, is suspended. */
+  /** A deployment, test run or Improve run whose project, or pack, is suspended. */
   'project-suspended': 409,
   'pack-suspended': 409,
   /** A deployment's endpoint refused: its URL isn't `https://<host>`, with no user info or path. */
@@ -403,10 +402,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'identity-user-not-invited': 409,
   /** A person's grants on a runtime without an authorization store. */
   'person-grants-unsupported': 501,
+  /** Setting an agent's owner on a runtime whose agent store doesn't keep one. */
+  'agent-owner-unsupported': 501,
   /** A caller's permissions on a runtime without an authorization store (`GET /v1/identity/me/permissions`). */
   'permissions-unsupported': 501,
-  /** Unregister: the version is live in a scope; move that pin first. */
-  'agent-version-live': 409,
+  /** Unregister: the version is pinned in a scope; move or remove that pin first. */
+  'agent-version-pinned': 409,
   /** Unregister or delete: the flow version is pinned in a scope; move or remove that pin first. */
   'flow-version-pinned': 409,
   /** Unregister or delete: the tool version is pinned in a scope; move or remove that pin first. */
@@ -421,7 +422,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'unsupported-media-type': 415,
   'run-not-finished': 409,
   'item-not-found': 400,
-  // The judgment binding can't list judged runs, so no test sets from judgments.
+  // The correction binding can't list corrected runs, so no test sets from corrections.
   'test-sets-not-supported': 501,
   'run-failures-not-supported': 501,
   'memory-operation-unsupported': 501,
@@ -431,9 +432,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'authz-membership-unsupported': 501,
   // The guardrail registry keeps no outcome ledger.
   'guardrail-outcomes-not-supported': 501,
-  // The live-version binding can't list the pins that cover a project.
+  // The agent pin binding can't list the pins that cover a project.
   'pinned-versions-not-supported': 501,
-  'eval-run-already-terminal': 409,
+  'test-run-already-terminal': 409,
   'dispatcher-not-registered': 422,
   'dispatcher-input-invalid': 400,
   // Interop plane — MCP endpoint registry.

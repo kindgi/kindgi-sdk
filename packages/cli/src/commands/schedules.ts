@@ -81,7 +81,7 @@ const FIRES_TABLE: TableSpec<FirePage, Fire> = {
     { header: 'OUTCOME', get: (f) => f.outcome },
     {
       header: 'STARTED',
-      get: (f) => f.runId ?? (f.passId !== undefined ? `pass ${f.passId}` : ''),
+      get: (f) => f.runId ?? (f.improveRunId !== undefined ? `Improve run ${f.improveRunId}` : ''),
     },
     {
       header: 'NOTE',
@@ -92,7 +92,10 @@ const FIRES_TABLE: TableSpec<FirePage, Fire> = {
 };
 
 const TARGET_FLAGS: Readonly<Record<string, ParseArgsOption>> = {
-  agent: { type: 'string', description: 'Run this agent (at its live version, else the latest).' },
+  agent: {
+    type: 'string',
+    description: 'Run this agent (at its pinned version, else the latest).',
+  },
   'agent-version': { type: 'string', description: 'With --agent: run this exact version.' },
   flow: { type: 'string', description: 'Run this flow (with --flow-version).' },
   'flow-version': { type: 'string', description: 'With --flow: the flow version to run.' },
@@ -121,7 +124,7 @@ const WHEN_FLAGS = {
   input: {
     type: 'string',
     description:
-      'The input each run gets, as JSON or `@<file>`. An agent needs `{"userMessage": "…"}`; a flow takes its own input (default `{}`); --improve takes its Improve options (`{"tiers": ["settings"], "threshold": {"judgments": 5, "runs": 3, "judges": 2}, "monthlyCapUsd": 20}`, the defaults).',
+      'The input each run gets, as JSON or `@<file>`. An agent needs `{"userMessage": "…"}`; a flow takes its own input (default `{}`); --improve takes its Improve options (`{"tiers": ["settings"], "threshold": {"corrections": 5, "runs": 3, "correctors": 2}, "monthlyCapUsd": 20}`, the defaults).',
   },
   'catch-up': {
     type: 'string',
@@ -171,7 +174,7 @@ const UPDATE_WHEN_FLAGS: Readonly<Record<keyof typeof WHEN_FLAGS, ParseArgsOptio
 };
 
 /**
- * `--improve`'s scope: `--project` with its `--segment`s. A pass learns
+ * `--improve`'s scope: `--project` with its `--segment`s. An Improve run learns
  * from one project's runs, so its scope is that project or a segment of it.
  */
 function improveScope(ctx: CommandContext): NonNullable<RegisterInput['improve']>['scope'] {
@@ -179,7 +182,7 @@ function improveScope(ctx: CommandContext): NonNullable<RegisterInput['improve']
   const segments = segmentsFlag(ctx);
   if (project === undefined) {
     throw new Error(
-      '--improve needs its scope: --project=<id> [--segment=<key:value>]… (an Improve run learns from one project; make its suggested change live for the tenant by hand after review)',
+      '--improve needs its scope: --project=<id> [--segment=<key:value>]… (an Improve run learns from one project; pin its suggested change for the tenant by hand after review)',
     );
   }
   return segments.length > 0

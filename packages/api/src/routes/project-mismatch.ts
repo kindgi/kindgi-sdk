@@ -9,13 +9,13 @@ import { statusFor, toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
 
 /** The kinds whose ids belong to the project their first version went to, and never move. */
-export type ProjectBoundKind = 'agent' | 'flow' | 'tool' | 'eval-suite' | 'block';
+export type ProjectBoundKind = 'agent' | 'flow' | 'tool' | 'test-set' | 'block';
 
 const NOUN: Readonly<Record<ProjectBoundKind, string>> = {
   agent: 'Agent',
   flow: 'Flow',
   tool: 'Tool',
-  'eval-suite': 'Eval suite',
+  'test-set': 'Test set',
   block: 'Block',
 };
 
@@ -23,7 +23,7 @@ const ID_FIELD: Readonly<Record<ProjectBoundKind, string>> = {
   agent: 'agentId',
   flow: 'flowId',
   tool: 'toolId',
-  'eval-suite': 'suiteId',
+  'test-set': 'testSetId',
   block: 'blockId',
 };
 

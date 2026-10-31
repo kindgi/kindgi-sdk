@@ -1,0 +1,75 @@
+# Step 4 — Publish, and ask to pin it
+
+For a **setting** change, publish the block, then derive a new agent version
+that pins it — no code change:
+
+```sh
+kindgi blocks publish acme.store-policy \
+  --block-version=1.0.1 --project=<project-id> \
+  --settings=@store-policy.json --schema=@store-policy.schema.json
+kindgi agents derive acme-store.refunds \
+  --from=1.0.3 --setting=acme.store-policy=1.0.1 --label="return window 14 days"
+```
+
+- `blocks publish` takes `--block-version` (a semver, not `--version`) and a
+  required `--project`. `--settings` is the block's values; `--schema`
+  constrains them. (`--prompt` publishes a prompt block instead; the two are
+  mutually exclusive.)
+- `agents derive --setting=<block-id>=<version>` re-pins a block the version
+  *already* references to its new version (repeat `--setting`/`--prompt` for
+  several). It makes the first free patch after the agent's highest version and
+  prints it — read that version from its output rather than assuming one. If it
+  answers `reused`, an identical version already exists: use that, don't derive
+  again.
+
+For a **code** change, `kindgi deploy` publishes the new version with the
+changed tool.
+
+Deriving needs `publish` on the agent, `blocks publish` needs `write` on the
+project, and pinning needs `pin` — the permission that pins a version, which an agent's admins hold.
+
+If the person keeps test cases built from the corrected runs, try the new
+version on them first:
+
+```sh
+kindgi test-runs start <test-set-id> --project=<project-id> \
+  --agent=acme-store.refunds --agent-version=1.0.4 --wait
+```
+
+Where an expert said what the run should have done, its summary's
+`corrections` says how many of those the version now passes (`passed` of
+`checked`). No release gate checks it: quote it in the pin
+`--reason`.
+
+Either way, ask a person to pin the new version, naming the
+corrections it fixes. Check first what will happen, then ask:
+
+```sh
+kindgi agents pin acme-store.refunds 1.0.4 --project=<project-id> --check
+kindgi agents pin acme-store.refunds 1.0.4 --project=<project-id> \
+  --reason="Fixes 1 correction: our return window is 14 days"
+```
+
+- The scope is `--tenant` (every project), `--org=<org-id>`, or
+  `--project=<project-id> [--segment=<key:value>]…` (one project).
+- `--check` changes nothing and answers whether it *would* pin it,
+  needs an approval, or fails the release gate.
+- `--reason` is kept on the record — write what the corrections were, so the
+  approver reads the change in plain words.
+- The outcome is `pinned`, or `pending-approval` when the scope's release
+  gate has `approvals` and a second person must approve — the "a
+  second person checks it" step, working as it should. (Whoever asked can't
+  approve their own request, unless the release gate sets `separateApprover: false`.)
+- `--check` and the request exit 3 when the answer is no or the request
+  waits for an approval. Read the printed outcome: exit 3 isn't an error.
+
+## References
+
+- Experts record corrections in the console, or with
+  `kindgi corrections add --run=<run-id> --item=<key> --no --reason=<text>`.
+- The guide for a person:
+  <https://docs.kindgi.com/v0.3/guides/improve/fix-what-experts-corrected/>
+- Letting Improve try wordings:
+  <https://docs.kindgi.com/v0.3/guides/improve/improve-an-agent/>
+- Changing a setting or a prompt by hand:
+  <https://docs.kindgi.com/v0.3/guides/improve/change-a-prompt-or-setting/>
