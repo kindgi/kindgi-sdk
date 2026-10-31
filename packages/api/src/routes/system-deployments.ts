@@ -564,7 +564,9 @@ export function systemDeploymentsRouter(
   // The values, for the deployment's pack service only: none while there's a
   // problem, and none for a retired deployment. Its secrets' values only
   // when asked (`?secrets=values`), by a key holding `system:pack-env`
-  // itself, and each audited before any is answered.
+  // itself, and each audited before any is answered. Its cloud secrets'
+  // paths (`cloudSecrets`) always: a path is a name, which the pack
+  // service's cloud reads as its own account.
   r.get(`${onDeployment}/pack-env`, requireSystemScope(PACK_ENV, authorizer), async (c) => {
     const ref = deploymentRef(c);
     if (ref.kind === 'err') return fail(c, ref.error);
@@ -864,6 +866,7 @@ async function packEnvAnswer(
     ...(check.problem !== undefined && { problem: check.problem }),
     ...(values !== undefined && { env: values }),
     ...(read.secrets !== undefined && { secrets: read.secrets }),
+    ...(read.cloudSecrets !== undefined && { cloudSecrets: read.cloudSecrets }),
   });
 }
 

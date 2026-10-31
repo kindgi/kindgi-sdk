@@ -2136,31 +2136,33 @@ export const PackEnvNameStatusSchema: JsonSchema = {
   additionalProperties: false,
   required: ['name', 'required', 'kind', 'scope', 'missing'],
   description:
-    "One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (`secretScope`, for `ambiguous` only, names the secret's scope). Each name is looked for at the deployment's project, then its org, then the tenant (most specific wins); a tenant-wide deployment's, at the tenant's Default project. Never a value.",
+    "One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (for `ambiguous` only, `secretScope` names the secret's scope and `cloudSecretScope` the cloud secret's). Each name is looked for at the deployment's project, then its org, then the tenant (most specific wins); a tenant-wide deployment's, at the tenant's Default project. Never a value.",
   properties: {
     name: { type: 'string' },
     required: { type: 'boolean' },
     kind: {
-      oneOf: [{ type: 'string', enum: ['env', 'secret'] }, { type: 'null' }],
+      oneOf: [{ type: 'string', enum: ['env', 'secret', 'cloud-secret'] }, { type: 'null' }],
       description:
-        'What it is set as: a plain value (`env`) or a secret. `null` when it is set nowhere.',
+        "What it is set as: a plain value (`env`), a secret, or a cloud secret (`cloud-secret`: a version of a secret the operator's cloud holds, which the pack service's cloud reads; the operator sets one, with a system key). `null` when it is set nowhere. A later runtime may add kinds.",
     },
     scope: {
       oneOf: [{ $ref: '#/components/schemas/PackEnvScope' }, { type: 'null' }],
       description:
-        "Where it is set: the plain value's scope when `ambiguous`. `null` when it is set nowhere.",
+        'Where it is set: when `ambiguous`, the scope of the first of the plain value, the secret and the cloud secret. `null` when it is set nowhere.',
     },
     missing: {
       type: 'boolean',
-      description: 'Set nowhere, as a plain value or a secret (optional names too).',
+      description:
+        'Set nowhere, as a plain value, a secret or a cloud secret (optional names too).',
     },
     problem: {
       type: 'string',
       enum: ['ambiguous', 'secret-not-yet', 'missing', 'unreadable'],
       description:
-        "Why it can't be given to the pack service. `ambiguous`: set both as a secret and as a plain value (`secretScope` names the secret's scope). `secret-not-yet`: set only as a secret, and the orchestrator didn't ask for secret values (`secrets=values`); a tool reads it per call (`ctx.secrets`). `missing`: a required name set nowhere. `unreadable`: set as a secret, and it can't be read for a reason the platform fixes, not the owner. Absent when it can be given, and for an optional name set nowhere. The owner's check (`GET /v1/deployments/{deploymentId}/pack-env`) lists a name set only as a secret as `kind: 'secret'`, with no problem.",
+        "Why it can't be given to the pack service. `ambiguous`: set two ways, as two of a plain value, a secret and a cloud secret (`kind` and `scope` are the first of those; `secretScope` names the secret's scope when `kind` is `env`, and `cloudSecretScope` the cloud secret's). `secret-not-yet`: set only as a secret, and the orchestrator didn't ask for secret values (`secrets=values`); a tool reads it per call (`ctx.secrets`). `missing`: a required name set nowhere. `unreadable`: set as a secret, and it can't be read for a reason the platform fixes, not the owner. Absent when it can be given, and for an optional name set nowhere. The owner's check (`GET /v1/deployments/{deploymentId}/pack-env`) lists a name set only as a secret as `kind: 'secret'`, with no problem.",
     },
     secretScope: { $ref: '#/components/schemas/PackEnvScope' },
+    cloudSecretScope: { $ref: '#/components/schemas/PackEnvScope' },
   },
 };
 
@@ -2168,14 +2170,14 @@ export const PackEnvProblemCodeSchema: JsonSchema = {
   type: 'string',
   enum: [...PACK_ENV_PROBLEM_CODES],
   description:
-    "Why a deployment's pack service can't be given its declared environment, the first in this order: `pack-env-ambiguous` (a name is set both as a secret and as a plain value), `pack-env-secret-not-yet` (a name is set only as a secret, and its value wasn't asked for), `pack-env-missing` (a required name is set nowhere), `pack-env-secret-unreadable` (a name's secret is set, but it can't be read for a reason the platform fixes, not the owner; only a read with `secrets=values` finds it, and only when there's no other problem). A later runtime may add codes, so treat an unknown one as a reason not yet named.",
+    "Why a deployment's pack service can't be given its declared environment, the first in this order: `pack-env-ambiguous` (a name is set two ways: two of a plain value, a secret and a cloud secret), `pack-env-secret-not-yet` (a name is set only as a secret, and its value wasn't asked for), `pack-env-missing` (a required name is set nowhere), `pack-env-secret-unreadable` (a name's secret is set, but it can't be read for a reason the platform fixes, not the owner; only a read with `secrets=values` finds it, and only when there's no other problem). A later runtime may add codes, so treat an unknown one as a reason not yet named.",
 };
 
 export const PackEnvHeldCodeSchema: JsonSchema = {
   type: 'string',
   enum: [...PACK_ENV_HELD_CODES],
   description:
-    "Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it; `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. The orchestrator couldn't give it its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out, so it gives none; the platform fixes it), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-secret-redeploy` (a name is now set only as a secret, and this pack service was made where no secret can be given to it; a new deployment's can be, from a new build of the pack). A service held as `pack-env-secret-unreadable` or `pack-env-secrets-unaudited` is listed by `GET /v1/system/pack-env` every time, with its `held`, as the revision doesn't move when the platform fixes it. A later runtime may add codes, so treat an unknown one as a reason not yet named.",
+    "Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it; `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. The orchestrator couldn't give it its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out, so it gives none; the platform fixes it), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-secret-redeploy` (a name is now set only as a secret, and this pack service was made where no secret can be given to it; a new deployment's can be, from a new build of the pack), `pack-env-cloud-secret-unsupported` (a name is set to a cloud secret, and this pack service's host mounts none; removing it, or setting a value instead, moves the revision). A service held as `pack-env-secret-unreadable` or `pack-env-secrets-unaudited` is listed by `GET /v1/system/pack-env` every time, with its `held`, as the revision doesn't move when the platform fixes it. A later runtime may add codes, so treat an unknown one as a reason not yet named.",
 };
 
 export const SystemPackEnvSchema: JsonSchema = {
@@ -2183,12 +2185,12 @@ export const SystemPackEnvSchema: JsonSchema = {
   additionalProperties: false,
   required: ['revision', 'names'],
   description:
-    "What the deployment's pack service is to be given: where each declared name is set, and the values when nothing stands in the way, plain ones in `env` and, when asked for (`secrets=values`), secrets in `secrets`. Each value given out is on the audit record: `env-resolved` as the deployment's system read, and `secret-resolved` (caller `pack-env`, with the request id as its `correlationId` and the system key's id), written before the answer.",
+    "What the deployment's pack service is to be given: where each declared name is set, and the values when nothing stands in the way, plain ones in `env` and, when asked for (`secrets=values`), secrets in `secrets`; and the names set to a cloud secret, with its path, in `cloudSecrets`. Each value given out is on the audit record: `env-resolved` as the deployment's system read, and `secret-resolved` (caller `pack-env`, with the request id as its `correlationId` and the system key's id), written before the answer.",
   properties: {
     revision: {
       type: 'string',
       description:
-        'Changes whenever what would be given changes: a value written or removed, a secret set or revoked. Made from scopes, row ids, revisions and update times, never from a value. Send it back with the endpoint (`packEnvRevision`) or `PUT …/pack-env`.',
+        'Changes whenever what would be given changes: a value written or removed, a secret set or revoked, a cloud secret set, changed or removed. Made from scopes, row ids, revisions and update times, never from a value. Send it back with the endpoint (`packEnvRevision`) or `PUT …/pack-env`.',
     },
     names: {
       type: 'array',
@@ -2207,6 +2209,12 @@ export const SystemPackEnvSchema: JsonSchema = {
       additionalProperties: { $ref: '#/components/schemas/PackEnvSecretValue' },
       description:
         "With `secrets=values` only: each declared name that is set only as a secret, by name (`{}` when there's none). Never put one into a plain env. Absent while there is a `problem`, and when it wasn't asked for.",
+    },
+    cloudSecrets: {
+      type: 'object',
+      additionalProperties: { type: 'string' },
+      description:
+        "Each declared name that is set to a cloud secret, by name: the version's resource name, `projects/<project>/secrets/<secret>/versions/<number>`. Give it to the pack service as a secret its host reads from its cloud, as the pack service's own account, never as a plain value; a host that can't holds the service (`pack-env-cloud-secret-unsupported`). Given with or without `secrets=values`: it's a name, not a value. Absent while there is a `problem`, and when no name is set to one.",
     },
   },
 };
@@ -12708,7 +12716,7 @@ export const DeploymentValueSchema: JsonSchema = {
     problem: {
       type: 'string',
       description:
-        "Why it isn't ready; absent when it is. One of a fixed list; a later runtime may add problems, so treat an unknown one as a reason not yet named. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set both as a secret and as a plain value. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one). `no-provider`: an agent that runs on any provider (it names none, or names one that isn't registered), with no provider registered in the tenant, so a run has none to call.",
+        "Why it isn't ready; absent when it is. One of a fixed list; a later runtime may add problems, so treat an unknown one as a reason not yet named. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set two ways, as two of a plain value, a secret and a cloud secret. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one). `no-provider`: an agent that runs on any provider (it names none, or names one that isn't registered), with no provider registered in the tenant, so a run has none to call.",
     },
   },
 };
@@ -14611,6 +14619,80 @@ export const EnvDeleteResultSchema: JsonSchema = {
   required: ['deleted'],
   properties: {
     deleted: { type: 'boolean' },
+  },
+};
+
+const CLOUD_SECRET_DESCRIPTION =
+  "A version of a secret in the operator's cloud, by its resource name: `projects/<project>/secrets/<secret>/versions/<number>`, with a project id (6 to 30 lowercase letters, digits and hyphens) or number, a secret id of 1 to 255 letters, digits, `_` and `-`, and a version number (never `latest` or an alias). A secret whose id starts with `kp-` is never one: those are the pack services' own copies.";
+
+/** An env name set to a cloud secret, as the operator reads it. */
+export const EnvCloudSecretSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['scope', 'envName', 'name', 'cloudSecret', 'revision', 'createdAt', 'updatedAt'],
+  description:
+    "An env name, at a scope and env, given to a pack service as a version of a secret the operator's cloud holds. The pack service's cloud reads it, as the pack service's own account: the runtime keeps the name, never a value.",
+  properties: {
+    scope: { $ref: '#/components/schemas/Scope' },
+    envName: { $ref: '#/components/schemas/EnvName' },
+    name: { type: 'string' },
+    cloudSecret: { type: 'string', description: CLOUD_SECRET_DESCRIPTION },
+    revision: { type: 'integer', minimum: 0 },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const EnvCloudSecretPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/EnvCloudSecret' } },
+    hasMore: { type: 'boolean', description: "Whether there's another page." },
+    nextCursor: { type: 'string' },
+  },
+};
+
+/** An env name set to a cloud secret, as the tenant reads it: never the path. */
+export const EnvCloudSecretNameSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['scope', 'envName', 'name', 'revision', 'createdAt', 'updatedAt'],
+  description:
+    "An env name the operator set to a cloud secret, at a scope and env. Which secret is the operator's to know: it isn't given here.",
+  properties: {
+    scope: { $ref: '#/components/schemas/Scope' },
+    envName: { $ref: '#/components/schemas/EnvName' },
+    name: { type: 'string' },
+    revision: { type: 'integer', minimum: 0 },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const EnvCloudSecretNamePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/EnvCloudSecretName' } },
+    hasMore: { type: 'boolean', description: "Whether there's another page." },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const EnvCloudSecretSetRequestSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['cloudSecret'],
+  properties: {
+    cloudSecret: { type: 'string', description: CLOUD_SECRET_DESCRIPTION },
+    ifRevision: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Set only if the stored one is at this revision (`409 env-write-conflict`).',
+    },
   },
 };
 
@@ -17909,6 +17991,11 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['EnvCollectionPage', EnvCollectionPageSchema],
   ['EnvSetRequest', EnvSetRequestSchema],
   ['EnvDeleteResult', EnvDeleteResultSchema],
+  ['EnvCloudSecret', EnvCloudSecretSchema],
+  ['EnvCloudSecretPage', EnvCloudSecretPageSchema],
+  ['EnvCloudSecretName', EnvCloudSecretNameSchema],
+  ['EnvCloudSecretNamePage', EnvCloudSecretNamePageSchema],
+  ['EnvCloudSecretSetRequest', EnvCloudSecretSetRequestSchema],
   ['SecretCollectionPage', SecretCollectionPageSchema],
   ['SecretVersionCollectionPage', SecretVersionCollectionPageSchema],
   ['SecretSetRequest', SecretSetRequestSchema],

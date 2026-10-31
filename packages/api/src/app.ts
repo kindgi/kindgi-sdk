@@ -37,7 +37,7 @@ import type { CostBinding } from './cost-binding.js';
 import type { CursorSealer } from './cursor-seal.js';
 import type { DeploymentBinding } from './deployment-binding.js';
 import type { DeploymentValuesDeps } from './deployment-values.js';
-import type { EnvBinding } from './env-binding.js';
+import type { EnvBinding, EnvCloudSecretBinding } from './env-binding.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import type { WireErrorBody } from './errors.js';
 import type { EventBusBinding } from './event-bus-binding.js';
@@ -200,6 +200,7 @@ import {
   type SystemDeploymentsOptions,
   systemDeploymentsRouter,
 } from './routes/system-deployments.js';
+import { systemEnvRouter } from './routes/system-env.js';
 import { type SystemKeysBinding, systemKeysRouter } from './routes/system-keys.js';
 import {
   type SystemTenantSettingsBinding,
@@ -1292,6 +1293,16 @@ export interface CreateAppInput {
    */
   readonly envBinding?: EnvBinding;
   /**
+   * Optional. The env names the operator set to a cloud secret
+   * (`projects/<project>/secrets/<secret>/versions/<number>`), which a
+   * pack service is given by that name for its cloud to read. A system key
+   * with `system:env-refs` sets them (`/v1/system/tenants/{tenantId}/env`);
+   * a tenant lists their names (`GET /v1/env/cloud-secrets`), and the
+   * pack-env checks count each as set. Absent: those routes answer `501
+   * cloud-secrets-unsupported`, and nothing is set by reference.
+   */
+  readonly envCloudSecrets?: EnvCloudSecretBinding;
+  /**
    * What a deployment's values check reads that only the runtime knows
    * (`deployment-values.ts`): where a model provider's key is for a run in
    * a project, and the pack service's own env. The check reads env values
@@ -2026,6 +2037,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             stores: {
               env: input.envBinding,
               ...(secretsBinding !== undefined && { secrets: secretsBinding }),
+              ...(input.envCloudSecrets !== undefined && { cloudSecrets: input.envCloudSecrets }),
               ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
             },
             envName: servedEnv,
@@ -2065,6 +2077,20 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         settings: input.systemTenantSettings,
         directory: input.systemTenantDirectory,
         ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
+  if (input.systemTenantDirectory !== undefined) {
+    // The operator's cloud secrets. Mounted with no store too, so a runtime
+    // that keeps none (hosted, for one) answers `501`, not `404`.
+    v1.route(
+      '/system/tenants',
+      systemEnvRouter({
+        cloudSecrets: input.envCloudSecrets,
+        directory: input.systemTenantDirectory,
+        ...(authorizer !== undefined && { authorizer }),
+        ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+        ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
       }),
     );
   }
@@ -2509,7 +2535,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // store — an in-memory reference is used when the caller doesn't
   // plug in a durable one.
   if (input.envBinding !== undefined) {
-    v1.route('/env', envRouter(input.envBinding, authorizer, input.auditEvents, servedEnvRule));
+    v1.route(
+      '/env',
+      envRouter(
+        input.envBinding,
+        authorizer,
+        input.auditEvents,
+        servedEnvRule,
+        input.envCloudSecrets,
+      ),
+    );
   }
   // Audit query surface. Admin-only PEP applied inside the router
   // (self-contained; no plumbing here).
@@ -2649,6 +2684,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           // env its pack declares, from the env store.
           ...(input.systemDeployments !== undefined && { packEnvServed: true }),
           ...(input.envBinding !== undefined && { envBinding: input.envBinding }),
+          ...(input.envCloudSecrets !== undefined && { cloudSecrets: input.envCloudSecrets }),
           ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
           // A deploy registers tools and guardrails: the same cache hooks
           // `POST /v1/tools` / `POST /v1/guardrails` call.

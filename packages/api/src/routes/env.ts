@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import { tuplesForCreate } from '@kindgi/authz';
@@ -9,7 +9,13 @@ import type { Scope } from '@kindgi/platform';
 import type { Cursor, EnvName, TenantId } from '@kindgi/types';
 import { makeEnvName } from '@kindgi/types';
 
-import type { EnvBinding, EnvRecord, EnvSetOutcome } from '../env-binding.js';
+import type {
+  EnvBinding,
+  EnvCloudSecretBinding,
+  EnvCloudSecretRecord,
+  EnvRecord,
+  EnvSetOutcome,
+} from '../env-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { type ServedEnvRule, refuseUnservedValue } from '../served-env.js';
@@ -43,12 +49,20 @@ import { auditWrite } from './write-audit.js';
  * `servedEnv`: on a runtime that refuses other envs, a set under another env
  * answers `409 env-not-served` (`refuseUnservedValue`); reads and deletes
  * pass. Absent: any env.
+ *
+ * `cloudSecrets`: the names the operator set to a cloud secret.
+ * `GET /v1/env/cloud-secrets` lists them at a scope, without the path: the
+ * operator's system routes (`/v1/system/tenants/{tenantId}/env`) set them
+ * and alone answer it. A `PUT` with `cloudSecret` answers `403
+ * cloud-secret-system-only`. Absent: both answer `501
+ * cloud-secrets-unsupported`.
  */
 export function envRouter(
   envBinding: EnvBinding,
   authorizer?: Authorizer,
   auditEvents?: AuditEventBinding,
   servedEnv?: ServedEnvRule,
+  cloudSecrets?: EnvCloudSecretBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -105,6 +119,42 @@ export function envRouter(
     });
     return c.json({
       data: page.data.map(serializeEnvRecord),
+      hasMore: page.nextCursor !== undefined,
+      ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
+    });
+  });
+
+  // ---------------------- GET /cloud-secrets ------------------------
+  // Before `/:name`: an env name is upper snake case, never this.
+  r.get('/cloud-secrets', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    if (cloudSecrets === undefined) return cloudSecretsUnsupported(c);
+
+    const envNameResult = requireEnvName(c.req.query('envName'));
+    if (envNameResult.kind === 'err') {
+      c.status(statusFor(envNameResult.code) as never);
+      return c.json(
+        toWireError({ code: envNameResult.code, message: envNameResult.message }, requestId),
+      );
+    }
+    const scopeResult = requireScope(c.req.query(), tenantId);
+    if (scopeResult.kind === 'err') {
+      c.status(statusFor(scopeResult.code) as never);
+      return c.json(
+        toWireError({ code: scopeResult.code, message: scopeResult.message }, requestId),
+      );
+    }
+
+    const cursorRaw = c.req.query('cursor');
+    const page = await cloudSecrets.list({
+      scope: scopeResult.scope,
+      envName: envNameResult.envName,
+      limit: clampLimit(c.req.query('limit')),
+      ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
+    });
+    return c.json({
+      data: page.data.map(serializeTenantCloudSecret),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -171,6 +221,23 @@ export function envRouter(
       );
     }
     const b = body as Record<string, unknown>;
+
+    // A cloud secret is the operator's to set: every pack service reads
+    // whatever their one account can.
+    if (b.cloudSecret !== undefined) {
+      if (cloudSecrets === undefined) return cloudSecretsUnsupported(c);
+      c.status(statusFor('cloud-secret-system-only') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'cloud-secret-system-only',
+            message:
+              'An env name is set to a cloud secret by the operator, with a system key (`kindgi env set NAME --cloud-secret … --tenant=…`).',
+          },
+          requestId,
+        ),
+      );
+    }
 
     const envNameResult = requireEnvName(c.req.query('envName'));
     if (envNameResult.kind === 'err') {
@@ -440,6 +507,32 @@ export function scopesEqual(a: unknown, b: Scope): boolean {
     return ao.projectId === (b.projectId as unknown as string);
   }
   return true;
+}
+
+/** The answer of a runtime that keeps no cloud secrets: hosted, for one. */
+export function cloudSecretsUnsupported(c: Context<AppEnv>): Response {
+  c.status(statusFor('cloud-secrets-unsupported') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'cloud-secrets-unsupported',
+        message: "This runtime doesn't set env names to cloud secrets.",
+      },
+      c.get('requestId'),
+    ),
+  );
+}
+
+/** A name set to a cloud secret, as the tenant reads it: never the path. */
+function serializeTenantCloudSecret(rec: EnvCloudSecretRecord): Record<string, unknown> {
+  return {
+    scope: rec.scope as unknown as Record<string, unknown>,
+    envName: rec.envName as unknown as string,
+    name: rec.name,
+    revision: rec.revision,
+    createdAt: rec.createdAt,
+    updatedAt: rec.updatedAt,
+  };
 }
 
 function serializeEnvRecord(rec: EnvRecord): Record<string, unknown> {

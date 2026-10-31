@@ -89,7 +89,7 @@ import {
 } from '../deployment-binding.js';
 import { canonicalizeEnvelope, normaliseSha256Hex } from '../deployment-envelope.js';
 import { type DeploymentValuesDeps, deploymentValues } from '../deployment-values.js';
-import type { EnvBinding } from '../env-binding.js';
+import type { EnvBinding, EnvCloudSecretBinding } from '../env-binding.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { type WireErrorBody, retryAfterSeconds, statusFor, toWireError } from '../errors.js';
@@ -326,6 +326,11 @@ export interface DeploymentsRouterBindings {
   readonly packEnvServed?: boolean;
   /** Where a pack's declared names are looked for, with `secretsBinding` and `projectBinding`. */
   readonly envBinding?: EnvBinding;
+  /**
+   * The names the operator set to a cloud secret, where they're looked for
+   * too: one is set, and its path is never answered here. Absent: none is.
+   */
+  readonly cloudSecrets?: Pick<EnvCloudSecretBinding, 'get'>;
   /**
    * On a runtime that refuses other envs: a secret sync under another env
    * answers `409 env-not-served` before any write (`refuseUnservedValue`).
@@ -584,6 +589,7 @@ export function deploymentsRouter(
       {
         env,
         ...(bindings.secretsBinding !== undefined && { secrets: bindings.secretsBinding }),
+        ...(bindings.cloudSecrets !== undefined && { cloudSecrets: bindings.cloudSecrets }),
         ...(bindings.projectBinding !== undefined && { projects: bindings.projectBinding }),
       },
       {

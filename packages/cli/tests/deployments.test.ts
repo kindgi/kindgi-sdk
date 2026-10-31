@@ -267,7 +267,7 @@ describe('kindgi deployments get', () => {
       lines(
         ...HEAD,
         HELD_SERVICE,
-        '    ! Since 2026-10-18T10:02:00.000Z: a name the pack reads from its env is set both as a secret and as a plain value (pack-env-ambiguous).',
+        '    ! Since 2026-10-18T10:02:00.000Z: a name the pack reads from its env is set more than one way: as a plain value, a secret or a cloud secret (pack-env-ambiguous).',
         "      SHOP_URL is set both as a secret (project prj-acme) and as a plain value (tenant): remove one, so it's clear which the pack service gets.",
       ),
     );
