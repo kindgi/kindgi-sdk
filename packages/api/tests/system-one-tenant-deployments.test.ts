@@ -516,6 +516,17 @@ describe("serving one tenant with a pack service per deployment: the operator's 
     expect(code(n)).toBe('bad-input');
   });
 
+  test("the deployment's own token is a system principal on /v1/system/keys alone, not on these", async () => {
+    const { call, mint } = makeApp();
+    for (const [method, path, body] of ENV_REF_ROUTES) {
+      const r = await call(BOOT, method, path, body);
+      expect(r.status, `${method} ${path}`).toBe(403);
+      expect(code(r), `${method} ${path}`).toBe('system-principal-required');
+    }
+    const listed = await call(await mint(['system:env-refs']), 'GET', onEnv(tenantId));
+    expect(listed.body.data).toEqual([]);
+  });
+
   test('an env-refs key sets, lists and removes one on the sole tenant, each on the access record', async () => {
     const { call, mint, audit } = makeApp();
     const key = await mint(['system:env-refs']);
