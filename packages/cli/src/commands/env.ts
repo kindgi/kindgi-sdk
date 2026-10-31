@@ -231,7 +231,7 @@ const listCmd: LeafCommand = {
     env: {
       type: 'string',
       description:
-        "The value set (one environment's values): `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`.",
+        "The value set (one environment's values): `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`; required with `--cloud-secret`, which names the env the runtime serves.",
     },
     reveal: {
       type: 'boolean',
@@ -250,7 +250,7 @@ const listCmd: LeafCommand = {
     scope: {
       type: 'string',
       description:
-        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`. On a runtime that keeps its values under one env, `--scope=project` with `--env` naming one of the pack's environments is that environment's project.",
+        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`, and is required with `--cloud-secret`. On a runtime that keeps its values under one env, `--scope=project` with `--env` naming one of the pack's environments is that environment's project.",
     },
   },
   run: async (ctx): Promise<CommandResult> => {
@@ -418,7 +418,7 @@ const setCmd: LeafCommand = {
     env: {
       type: 'string',
       description:
-        "The value set (one environment's values): `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`.",
+        "The value set (one environment's values): `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`; required with `--cloud-secret`, which names the env the runtime serves.",
     },
     force: {
       type: 'boolean',
@@ -432,7 +432,7 @@ const setCmd: LeafCommand = {
     scope: {
       type: 'string',
       description:
-        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`. On a runtime that keeps its values under one env, `--scope=project` with `--env` naming one of the pack's environments is that environment's project.",
+        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`, and is required with `--cloud-secret`. On a runtime that keeps its values under one env, `--scope=project` with `--env` naming one of the pack's environments is that environment's project.",
     },
   },
   run: async (ctx): Promise<CommandResult> => {
@@ -615,7 +615,7 @@ const unsetCmd: LeafCommand = {
     env: {
       type: 'string',
       description:
-        "The value set (one environment's values): `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`.",
+        "The value set (one environment's values): `local` is the project's own env files, any other name its `.env.<name>`. Default: `staging`; required with `--cloud-secret`, which names the env the runtime serves.",
     },
     path: {
       type: 'string',
@@ -624,7 +624,7 @@ const unsetCmd: LeafCommand = {
     scope: {
       type: 'string',
       description:
-        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`. On a runtime that keeps its values under one env, `--scope=project` with `--env` naming one of the pack's environments is that environment's project.",
+        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`, and is required with `--cloud-secret`. On a runtime that keeps its values under one env, `--scope=project` with `--env` naming one of the pack's environments is that environment's project.",
     },
   },
   run: async (ctx): Promise<CommandResult> => {

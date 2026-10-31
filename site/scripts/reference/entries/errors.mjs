@@ -3792,7 +3792,7 @@ export const ERROR_ENTRIES = {
   },
   'cloud-secrets-unsupported': {
     description:
-      "This runtime keeps no cloud secrets, so no env name is set to one: `KINDGI_ENV_CLOUD_SECRETS` is off, its default, as on Kindgi Cloud. The operator turns it on, with `KINDGI_PACK_ROUTING=per-deployment`, where the pack services' account can read the secrets it names. Answered on the system routes that set, list and remove them, on a tenant's `PUT /v1/env/{name}` with a `cloudSecret`, and on its list of them.",
+      "This runtime keeps no cloud secrets, so no env name is set to one: `KINDGI_ENV_CLOUD_SECRETS` is off, its default, as on Kindgi Cloud. The operator turns it on, with `KINDGI_PACK_ROUTING=per-deployment`, where the pack services' account can read the secrets it names. Answered on the system routes that set, list and remove them, on a tenant's list of them, and on a tenant's `PUT /v1/env/{name}` with a `cloudSecret`: there it comes before `cloud-secret-system-only`.",
     details: [],
     seeAlso: [
       'PUT /v1/system/tenants/{tenantId}/env/{name}',
@@ -3807,7 +3807,7 @@ export const ERROR_ENTRIES = {
   },
   'cloud-secret-system-only': {
     description:
-      "A tenant's own key tried to set an env name to a cloud secret: only the operator does, with a system key holding `system:env-refs`. Set a value or a secret instead, or ask the operator.",
+      "A tenant's own key tried to set an env name to a cloud secret, on a runtime that keeps them: only the operator does, with a system key holding `system:env-refs`. Set a value or a secret instead, or ask the operator. A runtime that keeps none answers `cloud-secrets-unsupported` instead.",
     details: [],
     seeAlso: ['PUT /v1/env/{name}', 'PUT /v1/system/tenants/{tenantId}/env/{name}'],
   },
