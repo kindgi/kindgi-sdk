@@ -21,6 +21,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   like the others, and a schedule counting everyone's corrections
   (`from_="everyone"`) counts the ones sorted to improve. Once it's off, none of
   them counts, even one sorted while it was on or by a person.
+- `kindgi`: **`client.corrections.thumbs` records an end user's thumbs up or down from
+  your app's server.** `thumbs(run_id=..., participant_id=..., up=..., why=...)` posts a
+  correction of the run's answer, made for the end user: `answer="right"` for a thumbs
+  up, `"wrong"` for a thumbs down, with their words as `why`. A thumbs down needs `why`,
+  and without it the API answers 400 (`InvalidRequestError`). `AsyncKindgi` has it too.
 - `kindgi`: **corrections export.** `kindgi.corrections.export(agent_id=...)`
   yields an agent's corrections in chunks of bytes, as CSV, or as JSON lines
   with `format="jsonl"`, taking the list's filters. Write the chunks to a file
@@ -52,9 +57,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `ImproveRunOutcomeFailed` (`message`), and `ImproveRunOutcomeUnrecognized`
   for a kind a newer runtime adds; the `ImproveRunOutcome` model is gone. A
   comparison's `part` can be `all`, for the proof. An improve schedule's
-  `ImproveScheduleTarget` has `project_id` in place of `scope`, one schedule
-  per agent and project (a `ConflictError` whose `server_code` is
-  `schedule-exists`, with `details["scheduleId"]` and `details["triggerId"]`).
+  `ImproveScheduleTarget` has `project_id` in place of `scope` (registering
+  or changing one takes an `ImproveScheduleTargetInput`, where `agent_id` and
+  `project_id` are both required), one schedule per agent and project (a
+  `ConflictError` whose `server_code` is `schedule-exists`, with
+  `details["scheduleId"]` and `details["triggerId"]`).
   Its input is `corrections` (how many new corrections start a run), `from_`
   (`experts` or `everyone`), `run_cap_usd`, `month_cap_usd` (was
   `monthly_cap_usd`), `tiers` and `model`. Its `threshold`, `budget`,

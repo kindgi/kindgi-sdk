@@ -184,7 +184,10 @@ function mountStartRoutes(
     const costUsd =
       mean === undefined
         ? undefined
-        : usd(Math.min(parsed.budget.maxCostUsd, (basis.replays - proof) * mean) + proof * mean);
+        : usd(
+            Math.min(parsed.budget.maxCostUsd, Math.max(0, basis.replays - proof) * mean) +
+              proof * mean,
+          );
     return c.json({
       ready: readiness.ready,
       ...(check.startsFrom !== undefined && { startsFrom: check.startsFrom }),

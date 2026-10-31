@@ -40,6 +40,18 @@ export interface CorrectionsClient {
   ): Promise<Correction>;
 
   /**
+   * An end user's thumbs up or down on a run's answer, from your app's
+   * server: a correction with `answer: 'right'` or `'wrong'`, made for them
+   * (`participantId`). A thumbs down needs `why`, their words: a bare
+   * "wrong" can't be checked, and the API refuses it with a 400. Your page
+   * posts the thumbs to your server, which calls this; a Kindgi token never
+   * goes to a browser.
+   *
+   * @wire `POST /v1/corrections` — see `@kindgi/api/openapi.json#/paths/~1v1~1corrections/post`.
+   */
+  thumbs(input: ThumbsInput, options?: { readonly idempotencyKey?: string }): Promise<Correction>;
+
+  /**
    * Corrections, newest first: removed ones only when `status` asks for `removed`.
    *
    * @wire `GET /v1/corrections` — see `@kindgi/api/openapi.json#/paths/~1v1~1corrections/get`.
@@ -99,6 +111,17 @@ export interface CorrectionsClient {
   }): Promise<CorrectionCounts>;
 }
 
+/** An end user's thumbs on a run's answer. */
+export interface ThumbsInput {
+  readonly runId: string;
+  /** Your opaque id for the end user. */
+  readonly participantId: string;
+  /** `true` for a thumbs up (`answer: 'right'`), `false` for a thumbs down (`'wrong'`). */
+  readonly up: boolean;
+  /** Their words. A thumbs down needs it. */
+  readonly why?: string;
+}
+
 export interface CorrectionFilter {
   readonly limit?: number;
   readonly cursor?: Cursor;
@@ -141,6 +164,21 @@ export function makeCorrectionsClient(transport: Transport): CorrectionsClient {
         method: 'POST',
         path: '/v1/corrections',
         body: input,
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+
+    async thumbs(input, options) {
+      const body: CreateCorrectionInput = {
+        runId: input.runId,
+        participantId: input.participantId,
+        answer: input.up ? 'right' : 'wrong',
+        ...(input.why !== undefined && { why: input.why }),
+      };
+      return transport.request<Correction>({
+        method: 'POST',
+        path: '/v1/corrections',
+        body,
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },
