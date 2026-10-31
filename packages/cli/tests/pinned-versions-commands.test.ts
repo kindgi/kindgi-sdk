@@ -189,8 +189,9 @@ describe.each(GROUPS)('kindgi %s — pinned versions', (group, id) => {
       }),
     );
     expect(out.exitCode, out.stderr).toBe(0);
-    const [header, row] = out.stdout.split('\n');
+    const [header, rule, row] = out.stdout.split('\n');
     expect(header).toMatch(/^SCOPE\s+VERSION\s+SET AT\s+SET BY/);
+    expect(rule).toMatch(/^─+/);
     expect(row).toContain(`org ${ORG}`);
     expect(row).toContain('1.1.0');
     expect(row).toContain('user u-1');
@@ -228,19 +229,22 @@ describe.each(GROUPS)('kindgi %s — pinned versions', (group, id) => {
   });
 });
 
+// A 400 is tagged as the client's `invalid-request`, a 409 with its own code.
 describe('kindgi tools pin: what the API refuses is said as it says it', () => {
   test.each([
     [
       'tool-not-pinnable',
       400,
+      'invalid-request',
       "A remote tool follows its server, and the runtime's own tools follow the runtime; reference it with a range.",
     ],
     [
       'environment-takes-promotions',
       409,
+      'environment-takes-promotions',
       'Tools lock when an agent or flow version is made, which in this order is in its first environment: pin it there.',
     ],
-  ])('%s: exit 1, and the message', async (code, status, message) => {
+  ])('%s (%i): exit 1, and the message tagged %s', async (code, status, tag, message) => {
     const out = await run(['tools', 'pin', 'acme.stock-level', '1.1.0', `--project=${PROJECT}`], {
       tools: {
         pinned: {
@@ -251,6 +255,6 @@ describe('kindgi tools pin: what the API refuses is said as it says it', () => {
       },
     });
     expect(out.exitCode).toBe(1);
-    expect(out.stderr).toContain(`Error [${code}]: ${message}`);
+    expect(out.stderr).toContain(`Error [${tag}]: ${message}`);
   });
 });
