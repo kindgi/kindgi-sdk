@@ -427,7 +427,7 @@ const set: LeafCommand = {
   description:
     'Re-sort a correction, change its status, or both (the re-sort first). Only a pin or a deploy makes one `fixed`, and only `kindgi corrections remove` makes one `removed`.',
   usage:
-    'kindgi corrections set <correction-id> [--status=open|being-fixed|wont-fix] [--sorted-to=improve|developer|owner] [--link=<url|ir-…|sc-…>] [--reason=<text>]',
+    'kindgi corrections set <correction-id> [--status=open|being-fixed|wont-fix] [--sorted-to=improve|developer|owner] [--link=<url|ir-<uuid>|sc-<uuid>>] [--reason=<text>]',
   optionSpec: {
     status: {
       type: 'string',
@@ -442,7 +442,7 @@ const set: LeafCommand = {
     link: {
       type: 'string',
       description:
-        'With `--status=being-fixed`: what fixes it, a pull request URL, an Improve run (`ir-…`) or a suggested change (`sc-…`).',
+        'With `--status=being-fixed`: what fixes it, a pull request URL, an Improve run (`ir-<its id>`) or a suggested change (`sc-<its id>`).',
     },
     reason: {
       type: 'string',
