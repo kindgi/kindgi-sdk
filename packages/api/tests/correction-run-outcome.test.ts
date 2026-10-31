@@ -100,7 +100,8 @@ describe("the in-memory store's applyRunOutcome", () => {
       link: { kind: 'improve-run', id: 'ir-1' },
     });
     const before = await h.get(id);
-    const ranEarlier = '2026-10-01T00:00:00.500Z';
+    // After it was made (00:00:01), before the person's change (00:00:02).
+    const ranEarlier = '2026-10-01T00:00:01.500Z';
     expect(await h.store.applyRunOutcome({ tenantId, endedAt: ranEarlier, changes })).toEqual([]);
     expect(await h.get(id)).toEqual(before);
   });
@@ -109,8 +110,8 @@ describe("the in-memory store's applyRunOutcome", () => {
     const h = harness();
     const { id } = await h.corrected();
     const changes = await h.outcome(id, '13', true);
-    // Just after it was made: the first apply's own write is later than this.
-    const ranAt = '2026-10-01T00:00:00.500Z';
+    // After it was made (00:00:01), before the first apply's own write (00:00:02).
+    const ranAt = '2026-10-01T00:00:01.500Z';
     expect(await h.store.applyRunOutcome({ tenantId, endedAt: ranAt, changes })).toEqual([id]);
     const once = await h.get(id);
     expect(await h.store.applyRunOutcome({ tenantId, endedAt: ranAt, changes })).toEqual([]);
