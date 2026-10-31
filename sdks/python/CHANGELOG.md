@@ -13,6 +13,12 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **A project can sort its end users' corrections like the others.**
+  `Project` and `ProjectPatch` carry `sort_end_user_corrections`
+  (`sortEndUserCorrections`), off by default, and
+  `projects.update(project_id, sort_end_user_corrections=True)` turns it on (admin on
+  the project). While it's on, an end user's correction saved after that is sorted
+  like the others, and a schedule counting every correction counts it.
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
   judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
   judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator

@@ -9878,6 +9878,10 @@ class Project(BaseModel):
     """
     When the project was put in production; absent while it isn't. A run in a project in production is a production run, and a run anywhere else is staging.
     """
+    sort_end_user_corrections: Annotated[bool | None, Field(alias="sortEndUserCorrections")] = None
+    """
+    `true`: end users' corrections (an app's, with a `participantId`, and not an expert's) are sorted like the others when they're saved, and a schedule counting everyone's corrections counts them. `false` (the default): they're listed and become test cases, but stay open and unsorted, and never start Improve.
+    """
     created_at: Annotated[str, Field(alias="createdAt")]
     updated_at: Annotated[str, Field(alias="updatedAt")]
 
@@ -9928,6 +9932,10 @@ class ProjectPatch(BaseModel):
     org_id: Annotated[str | None, Field(alias="orgId")] = None
     """
     `null` explicitly re-assigns the project out of any org (cross-org).
+    """
+    sort_end_user_corrections: Annotated[bool | None, Field(alias="sortEndUserCorrections")] = None
+    """
+    Whether end users' corrections are sorted like the others and count toward a schedule (the project's `sortEndUserCorrections`). Admin on the project.
     """
 
 

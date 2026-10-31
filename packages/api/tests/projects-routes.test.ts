@@ -208,6 +208,38 @@ describe('API — projects CRUD', () => {
     expect(del.status).toBe(204);
   });
 
+  test('sortEndUserCorrections reads false until a PATCH turns it on; a non-boolean is a 400 that changes nothing', async () => {
+    const { app } = makeApp();
+    const id = await createProject(app, TOKEN_A, { name: 'x', slug: 'x' });
+    const read = async () =>
+      (
+        (await (
+          await app.request(`/v1/projects/${id}`, {
+            headers: { authorization: `Bearer ${TOKEN_A}` },
+          })
+        ).json()) as { sortEndUserCorrections?: boolean }
+      ).sortEndUserCorrections;
+    const patch = (body: unknown) =>
+      app.request(`/v1/projects/${id}`, {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${TOKEN_A}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    expect(await read()).toBe(false);
+    expect((await patch({ sortEndUserCorrections: true })).status).toBe(204);
+    expect(await read()).toBe(true);
+
+    const bad = await patch({ sortEndUserCorrections: 'yes' });
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { error: { message: string } }).error.message).toBe(
+      '`sortEndUserCorrections` must be a boolean when present',
+    );
+    expect(await read()).toBe(true);
+
+    expect((await patch({ sortEndUserCorrections: false })).status).toBe(204);
+    expect(await read()).toBe(false);
+  });
+
   test('pagination with limit + cursor', async () => {
     const { app } = makeApp();
     for (let i = 0; i < 3; i += 1) {

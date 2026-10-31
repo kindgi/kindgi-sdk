@@ -5,6 +5,7 @@ import { type Context, Hono } from 'hono';
 
 import type { AgentId, ConversationBinding } from '@kindgi/agents';
 import { REVIEWER_ROLE_RANK, type ReviewerRole, ref } from '@kindgi/authz';
+import type { ProjectBinding } from '@kindgi/platform';
 import type { RunBinding } from '@kindgi/runtime';
 import {
   CORRECTION_ITEM,
@@ -93,6 +94,8 @@ export function correctionsRouter(
   agents?: AgentRegistryBinding,
   /** For an agent or flow more than one project serves, a change takes write on the correction's project. */
   itemRights?: ItemRights,
+  /** Whether the correction's project sorts end users' corrections (`sortEndUserCorrections`); without it, none does. */
+  projects?: ProjectBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -139,6 +142,11 @@ export function correctionsRouter(
     // A comparison's replay is stamped as one with its copy (stored with the
     // first correction), so a test set leaves it out (`isReplayCopy`).
     const context = first && replayOf !== undefined ? { ...(captured ?? {}), replayOf } : captured;
+    // Only an end user's correction asks the project how it's sorted.
+    const sortEndUserCorrections =
+      body.participantId !== undefined &&
+      expert !== true &&
+      (await projects?.get(tenantId, projectId))?.sortEndUserCorrections === true;
 
     const correction = await binding.record({
       tenantId,
@@ -156,7 +164,11 @@ export function correctionsRouter(
       ...(expert === true && { expert }),
       madeBy: asserted,
       // Sorted at save, by the rule (`sortAtSave`).
-      ...sortAtSave({ ...body, expert: expert === true }, asserted, new Date().toISOString()),
+      ...sortAtSave(
+        { ...body, expert: expert === true, sortEndUserCorrections },
+        asserted,
+        new Date().toISOString(),
+      ),
     });
     c.status(201);
     return c.json(serializeCorrection(correction));

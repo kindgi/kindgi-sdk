@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import { makeInMemoryProjectBinding } from '@kindgi/platform';
 import type { KernelRunRecord, RunAgentRef, RunBinding } from '@kindgi/runtime';
 import {
   CORRECTION_ITEM,
@@ -142,6 +143,8 @@ function harness(
   agentRegistry?: AgentRegistryBinding,
   /** Which projects serve each item, for one more than one project serves. */
   served?: ReturnType<typeof itemProjects>,
+  /** The tenant's projects, with their settings. */
+  projects?: ReturnType<typeof makeInMemoryProjectBinding>,
 ): Harness & { readonly reads: number[] } {
   const binding = inMemoryCorrections();
   const stubs = createStubAppBindings();
@@ -171,6 +174,10 @@ function harness(
     correctionRegistry: binding,
     ...(agentRegistry !== undefined && { agentRegistry }),
     ...(served !== undefined && { itemProjects: served }),
+    ...(projects !== undefined && {
+      projectBinding: projects.projects,
+      projectMembershipBinding: projects.memberships,
+    }),
     ...(authz !== undefined && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -1488,6 +1495,38 @@ describe('sorted at save', () => {
     expect(res.body.updatedAt).toBe(res.body.createdAt);
     // Saved so, not only answered so.
     expect((await h.call('GET', `/v1/corrections/${res.body.id}`)).body).toMatchObject(expected);
+  });
+
+  test("an end user's is sorted like the others once its project sorts end users' corrections", async () => {
+    const projects = makeInMemoryProjectBinding();
+    const created = await projects.projects.create(tenantId, { name: 'Acme', slug: 'acme' });
+    if (created.kind !== 'ok') throw new Error(created.kind);
+    const runs = [row({ projectId: created.projectId }), row({ projectId: created.projectId })];
+    const h = harness(runs, {}, undefined, undefined, undefined, projects);
+    const endUsers = (run: KernelRunRecord) =>
+      h.call('POST', '/v1/corrections', {
+        runId: run.runId,
+        ...WRONG_ANSWER,
+        participantId: 'end-user-1',
+      });
+
+    const before = await endUsers(runs[0] as KernelRunRecord);
+    expect(before.status, JSON.stringify(before.body)).toBe(201);
+    expect(before.body).toMatchObject({ status: 'open' });
+    expect(before.body.sortedTo).toBeUndefined();
+
+    // The PATCH route's own test (projects-routes) sets it over the wire.
+    expect(
+      await projects.projects.update(tenantId, created.projectId, { sortEndUserCorrections: true }),
+    ).toEqual({ kind: 'ok' });
+    const after = await endUsers(runs[1] as KernelRunRecord);
+    expect(after.status, JSON.stringify(after.body)).toBe(201);
+    const { status, sortedTo, sorted } = after.body;
+    expect({ status, sortedTo, sorted }).toEqual({
+      status: 'open',
+      sortedTo: 'improve',
+      sorted: BY_RULE,
+    });
   });
 });
 

@@ -56,6 +56,27 @@ describe('sortAtSave', () => {
     expect(
       sortAtSave({ decisions: 'wrong', participantId: 'cust-1', expert: true }, ana, at).status,
     ).toBe('with-owner');
+    expect(
+      sortAtSave(
+        { answer: 'wrong', participantId: 'cust-1', expert: false, sortEndUserCorrections: false },
+        ana,
+        at,
+      ),
+    ).toEqual({ status: 'open' });
+  });
+
+  test("a project that sorts end users' corrections sorts an end user's by the same rules", () => {
+    const endUser = { participantId: 'cust-1', expert: false, sortEndUserCorrections: true };
+    expect(sortAtSave({ ...endUser, answer: 'wrong' }, ana, at)).toEqual({
+      status: 'open',
+      sortedTo: 'improve',
+      sorted: { by: { kind: 'rule' }, at },
+    });
+    expect(sortAtSave({ ...endUser, decisions: 'wrong' }, ana, at).status).toBe('with-owner');
+    expect(sortAtSave({ ...endUser, answer: 'right' }, ana, at)).toEqual({
+      status: 'fixed',
+      fixedIn: { how: 'recorded-right', by: ana, at },
+    });
   });
 });
 

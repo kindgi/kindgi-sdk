@@ -392,13 +392,29 @@ Each correction has a `status`, and `sortedTo` says who fixes it:
 saved:
 
 - **Your users' corrections,** made with a `participantId`, stay `open` and
-  unsorted until a person sorts them. One under a restricted corrector group is
+  unsorted until a person sorts them, and never start Improve, unless the
+  project sorts them, as below. One under a restricted corrector group is
   an expert's, and is sorted like any other.
 - **Wrong decisions** go to the agent's owner: `with-owner`, sorted to
   `owner`. This is so even when the answer was wrong too.
 - **A wrong answer,** or a wrong item of it, goes to Improve: `open`, sorted
   to `improve`.
 - **Nothing wrong** is `fixed`, as `recorded-right`.
+
+To sort your users' corrections like the others, turn on the project's
+`sortEndUserCorrections`, with `admin` on the project. A schedule that counts
+every correction (`groupWeights` `as-recorded`) then counts them toward its
+threshold too. It applies to corrections saved after you turn it on:
+
+```sh
+curl -X PATCH "$KINDGI_API_URL/v1/projects/<project-id>" \
+  -H @<(printf 'Authorization: Bearer %s\n' "$KINDGI_API_TOKEN") -H 'content-type: application/json' \
+  -d '{"sortEndUserCorrections":true}'
+```
+
+In TypeScript, that's
+`kindgi.projects.update(projectId, { sortEndUserCorrections: true })`. A
+project reads it back as `sortEndUserCorrections`, `false` until it's on.
 
 A person then moves it on. With `publish` on the agent,
 `corrections.change` re-sorts it, changes its status, or both. Here a

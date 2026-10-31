@@ -554,6 +554,10 @@ note would say "answers marked wrong" and "people who corrected".
   `monthlyCapUsd`. It's kept with the defaults applied: the thresholds
   default to 5 corrections (`corrections`), across 3 runs (`runs`), from 2
   correctors (`correctors`), and the cap to 20 US dollars a month.
+- **Your users' corrections,** made with a `participantId`, count toward the
+  threshold only when the project sorts them like the others
+  ([`sortEndUserCorrections`](../../improve/correct-a-runs-output/#where-a-correction-goes))
+  and the schedule counts every correction (`groupWeights` `as-recorded`).
 - **A monthly cap:** once the schedule's Improve runs this month, in UTC,
   have cost `monthlyCapUsd`, its fires are skipped until the next month. An
   Improve run's budget is never more than what's left of it. Its cost counts
