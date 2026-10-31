@@ -103,7 +103,7 @@ export interface OutlookCalendarEventUpdateInput {
   readonly end?: string;
   readonly location?: string;
   readonly description?: string;
-  /** Everyone invited after the update: Outlook tells only those added or left out. */
+  /** Everyone invited after the update. Changing only this tells only those added or left out. */
   readonly attendees?: readonly string[];
 }
 

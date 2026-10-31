@@ -2,7 +2,7 @@
 title: Calendars
 description: Let a tool find events, see when someone is free, and add or change events on their own Google or Outlook calendar, with the least access each one needs.
 sidebar:
-  order: 25
+  order: 17
   label: Calendars
 ---
 
@@ -42,8 +42,8 @@ what the tool declares:
 export default googleCalendarEventCreate({ id: 'acme.store-calendar.create', as: 'company' });
 ```
 
-A list gives each event's title, time, place, organizer and who's invited,
-not its description. A Google list can also search with `query`, for words
+A list gives each event's title, time, place, organizer and who's invited
+(the first 20, with a count of the rest), not its description. A Google list can also search with `query`, for words
 in the title, place, description and people.
 
 ## Times
@@ -63,16 +63,20 @@ in the title, place, description and people.
 - **Google:** a create or an update tells everyone invited: Google sends an
   invitation, an update or a cancellation.
 - **Outlook:** a create always sends each attendee a meeting request.
-  Microsoft has no way to skip it. An update sends one only to the people it
-  adds or leaves out.
+  Microsoft has no way to skip it. An update that changes only who's invited
+  sends one only to the people it adds or leaves out
+  ([Microsoft: Update event](https://learn.microsoft.com/en-us/graph/api/event-update)).
 
 Because an event reaches other people's calendars, a create or an update
-in a run that no person started waits for a yes first. It's the person's
-yes, or a reviewer's for the company's calendar, just as for a send
-([Ask before a tool runs](../../approvals/ask-before-a-tool-runs/)).
+in a run that no person started waits for a yes first: the person's, or a
+reviewer's for the company's calendar, just as for a send
+([Ask before a tool runs](../../approvals/ask-before-a-tool-runs/)). On
+the person's own calendar, a list and a free/busy wait for their yes too,
+as every call with a person's connection does in such a run
+([Use a connection](../use-a-connection/#approvals)).
 
-A create runs once per call. If its step runs again, after a wait or a
-retry, it gets the first create's answer.
+A create or an update runs once per call. If its step runs again, after a
+wait or a retry, it gets the first call's answer.
 
 ## What an update can change
 
@@ -93,8 +97,9 @@ review your registration, not Kindgi's.
 
 - **Google:** `calendar.events.owned.readonly` to list,
   `calendar.freebusy` for free/busy, and `calendar.events.owned` to add and
-  change. Each reaches only calendars the account owns. Google counts calendar
-  permissions as sensitive.
+  change. The two event permissions reach only calendars the account owns,
+  and `calendar.freebusy` shows only when it's free or busy. Google counts
+  calendar permissions as sensitive.
   - With **Audience: Internal**, there's no review.
   - With **External**, an app Google hasn't verified shows its "unverified
     app" screen and takes at most 100 accounts, as for Gmail
@@ -106,11 +111,14 @@ review your registration, not Kindgi's.
 
 ## A connection made before
 
-A connection someone made for mail has only mail permissions. A calendar
-tool's call fails with `connection-missing` until they connect again and
-allow the calendar
-([Errors when a call uses a connection](../reference/#errors-when-a-call-uses-a-connection)). Google keeps what
-they allowed before, so their mail keeps working.
+A connection someone made for mail has only mail permissions. In a run
+they started, a calendar tool's call waits for them to allow the
+calendar, as for any permission a connection lacks
+([When the connection is missing](../use-a-connection/#when-the-connection-is-missing)).
+In any other run, it fails with `connection-missing`
+([Errors when a call uses a connection](../reference/#errors-when-a-call-uses-a-connection)).
+Connecting again asks for what the connection had as well as the calendar,
+so their mail keeps working, with Google and with Microsoft.
 
 ## Limits
 
@@ -121,7 +129,7 @@ they allowed before, so their mail keeps working.
   whole Cloud project itself.
 - **Outlook:** calendar calls count against Microsoft Graph's 10,000 calls in
   10 minutes for the mailbox. A create or an update also counts as one of
-  the 30 messages a minute, since it can send meeting requests
+  the 30 sends a minute, since it can send meeting requests
   ([Microsoft](../microsoft/#limits)).
 
 ## Not here yet
