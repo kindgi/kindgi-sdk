@@ -13,6 +13,8 @@ import { connectionAppsCommand } from './connection-apps.js';
 import { connectionsCommand } from './connections.js';
 import { consoleCommand } from './console.js';
 import { conversationsCommand } from './conversations.js';
+import { correctionsCommand } from './corrections.js';
+import { correctorGroupsCommand } from './corrector-groups.js';
 import { deployCommand } from './deploy.js';
 import { deploymentsCommand } from './deployments.js';
 import { devCommand } from './dev.js';
@@ -20,19 +22,14 @@ import { doctorCommand } from './doctor.js';
 import { egressCommand } from './egress.js';
 import { envCommand } from './env.js';
 import { environmentsCommand } from './environments.js';
-import { evalRunsCommand } from './eval-runs.js';
-import { evalSuitesCommand } from './eval-suites.js';
+import { expertQueueCommand } from './expert-queue.js';
 import { exportsCommand } from './exports.js';
 import { feedbackCommand } from './feedback.js';
 import { flowsCommand } from './flows.js';
-import { gatePoliciesCommand } from './gate-policies.js';
 import { guardrailsCommand } from './guardrails.js';
 import { healthCommand } from './health.js';
+import { improveCommand } from './improve-runs.js';
 import { initCommand } from './init.js';
-import { judgeClassesCommand } from './judge-classes.js';
-import { judgingQueueCommand } from './judging-queue.js';
-import { judgingRulesCommand } from './judging-rules.js';
-import { judgmentsCommand } from './judgments.js';
 import { keyCommand } from './key.js';
 import { licenseCommand } from './license.js';
 import { mailTriggersCommand } from './mail-triggers.js';
@@ -42,9 +39,10 @@ import { observationsCommand } from './observations.js';
 import { peopleCommand } from './people.js';
 import { projectsCommand } from './projects.js';
 import { promoteCommand } from './promote.js';
-import { proposalsCommand } from './proposals.js';
 import { provenanceCommand } from './provenance.js';
 import { providersCommand } from './providers.js';
+import { queueRulesCommand } from './queue-rules.js';
+import { releaseGatesCommand } from './release-gates.js';
 import { reviewersCommand } from './reviewers.js';
 import { runsCommand } from './runs.js';
 import { schedulesCommand } from './schedules.js';
@@ -54,7 +52,10 @@ import { signInCommand } from './sign-in.js';
 import { sitesCommand } from './sites.js';
 import { skillsCommand } from './skills.js';
 import { ssoCommand } from './sso.js';
+import { suggestedChangesCommand } from './suggested-changes.js';
 import { tenantCommand } from './tenant.js';
+import { testRunsCommand } from './test-runs.js';
+import { testSetsCommand } from './test-sets.js';
 import { testCommand } from './test.js';
 import { tokensCommand } from './tokens.js';
 import { toolsCommand } from './tools.js';
@@ -95,7 +96,8 @@ export const ROOT_COMMANDS: readonly Command[] = [
   toolsCommand,
   guardrailsCommand,
   memoryCommand,
-  proposalsCommand,
+  improveCommand,
+  suggestedChangesCommand,
   provenanceCommand,
   exportsCommand,
   artifactsCommand,
@@ -106,14 +108,14 @@ export const ROOT_COMMANDS: readonly Command[] = [
   approvalsCommand,
   reviewersCommand,
   observationsCommand,
-  judgmentsCommand,
-  judgeClassesCommand,
-  judgingRulesCommand,
-  judgingQueueCommand,
-  evalRunsCommand,
-  evalSuitesCommand,
+  correctionsCommand,
+  correctorGroupsCommand,
+  queueRulesCommand,
+  expertQueueCommand,
+  testRunsCommand,
+  testSetsCommand,
   blocksCommand,
-  gatePoliciesCommand,
+  releaseGatesCommand,
   tokensCommand,
   serviceAccountsCommand,
   peopleCommand,

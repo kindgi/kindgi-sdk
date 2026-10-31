@@ -118,6 +118,8 @@ async function doctor(
     providers?: unknown[] | Error;
     /** `providers.check` per provider id: its issues (default none), or an error it throws. */
     checks?: Record<string, { path: string; message: string }[]> | Error;
+    /** `providers.check`'s warnings per provider id; left out of the answer when not given, as before 0.3.0. */
+    warnings?: Record<string, { path: string; message: string }[]>;
     /** The MCP endpoints `mcp.endpoints.list` answers, page by page (default none), or an error it throws. */
     mcpPages?: unknown[][] | Error;
     /** Each `mcp.endpoints.list` call's filter. */
@@ -144,7 +146,14 @@ async function doctor(
           check: async (providerId: string) => {
             if (options.checks instanceof Error) throw options.checks;
             const issues = options.checks?.[providerId] ?? [];
-            return { providerId, adapterId: '@acme/adapter', checked: true, issues };
+            const warnings = options.warnings?.[providerId];
+            return {
+              providerId,
+              adapterId: '@acme/adapter',
+              checked: true,
+              issues,
+              ...(warnings !== undefined && { warnings }),
+            };
           },
         },
         mcp: {
@@ -646,7 +655,7 @@ describe("a registration the runtime can't build: its problems, from GET /v1/pro
     });
     // Not from a preset: its own spec, with the setting fixed.
     expect(check('provider')?.fix).toContain(
-      'providers register --spec=@<file>. (its spec with the setting fixed)',
+      'providers register --spec=@<file> (its spec with the setting fixed).',
     );
   });
 
@@ -684,6 +693,121 @@ describe("a registration the runtime can't build: its problems, from GET /v1/pro
     });
     const { check } = await run([{ id: 'openai' }], gone);
     expect(check('provider')).toMatchObject({ status: 'pass' });
+  });
+});
+
+describe("a registration with adapter_config keys its adapter doesn't read: the check's warnings", () => {
+  const withPresets = (): DoctorSeam => ({ ...seam(), presets: () => loadProviderPresets() });
+  const run = async (
+    providers: unknown[],
+    warnings: Record<string, { path: string; message: string }[]>,
+    checks: Record<string, { path: string; message: string }[]> = {},
+    json = true,
+  ) => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    return doctor({ fetchImpl: healthy, providers, checks, warnings, seam: withPresets(), json });
+  };
+  const API_KEY = {
+    path: '/adapter_config/apiKey',
+    message:
+      "adapter_config.apiKey isn't a setting of this adapter: it takes baseURL, api, extraBody.<field>.",
+  };
+  const MOVED = {
+    path: '/adapter_config/thinkingLevels',
+    message:
+      "adapter_config.thinkingLevels isn't read here: its setting is metadata.models[].thinking.default.",
+  };
+
+  test("the only provider, with warnings only: a warning naming the key, never 'No usable provider'; exit 0", async () => {
+    const { out, report, check } = await run([{ id: 'acme-llm' }], { 'acme-llm': [API_KEY] });
+    expect(out.exitCode).toBe(0);
+    expect(report?.ok).toBe(true);
+    expect(check('provider')).toMatchObject({
+      status: 'warn',
+      message:
+        "A provider is registered: acme-llm. acme-llm builds, but adapter_config.apiKey isn't read.",
+      details: [`acme-llm: /adapter_config/apiKey: ${API_KEY.message}`],
+    });
+    // Registered again from its spec: a preset can't say where a moved key goes.
+    expect(check('provider')?.fix).toMatch(
+      /^Unregister acme-llm \(.*providers unregister acme-llm\), then register it again: .*providers register --spec=@<file> \(its spec with each key moved to the place its warning names, or removed\)\.$/,
+    );
+  });
+
+  test('several keys: each named, and an escaped key read back as it is', async () => {
+    const { check } = await run([{ id: 'acme-llm' }], {
+      'acme-llm': [API_KEY, MOVED, { path: '/adapter_config/a~1b~0c', message: 'm' }],
+    });
+    expect(check('provider')?.message).toBe(
+      "A provider is registered: acme-llm. acme-llm builds, but adapter_config.apiKey, adapter_config.thinkingLevels and adapter_config.a/b~c aren't read.",
+    );
+  });
+
+  test("one it can't build and one with warnings only: the first is the warning's cause, the second a note; exit 0", async () => {
+    const { out, check } = await run(
+      [{ id: 'openai' }, { id: 'acme-llm' }],
+      { 'acme-llm': [API_KEY] },
+      {
+        openai: [
+          {
+            path: '/adapter_config/api',
+            message: 'api must be one of responses, chat-completions.',
+          },
+        ],
+      },
+    );
+    expect(out.exitCode).toBe(0);
+    expect(check('provider')).toMatchObject({
+      status: 'warn',
+      message:
+        "2 providers are registered: openai, acme-llm. The runtime can't build openai from its registration, so agents only get the others. acme-llm builds, but adapter_config.apiKey isn't read.",
+      details: [
+        'openai: /adapter_config/api: api must be one of responses, chat-completions.',
+        `acme-llm: /adapter_config/apiKey: ${API_KEY.message}`,
+      ],
+    });
+  });
+
+  test("one with both lists, and nothing else to build: 'No usable provider', its issues and its warnings in the details", async () => {
+    const SECRET_REF = { path: '/secret_ref', message: 'secret_ref is required.' };
+    const { out, check } = await run(
+      [{ id: 'acme-llm' }],
+      { 'acme-llm': [API_KEY] },
+      { 'acme-llm': [SECRET_REF] },
+    );
+    expect(out.exitCode).toBe(1);
+    expect(check('provider')).toMatchObject({
+      status: 'fail',
+      message:
+        "No usable provider: the runtime can't build acme-llm from its registration, so an agent has no model to call.",
+      details: [
+        'acme-llm: /secret_ref: secret_ref is required.',
+        `acme-llm: /adapter_config/apiKey: ${API_KEY.message}`,
+      ],
+    });
+  });
+
+  test('a runtime that leaves warnings out (before 0.3.0): it has none, so a pass', async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const { check } = await doctor({
+      fetchImpl: healthy,
+      providers: [{ id: 'acme-llm' }],
+      checks: {},
+      seam: withPresets(),
+    });
+    expect(check('provider')).toMatchObject({
+      status: 'pass',
+      message: 'A provider is registered: acme-llm.',
+    });
+    expect(check('provider')?.details).toBeUndefined();
+  });
+
+  test('the human report: ! with the note, each warning under it', async () => {
+    const { out } = await run([{ id: 'acme-llm' }], { 'acme-llm': [API_KEY] }, {}, false);
+    expect(out.stdout).toContain(
+      "  ! Provider: A provider is registered: acme-llm. acme-llm builds, but adapter_config.apiKey isn't read.",
+    );
+    expect(out.stdout).toContain(`acme-llm: /adapter_config/apiKey: ${API_KEY.message}`);
   });
 });
 

@@ -10,7 +10,7 @@ from typing import Annotated, Any
 import pytest
 from pydantic import BaseModel, Field, StringConstraints
 
-from kindgi import CheckResult, DefinitionError, RunTrace, ToolContext, guardrail, tool
+from kindgi import Agent, CheckResult, DefinitionError, RunTrace, ToolContext, guardrail, tool
 
 
 class In(BaseModel):
@@ -272,6 +272,20 @@ def test_a_guardrail_can_t_ship_its_check_under_a_built_in_id() -> None:
     assert own.check_id == "acme.checks.must-cite"
 
 
+def test_an_llm_judge_guardrail_needs_its_judge() -> None:
+    with pytest.raises(DefinitionError, match='is kind "llm-judge" with no judge_capabilities='):
+
+        @guardrail(id="acme.tone", kind="llm-judge", on_violation="halt")
+        def unjudged(config: dict[str, Any], trace: RunTrace) -> bool: ...
+
+    needs = {"needs": [{"feature": "structured-output"}]}
+
+    @guardrail(id="acme.tone", kind="llm-judge", on_violation="halt", judge_capabilities=needs)
+    def tone(config: dict[str, Any], trace: RunTrace) -> bool: ...
+
+    assert tone.judge_capabilities == needs
+
+
 def test_a_guardrails_configured_values_are_checked_where_declared() -> None:
     class Config(BaseModel):
         min_length: int = Field(1, alias="minLength", ge=0)
@@ -313,3 +327,32 @@ def test_a_guardrail_check_and_its_config() -> None:
     }
     trace = RunTrace(run_id="r", tenant_id="t", output="hello world")
     assert says(Config(word="world"), trace).passed
+
+
+@pytest.mark.parametrize("value", ["false", 0, 1])
+def test_an_agent_refuses_a_parallel_tool_calls_that_is_not_a_bool(value: Any) -> None:
+    with pytest.raises(DefinitionError, match="parallel_tool_calls must be True or False"):
+        Agent(
+            id="acme.desk",
+            version="1.0.0",
+            name="Desk",
+            instructions="Help.",
+            parallel_tool_calls=value,
+        )
+
+
+def test_an_agent_keeps_parallel_tool_calls() -> None:
+    off = Agent(
+        id="acme.desk",
+        version="1.0.0",
+        name="Desk",
+        instructions="Help.",
+        parallel_tool_calls=False,
+    )
+    assert off.parallel_tool_calls is False
+    assert (
+        Agent(
+            id="acme.desk", version="1.0.0", name="Desk", instructions="Help."
+        ).parallel_tool_calls
+        is None
+    )

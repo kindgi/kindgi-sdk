@@ -195,7 +195,8 @@ case class, is the config's schema, and `set("config", …)` gives its values.
 - **The id** is `<pack-id>.<name>`. Name the rule as what should hold:
   `answer-length`, `response-not-empty`.
 - **`kind: 'zero-llm'`**: the check is your code, a function of the trace. It
-  can't call a model.
+  can't call a model. To have a model judge the answer, see
+  [Have a model judge](#have-a-model-judge).
 - **The reason** is what the violation reports. Say what was wrong. It
   shows wherever the failure does, such as the run's error and its page in
   the console. So describe what you blocked, never quote it: "it contains a
@@ -204,9 +205,14 @@ case class, is the config's schema, and `set("config", …)` gives its values.
   [Python reference](../../../reference/python/authoring/#runtrace) lists
   its fields. Its names are camelCase in TypeScript and snake_case in
   Python:
-  - `output`: the turn's final answer;
+  - `output`: the answer it judges: the turn's final answer. When the turn
+    has a `retry` guardrail at the final answer, a `halt` or `retry`
+    guardrail there judges each answer the model writes;
   - `toolCalls`, or `tool_calls`: its tool calls, each with the tool's name
-    and arguments;
+    and arguments. At the final answer, that's every call the model asked
+    for. A TypeScript check can also run at a tool call or a model reply,
+    where the trace holds other fields:
+    [Check a tool call or a reply](#check-a-tool-call-or-a-reply);
   - the tools' results, its model calls, the user's input and its cost;
   - `projectId`, or `project_id`: the run's project;
   - `orgId`, or `org_id`: the project's org, when it has one.
@@ -334,10 +340,116 @@ no answer.
 [Stop a turn or record a violation](../halt-or-record/) shows what the run
 records, and how to let the turn finish instead.
 
-A check that throws fails the turn whatever its action. The error carries
-the exception's message: `handler-throw: Check "…" evaluate() threw: …`.
+A check that throws can't run, and its action decides what happens next:
+with `halt`, the turn fails
+([When the check can't run](../halt-or-record/#when-the-check-cant-run)).
+The error carries the exception's message:
+`handler-throw: Check "…" evaluate() threw: …`.
 Return `passed: false` for a rule that isn't met. Throw only when the check
 itself can't run.
+
+## Check a tool call or a reply
+
+A check can judge a step of the turn before it takes effect, instead of the
+final answer: a tool call before it runs, a call's result before the model
+sees it, or a model reply before its calls run. The check names the points
+it can run at, and each guardrail that runs it picks one of them with `at`
+([Where in the turn it runs](../configure-a-guardrail/#where-in-the-turn-it-runs)).
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+`defineCheck({ points })` names the points: `'before-tool'`, `'after-tool'`,
+`'model-step'` and `'final-answer'`. A check without `points` runs at the
+final answer only. This check refuses a refund over a limit, before the
+refund tool runs:
+
+```ts
+// guardrails/refund-limit/index.ts
+import { defineCheck } from '@kindgi/sdk/define';
+import { z } from 'zod';
+
+export const check = defineCheck({
+  id: 'my-pack.checks.refund-limit',
+  kind: 'zero-llm',
+  points: ['before-tool'],
+  configSchema: z.object({ maxAmount: z.number().positive().default(100) }),
+  evaluate: async (config, trace) => {
+    const amount = trace.call?.arguments.amount;
+    if (typeof amount === 'number' && amount > config.maxAmount) {
+      return {
+        passed: false,
+        reason: `The refund is ${amount}; the limit is ${config.maxAmount}.`,
+      };
+    }
+    return { passed: true };
+  },
+});
+
+export default {
+  id: 'my-pack.refund-limit',
+  name: 'Refunds stay under a limit',
+  kind: 'zero-llm',
+  check,
+  config: { maxAmount: 100 },
+  at: 'before-tool',
+  scope: { tools: ['acme.orders.refund'] },
+  action: { 'on-violation': 'halt' },
+  severity: 'error',
+};
+```
+
+At each point, the trace holds what the check judges:
+
+- `trace.at`: the point it runs at. Absent at the final answer.
+- `trace.call`, at `'before-tool'` and `'after-tool'`: the call, with its
+  `callId`, `toolId`, `toolName`, `toolVersion` and `arguments`.
+- `trace.result`, at `'after-tool'`: what the call came to. `{ output }`
+  when it returned, or `{ error: { code?, message } }` when it threw.
+- `trace.step`, at `'model-step'`: the reply, with its `text` and the
+  `toolCalls` it asks for. `text` is empty when the reply only asks for
+  calls.
+
+Away from the final answer, the trace has no `output`. Its `toolCalls` and
+`toolResults` hold only the calls that ran, never the one the check judges.
+
+`defineCheck` throws `invalid-check-definition` when `points` is empty,
+names a point that doesn't exist, or names one twice.
+
+With `halt`, a refund over the limit stops the turn before the call runs:
+
+```text
+Error [guardrail-violation]: Turn blocked by guardrail 'my-pack.refund-limit' before calling acme.orders.refund: The refund is 250; the limit is 100.
+```
+
+With `retry`, the call doesn't run, and the model gets the reason as its
+result, so it can go on without the refund or ask for a smaller one.
+[At a tool call or a model reply](../halt-or-record/#at-a-tool-call-or-a-model-reply)
+describes each action at each point.
+
+</TabItem>
+<TabItem label="Python">
+
+A Python check runs at the final answer only. `@guardrail` has no field for
+the points a check runs at, or for a guardrail's `at`, and `RunTrace` has no
+`call`, `result` or `step`.
+
+</TabItem>
+<TabItem label="Java">
+
+A Java check runs at the final answer only. `Guardrail.define` has no
+method for the points a check runs at, or for a guardrail's `at`, and
+`RunTrace` has no typed accessor for `call`, `result` or `step`.
+
+</TabItem>
+<TabItem label="Scala">
+
+A Scala check runs at the final answer only. `Guardrail[Config](…)` has no
+method for the points a check runs at, or for a guardrail's `at`, and
+`RunTrace` has no typed accessor for `call`, `result` or `step`.
+
+</TabItem>
+</Tabs>
 
 ## Test the check
 
@@ -506,6 +618,169 @@ Test run mypack.guardrails.AnswerLengthSuite finished: 0 failed, 0 ignored, 2 to
 </TabItem>
 </Tabs>
 
+## Have a model judge
+
+A guardrail of kind `llm-judge` has a model judge each answer against a
+rubric, in place of a check you write. Use it for a rule that code can't
+check, such as tone. Each answer it judges costs a model call. Ask your
+coding agent: "I want a guardrail that has a model check my agent's answers
+are professional." For reference, it looks like this. This guide calls it
+`my-pack.professional-tone`:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// guardrails/professional-tone/index.ts
+// The runtime judges an llm-judge guardrail with a model; it never calls this check.
+export const check = {
+  id: 'my-pack.checks.professional-tone',
+  evaluate: async () => ({ passed: true }),
+};
+
+export default {
+  id: 'my-pack.professional-tone',
+  name: 'Professional tone',
+  kind: 'llm-judge',
+  check,
+  config: {
+    rubric: 'The answer is professional in tone and has no slang.',
+    responseFormat: 'pass-fail',
+  },
+  judgeCapabilities: { needs: [{ feature: 'structured-output' }] },
+  action: { 'on-violation': 'log-only' },
+  severity: 'warn',
+};
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# guardrails/professional_tone.py
+from typing import Any
+
+from kindgi import RunTrace, guardrail
+
+
+# The runtime judges an llm-judge guardrail with a model; it never calls this check.
+@guardrail(
+    id="my-pack.professional-tone",
+    name="Professional tone",
+    check_id="my-pack.checks.professional-tone",
+    kind="llm-judge",
+    on_violation="log-only",
+    severity="warn",
+    config={
+        "rubric": "The answer is professional in tone and has no slang.",
+        "responseFormat": "pass-fail",
+    },
+    judge_capabilities={"needs": [{"feature": "structured-output"}]},
+)
+def professional_tone(config: dict[str, Any], trace: RunTrace) -> bool:
+    return True
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/mypack/guardrails/ProfessionalTone.java
+package mypack.guardrails;
+
+import com.kindgi.pack.CheckResult;
+import com.kindgi.pack.Guardrail;
+import java.util.List;
+import java.util.Map;
+
+public final class ProfessionalTone {
+  // The runtime judges an llm-judge guardrail with a model; it never calls this check.
+  public static final Guardrail<Map<String, Object>> GUARDRAIL =
+      Guardrail.define("my-pack.professional-tone")
+          .name("Professional tone")
+          .checkId("my-pack.checks.professional-tone")
+          .kind("llm-judge")
+          .set("config", Map.of(
+              "rubric", "The answer is professional in tone and has no slang.",
+              "responseFormat", "pass-fail"))
+          .judgeCapabilities(Map.of("needs", List.of(Map.of("feature", "structured-output"))))
+          .onViolation("log-only")
+          .severity("warn")
+          .check((config, trace) -> CheckResult.pass());
+
+  private ProfessionalTone() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/mypack/guardrails/ProfessionalTone.scala
+package mypack.guardrails
+
+import com.kindgi.pack.scaladsl._
+
+object ProfessionalTone {
+  // The runtime judges an llm-judge guardrail with a model; it never calls this check.
+  val guardrail: Guardrail[Map[String, Any]] = Guardrail.json("my-pack.professional-tone")
+    .name("Professional tone")
+    .checkId("my-pack.checks.professional-tone")
+    .kind("llm-judge")
+    .set("config", Map(
+      "rubric" -> "The answer is professional in tone and has no slang.",
+      "responseFormat" -> "pass-fail"))
+    .judgeCapabilities(Map("needs" -> List(Map("feature" -> "structured-output"))))
+    .onViolation("log-only")
+    .severity("warn")
+    .check((_, _) => CheckResult.pass)
+}
+```
+
+</TabItem>
+</Tabs>
+
+- **What the judge sees:** the rubric, the turn's final answer, and its
+  tool calls with their arguments. It doesn't see the user's message or the
+  tools' results, so write a rubric that the answer and the calls are enough
+  to judge.
+- **`config`** is what it judges by:
+  - `rubric`: what should hold.
+  - `responseFormat`: `pass-fail`, the default, has the judge answer PASS
+    or FAIL, then its reason. `score` has it answer a score from 0 to 1,
+    which passes at `threshold` or above: 0.5 unless you set one.
+  - `temperature`: the judge's temperature, when you set one.
+- **The verdict:** a FAIL, or a score below the threshold, fails the check.
+  A reply that starts with neither PASS nor FAIL, or, for a score, whose
+  first line doesn't start with a number, fails it too. The action handles
+  a failure as it handles any check's
+  ([Choose the action](../halt-or-record/#choose-the-action)). The judge's
+  reason is the violation's reason, and shows wherever the failure does, so
+  the rubric can ask for a reason that doesn't quote the answer.
+- **`judgeCapabilities`** (`judge_capabilities=` in Python) is what the
+  judge's model must support, such as `structured-output`. The runtime
+  picks the judge's model by it, deployed and under `kindgi dev`. When no
+  model fits, the check can't run
+  ([When the check can't run](../halt-or-record/#when-the-check-cant-run)).
+  `kindgi build` and `kindgi dev` refuse an `llm-judge` guardrail without
+  it, and name the guardrail:
+
+  ```text
+  guardrail my-pack.professional-tone is kind 'llm-judge' with no 'judgeCapabilities': name what its judge model is routed by (for example { needs: [{ feature: 'structured-output' }] })
+  ```
+
+  In Python, `@guardrail` refuses it first with a `DefinitionError`, and in
+  Java and Scala, `check(...)` throws an `IllegalStateException`, each with
+  the same advice.
+- **The check** is still declared, because every guardrail names one, but
+  the runtime never calls it. So it only passes, and there's nothing of
+  yours to unit-test.
+- **What it costs:** a model call for each answer it judges. When the turn
+  has a `retry` guardrail at the final answer, a `halt` or `retry` guardrail
+  there judges each answer the model writes, a call each.
+  `budget.maxCostUsd` isn't enforced
+  ([How long its check may take](../configure-a-guardrail/#how-long-its-check-may-take)).
+
 ## In the console
 
 A project's **Guardrails** page lists its guardrails: "Checks on each agent
@@ -527,7 +802,7 @@ A guardrail's page has:
 - **What it checks:** how, the check, its settings, when it fires, its
   severity and where it applies.
 - **Agents it checks:** each agent version that names it and can run here,
-  marked "(latest)", "(live)" or "(live and latest)".
+  marked "(latest)", "(pinned)" or "(pinned and latest)".
 - **What it caught:** its outcomes by agent version, as
   [Stop a turn or record a violation](../halt-or-record/#in-the-console)
   shows.
@@ -544,7 +819,7 @@ versions whose turns then fail, and how they come back:
 
 ```text
 Remove No secrets in answers?
-Guarded agent 1.0.0 (latest) names it: its turns fail, saying it isn't registered, until it's registered again or a version that doesn't name it goes live.
+Guarded agent 1.0.0 (latest) names it: its turns fail, saying it isn't registered, until it's registered again or a version that doesn't name it takes over.
 There's no undo: registering it again brings it back.
 ```
 
@@ -559,7 +834,7 @@ There's no undo: registering it again brings it back.
 - **Under `kindgi dev`,** Remove is off: "the pack's files are its
   guardrails. Take it out of the pack, and kindgi dev reloads it."
 
-![The Remove No secrets in answers? dialog: Guarded agent 1.0.0 (latest) names it, its turns fail until it's registered again or a version that doesn't name it goes live, and there's no undo; then Keep it and Remove.](../../../../assets/guardrails/guardrail-remove.png)
+![The Remove No secrets in answers? dialog: Guarded agent 1.0.0 (latest) names it, its turns fail until it's registered again or a version that doesn't name it takes over, and there's no undo; then Keep it and Remove.](../../../../assets/guardrails/guardrail-remove.png)
 
 ## Next
 

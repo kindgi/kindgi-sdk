@@ -31,6 +31,8 @@ password ([Pull the runtime image](../pull-the-runtime-image/)). Questions or tr
 - **Your pack's service** (`kindgi-pack`): your tools' code, for every
   project the runtime serves
   ([Your tools' code](../../../concepts/security/#your-tools-code)).
+  It runs only the tool versions in `pack_image`'s build
+  ([A self-hosted runtime runs what your pack has](../../../guides/agents/agent-and-tool-versions/#a-self-hosted-runtime-runs-what-your-pack-has)).
   Internal ingress, and IAM-protected: only the runtime's service account
   may call it, with a Google ID token on every call. Its CPU is allocated only while a call runs,
   so the instance `pack_min_instances` keeps up bills at Cloud Run's lower
@@ -141,8 +143,8 @@ digest, with every platform it was built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.1.10" \
-  quay.io/kindgi/runtime:0.1.10@sha256:b6bdf6bcc6fb86fd1e16a2fce7d37dc066b766a0b4313dd3f19e2c904b3b01b3
+docker buildx imagetools create --tag "$REPO/runtime:0.3.0" \
+  registry.kindgi.com/kindgi/runtime:0.3.0@sha256:1f5cfe0032bb82b467781949978719d6a3da4d500cd994471f2f2e009c9a1b9f
 ```
 
 - `REPO` is the repository's address, from the foundation's output.
@@ -581,7 +583,14 @@ server_secret_env = {
 - **After an upgrade that adds a step per tenant,**
   `kindgi-runtime tenants repair --all` has to run once: a server serving
   many tenants sets nothing up per tenant at boot. This module runs no such
-  job.
+  job. It also takes away access a tenant's record doesn't back (runtime
+  0.3.0 or later): it finishes a removal that stopped part way, and revokes
+  a service account's admin, membership or project role that its grants
+  don't give. And it takes away the access an older runtime gave
+  `00000000-0000-0000-0000-000000000000`, the id it named as the creator of
+  what a key with no person behind it made; no person has that id.
+  `--dry-run` shows what it would put back and take away, per tenant, and
+  changes nothing.
 - **An earlier runtime** ignores `KINDGI_TENANCY`. With no tenant id it would
   seed a new tenant at every start, so upgrade the runtime first.
 
@@ -638,7 +647,7 @@ It prints the deployment as JSON, then each step. The last steps:
 
   Deploy complete.
   Runs started from now use image sha256:bd7bfe4f7d9c8… (artifactVersion …).
-  Runs already in flight continue on their pinned image.
+  With one pack service, runs already in flight call that service's current build, as new runs do: a call naming a tool version that build doesn't have fails with tool-version-mismatch.
 ```
 
 To deploy a client's pack into its own project, add `--project <id or slug>` ([Deploy a client's pack into its project](../../../guides/projects/organize-by-org-and-project/#deploy-a-clients-pack-into-its-project)).
@@ -869,7 +878,15 @@ The two can go in two Google Cloud projects, or in one:
   than `secrets_aad_key_version`, add it to `prod.tfvars` first, set to the
   version your server reads, normally `1`
   (`gcloud secrets versions list $N-secrets-aad-key` lists them). Without
-  it, `terraform plan` stops and asks for it.
+  it, `terraform plan` stops and asks for it. From a module copy that set
+  only Terraform's deletion protection, the next apply also turns on
+  Google's in the instance, in place, while `database_deletion_protection`
+  is on (the default). With a private-IP database
+  (`database_private_network`), that change makes the module read the
+  instance's CAs during the apply, so the plan shows the server's
+  `KINDGI_DATABASE_SERVER_CA` as `(known after apply)`: it's still the
+  instance's CAs. If the plan says the instance `must be replaced`, stop:
+  a replace deletes the database.
 - **Or upgrade with the module's `upgrade.sh`:** a deployment of the
   module on runtime 0.1.8 or later, in any `network_mode`, can run it
   instead, to 0.2.0 or later. Before the `@kindgi/sdk@0.3.0` tag it takes
@@ -931,6 +948,8 @@ The two can go in two Google Cloud projects, or in one:
   holding the server's URL to it. The module's own instance stays as it is.
   The module's README has the steps, under
   [Serving from a restored instance](https://github.com/kindgi/kindgi-sdk/tree/main/deploy/gcp-cloud-run#serving-from-a-restored-instance):
+  - the new instance's deletion protection, which the module doesn't manage
+    there: turn it on before it serves;
   - the new instance's URL, and the server's read access to it;
   - the erasure replay before it serves
     ([Erasures and backups](../back-up-and-restore/#erasures-and-backups));
@@ -1185,8 +1204,10 @@ database:
 
 ## Tear it down
 
-Terraform won't delete Cloud SQL while `database_deletion_protection` is
-on (the default). Set it to `false` and apply first. The KMS key ring and
+Cloud SQL can't be deleted while `database_deletion_protection` is on (the
+default). It turns on Terraform's deletion protection and Google's, which
+refuses a delete from the console, gcloud or the Cloud SQL API as well. Set
+it to `false` and apply first: the apply turns both off. The KMS key ring and
 key outlive `terraform destroy`: Google Cloud never deletes them. Take them
 out of Terraform's state, destroy the rest, then schedule the key's versions
 for destruction:

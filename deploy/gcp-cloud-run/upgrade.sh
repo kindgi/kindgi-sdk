@@ -62,7 +62,7 @@
 #   ./upgrade.sh --var-file dev.tfvars [--var-file <another var file> ...] \
 #                --runtime-digest sha256:<64 hex> \
 #                --backup-bucket gs://<bucket>[/<prefix>] \
-#                [--to 0.3.0] [--from <version>] \
+#                [--to 0.3.1] [--from <version>] \
 #                [--pack-dir <path to the pack project>] \
 #                [--check-tenant <uuid>] [--dry-run]
 #
@@ -88,12 +88,12 @@
 #                      is written to. The export is one database, never an
 #                      instance backup.
 #   --to               The target runtime version, 0.2.0 or later (default
-#                      0.3.0). An rc such as 0.3.0-rc.0 works too, and so does
+#                      0.3.1). An rc such as 0.3.1-rc.0 works too, and so does
 #                      a server-only release such as 0.2.0.1: a server fix for
 #                      0.2.0, with no SDK release of its own. Earlier
 #                      releases aren't on registry.kindgi.com: for those, use
 #                      this script as of the @kindgi/sdk@0.1.10 tag. This
-#                      script knows the steps up to 0.3.0; for a later
+#                      script knows the steps up to 0.3.1; for a later
 #                      release, use this script as of that release's
 #                      @kindgi/sdk@<version> tag (for X.Y.Z.N, X.Y.Z's tag)
 #                      or, before that release is out, its newest
@@ -135,7 +135,7 @@ readonly RUNTIME_REPO="registry.kindgi.com/kindgi/runtime"
 readonly VERSION_FLOOR="0.1.8"         # upgrades from before this are refused
 readonly TARGET_FLOOR="0.2.0"          # the first release on registry.kindgi.com
 # Releases this script knows the upgrade steps for, oldest first.
-readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0")
+readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1")
 # The newest of them.
 readonly DEFAULT_TARGET="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 
@@ -826,6 +826,63 @@ EOT
        uv add "kindgi==0.2.0" && uv add --dev "kindgi-cli==0.2.0"
 EOT
       ;;
+    0.3.0)
+      cat <<'EOT'
+   - First start runs six additive migrations (new tables, new columns that
+     are empty or have a fixed default, nothing rewritten). Five of them take
+     a short lock on the tables they change or point to: kernel_runs (three
+     of them do), kernel_journal, kernel_waitpoints, kernel_triggers,
+     kernel_trigger_fires, orgs and projects. One of them (trigger versions)
+     keeps kernel_runs, kernel_triggers and kernel_trigger_fires locked while
+     it reads every trigger fire, to check two new references and index
+     them. Meanwhile runs, triggers and their fires wait, on the old revision
+     too, so with many fires (SELECT count(*) FROM kernel_trigger_fires;)
+     upgrade at a quiet time.
+     A long transaction holding one of those tables makes the new revision
+     fail after about a minute, naming the session that holds it (end it
+     with pg_terminate_backend, or let it finish). The old revision keeps
+     serving meanwhile. After them, the server indexes the flow records
+     without holding back writes to them.
+   - If seed_user_id has an upper-case letter, 0.3.0 and later read it in
+     lower case and make a new seed user with that id. The old one keeps its
+     grants and the keys minted for it, but it's no longer the seed user.
+     Mint keys for the new one, then revoke the old one's keys and, with
+     openfga_api_url set, take away its tenant admin.
+   - If seed_tenant_id has an upper-case letter, 0.3.0 and later read it in
+     lower case, and at start the server logs a warning naming the steps
+     left, with your id filled in. Until they're done, keep seed_tenant_id
+     as it is, and register a new identity provider only once the new
+     runtime serves all the traffic. With KINDGI_ARTIFACTS in server_env,
+     first move the stored files from tenants/<id as set> to
+     tenants/<id in lower case>. In a gcs: bucket:
+       gcloud storage rsync --recursive \
+         gs://<bucket>/tenants/<id as set> \
+         gs://<bucket>/tenants/<id in lower case>
+       gcloud storage rm --recursive --all-versions \
+         gs://<bucket>/tenants/<id as set>
+     With openfga_api_url set, once the new runtime serves all the traffic,
+     run this once, with the new runtime's kindgi-runtime:
+       kindgi-runtime tenants repair --tenant <id in lower case> \
+         --old-spelling <id as set>
+     Then set seed_tenant_id in lower case, and apply.
+EOT
+      ;;
+    0.3.1)
+      cat <<'EOT'
+   - First start runs no migrations. The steps are the packs': with 0.3.1's
+     kindgi CLI and SDK, rebuild and redeploy each pack that has guardrails.
+   - A guardrail at before-tool, after-tool or model-step: until its pack's
+     next deploy, it still can't run its check there
+     (check-point-unsupported), as in 0.3.0.
+   - An llm-judge guardrail a deploy before 0.3.1 registered still never
+     judges. Make sure the pack sets its judgeCapabilities, then
+       kindgi guardrails unregister <id>
+     and deploy the pack right after: until then, the guardrail doesn't
+     run. Without the unregister, the deploy is refused with 409
+     guardrail-already-registered. The same goes for a guardrail whose at
+     or sees changed while an earlier deploy kept the old ones.
+EOT
+      ;;
   esac
 }
 # <<<
@@ -864,6 +921,15 @@ EOT
      default). If a plan says the instance must be replaced, answer no: a
      replace deletes the database. (This script's plan check stops on a
      replace before it asks.)
+   - With a private-IP database (database_private_network) as well, that
+     change makes the module read the instance's CAs during the apply, so
+     the plan shows the server's KINDGI_DATABASE_SERVER_CA as known after
+     apply. It's still the instance's CAs.
+EOT
+      ;;
+    0.3.1)
+      cat <<'EOT'
+   - 0.3.1 doesn't change the module.
 EOT
       ;;
   esac
@@ -899,7 +965,8 @@ print_by_hand_steps() {
 # place, as their steps to confirm by hand say (module_changes):
 # "<resource type>.<name> <attribute path>", the path without list indices,
 # an env var or a database flag by its name. The module's own changes in that
-# release (services.tf, data.tf, foundation.tf), each made in place.
+# release (services.tf, data.tf, foundation.tf), each made in place. $1 is the
+# plan (terraform show -json), for a change allowed only beside another.
 plan_allowed_changes() {
   local r
   printf '%s\n' "google_cloud_run_v2_service.server template.containers.image"
@@ -928,9 +995,24 @@ plan_allowed_changes() {
         ;;
       0.3.0)
         printf '%s\n' "google_sql_database_instance.kindgi settings.deletion_protection_enabled"
+        # That change makes the module read a private-IP instance's CAs during
+        # the apply, so in the same plan the server's are known only then.
+        # Never on their own.
+        if [[ $DATABASE_PRIVATE == true ]] && plan_protects_instance "$1"; then
+          printf '%s\n' "google_cloud_run_v2_service.server template.containers.env.KINDGI_DATABASE_SERVER_CA"
+        fi
         ;;
     esac
   done
+}
+
+# Whether a plan (terraform show -json) turns on Google's deletion protection
+# on the module's instance, in place: 0.3.0's change.
+plan_protects_instance() {
+  jq -e '[.resource_changes[]?
+    | select(.type == "google_sql_database_instance" and .name == "kindgi" and .change.actions == ["update"])
+    | select((.change.before.settings[0].deletion_protection_enabled // false) != true
+        and .change.after.settings[0].deletion_protection_enabled == true)] | length > 0' "$1" >/dev/null 2>&1
 }
 
 # >>> same in both modules: plan-changes
@@ -995,7 +1077,7 @@ check_plan() {
   local plan="$1" expect_pack="$2" json="$WORK/plan.json" allowed found image ok=true
   terraform show -json "$plan" >"$json" 2>"$WORK/show.err" \
     || { warn "couldn't read the saved plan with 'terraform show -json'. $(cat "$WORK/show.err")"; return 1; }
-  allowed="$(plan_allowed_changes | jq -R -s -c 'split("\n") | map(select(length > 0) | split(" ") | {key: .[0], path: .[1]})')"
+  allowed="$(plan_allowed_changes "$json" | jq -R -s -c 'split("\n") | map(select(length > 0) | split(" ") | {key: .[0], path: .[1]})')"
   found="$(jq -r --argjson allowed "$allowed" "$PLAN_CHANGES_JQ" "$json")" \
     || { warn "couldn't read the changes in the saved plan."; return 1; }
   image="$(jq -r --arg n server "$PLAN_IMAGE_JQ" "$json")"

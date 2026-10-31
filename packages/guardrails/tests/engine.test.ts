@@ -459,7 +459,9 @@ describe('evaluateGuardrail — a judge on a model that takes no temperature', (
 describe('evaluateGuardrail — a judge on a model that thinks', () => {
   const judgeOn = (thinking: { mode: 'adaptive' | 'always'; lowest: string } | undefined) => {
     const seen: { thinking?: string; maxOutputTokens?: number }[] = [];
+    const recorded: ModelUsageRecord[] = [];
     const bindings: EvaluationBindings = {
+      usage: { record: async (call) => void recorded.push(call) },
       judgeProvider: {
         metadata: {
           id: 'acme-llm',
@@ -491,7 +493,7 @@ describe('evaluateGuardrail — a judge on a model that thinks', () => {
         },
       },
     };
-    return { seen, bindings };
+    return { seen, recorded, bindings };
   };
   const guardrail: Guardrail = {
     id: 'inv-j4' as GuardrailId,
@@ -515,11 +517,18 @@ describe('evaluateGuardrail — a judge on a model that thinks', () => {
     expect(outcome.value.result.reason).toContain('Off topic');
   });
 
+  test('its usage record says it asked for lowest', async () => {
+    const { recorded, bindings } = judgeOn({ mode: 'adaptive', lowest: 'between_tools' });
+    await evaluateGuardrail(guardrail, registry, baseTrace(), bindings);
+    expect(recorded).toEqual([expect.objectContaining({ thinkingAsked: 'lowest' })]);
+  });
+
   test("a model that doesn't think: no hint, and the verdict's own 256", async () => {
-    const { seen, bindings } = judgeOn(undefined);
+    const { seen, recorded, bindings } = judgeOn(undefined);
     await evaluateGuardrail(guardrail, registry, baseTrace(), bindings);
     expect(seen).toEqual([{ maxOutputTokens: JUDGE_VERDICT_TOKENS }]);
     expect(JUDGE_VERDICT_TOKENS).toBe(256);
+    expect(recorded[0]).not.toHaveProperty('thinkingAsked');
   });
 });
 

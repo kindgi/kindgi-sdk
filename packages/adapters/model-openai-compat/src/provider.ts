@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { randomUUID } from 'node:crypto';
+
 import OpenAI from 'openai';
 
 import type {
@@ -18,17 +20,29 @@ import type {
   ModelToolCall,
   ModelToolDefinition,
   ProviderMetadata,
+  ThinkingLevel,
   UsageCounters,
 } from '@kindgi/capabilities';
-import { adapterConfigError, samplingFor } from '@kindgi/capabilities';
+import { adapterConfigError, samplingFor, thinkingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 import { createClientsByKey } from '@kindgi/capabilities/clients-by-key';
 import { nameToolsAsSent, toolIdsBySentName } from '@kindgi/capabilities/tool-names';
 import { bearerValueProblem } from '@kindgi/types';
 
-import { EXTRA_BODY_RESERVED_RESPONSES, invokeResponses, requestOptions } from './responses.js';
+import {
+  EXTRA_BODY_RESERVED_RESPONSES,
+  type Reasoning,
+  invokeResponses,
+  requestOptions,
+} from './responses.js';
 import { retryAttempts, sendWithRetries } from './retry.js';
-import { SERVER_ENV_NEVER, computeCost, decodeToolName, encodeToolName } from './wire.js';
+import {
+  SERVER_ENV_NEVER,
+  computeCost,
+  decodeToolName,
+  encodeToolName,
+  outputCapOf,
+} from './wire.js';
 
 /**
  * Configuration for an OpenAI-compatible ModelProvider. `baseURL` is the
@@ -218,11 +232,10 @@ export function createOpenAICompatModelProvider(
           : m,
       );
       const sampling = samplingFor(modelInfo, input);
-      // A caller that wants as little thinking as the model allows (a judge).
-      const lowestThinking =
-        input.thinking === 'lowest' && modelInfo.thinking !== undefined
-          ? modelInfo.thinking.lowest
-          : undefined;
+      // The call's level, or the model's default, as one the model takes.
+      const thinking = thinkingFor(modelInfo, input);
+      const reasoning = reasoningOf(modelInfo, thinking.level);
+      const warnings = [...sampling.warnings, ...thinking.warnings];
       if (api === 'responses') {
         return invokeResponses({
           client: openai,
@@ -234,8 +247,8 @@ export function createOpenAICompatModelProvider(
           extraBody,
           dataResidency,
           ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
-          ...(lowestThinking !== undefined && { reasoningEffort: lowestThinking }),
-          warnings: sampling.warnings,
+          ...(reasoning !== undefined && { reasoning }),
+          warnings,
           startedAt,
           toolIdOf,
         });
@@ -243,6 +256,7 @@ export function createOpenAICompatModelProvider(
 
       const messages = sent.map(toOpenAiMessage);
       const tools = input.tools?.map(toOpenAiTool);
+      const maxTokens = outputCapOf(modelInfo, input);
 
       const responseFormat = input.structuredOutput
         ? {
@@ -266,12 +280,12 @@ export function createOpenAICompatModelProvider(
                 ...(tools !== undefined && tools.length > 0 && { tools }),
                 ...(responseFormat !== undefined && { response_format: responseFormat }),
                 ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
-                ...(lowestThinking !== undefined && {
-                  reasoning_effort: lowestThinking as NonNullable<
+                ...(reasoning !== undefined && {
+                  reasoning_effort: reasoning.effort as NonNullable<
                     OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming['reasoning_effort']
                   >,
                 }),
-                ...(input.maxOutputTokens !== undefined && { max_tokens: input.maxOutputTokens }),
+                ...(maxTokens !== undefined && { max_tokens: maxTokens }),
                 stream: false,
               },
               requestOptions(input),
@@ -313,10 +327,25 @@ export function createOpenAICompatModelProvider(
         // An injected client sends with its own fetch: nothing was counted.
         ...(counted.attempts > 0 && { attempts: counted.attempts }),
         ...(completion.usage !== undefined && { rawUsage: { ...completion.usage } }),
-        ...(sampling.warnings.length > 0 && { warnings: sampling.warnings }),
+        ...(reasoning !== undefined && {
+          thinking: { level: reasoning.level, sent: { reasoning_effort: reasoning.effort } },
+        }),
+        ...(warnings.length > 0 && { warnings }),
       };
     },
   };
+}
+
+/**
+ * The reasoning effort a call's level sends (`reasoning_effort`, or the
+ * Responses API's `reasoning.effort`): `lowest` is the model's
+ * `thinking.lowest` (`none` or `low`), any other level goes by its own
+ * name. Only a model with `thinking` is sent one: an Ollama or vLLM model
+ * without it gets none, and a registration's `extraBody` stays as set.
+ */
+function reasoningOf(model: ModelInfo, level: ThinkingLevel | undefined): Reasoning | undefined {
+  if (level === undefined || model.thinking === undefined) return undefined;
+  return { level, effort: level === 'lowest' ? model.thinking.lowest : level };
 }
 
 function toOpenAiMessage(m: ModelMessage): OpenAI.Chat.Completions.ChatCompletionMessageParam {
@@ -365,6 +394,7 @@ function extractToolCalls(
 ): ModelToolCall[] {
   if (raw === undefined || raw.length === 0) return [];
   const out: ModelToolCall[] = [];
+  const ids = new Set<string>();
   for (const tc of raw) {
     if (tc.type !== 'function') continue;
     let args: Record<string, unknown>;
@@ -374,9 +404,24 @@ function extractToolCalls(
       args = {};
     }
     // The wire names the tool as it was sent; the framework expects its id.
-    out.push({ id: tc.id, name: toolIdOf(tc.function.name), arguments: args });
+    out.push({ id: callIdOf(tc.id, ids), name: toolIdOf(tc.function.name), arguments: args });
   }
   return out;
+}
+
+/**
+ * A call's id is the server's, or one made here when the server sent none,
+ * an empty one, or one an earlier call of the reply has. A compatible
+ * server may do any of those, and each call of a reply needs an id of its
+ * own, since the agent loop records what it decided for a call by its id.
+ * The id goes back to the server with the call and with its result, so
+ * the two still match.
+ */
+function callIdOf(sent: string | undefined, ids: Set<string>): string {
+  const id =
+    typeof sent === 'string' && sent !== '' && !ids.has(sent) ? sent : `call-${randomUUID()}`;
+  ids.add(id);
+  return id;
 }
 
 function mapFinishReason(reason: string | null | undefined): ModelCallResult['finishReason'] {
@@ -460,12 +505,15 @@ export function openAICompatCheckConfig(
   );
 }
 
-/** The entry a runtime registers: the factory, and its static check. */
+/** The entry a runtime registers: the factory, its static check, and the keys it takes. */
 export const openAICompatAdapterEntry: AdapterFactoryEntry = {
   adapterId: OPENAI_COMPAT_ADAPTER_ID,
   capabilityKind: 'llm-inference',
   factory: openAICompatAdapterFactory,
   checkConfig: openAICompatCheckConfig,
+  configKeys: ['baseURL', 'api'],
+  // Each request field rides as `extraBody.<field>`.
+  configKeyPrefixes: ['extraBody.'],
 };
 
 /** What the checks read of a registration. */

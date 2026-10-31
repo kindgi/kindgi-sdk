@@ -198,7 +198,17 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants" \
   exits `0` when the key is minted, `1` when it's minted but an audit entry
   couldn't be written or a revoked key's sessions couldn't be ended, and `2`
   when it's refused and nothing changed. A session that wasn't ended is
-  refused at its next request anyway: each one checks its key. A tenant
+  refused at its next request anyway: each one checks its key. To end it,
+  revoke that key again, with the new key as `KINDGI_API_TOKEN`, as the
+  command's last line says. `<key id>` is the revoked key's id, from its
+  `revoked:` line:
+
+  ```sh
+  npx --yes @kindgi/cli@0.2 tokens revoke <key id>
+  ```
+
+  A key that's already revoked stays revoked, and the sessions it left end,
+  in the audit log as an `api-key-revoked` entry with `sessionsEnded`. A tenant
   created with `firstAdmin` has no such account: `tenants make-admin` makes a
   person its admin.
 - **Production starts blocked.** `"productionAllowed": true` allows it from
@@ -447,11 +457,14 @@ curl -sS -X POST "$KINDGI_URL/v1/system/tenants/$TENANT_ID/purge" \
 - **`confirm` is the tenant's slug,** a second check on the id. Another
   value is `400 tenant-slug-mismatch`, and nothing is changed.
 - **The servers need `KINDGI_TENANT_PURGE_RECORD`:** where purge records
-  are kept, `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]`, the same
-  place as the command's `--record`. Unset, every purge is refused with
-  `409 purge-record-unset`: without a record, restoring a backup taken
-  before the purge would bring the tenant back, with nothing to purge it
-  again ([`kindgi-runtime tenants repurge`](#after-a-restore-tenants-repurge)
+  are kept, `local:<absolute dir>`, `gcs:<bucket>[/<prefix>]` or
+  `s3:<bucket>[/<prefix>]` (runtime 0.3.0 or later), the same place as the
+  command's `--record`
+  ([Choose where the runtime keeps files](../store-files/)). Unset, every
+  purge is refused with `409 purge-record-unset`: without a record,
+  restoring a backup taken before the purge would bring the tenant back,
+  with nothing to purge it again
+  ([`kindgi-runtime tenants repurge`](#after-a-restore-tenants-repurge)
   reads the records after a restore).
 - **It answers when it's done,** after its wait. The answer names each
   table's rows it deleted (`deleted`), the objects deleted from the
@@ -532,8 +545,9 @@ tenants purge: tenant 1ccae8e9-3dc8-4db9-b393-ba3d44e7f86e (acme-shop)
   `kindgi-runtime check purged-tenants` lists every tenant marked purged
   that still holds rows, by table and count: rows only, not the bytes under
   its prefix.
-- **`--record`** (`local:<dir>` or `gcs:<bucket>[/<prefix>]`) keeps a record
-  of each purge, `purged/<tenant id>.json` under it. After a restore,
+- **`--record`** (`local:<dir>`, `gcs:<bucket>[/<prefix>]`, or
+  `s3:<bucket>[/<prefix>]` with runtime 0.3.0 or later) keeps a record of
+  each purge, `purged/<tenant id>.json` under it. After a restore,
   [`tenants repurge`](#after-a-restore-tenants-repurge) reads them.
 - **One purge of a tenant runs at a time** (runtime 0.1.10 or later): a
   second, here or through the system API, waits for the first to finish.
@@ -554,10 +568,11 @@ kindgi-runtime tenants repurge --from <where> --ledger <where>
 ```
 
 - **Two sources name the tenants:** the purge records under `--from`
-  (`local:<dir>` or `gcs:<bucket>[/<prefix>]`, where `--record` and
-  `KINDGI_TENANT_PURGE_RECORD` write them), and the newest copy of the
-  erasure ledger under `--ledger` (runtime 0.1.10 or later), which names
-  every tenant purged before it was written, however long ago. A record can
+  (`local:<dir>`, `gcs:<bucket>[/<prefix>]` or `s3:<bucket>[/<prefix>]`,
+  where `--record` and `KINDGI_TENANT_PURGE_RECORD` write them), and the
+  newest copy of the erasure ledger under `--ledger` (runtime 0.1.10 or
+  later), which names every tenant purged before it was written, however
+  long ago. A record can
   be gone, deleted by a bucket's retention rule, say; the copy still names
   its tenant. A tenant both name is purged once.
 - **`--ledger`** takes what `erasures replay --from` takes: a directory, a
@@ -571,7 +586,8 @@ kindgi-runtime tenants repurge --from <where> --ledger <where>
   (`--from gcs:<bucket>`) and the server's copies under `runtime/`
   (`--ledger gcs:<bucket>/runtime`). Reading a bucket, it lists and
   downloads, so whatever runs it needs read access to it, as
-  [replay](../back-up-and-restore/) does.
+  [replay](../back-up-and-restore/) does
+  ([the permissions](../store-files/#files-written-once)).
 - **Run it with `--dry-run` first,** and nothing changes. Its first line
   says what it read:
   `tenants repurge --dry-run: <n> purge records, and the ledger's copy <file> (written <when>; <n> purged tenants). Nothing will be changed.`
@@ -608,16 +624,28 @@ kindgi-runtime tenants repair --all
 ```
 
 ```text
-tenant 5b52fd42-bd2b-4597-b324-84ec1a7033a4 (tenant-1792242381807-ed3afb): Default project kept; authorization store kept; 0 tuples added; 0 memberships and 0 service account grants put back; adapters: 6 kept up to date, 0 removed; sign-in providers reconciled
+tenant 5b52fd42-bd2b-4597-b324-84ec1a7033a4 (tenant-1792242381807-ed3afb): Default project kept; authorization store kept; 0 tuples added; 0 memberships and 0 service account grants put back; 0 removals finished and 0 grants taken away; adapters: 6 kept up to date, 0 removed; sign-in providers reconciled
 1 tenant repaired.
 ```
 
-It adds only what's missing: the Default project, the authorization store's
+It adds what's missing: the Default project, the authorization store's
 tuples and current model, the access each active person and service account
 has on record (a person's tenant membership, a service account's grants), the
 shipped adapters, and the sign-in providers. It
 finishes a create whose setup didn't finish, if the create named a first
-admin. Run it again at will. `--tenant <id>` repairs one tenant.
+admin.
+
+It also takes away access the tenant's record doesn't back (runtime 0.3.0
+or later): it finishes a person's removal, or a service account's
+unregister, that stopped part way, and revokes a service account's admin,
+membership or project role that its grants don't give. And it takes away
+the access an older runtime gave `00000000-0000-0000-0000-000000000000`, the
+id it named as the creator of what a key with no person behind it made; no
+person has that id. Each removal it finishes and each grant it takes away
+is named under the tenant's line. `--dry-run` shows what it would put back
+and take away, per tenant, and changes nothing.
+
+Run it again at will. `--tenant <id>` repairs one tenant.
 `--providers` redoes only sign-in's providers, after `KINDGI_PUBLIC_URL`
 changes. It exits 0 when every tenant is set up, and 1 when something is left
 for you, named:
@@ -626,6 +654,61 @@ for you, named:
 tenant f309aaca-024a-4fb9-aff8-ef76c4c40e16 (tenant-a): Default project created; no authorization store, and none can be made without naming its first admin: left for the operator; 0 tuples added; adapters: 6 kept up to date, 0 removed; sign-in providers reconciled
 1 tenant gone through; 1 left for the operator (named above).
 ```
+
+Run it with the version you upgraded to, after its server has started. The
+`tenants` commands, `repair` among them, run only on a database migrated to
+their own version, and exit `2` on any other, with `Nothing was changed.`:
+
+- **A database a newer version migrated:**
+  ``This database was migrated by a newer Kindgi version: it records a migration this version doesn't have (…). This version's `tenants repair` doesn't run on it: run it with the version that migrated it.``
+- **A database not migrated to this version yet:**
+  ``This database isn't migrated to this Kindgi version yet: it doesn't record one of this version's migrations (…). This version's `tenants repair` doesn't run on it until it's migrated: start this version's server on it first, which migrates it.``
+  For `tenants repurge` after a restore, it says to run this version's
+  `erasures replay` on it first instead.
+
+`--all` checks again before each tenant. When it's refused partway, it names
+the tenants it went through first. A command waits while a migration or
+another admin command runs, and says so on stderr every 30 seconds, as
+`tenants repair: waiting for a migration, or another admin command, to finish (30 s so far)`.
+A server that starts while a command runs waits for it the same way, and
+logs it at `WARN`:
+`waiting for another instance's migrations, or an admin command, to finish (30 s so far)`.
+
+### A tenant id given in upper case
+
+A runtime serving one tenant takes `KINDGI_TENANT_ID` in lower case. An
+earlier runtime given it in upper case wrote under that spelling. Each
+start that finds something written there warns, once, at `WARN`: `KINDGI_TENANT_ID is set as <TENANT ID>, and is taken in lower case (<tenant id>).`,
+followed by the steps for that runtime:
+
+1. Move the artifact bytes kept under the old spelling to the same place
+   under `tenants/<tenant id>/`. The release notes' upgrade steps have the
+   commands.
+2. Once every replica runs the new version, repair the tenant with the old
+   spelling:
+
+   ```sh
+   kindgi-runtime tenants repair --tenant <tenant id> --old-spelling <TENANT ID>
+   ```
+
+   `<tenant id>` is the id in lower case, and `<TENANT ID>` the id as it was
+   given, as the warning names them.
+3. Set `KINDGI_TENANT_ID` in lower case.
+
+`--old-spelling` moves tenant admin given on the old spelling to the tenant,
+for the people still in it and the system's. A removed person's is only
+taken. Then it repairs the tenant, and deletes every other authorization
+tuple that names the old spelling. Its line lists the ids it moved
+(`tenant admin moved for …`), the ids it only took
+(`taken only, as they're not in the tenant: …`), and how many tuples it
+deleted. A second run finds nothing to do. It's refused, with exit `2`,
+without `--tenant`, with `--providers` or `--dry-run`, with an id that
+isn't the tenant's in another case, and without `KINDGI_OPENFGA_API_URL`.
+
+Until it runs, a tenant admin given on the old spelling keeps it on what
+was made before the upgrade, and the console doesn't list them as one.
+Taking tenant admin from someone, or removing them, takes it on both
+spellings.
 
 ## Switch a one-tenant runtime to many
 

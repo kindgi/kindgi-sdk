@@ -100,7 +100,10 @@ uv run kindgi runs start --flow=acme.reserve-order --input='{"orderId":"A-300"}'
 `kindgi runs get <run-id>` shows it again, with its output once it's done.
 
 `--agent-version=<version>` (or `--flow-version`) runs that version instead of
-the latest, and `--project=<project-id>` runs in that project instead of the
+the one in use there: the agent's pinned version, else its project's
+[Latest](../../improve/pinned-versions-reference/#latest); or the flow's
+[pinned version](../../flows/pin-a-flow-version/), else its latest. And
+`--project=<project-id>` runs in that project instead of the
 agent's or flow's own, which is Default for what `kindgi deploy` registers
 (`kindgi projects list` lists the projects with their ids). With
 authorization on, naming a project needs `write` on it:
@@ -517,7 +520,8 @@ background. Start an agent with `agent` instead of `flow`, and its input
 | `status` | `pending`, `running`, `suspended`, `completed`, `failed` or `cancelled`. `kindgi runs resume <run-id>` says what a `suspended` run waits for ([details](../../approvals/decide-an-approval/#what-a-run-waits-for)). |
 | `output` | What the run returned, once it completed. |
 | `failure` | Why it failed: its `code` and `message` (an agent's turn has its own code, such as `budget-exceeded`; any other failure is `run-failed`). See [why runs failed](../see-why-runs-failed/). |
-| `flowId`, `flowVersion` | The flow and the version the run is pinned to. An agent's turn reports `agent.turn`, and its agent is in `agent`. |
+| `flowId`, `flowVersion` | The flow and the version the run runs, kept for the whole run. An agent's turn reports `agent.turn`, and its agent is in `agent`. |
+| `flowVersionVia` | How a flow's version was chosen: named by the start (`explicit`), [pinned](../../flows/pin-a-flow-version/) for the run's project (`pinned`, with the pin in `flowPinnedScope`), or the newest the project reaches (`latest`). |
 | `agent` | For an agent's turn: the agent's `id`, the `version` that ran, and the `conversationId`. A flow's run has none. |
 | `dryRun` | Whether it was a [dry run](../../flows/dry-run-a-flow/). |
 | `publicAccessToken` | A read-only token for this run, for a browser, when the deployment issues them ([details](../follow-from-the-browser/)). Only `start` returns it. |

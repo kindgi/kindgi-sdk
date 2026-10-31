@@ -24,7 +24,11 @@
         "name": "gpt-6.1-sol",
         "contextWindow": 1050000,
         "maxOutputTokens": 128000,
-        "thinking": { "mode": "adaptive", "lowest": "low" },
+        "thinking": {
+          "mode": "adaptive",
+          "lowest": "low",
+          "levels": ["low", "medium", "high", "xhigh", "max"]
+        },
         "sampling": false,
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {
@@ -44,7 +48,11 @@
         "name": "gpt-6-luna",
         "contextWindow": 1050000,
         "maxOutputTokens": 128000,
-        "thinking": { "mode": "adaptive", "lowest": "none" },
+        "thinking": {
+          "mode": "adaptive",
+          "lowest": "none",
+          "levels": ["low", "medium", "high", "xhigh", "max"]
+        },
         "sampling": false,
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {

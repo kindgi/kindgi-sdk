@@ -1,7 +1,8 @@
 # Kindgi Java SDK
 
-Call the Kindgi™ API from a Java application: agents, runs, approvals, evals
-and the rest, with typed models, typed errors, paging, streaming and retries.
+Call the Kindgi™ API from a Java application: agents, runs, approvals, test
+runs and the rest, with typed models, typed errors, paging, streaming and
+retries.
 
 **Status:** preview. Java and Scala support is tested and supported, but its
 API may still change in a later release without the usual deprecation period.

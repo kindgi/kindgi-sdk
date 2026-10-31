@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kindgi.com/schemas/v1/pack-index.schema.json",
-  "$comment": "schema-version: 1.6.0",
+  "$comment": "schema-version: 1.7.0",
   "title": "Pack index",
   "description": "The `index.json` a pack build emits: the pack's tools, guardrails, agents, flows and data blocks as data, plus where each tool handler and guardrail check lives. A runtime registers the pack's primitives from it, and a pack service loads the modules it names and resolves every call by id. Any indexer (the TypeScript `kindgi-index`, the Python `python -m kindgi.pack index`) emits this shape. Determinism: every list is sorted by `id` (code-unit order), keys are sorted at every level, the file is UTF-8 JSON indented by two spaces with a trailing newline, and integral numbers carry no fraction, so the same source indexes to the same bytes. Consumers refuse an envelope `v` they don't recognize.",
   "type": "object",
@@ -206,6 +206,26 @@
           "$ref": "#/$defs/openObject",
           "description": "When the guardrail applies (`guardrail.schema.json` `scope`)."
         },
+        "at": {
+          "type": "string",
+          "enum": ["before-tool", "after-tool", "model-step", "final-answer"],
+          "description": "Where in the agent's turn the guardrail runs (`guardrail.schema.json` `at`). Absent: the final answer."
+        },
+        "sees": {
+          "type": "string",
+          "enum": ["turn", "conversation"],
+          "description": "What the check sees of the conversation (`guardrail.schema.json` `sees`). Absent: the turn."
+        },
+        "checkPoints": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["before-tool", "after-tool", "model-step", "final-answer"]
+          },
+          "description": "The points the pack's check runs at (its `defineCheck` `points`, or the final answer when it names none), which `at` is one of. Absent for a built-in check, whose points the runtime knows; for a pack check, absent means the final answer only."
+        },
         "checkModulePath": { "$ref": "#/$defs/modulePath" },
         "checkId": {
           "type": "string",
@@ -224,6 +244,14 @@
         "config": {
           "$ref": "#/$defs/openObject",
           "description": "What the check is configured with (`guardrail.schema.json` `config`)."
+        },
+        "budget": {
+          "$ref": "#/$defs/openObject",
+          "description": "What one check may spend (`guardrail.schema.json` `budget`): the agent loop stops a check past its `maxLatencyMs`."
+        },
+        "judgeCapabilities": {
+          "$ref": "#/$defs/openObject",
+          "description": "For an `llm-judge` guardrail: what its judge model is routed by (`guardrail.schema.json` `judgeCapabilities`). An indexer refuses an `llm-judge` guardrail without it."
         },
         "sandbox": { "type": "string", "description": "Isolation posture." },
         "limits": { "$ref": "#/$defs/openObject", "description": "Resource limits." },
@@ -286,6 +314,10 @@
         "toolErrors": {
           "$ref": "#/$defs/openObject",
           "description": "How the agent's turns retry failed tool calls (`{ maxRetries?, retryOn? }`, `agent.schema.json` `toolErrors`)."
+        },
+        "parallelToolCalls": {
+          "type": "boolean",
+          "description": "Whether read-only tool calls that a step asks for one after another run at the same time, up to 8 at once (`agent.schema.json` `parallelToolCalls`). A call to a read-only tool that pauses or declares connections runs on its own, since it may wait. Default true."
         },
         "modulePath": { "$ref": "#/$defs/modulePath" }
       }

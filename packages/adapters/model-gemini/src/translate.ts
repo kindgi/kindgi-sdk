@@ -161,8 +161,11 @@ export function fromGeminiResponse(response: GenerateContentResponse): {
   const text = parts
     .filter((part) => part.functionCall === undefined && part.thought !== true)
     .map((part) => part.text ?? '');
+  const ids = new Set<string>();
   const toolCalls = parts.flatMap((part) =>
-    part.functionCall !== undefined ? [toToolCall(part.functionCall, part.thoughtSignature)] : [],
+    part.functionCall !== undefined
+      ? [toToolCall(part.functionCall, part.thoughtSignature, ids)]
+      : [],
   );
 
   return {
@@ -175,9 +178,24 @@ export function fromGeminiResponse(response: GenerateContentResponse): {
   };
 }
 
-function toToolCall(call: FunctionCall, signature: string | undefined): ModelToolCall {
+/**
+ * A call's id is Gemini's, or one made here when Gemini gave none (or a
+ * null), an empty one, or one an earlier call of the reply has: each call
+ * of a reply needs an id of its own, since the agent loop records what it
+ * decided for a call by its id. The id goes back to Gemini with the call
+ * and with its result, so the two still match.
+ */
+function toToolCall(
+  call: FunctionCall,
+  signature: string | undefined,
+  ids: Set<string>,
+): ModelToolCall {
+  const own: unknown = call.id;
+  const id =
+    typeof own === 'string' && own !== '' && !ids.has(own) ? own : `gemini-call-${randomUUID()}`;
+  ids.add(id);
   return {
-    id: call.id ?? `gemini-call-${randomUUID()}`,
+    id,
     name: call.name ?? '',
     arguments: (call.args ?? {}) as Readonly<Record<string, unknown>>,
     ...(signature !== undefined && { signature }),

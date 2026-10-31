@@ -78,9 +78,8 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
 
   // The provider catalog is tenant-wide: any GET (the list, one provider,
   // its sign-in URLs) needs `read` on the tenant, any change `admin`.
-  const providerAccess = tenantResourceAccess(options.authorizer);
-  authed.use('/providers', providerAccess);
-  authed.use('/providers/*', providerAccess);
+  // '/providers/*' matches '/providers' too: each gate is registered once.
+  authed.use('/providers/*', tenantResourceAccess(options.authorizer));
 
   // When the operator manages sign-in, a change takes the deployment's own
   // token; the providers there keep signing people in.
@@ -100,7 +99,6 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
         code: 'identity-providers-operator-managed',
       });
     };
-    authed.use('/providers', operatorOnly);
     authed.use('/providers/*', operatorOnly);
   }
 
