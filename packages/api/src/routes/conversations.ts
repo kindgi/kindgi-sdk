@@ -596,6 +596,7 @@ function serializeMessage(m: ConversationMessage): Record<string, unknown> {
     sequence: m.sequence,
     role: m.role,
     content: m.content,
+    ...(m.files !== undefined && m.files.length > 0 && { files: m.files }),
     ...(m.toolCall !== undefined && { toolCall: m.toolCall }),
     ...(m.actor !== undefined && { actor: m.actor }),
     createdAt: m.createdAt as unknown as string,

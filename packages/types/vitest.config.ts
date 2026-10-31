@@ -5,9 +5,9 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    include: ['tests/**/*.test.ts'],
     typecheck: {
       enabled: true,
-      only: true,
       include: ['src/**/*.test-d.ts'],
       tsconfig: './tsconfig.json',
     },

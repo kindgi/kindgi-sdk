@@ -341,6 +341,12 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   error's `details` after some were pinned. The models follow:
   `DeploymentLivePin` and `DeploymentLivePinGate` are `DeploymentPinnedAgent`
   and `DeploymentPinGate`.
+- `kindgi`: **a conversation's messages carry their files.** The client's
+  `ConversationMessage` gains `files`: the stored files the message names, each
+  a `FileValue` (`artifact_id`, `name`, `content_type`, `size`, `sha256`), as
+  `conversations.messages` returns them. It's `None` on a message with none.
+  A file's `not_shown` is `reading` when what the model is sent in its place,
+  an image or a text made from it, isn't made yet.
 
 ## 0.3.0
 

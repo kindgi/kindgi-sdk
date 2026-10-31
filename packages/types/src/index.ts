@@ -3,6 +3,7 @@
 
 export type * from './agent-pin.js';
 export type * from './cloud-secret.js';
+export type * from './file.js';
 export type * from './filter.js';
 export type * from './hash.js';
 export type * from './ids.js';
@@ -30,3 +31,7 @@ export { CLOUD_SECRET_FORM, parseCloudSecretVersion } from './cloud-secret.js';
 // The fixed item a correction is recorded under, shared by the API, the CLI
 // and the console so "one correction per run per expert" holds everywhere.
 export { CORRECTION_ITEM } from './correction.js';
+
+// A stored file as a plain JSON value, which several packages pass on;
+// its shape check takes no dependency.
+export { FILE_NOT_SHOWN_REASONS, isFileValue } from './file.js';

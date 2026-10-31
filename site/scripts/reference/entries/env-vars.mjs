@@ -137,6 +137,9 @@ export const ENV_DEFAULTS = {
   KINDGI_ARTIFACTS: 'none: artifacts are off (no `/v1/artifacts`)',
   KINDGI_TURN_MEMORY_MIB: "none: no limit on every tenant's turns together",
   KINDGI_TURN_MEMORY_PER_TENANT_MIB: 'none: no limit per tenant',
+  KINDGI_FILE_MEMORY_MIB:
+    "`512`, or a quarter of the server's memory when that's less; at least `35`",
+  KINDGI_FILE_CACHE_MIB: 'half of `KINDGI_FILE_MEMORY_MIB`; `0` keeps none',
   KINDGI_TEMPLATE_RENDER_WORKERS:
     '`1` when `KINDGI_TENANCY=multi`, else `0`: the template renders in the server process',
   KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB: '`128`; at least `1`',
