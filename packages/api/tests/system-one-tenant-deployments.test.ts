@@ -53,7 +53,10 @@ function makeDeployments(options: { readonly round?: boolean } = {}) {
   const endpoints = new Map<string, DeploymentEndpoint>([
     ['dep-1', { status: 'pending', since: NOW }],
   ]);
-  const round: { claimant?: string; until?: Date } = {};
+  const round: { claimant: string | undefined; until: Date | undefined } = {
+    claimant: undefined,
+    until: undefined,
+  };
   const binding: SystemDeploymentsBinding = {
     async listNeedingEndpoint() {
       return { kind: 'ok', data: [entry('dep-1')] };
@@ -91,8 +94,8 @@ function makeDeployments(options: { readonly round?: boolean } = {}) {
       },
       async endRound({ claimant }) {
         if (round.claimant !== claimant) return { kind: 'not-held' };
-        delete round.claimant;
-        delete round.until;
+        round.claimant = undefined;
+        round.until = undefined;
         return { kind: 'ok' };
       },
     }),
