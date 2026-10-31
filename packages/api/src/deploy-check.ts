@@ -370,7 +370,7 @@ export const CHECK_LIST_MAX = 500;
 
 /** `POST /v1/deployments/check`'s body, parsed. */
 export interface DeployCheckBody {
-  /** The project the deploy goes into: the right it needs. Absent: the tenant's Default project. */
+  /** The project the deploy goes into: admin there is the right it needs. Absent: admin on the tenant. */
   readonly projectId?: string;
   readonly agents: readonly string[];
   readonly blocks: readonly { readonly id: string; readonly version: string }[];

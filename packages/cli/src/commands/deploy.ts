@@ -63,7 +63,7 @@ import type {
 import {
   type ReplaceFlags,
   type StopWords,
-  UNCHECKED_LINE,
+  UNCHECKED_LINES,
   checkRuns,
   passedLines,
   replaceFlagsProblem,
@@ -1606,7 +1606,7 @@ async function runsCheckAnswer(
       out.line('');
       return undefined;
     case 'unchecked':
-      out.line(UNCHECKED_LINE);
+      out.line(UNCHECKED_LINES[check.why]);
       out.line('');
       return undefined;
     case 'failed':

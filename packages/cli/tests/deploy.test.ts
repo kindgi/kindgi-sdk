@@ -3279,17 +3279,44 @@ describe("kindgi deploy — the pack's blocks against what runs", () => {
     }
   });
 
+  const forbidden = {
+    status: 403,
+    body: {
+      error: { code: 'permission-denied', message: 'Needs admin on the tenant', requestId: 'r' },
+    },
+  };
+  const FORBIDDEN_LINE =
+    "  This key can't check blocks against what runs here (403): deploying without the check; a runtime that has it still holds it on the deploy.\n";
+
+  test('a key the check refuses (403) deploys without it, and says so in one line', async () => {
+    const { fetchImpl, checks } = runtime(forbidden);
+    const { out, fixtures } = await deployWith(fetchImpl);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(checks).toHaveLength(1);
+    expect(out.stderr).toContain(FORBIDDEN_LINE);
+    expect(fixtures.state.postCalls).toBe(1);
+  });
+
+  test('--dry-run with a key the check refuses (403) goes on to print the request, sending nothing', async () => {
+    const { fetchImpl } = runtime(forbidden);
+    const { out, fixtures } = await deployWith(fetchImpl, ['--dry-run']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain(FORBIDDEN_LINE);
+    expect(out.stderr).toContain('--dry-run set. No request sent.');
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
   test('a check the runtime refuses for another reason fails the deploy before anything is sent', async () => {
     const { fetchImpl } = runtime({
-      status: 403,
+      status: 400,
       body: {
-        error: { code: 'permission-denied', message: 'Needs admin on the project', requestId: 'r' },
+        error: { code: 'bad-input', message: '`blocks` must be a list', requestId: 'r' },
       },
     });
     const { out, fixtures } = await deployWith(fetchImpl);
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain(
-      "Couldn't check the pack's blocks against what runs (POST /v1/deployments/check): permission-denied: Needs admin on the project",
+      "Couldn't check the pack's blocks against what runs (POST /v1/deployments/check): bad-input: `blocks` must be a list",
     );
     expect(fixtures.state.postCalls).toBe(0);
   });

@@ -8,7 +8,9 @@
  * agents, stops, unless `--replace` names the block, with `--reason`. The
  * server holds the same rule on the deploy itself, so this only makes a
  * stop fast. A runtime without the check (`404`, or `501
- * runs-in-unsupported`) deploys as before, and says so in one line.
+ * runs-in-unsupported`) deploys as before, and says so in one line; so does
+ * a key the check refuses (`403`), which on a runtime before the check may
+ * still deploy, and on one with it is refused by the deploy the same way.
  */
 
 import { KindgiApiError } from '@kindgi/client';
@@ -71,8 +73,12 @@ export type RunsCheck =
       readonly notNeeded: readonly string[];
     }
   | { readonly kind: 'stopped'; readonly stops: readonly DeployCheckStop[] }
-  /** A runtime before the check (`404`), or one that doesn't read pins and Latest (`501`). */
-  | { readonly kind: 'unchecked' }
+  /**
+   * Not asked: a runtime before the check (`404`), or one that doesn't read
+   * pins and Latest (`501`), is `unsupported`; a key the check refuses
+   * (`403`) is `forbidden`.
+   */
+  | { readonly kind: 'unchecked'; readonly why: 'unsupported' | 'forbidden' }
   | { readonly kind: 'failed'; readonly message: string };
 
 /** Ask the runtime what a deploy of these blocks would answer about them, writing nothing. */
@@ -101,15 +107,21 @@ export async function checkRuns(
       return { kind: 'stopped', stops: blocks as DeployCheckStop[] };
     }
     if (serverCode === 'runs-in-unsupported' || e.code === 'not-found') {
-      return { kind: 'unchecked' };
+      return { kind: 'unchecked', why: 'unsupported' };
+    }
+    if (e.code === 'auth' && e.reason === 'forbidden') {
+      return { kind: 'unchecked', why: 'forbidden' };
     }
     return { kind: 'failed', message: `${serverCode ?? e.code}: ${e.message}` };
   }
 }
 
-/** The line a runtime without the check gets. */
-export const UNCHECKED_LINE =
-  "  This runtime doesn't check blocks against what runs: deploying as before.";
+/** The line a check that wasn't asked gets: a runtime without it, or a key it refuses. */
+export const UNCHECKED_LINES: Readonly<Record<'unsupported' | 'forbidden', string>> = {
+  unsupported: "  This runtime doesn't check blocks against what runs: deploying as before.",
+  forbidden:
+    "  This key can't check blocks against what runs here (403): deploying without the check; a runtime that has it still holds it on the deploy.",
+};
 
 /** Where the checked blocks are, and what they're checked against: a deploy's files, or a promoted build. */
 export interface CheckedWords {

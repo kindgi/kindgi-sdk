@@ -12,6 +12,7 @@ import type { AgentId, ProjectId, TenantId, UserId } from '@kindgi/types';
 import type { Context } from 'hono';
 
 import type { BlockUseBinding } from '../block-binding.js';
+import type { BlockVersionPullRequestBinding } from '../block-version-pr-binding.js';
 import type { DeployCheckDeps, DeployCheckStop } from '../deploy-check.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
@@ -32,6 +33,8 @@ export interface DeployCheckBindings {
   readonly itemProjects?: ItemProjectsBinding;
   /** People's names, for who pinned or added the newer version. */
   readonly identityDirectory?: IdentityDirectoryBinding;
+  /** The pull requests opened for block versions: a stop names the open one for the newer version. */
+  readonly pullRequests?: BlockVersionPullRequestBinding;
 }
 
 /** The check's reads for this request: every project counts, and the caller's rights decide what a stop names. */
@@ -42,6 +45,7 @@ export function deployCheckDeps(
 ): DeployCheckDeps {
   const check = bindings.deployCheck;
   const directory = check?.identityDirectory;
+  const pullRequests = check?.pullRequests;
   const tenantId = c.get('tenantId') as TenantId;
   return {
     ...(bindings.agentPins !== undefined && { agentPins: bindings.agentPins }),
@@ -53,6 +57,24 @@ export function deployCheckDeps(
     ...(directory !== undefined && {
       displayName: async (userId: string) =>
         (await directory.getUser({ tenantId, userId: userId as unknown as UserId }))?.displayName,
+    }),
+    ...(pullRequests !== undefined && {
+      pullRequest: async (projectId: ProjectId, blockId: string, version: string) => {
+        try {
+          const pr = await pullRequests.forVersion({ tenantId, projectId, blockId, version });
+          // An open one only: the stop says to merge it.
+          return pr?.state === 'open' ? { url: pr.url } : undefined;
+        } catch (cause) {
+          c.get('log').warn('A block version pull request could not be read', {
+            blockId,
+            version,
+            projectId: projectId as unknown as string,
+            // The name only: a message can quote what the repository answered.
+            error: cause instanceof Error ? cause.name : typeof cause,
+          });
+          return undefined;
+        }
+      },
     }),
   };
 }

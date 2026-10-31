@@ -124,15 +124,23 @@ describe('the check against what runs, asked', () => {
       () => wireError(501, 'runs-in-unsupported'),
     ]) {
       const { client } = runtime(answer);
-      expect(await checkRuns(client, INPUT, {})).toEqual({ kind: 'unchecked' });
+      expect(await checkRuns(client, INPUT, {})).toEqual({ kind: 'unchecked', why: 'unsupported' });
+    }
+  });
+
+  test('a key the check refuses (403) leaves it unchecked, on a runtime before the check or with it', async () => {
+    // Before the check, the deployments router asks admin on the tenant for the path.
+    for (const code of ['permission-denied', 'forbidden-by-a-newer-server']) {
+      const { client } = runtime(() => wireError(403, code));
+      expect(await checkRuns(client, INPUT, {})).toEqual({ kind: 'unchecked', why: 'forbidden' });
     }
   });
 
   test('any other answer, or no answer, fails the check, saying why', async () => {
-    const { client } = runtime(() => wireError(403, 'permission-denied'));
+    const { client } = runtime(() => wireError(400, 'bad-input'));
     expect(await checkRuns(client, INPUT, {})).toEqual({
       kind: 'failed',
-      message: 'permission-denied: permission-denied said',
+      message: 'bad-input: bad-input said',
     });
     const down = createClient({
       apiUrl: API,

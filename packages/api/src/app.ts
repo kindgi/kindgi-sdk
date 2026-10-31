@@ -2592,13 +2592,17 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             },
           }),
           // A deploy is checked against what runs: the agent versions that
-          // pin each block, each agent's projects, and people's names.
+          // pin each block, each agent's projects, people's names, and the
+          // pull requests opened for block versions.
           ...(input.blockUse !== undefined && {
             deployCheck: {
               blockUse: input.blockUse,
               ...(input.itemProjects !== undefined && { itemProjects: input.itemProjects }),
               ...(input.identityDirectory !== undefined && {
                 identityDirectory: input.identityDirectory,
+              }),
+              ...(input.blockVersionPullRequests !== undefined && {
+                pullRequests: input.blockVersionPullRequests,
               }),
             },
           }),

@@ -468,7 +468,10 @@ stops, deploys nothing, and exits 1:
   `POST /v1/deployments/check` gives the same answer without deploying. A
   runtime that doesn't read pins and Latest answers it with
   `501 runs-in-unsupported`, and doesn't check deploys either: there,
-  `kindgi deploy` deploys as before, and says so in one line.
+  `kindgi deploy` deploys as before, and says so in one line. A key the
+  check refuses (`403`) goes on without it too, and says so: the deploy
+  asks the same right as the check, so a runtime with the check refuses
+  the deploy the same way.
 - **A promotion that pins is checked too,** against what runs in the target
   environment only: `kindgi promote --pin` puts the build's blocks there.
   A stop prints the same table ("Nothing was promoted.") and exits 1, with
