@@ -1,9 +1,9 @@
 ---
-"@kindgi/types": minor
-"@kindgi/capabilities": minor
-"@kindgi/agents": minor
-"@kindgi/api": minor
-"@kindgi/client": minor
+"@kindgi/types": patch
+"@kindgi/capabilities": patch
+"@kindgi/agents": patch
+"@kindgi/api": patch
+"@kindgi/client": patch
 "@kindgi/tools": patch
 "@kindgi/env-schema": patch
 ---

@@ -1,12 +1,12 @@
 ---
-"@kindgi/capabilities": minor
-"@kindgi/adapter-model-anthropic": minor
-"@kindgi/adapter-model-gemini": minor
-"@kindgi/adapter-model-openai-compat": minor
-"@kindgi/adapter-model-shared": minor
-"@kindgi/adapter-model-bedrock": minor
-"@kindgi/adapter-model-azure-openai": minor
-"@kindgi/adapter-model-in-process": minor
+"@kindgi/capabilities": patch
+"@kindgi/adapter-model-anthropic": patch
+"@kindgi/adapter-model-gemini": patch
+"@kindgi/adapter-model-openai-compat": patch
+"@kindgi/adapter-model-shared": patch
+"@kindgi/adapter-model-bedrock": patch
+"@kindgi/adapter-model-azure-openai": patch
+"@kindgi/adapter-model-in-process": patch
 ---
 
 **A model call can carry files: photos, PDFs and text files.** A user or tool message names stored files in a new optional `files` field (`MessageFile`: the stored file's id, name, type, size and sha256). The message holds references only. The adapter reads the bytes through the call's new optional `readFile`, sends them inline, and keeps none.
