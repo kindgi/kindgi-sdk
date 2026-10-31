@@ -11,7 +11,6 @@ import type {
   PinAnswer,
   PinPage,
 } from '@kindgi/client';
-import type { AgentId } from '@kindgi/types';
 
 import type { AgentId } from '@kindgi/types';
 
