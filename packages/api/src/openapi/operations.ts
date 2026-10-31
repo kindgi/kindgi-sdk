@@ -322,6 +322,44 @@ const ItemProjectQueryParam: ParameterSpec = {
   schema: { type: 'string', format: 'uuid' },
 };
 
+/** `?projectId=` on an agent's test set: it's read one project at a time. */
+const TestSetProjectQueryParam: ParameterSpec = {
+  name: 'projectId',
+  in: 'query',
+  required: true,
+  description:
+    "The project whose cases to read: the agent's set, narrowed to that project's cases.",
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const TestCaseIncludeQueryParam: ParameterSpec = {
+  name: 'include',
+  in: 'query',
+  required: false,
+  description: '`retired`: retired cases too. Left out, active ones only.',
+  schema: { type: 'string', enum: ['retired'] },
+};
+
+const TestCaseKindQueryParam: ParameterSpec = {
+  name: 'kind',
+  in: 'query',
+  required: false,
+  description: 'Comma-separated `correction` and `hand`. Left out, both.',
+  schema: { type: 'string', pattern: '^(correction|hand)(,(correction|hand))*$' },
+};
+
+const TestCaseIdPathParam: ParameterSpec = {
+  name: 'caseId',
+  in: 'path',
+  required: true,
+  description: "A correction's id, or a hand case's `case-…` id.",
+  schema: { type: 'string', minLength: 1 },
+};
+
+/** Who may change an agent's test set (`/v1/agents/{agentId}/test-set/cases…`). */
+const TEST_CASE_WRITE_RIGHTS =
+  "Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.";
+
 /** What a single read of an order's item answers (`GET /v1/agents/{agentId}` and its twins). */
 const NEWEST_VISIBLE_DESCRIPTION =
   'An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.';
@@ -832,12 +870,20 @@ const SuggestedChangeStatusQueryParam: ParameterSpec = {
   schema: { $ref: '#/components/schemas/SuggestedChangeStatus' },
 };
 
-const SuggestedChangeTierQueryParam: ParameterSpec = {
-  name: 'tier',
+const SuggestedChangeProjectQueryParam: ParameterSpec = {
+  name: 'projectId',
   in: 'query',
   required: false,
-  description: 'Only suggested changes of this tier.',
-  schema: { $ref: '#/components/schemas/SuggestedChangeTier' },
+  description: 'Only suggested changes for this project.',
+  schema: { type: 'string', format: 'uuid' },
+};
+
+const SuggestedChangeMadeByQueryParam: ParameterSpec = {
+  name: 'madeBy',
+  in: 'query',
+  required: false,
+  description: 'Only suggested changes made by this kind of maker (`madeBy.kind`).',
+  schema: { type: 'string', enum: ['improve-run', 'person', 'service', 'deploy', 'offer'] },
 };
 
 // Admin plane — capabilities + providers.
@@ -1227,7 +1273,7 @@ const TestSetKindFilterQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    'Filter to test sets of a single kind. Values: `accuracy | pairwise | regression | human-review | benchmark | custom | corrections`.',
+    "Filter to test sets of a single kind. `corrections` is listed only when asked for here: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`), and its frozen versions are `corrections` test sets.",
   schema: { $ref: '#/components/schemas/TestSetKind' },
 };
 
@@ -3679,8 +3725,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/agents/:agentId',
     openapiPath: '/v1/agents/{agentId}',
     operationId: 'agents.get',
-    summary: 'Fetch the latest version of an agent',
-    description: NEWEST_VISIBLE_DESCRIPTION,
+    summary: 'Fetch the highest version of an agent',
+    description: `${NEWEST_VISIBLE_DESCRIPTION} For an agent, that is its highest version, which numbers the next one. It is not always what a project runs: \`agents.projects\` says what runs in each project.`,
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, ItemProjectQueryParam],
@@ -3696,9 +3742,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/agents/:agentId/projects',
     openapiPath: '/v1/agents/{agentId}/projects',
     operationId: 'agents.projects',
-    summary: 'List the projects an agent runs in',
+    summary: 'List the projects an agent runs in, and what runs in each',
     description:
-      'The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty.',
+      "The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty. Each project says what a run there that names no version gets (`runs`) and why (`follows`): a pin that covers the project, else its Latest. Latest moves only when a deployment into the project ships a version, or when a person publishes a full version or adds one as the latest version; a pin never moves it. `segments` lists the pins on segments inside the project. `highest` is the agent's highest version, which numbers the next one. A version the caller can't see is left out.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam],
@@ -3724,38 +3770,6 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse("`bad-input`: a `cursor` this list didn't issue."),
       ...CommonAuthErrors,
       '404': ErrorResponse('No agent was ever registered with that id under this tenant.'),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/agents/:agentId/versions',
-    openapiPath: '/v1/agents/{agentId}/versions',
-    operationId: 'agents.deriveVersion',
-    summary: 'Derive an agent version with data-block pins swapped',
-    description:
-      "An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent. In a tenant with environment orders, the new version is made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted; the agent's project doesn't change.",
-    tags: ['agents'],
-    security: 'bearer',
-    parameters: [AgentIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('DeriveAgentVersionBody') },
-    responses: {
-      '200': {
-        description:
-          'An active version already holds this definition and these pins (the same swap derived before, or a deploy that registered it): that version, unchanged.',
-        schema: ref('Agent'),
-      },
-      '201': { description: 'The derived agent version.', schema: ref('Agent') },
-      ...CommonMutationErrors,
-      '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `agent-project-mismatch`: the agent belongs to another project than the body's `projectId` (agents never move; the message doesn't name the project). Or `environment-takes-promotions`: the body's `projectId` is a later environment of an environment order, where no new version is made; leave it out, or name the order's first environment (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
-      ),
-      '400': ErrorResponse(
-        "`validation-failed`: `from` has no pins, a swap names a block it doesn't reference, or a version that isn't published, active or the right kind (see `details.issues`); or `projectId` isn't a project id (a UUID).",
-      ),
-      '404': ErrorResponse(
-        '`agent-not-found`: no agent at `from`; or `projectId` names no project of this tenant (`project-not-found`).',
-      ),
-      '429': SCHEMA_COMPILE_BUDGET,
     },
   },
   {
@@ -3828,6 +3842,92 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/agents/:agentId/test-set',
+    openapiPath: '/v1/agents/{agentId}/test-set',
+    operationId: 'agents.testSet.get',
+    summary: "A project's test set of an agent",
+    description:
+      "How many cases the agent's test set has in the project. Its cases are the agent's corrections there, except Won't fix and Removed ones (Fixed and With the owner included), and cases added by hand. It's computed when it's read. Needs `read` on the project.",
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam, TestSetProjectQueryParam],
+    responses: {
+      '200': { description: 'The test set.', schema: ref('AgentTestSet') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('`projectId` is missing, or not a project id (a UUID).'),
+      '404': ErrorResponse('`agent-not-found`.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/agents/:agentId/test-set/cases',
+    openapiPath: '/v1/agents/{agentId}/test-set/cases',
+    operationId: 'agents.testSet.listCases',
+    summary: "List a project's cases of an agent's test set",
+    description:
+      'Cursor-paginated, newest added first. A retired case comes back only with `include=retired`. Needs `read` on the project.',
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [
+      AgentIdPathParam,
+      TestSetProjectQueryParam,
+      TestCaseIncludeQueryParam,
+      TestCaseKindQueryParam,
+      LimitQueryParam,
+      CursorQueryParam,
+    ],
+    responses: {
+      '200': { description: 'Page of cases.', schema: ref('TestCaseCollectionPage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        '`projectId` is missing or not a project id (a UUID), or `include` or `kind` names something else.',
+      ),
+      '404': ErrorResponse('`agent-not-found`.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/agents/:agentId/test-set/cases',
+    openapiPath: '/v1/agents/{agentId}/test-set/cases',
+    operationId: 'agents.testSet.addCase',
+    summary: "Add a case to an agent's test set",
+    description: `A case by hand, from a correction's body on one of the agent's finished runs. It has no status, isn't sorted, and nothing that counts corrections counts it (Improve's trigger, the expert queue's progress, a rule's yes-rate). The run's first correction or case stores a copy of its input and output. A comparison's replay can't be a case. ${TEST_CASE_WRITE_RIGHTS}`,
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('AddTestCaseBody') },
+    responses: {
+      '201': { description: 'Case added.', schema: ref('TestCase') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "Malformed body; the run isn't one of the agent's, or is a comparison's replay; or `item-not-found` (an item's pointer resolves to nothing in the output).",
+      ),
+      '404': ErrorResponse('`run-not-found`.'),
+      '409': ErrorResponse('`run-not-finished`: the run has no output yet.'),
+      '410': ErrorResponse("`run-erased`: an erasure cleared the run's content."),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/agents/:agentId/test-set/cases/:caseId/retire',
+    openapiPath: '/v1/agents/{agentId}/test-set/cases/{caseId}/retire',
+    operationId: 'agents.testSet.retireCase',
+    summary: "Retire a case of an agent's test set",
+    description: `A retired case stays listed, and no test run checks it again. There's no un-retire, and retiring a correction's case doesn't change the correction's status. ${TEST_CASE_WRITE_RIGHTS}`,
+    tags: ['agents'],
+    security: 'bearer',
+    parameters: [AgentIdPathParam, TestCaseIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('RetireTestCaseBody') },
+    responses: {
+      '200': { description: 'Retired.', schema: ref('TestCase') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('`reason` is missing, empty, or over 4000 characters.'),
+      '404': ErrorResponse("`test-case-not-found`: the agent's test set has no case by that id."),
+      '409': ErrorResponse('`test-case-retired`: the case is retired already.'),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/agents/:agentId/versions/:version/unregister',
     openapiPath: '/v1/agents/{agentId}/versions/{version}/unregister',
@@ -3852,7 +3952,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.reinstateVersion',
     summary: 'Reinstate a specific tombstoned agent version',
     description:
-      'Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).',
+      'Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the highest active version, which numbers the next one. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).',
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, AgentVersionPathParam, IdempotencyKeyParam],
@@ -3875,7 +3975,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.pinned.resolve',
     summary: 'The version a run would use',
     description:
-      "Resolves the version a run of this agent would use for a project and segment path: the most specific pinned version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.",
+      "Resolves the version a run of this agent would use for a project and segment path: the most specific pinned version (segment path, project, org, tenant), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, AgentPinProjectQueryParam, SegmentQueryParam],
@@ -3883,7 +3983,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The resolved version.', schema: ref('AgentPinnedVersionResolution') },
       ...CommonAuthErrors,
       '400': ErrorResponse('A malformed project id or segment, or a segment without a project.'),
-      '404': ErrorResponse('No agent with that id.'),
+      '404': ErrorResponse(
+        'No version of the agent runs in this scope: none is pinned there, and none is its Latest.',
+      ),
     },
   },
   {
@@ -3927,7 +4029,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'The version is not registered, or was unregistered; or the test run is not found.',
       ),
       '409': ErrorResponse(
-        "`pin-superseded`: the scope's pinned version changed while the gate ran; check again. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `pin-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `pin-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
+        "`nothing-runs-in-scope`: no version of the agent runs in the scope yet (no pin covers it, and it has no Latest), so there's nothing to measure the version against; deploy or publish a version into the project first (into a later environment, promote a build that ships one). `project-suspended`: nothing runs there because the scope's project is suspended. `pin-superseded`: the scope's pinned version changed while the gate ran; check again. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `pin-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `pin-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
       ),
       '422': ErrorResponse(
         '`gate-failed`: the gate refused it. `details.checks` has every check; the refusal is recorded (`details.changeId`).',
@@ -3959,6 +4061,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed body, or the test run is not a finished comparison. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
       '404': ErrorResponse('The version, the agent or the test run is not found.'),
+      '409': ErrorResponse(
+        '`nothing-runs-in-scope` or `project-suspended`, as `POST …/promotions` answers: no version of the agent runs in the scope yet.',
+      ),
     },
   },
   {
@@ -5072,7 +5177,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'suggestedChanges.list',
     summary: 'List suggested changes',
     description:
-      'Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the pin scope a suggested change is for (`scopeKind`, `scopeId`, `segment`, exactly as the pin history takes it).',
+      'Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?projectId=` (the project a suggested change is for), `?status=` and `?madeBy=` (a kind of maker). Statuses and makers are derived, so a page filtered by either can hold fewer rows than `limit`.',
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [
@@ -5080,10 +5185,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
       CursorQueryParam,
       SuggestedChangeStatusQueryParam,
       AgentIdQueryParam,
-      SuggestedChangeTierQueryParam,
-      PinScopeKindQueryParam,
-      ScopeIdQueryParam,
-      SegmentQueryParam,
+      SuggestedChangeProjectQueryParam,
+      SuggestedChangeMadeByQueryParam,
     ],
     responses: {
       '200': {
@@ -5150,7 +5253,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/suggested-changes/{suggestedChangeId}',
     operationId: 'suggestedChanges.get',
     summary: 'Fetch a suggested change',
-    description: 'Needs `read` on its agent.',
+    description:
+      "With its block's content before and after (`changes[].before`, `changes[].after`). Needs `read` on its agent.",
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [SuggestedChangeIdPathParam],
@@ -5165,75 +5269,62 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/suggested-changes',
     openapiPath: '/v1/suggested-changes',
     operationId: 'suggestedChanges.create',
-    summary: 'Suggest new content for a data block',
+    summary: 'Suggest a change to a block, for a project',
     description:
-      'A hand-written suggested change: new settings values or a new prompt template for a block `fromVersion` pins, for a pin scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`. Needs `publish` on the agent.',
+      "New settings values or a new prompt template for one block, in what the project runs: its pin, or Latest. Checked as publishing that block version would be (its schema carries over; for the version's model-settings block, as model settings), and refused when it equals the content the version pins. Then the block version is published, an agent version is derived from what the project runs with that one block changed (it serves nothing until it's pinned or added as Latest), and the check starts on the project's test set, frozen now: the new version and what the project runs replay the same cases. The same change on the same version for the same project is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`, unchecked again. Needs `publish` on the agent.",
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('CreateSuggestedChangeBody') },
     responses: {
-      '201': { description: 'The suggested change, a `draft`.', schema: ref('SuggestedChange') },
+      '201': {
+        description: 'The suggested change, `checking`.',
+        schema: ref('SuggestedChange'),
+      },
       '200': {
         description: 'The same suggested change, made before.',
         schema: ref('SuggestedChange'),
       },
       ...CommonMutationErrors,
-      '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
-      ),
       '400': ErrorResponse(
-        "Malformed request body, or the change fails validation. Or `reference-out-of-scope`: a project or segment scope whose project doesn't reach the agent, or a block the agent's project doesn't reach (`details.issues`).",
+        "Malformed request body, or the change fails validation: a block the project's version doesn't pin, `values` for a prompt block or `template` for a settings block (`details.issues`). Or `reference-out-of-scope`: the project doesn't reach the agent, or the agent's project doesn't reach the block (`details.issues`).",
       ),
       '404': ErrorResponse(
-        "`fromVersion` isn't an active version of the agent (`agent-version-not-found`).",
+        "The version the project runs isn't active (`agent-version-not-found`), the body's `projectId` names no project of this tenant (`project-not-found`), or a check's test run couldn't start (`test-set-not-found`).",
       ),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/suggested-changes/:suggestedChangeId/evaluate',
-    openapiPath: '/v1/suggested-changes/{suggestedChangeId}/evaluate',
-    operationId: 'suggestedChanges.evaluate',
-    summary: 'Compare a suggested change on a test set',
-    description:
-      "The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a pin makes them serve. Then a comparison test run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a pinned version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would serve there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.",
-    tags: ['suggested-changes'],
-    security: 'bearer',
-    parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('EvaluateSuggestedChangeBody') },
-    responses: {
-      '202': { description: 'The suggested change, `evaluating`.', schema: ref('SuggestedChange') },
-      ...CommonMutationErrors,
-      '400': ErrorResponse(
-        "Malformed request body. Or `reference-out-of-scope`: the test set isn't registered in the agent's project, its org or the tenant (`details.issues`).",
-      ),
-      '404': ErrorResponse('No such suggested change, or no such test set.'),
       '409': ErrorResponse(
-        "`suggested-change-needs-pin`: the agent has no pinned version for the whole tenant. `suggested-change-invalid-state-transition`: the suggested change's status doesn't allow it. `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes; or, under `kindgi dev`, the suggested change's scope is narrower than the whole tenant, since the pack's files serve every scope.",
+        "`nothing-runs-in-scope`: the project runs no version of the agent. `suggested-change-nothing-to-check`: the project's test set has no cases for the agent. `environment-takes-promotions`: the project is a later environment of its order, where new versions arrive only by promotion (`details.position`, and `details.firstProjectId` when you can read it). `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes. Or Idempotency-Key was reused with a different body.",
       ),
       '429': SCHEMA_COMPILE_BUDGET,
+      '501': ErrorResponse(
+        "`suggested-change-check-unsupported`: this runtime doesn't freeze a project's test set, so it can't check a suggested change.",
+      ),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/suggested-changes/:suggestedChangeId/rescore',
-    openapiPath: '/v1/suggested-changes/{suggestedChangeId}/rescore',
-    operationId: 'suggestedChanges.rescore',
-    summary: "Rescore a suggested change's latest evaluation",
+    honoPath: '/v1/suggested-changes/:suggestedChangeId/check',
+    openapiPath: '/v1/suggested-changes/{suggestedChangeId}/check',
+    operationId: 'suggestedChanges.check',
+    summary: 'Check a suggested change again',
     description:
-      "After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison test run scores the same replays again, counting those corrections, as `POST /v1/test-runs/{testRunId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.",
+      "Checks it again on its project's test set, frozen now: its version and the version it's built on replay the same cases, so new corrections count. Its version is made first if it has none. When its project runs another version than the one it's built on, it's rebuilt there first: its block change on that version, as a new version, and `builtOn.rebuiltAt` says when. Takes no body fields. Needs `publish` on the agent. Allowed from `check-failed` and `ready`.",
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
     responses: {
-      '202': { description: 'The suggested change, `evaluating`.', schema: ref('SuggestedChange') },
+      '202': { description: 'The suggested change, `checking`.', schema: ref('SuggestedChange') },
       ...CommonMutationErrors,
+      '400': ErrorResponse('A body with fields: a check takes none.'),
       '404': ErrorResponse(
-        'No such suggested change, or its candidate version is unregistered (`agent-version-not-found`).',
+        'No such suggested change, or its version is unregistered (`agent-version-not-found`).',
       ),
       '409': ErrorResponse(
-        "`suggested-change-invalid-state-transition`: the suggested change's status doesn't allow it. `test-run-not-rescorable`: the latest evaluation isn't a completed comparison.",
+        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-nothing-to-check`: the project's test set has no cases for the agent. `suggested-change-out-of-date`: its project runs another version, which it can't be rebuilt on. `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes.",
+      ),
+      '429': SCHEMA_COMPILE_BUDGET,
+      '501': ErrorResponse(
+        "`suggested-change-check-unsupported`: this runtime doesn't freeze a project's test set.",
       ),
     },
   },
@@ -5242,9 +5333,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/suggested-changes/:suggestedChangeId/pin',
     openapiPath: '/v1/suggested-changes/{suggestedChangeId}/pin',
     operationId: 'suggestedChanges.pin',
-    summary: "Pin a suggested change's version for its scope",
+    summary: "Pin a suggested change's version for its project",
     description:
-      "A pin of the candidate for the suggested change's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. Needs `pin` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.",
+      "A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `pin` on the agent. Allowed from `ready`.",
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
@@ -5255,19 +5346,46 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('SuggestedChange'),
       },
       '202': {
-        description: 'The gate passed and an approval is open: the suggested change, `in-review`.',
+        description:
+          'The gate passed and an approval is open: the suggested change, `waiting-for-second-person`.',
         schema: ref('SuggestedChange'),
       },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed request body. Or `reference-out-of-scope`: the suggested change's project or segment scope no longer reaches the agent (`details.issues`).",
+        "Malformed request body. Or `reference-out-of-scope`: the suggested change's project no longer reaches the agent (`details.issues`).",
       ),
       '404': ErrorResponse('No such suggested change.'),
       '409': ErrorResponse(
-        "The suggested change's status doesn't allow it. Or `pin-scope-spans-environments`: the agent has a project in an environment order, and the suggested change's tenant- or org-wide scope would act in every environment of the order at once; a suggested change for a project (or a segment of it) can be pinned.",
+        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-project-on-latest`: its project runs Latest, not a pin. `suggested-change-out-of-date`: its project now runs another version than the one it's built on, so it's being rebuilt there and checked again (`details.rebuilding`), or it can't be.",
       ),
       '422': ErrorResponse(
-        '`gate-failed`: the gate refused it (the error carries the checks and `suggestedChangeId`).',
+        '`gate-failed`: the gate refused it (the error carries the checks and `suggestedChangeId`). The suggested change stays `ready`, with a `note`.',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/suggested-changes/:suggestedChangeId/add-as-latest',
+    openapiPath: '/v1/suggested-changes/{suggestedChangeId}/add-as-latest',
+    operationId: 'suggestedChanges.addAsLatest',
+    summary: "Add a suggested change's version as its project's Latest",
+    description:
+      'Makes its version Latest in its project, now, so the project runs it. Only for a project on Latest, which takes each new Latest without a gate; a pinned project takes a pin of the change instead. `reason` is kept on its `addedAsLatest`. Needs `pin` on the agent. Allowed from `ready`.',
+    tags: ['suggested-changes'],
+    security: 'bearer',
+    parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('SuggestedChangeReasonBody') },
+    responses: {
+      '200': {
+        description: 'The suggested change, `added-as-latest`.',
+        schema: ref('SuggestedChange'),
+      },
+      ...CommonMutationErrors,
+      '404': ErrorResponse(
+        'No such suggested change. Or `agent-version-not-found`: its version was unregistered.',
+      ),
+      '409': ErrorResponse(
+        "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-project-pinned`: its project runs a pin, not Latest. `suggested-change-out-of-date`: its project now runs another version than the one it's built on, so it's being rebuilt there and checked again (`details.rebuilding`), or it can't be. `registry-read-only`: the agent registry takes no writes.",
       ),
     },
   },
@@ -5278,7 +5396,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'suggestedChanges.withdraw',
     summary: 'Withdraw a suggested change',
     description:
-      "Closes it. Not while it's in review (decide its approval instead), nor once pinned, rejected or rolled back. Needs `publish` on the agent.",
+      'Closes it. Allowed from `checking`, `check-failed` and `ready`: not while it waits for a second person (they reject it instead), nor once pinned or added as Latest. Needs `publish` on the agent.',
     tags: ['suggested-changes'],
     security: 'bearer',
     parameters: [SuggestedChangeIdPathParam, IdempotencyKeyParam],
@@ -6643,7 +6761,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'testSets.list',
     summary: 'List tenant test sets',
     description:
-      'Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
+      "Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated. A `corrections` test set (an agent's frozen versions, and those built from corrections before) is listed only with `?kind=corrections`: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).",
     tags: ['test-sets'],
     security: 'bearer',
     parameters: [
@@ -6659,7 +6777,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of test sets.', schema: ref('TestSetCollectionPage') },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Malformed query parameter (unknown `kind`).'),
+      '400': ErrorResponse('Malformed query parameter (unknown `kind`, or `corrections`).'),
     },
   },
   {
@@ -6727,7 +6845,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'testSets.publish',
     summary: 'Publish a test set',
     description:
-      "Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).",
+      "Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201). An id that starts with `agent.` is refused with `400 bad-input`: those are agents' own test sets, whose versions only a check or a test run makes.",
     tags: ['test-sets'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6736,37 +6854,11 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Test set published.', schema: ref('PublishTestSetResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
+        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID); or the id starts with `agent.` (`bad-input`), an agent's own test set.",
       ),
       '409': ErrorResponse(
         "`test-set-already-registered`: that (id, version) is taken. Or `test-set-project-mismatch`: the test set's versions live in another project (a test set belongs to the project its first version was published into and never moves; the message doesn't name the project).",
       ),
-      '404': ErrorResponse(
-        "The body's `projectId` names no project of this tenant (`project-not-found`).",
-      ),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/test-sets/:testSetId/versions/from-corrections',
-    openapiPath: '/v1/test-sets/{testSetId}/versions/from-corrections',
-    operationId: 'testSets.buildFromCorrections',
-    summary: 'Build a test set from corrections',
-    description:
-      "Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.",
-    tags: ['test-sets'],
-    security: 'bearer',
-    parameters: [TestSetIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('BuildCorrectedTestSetBody') },
-    responses: {
-      '201': { description: 'Version published.', schema: ref('BuildCorrectedTestSetResult') },
-      ...CommonMutationErrors,
-      '400': ErrorResponse("Malformed body; or `projectId` isn't a project id (a UUID)."),
-      '403': ErrorResponse('`permission-denied`.'),
-      '409': ErrorResponse(
-        "`test-set-already-registered`: that (id, version) is taken. Or `test-set-project-mismatch`: the test set belongs to another project than the body's `projectId` (testSets never move).",
-      ),
-      '501': ErrorResponse('`test-sets-not-supported`: this deployment cannot build test sets.'),
       '404': ErrorResponse(
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
@@ -6909,7 +7001,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'blocks.publish',
     summary: 'Publish a data block version',
     description:
-      "Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.",
+      "Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A settings block an agent version uses as its model settings takes only model settings, which never name the model that agent version names too. The version records the caller as `publishedBy`, and `source: { kind: \"api\" }`. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.",
     tags: ['blocks'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -6918,7 +7010,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Published.', schema: ref('PublishBlockResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "`validation-failed` (see `details.issues`), or an unknown `projectId`; or `projectId` isn't a project id (a UUID).",
+        "`validation-failed` (see `details.issues`; for an agent version's model settings, each issue names the agent and its version), or an unknown `projectId`; or `projectId` isn't a project id (a UUID).",
       ),
       '403': ErrorResponse('`permission-denied`: no `write` on the project.'),
       '409': ErrorResponse(
@@ -8104,7 +8196,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'deployments.promote',
     summary: 'Promote a deployment to the next environment',
     description:
-      "Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since.",
+      "Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `pin`, the move commits first; then each carried agent is pinned through its target scope's release gate, and each carried flow is pinned. A release gate that refuses or holds an agent isn't an error: its `pinned` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.pinned` and `details.pinnedFlows`.",
     tags: ['deployments'],
     security: 'bearer',
     parameters: [
@@ -8132,17 +8224,20 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Malformed body (`bad-input`). Or `signature-invalid`: the deployment's signature doesn't verify over the fields it keeps.",
       ),
       '403': ErrorResponse(
-        "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the tenant's trust list (`details.signerKeyId`).",
+        "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the tenant's trust list (`details.signerKeyId`). With `pin`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.",
       ),
       '404': ErrorResponse(
         "`deployment-not-found`: no deployment with that id in this tenant, or one in a project you don't read.",
       ),
       '409': ErrorResponse(
-        "`promotion-not-next-environment`: the target isn't the next environment of the deployment's order, or the deployment's environment is last or in no order (`details.position`, the next environment's place; `details.nextProjectId`, when you can read it). `promotion-values-not-ready`: values the build needs aren't ready in the target, each in `details.values` (`DeploymentValue`). `deployment-superseded`: the deployment no longer serves its environment, or the target's copy no longer serves there: newer deployments serve every tool version it ships (`details.environment`, `source` or `target`; `details.newerDeploymentId`). `project-suspended`, `pack-suspended`, `tenant-suspended` or `tenant-closing`: a suspension of the source or the target (`details.environment`). Nothing is written.",
+        "`promotion-not-next-environment`: the target isn't the next environment of the deployment's order, or the deployment's environment is last or in no order (`details.position`, the next environment's place; `details.nextProjectId`, when you can read it). `promotion-values-not-ready`: values the build needs aren't ready in the target, each in `details.values` (`DeploymentValue`). `deployment-superseded`: the deployment no longer serves its environment, or the target's copy no longer serves there: newer deployments serve every tool version it ships (`details.environment`, `source` or `target`; `details.newerDeploymentId`). `project-suspended`, `pack-suspended`, `tenant-suspended` or `tenant-closing`: a suspension of the source or the target (`details.environment`). Nothing is written for any of these. With `pin`, after the move has committed: `nothing-runs-in-scope`, a carried agent has no version running in the target yet (the message names it); or `pin-superseded` or `release-gate-descendant-unpinned`, as `POST /v1/agents/{agentId}/pinned/pin` answers them. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
+      ),
+      '429': ErrorResponse(
+        "`approvals-pending-limit`, with `pin`, after the move has committed: a carried agent's release gate wants an approval, and the tenant's approvals waiting for a decision are at its limit. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
       ),
       '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
       '501': ErrorResponse(
-        "`promotions-unsupported`: this runtime's deployment ledger can't promote.",
+        "`promotions-unsupported`: this runtime's deployment ledger can't promote. With `pin`, after the move: `promotions-unsupported` when this runtime can't pin versions, or `pin-gate-unsupported` when a release gate applies to a carried agent's scope and the runtime can't record a gated pin; nothing is pinned.",
       ),
     },
   },

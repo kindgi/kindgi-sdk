@@ -60,6 +60,7 @@ const testSet: TestSet = {
 function correctedCase(caseId: string, no = false): CorrectedTestCase {
   return {
     caseId,
+    runId: caseId,
     subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
     input: caseId,
     output: { appended: [{ role: 'agent', content: 'Hi.' }] },
@@ -138,6 +139,7 @@ async function setup() {
     version: testSet.version,
     cases: CASES.map((caseId) => ({
       caseId,
+      runId: caseId,
       subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
       input: caseId,
       output: { appended: [{ role: 'agent', content: 'Hi.' }] },
@@ -156,6 +158,8 @@ async function setup() {
   });
   const blocks = inMemoryBlocks([projectId]);
   await blocks.publish({
+    publishedBy: { kind: 'user', id: 'user-1' },
+    source: { kind: 'api' },
     tenantId,
     projectId,
     block: {
@@ -173,6 +177,8 @@ async function setup() {
     },
   });
   await blocks.publish({
+    publishedBy: { kind: 'user', id: 'user-1' },
+    source: { kind: 'api' },
     tenantId,
     projectId,
     block: {
@@ -183,6 +189,8 @@ async function setup() {
     },
   });
   await blocks.publish({
+    publishedBy: { kind: 'user', id: 'user-1' },
+    source: { kind: 'api' },
     tenantId,
     projectId,
     block: {

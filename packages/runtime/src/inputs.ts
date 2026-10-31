@@ -78,6 +78,8 @@ export interface RunAgentRef {
 export interface RunReplayRef {
   readonly of: RunId;
   readonly testRunId: string;
+  /** The test case the replay ran, by its id in the test set; a test run sets it on each replay. */
+  readonly caseId?: string;
 }
 
 /** Every value of `RunTriggerRef.kind`. */

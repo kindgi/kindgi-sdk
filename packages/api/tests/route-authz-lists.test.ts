@@ -58,7 +58,8 @@ function harness() {
     flowRegistry: listing(two),
     toolRegistry: listing(two),
     guardrailRegistry: listing(two),
-    testSetRegistry: listing(two),
+    // A test set's kind is an eval kind, and the list holds those it lists.
+    testSetRegistry: listing(two.map((r) => ({ ...r, kind: 'custom' }))),
     mcpEndpointRegistry: listing([{ endpointId: 'acme.one' }, { endpointId: 'acme.two' }]),
     authz: {
       fgaApiUrl: 'http://fga.invalid',

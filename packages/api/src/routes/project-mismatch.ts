@@ -38,7 +38,7 @@ export function projectMismatch(
   kind: ProjectBoundKind,
   id: string,
   owner: ProjectId,
-  verb: 'publish' | 'derive' | 'build' = 'publish',
+  verb: 'publish' | 'build' = 'publish',
 ) {
   c.get('log').info(`${NOUN[kind]} "${id}" belongs to another project: ${verb} refused`, {
     [ID_FIELD[kind]]: id,

@@ -14,14 +14,15 @@ import type {
 } from '@kindgi/types';
 
 import type { GateApproval, GateCheck } from './gate.js';
+import type { LatestBinding } from './latest-binding.js';
 import type { ReleaseGateBinding, ReleaseGateRef } from './release-gate-binding.js';
 
 /**
  * Pinned versions of agents: which version serves a scope, and the
  * pin changes that put it there. A run that names no
  * version takes the most specific pinned version that covers it (a
- * segment path, then its project, its org, the tenant), else the latest
- * registered one, as before anything is pinned.
+ * segment path, then its project, its org, the tenant), else Latest
+ * (`LatestBinding`): `whatRuns`.
  */
 
 /** What a run's version is resolved for: its project (and org) and its segment path. */
@@ -151,6 +152,17 @@ export type PinErrorCode =
   | 'agent-version-not-found'
   /** The scope names an org or project the tenant doesn't have. */
   | 'scope-invalid'
+  /**
+   * A pin: no version of the agent runs in the scope yet (no pin covers
+   * it, and it has no Latest), so there's nothing to measure the version
+   * against. A deploy or a person's publish into it comes first.
+   */
+  | 'nothing-runs-in-scope'
+  /**
+   * A pin where nothing runs because the scope's project is suspended
+   * (its deployments are retired). Nothing is pinned until it's restored.
+   */
+  | 'project-suspended'
   /** Unpin: the scope has no pin of its own. */
   | 'not-pinned'
   /** The scope's pinned version changed while the gate ran: check again. */
@@ -293,6 +305,8 @@ export interface PinBinding {
 /** The bindings behind an agent's pinned versions and pin changes (`createApp({ agentPins })`). */
 export interface AgentPinBindings {
   readonly pinned: AgentPinnedVersionBinding;
+  /** What a scope no pin covers runs: Latest (`whatRuns`). */
+  readonly latest: LatestBinding;
   readonly changes: PinBinding;
   /** Release gates. Absent: no gates, every pin goes through as before. */
   readonly releaseGates?: ReleaseGateBinding;

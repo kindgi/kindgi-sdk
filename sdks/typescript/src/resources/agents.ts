@@ -5,19 +5,22 @@ import type { DefineAgentSpec } from '@kindgi/agents';
 import type { AgentId, Semver } from '@kindgi/types';
 
 import type {
+  AddTestCaseBody,
   Agent,
   AgentCollectionPage,
   AgentPinScope,
   AgentPinnedVersionList,
   AgentPinnedVersionResolution,
   AgentProjectList,
-  DeriveAgentVersionBody,
+  AgentTestSet,
   Pin,
   PinCheck,
   PinPage,
   ReleaseGateResolution,
   ScopeSegment,
   SetAgentOwnerResult,
+  TestCase,
+  TestCaseCollectionPage,
   UnregisterAgentResult,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
@@ -52,13 +55,25 @@ export interface AgentsClient {
   /** @wire GET /v1/agents */
   list(filter?: ListAgentsFilter): Promise<AgentCollectionPage>;
 
-  /** @wire GET /v1/agents/:agentId — latest active version (`GetLatestOptions`) */
+  /**
+   * The highest active version (`GetLatestOptions`), which numbers the
+   * next one. What a project runs is `projects`.
+   *
+   * @wire GET /v1/agents/:agentId
+   */
   get(agentId: AgentId, options?: GetLatestOptions): Promise<Agent>;
 
   /**
    * The projects the agent runs in: its first project first, then each
    * project a deployment that isn't retired shipped a version of it into,
    * among those the caller can read. A retired agent still answers.
+   *
+   * Each project says what a run there that names no version gets
+   * (`runs`) and why (`follows`): a pin that covers the project, else its
+   * Latest. Latest moves only when a deployment into the project ships a
+   * version, or when a person publishes a full version or adds one as the
+   * latest version. `segments` lists the pins on segments inside the
+   * project, and `highest` is the agent's highest version.
    *
    * @wire GET /v1/agents/:agentId/projects
    */
@@ -80,6 +95,9 @@ export interface AgentsClient {
 
   /** The release gate a pin for a scope is checked against. */
   readonly releaseGate: AgentReleaseGateClient;
+
+  /** The cases a version of the agent is checked on: its corrections, and cases added by hand. */
+  readonly testSet: AgentTestSetClient;
 
   /**
    * Un-tombstone a specific previously-unregistered version.
@@ -122,22 +140,7 @@ export interface AgentVersionsClient {
     version: Semver,
     options?: MutationOptions,
   ): Promise<ReinstateAgentVersionResult>;
-  /**
-   * Derive a new version from a pinned one with some data-block pins
-   * swapped (an expert's edit, no code change). Numbered the next free
-   * patch after the agent's highest version. Needs `publish` on the agent.
-   *
-   * @wire POST /v1/agents/:agentId/versions
-   */
-  derive(
-    agentId: AgentId,
-    input: DeriveAgentVersionInput,
-    options?: MutationOptions,
-  ): Promise<Agent>;
 }
-
-/** Body of `POST /v1/agents/{agentId}/versions`. */
-export type DeriveAgentVersionInput = DeriveAgentVersionBody;
 
 /**
  * Pinned versions. A run that doesn't name its version uses the pinned
@@ -160,7 +163,10 @@ export interface AgentPinnedClient {
   /**
    * Pin `version` for `scope`, from the next run. Open
    * conversations keep their version. `404 agent-version-not-found`
-   * when the version isn't registered and active.
+   * when the version isn't registered and active. `409
+   * nothing-runs-in-scope` when no version of the agent runs in the scope
+   * yet (no pin, and no Latest): deploy or publish one into the project
+   * first; into a later environment, promote a build that ships one.
    *
    * With a release gate for the scope, the pin is checked first,
    * against the comparison named by `testRunId`. The answer's `status`
@@ -204,6 +210,58 @@ export interface AgentReleaseGateClient {
   resolve(agentId: AgentId | string, scope: AgentPinScope): Promise<ReleaseGateResolution>;
 }
 
+/**
+ * An agent's test set, read one project at a time. Its cases are the
+ * agent's corrections there, except Won't fix and Removed ones, and cases
+ * added by hand. It's computed when it's read.
+ */
+export interface AgentTestSetClient {
+  /**
+   * How many cases the project's test set of the agent has, active and
+   * retired, and when the newest was added. Needs `read` on the project.
+   *
+   * @wire GET /v1/agents/:agentId/test-set
+   */
+  get(agentId: AgentId | string, projectId: string): Promise<AgentTestSet>;
+  /**
+   * The project's cases, newest added first. A retired case comes back
+   * only with `includeRetired`.
+   *
+   * @wire GET /v1/agents/:agentId/test-set/cases
+   */
+  listCases(
+    agentId: AgentId | string,
+    filter: ListTestCasesFilter,
+  ): Promise<TestCaseCollectionPage>;
+  /**
+   * Add a case by hand, from a correction's body on one of the agent's
+   * finished runs. It has no status, isn't sorted, and nothing that counts
+   * corrections counts it. Needs `publish` on the agent, or `write` on the
+   * run's project for an agent in more than one project.
+   *
+   * @wire POST /v1/agents/:agentId/test-set/cases
+   */
+  addCase(
+    agentId: AgentId | string,
+    input: AddTestCaseBody,
+    options?: MutationOptions,
+  ): Promise<TestCase>;
+  /**
+   * Retire a case: it stays listed, and no test run checks it again.
+   * There's no un-retire, and retiring a correction's case doesn't change
+   * the correction's status. `409 test-case-retired` when it's retired
+   * already. Needs what `addCase` needs, on the case's project.
+   *
+   * @wire POST /v1/agents/:agentId/test-set/cases/:caseId/retire
+   */
+  retireCase(
+    agentId: AgentId | string,
+    caseId: string,
+    reason: string,
+    options?: MutationOptions,
+  ): Promise<TestCase>;
+}
+
 /** Where a run would happen: its project and segment path (coarse to fine). */
 export interface AgentPinnedWhere {
   readonly projectId?: string;
@@ -226,6 +284,16 @@ export interface AgentUnpinInput {
 export interface ListPinHistoryFilter {
   /** Only this scope's history. */
   readonly scope?: AgentPinScope;
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+export interface ListTestCasesFilter {
+  readonly projectId: string;
+  /** Retired cases too. Default: `false` (active ones only). */
+  readonly includeRetired?: boolean;
+  /** Only these kinds. Default: both. */
+  readonly kinds?: readonly TestCase['kind'][];
   readonly limit?: number;
   readonly cursor?: string;
 }
@@ -302,16 +370,6 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
       return transport.request<UnregisterAgentResult>({
         method: 'POST',
         path: `/v1/agents/${seg(agentId as unknown as string)}/versions/${seg(version as unknown as string)}/unregister`,
-        ...(options?.idempotencyKey !== undefined && {
-          idempotencyKey: options.idempotencyKey,
-        }),
-      });
-    },
-    async derive(agentId, input, options) {
-      return transport.request<Agent>({
-        method: 'POST',
-        path: `/v1/agents/${seg(agentId as unknown as string)}/versions`,
-        body: input,
         ...(options?.idempotencyKey !== undefined && {
           idempotencyKey: options.idempotencyKey,
         }),
@@ -442,6 +500,45 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
           method: 'GET',
           path: `/v1/agents/${seg(agentId as string)}/release-gate`,
           query: scopeQuery(scope),
+        });
+      },
+    },
+    testSet: {
+      async get(agentId, projectId) {
+        return transport.request<AgentTestSet>({
+          method: 'GET',
+          path: `/v1/agents/${seg(agentId as string)}/test-set`,
+          query: { projectId },
+        });
+      },
+      async listCases(agentId, filter) {
+        return transport.request<TestCaseCollectionPage>({
+          method: 'GET',
+          path: `/v1/agents/${seg(agentId as string)}/test-set/cases`,
+          query: {
+            projectId: filter.projectId,
+            ...(filter.includeRetired === true && { include: 'retired' }),
+            ...(filter.kinds !== undefined &&
+              filter.kinds.length > 0 && { kind: filter.kinds.join(',') }),
+            ...(filter.limit !== undefined && { limit: filter.limit }),
+            ...(filter.cursor !== undefined && { cursor: filter.cursor }),
+          },
+        });
+      },
+      async addCase(agentId, input, options) {
+        return transport.request<TestCase>({
+          method: 'POST',
+          path: `/v1/agents/${seg(agentId as string)}/test-set/cases`,
+          body: input,
+          ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+        });
+      },
+      async retireCase(agentId, caseId, reason, options) {
+        return transport.request<TestCase>({
+          method: 'POST',
+          path: `/v1/agents/${seg(agentId as string)}/test-set/cases/${seg(caseId)}/retire`,
+          body: { reason },
+          ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
         });
       },
     },

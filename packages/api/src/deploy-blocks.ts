@@ -30,6 +30,7 @@
 import type { BlockDefinition } from '@kindgi/agents';
 import type { ProjectId, TenantId } from '@kindgi/types';
 
+import type { PinActor } from './agent-pin-binding.js';
 import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
 import { type BlockPublishIssue, continuityIssues, withCarriedSchema } from './block-publish.js';
 import { canonical } from './corrected-items.js';
@@ -123,9 +124,10 @@ export function withPackVersions(
 
 /**
  * Publish the pack's blocks into the deploy's project, each new one with
- * an unregister in `rolled`. Throws `PublishRefused` for one the registry
- * refuses, or one whose version was published with other content since
- * it was checked.
+ * an unregister in `rolled`, as published by the deploy's caller from
+ * the deployment `deploymentId`: the versions it published (a kept one
+ * isn't). Throws `PublishRefused` for one the registry refuses, or one
+ * whose version was published with other content since it was checked.
  */
 export async function publishPackBlocks(input: {
   readonly blocks: BlockRegistryBinding;
@@ -133,11 +135,16 @@ export async function publishPackBlocks(input: {
   readonly projectId: ProjectId;
   readonly planned: readonly PlannedBlock[];
   readonly rolled: RollbackAction[];
-}): Promise<void> {
-  const { blocks, tenantId, projectId } = input;
+  readonly publishedBy: PinActor;
+  readonly deploymentId: string;
+}): Promise<readonly BlockDefinition[]> {
+  const { blocks, tenantId, projectId, publishedBy } = input;
+  const source = { kind: 'deploy', id: input.deploymentId } as const;
+  const published: BlockDefinition[] = [];
   for (const { block, isNew } of input.planned) {
-    const outcome = await blocks.publish({ tenantId, projectId, block });
+    const outcome = await blocks.publish({ tenantId, projectId, block, publishedBy, source });
     if (outcome.kind === 'ok') {
+      published.push(block);
       input.rolled.push({
         primitive: 'block',
         id: `${block.id}@${block.version}`,
@@ -162,6 +169,7 @@ export async function publishPackBlocks(input: {
       throw new PublishRefused('block', `${block.id}@${block.version}`, outcome);
     }
   }
+  return published;
 }
 
 /** Why the pack's block can't keep the version the registry holds under its number; `undefined` when it can. */

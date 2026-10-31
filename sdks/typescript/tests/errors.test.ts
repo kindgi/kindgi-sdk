@@ -99,6 +99,7 @@ describe('fromWire — conflicts', () => {
     'slug-conflict',
     'project-default-already-exists',
     'registry-read-only',
+    'nothing-runs-in-scope',
     'not-pinned',
     'agent-version-pinned',
     'pin-superseded',

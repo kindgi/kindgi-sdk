@@ -12,9 +12,8 @@
  * a specific version (soft-delete tombstone).
  */
 
+import { type InvalidRequestError, KindgiApiError } from '../errors.js';
 import type {
-  BuildCorrectedTestSetBody,
-  BuildCorrectedTestSetResult,
   CorrectedTestCase,
   CorrectedTestCaseCollectionPage,
   PublishTestSetBody,
@@ -45,9 +44,6 @@ export type UnregisterTestSetVersionResult = UnregisterTestSetResult;
 // Note: the wire type is called `UnregisterTestSetResult`
 // (test-set-scoped, though the route path is versioned).
 
-/** Body of `POST /v1/test-sets/{testSetId}/versions/from-corrections`. */
-export type BuildFromCorrectionsInput = BuildCorrectedTestSetBody;
-export type BuildFromCorrectionsResult = BuildCorrectedTestSetResult;
 /** One case of a `corrections` test set: a copy of a corrected run with its items' corrections summed up. */
 export type TestSetCase = CorrectedTestCase;
 export type TestSetCasePage = CorrectedTestCaseCollectionPage;
@@ -66,6 +62,11 @@ export interface PublishTestSetOptions {
 export interface ListTestSetsFilter {
   readonly limit?: number;
   readonly cursor?: string;
+  /**
+   * One kind only. `corrections` is listed only when asked for here: an
+   * agent's corrections are its test set (`agents.testSet`), and its frozen
+   * versions are `corrections` test sets.
+   */
   readonly kind?: TestSetKind;
   readonly name?: string;
   readonly scopeKind?: ScopeKind;
@@ -92,7 +93,9 @@ export interface TestSetsClient {
   /**
    * Publish a test set version into a project (`options.projectId`, sent
    * next to the test set fields in the request body; `400 bad-input` when
-   * it does not name a project in the tenant).
+   * it does not name a project in the tenant). An `id` starting `agent.`
+   * is an agent's own test set, which the API refuses to publish: it's
+   * refused here with `invalid-request`, and no request is sent.
    *
    * @wire POST /v1/test-sets
    */
@@ -104,18 +107,6 @@ export interface TestSetsClient {
   list(filter?: ListTestSetsFilter): Promise<TestSetPage>;
   /** @wire GET /v1/test-sets/:testSetId — latest active version (`GetLatestOptions`) */
   get(testSetId: string, options?: GetLatestOptions): Promise<TestSet>;
-  /**
-   * Publish a `corrections` test set version whose cases are copies of corrected runs
-   * of an agent or flow, with each item's corrections summed up. Needs
-   * `admin` on `input.projectId`.
-   *
-   * @wire POST /v1/test-sets/:testSetId/versions/from-corrections
-   */
-  buildFromCorrections(
-    testSetId: string,
-    input: BuildFromCorrectionsInput,
-    options?: { readonly idempotencyKey?: string },
-  ): Promise<BuildFromCorrectionsResult>;
   /**
    * The cases of a `corrections` test set version, in stored order.
    *
@@ -148,10 +139,25 @@ export interface TestSetVersionsClient {
   ): Promise<ReinstateTestSetVersionResult>;
 }
 
+/** How every agent's test set id starts: the API refuses to publish one (`400 bad-input`). */
+const AGENT_TEST_SET_ID_PREFIX = 'agent.';
+
+/** Refuses an agent's test set id before a request is sent, with the API's words. */
+function refuseAgentTestSetId(testSetId: string, path: string): void {
+  if (!testSetId.startsWith(AGENT_TEST_SET_ID_PREFIX)) return;
+  const error: InvalidRequestError = {
+    code: 'invalid-request',
+    message: `Test set ids starting \`${AGENT_TEST_SET_ID_PREFIX}\` are agents' own test sets, and only a test run or a suggested change's check makes their versions. Publish "${testSetId}" under another id.`,
+    issues: [{ path, message: "reserved for agents' own test sets" }],
+  };
+  throw new KindgiApiError(error);
+}
+
 export function makeTestSetsClient(transport: Transport): TestSetsClient {
   const seg = (s: string): string => encodeURIComponent(s);
   return {
     async publish(input, options) {
+      refuseAgentTestSetId(input.id, '/id');
       return transport.request<PublishTestSetResult>({
         method: 'POST',
         path: '/v1/test-sets',
@@ -180,14 +186,6 @@ export function makeTestSetsClient(transport: Transport): TestSetsClient {
         method: 'GET',
         path: `/v1/test-sets/${seg(testSetId)}`,
         query: { ...(options?.projectId !== undefined && { projectId: options.projectId }) },
-      });
-    },
-    async buildFromCorrections(testSetId, input, options) {
-      return transport.request<BuildFromCorrectionsResult>({
-        method: 'POST',
-        path: `/v1/test-sets/${seg(testSetId)}/versions/from-corrections`,
-        body: input,
-        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },
     async listCases(testSetId, version, query) {

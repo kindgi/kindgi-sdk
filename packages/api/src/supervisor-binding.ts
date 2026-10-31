@@ -16,6 +16,8 @@ import type {
   Timestamp,
 } from '@kindgi/types';
 
+import type { PinActor } from './agent-pin-binding.js';
+
 /**
  * Caller-plugged store behind suggested changes (`/v1/suggested-changes`)
  * and the supervisor's observation readback (`/v1/observations`). Same
@@ -98,6 +100,24 @@ export type ProposedChange =
       };
     };
 
+/**
+ * A deploy card's change: the agent version a deploy registered, whole
+ * (its code, and every block it pins). Never rebuilt, and has no content
+ * to show before and after.
+ */
+export interface CodeChange {
+  /** The deployment that registered the version. */
+  readonly deploymentId: string;
+  /** The deploy's image, when it named one by digest. */
+  readonly imageDigest?: string;
+}
+
+/** A stored suggested change's tier: a block tier, or `code` for a deploy card. */
+export type StoredSuggestedChangeTier = SuggestedChangeTier | 'code';
+
+/** A stored suggested change's change: a block's, or a deploy's (`tier: 'code'`). */
+export type StoredChange = ProposedChange['change'] | CodeChange;
+
 /** Who wrote a suggested change: a person, or one of the runtime's drafters. */
 export type SuggestedChangeDrafter =
   | { readonly kind: 'person'; readonly by: string }
@@ -108,6 +128,19 @@ export type SuggestedChangeDrafter =
       /** The Improve run that drafted it. */
       readonly improveRunId?: string;
     };
+
+/**
+ * Who or what made a suggested change: an Improve run, a person, a
+ * service account, a deploy (for each pinned project its new version
+ * reaches) or an offer (a change pinned in another project, offered to
+ * one on Latest).
+ */
+export type SuggestedChangeMaker =
+  | { readonly kind: 'improve-run'; readonly improveRunId: string; readonly scheduleId?: string }
+  | { readonly kind: 'person'; readonly userId: string }
+  | { readonly kind: 'service'; readonly id: string }
+  | { readonly kind: 'deploy'; readonly deploymentId: string; readonly by: PinActor }
+  | { readonly kind: 'offer'; readonly fromProjectId: string; readonly pinChangeId: string };
 
 /** What a suggested change rests on. */
 export interface SuggestedChangeEvidence {
@@ -125,8 +158,8 @@ export interface SuggestedChangeEvidence {
 export interface SuggestedChangeCandidate {
   /** The derived agent version (`derivedFrom.suggestedChangeId` names this suggested change). */
   readonly agentVersion: string;
-  /** The block version published from the suggested change's content. */
-  readonly blockVersion: string;
+  /** The block version published from the suggested change's content. Absent on a deploy card. */
+  readonly blockVersion?: string;
   readonly pinsDigest: string;
 }
 
@@ -169,11 +202,32 @@ export interface StoredSuggestedChange {
   readonly fromVersion: string;
   /** The pin scope it's for. */
   readonly scope: AgentPinScope;
-  readonly tier: SuggestedChangeTier;
-  readonly change: ProposedChange['change'];
+  readonly tier: StoredSuggestedChangeTier;
+  readonly change: StoredChange;
   readonly why: string;
   readonly evidence?: SuggestedChangeEvidence;
   readonly drafter: SuggestedChangeDrafter;
+  /**
+   * Who or what made it. Absent on one stored before it was recorded:
+   * read from `drafter` (`suggestedChangeMaker`).
+   */
+  readonly madeBy?: SuggestedChangeMaker;
+  /**
+   * The version it's built on, once a rebuild moved it there (its
+   * project's version changed first). Absent: `fromVersion`.
+   */
+  readonly builtOnVersion?: string;
+  /** When it was last rebuilt. */
+  readonly rebuiltAt?: Timestamp;
+  /**
+   * Its version, added as its project's Latest: when, by whom
+   * (`user:<id>`), and why, when given.
+   */
+  readonly addedAsLatest?: {
+    readonly at: Timestamp;
+    readonly by: string;
+    readonly reason?: string;
+  };
   /** Dedup key: the same change for the same scope is one suggested change. */
   readonly fingerprint: string;
   /** Goes up by one with each recorded step. */
@@ -216,11 +270,12 @@ export interface CreateSuggestedChangeInput {
   readonly agentId: AgentId;
   readonly fromVersion: string;
   readonly scope: AgentPinScope;
-  readonly tier: SuggestedChangeTier;
-  readonly change: ProposedChange['change'];
+  readonly tier: StoredSuggestedChangeTier;
+  readonly change: StoredChange;
   readonly why: string;
   readonly evidence?: SuggestedChangeEvidence;
   readonly drafter: SuggestedChangeDrafter;
+  readonly madeBy: SuggestedChangeMaker;
   readonly fingerprint: string;
 }
 
@@ -231,12 +286,26 @@ export type CreateSuggestedChangeOutcome =
 /**
  * One step's outcome, recorded on the suggested change. An `evaluation` replaces
  * the one before and clears `pinChangeId`: a new comparison starts the
- * request over. A `candidate` is recorded once.
+ * request over. A `candidate` is recorded once per version it's built on.
+ * A `rebuilt` moves it onto the version its project runs now: it sets
+ * `builtOnVersion`, `rebuiltAt` and its `change` on that version, and
+ * clears its `candidate`, `evaluation` and `pinChangeId`. It keeps its
+ * fingerprint, so the same change made on the new version is a new one.
  */
 export type SuggestedChangeStep =
   | { readonly kind: 'candidate'; readonly candidate: SuggestedChangeCandidate }
   | { readonly kind: 'evaluation'; readonly evaluation: SuggestedChangeEvaluationRef }
   | { readonly kind: 'pin'; readonly pinChangeId: string }
+  | {
+      readonly kind: 'rebuilt';
+      readonly builtOnVersion: string;
+      readonly rebuiltAt: Timestamp;
+      readonly change: ProposedChange['change'];
+    }
+  | {
+      readonly kind: 'added-as-latest';
+      readonly addedAsLatest: NonNullable<StoredSuggestedChange['addedAsLatest']>;
+    }
   | {
       readonly kind: 'withdrawn';
       readonly withdrawn: NonNullable<StoredSuggestedChange['withdrawn']>;

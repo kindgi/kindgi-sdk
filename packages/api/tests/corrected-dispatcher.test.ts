@@ -51,6 +51,7 @@ const item = (key: string, yesWeight: number, totalWeight: number, extra: object
 
 const caseA: CorrectedTestCase = {
   caseId: 'case-a',
+  runId: 'case-a',
   subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
   input: 'find acme',
   context: { history: [{ role: 'user', content: 'earlier' }] },
@@ -64,6 +65,7 @@ const caseA: CorrectedTestCase = {
 
 const caseB: CorrectedTestCase = {
   caseId: 'case-b',
+  runId: 'case-b',
   subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
   input: 'find b',
   output: turn('B.'),
@@ -176,13 +178,23 @@ describe('a comparison test run', () => {
     expect(invoked.map((i) => [i.input, i.replay, i.history, i.projectId])).toEqual([
       [
         'find acme',
-        { of: 'case-a', testRunId: 'eval-1' },
+        { of: 'case-a', caseId: 'case-a', testRunId: 'eval-1' },
         [{ role: 'user', content: 'earlier' }],
         'p-run',
       ],
-      ['find b', { of: 'case-b', testRunId: 'eval-1' }, [], 'p-run'],
+      ['find b', { of: 'case-b', caseId: 'case-b', testRunId: 'eval-1' }, [], 'p-run'],
     ]);
     expect(invoked[0]?.target).toEqual({ agentId: 'acme.agent', version: '2.0.0' });
+  });
+
+  test("a case named for its correction replays the case's run, and names the case", async () => {
+    const { invoked } = await compare({
+      cases: [{ ...caseA, caseId: 'corr-1', runId: 'run-7' }],
+      answer: () => answers['case-a'] as TestRunSubjectInvokeOutcome,
+    });
+    expect(invoked.map((i) => i.replay)).toEqual([
+      { of: 'run-7', caseId: 'corr-1', testRunId: 'eval-1' },
+    ]);
   });
 
   test('the summary: baseline beside candidate, with the evidence behind each', async () => {
@@ -367,6 +379,7 @@ describe('a comparison test run', () => {
 describe('an erased case (T273 M-5)', () => {
   const erasedB: CorrectedTestCase = {
     caseId: 'case-b',
+    runId: 'case-b',
     subject: caseB.subject,
     input: null,
     output: null,
@@ -537,6 +550,7 @@ describe('a comparison of a flow version', () => {
   const flowOutput = (matches: unknown[]) => ({ matches });
   const flowCase = (caseId: string, matches: unknown[]): CorrectedTestCase => ({
     caseId,
+    runId: caseId,
     subject: { kind: 'flow', id: 'acme.intake', version: '1.0.0' },
     input: { ticket: caseId },
     output: flowOutput(matches),
