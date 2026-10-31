@@ -15,6 +15,7 @@ import {
   runSdk,
   stringFlag,
 } from './helpers.js';
+import { pinnedVersionCommands } from './pinned-versions.js';
 import type { Command, LeafCommand, ParseArgsOption } from './types.js';
 
 /** A page of flows, a flow, and a flow definition, as `flows` takes and answers them. */
@@ -183,6 +184,14 @@ const reinstate: LeafCommand = {
 export const flowsCommand: Command = {
   kind: 'group',
   name: 'flows',
-  description: 'Manage flow registrations: publish, list, versions, unregister, reinstate.',
-  subcommands: [list, get, publish, unregister, versions, reinstate],
+  description: 'Manage flow registrations and which version runs where.',
+  subcommands: [
+    list,
+    get,
+    publish,
+    unregister,
+    versions,
+    reinstate,
+    ...pinnedVersionCommands('flows'),
+  ],
 };
