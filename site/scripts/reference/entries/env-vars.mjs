@@ -184,6 +184,8 @@ export const ENV_DEFAULTS = {
   KINDGI_PACK_ROUTING: '`single`: one pack service, `KINDGI_PACK_SERVICE_URL`, for every call',
   KINDGI_PACK_ENDPOINT_HOSTS:
     'none: with `KINDGI_PACK_ROUTING=per-deployment`, the server refuses to start',
+  KINDGI_PACK_ENDPOINT_KMS_KEY:
+    "none: the secrets' own key, which `KINDGI_SECRETS_BACKEND=postgres` has; with any other backend, per-deployment routing refuses to start",
   KINDGI_IMAGE_REGISTRY_HOST: 'none: every registry is read anonymously',
   KINDGI_IMAGE_REGISTRY_USERNAME: 'none: no credentials (anonymous reads)',
   KINDGI_IMAGE_REGISTRY_PASSWORD: 'none: no credentials (anonymous reads)',

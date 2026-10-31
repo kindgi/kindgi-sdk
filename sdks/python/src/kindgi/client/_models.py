@@ -1304,6 +1304,47 @@ class RecordDeploymentProblemBody(BaseModel):
     """
 
 
+class ClaimOrchestratorRoundBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    claimant: Annotated[str, Field(pattern="^[\\x21-\\x7e]{1,128}$")]
+    """
+    The pass's own id: 1 to 128 printable characters, no spaces.
+    """
+    hold_seconds: Annotated[int, Field(alias="holdSeconds", ge=30, le=3600)]
+    """
+    How long the pass holds the round. A claim is never renewed: the pass ends within it, or its claim lapses and the next pass takes the round over.
+    """
+
+
+class OrchestratorRound(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    claimant: Annotated[str, Field(pattern="^[\\x21-\\x7e]{1,128}$")]
+    """
+    The pass's own id: 1 to 128 printable characters, no spaces.
+    """
+    held_until: Annotated[AwareDatetime, Field(alias="heldUntil")]
+    """
+    When the claim lapses, by the server's clock.
+    """
+
+
+class EndOrchestratorRoundBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    claimant: Annotated[str, Field(pattern="^[\\x21-\\x7e]{1,128}$")]
+    """
+    The pass's own id: 1 to 128 printable characters, no spaces.
+    """
+
+
 class SetPackSuspendedBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
