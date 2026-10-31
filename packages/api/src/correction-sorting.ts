@@ -147,7 +147,7 @@ export function planChange(
     if (change.link === undefined) {
       return {
         kind: 'bad-input',
-        message: 'status: "being-fixed" needs a link: a URL, ir-… or sc-….',
+        message: 'status: "being-fixed" needs a link: a URL, ir-<its id> or sc-<its id>.',
       };
     }
     return { kind: 'ok', change: { ...planned, status: to, link: change.link } };

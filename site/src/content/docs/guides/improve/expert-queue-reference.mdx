@@ -130,7 +130,7 @@ project serves, `write` on the correction's project.
   correction keeps its `link`, unless the re-sort moves it to or away from
   the owner.
 - **`being-fixed`**, from `open` or `with-owner`, needs a `link`: a URL, an
-  Improve run (`ir-…`) or a suggested change (`sc-…`).
+  Improve run (`ir-<its id>`) or a suggested change (`sc-<its id>`).
 - **`open`**, from `being-fixed` or `wont-fix`, takes an optional `reason`.
   One sorted to the owner becomes `with-owner`.
 - **`wont-fix`**, from anything but `removed`, needs a `reason`. A `fixed`
@@ -147,7 +147,7 @@ A correction that's fixed can't become being-fixed.
 A change that's missing something is refused with `400 bad-input`:
 
 ```text
-status: "being-fixed" needs a link: a URL, ir-… or sc-….
+status: "being-fixed" needs a link: a URL, ir-<its id> or sc-<its id>.
 status: "wont-fix" needs a reason.
 link goes with status: "being-fixed".
 A change sets sortedTo, status, or both.
