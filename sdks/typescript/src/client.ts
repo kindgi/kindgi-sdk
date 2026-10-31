@@ -71,6 +71,7 @@ import {
   type SystemDeploymentsClient,
   makeSystemDeploymentsClient,
 } from './resources/system-deployments.js';
+import { type SystemEnvClient, makeSystemEnvClient } from './resources/system-env.js';
 import { type SystemKeysClient, makeSystemKeysClient } from './resources/system-keys.js';
 import { type SystemTenantsClient, makeSystemTenantsClient } from './resources/system-tenants.js';
 import { type TeamsClient, makeTeamsClient } from './resources/teams.js';
@@ -169,6 +170,11 @@ export interface KindgiClient {
    * and a pack's suspension (`system:suspend`).
    */
   readonly systemDeployments: SystemDeploymentsClient;
+  /**
+   * The env names an operator sets to a cloud secret, which a pack service
+   * reads from its cloud. System keys with `system:env-refs` only.
+   */
+  readonly systemEnv: SystemEnvClient;
   /** What the control plane sets on a tenant: production allowed, and limits. System keys only. */
   readonly systemTenants: SystemTenantsClient;
   /** Usage across tenants, aggregated. System keys only. */
@@ -255,6 +261,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     runtime: makeRuntimeClient(transport),
     systemKeys: makeSystemKeysClient(transport),
     systemDeployments: makeSystemDeploymentsClient(transport),
+    systemEnv: makeSystemEnvClient(transport),
     systemTenants: makeSystemTenantsClient(transport),
     systemUsage: makeSystemUsageClient(transport),
     tokens: makeTokensClient(transport),

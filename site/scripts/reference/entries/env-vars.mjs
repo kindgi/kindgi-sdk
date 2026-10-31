@@ -137,10 +137,19 @@ export const ENV_DEFAULTS = {
   KINDGI_ARTIFACTS: 'none: artifacts are off (no `/v1/artifacts`)',
   KINDGI_TURN_MEMORY_MIB: "none: no limit on every tenant's turns together",
   KINDGI_TURN_MEMORY_PER_TENANT_MIB: 'none: no limit per tenant',
+  KINDGI_FILE_MEMORY_MIB:
+    "`512`, or a quarter of the server's memory when that's less; at least `35`",
+  KINDGI_FILE_CACHE_MIB: 'half of `KINDGI_FILE_MEMORY_MIB`; `0` keeps none',
   KINDGI_TEMPLATE_RENDER_WORKERS:
     '`1` when `KINDGI_TENANCY=multi`, else `0`: the template renders in the server process',
   KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB: '`128`; at least `1`',
   KINDGI_ARTIFACT_MAX_BYTES: '`104857600` (100 MiB)',
+  KINDGI_S3_REGION:
+    'none: required with any `s3:` target, and with any other `KINDGI_S3_*` setting',
+  KINDGI_S3_ENDPOINT: 'none: AWS S3',
+  KINDGI_S3_PATH_STYLE: '`false`: the bucket is named in the host name',
+  KINDGI_S3_CREDENTIALS_PATH:
+    "none: S3 signs in as the server's AWS identity (`KINDGI_AWS_IDENTITY`)",
   KINDGI_LOG_LEVEL: '`info`',
   KINDGI_LOG_LEVELS: 'none: no per-subsystem levels; `KINDGI_LOG_LEVEL` applies everywhere',
   KINDGI_LOG_FORMAT:
@@ -186,6 +195,7 @@ export const ENV_DEFAULTS = {
     'none: with `KINDGI_PACK_ROUTING=per-deployment`, the server refuses to start',
   KINDGI_PACK_ENDPOINT_KMS_KEY:
     "none: the secrets' own key, which `KINDGI_SECRETS_BACKEND=postgres` has; with any other backend, per-deployment routing refuses to start",
+  KINDGI_ENV_CLOUD_SECRETS: '`off`: no cloud secrets are kept, and their routes answer 501',
   KINDGI_IMAGE_REGISTRY_HOST: 'none: every registry is read anonymously',
   KINDGI_IMAGE_REGISTRY_USERNAME: 'none: no credentials (anonymous reads)',
   KINDGI_IMAGE_REGISTRY_PASSWORD: 'none: no credentials (anonymous reads)',

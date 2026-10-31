@@ -103,6 +103,19 @@ OPERATIONS: dict[str, Operation] = {
     "systemTenants.setLimits": Operation(
         "systemTenants.setLimits", "PUT", "/v1/system/tenants/{tenantId}/limits", "json", True
     ),
+    "systemEnv.setCloudSecret": Operation(
+        "systemEnv.setCloudSecret", "PUT", "/v1/system/tenants/{tenantId}/env/{name}", "json", True
+    ),
+    "systemEnv.deleteCloudSecret": Operation(
+        "systemEnv.deleteCloudSecret",
+        "DELETE",
+        "/v1/system/tenants/{tenantId}/env/{name}",
+        "json",
+        False,
+    ),
+    "systemEnv.listCloudSecrets": Operation(
+        "systemEnv.listCloudSecrets", "GET", "/v1/system/tenants/{tenantId}/env", "json", False
+    ),
     "systemUsage.read": Operation("systemUsage.read", "GET", "/v1/system/usage", "json", False),
     "usage.read": Operation("usage.read", "GET", "/v1/usage", "json", False),
     "systemDeployments.list": Operation(
@@ -1104,6 +1117,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "environments.list": Operation("environments.list", "GET", "/v1/environments", "json", False),
     "env.list": Operation("env.list", "GET", "/v1/env", "json", False),
+    "env.listCloudSecrets": Operation(
+        "env.listCloudSecrets", "GET", "/v1/env/cloud-secrets", "json", False
+    ),
     "env.get": Operation("env.get", "GET", "/v1/env/{name}", "json", False),
     "env.put": Operation("env.put", "PUT", "/v1/env/{name}", "json", True),
     "env.delete": Operation("env.delete", "DELETE", "/v1/env/{name}", "json", False),
@@ -2292,6 +2308,96 @@ class SystemTenantsResource:
         )
 
 
+class SystemEnvResource:
+    """`client.system_env` — the `systemEnv` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def set_cloud_secret(
+        self,
+        tenant_id: str | UUID,
+        name: str,
+        body: _models.EnvCloudSecretSetRequest | Mapping[str, Any] | None = None,
+        /,
+        *,
+        env_name: str,
+        scope_kind: Literal["tenant", "org", "project"],
+        scope_id: str | UUID | None = None,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.EnvCloudSecret:
+        """Set an env name to a cloud secret. `PUT /v1/system/tenants/{tenantId}/env/{name}`
+
+        Sets an env name, at a scope of the tenant and one env, to a version of a secret the operator's cloud holds. A pack service whose pack declares the name is given it by that name, and its host reads the value from the cloud as the pack service's own account: the runtime keeps the name, never a value. Every pack service runs as that one account, so only a system key sets one. The version is a number, so what a pack service runs changes only when this does. A name set both to this and to a plain value or a secret is `pack-env-ambiguous`. The tenant sees the name as set (`GET /v1/env/cloud-secrets`, the pack-env check), never the path. Recorded as `env-set` in the tenant's audit record, naming the system key and marked `cloudSecret`, never with the path. Every write bumps `revision`; `ifRevision` guards it. Takes `system:env-refs`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemEnv.setCloudSecret"],
+            path={"tenantId": tenant_id, "name": name},
+            query={"envName": env_name, "scopeKind": scope_kind, "scopeId": scope_id},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EnvCloudSecretSetRequest, body, fields),
+            response=_models.EnvCloudSecret,
+            timeout=timeout,
+        )
+
+    def delete_cloud_secret(
+        self,
+        tenant_id: str | UUID,
+        name: str,
+        /,
+        *,
+        env_name: str,
+        scope_kind: Literal["tenant", "org", "project"],
+        scope_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvDeleteResult:
+        """Remove an env name's cloud secret. `DELETE /v1/system/tenants/{tenantId}/env/{name}`
+
+        Removes the cloud secret an env name is set to, at that scope and env: its pack services lose the name at their next revision. Idempotent: `{ deleted: false }` when there's none. Recorded as `env-deleted` in the tenant's audit record, naming the system key and marked `cloudSecret`, never with the path. Takes `system:env-refs`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemEnv.deleteCloudSecret"],
+            path={"tenantId": tenant_id, "name": name},
+            query={"envName": env_name, "scopeKind": scope_kind, "scopeId": scope_id},
+            headers={},
+            response=_models.EnvDeleteResult,
+            timeout=timeout,
+        )
+
+    def list_cloud_secrets(
+        self,
+        tenant_id: str | UUID,
+        /,
+        *,
+        env_name: str,
+        scope_kind: Literal["tenant", "org", "project"],
+        scope_id: str | UUID | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvCloudSecretPage:
+        """List a tenant's cloud secrets. `GET /v1/system/tenants/{tenantId}/env`
+
+        The env names set to a cloud secret at one scope of the tenant and one env, in name order, each with its `cloudSecret`. Takes `system:env-refs`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemEnv.listCloudSecrets"],
+            path={"tenantId": tenant_id},
+            query={
+                "envName": env_name,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.EnvCloudSecretPage,
+            timeout=timeout,
+        )
+
+
 class SystemUsageResource:
     """`client.system_usage` — the `systemUsage` operations."""
 
@@ -2392,14 +2498,14 @@ class SystemDeploymentsResource:
         self,
         /,
         *,
-        endpoint: Literal["missing", "retire"],
+        endpoint: Literal["missing", "ready", "retire"],
         cursor: str | None = None,
         limit: int | None = None,
         timeout: float | None = None,
     ) -> _models.SystemDeploymentPage:
-        """List deployments that need a pack service, or should lose theirs. `GET /v1/system/deployments`
+        """List deployments that need a pack service, have a ready one, or should lose theirs. `GET /v1/system/deployments`
 
-        Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.
+        Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=ready`: deployments whose endpoint is `ready` and whose pack service stays (no `retire` reason applies). Both lists say whether each service is `warm`: keep an instance running. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.
         """
         return self._client._request(
             _OPERATIONS["systemDeployments.list"],
@@ -2534,7 +2640,7 @@ class SystemDeploymentsResource:
     ) -> _models.SystemPackEnv:
         """Read the env a deployment's pack service is to be given. `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
 
-        For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set both ways (`pack-env-ambiguous`), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.
+        For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set two ways (`pack-env-ambiguous`: two of a plain value, a secret and a cloud secret), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each name set to a cloud secret is given in `cloudSecrets`, with its version's resource name, for the pack service's host to read as the pack service's own account. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.
         """
         return self._client._request(
             _OPERATIONS["systemDeployments.getPackEnv"],
@@ -4731,7 +4837,7 @@ class MemoryResource:
     ) -> _models.MemoryErasure:
         """Resume an erasure. `POST /v1/memory/erasures/{erasureId}/resume`
 
-        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people) stops waiting: the run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.
+        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people, or a test run still going with a case from their runs) stops waiting: that run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.
         """
         return self._client._request(
             _OPERATIONS["memory.resumeErasure"],
@@ -9848,6 +9954,36 @@ class EnvResource:
             timeout=timeout,
         )
 
+    def list_cloud_secrets(
+        self,
+        /,
+        *,
+        env_name: str,
+        scope_kind: Literal["tenant", "org", "project"],
+        scope_id: str | UUID | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvCloudSecretNamePage:
+        """List the names set to a cloud secret. `GET /v1/env/cloud-secrets`
+
+        The env names the operator set to a cloud secret at `(scope, envName)`, in name order: a version of a secret the operator's cloud holds, which a pack service's host reads as the pack service's own account. Which secret is the operator's to know, so it isn't given. The operator sets them with a system key (`PUT /v1/system/tenants/{tenantId}/env/{name}`).
+        """
+        return self._client._request(
+            _OPERATIONS["env.listCloudSecrets"],
+            path={},
+            query={
+                "envName": env_name,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.EnvCloudSecretNamePage,
+            timeout=timeout,
+        )
+
     def get(
         self,
         name: str,
@@ -9889,7 +10025,7 @@ class EnvResource:
     ) -> _models.EnvRecord:
         """Upsert an env entry. `PUT /v1/env/{name}`
 
-        Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`.
+        Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`. A body with `cloudSecret` is refused: only the operator sets a name to a cloud secret, with a system key.
         """
         return self._client._request(
             _OPERATIONS["env.put"],
@@ -12303,6 +12439,96 @@ class AsyncSystemTenantsResource:
         )
 
 
+class AsyncSystemEnvResource:
+    """`client.system_env` — the `systemEnv` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def set_cloud_secret(
+        self,
+        tenant_id: str | UUID,
+        name: str,
+        body: _models.EnvCloudSecretSetRequest | Mapping[str, Any] | None = None,
+        /,
+        *,
+        env_name: str,
+        scope_kind: Literal["tenant", "org", "project"],
+        scope_id: str | UUID | None = None,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.EnvCloudSecret:
+        """Set an env name to a cloud secret. `PUT /v1/system/tenants/{tenantId}/env/{name}`
+
+        Sets an env name, at a scope of the tenant and one env, to a version of a secret the operator's cloud holds. A pack service whose pack declares the name is given it by that name, and its host reads the value from the cloud as the pack service's own account: the runtime keeps the name, never a value. Every pack service runs as that one account, so only a system key sets one. The version is a number, so what a pack service runs changes only when this does. A name set both to this and to a plain value or a secret is `pack-env-ambiguous`. The tenant sees the name as set (`GET /v1/env/cloud-secrets`, the pack-env check), never the path. Recorded as `env-set` in the tenant's audit record, naming the system key and marked `cloudSecret`, never with the path. Every write bumps `revision`; `ifRevision` guards it. Takes `system:env-refs`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemEnv.setCloudSecret"],
+            path={"tenantId": tenant_id, "name": name},
+            query={"envName": env_name, "scopeKind": scope_kind, "scopeId": scope_id},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EnvCloudSecretSetRequest, body, fields),
+            response=_models.EnvCloudSecret,
+            timeout=timeout,
+        )
+
+    async def delete_cloud_secret(
+        self,
+        tenant_id: str | UUID,
+        name: str,
+        /,
+        *,
+        env_name: str,
+        scope_kind: Literal["tenant", "org", "project"],
+        scope_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvDeleteResult:
+        """Remove an env name's cloud secret. `DELETE /v1/system/tenants/{tenantId}/env/{name}`
+
+        Removes the cloud secret an env name is set to, at that scope and env: its pack services lose the name at their next revision. Idempotent: `{ deleted: false }` when there's none. Recorded as `env-deleted` in the tenant's audit record, naming the system key and marked `cloudSecret`, never with the path. Takes `system:env-refs`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemEnv.deleteCloudSecret"],
+            path={"tenantId": tenant_id, "name": name},
+            query={"envName": env_name, "scopeKind": scope_kind, "scopeId": scope_id},
+            headers={},
+            response=_models.EnvDeleteResult,
+            timeout=timeout,
+        )
+
+    async def list_cloud_secrets(
+        self,
+        tenant_id: str | UUID,
+        /,
+        *,
+        env_name: str,
+        scope_kind: Literal["tenant", "org", "project"],
+        scope_id: str | UUID | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvCloudSecretPage:
+        """List a tenant's cloud secrets. `GET /v1/system/tenants/{tenantId}/env`
+
+        The env names set to a cloud secret at one scope of the tenant and one env, in name order, each with its `cloudSecret`. Takes `system:env-refs`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemEnv.listCloudSecrets"],
+            path={"tenantId": tenant_id},
+            query={
+                "envName": env_name,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.EnvCloudSecretPage,
+            timeout=timeout,
+        )
+
+
 class AsyncSystemUsageResource:
     """`client.system_usage` — the `systemUsage` operations."""
 
@@ -12403,14 +12629,14 @@ class AsyncSystemDeploymentsResource:
         self,
         /,
         *,
-        endpoint: Literal["missing", "retire"],
+        endpoint: Literal["missing", "ready", "retire"],
         cursor: str | None = None,
         limit: int | None = None,
         timeout: float | None = None,
     ) -> _models.SystemDeploymentPage:
-        """List deployments that need a pack service, or should lose theirs. `GET /v1/system/deployments`
+        """List deployments that need a pack service, have a ready one, or should lose theirs. `GET /v1/system/deployments`
 
-        Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.
+        Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (the newest deployment with routes for some tool version or pack check), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=ready`: deployments whose endpoint is `ready` and whose pack service stays (no `retire` reason applies). Both lists say whether each service is `warm`: keep an instance running. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.
         """
         return await self._client._request(
             _OPERATIONS["systemDeployments.list"],
@@ -12545,7 +12771,7 @@ class AsyncSystemDeploymentsResource:
     ) -> _models.SystemPackEnv:
         """Read the env a deployment's pack service is to be given. `GET /v1/system/tenants/{tenantId}/deployments/{deploymentId}/pack-env`
 
-        For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set both ways (`pack-env-ambiguous`), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.
+        For whatever runs the deployment's pack service: where each name its pack declares is set (at the deployment's project, then its org, then the tenant, at the env the server serves), and the values when nothing stands in the way. A name set two ways (`pack-env-ambiguous`: two of a plain value, a secret and a cloud secret), a required one set nowhere (`pack-env-missing`), or one set only as a secret whose value wasn't asked for (`pack-env-secret-not-yet`) is a `problem`, and then no value is given. With `secrets=values`, each name set only as a secret is given in `secrets`, read at the version its revision names; a secret that can't be read for a reason the platform fixes is `pack-env-secret-unreadable`, and then no value is given. Each name set to a cloud secret is given in `cloudSecrets`, with its version's resource name, for the pack service's host to read as the pack service's own account. Each value given out is on the audit record, a secret's written before the answer. Refused for a retired deployment (`endpoint-retired`) and a closing or suspended tenant. On a key of its own, `system:pack-env`: `system:deployments` reads no value, and `kindgi:system` no secret's.
         """
         return await self._client._request(
             _OPERATIONS["systemDeployments.getPackEnv"],
@@ -14748,7 +14974,7 @@ class AsyncMemoryResource:
     ) -> _models.MemoryErasure:
         """Resume an erasure. `POST /v1/memory/erasures/{erasureId}/resume`
 
-        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people) stops waiting: the run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.
+        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people, or a test run still going with a case from their runs) stops waiting: that run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.
         """
         return await self._client._request(
             _OPERATIONS["memory.resumeErasure"],
@@ -19877,6 +20103,36 @@ class AsyncEnvResource:
             timeout=timeout,
         )
 
+    async def list_cloud_secrets(
+        self,
+        /,
+        *,
+        env_name: str,
+        scope_kind: Literal["tenant", "org", "project"],
+        scope_id: str | UUID | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.EnvCloudSecretNamePage:
+        """List the names set to a cloud secret. `GET /v1/env/cloud-secrets`
+
+        The env names the operator set to a cloud secret at `(scope, envName)`, in name order: a version of a secret the operator's cloud holds, which a pack service's host reads as the pack service's own account. Which secret is the operator's to know, so it isn't given. The operator sets them with a system key (`PUT /v1/system/tenants/{tenantId}/env/{name}`).
+        """
+        return await self._client._request(
+            _OPERATIONS["env.listCloudSecrets"],
+            path={},
+            query={
+                "envName": env_name,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.EnvCloudSecretNamePage,
+            timeout=timeout,
+        )
+
     async def get(
         self,
         name: str,
@@ -19918,7 +20174,7 @@ class AsyncEnvResource:
     ) -> _models.EnvRecord:
         """Upsert an env entry. `PUT /v1/env/{name}`
 
-        Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`.
+        Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`. A body with `cloudSecret` is refused: only the operator sets a name to a cloud secret, with a system key.
         """
         return await self._client._request(
             _OPERATIONS["env.put"],
@@ -21434,6 +21690,7 @@ class Resources:
     tokens: TokensResource
     system_keys: SystemKeysResource
     system_tenants: SystemTenantsResource
+    system_env: SystemEnvResource
     system_usage: SystemUsageResource
     usage: UsageResource
     system_deployments: SystemDeploymentsResource
@@ -21495,6 +21752,7 @@ class Resources:
         self.tokens = TokensResource(client)
         self.system_keys = SystemKeysResource(client)
         self.system_tenants = SystemTenantsResource(client)
+        self.system_env = SystemEnvResource(client)
         self.system_usage = SystemUsageResource(client)
         self.usage = UsageResource(client)
         self.system_deployments = SystemDeploymentsResource(client)
@@ -21558,6 +21816,7 @@ class AsyncResources:
     tokens: AsyncTokensResource
     system_keys: AsyncSystemKeysResource
     system_tenants: AsyncSystemTenantsResource
+    system_env: AsyncSystemEnvResource
     system_usage: AsyncSystemUsageResource
     usage: AsyncUsageResource
     system_deployments: AsyncSystemDeploymentsResource
@@ -21619,6 +21878,7 @@ class AsyncResources:
         self.tokens = AsyncTokensResource(client)
         self.system_keys = AsyncSystemKeysResource(client)
         self.system_tenants = AsyncSystemTenantsResource(client)
+        self.system_env = AsyncSystemEnvResource(client)
         self.system_usage = AsyncSystemUsageResource(client)
         self.usage = AsyncUsageResource(client)
         self.system_deployments = AsyncSystemDeploymentsResource(client)

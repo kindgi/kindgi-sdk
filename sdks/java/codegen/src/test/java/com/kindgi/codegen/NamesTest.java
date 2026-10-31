@@ -27,7 +27,7 @@ class NamesTest {
     assertThat(Names.member("validate")).isEqualTo("validate_");
     assertThat(Names.member("hashCode")).isEqualTo("hashCode_");
     assertThat(OperationPlanner.javaParamName("Idempotency-Key")).isEqualTo("idempotencyKey");
-    assertThat(OperationPlanner.javaParamName("X-Supervisor-Id")).isEqualTo("supervisorId");
+    assertThat(OperationPlanner.javaParamName("X-Request-Id")).isEqualTo("requestId");
     assertThat(OperationPlanner.javaParamName("Last-Event-Id")).isEqualTo("lastEventId");
   }
 

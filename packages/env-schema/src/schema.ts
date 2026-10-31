@@ -909,7 +909,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ERASURE_SHARED_WAIT_MS',
     description:
-      "How long an erasure waits for a turn of the person's that sits in a flow serving other people (cancelling it now could end their work), in milliseconds. The erasure shows `waiting-on-run`, naming the run, until then; at the deadline it cancels the run and goes on, and a tenant admin can stop the wait sooner (`kindgi memory erasures resume <id> --force`). Default 604800000 (7 days); at least 3600000 (an hour), or the server refuses to start.",
+      "How long an erasure waits for a turn of the person's that sits in a flow serving other people (cancelling it now could end their work), or for a test run still going with a case from their runs, in milliseconds. The erasure shows `waiting-on-run`, naming the run or test run, until then; at the deadline it cancels it and goes on, and a tenant admin can stop the wait sooner (`kindgi memory erasures resume <id> --force`). Default 604800000 (7 days); at least 3600000 (an hour), or the server refuses to start.",
     example: '604800000',
     required: false,
     appliesTo: appliesToServer,
@@ -936,7 +936,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ERASURE_LEDGER_EXPORT',
     description:
-      'Where the server keeps copies of the erasure ledger, off the database, so erasures can be replayed after a backup restore: `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs). On an interval (`KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS`) it writes the ledger of every tenant it serves as one file (keyed hashes only, never whom an erasure names), as `kindgi memory erasures export` does for one tenant, and names every tenant marked purged, by id and when it was created: a new file when either changed, and at least one a day. It never overwrites or deletes one; keep them longer than your backups. After a restore, replay the newest with `kindgi-runtime erasures replay`, then purge the purged tenants again with `kindgi-runtime tenants repurge`, which reads the newest copy here by default. Unset (the default): the ledger stays in the database only.',
+      'Where the server keeps copies of the erasure ledger, off the database, so erasures can be replayed after a backup restore: `local:<absolute dir>`, `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs) or, from runtime 0.3.0, `s3:<bucket>[/<prefix>]` (an earlier runtime refuses it at start; see `KINDGI_S3_REGION`; `s3:PutObject`, `s3:GetObject` and `s3:ListBucket`, and a store that keeps an object it was asked not to overwrite, which the server checks before it serves). The check leaves a small `.kindgi-conditional-write-probe` object under the prefix, which no replay or repurge reads. On an interval (`KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS`) it writes the ledger of every tenant it serves as one file (keyed hashes only, never whom an erasure names), as `kindgi memory erasures export` does for one tenant, and names every tenant marked purged, by id and when it was created: a new file when either changed, and at least one a day. It never overwrites or deletes one; keep them longer than your backups. After a restore, replay the newest with `kindgi-runtime erasures replay`, then purge the purged tenants again with `kindgi-runtime tenants repurge`, which reads the newest copy here by default. Unset (the default): the ledger stays in the database only.',
     example: 'gcs:acme-erasure-ledger/runtime',
     required: false,
     appliesTo: appliesToServer,
@@ -954,7 +954,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_TENANT_PURGE_RECORD',
     description:
-      "Where the server writes a purged tenant's record, off the database, so a restore from an older backup purges it again: `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs). Each record is `purged/<tenant id>.json` there, as `kindgi-runtime tenants purge --record` writes it, and `kindgi-runtime tenants repurge --from` purges again every tenant one names, after a restore. It never overwrites or deletes one; keep them longer than your backups. On a runtime serving many tenants, `POST /v1/system/tenants/{tenantId}/purge` needs it: unset (the default), that route refuses every purge with `409 purge-record-unset`. A value that is neither form stops the server from starting.",
+      "Where the server writes a purged tenant's record, off the database, so a restore from an older backup purges it again: `local:<absolute dir>`, `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs) or, from runtime 0.3.0, `s3:<bucket>[/<prefix>]` (an earlier runtime refuses it at start; see `KINDGI_S3_REGION`; `s3:PutObject`, `s3:GetObject` and `s3:ListBucket`, and a store that keeps an object it was asked not to overwrite, which the server checks before it serves). The check leaves a small `.kindgi-conditional-write-probe` object under the prefix, which no replay or repurge reads. Each record is `purged/<tenant id>.json` there, as `kindgi-runtime tenants purge --record` writes it, and `kindgi-runtime tenants repurge --from` purges again every tenant one names, after a restore. It never overwrites or deletes one; keep them longer than your backups. On a runtime serving many tenants, `POST /v1/system/tenants/{tenantId}/purge` needs it: unset (the default), that route refuses every purge with `409 purge-record-unset`. A value in none of these forms stops the server from starting.",
     example: 'gcs:acme-purge-records/runtime',
     required: false,
     appliesTo: appliesToServer,
@@ -1017,7 +1017,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ARTIFACTS',
     description:
-      "Where artifacts' files go, which turns on `/v1/artifacts`: `local:<absolute dir>` (a directory on this machine) or `gcs:<bucket>[/<prefix>]` (a Google Cloud Storage bucket, through Application Default Credentials: workload identity on GCP, no keys to store). Metadata is in Postgres; a deleted artifact is purged under the `artifact` retention policy. Unset (the default): no `/v1/artifacts`. `kindgi dev` sets it to the pack's `.kindgi/dev/artifacts`.",
+      "Where artifacts' files go, which turns on `/v1/artifacts`: `local:<absolute dir>` (a directory on this machine), `gcs:<bucket>[/<prefix>]` (a Google Cloud Storage bucket, through Application Default Credentials: workload identity on GCP, no keys to store) or, from runtime 0.3.0, `s3:<bucket>[/<prefix>]` (an earlier runtime refuses it at start; an AWS S3 bucket, or an S3-compatible store's: see `KINDGI_S3_REGION`). Before it serves, the server refuses an `s3:` bucket a tenant purge couldn't empty: MFA Delete on, an Object Lock default retention, or no right to list its unfinished uploads (and, in a bucket that keeps versions, its versions). Metadata is in Postgres; a deleted artifact is purged under the `artifact` retention policy. Unset (the default): no `/v1/artifacts`. `kindgi dev` sets it to the pack's `.kindgi/dev/artifacts`.",
     example: 'gcs:acme-artifacts/prod',
     required: false,
     appliesTo: appliesToServer,
@@ -1028,6 +1028,43 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       'The most bytes one artifact upload may carry, the whole request body; more is `413 artifact-too-large`. Default 104857600 (100 MiB).',
     example: '104857600',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_S3_REGION',
+    description:
+      "Used from runtime 0.3.0; earlier runtimes ignore it. The region of the server's S3 buckets, one for every `s3:<bucket>[/<prefix>]` target (`KINDGI_ARTIFACTS`, `KINDGI_ERASURE_LEDGER_EXPORT`, `KINDGI_TENANT_PURGE_RECORD`): required with any of them, and with any other `KINDGI_S3_*` setting. On AWS S3, an AWS region in the commercial, GovCloud or China partition, such as `eu-west-1`; `AWS_REGION` is never read for it. With `KINDGI_S3_ENDPOINT`, the region name that store takes, such as `auto` for R2. Before it serves, the server checks each bucket is there; on AWS S3, a bucket in another region stops it, naming the bucket's region. On AWS S3, the server signs in as its AWS identity, so `KINDGI_AWS_IDENTITY` must be set.",
+    example: 'eu-west-1',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_S3_ENDPOINT',
+    description:
+      "Used from runtime 0.3.0; earlier runtimes ignore it. An S3-compatible store's address (MinIO, R2), for every `s3:` target: an `https://` origin with no path, user, query or fragment (`http://` only with `KINDGI_DEV=true`). The store's key goes in `KINDGI_S3_CREDENTIALS_PATH`, never in the address. Unset (the default): AWS S3. `AWS_ENDPOINT_URL`, `AWS_ENDPOINT_URL_S3` and a profile's `endpoint_url` are never read: they would send signed requests, with tenants' files, somewhere else.",
+    example: 'https://storage.acme.internal',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_S3_PATH_STYLE',
+    description:
+      "Used from runtime 0.3.0; earlier runtimes ignore it. `true`: requests name the bucket in the path (`<endpoint>/<bucket>/<key>`), for a store that needs it; with `KINDGI_S3_ENDPOINT` only. A bucket name with a dot needs it: a request that names the bucket in the host name puts the dot where TLS can't cover it, so on AWS S3 such a bucket is refused. Default `false`.",
+    example: 'true',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+    allowedValues: ['true', 'false'],
+  },
+  {
+    name: 'KINDGI_S3_CREDENTIALS_PATH',
+    description:
+      'Used from runtime 0.3.0; earlier runtimes ignore it. Absolute path to an S3-compatible store\'s own access key, a JSON file `{"accessKeyId": "…", "secretAccessKey": "…"}`, read again whenever it changes, so a rotated key takes effect at the next request; with `KINDGI_S3_ENDPOINT` only. Unset: S3 signs in as the server\'s AWS identity (`KINDGI_AWS_IDENTITY`); with neither, the server refuses to start. Never the AWS SDK\'s default chain or keys in the environment.',
+    example: '/etc/kindgi/s3-key.json',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -1046,6 +1083,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       "Used from runtime 0.1.8; earlier runtimes ignore it. The most memory, in MiB, that one tenant's running agent turns may hold, charged as for `KINDGI_TURN_MEMORY_MIB`. Past it, the turn fails with `429 turn-memory-limit-reached` (`limit: tenant`), and a resume whose journal alone is bigger fails at once. Unset: no limit per tenant. Kindgi Cloud sets 192.",
     example: '192',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_FILE_MEMORY_MIB',
+    description:
+      "Used from runtime 0.3.0; earlier runtimes ignore it. With artifacts on (`KINDGI_ARTIFACTS`), the memory, in MiB, the server keeps for the bytes of files its agents read. Each model call holds room for the files it reads, 3 × each one's size (2 × for one the cache keeps), until it ends. A call that finds no room within 15 seconds is sent with a line in each file's place, and the server logs a warning (`file-memory-no-room`); a later call is shown them again. Default: 512, or a quarter of the server's memory (its container's limit, when one is set) when that's less, and never below 35, the room one model call's files take at their limit. A value that isn't a whole number from 35 to 1048576 stops the server at boot, naming this variable (exit code 2).",
+    example: '512',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_FILE_CACHE_MIB',
+    description:
+      "Used from runtime 0.3.0; earlier runtimes ignore it. How much of `KINDGI_FILE_MEMORY_MIB`, in MiB, keeps the bytes of files model calls have read, so a later call reads them from memory rather than from the artifact store. A model call that needs the room takes it back, least recently read first. 0 keeps none. Default: half of `KINDGI_FILE_MEMORY_MIB`. A value that isn't a whole number from 0 to `KINDGI_FILE_MEMORY_MIB` stops the server at boot, naming this variable (exit code 2).",
+    example: '256',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -1507,6 +1562,16 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     required: false,
     appliesTo: appliesToServer,
     group: 'pack-service',
+  },
+  {
+    name: 'KINDGI_ENV_CLOUD_SECRETS',
+    description:
+      "Used from runtime 0.4.0; earlier runtimes ignore it. Whether the operator may set a pack's env name to a cloud secret: a numbered version of a Google Cloud Secret Manager secret (`projects/<project>/secrets/<secret>/versions/<number>`). The runtime keeps that path, never the value, and the pack service is given it by its env name: Cloud Run reads the value as the pack service's own account, so turn it on only where that account can read the secrets you name (the Cloud Run module grants it on each secret listed in `pack_secret_readers`). `on`: a system key holding `system:env-refs` sets and removes them (`kindgi env set NAME --cloud-secret <path> --tenant=<tenantId> --scope=<kind>[:id] --env=<name>`, or `PUT /v1/system/tenants/<tenantId>/env/<name>`), and each deployment's pack env answer carries them. It needs `KINDGI_PACK_ROUTING=per-deployment`: on without it, the server refuses to start, naming both. Unset or `off`: none is kept, and those routes answer 501 (`cloud-secrets-unsupported`), as on Kindgi Cloud.",
+    example: 'on',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'pack-service',
+    allowedValues: ['on', 'off'],
   },
   {
     name: 'KINDGI_IMAGE_REGISTRY_HOST',

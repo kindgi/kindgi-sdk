@@ -31,7 +31,8 @@ export type DeploymentValueScope = 'project' | 'org' | 'tenant';
  * - `missing`: a required value set nowhere a run looks;
  * - `secret-not-yet`: a pack env name set only as a secret, which isn't
  *   given into a pack service's environment yet;
- * - `ambiguous`: a pack env name set both as a secret and as a plain value;
+ * - `ambiguous`: a pack env name set two ways, as two of a plain value, a
+ *   secret and a cloud secret;
  * - `revoked`: a tool's secret revoked where it's recorded, or a model key
  *   revoked where a run looks first: a run refuses (`secret-revoked`)
  *   rather than read a wider one;

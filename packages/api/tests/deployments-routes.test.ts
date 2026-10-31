@@ -3487,6 +3487,65 @@ describe('GET /v1/deployments — the endpoint, under per-deployment routing', (
     });
   });
 
+  test('what keeps a build: each entry as named fields only, whatever its status', async () => {
+    const keptFor = [
+      { kind: 'agent', id: 'acme.reply-drafter', version: '3', registered: true, held: true },
+      { kind: 'guardrail', id: 'acme.no-pii', registered: true },
+      { kind: 'tool', id: 'acme.lookup' },
+      { kind: 'tool', id: 'acme.search', version: '1.2.0', registered: true },
+    ] as const;
+    const since = '2026-10-11T12:00:00.000Z';
+    const extra = keptFor.map((k) => ({
+      ...k,
+      deploymentId: 'd-other',
+      held: 'held' in k ? k.held : false,
+    }));
+    for (const status of ['pending', 'ready'] as const) {
+      expect(
+        await endpointOf({ status, since, keptFor: extra } as unknown as Deployment['endpoint']),
+      ).toEqual({ status, since, keptFor });
+    }
+    expect(
+      await endpointOf({ ...CLEARED, retired: 'project-suspended', keptFor: [keptFor[2]] }),
+    ).toEqual({ ...CLEARED, retired: 'project-suspended', keptFor: [keptFor[2]] });
+  });
+
+  test('a build nothing keeps says so, with `[]`, so absent means only that builds aren’t counted', async () => {
+    expect(await endpointOf({ ...CLEARED, retired: 'superseded', keptFor: [] })).toEqual({
+      ...CLEARED,
+      retired: 'superseded',
+      keptFor: [],
+    });
+    expect(await endpointOf({ status: 'ready', since: CLEARED.since })).toEqual({
+      status: 'ready',
+      since: CLEARED.since,
+    });
+  });
+
+  test('a list page carries the total beside the entries the binding gives it', async () => {
+    const keptFor = [
+      { kind: 'tool', id: 'acme.lookup', version: '1.0.0', registered: true },
+    ] as const;
+    const { app } = await seeded({ ...CLEARED, waiting: true, keptFor, keptForTotal: 23 });
+    const listed = await app.request('/v1/deployments', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    const page = (await listed.json()) as { data: Record<string, unknown>[] };
+    expect(page.data[0]?.endpoint).toEqual({
+      ...CLEARED,
+      waiting: true,
+      keptFor,
+      keptForTotal: 23,
+    });
+  });
+
+  test('no total without the entries', async () => {
+    expect(await endpointOf({ ...CLEARED, waiting: true, keptForTotal: 3 })).toEqual({
+      ...CLEARED,
+      waiting: true,
+    });
+  });
+
   test('a ready deployment shows no problem, whatever the binding holds', async () => {
     const { app, deploymentId } = await seeded({
       status: 'ready',

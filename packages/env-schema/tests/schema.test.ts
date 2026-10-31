@@ -347,6 +347,46 @@ describe('envVarsForTarget — the compliance classifier (T250)', () => {
   });
 });
 
+describe('envVarsForTarget — S3 targets', () => {
+  const S3_VARS = [
+    'KINDGI_S3_REGION',
+    'KINDGI_S3_ENDPOINT',
+    'KINDGI_S3_PATH_STYLE',
+    'KINDGI_S3_CREDENTIALS_PATH',
+  ];
+
+  test("how the server reaches its S3 buckets is the server's, optional, in core", () => {
+    const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
+    for (const name of S3_VARS) {
+      expect(server.get(name)).toMatchObject({ required: false, group: 'core' });
+      expect(server.get(name)?.description).toMatch(/^Used from runtime 0\.3\.0; /);
+    }
+    expect(server.get('KINDGI_S3_REGION')?.description).toContain(
+      'required with any of them, and with any other `KINDGI_S3_*` setting',
+    );
+    expect(server.get('KINDGI_S3_PATH_STYLE')?.allowedValues).toEqual(['true', 'false']);
+    expect(server.get('KINDGI_S3_CREDENTIALS_PATH')?.description).toContain(
+      'with `KINDGI_S3_ENDPOINT` only',
+    );
+    const packService = envVarsForTarget({ component: 'pack-service' }).map((v) => v.name);
+    for (const name of S3_VARS) expect(packService).not.toContain(name);
+  });
+
+  test('each setting that puts files somewhere takes an `s3:` bucket, from runtime 0.3.0', () => {
+    const server = new Map(envVarsForTarget({ component: 'server' }).map((v) => [v.name, v]));
+    for (const name of [
+      'KINDGI_ARTIFACTS',
+      'KINDGI_ERASURE_LEDGER_EXPORT',
+      'KINDGI_TENANT_PURGE_RECORD',
+    ]) {
+      expect(server.get(name)?.description).toContain(
+        'or, from runtime 0.3.0, `s3:<bucket>[/<prefix>]`',
+      );
+      expect(server.get('KINDGI_S3_REGION')?.description).toContain(`\`${name}\``);
+    }
+  });
+});
+
 describe('envVarsForTarget — logging', () => {
   test('the server has the three KINDGI_LOG_* variables, optional, in the logging group', () => {
     const vars = envVarsForTarget({ component: 'server' }).filter((v) => v.group === 'logging');
