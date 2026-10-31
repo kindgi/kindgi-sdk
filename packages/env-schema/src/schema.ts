@@ -902,7 +902,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ERASURE_SHARED_WAIT_MS',
     description:
-      "How long an erasure waits for a turn of the person's that sits in a flow serving other people (cancelling it now could end their work), in milliseconds. The erasure shows `waiting-on-run`, naming the run, until then; at the deadline it cancels the run and goes on, and a tenant admin can stop the wait sooner (`kindgi memory erasures resume <id> --force`). Default 604800000 (7 days); at least 3600000 (an hour), or the server refuses to start.",
+      "How long an erasure waits for a turn of the person's that sits in a flow serving other people (cancelling it now could end their work), or for a test run still going with a case from their runs, in milliseconds. The erasure shows `waiting-on-run`, naming the run or test run, until then; at the deadline it cancels it and goes on, and a tenant admin can stop the wait sooner (`kindgi memory erasures resume <id> --force`). Default 604800000 (7 days); at least 3600000 (an hour), or the server refuses to start.",
     example: '604800000',
     required: false,
     appliesTo: appliesToServer,
