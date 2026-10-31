@@ -17,6 +17,7 @@ import type {
   SetPackEndpointOutcome,
   SystemAccessRecord,
   SystemDeploymentEntry,
+  SystemDeploymentMissing,
   SystemDeploymentToRetire,
   SystemDeploymentsBinding,
   SystemTenantState,
@@ -81,7 +82,7 @@ function makeBinding() {
     known.add(key(t, d));
     endpoints.set(key(t, d), { status: 'pending', since: NOW });
   };
-  const needing: SystemDeploymentEntry[] = [];
+  const needing: SystemDeploymentMissing[] = [];
   const retiring: SystemDeploymentToRetire[] = [];
   const binding: SystemDeploymentsBinding = {
     async listNeedingEndpoint({ cursor, limit }) {
@@ -241,6 +242,17 @@ describe('GET /v1/system/deployments', () => {
     const data = r.body.data as Record<string, unknown>[];
     expect(data[0]).toMatchObject({ packId: 'acme.aperture', projectId: project });
     expect('projectId' in (data[1] as object)).toBe(false);
+  });
+
+  test('missing: an entry carries its last problem, with when it was first recorded', async () => {
+    const { call, deployments } = makeApp();
+    const problem = { code: 'pack-env-name-too-long' as const, since: NOW };
+    deployments.needing.push({ ...entry(live, 'dep-p'), problem }, entry(live, 'dep-n'));
+    const r = await call(ORCHESTRATOR, 'GET', '/v1/system/deployments?endpoint=missing');
+    expect(r.status).toBe(200);
+    const data = r.body.data as Record<string, unknown>[];
+    expect(data[0]).toEqual({ ...entry(live, 'dep-p'), problem });
+    expect('problem' in (data[1] as object)).toBe(false);
   });
 
   test('a cursor the binding never gave: 400, start again without it', async () => {
