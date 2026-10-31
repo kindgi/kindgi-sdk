@@ -415,10 +415,12 @@ In TypeScript, that's
 Python, `kindgi.projects.update(project_id, sort_end_user_corrections=True)`.
 A project reads it back as `sortEndUserCorrections`, `false` until it's on.
 
-Sorting applies to the corrections saved after you turn it on. A schedule
-that counts every correction (`groupWeights` `as-recorded`) counts your
-users' corrections while it's on: at its next check, every one since its
-last run, older ones included. While it's off, the schedule leaves them out.
+Sorting applies to the corrections saved after you turn it on: one saved
+before stays unsorted until a person sorts it. A schedule that counts every
+correction (`groupWeights` `as-recorded`) counts your users' corrections
+sorted to improve only while it's on. Once it's off, the schedule leaves
+them out, even ones sorted while it was on, though an Improve run that
+starts still takes them in.
 
 A person then moves it on. With `publish` on the agent,
 `corrections.change` re-sorts it, changes its status, or both. Here a
