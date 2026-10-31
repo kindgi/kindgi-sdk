@@ -26,6 +26,16 @@ mock_provider "google" {
   }
 }
 
+# The pack account as Google names it: the orchestrator's grant to act as it
+# takes only that form, which the mock's own random name isn't.
+override_resource {
+  target = google_service_account.pack
+  values = {
+    name  = "projects/acme-app-dev/serviceAccounts/kindgi-dev-pack@acme-app-dev.iam.gserviceaccount.com"
+    email = "kindgi-dev-pack@acme-app-dev.iam.gserviceaccount.com"
+  }
+}
+
 variables {
   project_id      = "acme-app-dev"
   region          = "northamerica-northeast2"

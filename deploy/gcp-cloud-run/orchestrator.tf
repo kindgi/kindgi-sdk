@@ -60,15 +60,24 @@ resource "google_service_account_iam_member" "orchestrator_acts_as_pack" {
   member             = "serviceAccount:${google_service_account.orchestrator.email}"
 }
 
+# Cloud Run checks that whoever makes a service, or a new revision of one,
+# may read its image: the pack images, in the server's repository.
+resource "google_artifact_registry_repository_iam_member" "orchestrator_reads_images" {
+  project    = local.own_repository ? null : var.image_repository.project
+  repository = local.own_repository ? google_artifact_registry_repository.images[0].name : var.image_repository.repository
+  location   = local.own_repository ? var.region : var.image_repository.location
+  role       = "roles/artifactregistry.reader"
+  member     = "serviceAccount:${google_service_account.orchestrator.email}"
+}
+
 # Each pack service's token and secret env values are kp- secrets of its
-# own: the orchestrator creates them, adds versions, destroys old ones and
+# own: the orchestrator gets them, adds versions, destroys old ones and
 # deletes them. It never reads a value, which comes from the runtime.
 resource "google_project_iam_custom_role" "pack_secrets" {
   role_id     = "${replace(var.name_prefix, "-", "_")}_pack_secrets"
   title       = "Kindgi pack secrets"
   description = "The pack orchestrator's rights on the pack services' own secrets (kp-...), never a value."
   permissions = [
-    "secretmanager.secrets.create",
     "secretmanager.secrets.delete",
     "secretmanager.secrets.get",
     "secretmanager.versions.add",
@@ -89,19 +98,21 @@ resource "google_project_iam_member" "orchestrator_pack_secrets" {
   }
 }
 
-# A list is asked of the project, not of a secret, so a condition on the
-# secret's name would refuse it: a role of its own, with no condition. It
-# lists names and labels, never a value, to find what a stopped pass left.
-resource "google_project_iam_custom_role" "secret_list" {
-  role_id     = "${replace(var.name_prefix, "-", "_")}_secret_list"
-  title       = "Kindgi secret list"
-  description = "Lists the project's secrets, names and labels only, for the pack orchestrator."
-  permissions = ["secretmanager.secrets.list"]
+# A create and a list name the project as their parent, not one secret, so
+# a condition on the secret's name isn't sure to hold for either: a role of
+# their own, with no condition. A new secret holds no value until a version
+# is added, which only the kp- role allows; a list gives names and labels,
+# never a value, to find what a stopped pass left.
+resource "google_project_iam_custom_role" "secret_create_list" {
+  role_id     = "${replace(var.name_prefix, "-", "_")}_secret_create_list"
+  title       = "Kindgi secret create and list"
+  description = "Creates secrets, with no value, and lists the project's secrets, names and labels only, for the pack orchestrator."
+  permissions = ["secretmanager.secrets.create", "secretmanager.secrets.list"]
 }
 
-resource "google_project_iam_member" "orchestrator_lists_secrets" {
+resource "google_project_iam_member" "orchestrator_creates_lists_secrets" {
   project = var.project_id
-  role    = google_project_iam_custom_role.secret_list.name
+  role    = google_project_iam_custom_role.secret_create_list.name
   member  = "serviceAccount:${google_service_account.orchestrator.email}"
 }
 
@@ -236,8 +247,9 @@ resource "google_cloud_run_v2_job" "orchestrator" {
     google_secret_manager_secret_iam_member.orchestrator_reads_key,
     google_project_iam_member.orchestrator_runs_services,
     google_service_account_iam_member.orchestrator_acts_as_pack,
+    google_artifact_registry_repository_iam_member.orchestrator_reads_images,
     google_project_iam_member.orchestrator_pack_secrets,
-    google_project_iam_member.orchestrator_lists_secrets,
+    google_project_iam_member.orchestrator_creates_lists_secrets,
     google_project_iam_member.pack_reads_pack_secrets,
     google_cloud_run_v2_service_iam_member.orchestrator_invokes_server,
   ]

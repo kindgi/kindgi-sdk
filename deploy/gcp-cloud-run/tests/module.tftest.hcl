@@ -33,6 +33,16 @@ mock_provider "google" {
   }
 }
 
+# The pack account as Google names it: the orchestrator's grant to act as it
+# takes only that form, which the mock's own random name isn't.
+override_resource {
+  target = google_service_account.pack
+  values = {
+    name  = "projects/acme-app-dev/serviceAccounts/kindgi-dev-pack@acme-app-dev.iam.gserviceaccount.com"
+    email = "kindgi-dev-pack@acme-app-dev.iam.gserviceaccount.com"
+  }
+}
+
 variables {
   project_id              = "acme-app-dev"
   region                  = "northamerica-northeast2"
@@ -187,6 +197,10 @@ run "an_existing_repository_in_the_same_project" {
   assert {
     condition     = google_artifact_registry_repository_iam_member.server_reads_images.repository == "acme-images" && google_artifact_registry_repository_iam_member.server_reads_images.location == "us"
     error_message = "The server reads the named repository."
+  }
+  assert {
+    condition     = google_artifact_registry_repository_iam_member.orchestrator_reads_images.repository == "acme-images" && google_artifact_registry_repository_iam_member.orchestrator_reads_images.location == "us"
+    error_message = "The orchestrator reads the named repository, which the pack images are in."
   }
   assert {
     condition     = length(google_artifact_registry_repository_iam_member.run_agent_pulls_images) == 0
@@ -1103,19 +1117,23 @@ run "the_orchestrator_has_only_its_own_rights" {
     error_message = "The orchestrator manages the project's services, and runs them as the pack account."
   }
   assert {
+    condition     = google_artifact_registry_repository_iam_member.orchestrator_reads_images.role == "roles/artifactregistry.reader" && google_artifact_registry_repository_iam_member.orchestrator_reads_images.location == "northamerica-northeast2"
+    error_message = "The orchestrator reads the module's repository: Cloud Run checks that whoever makes a service may read its image."
+  }
+  assert {
     condition = toset(google_project_iam_custom_role.pack_secrets.permissions) == toset([
-      "secretmanager.secrets.create", "secretmanager.secrets.delete", "secretmanager.secrets.get",
+      "secretmanager.secrets.delete", "secretmanager.secrets.get",
       "secretmanager.versions.add", "secretmanager.versions.destroy", "secretmanager.versions.list",
     ]) && google_project_iam_custom_role.pack_secrets.role_id == "kindgi_dev_pack_secrets"
-    error_message = "On the pack services' own secrets the orchestrator makes, adds to, destroys and deletes, and never reads a value."
+    error_message = "On the pack services' own secrets the orchestrator gets, adds to, destroys and deletes, and never reads a value."
   }
   assert {
     condition     = google_project_iam_member.orchestrator_pack_secrets.condition[0].expression == "resource.name.startsWith(\"projects/123456789012/secrets/kp-\")"
     error_message = "Those rights hold on kp- secrets only, named as Secret Manager names them, by project number."
   }
   assert {
-    condition     = google_project_iam_custom_role.secret_list.permissions == toset(["secretmanager.secrets.list"]) && length(google_project_iam_member.orchestrator_lists_secrets.condition) == 0
-    error_message = "Listing is asked of the project, so it's a role of its own with no condition, and lists names only."
+    condition     = toset(google_project_iam_custom_role.secret_create_list.permissions) == toset(["secretmanager.secrets.create", "secretmanager.secrets.list"]) && google_project_iam_custom_role.secret_create_list.role_id == "kindgi_dev_secret_create_list" && length(google_project_iam_member.orchestrator_creates_lists_secrets.condition) == 0
+    error_message = "A create and a list name the project as their parent, so they're a role of their own with no condition: a new secret holds no value, and a list gives names only."
   }
   assert {
     condition     = google_secret_manager_secret_iam_member.orchestrator_reads_key.role == "roles/secretmanager.secretAccessor"

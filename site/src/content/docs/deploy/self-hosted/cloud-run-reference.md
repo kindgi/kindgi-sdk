@@ -206,8 +206,9 @@ A tool call the runtime can't route answers with a code of its own:
 | | `roles/cloudkms.signerVerifier` and `roles/cloudkms.publicKeyViewer`, only with `export_signing = "kms"` | the export signing key: [signed exports](../../../guides/observability/export-signed-evidence/) |
 | The pack orchestrator's account (`$N-orch`) | `roles/run.developer` | the project: it creates, updates and deletes the pack services, and runs its Job, Cloud Scheduler's call included; it reads a service's IAM policy and never sets one |
 | | `roles/iam.serviceAccountUser` | the pack account, so each pack service runs as it, and as no other account |
-| | `<prefix>_pack_secrets`, a custom role (`name_prefix` with `-` as `_`) | the project, conditioned on secrets whose name starts with `kp-`: it creates, gets and deletes them, and adds, lists and destroys their versions; it never reads a value |
-| | `<prefix>_secret_list`, a custom role | the project: it lists secrets, names and labels only, to find what a stopped pass left |
+| | `roles/artifactregistry.reader` | the repository, or yours (`image_repository`): Cloud Run checks that whoever makes a service, or a new revision of one, may read its image |
+| | `<prefix>_pack_secrets`, a custom role (`name_prefix` with `-` as `_`) | the project, conditioned on secrets whose name starts with `kp-`: it gets and deletes them, and adds, lists and destroys their versions; it never reads a value |
+| | `<prefix>_secret_create_list`, a custom role | the project, with no condition, since a create and a list name the project: it creates secrets, which hold no value until the `kp-` role adds one, and lists them, names and labels only, to find what a stopped pass left |
 | | `roles/secretmanager.secretAccessor` | its key, `$N-orchestrator-key` |
 | | `roles/run.invoker`, only behind Cloud Run IAM | the runtime's service; the Job then sends a Google ID token with each call (`KINDGI_ORCHESTRATOR_RUNTIME_AUTH=google-id-token`) |
 | The pack account (`$N-pack`), which every pack service runs as | `roles/secretmanager.secretAccessor` | the project, conditioned on secrets whose name starts with `kp-`: each service's token and secret env values |

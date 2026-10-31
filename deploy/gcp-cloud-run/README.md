@@ -81,7 +81,7 @@ Cloud Run pulls from Artifact Registry. Copy the runtime's **whole multi-platfor
 
 **An existing repository instead of the module's own (`image_repository`).**
 - **Setting it:** `image_repository = { project, location, repository }` uses a repository you already have. The module then creates none.
-- **What it grants:** the server's service account gets `roles/artifactregistry.reader` on it, to read deployed pack images. A repository in another project also grants this project's Cloud Run service agent the same role, so it can pull the images.
+- **What it grants:** the server's service account and the pack orchestrator's get `roles/artifactregistry.reader` on it, to read deployed pack images. A repository in another project also grants this project's Cloud Run service agent the same role, so it can pull the images.
 - **Check its cleanup policies first.** A policy that deletes tags or images by age can delete the digest a running revision pins, and the next instance start then fails. Keep Kindgi's images out of such a policy, or use the module's own repository.
 - **Where images go:** `terraform output image_repository` names where they go, in either case.
 
@@ -247,8 +247,9 @@ A new deployment waits up to about a minute for its service, until the next pass
 **What the orchestrator's account may do:**
 - **Cloud Run:** `roles/run.developer` on the project. It creates, updates and deletes the project's services and runs its Jobs, Cloud Scheduler's call included. It reads a service's IAM policy and never sets one.
 - **The pack account:** `roles/iam.serviceAccountUser` on it, so each pack service runs as `$N-pack`, and as no other account.
-- **The pack services' own secrets:** each service's token and secret env values are `kp-` secrets of its own. A custom role, `<prefix>_pack_secrets` (`name_prefix` with `-` as `_`), lets it create, get and delete those secrets and add, list and destroy their versions, on secrets whose name starts with `kp-` only. It never reads a value: values come from the runtime.
-- **Finding what a stopped pass left:** a second custom role, `<prefix>_secret_list`, lists the project's secrets, names and labels only. A list is asked of the project, not of one secret, so it has no condition.
+- **The images:** `roles/artifactregistry.reader` on the repository, or yours (`image_repository`). Cloud Run checks that whoever makes a service, or a new revision of one, may read its image.
+- **The pack services' own secrets:** each service's token and secret env values are `kp-` secrets of its own. A custom role, `<prefix>_pack_secrets` (`name_prefix` with `-` as `_`), lets it get and delete those secrets and add, list and destroy their versions, on secrets whose name starts with `kp-` only. It never reads a value: values come from the runtime.
+- **Making those secrets, and finding what a stopped pass left:** a second custom role, `<prefix>_secret_create_list`, creates secrets and lists the project's secrets, names and labels only. A create and a list name the project, not one secret, so it has no condition. A new secret holds no value until a version is added, which only the `kp-` role allows.
 - **Its key:** read access to `$N-orchestrator-key`.
 - **The server:** behind Cloud Run IAM, `roles/run.invoker` on it, and the Job sends a Google ID token with each call (`KINDGI_ORCHESTRATOR_RUNTIME_AUTH=google-id-token`).
 

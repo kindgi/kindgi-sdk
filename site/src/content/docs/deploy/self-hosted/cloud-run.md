@@ -176,9 +176,10 @@ most of an hour.
 
 **A repository you already have** instead of the module's own:
 `image_repository = { project, location, repository }`. The module then creates
-none, gives the runtime's service account `roles/artifactregistry.reader` on
-it, and, for a repository in another project, gives this project's Cloud Run
-service agent the same role so it can pull. `terraform output image_repository`
+none, gives the runtime's service account and the pack orchestrator's
+`roles/artifactregistry.reader` on it, and, for a repository in another
+project, gives this project's Cloud Run service agent the same role so it can
+pull. `terraform output image_repository`
 names where images go, either way.
 
 :::caution[Check the repository's cleanup policies]
