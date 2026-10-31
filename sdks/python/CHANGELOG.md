@@ -13,6 +13,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+## 0.3.1
+
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
   judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
   judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator

@@ -1,5 +1,36 @@
 # @kindgi/api
 
+## 0.3.1
+
+### Patch Changes
+
+- 4beb42c: **A redeploy compares a guardrail's `at` and `sees`.** A deploy keeps an already-registered guardrail only when its definition hasn't changed, and that comparison left out `at` and `sees`. So a pack that changed only where a guardrail runs, or what its check sees, deployed, and the guardrail went on running as it was first registered. That's now a definition change, refused as `guardrail-already-registered` like any other: unregister the guardrail (`kindgi guardrails unregister <id>`) and deploy again. A guardrail an earlier deploy kept with its old `at` or `sees` is refused the same way on the pack's next deploy. An absent `at` matches an explicit `'final-answer'`, and an absent `sees` an explicit `'turn'`, so an unchanged pack redeploys as before.
+- 4beb42c: **`GET /v1/guardrails` and `GET /v1/guardrails/{guardrailId}` give a guardrail's `at` and `sees`.** The `Guardrail` schema has both, but the response left them out, so a reader couldn't tell where a guardrail runs or what its check sees. A guardrail that names neither still gives neither: it runs at the final answer and sees the turn, the schema's defaults.
+- 4beb42c: **A deploy gives the guardrail registry each pack check's points.** A deploy checks a pack guardrail's `at` against the points its check's index entry lists (`checkPoints`), but it didn't keep them, so a runtime ran every deployed pack check at the final answer only: a pack guardrail deployed at a tool point or a model reply acted as a failed one there on every turn (`check-point-unsupported`). The deploy route now passes them to the registry beside the guardrail (`GuardrailRegisterInput.checkPoints`): the points the index lists that this release knows, once each, else the final answer only (`indexedCheckPoints`, `@kindgi/guardrails`). None for a guardrail naming a built-in check, whose points are the runtime's. The registry gives them back (`GuardrailRecord.checkPoints`). A deploy that keeps a registered guardrail refreshes them with its code pointer and config schema (`GuardrailRefreshInput.checkPoints`, also in `expected`; `null` for none), so a redeploy whose check now runs at other points gives the kept guardrail those, and a deploy rolled back puts the old ones back. `POST /v1/guardrails` never takes them (the guardrail spec has no `checkPoints`, so a body naming them is refused), so a guardrail registered over the API can't widen a pack check's points: a runtime gives it the points its check's deploy gave. A registry that implements `refreshDeployedFields` now takes `checkPoints` and compares it in `expected`. The runtime runs a pack check at these points from 0.3.1.
+- Updated dependencies [4beb42c]
+- Updated dependencies [4beb42c]
+  - @kindgi/guardrails@0.3.1
+  - @kindgi/handler-runtime@0.3.1
+  - @kindgi/agents@0.3.1
+  - @kindgi/capabilities@0.3.1
+  - @kindgi/compliance@0.3.1
+  - @kindgi/flow@0.3.1
+  - @kindgi/provenance@0.3.1
+  - @kindgi/schema@0.3.1
+  - @kindgi/tools@0.3.1
+  - @kindgi/audit-events@0.3.1
+  - @kindgi/authz@0.3.1
+  - @kindgi/blob-binding@0.3.1
+  - @kindgi/bounds@0.3.1
+  - @kindgi/connections@0.3.1
+  - @kindgi/crypto@0.3.1
+  - @kindgi/log@0.3.1
+  - @kindgi/memory@0.3.1
+  - @kindgi/platform@0.3.1
+  - @kindgi/policy-contract@0.3.1
+  - @kindgi/runtime@0.3.1
+  - @kindgi/types@0.3.1
+
 ## 0.3.0
 
 ### Patch Changes
