@@ -91,7 +91,7 @@ gcloud scheduler jobs create http kindgi-pack-orchestrator --location=<region> \
 | `KINDGI_ORCHESTRATOR_REGION` | Their region, such as `us-central1`. |
 | `KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT` | The account every pack service runs as. |
 | `KINDGI_ORCHESTRATOR_PACK_SERVICE` | How each runs, as JSON. Optional. |
-| `KINDGI_ORCHESTRATOR_RUNTIME_AUTH` | `google-id-token` for a runtime behind Cloud Run IAM: each call also carries the orchestrator's own Google ID token (on Cloud Run, the Job's account's) for the runtime's URL, which must then be its `run.app` URL or one of its custom audiences, in `X-Serverless-Authorization`, beside the system key. Optional: unset, the key alone. |
+| `KINDGI_ORCHESTRATOR_RUNTIME_AUTH` | `google-id-token` for a runtime behind Cloud Run IAM: each call also carries, in `X-Serverless-Authorization` beside the system key, the orchestrator's own Google ID token (on Cloud Run, the Job's account's). Its audience is the origin of `KINDGI_ORCHESTRATOR_RUNTIME_URL`, which must then be the runtime's `run.app` URL or one of its custom audiences. Optional: unset, the key alone. |
 
 ```json
 {
