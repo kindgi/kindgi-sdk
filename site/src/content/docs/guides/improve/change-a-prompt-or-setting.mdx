@@ -576,6 +576,18 @@ uv run kindgi blocks publish acme.reply-style --block-version=1.1.0 --project=<p
 `--block-version=1.1.0` is the new version, and `--settings` its values: a
 higher refund limit. It prints the block's id and version.
 
+Each version records who published it, `publishedBy`, and where it came
+from, `source`: `{ "kind": "api" }` for a publish like this one, a
+deployment's id for a version a deploy brought, and a suggested change's id
+for one that came from a suggested change.
+`GET /v1/blocks/<block-id>/versions/<version>` answers both, and the audit
+log records the publish with you as its actor. A version published before
+this was recorded has neither.
+
+A new version of a block that an agent version uses as its model settings
+must be model settings, and can't name the model that agent version names.
+Otherwise the publish is refused, naming the agent version.
+
 From your code, such as an admin page of your own, ask your coding agent: "I
 want to publish a new version of my settings block from my app." For
 reference, the code looks like this:
@@ -718,131 +730,26 @@ values. `kindgi dev` reloads it, the next run reads 1.1.0, and its tool gets
 ## Make an agent version that runs it
 
 A new block version doesn't change a published agent version: it keeps
-running the versions it pins. To use the new one, **derive** an agent version:
-the same agent, with some of its block pins swapped. It needs no code change
-and no deploy.
+running the versions it pins. An agent version that runs new content comes
+one of two ways:
 
-<Tabs syncKey="lang">
-<TabItem label="TypeScript">
+- **A suggested change,** for one project: it takes the block's new values
+  or instructions, publishes the block version, makes the agent version that
+  pins it, and tries both agent versions on the project's test cases. It
+  needs no code change and no deploy.
+  [Suggest a change, and test it](../suggest-a-change/) says how.
+- **A deploy:** reference the new block version from the agent in the pack,
+  and `kindgi deploy`.
 
-```sh
-pnpm exec kindgi agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
-```
+A developer publishing from code a number a suggested change's version took
+is told which one is free:
+`Agent "acme-ops.reply-drafter" version "1.0.1" is already registered, and versions never change; publish it as 1.0.2, the next free version`.
 
-</TabItem>
-<TabItem label="Python">
-
-```sh
-uv run kindgi agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
-```
-
-</TabItem>
-<TabItem label="Java">
-
-```sh
-./kindgiw agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
-```
-
-</TabItem>
-<TabItem label="Scala">
-
-```sh
-./kindgiw agents derive acme-ops.reply-drafter --from=1.0.0 --setting=acme.reply-style=1.1.0 --label="Refund limit 100"
-```
-
-</TabItem>
-</Tabs>
-
-- `--from=1.0.0` is the version to start from.
-- `--setting=acme.reply-style=1.1.0` swaps in that settings block version.
-- `--label` says what changed.
-
-It prints the new agent version:
-
-```json
-{
-  "id": "acme-ops.reply-drafter",
-  "version": "1.0.1",
-  …
-  "pins": {
-    "tools": { "acme-ops.refund-check": "0.1.0" },
-    "prompts": { "acme.reply-prompt": "1.0.0" },
-    "settings": { "acme.reply-style": "1.1.0" }
-  },
-  "derivedFrom": {
-    "version": "1.0.0",
-    "reason": "edited",
-    "label": "Refund limit 100",
-    "by": "user:35aa4131-bc65-43c9-80ba-8931a53fafdc"
-  }
-}
-```
-
-From your code, ask your coding agent: "I want a new version of my agent that
-uses the new refund limit." For reference, the code looks like this:
-
-<Tabs syncKey="lang">
-<TabItem label="TypeScript">
-
-```ts
-// derive.ts
-import { createClient } from '@kindgi/sdk/client';
-import type { AgentId } from '@kindgi/sdk/types';
-
-const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN
-
-// Version 1.0.0 with version 1.1.0 of its settings block: no code change, no deploy.
-const derived = await kindgi.agents.versions.derive('acme-ops.reply-drafter' as AgentId, {
-  from: '1.0.0',
-  pins: { settings: { 'acme.reply-style': '1.1.0' } },
-  label: 'Refund limit 100',
-});
-console.log(derived.version, derived.pins?.settings, derived.derivedFrom);
-```
-
-</TabItem>
-<TabItem label="Python">
-
-```python
-# derive.py
-from kindgi.client import Kindgi
-
-kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN
-
-# Version 1.0.0 with version 1.1.0 of its settings block: no code change, no deploy.
-derived = kindgi.agents.derive_version(
-    "acme-ops.reply-drafter",
-    from_="1.0.0",
-    pins={"settings": {"acme.reply-style": "1.1.0"}},
-    label="Refund limit 100",
-)
-print(derived.version, derived.pins.settings if derived.pins else None, derived.derived_from)
-```
-
-</TabItem>
-</Tabs>
-
-- **The new version is the next free patch** after the highest one, and
-  `derivedFrom` says where it came from. Runs choose it like any other version.
-  The same swap again returns that version, with `200`, not a new one.
-- **Swap prompts with `--prompt=<block-id>=<version>`,** or `pins.prompts` in
-  the clients, and settings with `--setting`. Repeat either for several.
-- **Only blocks the version already uses** can be swapped, and only on a
-  version that has pins.
-- **Under `kindgi dev`, there's nothing to derive:** each run already uses
-  the pack's block versions, and a derive is refused:
-  `Error [registry-read-only]: Under kindgi dev, the pack is the source of agents: change the agent in the pack's files and kindgi dev reloads it.`
-- **Then a developer publishing the next number from code** gets told which
-  one is free:
-  `Agent "acme-ops.reply-drafter" version "1.0.1" is already registered, and versions never change; publish it as 1.0.2, the next free version`.
-
-Before anyone uses the new version,
-[try it on the test cases](../compare-an-agent-version/). Because 1.0.1 pins
-another settings block version than 1.0.0, the run on the test cases runs
-read-only tools such as `acme-ops.refund-check` live, rather than reusing the
-recorded results. So the new refund limit shows in the answers. Those cases
-count as `diverged`, which a release gate with `replay` and
-`maxDiverged: 0` refuses.
+An agent version that pins another settings block version than the one it
+came from runs read-only tools such as `acme-ops.refund-check` live on the
+test cases, rather than reusing the recorded results. So the new refund limit
+shows in the answers. Those cases count as `diverged`, which a release gate
+with `replay` and `maxDiverged: 0` refuses.
 
 ## In the console
 

@@ -29,6 +29,7 @@ import type {
   DeploymentRegistrationBody,
   DeploymentSecretsSyncRequest,
   DeploymentSecretsSyncResponse,
+  DeploymentSource,
   DeploymentValueList,
   PackEnvNameStatus,
   PackEnvNames,
@@ -41,7 +42,7 @@ export type DeploymentPage = DeploymentCollectionPage;
 export type RegisterDeploymentInput = DeploymentRegistrationBody;
 export type SyncSecretsInput = DeploymentSecretsSyncRequest;
 export type SyncSecretsResult = DeploymentSecretsSyncResponse;
-export type { PackEnvNameStatus, PackEnvNames };
+export type { DeploymentSource, PackEnvNameStatus, PackEnvNames };
 export type DeploymentValue = WireDeploymentValue;
 export type DeploymentValues = DeploymentValueList;
 

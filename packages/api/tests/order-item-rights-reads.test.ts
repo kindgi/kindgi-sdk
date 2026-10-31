@@ -203,7 +203,10 @@ function harness(
       rec(SOLO, '1.0.0', at(OTHER)),
       rec(SOLO, '2.0.0', at(OTHER)),
       ...(prefix === 'agent' ? [rec(ADOPTED, '1.0.0', at(DEFAULT))] : []),
-    ].filter((r) => opts.soloOnly !== true || r.id === SOLO);
+    ]
+      .filter((r) => opts.soloOnly !== true || r.id === SOLO)
+      // A test set's kind is an eval kind, and the list holds those it lists.
+      .map((r) => (prefix === 'test_set' ? { ...r, kind: 'custom' } : r));
   const registries = Object.fromEntries(
     KINDS.map((k) => [k.registry, registry(k.idKey, records(k.kind))]),
   ) as unknown as Partial<CreateAppInput>;

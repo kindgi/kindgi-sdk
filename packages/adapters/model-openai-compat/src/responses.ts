@@ -31,7 +31,13 @@ import type {
 import type { AttemptCounter } from '@kindgi/capabilities/attempts';
 
 import { sendWithRetries } from './retry.js';
-import { computeCost, decodeToolName, encodeToolName, parseArguments } from './wire.js';
+import {
+  computeCost,
+  decodeToolName,
+  encodeToolName,
+  outputCapOf,
+  parseArguments,
+} from './wire.js';
 
 type InputItem = OpenAI.Responses.ResponseInputItem;
 type OutputItem = OpenAI.Responses.ResponseOutputItem;
@@ -101,6 +107,7 @@ export function requestOptions(
 export async function invokeResponses(call: ResponsesCall): Promise<ModelCallResult> {
   const { input } = call;
   const tools = input.tools?.map(toTool);
+  const maxOutputTokens = outputCapOf(call.modelInfo, input);
   const counted = await call.attempts.count(() =>
     sendWithRetries(
       () =>
@@ -127,9 +134,7 @@ export async function invokeResponses(call: ResponsesCall): Promise<ModelCallRes
                 effort: call.reasoning.effort as OpenAI.ReasoningEffort,
               },
             }),
-            ...(input.maxOutputTokens !== undefined && {
-              max_output_tokens: input.maxOutputTokens,
-            }),
+            ...(maxOutputTokens !== undefined && { max_output_tokens: maxOutputTokens }),
             store: false,
             stream: false,
           },

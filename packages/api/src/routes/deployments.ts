@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { type Context, Hono } from 'hono';
 
@@ -16,6 +16,7 @@ import {
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import { ref, tuplesForCreate } from '@kindgi/authz';
 import { runOutsideTenant } from '@kindgi/bounds';
+import { emitAuditEvent } from '@kindgi/compliance';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
 import { type Flow, type FlowPins, flowSchemaProblems } from '@kindgi/flow';
 import {
@@ -50,7 +51,7 @@ import type {
 } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
-import type { AgentPinBindings, AgentPinnedVersionBinding } from '../agent-pin-binding.js';
+import type { AgentPinBindings } from '../agent-pin-binding.js';
 import {
   type ToolPinLookup,
   type UnpinnableRef,
@@ -60,6 +61,7 @@ import {
 } from '../agent-pins.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
 import { type BlockPins, type BlockVersionReads, resolveBlockPins } from '../block-pins.js';
+import { callerIdentity } from '../caller.js';
 import { canonicalJson } from '../canonical-json.js';
 import {
   type PlannedBlock,
@@ -76,6 +78,7 @@ import {
   type DeploymentBinding,
   type DeploymentPrimitiveCounts,
   type DeploymentRegisterOutcome,
+  type DeploymentSource,
   serializeDeployment,
 } from '../deployment-binding.js';
 import { canonicalizeEnvelope, normaliseSha256Hex } from '../deployment-envelope.js';
@@ -117,9 +120,10 @@ import {
 import { type SecretBinding, secretNameGrammarRefusal } from '../secrets-binding.js';
 import { type ServedEnvRule, readReferencesOnce, refuseUnservedValue } from '../served-env.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
+import type { DeployCardsInput, DeployCardsOutcome } from '../suggested-change-service.js';
 import type { ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
-import type { AgentPinGateDeps } from './agent-pins.js';
+import { type AgentPinGateDeps, actorOf } from './agent-pins.js';
 import { capabilityRefusal, deniedBy } from './denied.js';
 import {
   carriedFor,
@@ -265,11 +269,6 @@ export interface DeploymentsRouterBindings {
   readonly agentRegistry?: AgentRegistryBinding;
   readonly flowRegistry?: FlowRegistryBinding;
   /**
-   * The agents' pinned versions: a deployed flow's agent step that names no
-   * version pins the one pinned for the deploy's project, else the latest.
-   */
-  readonly agentPinned?: AgentPinnedVersionBinding;
-  /**
    * The flows' and tools' pinned versions: each tool a deployed agent or
    * flow runs pins the version pinned for the deploy's project (an
    * agent's, when it's in the reference's range), else as without it; and
@@ -338,7 +337,11 @@ export interface DeploymentsRouterBindings {
    * Each one absent isn't checked.
    */
   readonly values?: Pick<DeploymentValuesDeps, 'env' | 'providers' | 'modelKeyLookup' | 'packEnv'>;
-  /** Where a promotion is recorded (`deployment-promoted`). Absent: it isn't. */
+  /**
+   * Where a promotion (`deployment-promoted`) and each block version a
+   * deploy publishes (`block-version-published`) are recorded. Absent:
+   * they aren't.
+   */
   readonly auditEvents?: AuditEventBinding;
   /**
    * The agents' pinned versions and gated pins, for a promotion asked
@@ -356,6 +359,38 @@ export interface DeploymentsRouterBindings {
    * with no authorizer: today's `pin` check.
    */
   readonly itemRights?: ItemRights;
+  /**
+   * The suggested-change cards a deploy makes in its project, and a
+   * promotion in the project it reached (`fromDeploy`): one for each agent
+   * version it registered or carried whose project runs a pinned other
+   * version. Absent: none.
+   */
+  readonly deployCards?: (input: DeployCardsInput) => Promise<DeployCardsOutcome>;
+}
+
+/**
+ * The cards a deploy or a promotion makes (`deployCards`). Never fails the
+ * deploy: a card that can't be made is logged.
+ */
+export async function makeDeployCards(
+  c: Context<AppEnv>,
+  bindings: DeploymentsRouterBindings,
+  input: DeployCardsInput,
+): Promise<void> {
+  if (bindings.deployCards === undefined || input.agents.length === 0) return;
+  const log = c.get('log');
+  try {
+    const { failed } = await bindings.deployCards(input);
+    for (const f of failed) {
+      log.warn(
+        `deployment ${input.deploymentId} made no suggested change for ${f.agentId}: ${f.message}`,
+      );
+    }
+  } catch (e) {
+    log.warn(
+      `the suggested changes of deployment ${input.deploymentId} weren't made: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
 }
 
 const SECRETS_PATH = /\/deployments\/[^/]+\/secrets\/?$/;
@@ -1127,6 +1162,10 @@ export function deploymentsRouter(
     // the one a deploy registered in its place (`publishDeployedAgent`).
     const deployedAgents: DeployedAgent[] = [];
     const deployedFlows: DeployedFlow[] = [];
+    // Minted before the first write, so each block version it publishes
+    // names this deployment (`source`).
+    const deploymentId = randomUUID();
+    let publishedBlocks: readonly BlockDefinition[] = [];
     try {
       // Past the first write, a compile is a registry's own compile of a
       // schema compiled above, which the tenant's budget was charged for:
@@ -1135,12 +1174,14 @@ export function deploymentsRouter(
       await runOutsideTenant(async () => {
         // The pack's blocks first: what follows pins them.
         if (bindings.blockRegistry !== undefined && targetProjectId !== undefined) {
-          await publishPackBlocks({
+          publishedBlocks = await publishPackBlocks({
             blocks: bindings.blockRegistry,
             tenantId,
             projectId: targetProjectId,
             planned: packBlocks,
             rolled,
+            publishedBy: actorOf(c),
+            deploymentId,
           });
         }
         if (bindings.toolRegistry !== undefined && targetProjectId !== undefined) {
@@ -1283,7 +1324,7 @@ export function deploymentsRouter(
               flows: bindings.flowRegistry,
               tools: bindings.toolRegistry,
               agents: bindings.agentRegistry,
-              ...(bindings.agentPinned !== undefined && { agentPinned: bindings.agentPinned }),
+              ...(bindings.agentPins !== undefined && { agentPins: bindings.agentPins }),
               toolPins,
               tenantId,
               projectId: targetProjectId,
@@ -1329,6 +1370,7 @@ export function deploymentsRouter(
     let outcome: DeploymentRegisterOutcome;
     try {
       outcome = await bindings.deploymentRegistry.register({
+        deploymentId,
         tenantId,
         imageRef: wire.imageRef,
         imageDigest,
@@ -1358,7 +1400,14 @@ export function deploymentsRouter(
           guardrails: validated.guardrails.map((g) => ({ id: g.id as unknown as string })),
           agents: deployedAgents,
           flows: deployedFlows,
+          blocks: validated.blocks.map((b) => ({
+            id: b.id as unknown as string,
+            version: b.version as unknown as string,
+          })),
         },
+        ...(wire.source !== undefined && {
+          source: { ...wire.source, blockFiles: Object.fromEntries(validated.blockFiles) },
+        }),
       });
     } catch (cause) {
       await rollback(rolled, c.get('log'));
@@ -1385,6 +1434,38 @@ export function deploymentsRouter(
     }
 
     await notifyWrites(tenantId, validated, bindings);
+    for (const block of publishedBlocks) {
+      await emitAuditEvent({
+        auditEvents: bindings.auditEvents,
+        tenantId,
+        ...(targetProjectId !== undefined && { projectId: targetProjectId }),
+        kind: 'block-version-published',
+        actor: callerIdentity(c),
+        outcome: 'succeeded',
+        correlationId: requestId,
+        doc: {
+          blockId: block.id,
+          version: block.version,
+          kind: block.kind,
+          source: { kind: 'deploy', id: outcome.deployment.deploymentId },
+        },
+        log: c.get('log').child({ subsystem: 'audit' }),
+      });
+    }
+    if (targetProjectId !== undefined) {
+      // The agent versions this deploy wrote: each has its rollback.
+      const written = new Set(rolled.filter((a) => a.primitive === 'agent').map((a) => a.id));
+      await makeDeployCards(c, bindings, {
+        tenantId,
+        projectId: targetProjectId,
+        deploymentId: outcome.deployment.deploymentId,
+        imageDigest,
+        by: actorOf(c),
+        agents: deployedAgents
+          .filter((a) => written.has(`${a.id}@${a.version}`))
+          .map((a) => ({ agentId: a.id as AgentId, version: a.version as Semver })),
+      });
+    }
     c.status(201);
     return c.json(serializeDeployment(outcome.deployment));
   });
@@ -1683,7 +1764,15 @@ interface WireBody {
   readonly publishedAt: string;
   /** The project to deploy into; absent: the tenant's Default project. */
   readonly projectId?: ProjectId;
+  /** Where the pack lives in git, when the client said. */
+  readonly source?: WireSource;
 }
+
+/**
+ * `source` as the client sends it: `DeploymentSource` less its block
+ * files, which the image's index says (each block's `modulePath`).
+ */
+type WireSource = Omit<DeploymentSource, 'blockFiles'>;
 
 interface Issue {
   readonly path: string;
@@ -1754,6 +1843,7 @@ function parseWireBody(body: unknown): ParseResult {
   if (projectId !== undefined && (typeof projectId !== 'string' || !UUID_RE.test(projectId))) {
     issues.push({ path: 'projectId', message: 'projectId must be a project id (a UUID)' });
   }
+  const source = parseSource(b.source, issues);
 
   if (issues.length > 0) {
     return {
@@ -1773,8 +1863,104 @@ function parseWireBody(body: unknown): ParseResult {
       signature: signature as string,
       publishedAt: publishedAt as string,
       ...(typeof projectId === 'string' && { projectId: projectId as unknown as ProjectId }),
+      ...(source !== undefined && { source }),
     },
   };
+}
+
+/** `host/owner/name`, a group path standing for the owner allowed: no scheme, user or token. */
+const REPO_RE = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?:\/[A-Za-z0-9_.-]+){2,}$/;
+const COMMIT_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+const SOURCE_TEXT_MAX = 1024;
+
+/**
+ * The body's `source`, or `undefined` when it has none or it's refused
+ * (each problem pushed onto `issues`). A field it doesn't know is
+ * ignored, as the body's are.
+ */
+function parseSource(raw: unknown, issues: Issue[]): WireSource | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    issues.push({ path: 'source', message: 'source must be an object' });
+    return undefined;
+  }
+  const { repo, path, commit, branch, dirty } = raw as Record<string, unknown>;
+  const before = issues.length;
+  if (
+    repo !== undefined &&
+    (typeof repo !== 'string' ||
+      repo.length > SOURCE_TEXT_MAX ||
+      !REPO_RE.test(repo) ||
+      repo.split('/').some((segment) => segment === '.' || segment === '..'))
+  ) {
+    issues.push({
+      path: 'source.repo',
+      message: 'source.repo must be host/owner/name, with no scheme, user or token',
+    });
+  }
+  if (typeof path !== 'string' || (path !== '.' && !isRelativeFile(path))) {
+    issues.push({
+      path: 'source.path',
+      message: "source.path must be the pack's folder relative to the repository's root, or .",
+    });
+  }
+  if (typeof commit !== 'string' || !COMMIT_RE.test(commit)) {
+    issues.push({
+      path: 'source.commit',
+      message: 'source.commit must be a full commit id, 40 or 64 lowercase hex',
+    });
+  }
+  if (branch !== undefined && (typeof branch !== 'string' || !isBranchName(branch))) {
+    issues.push({ path: 'source.branch', message: 'source.branch must be a branch name' });
+  }
+  if (typeof dirty !== 'boolean') {
+    issues.push({ path: 'source.dirty', message: 'source.dirty must be true or false' });
+  }
+  if (issues.length > before) return undefined;
+  return {
+    ...(repo !== undefined && { repo: repo as string }),
+    path: path as string,
+    commit: commit as string,
+    ...(branch !== undefined && { branch: branch as string }),
+    dirty: dirty as boolean,
+  };
+}
+
+/** A path relative to a folder, `/`-separated, that stays inside it. */
+function isRelativeFile(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= SOURCE_TEXT_MAX &&
+    !value.includes('\\') &&
+    !hasControlCharacter(value) &&
+    value.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..')
+  );
+}
+
+function hasControlCharacter(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
+/** A name `git check-ref-format --branch` takes, short of what only git knows. */
+function isBranchName(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= 255 &&
+    !/[ ~^:?*[\\]/.test(value) &&
+    !hasControlCharacter(value) &&
+    !value.includes('..') &&
+    !value.includes('@{') &&
+    !value.startsWith('-') &&
+    !value.startsWith('/') &&
+    !value.endsWith('/') &&
+    !value.endsWith('.') &&
+    !value.endsWith('.lock') &&
+    !value.includes('//')
+  );
 }
 
 /** `400 deployment-validation-failed`, naming each issue. */
@@ -1943,6 +2129,11 @@ interface ValidatedPrimitives {
   readonly flows: readonly import('@kindgi/flow').Flow[];
   /** The pack's data blocks (`blocks/`), each a valid block. */
   readonly blocks: readonly BlockDefinition[];
+  /**
+   * Each block's file in the pack by id: its `modulePath` in the index,
+   * where that's a path inside the pack. A deploy's `source` keeps them.
+   */
+  readonly blockFiles: ReadonlyMap<string, string>;
 }
 
 type ValidateResult =
@@ -2542,13 +2733,14 @@ function validatePrimitives(
   });
 
   const validatedBlocks: BlockDefinition[] = [];
+  const blockFiles = new Map<string, string>();
   blocks.forEach((raw, i) => {
     if (raw === null || typeof raw !== 'object') {
       details.push({ primitive: 'block', index: i, path: '', message: 'must be an object' });
       return;
     }
     // Its file in the pack (`modulePath`) is where the pack keeps it, not part of the block.
-    const { modulePath: _mp, ...definition } = raw as Record<string, unknown>;
+    const { modulePath, ...definition } = raw as Record<string, unknown>;
     const r = validateBlock(definition);
     if (r.kind === 'err') {
       const idBase: Partial<ValidationDetail> =
@@ -2567,6 +2759,9 @@ function validatePrimitives(
       return;
     }
     validatedBlocks.push(r.value);
+    if (typeof modulePath === 'string' && isRelativeFile(modulePath)) {
+      blockFiles.set(r.value.id as unknown as string, modulePath);
+    }
   });
 
   if (details.length > 0) {
@@ -2581,6 +2776,7 @@ function validatePrimitives(
       agents: validatedAgents,
       flows: validatedGraphs,
       blocks: validatedBlocks,
+      blockFiles,
     },
   };
 }
@@ -2837,7 +3033,13 @@ async function registerAgents(input: {
 
   if (tools === undefined || blockPins === undefined) {
     for (const [index, agent] of input.defined.entries()) {
-      const outcome = await agents.publish({ tenantId, projectId, agent, enqueueTuples });
+      const outcome = await agents.publish({
+        tenantId,
+        projectId,
+        agent,
+        madeFor: 'latest',
+        enqueueTuples,
+      });
       if (outcome.kind === 'ok') written(outcome.agentId, outcome.version);
       else if (outcome.kind === 'already-registered') {
         const agentId = agent.id;
@@ -2900,7 +3102,8 @@ async function registerFlows(input: {
   readonly flows: FlowRegistryBinding;
   readonly tools: ToolRegistryBinding | undefined;
   readonly agents: AgentRegistryBinding | undefined;
-  readonly agentPinned?: AgentPinnedVersionBinding;
+  /** The agents' pins and Latest: an agent step with no version pins what runs in the flow's project. */
+  readonly agentPins?: Pick<AgentPinBindings, 'pinned' | 'latest'>;
   /** The tools' pins for the deploy's project, shared with its agents. */
   readonly toolPins: ToolPinLookup | undefined;
   readonly tenantId: TenantId;
@@ -2910,7 +3113,7 @@ async function registerFlows(input: {
   readonly referenceScope: ReferenceScopeBinding | undefined;
   readonly rolled: RollbackAction[];
 }): Promise<DeployedFlow[]> {
-  const { flows, tools, agents, agentPinned, toolPins, tenantId, projectId, rolled } = input;
+  const { flows, tools, agents, agentPins, toolPins, tenantId, projectId, rolled } = input;
   const enqueueTuples = (flowId: string) =>
     tuplesForCreate({ kind: 'flow', id: flowId as FlowId, tenantId, projectId });
   const written = (flowId: FlowId, version: string) =>
@@ -2954,7 +3157,7 @@ async function registerFlows(input: {
     agents,
     tenantId,
     input.defined,
-    agentPinned !== undefined ? { binding: agentPinned, projectId } : undefined,
+    agentPins !== undefined ? { bindings: agentPins, projectId } : undefined,
     toolPins,
   );
   const deployed: DeployedFlow[] = [];

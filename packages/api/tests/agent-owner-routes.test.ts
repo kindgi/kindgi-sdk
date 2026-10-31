@@ -97,6 +97,9 @@ function makeBinding(withOwner = true): {
     async reinstateVersion({ agentId, version }) {
       return { kind: 'not-found', agentId, version };
     },
+    async markLatest({ agentId, version }) {
+      return { kind: 'not-found', agentId, version };
+    },
     ...(withOwner && {
       async setOwner(input: AgentSetOwnerInput) {
         calls.push(input);

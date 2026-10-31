@@ -8,6 +8,7 @@ import type { FlowVersionOverrides } from '@kindgi/flow';
 import type { RunReplayRef } from '@kindgi/runtime';
 import type { ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
+import type { TestRunJudging } from './answer-check-binding.js';
 import type {
   AgentRef,
   FlowRef,
@@ -151,6 +152,11 @@ export interface DispatchContext {
   readonly projectId?: ProjectId;
   /** A comparison test run's baseline, reads and repetitions. */
   readonly comparison?: TestRunComparison;
+  /**
+   * Whose model checks the answers it grades (`TestRunStartInput.judging`).
+   * Absent: the tested version's own model.
+   */
+  readonly judging?: TestRunJudging;
   onProgress(perCase: Readonly<Record<string, unknown>>): void;
 }
 
@@ -401,6 +407,7 @@ export function createInProcessTestRunBinding(
             subject: options.subject,
             projectId: input.projectId,
             ...(input.comparison !== undefined && { comparison: input.comparison }),
+            ...(input.judging !== undefined && { judging: input.judging }),
             onProgress: (perCaseEntry: Readonly<Record<string, unknown>>) => {
               const current = runs.get(testRunId as unknown as string);
               if (current === undefined) return;

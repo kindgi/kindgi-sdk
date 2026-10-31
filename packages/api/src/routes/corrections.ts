@@ -847,19 +847,8 @@ async function prepareCorrection(
   ) {
     return err('permission-denied', `Not allowed to correct run "${body.runId}".`);
   }
-  // An erasure cleared its content: there's nothing to correct (T273 M-5).
-  if (run.contentErasedAt !== undefined) {
-    return err(
-      'run-erased',
-      `Run "${body.runId}" was erased (a person's words were removed): there's nothing to correct.`,
-    );
-  }
-  if (run.status !== 'completed' || run.output === undefined || run.output === null) {
-    return err(
-      'run-not-finished',
-      `Run "${body.runId}" has no output to correct yet (status ${run.status}).`,
-    );
-  }
+  const unfinished = unfinishedRun(run, body.runId);
+  if (unfinished !== undefined) return err(unfinished.code, unfinished.message);
   const subject = subjectOf(run);
   const projectId = run.projectId as unknown as ProjectId;
   let expert = false;
@@ -903,16 +892,48 @@ async function prepareCorrection(
     ...(expert && { expert: true as const }),
     ...(run.replayOf != null && { replayOf: run.replayOf as unknown as string }),
   };
-  const missing = (body.items ?? []).find(
-    (item) => item.pointer !== undefined && !resolvePointer(run.output, item.pointer).found,
-  );
-  if (missing?.pointer !== undefined) {
-    return err(
-      'item-not-found',
-      `Nothing at "${missing.pointer}" in run "${body.runId}"'s output.`,
-    );
-  }
+  const missing = missingItem(run.output, body.runId, body.items);
+  if (missing !== undefined) return err(missing.code, missing.message);
   return { kind: 'ok', run: copy, subject, projectId, ...extra };
+}
+
+type CorrectedRun = NonNullable<Awaited<ReturnType<RunBinding['getRun']>>>;
+
+/** Why a run can't be corrected, or made a test case: an erasure cleared it, or it has no output yet. */
+export function unfinishedRun(
+  run: CorrectedRun,
+  runId: string,
+): { readonly code: string; readonly message: string } | undefined {
+  // An erasure cleared its content: there's nothing to correct (T273 M-5).
+  if (run.contentErasedAt !== undefined) {
+    return {
+      code: 'run-erased',
+      message: `Run "${runId}" was erased (a person's words were removed): there's nothing to correct.`,
+    };
+  }
+  if (run.status !== 'completed' || run.output === undefined || run.output === null) {
+    return {
+      code: 'run-not-finished',
+      message: `Run "${runId}" has no output to correct yet (status ${run.status}).`,
+    };
+  }
+  return undefined;
+}
+
+/** The first item whose pointer finds nothing in the run's output, as its refusal. */
+export function missingItem(
+  output: unknown,
+  runId: string,
+  items: readonly CorrectedAnswerItem[] | undefined,
+): { readonly code: string; readonly message: string } | undefined {
+  const missing = (items ?? []).find(
+    (item) => item.pointer !== undefined && !resolvePointer(output, item.pointer).found,
+  );
+  if (missing?.pointer === undefined) return undefined;
+  return {
+    code: 'item-not-found',
+    message: `Nothing at "${missing.pointer}" in run "${runId}"'s output.`,
+  };
 }
 
 /**
@@ -920,7 +941,7 @@ async function prepareCorrection(
  * turn's history and retrieved context; a flow run's tool calls with
  * their results.
  */
-function captureContext(input: {
+export function captureContext(input: {
   readonly tenantId: TenantId;
   readonly runId: string;
   readonly subject: CorrectedSubject;
@@ -949,7 +970,7 @@ function captureContext(input: {
 }
 
 /** Whether the run has no live correction yet (its copy is stored with the first). */
-async function isFirstCorrection(
+export async function isFirstCorrection(
   binding: CorrectionRegistryBinding,
   tenantId: TenantId,
   runId: string,
@@ -973,7 +994,7 @@ async function applicableGroup(
 
 // ---------- request parsing ----------
 
-interface CorrectionBody {
+export interface CorrectionBody {
   readonly runId: string;
   readonly decisions?: Verdict;
   readonly shouldCall?: readonly ExpectedCall[];
@@ -986,7 +1007,7 @@ interface CorrectionBody {
   readonly participantId?: string;
 }
 
-type Parsed<T> =
+export type Parsed<T> =
   | { readonly kind: 'ok'; readonly body: T }
   | { readonly kind: 'err'; readonly message: string };
 
@@ -1008,7 +1029,7 @@ const OLD_FIELDS: Readonly<Record<string, string>> = {
   correction: 'shouldCall and mustNotCall',
 };
 
-function parseCorrectionBody(raw: unknown): Parsed<CorrectionBody> {
+export function parseCorrectionBody(raw: unknown): Parsed<CorrectionBody> {
   const err = (message: string): Parsed<CorrectionBody> => ({ kind: 'err', message });
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     return err('Send a JSON object.');
@@ -1335,7 +1356,7 @@ function groupNotFound(c: Context<AppEnv>, id: string): Response {
 }
 
 /** The caller as a correction records it, from the request's principal. */
-function madeByOf(
+export function madeByOf(
   principal: AppEnv['Variables']['principal'] | undefined,
 ): CorrectionMadeBy | undefined {
   if (principal === undefined) return undefined;
@@ -1350,7 +1371,7 @@ function madeByOf(
  * single tool list) and when the version cannot be resolved — a correction
  * outlives its version — so it never blocks an otherwise valid correction.
  */
-async function unknownCorrectionTool(
+export async function unknownCorrectionTool(
   tenantId: TenantId,
   subject: CorrectedSubject,
   body: Pick<CorrectionBody, 'shouldCall' | 'mustNotCall'>,
@@ -1369,7 +1390,7 @@ async function unknownCorrectionTool(
 }
 
 /** What a run ran: its agent at a version (agent turns), else its flow. */
-function subjectOf(run: {
+export function subjectOf(run: {
   readonly flowId: string;
   readonly flowVersion: string;
   readonly agent?: { readonly id: string; readonly version: string };

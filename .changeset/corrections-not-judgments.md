@@ -9,7 +9,7 @@
 
 **A judgment is now a correction, in the API, the clients, the CLI and the docs.** This is a breaking rename, and no old name is kept.
 
-- **Routes.** `/v1/judgments` is `/v1/corrections`, and `/v1/judgments/{judgmentId}/unregister` is `/v1/corrections/{correctionId}/remove`. `/v1/eval-suites/{suiteId}/versions/from-judgments` is `/v1/eval-suites/{suiteId}/versions/from-corrections`. The retention domain `judgment` is `correction`, as in `POST /v1/retention/sweep/correction`.
+- **Routes.** `/v1/judgments` is `/v1/corrections`, and `/v1/judgments/{judgmentId}/unregister` is `/v1/corrections/{correctionId}/remove`. The retention domain `judgment` is `correction`, as in `POST /v1/retention/sweep/correction`.
 - **Fields.**
   - `judgmentId` is `correctionId`, and `judgmentIds` is `correctionIds`.
   - A proposal's `evidence.judgmentIds` is `evidence.fixes`.

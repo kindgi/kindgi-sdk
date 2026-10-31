@@ -8,7 +8,7 @@ import { type Flow, type FlowError, flowPinsDigest, loadFlow } from '@kindgi/flo
 import type { Cursor, FlowId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
-import type { AgentPinnedVersionBinding } from '../agent-pin-binding.js';
+import type { AgentPinBindings } from '../agent-pin-binding.js';
 import { type UnpinnableRef, toolPinLookup } from '../agent-pins.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
@@ -656,8 +656,8 @@ function flowPinnedItem(
 export interface FlowPinning {
   readonly tools: ToolRegistryBinding;
   readonly agents: AgentRegistryBinding;
-  /** The agents' pinned versions: an agent step pins the one pinned for the flow's project. */
-  readonly agentPinned?: AgentPinnedVersionBinding;
+  /** The agents' pins and Latest: an agent step pins what runs in the flow's project (`whatRuns`). */
+  readonly agentPins?: Pick<AgentPinBindings, 'pinned' | 'latest'>;
   /** The tools' pinned versions: a tool step pins the one pinned for the flow's project. */
   readonly pinned?: PinnedVersionBinding;
 }
@@ -678,7 +678,7 @@ async function pinFlow(
     pinning.agents,
     tenantId,
     flow,
-    pinning.agentPinned !== undefined ? { binding: pinning.agentPinned, projectId } : undefined,
+    pinning.agentPins !== undefined ? { bindings: pinning.agentPins, projectId } : undefined,
     toolPinLookup(pinning.pinned, projectId),
   );
   if (resolved.kind === 'unpinnable') return resolved;

@@ -3,16 +3,19 @@
 
 import { readFile } from 'node:fs/promises';
 
-import type {
-  ListPage,
-  SuggestedChange,
-  SuggestedChangeContent,
-  SuggestedChangeStatus,
+import {
+  type Correction,
+  KindgiApiError,
+  type KindgiClient,
+  type ListPage,
+  type SuggestedChange,
+  type SuggestedChangeContent,
+  type SuggestedChangeStatus,
 } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
-import { SCOPE_FLAGS, SCOPE_USAGE, scopeCell, scopeFrom } from './agents.js';
+import { renderJson } from '../output.js';
 import {
   type TableSpec,
   integerFlag,
@@ -20,55 +23,58 @@ import {
   readJsonInput,
   requiredPositional,
   runSdk,
+  runSdkRendered,
   stringFlag,
 } from './helpers.js';
-import { GROUP_WEIGHTS, READS, followTestRun, oneOfFlag } from './test-runs.js';
+import { followTestRun, oneOfFlag } from './test-runs.js';
 import type { Command, LeafCommand } from './types.js';
 
 /**
  * `kindgi suggested-changes`: suggested changes. New content for one data
- * block an agent version pins, for one pinned scope: drafted, evaluated on
- * a test set, then requested (a pin of the candidate through the
- * scope's gate).
+ * block in what a project runs: made and checked on the project's test
+ * set, then pinned (through the project's gate) or added as the project's
+ * Latest.
  */
 
 const STATUSES: readonly SuggestedChangeStatus[] = [
-  'draft',
-  'evaluating',
-  'evaluated',
-  'not-better',
-  'evaluation-failed',
-  'in-review',
+  'checking',
+  'check-failed',
+  'ready',
+  'waiting-for-second-person',
   'pinned',
-  'refused',
-  'rejected',
-  'expired',
-  'superseded',
-  'rolled-back',
+  'added-as-latest',
   'withdrawn',
 ];
-const TIERS = ['settings-block', 'prompt-block'] as const;
 export const OBJECTIVES = ['passRate', 'weightedPrecisionAtK'] as const;
 
-/** The status `evaluate --wait` waits through. */
-const EVALUATING: ReadonlySet<string> = new Set(['evaluating']);
+/** The status `check --wait` waits through. */
+const CHECKING: ReadonlySet<string> = new Set(['checking']);
 
-/** A delta with its sign, `+0.120`; `-` before there is one. */
-function deltaCell(p: SuggestedChange): string {
-  const delta = p.evaluation?.delta;
-  if (delta === undefined || delta === null) return '-';
-  return `${delta > 0 ? '+' : ''}${delta.toFixed(3)}`;
+/** How its version did on the check, then how the version it's built on did: `25/27 (now 23/27)`. */
+function checkCell(p: SuggestedChange): string {
+  const { with: mine, now } = p.check;
+  if (mine?.passing === undefined) return p.check.status;
+  const its = `${mine.passing}/${mine.of}`;
+  return now?.passing === undefined ? its : `${its} (now ${now.passing}/${now.of})`;
 }
 
 const TABLE: TableSpec<ListPage<SuggestedChange>, SuggestedChange> = {
   rows: (page) => page.data,
   columns: [
     { header: 'ID', get: (p) => p.id },
-    { header: 'AGENT', get: (p) => `${p.agentId}@${p.fromVersion}` },
-    { header: 'SCOPE', get: (p) => scopeCell(p.scope) },
-    { header: 'BLOCK', get: (p) => `${p.change.blockId}@${p.change.fromVersion}` },
+    { header: 'AGENT', get: (p) => `${p.agentId}@${p.builtOn.version}` },
+    { header: 'PROJECT', get: (p) => p.projectId ?? '-' },
+    {
+      header: 'CHANGE',
+      get: (p) =>
+        p.changes
+          .map((c) =>
+            c.kind === 'block' ? `${c.blockId}@${c.from}` : `code (deploy ${c.deploymentId})`,
+          )
+          .join(', '),
+    },
     { header: 'STATUS', get: (p) => p.status },
-    { header: 'DELTA', get: deltaCell },
+    { header: 'CHECK', get: checkCell },
     { header: 'CREATED', get: (p) => p.createdAt },
   ],
 };
@@ -100,12 +106,12 @@ const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description:
-    'List suggested changes, newest first: only those of agents you can read. A scope flag keeps the suggested changes for exactly that scope. A status filter is applied after the page is read, so a page can hold fewer than --limit.',
-  usage: `kindgi suggested-changes list [--agent=<agent-id>] [${SCOPE_USAGE}] [--tier=settings-block|prompt-block] [--status=<status>] [--limit=<n>] [--cursor=<cursor>] [--table]`,
+    'List suggested changes, newest first: only those of agents you can read. A status filter is applied after the page is read, so a page can hold fewer than --limit.',
+  usage:
+    'kindgi suggested-changes list [--agent=<agent-id>] [--project=<project-id>] [--status=<status>] [--limit=<n>] [--cursor=<cursor>] [--table]',
   optionSpec: {
     agent: { type: 'string', description: "Only this agent's suggested changes." },
-    ...SCOPE_FLAGS,
-    tier: { type: 'string', description: '`settings-block` or `prompt-block`.' },
+    project: { type: 'string', description: 'Only the suggested changes for this project.' },
     status: { type: 'string', description: `One of: ${STATUSES.join(', ')}.` },
     limit: { type: 'string', description: 'Page size.' },
     cursor: { type: 'string', description: 'The next page, from `nextCursor`.' },
@@ -116,15 +122,13 @@ const list: LeafCommand = {
       'suggested-changes list',
       async () => {
         const agentId = stringFlag(ctx, 'agent');
-        const scope = scopeFrom(ctx, false);
-        const tier = oneOfFlag(ctx, 'tier', TIERS);
+        const projectId = stringFlag(ctx, 'project');
         const status = oneOfFlag(ctx, 'status', STATUSES);
         const limit = integerFlag(ctx, 'limit');
         const cursor = stringFlag(ctx, 'cursor');
         return await ctx.client().suggestedChanges.list({
           ...(agentId !== undefined && { agentId }),
-          ...(scope !== undefined && { scope }),
-          ...(tier !== undefined && { tier }),
+          ...(projectId !== undefined && { projectId }),
           ...(status !== undefined && { status }),
           ...(limit !== undefined && { limit }),
           ...(cursor !== undefined && { cursor }),
@@ -138,18 +142,87 @@ const get: LeafCommand = {
   kind: 'leaf',
   name: 'get',
   description:
-    'Show a suggested change: its change, status, candidate versions, the run on the test cases it was evaluated on and its pin.',
+    "Show a suggested change: its change (the block's content before and after), status, version, and its check: how its version and the version it's built on did on the project's test cases. A correction it fixes that its author has replaced since is named on stderr, with the live one that replaced it.",
   usage: 'kindgi suggested-changes get <suggested-change-id>',
   run: (ctx) =>
-    runSdk(ctx, 'suggested-changes get', async () =>
-      ctx.client().suggestedChanges.get(requiredPositional(ctx, 0, 'suggested-change-id')),
-    ),
+    runSdkRendered(ctx, 'suggested-changes get', async () => {
+      const client = ctx.client();
+      const suggested = await client.suggestedChanges.get(
+        requiredPositional(ctx, 0, 'suggested-change-id'),
+      );
+      const rendered = renderJson(suggested, ctx.globals.format);
+      if (ctx.globals.format === 'quiet') return rendered;
+      return { ...rendered, stderr: await replacedFixes(client.corrections, suggested.fixes) };
+    }),
 };
 
+/** How many of a suggested change's fixes are read at once. */
+const FIXES_READ_AT_ONCE = 4;
+/** The most replacements followed from a fixed correction to the live one. */
+const REPLACEMENTS_FOLLOWED = 10;
+
+/** A line for each fix that was replaced since, or couldn't be checked, in `fixes` order. */
+async function replacedFixes(
+  corrections: KindgiClient['corrections'],
+  fixes: readonly string[],
+): Promise<string> {
+  let out = '';
+  for (let start = 0; start < fixes.length; start += FIXES_READ_AT_ONCE) {
+    const batch = fixes.slice(start, start + FIXES_READ_AT_ONCE);
+    out += (await Promise.all(batch.map((id) => replacedFix(corrections, id)))).join('');
+  }
+  return out;
+}
+
+/**
+ * A line for a correction the suggested change fixes that its author has
+ * replaced since: `fixes` keeps the id it names, and this names the live
+ * one, by following `supersededBy`. Empty for one not replaced, or not
+ * found. When the runtime answers another error on the way, the line says
+ * it couldn't be checked, and why.
+ */
+async function replacedFix(
+  corrections: KindgiClient['corrections'],
+  fixedId: string,
+): Promise<string> {
+  try {
+    const fixed = await found(corrections, fixedId);
+    if (fixed?.supersededBy === undefined) return '';
+    let lastId = fixed.supersededBy;
+    let last = await found(corrections, lastId);
+    for (
+      let followed = 1;
+      last?.supersededBy !== undefined && followed < REPLACEMENTS_FOLLOWED;
+      followed++
+    ) {
+      lastId = last.supersededBy;
+      last = await found(corrections, lastId);
+    }
+    // Only a correction read and not replaced is named as the live one.
+    return last === null || last.supersededBy !== undefined
+      ? `${fixedId} (in fixes) was replaced by ${lastId}.\n`
+      : `${fixedId} (in fixes) was replaced by ${lastId}, now ${last.status}.\n`;
+  } catch (err) {
+    if (!(err instanceof KindgiApiError)) throw err;
+    return `${fixedId} (in fixes): couldn't check whether it was replaced: ${err.message}\n`;
+  }
+}
+
+/** The correction, or `null` when the runtime has none by that id. */
+async function found(
+  corrections: KindgiClient['corrections'],
+  correctionId: string,
+): Promise<Correction | null> {
+  try {
+    return await corrections.get(correctionId);
+  } catch (err) {
+    if (err instanceof KindgiApiError && err.error.code === 'not-found') return null;
+    throw err;
+  }
+}
+
 /** `--values` (JSON, a settings block) or `--template` (text, a prompt block): exactly one. */
-async function contentFrom(
-  ctx: CommandContext,
-): Promise<{ tier: (typeof TIERS)[number]; content: SuggestedChangeContent }> {
+async function contentFrom(ctx: CommandContext): Promise<SuggestedChangeContent> {
   const values = stringFlag(ctx, 'values');
   const template = stringFlag(ctx, 'template');
   if (values !== undefined && template === undefined) {
@@ -157,34 +230,34 @@ async function contentFrom(
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
       throw new UsageError("--values must be a JSON object: the settings block's new values");
     }
-    return {
-      tier: 'settings-block',
-      content: { values: parsed as Readonly<Record<string, unknown>> },
-    };
+    return { values: parsed as Readonly<Record<string, unknown>> };
   }
   if (template !== undefined && values === undefined) {
     const text = template.startsWith('@') ? await readFile(template.slice(1), 'utf8') : template;
-    return { tier: 'prompt-block', content: { template: text } };
+    return { template: text };
   }
   throw new UsageError(
     "Give the new content, one of: --values=<json>|@<file> (a settings block) or --template=<text>|@<file> (the agent's instructions)",
   );
 }
 
-const draft: LeafCommand = {
+const create: LeafCommand = {
   kind: 'leaf',
-  name: 'draft',
+  name: 'create',
   description:
-    "Draft a suggested change by hand: new content for one block the agent version pins (settings values, or the agent's instructions), for one scope. The same change from the same version for the same scope returns the suggested change drafted before. Needs `publish` on the agent.",
-  usage: `kindgi suggested-changes draft --agent=<agent-id> --from-version=<semver> ${SCOPE_USAGE} --block=<block-id> (--values=<json>|@<file> | --template=<text>|@<file>) --why=<text> [--correction=<correction-id>]…`,
+    "Make a suggested change by hand: new content for one block in what the project runs (settings values, or the agent's instructions). Its block version and agent version are made, and it's checked on the project's test cases: it's `checking`. The same change on the same version for the same project returns the suggested change made before. Needs `publish` on the agent.",
+  usage:
+    'kindgi suggested-changes create --agent=<agent-id> --project=<project-id> --block=<block-id> (--values=<json>|@<file> | --template=<text>|@<file>) --why=<text> [--fixes=<correction-id>]…',
   optionSpec: {
     agent: { type: 'string', description: 'The agent.' },
-    'from-version': {
+    project: {
       type: 'string',
-      description: 'The agent version the change applies to.',
+      description: "The project it's for: it's built on what the project runs.",
     },
-    ...SCOPE_FLAGS,
-    block: { type: 'string', description: 'The data block to change; the version must pin it.' },
+    block: {
+      type: 'string',
+      description: "The data block to change; the project's version must pin it.",
+    },
     values: {
       type: 'string',
       description: "A settings block's new values: a JSON object, inline or `@<file>`.",
@@ -193,143 +266,94 @@ const draft: LeafCommand = {
       type: 'string',
       description: "The agent's instructions (a prompt block), new text: inline or `@<file>`.",
     },
-    why: { type: 'string', description: 'What the change should improve, and why.' },
-    correction: {
+    why: { type: 'string', description: 'What the change should fix, and why.' },
+    fixes: {
       type: 'string',
       multiple: true,
-      description: 'A correction behind the change (repeatable): kept as evidence.',
+      description: 'A correction the change fixes (repeatable).',
     },
     ...IDEMPOTENCY_FLAG,
   },
   run: (ctx) =>
-    runSdk(ctx, 'suggested-changes draft', async () => {
+    runSdk(ctx, 'suggested-changes create', async () => {
       const agentId = required(ctx, 'agent');
-      const fromVersion = required(ctx, 'from-version');
-      const scope = scopeFrom(ctx, true);
-      const blockId = required(ctx, 'block');
+      const projectId = required(ctx, 'project');
+      const block = required(ctx, 'block');
       const why = required(ctx, 'why');
-      const { tier, content } = await contentFrom(ctx);
-      const fixes = listFlag(ctx, 'correction');
+      const content = await contentFrom(ctx);
+      const fixes = listFlag(ctx, 'fixes');
       return await ctx.client().suggestedChanges.create({
         agentId,
-        fromVersion,
-        scope,
-        tier,
-        change: { blockId, content },
+        projectId,
+        block,
+        ...content,
         why,
-        ...(fixes.length > 0 && { evidence: { fixes } }),
+        ...(fixes.length > 0 && { fixes }),
         ...idempotency(ctx),
       });
     }),
 };
 
-const evaluate: LeafCommand = {
+const check: LeafCommand = {
   kind: 'leaf',
-  name: 'evaluate',
+  name: 'check',
   description:
-    'Evaluate a suggested change on the test cases: a run on the test cases that tries the candidate against the version it changes. The first evaluation publishes the block version and derives the agent version; they serve no scope until pinned, so the agent needs a pinned version for the whole tenant (`kindgi agents pin <agent-id> <version> --tenant`). The suggested change is `evaluating`, then `evaluated` (better), `not-better` or `evaluation-failed`. With `--rescore`, after people corrected the new answers of its replay runs: the latest evaluation scored again, counting those corrections, on the same replays (no other flag). Needs `publish` on the agent.',
-  usage:
-    'kindgi suggested-changes evaluate <suggested-change-id> --test-set=<test-set-id> [--objective=passRate|weightedPrecisionAtK] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--group-weights=as-recorded|experts-only] [--wait]\n       kindgi suggested-changes evaluate <suggested-change-id> --rescore [--wait]',
+    "Check a suggested change again on the project's test cases, frozen now, so new corrections count: its version and the version it's built on run the same cases. When the project now runs another version, it's rebuilt on that version first. The suggested change is `checking`, then `ready` (its check says how each did) or `check-failed`. Allowed when `ready` or `check-failed`. Needs `publish` on the agent.",
+  usage: 'kindgi suggested-changes check <suggested-change-id> [--wait]',
   optionSpec: {
-    'test-set': { type: 'string', description: 'The test cases: a corrections test set, by id.' },
-    objective: {
-      type: 'string',
-      description:
-        'The metric that says whether the candidate is better: `passRate` (the default) or `weightedPrecisionAtK`.',
-    },
-    reads: {
-      type: 'string',
-      description:
-        "Whether replayed reads use the past run's results when it has them (`recorded`, the default) or run live.",
-    },
-    repetitions: {
-      type: 'string',
-      description:
-        'Run each case this many times (1 to 10, default 1): a delta counts as better only above the spread.',
-    },
-    k: {
-      type: 'string',
-      description: 'How many ranked items weighted precision@k looks at (1 to 100, default 10).',
-    },
-    'group-weights': {
-      type: 'string',
-      description:
-        '`as-recorded` (the default) or `experts-only`: only corrections in expert groups count.',
-    },
-    rescore: {
-      type: 'boolean',
-      description:
-        "Score the latest evaluation's replays again, with what people corrected on them since: the same version of the test cases and settings, nothing replayed.",
-    },
     wait: {
       type: 'boolean',
       description:
-        'Wait until the evaluation is done (at most 30 minutes), then print the suggested change.',
+        'Wait until the check is done (at most 30 minutes), then print the suggested change.',
     },
     ...IDEMPOTENCY_FLAG,
   },
   run: (ctx) =>
-    runSdk(ctx, 'suggested-changes evaluate', async () => {
+    runSdk(ctx, 'suggested-changes check', async () => {
       const id = requiredPositional(ctx, 0, 'suggested-change-id');
       const suggestedChanges = ctx.client().suggestedChanges;
-      const follow = () =>
-        followTestRun(id, {
-          get: (suggestedChangeId) => suggestedChanges.get(suggestedChangeId),
-          inProgress: EVALUATING,
-          showCommand: 'kindgi suggested-changes get',
-        });
-      if (ctx.options.rescore === true) {
-        const set = COMPARISON_FLAGS.filter((flag) => ctx.options[flag] !== undefined);
-        if (set.length > 0) {
-          throw new UsageError(
-            `--rescore cannot be combined with --${set[0]}: it reruns the latest evaluation's version of the test cases and settings`,
-          );
-        }
-        const started = await suggestedChanges.rescore(id, { ...idempotency(ctx) });
-        return ctx.options.wait === true ? await follow() : started;
-      }
-      const testSetId = required(ctx, 'test-set');
-      const objective = oneOfFlag(ctx, 'objective', OBJECTIVES);
-      const reads = oneOfFlag(ctx, 'reads', READS);
-      const groupWeights = oneOfFlag(ctx, 'group-weights', GROUP_WEIGHTS);
-      const repetitions = integerFlag(ctx, 'repetitions');
-      const k = integerFlag(ctx, 'k');
-      const started = await suggestedChanges.evaluate(id, {
-        testSetId,
-        ...(objective !== undefined && { objective }),
-        ...(reads !== undefined && { reads }),
-        ...(repetitions !== undefined && { repetitions }),
-        ...(k !== undefined && { k }),
-        ...(groupWeights !== undefined && { groupWeights }),
-        ...idempotency(ctx),
+      const started = await suggestedChanges.check(id, { ...idempotency(ctx) });
+      if (ctx.options.wait !== true) return started;
+      return await followTestRun(id, {
+        get: (suggestedChangeId) => suggestedChanges.get(suggestedChangeId),
+        inProgress: CHECKING,
+        showCommand: 'kindgi suggested-changes get',
       });
-      return ctx.options.wait === true ? await follow() : started;
     }),
 };
 
-/** The evaluate flags a rescore takes from the evaluation it rescores. */
-const COMPARISON_FLAGS = [
-  'test-set',
-  'objective',
-  'reads',
-  'repetitions',
-  'k',
-  'group-weights',
-] as const;
-
-const request: LeafCommand = {
+const pin: LeafCommand = {
   kind: 'leaf',
-  name: 'request',
+  name: 'pin',
   description:
-    "Ask to pin a suggested change: its candidate version, for its scope, through the scope's release gate with its evaluation. The suggested change is `pinned`, or `in-review` (a reviewer decides the approval to pin it: `kindgi approvals complete`); a refusal by the release gate lists every check. Allowed once evaluated, also when `not-better`: the release gate decides. Needs `pin` on the agent.",
-  usage: 'kindgi suggested-changes request <suggested-change-id> [--reason=<text>]',
+    "Pin a suggested change's version for its project, through the project's release gate with its check. The suggested change is `pinned`, or `waiting-for-second-person` (a reviewer decides the approval: `kindgi approvals complete`); a refusal by the release gate lists every check, and leaves it `ready`. Allowed when `ready`, for a project that runs a pin. Needs `pin` on the agent.",
+  usage: 'kindgi suggested-changes pin <suggested-change-id> [--reason=<text>]',
   optionSpec: {
-    reason: { type: 'string', description: 'Why, kept on the pin request.' },
+    reason: { type: 'string', description: 'Why, kept on the request to pin it.' },
     ...IDEMPOTENCY_FLAG,
   },
   run: (ctx) =>
-    runSdk(ctx, 'suggested-changes request', async () =>
+    runSdk(ctx, 'suggested-changes pin', async () =>
       ctx.client().suggestedChanges.pin(requiredPositional(ctx, 0, 'suggested-change-id'), {
+        ...reasonFlag(ctx),
+        ...idempotency(ctx),
+      }),
+    ),
+};
+
+const addAsLatest: LeafCommand = {
+  kind: 'leaf',
+  name: 'add-as-latest',
+  description:
+    "Add a suggested change's version as its project's Latest, for a project that runs its Latest: the project runs it from now on, with no release gate. The suggested change is `added-as-latest`. Allowed when `ready`. Needs `pin` on the agent.",
+  usage: 'kindgi suggested-changes add-as-latest <suggested-change-id> [--reason=<text>]',
+  optionSpec: {
+    reason: { type: 'string', description: 'Why, kept on its `addedAsLatest`.' },
+    ...IDEMPOTENCY_FLAG,
+  },
+  run: (ctx) =>
+    runSdk(ctx, 'suggested-changes add-as-latest', async () =>
+      ctx.client().suggestedChanges.addAsLatest(requiredPositional(ctx, 0, 'suggested-change-id'), {
         ...reasonFlag(ctx),
         ...idempotency(ctx),
       }),
@@ -340,7 +364,7 @@ const withdraw: LeafCommand = {
   kind: 'leaf',
   name: 'withdraw',
   description:
-    'Withdraw a suggested change before review, or after its pin request was refused, superseded or expired. Needs `publish` on the agent.',
+    'Withdraw a suggested change: while `checking`, `check-failed` or `ready`, not while a second person decides its pin. Needs `publish` on the agent.',
   usage: 'kindgi suggested-changes withdraw <suggested-change-id> --reason=<text>',
   optionSpec: {
     reason: { type: 'string', description: 'Why, kept on the record (required).' },
@@ -359,6 +383,6 @@ export const suggestedChangesCommand: Command = {
   kind: 'group',
   name: 'suggested-changes',
   description:
-    "Suggested changes: new content for a data block an agent pins, for one scope; evaluated on the test cases, then pinned through the scope's release gate (list / get / draft / evaluate / request / withdraw).",
-  subcommands: [list, get, draft, evaluate, request, withdraw],
+    "Suggested changes: new content for a data block in what a project runs; checked on the project's test cases, then pinned through the project's release gate, or added as the project's Latest (list / get / create / check / pin / add-as-latest / withdraw).",
+  subcommands: [list, get, create, check, pin, addAsLatest, withdraw],
 };

@@ -17,16 +17,15 @@ recorded runs.
 
 ## Before you start
 
-- **Test cases,** as [Build test cases from corrections](../build-a-test-set/)
-  shows, and the new version of their agent or flow. Under `kindgi dev`,
+- **Test cases:** the agent's [test set](../build-a-test-set/), and the new version of their agent or flow. Under `kindgi dev`,
   saving the agent's file with its new `version` is enough. On a runtime you
   deploy to, deploy the new version first.
-- **Kindgi 0.2's CLI**, and the project's id.
-- **The right to start one:** an editor of the test cases' project, or anyone
-  who may execute the test cases, who may write to the project the run lands
-  in and run its agent or flow.
+- **Kindgi 0.4's CLI**, and the project's id.
+- **The right to start one:** write on the project the run lands in, and the
+  right to run its agent or flow. A test set other than the agent's own also
+  takes the right to execute it, which its project's editors have.
 - **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
-  Kindgi 0.2's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+  Kindgi 0.4's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
 
 ## Try a version on the test cases
 
@@ -48,35 +47,39 @@ The test cases keep their copies of the 0.1.0 runs. Try 0.2.0 on them:
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi test-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+pnpm exec kindgi test-runs start agent.acme-ops.article-picker.<project-id> --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi test-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+uv run kindgi test-runs start agent.acme-ops.article-picker.<project-id> --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw test-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+./kindgiw test-runs start agent.acme-ops.article-picker.<project-id> --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw test-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
+./kindgiw test-runs start agent.acme-ops.article-picker.<project-id> --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
 ```
 
 </TabItem>
 </Tabs>
 
-- `acme.article-picks` names the test cases.
-- `--project=<project-id>` is the project the replay runs land in.
+- `agent.acme-ops.article-picker.<project-id>` is the agent's
+  [test set](../build-a-test-set/) in the project: `agent.`, the agent's id,
+  a dot, and the project's id.
+- `--project=<project-id>` is the project the replay runs land in. It's the
+  test set's project: another agent or project is refused with
+  `400 bad-input`, and the message names the test set id this run would take.
 - `--agent` and `--agent-version` are the version to try.
 - `--wait` waits for the run to finish.
 
@@ -85,6 +88,8 @@ It prints the run, with its metrics:
 ```json
 {
   "testRunId": "b0b9f27a-14d9-4a4d-bc46-31aea6948d5f",
+  "testSetId": "agent.acme-ops.article-picker.<project-id>",
+  "testSetVersion": "1.0.3",
   "status": "completed",
   "result": {
     "summary": {
@@ -111,6 +116,19 @@ It prints the run, with its metrics:
 Without `--wait`, the command returns the run's id at once, and
 `kindgi test-runs show <test-run-id>` reads it later.
 
+**The run freezes the test set first:** its cases as they are when it starts,
+as a version of the set (`1.0.<n>`), which the run records as
+`testSetVersion`. A new version is made only when the cases changed since
+the newest; otherwise that one runs again. So two runs of different versions
+compare on the same cases, unless a case was added or retired between them.
+With no cases yet, the run is refused with
+`409 suggested-change-nothing-to-check`, and a runtime that doesn't freeze a
+project's test set answers `501 suggested-change-check-unsupported`.
+
+A [suggested change's check](../suggest-a-change/#its-check) runs the same two
+test runs for you: its version and the version it's built on, on one frozen
+version of the set.
+
 From your code, ask your coding agent: "I want a script that tries my
 new agent version on my test cases, and shows me the scores." For reference,
 the script looks like this, with the project's id as its argument:
@@ -125,9 +143,9 @@ import { comparisonOf, createClient } from '@kindgi/sdk/client';
 const kindgi = createClient(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 const projectId = process.argv[2];
 
-// Replay version 0.2.0 on each case of the test set.
+// Replay version 0.2.0 on each case of the agent's test set in the project.
 const { testRunId } = await kindgi.testRuns.start(
-  'acme.article-picks',
+  `agent.acme-ops.article-picker.${projectId}`,
   { agentRef: { agentId: 'acme-ops.article-picker', version: '0.2.0' } },
   { projectId },
 );
@@ -163,9 +181,9 @@ from kindgi.client import Kindgi, comparison_of
 kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 project_id = sys.argv[1]
 
-# Replay version 0.2.0 on each case of the test set.
+# Replay version 0.2.0 on each case of the agent's test set in the project.
 started = kindgi.test_runs.start(
-    "acme.article-picks",
+    f"agent.acme-ops.article-picker.{project_id}",
     project_id=project_id,
     agent_ref={"agent_id": "acme-ops.article-picker", "version": "0.2.0"},
 )
@@ -214,10 +232,10 @@ public final class Compare {
     Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
     UUID projectId = UUID.fromString(args[0]);
 
-    // Replay version 0.2.0 on each case of the test set.
+    // Replay version 0.2.0 on each case of the agent's test set in the project.
     StartTestRunResult started =
         kindgi.testRuns().start(
-            "acme.article-picks",
+            "agent.acme-ops.article-picker." + projectId,
             StartTestRunBody.builder()
                 .projectId(projectId)
                 .agentRef(
@@ -303,6 +321,12 @@ An item none of them corrected counts as not corrected. In TypeScript, it's
 `group_weights="experts-only"`. The summary says which it used, in
 `groupWeights`, `as-recorded` by default.
 
+On an agent's test set, it grades only experts' cases, which have
+`expert: true`: a correction's case when the correction was made under a
+restricted expert group, and every case added by hand, since adding one
+takes `publish` on the agent (or `write` on its project). No other case's
+[`expect`](#what-a-case-expects) is graded.
+
 On three test cases, one of them corrected only under a group restricted
 afterwards:
 
@@ -377,6 +401,55 @@ With `--group-weights=experts-only`, only the ones made under an
 expert group are checked. No release gate checks them: read them
 before you [pin the version](../release-an-agent-version/#check-before-you-pin-it).
 
+### What a case expects
+
+A case of an [agent's test set](../build-a-test-set/#what-a-case-expects)
+is graded on its `expect`, part by part, on each repetition:
+
+| The case expects | A repetition passes it when |
+|---|---|
+| `decisions: "wrong"` | It calls every `shouldCall` tool (with its `args` where given) and none of `mustNotCall`, checked exactly |
+| `decisions: "right"` | It calls the same tools the recorded run called, by id, in any order. A refused call counts as called |
+| `answer: "wrong"` | A judging model finds that its answer does what `shouldSay` or `why` asks |
+| `answer: "right"` | A judging model finds that its answer says what the recorded answer said |
+| `items` | Nothing: the items count toward the metrics, as above, with no pass |
+
+The case has one entry in `corrections`, under the case's id, and it's
+counted in the summary's `corrections`. A repetition passes when every
+part the case expects passed on it, and the case passes when every
+repetition did. For `decisions: "wrong"`, `correctionDifferences` says what
+differed. When an answer fails, `why` has the judging model's reason:
+
+```json
+{
+  "correctionId": "8f2c4e1a-6b0d-4c3e-9a57-2d1f0b7e4c93",
+  "pass": false,
+  "repetitionsPassed": 1,
+  "repetitions": 3,
+  "why": "It never says how long the refund takes."
+}
+```
+
+- **Which model judges.** The version you try judges its own answers, with
+  the model its model-settings block names. A suggested change's check
+  judges both of its runs with the version the change is built on. An
+  Improve run judges with the version it starts from, or with the model it
+  names. Either way, one model judges both sides.
+- **What it costs.** Each answer checked is a call to the judging model,
+  which costs money. It's counted in its repetition's `costUsd`, so it's in
+  the test run's cost, even when the reply couldn't be read. Answers are
+  checked in order, and checking stops at the first repetition that fails,
+  since the case has failed then. A repetition whose decisions failed fails
+  without a check.
+- **No pass.** A case that expects only `items` has no entry: its items
+  count toward the metrics. Neither does a case whose answer couldn't be
+  checked, say because the version has no model settings or the call to
+  the judging model failed, or one that expects `decisions: "right"` when
+  the recorded run's tool calls can't be read. A failed call doesn't stop
+  the test run.
+- **A repetition that errored or stopped** fails every part, and its answer
+  isn't checked.
+
 ## What a replay does
 
 A replay does nothing the past run didn't do. "The same call" means the same
@@ -448,8 +521,7 @@ Start it again.
 
 ## Try a flow version on the test cases
 
-Test cases built from a flow's corrected runs, with
-`kindgi test-sets from-corrections … --flow=<flow-id>`, try a flow
+A `corrections` test set built from a flow's corrected runs tries a flow
 version. Each case runs the past run's input through that version, as a
 replay. The flow's whole output is rated: the output itself, the `output`
 item, and each element of a list in it.
