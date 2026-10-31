@@ -45,6 +45,9 @@ const agentId = 'acme.intake' as AgentId;
 const USER = 'user-1' as UserId;
 const TOKEN = 'derive-agent-version-token';
 
+/** When a person's publish made a version Latest, as the registry reads it back. */
+const LATEST_AT = '2026-10-30T09:00:00.000Z';
+
 const resolveToken: TokenResolver = async (token) =>
   token === TOKEN ? { tenantId, userId: USER } : null;
 
@@ -53,9 +56,12 @@ const resolveToken: TokenResolver = async (token) =>
  * project each version was published to unless `recordsProject` is false,
  * and reads it back on every record as a store does: the agent's project
  * is its first version's, and each version's `madeInProjectId` is where
- * it was published. A version may be published to another project of the
- * agent's project's order (`orders`), as a store allows. It answers one
- * version a page, so a derive reads every page.
+ * it was published. Every record says what its version was made for
+ * (`madeFor`), and `latestAt` and `latestBy` when a person's publish made
+ * it Latest, over what the stored manifest has, as a store does. A
+ * version may be published to another project of the agent's project's
+ * order (`orders`), as a store allows. It answers one version a page, so
+ * a derive reads every page.
  */
 function agentBinding(
   recordsProject = true,
@@ -72,19 +78,25 @@ function agentBinding(
   const unregistered = new Set<string>();
   const written: TupleIntent[] = [];
   const made = new Map<string, Pick<AgentPublishInput, 'madeFor' | 'latestBy'>>();
-  const withProject = (agent: AgentVersionRecord): AgentVersionRecord => {
-    const project = projects.get(agent.version as unknown as string);
+  const asRecord = (agent: AgentVersionRecord): AgentVersionRecord => {
+    const version = agent.version as unknown as string;
+    const project = projects.get(version);
     const owner = projects.values().next().value;
-    return recordsProject && project !== undefined
-      ? { ...agent, projectId: owner ?? project, madeInProjectId: project }
-      : agent;
+    const madeOf = made.get(version);
+    return {
+      ...agent,
+      ...(recordsProject &&
+        project !== undefined && { projectId: owner ?? project, madeInProjectId: project }),
+      ...(madeOf !== undefined && { madeFor: madeOf.madeFor }),
+      ...(madeOf?.latestBy !== undefined && { latestAt: LATEST_AT, latestBy: madeOf.latestBy }),
+    };
   };
   const active = (agentId: string) =>
     registry
       .list()
       .filter((a) => (a.id as unknown as string) === agentId)
       .filter((a) => !unregistered.has(a.version as unknown as string))
-      .map(withProject);
+      .map(asRecord);
   return {
     markUnregistered: (version) => unregistered.add(version),
     written,
@@ -94,13 +106,13 @@ function agentBinding(
     },
     async get({ agentId }) {
       const got = registry.getLatest(agentId);
-      return got.kind === 'ok' ? withProject(got.value) : null;
+      return got.kind === 'ok' ? asRecord(got.value) : null;
     },
     async getVersion({ agentId, version }) {
       const got = registry.get(agentId, version as unknown as string);
       if (got.kind !== 'ok') return null;
       return {
-        ...withProject(got.value),
+        ...asRecord(got.value),
         ...(unregistered.has(version as unknown as string) && {
           unregisteredAt: '2026-10-01T00:00:00.000Z',
         }),
@@ -198,11 +210,16 @@ async function harness(
     });
   const stored = (version: string) =>
     agents.getVersion({ tenantId, agentId, version: version as Semver });
-  /** Publish a version of the agent straight to the store, pinned to the first block versions. */
+  /**
+   * Publish a version of the agent straight to the store, pinned to the
+   * first block versions, as a deploy does; with `latestBy`, as a person's
+   * publish does, which makes it Latest.
+   */
   const publishAgent = async (
     version: string,
     pinned = true,
     extra: Record<string, unknown> = {},
+    latestBy?: AgentPublishInput['latestBy'],
   ) => {
     const pins = {
       tools: {},
@@ -228,6 +245,7 @@ async function harness(
       projectId,
       agent,
       madeFor: 'latest',
+      ...(latestBy !== undefined && { latestBy }),
       enqueueTuples: () => [],
     });
   };
@@ -324,6 +342,29 @@ describe('deriveAgentVersion derives a version', () => {
     });
     expect(agentOf(again)?.pinsDigest).toBe(agentOf(first)?.pinsDigest);
     expect([...agents.made.keys()]).toEqual(['1.0.0', '1.0.1']);
+  });
+
+  test("keeps none of what the registry read on the version it's derived from", async () => {
+    const { derive, settings, publishAgent, stored } = await harness();
+    await publishAgent('1.0.0', true, {}, { kind: 'user', id: 'user-2' });
+    expect(await stored('1.0.0')).toMatchObject({
+      madeFor: 'latest',
+      latestAt: LATEST_AT,
+      latestBy: { kind: 'user', id: 'user-2' },
+    });
+    await settings('acme.weights', '1.1.0', { recency: 0.5 });
+    const swap = { from: '1.0.0', swaps: { settings: { 'acme.weights': '1.1.0' } } };
+    const first = await derive(swap);
+    expect(first).toMatchObject({ kind: 'ok', agent: { version: '1.0.1' } });
+    for (const field of ['madeFor', 'latestAt', 'latestBy', 'owner']) {
+      expect(agentOf(first)).not.toHaveProperty(field);
+    }
+    // Made for its project, and Latest nowhere: not the version it came from's add.
+    const read = await stored('1.0.1');
+    expect(read?.madeFor).toBe('project');
+    expect(read).not.toHaveProperty('latestAt');
+    expect(read).not.toHaveProperty('latestBy');
+    expect(await derive(swap)).toMatchObject({ kind: 'reused', agent: { version: '1.0.1' } });
   });
 
   test('a number an unregistered version holds is skipped', async () => {
