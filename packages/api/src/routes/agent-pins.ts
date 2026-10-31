@@ -515,7 +515,13 @@ export async function requestPin(
     input.scope,
   );
   if (outOfScope !== undefined) return { kind: 'err', error: outOfScope };
-  const asked = await offLatestAsked(agentPins, deps, input, options.stopFollowingLatest === true);
+  const asked = await offLatestAsked(
+    registry,
+    agentPins,
+    deps,
+    input,
+    options.stopFollowingLatest === true,
+  );
   if (asked.kind === 'err') return asked;
   const { pin } = asked;
   const releaseGate = await releaseGateFor(agentPins, input.tenantId, input.agentId, input.scope);
@@ -564,13 +570,33 @@ export async function requestPin(
       };
 }
 
+/** `agent-version-not-found` when the pin's version isn't an active version of the agent. */
+async function versionMissing(
+  registry: AgentRegistryBinding,
+  input: AgentPinInput,
+): Promise<{ readonly code: string; readonly message: string } | undefined> {
+  const found = await registry.getVersion({
+    tenantId: input.tenantId,
+    agentId: input.agentId as AgentId,
+    version: input.version,
+  });
+  return found === null || found.unregisteredAt !== undefined
+    ? {
+        code: 'agent-version-not-found',
+        message: `${input.agentId} has no active version ${input.version}`,
+      }
+    : undefined;
+}
+
 /**
  * The pin as it's recorded: with `stoppedFollowingLatest` when it takes a
  * project that follows Latest off it (`projectsPinTakesOffLatest`), and
  * the caller asked for that; refused with `pin-stops-latest` when it
- * didn't.
+ * didn't, unless its version isn't there: that's the 404 the pin would
+ * get anyway, said first.
  */
 async function offLatestAsked(
+  registry: AgentRegistryBinding,
   agentPins: AgentPinBindings,
   deps: Pick<AgentPinGateDeps, 'projects'>,
   input: AgentPinInput,
@@ -580,9 +606,9 @@ async function offLatestAsked(
 > {
   const offLatest = await projectsPinTakesOffLatest(agentPins, deps.projects, input);
   if (offLatest.length === 0) return { kind: 'ok', pin: input };
-  return asked
-    ? { kind: 'ok', pin: { ...input, stoppedFollowingLatest: true } }
-    : { kind: 'err', error: pinStopsLatest(offLatest) };
+  if (asked) return { kind: 'ok', pin: { ...input, stoppedFollowingLatest: true } };
+  const missing = await versionMissing(registry, input);
+  return { kind: 'err', error: missing ?? pinStopsLatest(offLatest) };
 }
 
 /** `pin-stops-latest`: the pin would take `projects` off Latest, and the caller didn't ask for that. */
