@@ -783,29 +783,45 @@ object ProfessionalTone {
 
 ## In the console
 
-A project's **Guardrails** page lists its guardrails: "Checks on each agent
-answer: how each checks, what happens when it fires, which agents it
-covers." Each row has:
-- **How it checks:** "A rule in code, no model call", "A model judges each
-  answer, a model call each time" or "Another system checks it", with its
-  check, such as "Check: forbidden substring (built in)";
-- **When it fires:** "The turn fails", or "It is recorded; nothing stops";
-- **Applies:** "In runs and in CI", or "In runs only, not in CI";
-- **Named by:** how many agents name it, "1 agent", or "No agent".
+A project's **Guardrails** page lists its guardrails: "Checks on agents'
+answers: what each checks, what happens when an answer breaks it, and the
+agents it checks. A run checks an agent only with the guardrails its
+version names." Each row has:
+- **Guardrail:** its name, with its description under it.
+- **Check:** its check, such as "Forbidden substring", over how it checks:
+  "A rule in code", "A model judges it, a call per answer" or "Another
+  system checks it".
+- **If an answer breaks it:** "The turn fails" ("Its answer isn't kept"),
+  or "Recorded only" ("The answer goes out"). One that asks for a retry, a
+  reviewer or a compensation is recorded only too, and says that part
+  doesn't run yet.
+- **Agents it checks:** the agents whose versions name it, such as "Guarded
+  agent" or "Drafts agent, Guarded agent and 2 more", or "None yet". Under
+  them, where it's narrowed: "Not in runs: in CI only", "Only for …" or
+  "Only in flows …".
 
 The list has a search box, sorts by a column's header, and **Columns**
 chooses which columns it shows.
 
 ![The Guardrails page: "Checks on each agent answer: how each checks, what happens when it fires, which agents it covers.", a search box and the Columns menu, then No secrets in answers, Says thanks, No refund promises, No shouting and No placeholder text, each a rule in code with its built-in check, when it fires, where it applies and how many agents name it: 1 agent each, and No agent for No placeholder text.](../../../../assets/guardrails/guardrails-list.png)
 
-A guardrail's page has:
-- **What it checks:** how, the check, its settings, when it fires, its
-  severity and where it applies.
-- **Agents it checks:** each agent version that names it and can run here,
-  marked "(latest)", "(live)" or "(live and latest)".
+A guardrail's page has its name and description, and **Remove** for
+guardrail admins. Then:
+- **What it checks:** **How**, such as "A rule in code, no model call";
+  **Check**, such as "forbidden substring (built in)", or "(from a pack)"
+  for a pack's own; **Its settings**; **If an answer breaks it**;
+  **Severity**; and **Applies**: "In every run", "In every run, not in CI"
+  or "Not in runs: in CI only".
+- **Agents it checks:** "Each agent version below names it. It applies in
+  every run.", then each agent version that names it and can run here,
+  marked "(latest)", "(pinned)" or "(pinned and latest)". With none, it
+  says "No agent version that can run here names it (each agent’s latest,
+  every pinned one, and every one a flow version in use pins), so it checks
+  nothing here yet."
 - **What it caught:** its outcomes by agent version, as
   [Stop a turn or record a violation](../halt-or-record/#in-the-console)
   shows.
+- **Details:** its definition, as the runtime sent it.
 
 ![No secrets in answers' page, with Remove: a rule in code, forbidden substring (built in), Patterns: "password", the turn fails, Critical, in runs and in CI; the agent version that names it, Guarded agent 1.0.0 (latest); and What it caught: 8 answers checked in the last 7 days, 6 passed and 2 blocked.](../../../../assets/guardrails/guardrail-page.png)
 
@@ -814,23 +830,31 @@ checked too: "Drafts agent 1.0.0 (pinned by flow acme.drafting 1.0.0)".
 
 ![No shouting's page, with Remove, whose agent version is one a flow pins: Drafts agent 1.0.0 (pinned by flow acme.drafting 1.0.0).](../../../../assets/guardrails/guardrail-flow-pinned.png)
 
-Guardrail admins also see **Remove**. It asks first, naming the agent
-versions whose turns then fail, and how they come back:
+**Remove** asks first, naming the agent versions whose turns then fail, and
+how they come back:
 
 ```text
 Remove No secrets in answers?
-Guarded agent 1.0.0 (latest) names it: its turns fail, saying it isn't registered, until it's registered again or a version that doesn't name it goes live.
+Guarded agent 1.0.0 (latest) names it: its turns fail, saying it isn't registered, until it's registered again or a version that doesn't name it takes over.
 There's no undo: registering it again brings it back.
 ```
 
+- **When several versions name it,** it counts them and lists each: "2 agent
+  versions name it: their turns fail, saying it isn't registered, until
+  it's registered again or versions that don't name it take over."
 - **When a flow pins one of those versions,** it adds: "The flow version
   that pins it fails at that step too: …".
+- **When the project's agents or flows can't be read,** it says so: "The
+  project's agents or flows couldn't be read, so which versions name it
+  isn't known. Any that do fail their turns, and the flow steps that run
+  them, until it's registered again."
 - **Keep it** closes the dialog with nothing changed.
 - **Once it's removed,** the dialog says "Removed. Its definition, to
-  register it again:", with the definition.
+  register it again:", with the definition, and **Done**.
 - **Past 100 agents or flows,** the page and the dialog say which weren't
   checked: "Only the first 100 agents were checked." They say the same of
-  the first 100 flows' steps.
+  the first 100 flows' steps. The list says "Only the first 100 agents were
+  checked for which versions name each."
 - **Under `kindgi dev`,** Remove is off: "the pack's files are its
   guardrails. Take it out of the pack, and kindgi dev reloads it."
 

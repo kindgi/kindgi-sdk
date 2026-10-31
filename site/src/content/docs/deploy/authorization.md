@@ -277,8 +277,8 @@ checks every call.
   such as "Ask Ana Ruiz for edit access."
 - **An editor** may also "run agents and flows, work on agent versions,
   publish prompts and settings, correct runs, try versions on the test
-  cases", in the console's words. An agent's page offers them **Register new
-  version** and **Start run**, which a viewer's doesn't.
+  cases", in the console's words. An agent's page offers them **Start a
+  run**, which a viewer's doesn't.
 - **A project admin** may also "make versions live, register agents and
   tools, build test cases, rescore runs on the test cases, set judge
   classes", and

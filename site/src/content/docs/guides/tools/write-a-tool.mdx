@@ -1068,6 +1068,43 @@ flow, as above.
 [Write an agent](../../agents/write-an-agent/) covers the rest of the agent
 file.
 
+## In the console
+
+A project's **Tools** page lists its tools: "Tools available in this
+project: its own and the tenant's." Each row has the tool's **Namespace**,
+its name under **Tool**, **What it does**, **Only reads** ("Yes" for a tool
+that only reads), its **Version**, and **In use**: "Yes", with what uses it
+on hover, or "No". The list has a search box, and **Columns** chooses which
+columns it shows. A tool whose every version is retired is hidden until
+**Show retired** in **Columns**, and then it's marked **retired**. With no
+tools, it says "No tools yet. They come from your pack: deploy it to this
+project with `kindgi deploy`."
+
+A tool's page has its name and description at the top, with **Download its
+JSON**. Under them are its facts: its **ID**, its **Version**, tagged
+**Latest** or **Retired**, **Only reads** ("Yes", "No" or "Not declared"),
+**In dry runs** ("Runs" or "Skipped"), and, when the tool says, where it
+runs and what it declares it touches. Then:
+
+- **Input** and **Output:** each field, with its **Type**, whether it's
+  **Required**, and its **Description** when the tool gives one.
+- **Used by agents:** each agent that lists it, with what it does and
+  whether a call **Needs approval**.
+- **Used in flows:** each flow that runs it, with the steps that do and the
+  version that runs.
+- **Versions:** each version with what it does, whether it only reads, and
+  **Locked by**: the agent and flow versions locked to it. Retired versions
+  are hidden until **Show retired** in the table's **Columns**. Tool admins
+  see **Retire** and **Bring back**, as a flow's versions have. Under
+  `kindgi dev` they're off: "the pack's files are this tool's versions.
+  Change the tool there, and kindgi dev reloads it."
+- **Full spec:** its definition, as the runtime sent it.
+
+When every version is retired, the page says "Every version of this tool is
+retired": "The Tools list shows it as retired. Agent and flow versions that
+locked one of its versions still run it, but publishing an agent that lists
+it is refused. Bring a version back under Versions, or publish a new one."
+
 ## A CommonJS package in TypeScript
 
 A pack's code runs as ES modules, the app modules its tools import
