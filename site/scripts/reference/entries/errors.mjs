@@ -2071,6 +2071,20 @@ export const ERROR_ENTRIES = {
         meaning: 'every check the release gate ran, with whether each passed',
       },
       {
+        key: 'passing',
+        meaning:
+          "how many of the test run's cases pass, when the release gate has `cases.minPassing`",
+      },
+      {
+        key: 'needs',
+        meaning: 'how many cases the release gate needs to pass (`cases.minPassing`)',
+      },
+      {
+        key: 'newlyFailing',
+        meaning:
+          'the cases that passed before and fail now, by id, when the release gate has `cases.noNewFailures`',
+      },
+      {
         key: 'suggestedChangeId',
         meaning: 'the suggested change, when the request came through a suggested change',
       },

@@ -11,7 +11,7 @@ import { describe, expect, test } from 'vitest';
 import type { AgentPinScope, OrgId, ProjectId } from '@kindgi/types';
 
 import type { ComparisonMetric, CorrectedComparisonSummary } from '../src/corrected-dispatcher.js';
-import { type GateInput, evaluateGate } from '../src/gate.js';
+import { type GateInput, casesDetails, evaluateGate } from '../src/gate.js';
 import type { ReleaseGateSpec } from '../src/release-gate-binding.js';
 
 const PROJECT = '00000000-0000-4000-8000-0000000000aa' as ProjectId;
@@ -69,6 +69,7 @@ function gate(
     pinsDigest?: string | null;
     serving?: string;
     summaryProjectOrgId?: string;
+    passedBefore?: readonly string[];
   } = {},
 ) {
   const input: GateInput = {
@@ -84,6 +85,7 @@ function gate(
     ...(over.summaryProjectOrgId !== undefined && {
       summaryProjectOrgId: over.summaryProjectOrgId,
     }),
+    ...(over.passedBefore !== undefined && { passedBefore: over.passedBefore }),
     now: NOW,
   };
   return evaluateGate(input);
@@ -276,6 +278,159 @@ describe('replay', () => {
 
   test('no replay block: no replay checks', () => {
     expect(gate({}).checks.some((c) => c.name.startsWith('replay.'))).toBe(false);
+  });
+});
+
+describe('cases', () => {
+  const graded = (results: readonly { correctionId: string; pass: boolean }[]) =>
+    summary({
+      corrections: {
+        checked: results.length,
+        passed: results.filter((r) => r.pass).length,
+        results,
+      },
+    });
+  const passes = (ids: readonly string[]) =>
+    ids.map((correctionId) => ({ correctionId, pass: true }));
+  const fails = (ids: readonly string[]) =>
+    ids.map((correctionId) => ({ correctionId, pass: false }));
+
+  test('minPassing: at least that many of the graded cases pass', () => {
+    const run = graded([...passes(['c-1', 'c-2', 'c-3']), ...fails(['c-4'])]);
+    expect(check(gate({ cases: { minPassing: 4 } }, { summary: run }), 'cases.minPassing')).toEqual(
+      {
+        name: 'cases.minPassing',
+        passed: false,
+        message: '3 of 4 cases pass; the gate needs at least 4.',
+        value: 3,
+        threshold: 4,
+      },
+    );
+    expect(
+      check(gate({ cases: { minPassing: 3 } }, { summary: run }), 'cases.minPassing')?.passed,
+    ).toBe(true);
+  });
+
+  test('minPassing: a test run that graded no case passes none', () => {
+    expect(check(gate({ cases: { minPassing: 1 } }), 'cases.minPassing')).toMatchObject({
+      passed: false,
+      message: '0 of 0 cases pass; the gate needs at least 1.',
+      value: 0,
+    });
+  });
+
+  test("noNewFailures: a case that's fixed now and fails is newly failing; one that wasn't fixed, or wasn't graded, isn't", () => {
+    const r = gate(
+      { cases: { noNewFailures: true } },
+      {
+        summary: graded([...passes(['c-1']), ...fails(['c-2', 'c-3'])]),
+        passedBefore: ['c-1', 'c-2', 'c-9'],
+      },
+    );
+    expect(check(r, 'cases.noNewFailures')).toEqual({
+      name: 'cases.noNewFailures',
+      passed: false,
+      message: '1 case that passed before fails now: c-2.',
+      value: 1,
+      threshold: 0,
+      caseIds: ['c-2'],
+    });
+    expect(r.passed).toBe(false);
+  });
+
+  test('noNewFailures: says how many that passed before it checked, when none fails', () => {
+    const one = gate(
+      { cases: { noNewFailures: true } },
+      { summary: graded([...passes(['c-1']), ...fails(['c-3'])]), passedBefore: ['c-1'] },
+    );
+    expect(check(one, 'cases.noNewFailures')).toMatchObject({
+      passed: true,
+      message: '1 case that passed before still passes.',
+      caseIds: [],
+    });
+    const many = gate(
+      { cases: { noNewFailures: true } },
+      { summary: graded(passes(['c-1', 'c-2'])), passedBefore: ['c-1', 'c-2'] },
+    );
+    expect(check(many, 'cases.noNewFailures')?.message).toBe(
+      '2 cases that passed before all still pass.',
+    );
+    const none = gate(
+      { cases: { noNewFailures: true } },
+      { summary: graded(fails(['c-3'])), passedBefore: ['c-1'] },
+    );
+    expect(check(none, 'cases.noNewFailures')).toMatchObject({
+      passed: true,
+      message: 'The test run checked no case that passed before.',
+      caseIds: [],
+    });
+  });
+
+  test('noNewFailures: a correction graded on two cases fails once if either fails', () => {
+    const r = gate(
+      { cases: { noNewFailures: true } },
+      {
+        summary: graded([
+          { correctionId: 'c-1', pass: true },
+          { correctionId: 'c-1', pass: false },
+        ]),
+        passedBefore: ['c-1'],
+      },
+    );
+    expect(check(r, 'cases.noNewFailures')).toMatchObject({ passed: false, caseIds: ['c-1'] });
+  });
+
+  test('noNewFailures: the message lists five, and caseIds has them all', () => {
+    const ids = ['c-1', 'c-2', 'c-3', 'c-4', 'c-5', 'c-6', 'c-7'];
+    const r = gate(
+      { cases: { noNewFailures: true } },
+      { summary: graded(fails(ids)), passedBefore: ids },
+    );
+    expect(check(r, 'cases.noNewFailures')).toMatchObject({
+      message: '7 cases that passed before fail now: c-1, c-2, c-3, c-4, c-5, and 2 more.',
+      caseIds: ids,
+    });
+  });
+
+  test("noNewFailures fails when it can't tell: the cases that passed before weren't read, or the run kept no case-by-case grades", () => {
+    const unread = gate({ cases: { noNewFailures: true } }, { summary: graded(fails(['c-1'])) });
+    expect(check(unread, 'cases.noNewFailures')).toEqual({
+      name: 'cases.noNewFailures',
+      passed: false,
+      message:
+        "The cases that passed before couldn't be read, so the gate can't tell whether one fails now.",
+    });
+    const old = gate(
+      { cases: { noNewFailures: true } },
+      { summary: summary({ corrections: { checked: 2, passed: 1 } }), passedBefore: ['c-1'] },
+    );
+    expect(check(old, 'cases.noNewFailures')).toMatchObject({
+      passed: false,
+      message:
+        "The test run doesn't say how each case did (it was recorded before that was kept): run it again.",
+    });
+    expect(check(old, 'cases.noNewFailures')?.caseIds).toBeUndefined();
+  });
+
+  test('noNewFailures: false checks nothing', () => {
+    expect(check(gate({ cases: { noNewFailures: false } }), 'cases.noNewFailures')).toBeUndefined();
+  });
+
+  test('the rule needs a test run', () => {
+    const r = gate({ cases: { minPassing: 1 } }, { summary: null });
+    expect(check(r, 'comparison.required')?.passed).toBe(false);
+    expect(check(r, 'cases.minPassing')).toBeUndefined();
+  });
+
+  test("a refusal's figures come off the cases checks", () => {
+    const r = gate(
+      { cases: { minPassing: 3, noNewFailures: true } },
+      { summary: graded([...passes(['c-1', 'c-2']), ...fails(['c-3'])]), passedBefore: ['c-3'] },
+    );
+    expect(casesDetails(r.checks)).toEqual({ passing: 2, needs: 3, newlyFailing: ['c-3'] });
+    expect(casesDetails(gate({}).checks)).toEqual({});
+    const unread = gate({ cases: { noNewFailures: true } }, { summary: graded(fails(['c-1'])) });
+    expect(casesDetails(unread.checks)).toEqual({});
   });
 });
 

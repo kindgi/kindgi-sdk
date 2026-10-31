@@ -249,17 +249,23 @@ version:
 | `evidence.minCases` | each figure resting on at least this many corrected cases, for the version and for the pinned one |
 | `metrics` | each named figure at least `minCandidate`, and lower than the pinned version's by at most `maxDrop`. The figures are `passRate`, `caseCoverage`, or `weightedPrecisionAtK` with its `k` |
 | `replay` | at most this many diverged cases, errors, refused tool calls and stopped cases: `maxDiverged`, `maxErrors`, `maxRefusedWrites`, `maxStopped`. `maxRefusedWrites` counts refused reads too, despite its name. Those left out are 0. A version with other settings runs read-only tools live, which [counts as diverged](../compare-an-agent-version/#what-a-replay-does), so `maxDiverged: 0` refuses it |
+| `cases.minPassing` | at least this many of the run's cases passing. Each correction the run checked is a case, and it passes when every repetition did |
+| `cases.noNewFailures: true` | no case that passed before failing: none of the run's corrections that are Fixed now fails it |
 | `approvals` | then a reviewer with this role approves it, `senior` if left out. It's someone other than whoever asked, unless `separateApprover: false` lets the one who asked approve it |
 | `onlyExpertGroups: true` | a run on the test cases that [counted only experts' corrections](../compare-an-agent-version/#count-only-experts-corrections) |
 
 - **A request must name its run on the test cases** when the release gate has
-  `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`.
+  `comparison`, `evidence`, `metrics`, `replay`, `cases` or `onlyExpertGroups`.
   The run must be of the version you pin, with the same pins, and its
   recorded runs must be from the version pinned for the scope now.
 - **With `onlyExpertGroups`,** a run on the test cases that counted
   everyone's corrections is refused with
   `` The gate counts only experts' corrections; the test run counted everyone's. Re-run it with `groupWeights: 'experts-only'`. ``.
   So only expert groups can release a version.
+- **With `cases`,** a refusal's details add `passing` and `needs` for
+  `minPassing`, and `newlyFailing`, the ids of the cases that passed before
+  and fail now, for `noNewFailures`. The check's message names the first
+  five.
 - **To change a release gate,** publish a new version of it.
   `kindgi release-gates unregister acme.order-desk-release <version>` goes
   back to the one before.

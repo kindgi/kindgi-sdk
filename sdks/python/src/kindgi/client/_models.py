@@ -232,7 +232,7 @@ class GateCheck(BaseModel):
     )
     name: str
     """
-    Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsPinned`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a pin it supersedes, to say what changed since the check.
+    Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsPinned`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `cases.minPassing|noNewFailures`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a pin it supersedes, to say what changed since the check.
     """
     passed: bool
     message: str
@@ -241,6 +241,10 @@ class GateCheck(BaseModel):
     """
     value: float | str | None = None
     threshold: float | str | None = None
+    case_ids: Annotated[list[str] | None, Field(alias="caseIds")] = None
+    """
+    The cases it names: for `cases.noNewFailures`, the ones that passed before and fail now (empty when none does). Absent when it could not tell, and on other checks.
+    """
 
 
 class ReleaseGateRef(BaseModel):
@@ -315,6 +319,25 @@ class Replay(BaseModel):
     At most this many tool calls the replay refused (the comparison summary's `refusedWrites`). Reads count too, despite the name.
     """
     max_stopped: Annotated[int | None, Field(alias="maxStopped", ge=0)] = None
+
+
+class Cases(BaseModel):
+    """
+    The cases the comparison graded: each correction it checked is a case, and it passes when every repetition did.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    min_passing: Annotated[int | None, Field(alias="minPassing", ge=0)] = None
+    """
+    At least this many cases pass.
+    """
+    no_new_failures: Annotated[bool | None, Field(alias="noNewFailures")] = None
+    """
+    No case that passed before fails: none of the comparison's corrections that are `fixed` now fails it.
+    """
 
 
 class Approvals(BaseModel):
@@ -14001,7 +14024,7 @@ class Comparison(BaseModel):
 
 class ReleaseGateSpec(BaseModel):
     """
-    What a pin must show. Every part is optional; an empty spec checks nothing. A pin must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.
+    What a pin must show. Every part is optional; an empty spec checks nothing. A pin must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay`, `cases` or `onlyExpertGroups`. Unknown keys are refused.
     """
 
     model_config = ConfigDict(
@@ -14017,6 +14040,10 @@ class ReleaseGateSpec(BaseModel):
     replay: Replay | None = None
     """
     Each knob left out of the block is 0. No block: no replay checks.
+    """
+    cases: Cases | None = None
+    """
+    The cases the comparison graded: each correction it checked is a case, and it passes when every repetition did.
     """
     approvals: Approvals | None = None
     """

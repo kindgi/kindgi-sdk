@@ -23,6 +23,7 @@ import type {
   AgentPinnedVersion,
   AgentRegistryBinding,
   CorrectedComparisonSummary,
+  CorrectionListInput,
   LatestAnswer,
   Pin,
   PinError,
@@ -110,7 +111,13 @@ function releaseGate(
 const PASSING: ReleaseGateSpec = { metrics: [{ name: 'passRate', minCandidate: 0.75 }] };
 const FAILING: ReleaseGateSpec = { metrics: [{ name: 'passRate', minCandidate: 0.9 }] };
 
-function setup(opts: { request?: boolean; releaseGates?: boolean } = {}) {
+/**
+ * `fixed`: a correction registry whose `fixed` corrections of the agent are
+ * these. Absent: none is wired.
+ */
+function setup(
+  opts: { request?: boolean; releaseGates?: boolean; fixed?: readonly string[] } = {},
+) {
   const calls: { method: string; input: unknown }[] = [];
   const state: {
     resolved: AgentPinResolution | null;
@@ -258,6 +265,18 @@ function setup(opts: { request?: boolean; releaseGates?: boolean } = {}) {
     agentRegistry: registry,
     agentPins: pins,
     testRunBinding: testRuns,
+    ...(opts.fixed !== undefined && {
+      correctionRegistry: {
+        list: async (input: CorrectionListInput) => {
+          record('corrections.list', input);
+          const fixed = input.statuses?.length === 1 && input.statuses[0] === 'fixed';
+          return {
+            data: fixed ? (opts.fixed ?? []).map((id) => ({ id, status: 'fixed' })) : [],
+            hasMore: false,
+          };
+        },
+      } as never,
+    }),
     projectSuspended: async (_t: TenantId, projectId: ProjectId) => {
       record('projectSuspended', projectId);
       return state.suspended;
@@ -394,6 +413,50 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
       expect.objectContaining({ name: 'metric.passRate.minCandidate', passed: false }),
     );
     expect(methods(calls)).toContain('request');
+  });
+
+  test("the cases rule: the 422's details carry passing, needs, and the cases that passed before and fail now", async () => {
+    const { app, calls, state } = setup({ fixed: ['c-1', 'c-2'] });
+    state.releaseGate = releaseGate({ cases: { minPassing: 3, noNewFailures: true } });
+    state.testRun = testRun(
+      summary({
+        corrections: {
+          checked: 3,
+          passed: 1,
+          results: [
+            { correctionId: 'c-1', pass: true },
+            { correctionId: 'c-2', pass: false },
+            { correctionId: 'c-3', pass: false },
+          ],
+        },
+      }),
+    );
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
+    expect(res.status).toBe(422);
+    const { error } = (await res.json()) as {
+      error: { code: string; message: string; details: Record<string, unknown> };
+    };
+    expect(error.code).toBe('gate-failed');
+    expect(error.details).toMatchObject({ passing: 1, needs: 3, newlyFailing: ['c-2'] });
+    expect(error.message).toContain('1 case that passed before fails now: c-2.');
+    expect(calls.find((c) => c.method === 'corrections.list')?.input).toMatchObject({
+      tenantId,
+      scope: { kind: 'project', projectId: PROJECT },
+      agentId: AGENT,
+      statuses: ['fixed'],
+    });
+  });
+
+  test('without noNewFailures the gate reads no corrections, and the details have no newlyFailing', async () => {
+    const { app, calls, state } = setup({ fixed: ['c-1'] });
+    state.releaseGate = releaseGate({ cases: { minPassing: 1 } });
+    state.testRun = testRun(summary());
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
+    expect(res.status).toBe(422);
+    const { error } = (await res.json()) as { error: { details: Record<string, unknown> } };
+    expect(error.details).toMatchObject({ passing: 0, needs: 1 });
+    expect(error.details).not.toHaveProperty('newlyFailing');
+    expect(methods(calls)).not.toContain('corrections.list');
   });
 
   test("the serving version comes from the scope's coordinates", async () => {

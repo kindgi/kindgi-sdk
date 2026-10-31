@@ -31,7 +31,13 @@ import type {
 import type { CorrectedComparisonSummary } from '../corrected-dispatcher.js';
 import type { CorrectionRegistryBinding } from '../correction-binding.js';
 import { statusFor, toWireError } from '../errors.js';
-import { type GateApproval, type GateCheck, type GateResult, evaluateGate } from '../gate.js';
+import {
+  type GateApproval,
+  type GateCheck,
+  type GateResult,
+  casesDetails,
+  evaluateGate,
+} from '../gate.js';
 import type { ItemProjectsBinding } from '../item-projects-binding.js';
 import type { ItemRights } from '../item-rights.js';
 import {
@@ -48,7 +54,7 @@ import {
   agentPinScopeOutOfScope,
   outOfScopeResponse,
 } from '../reference-scope.js';
-import type { ReleaseGate } from '../release-gate-binding.js';
+import type { ReleaseGate, ReleaseGateSpec } from '../release-gate-binding.js';
 import type { TestRun, TestRunBinding } from '../test-run-binding.js';
 import type { TestSetFreezeBinding } from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
@@ -747,6 +753,7 @@ export function pinResponse(
           changeId: pin.id,
           releaseGate: pin.releaseGate ?? null,
           checks,
+          ...casesDetails(checks),
           ...extra,
         },
         requestId,
@@ -1023,6 +1030,7 @@ async function runGate(
     const project = await deps.projects.get(tenantId, correctedIn as ProjectId);
     summaryProjectOrgId = project?.orgId as unknown as string | undefined;
   }
+  const passedBefore = await passedBeforeFor(deps, releaseGate.spec, summary, tenantId, agentId);
   const result = evaluateGate({
     spec: releaseGate.spec,
     pin: {
@@ -1034,9 +1042,60 @@ async function runGate(
     summary,
     servingVersion,
     ...(summaryProjectOrgId !== undefined && { summaryProjectOrgId }),
+    ...(passedBefore !== undefined && { passedBefore }),
     now: new Date(),
   });
   return { kind: 'ok', result, servingVersion };
+}
+
+/**
+ * The cases that passed before, for a gate with `cases.noNewFailures`
+ * and a named comparison. Absent otherwise, and without a correction
+ * registry, so the check says it couldn't tell.
+ */
+async function passedBeforeFor(
+  deps: AgentPinGateDeps,
+  spec: ReleaseGateSpec,
+  summary: CorrectedComparisonSummary | null,
+  tenantId: TenantId,
+  agentId: string,
+): Promise<readonly string[] | undefined> {
+  if (spec.cases?.noNewFailures !== true || summary === null || deps.corrections === undefined) {
+    return undefined;
+  }
+  return fixedCorrections(deps.corrections, tenantId, agentId, summary.scope.projectId);
+}
+
+/** Corrections of the agent read per page for the gate's `cases.noNewFailures`. */
+const FIXED_PAGE = 100;
+
+/**
+ * The agent's corrections that are `fixed` now, in the comparison's
+ * project when it has one: the cases that passed before.
+ */
+async function fixedCorrections(
+  corrections: Pick<CorrectionRegistryBinding, 'list'>,
+  tenantId: TenantId,
+  agentId: string,
+  projectId: string | undefined,
+): Promise<readonly string[]> {
+  const ids: string[] = [];
+  let cursor: Awaited<ReturnType<CorrectionRegistryBinding['list']>>['nextCursor'];
+  for (;;) {
+    const page = await corrections.list({
+      tenantId,
+      ...(projectId !== undefined && {
+        scope: { kind: 'project', projectId: projectId as ProjectId },
+      }),
+      agentId,
+      statuses: ['fixed'],
+      limit: FIXED_PAGE,
+      ...(cursor !== undefined && { cursor }),
+    });
+    ids.push(...page.data.map((c) => c.id));
+    if (!page.hasMore || page.nextCursor === undefined) return ids;
+    cursor = page.nextCursor;
+  }
 }
 
 /** Who asked, from the request's principal. */

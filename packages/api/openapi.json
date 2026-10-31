@@ -1796,7 +1796,7 @@
         "properties": {
           "name": {
             "type": "string",
-            "description": "Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsPinned`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a pin it supersedes, to say what changed since the check."
+            "description": "Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsPinned`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `cases.minPassing|noNewFailures`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a pin it supersedes, to say what changed since the check."
           },
           "passed": {
             "type": "boolean"
@@ -1816,6 +1816,13 @@
               "number",
               "string"
             ]
+          },
+          "caseIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The cases it names: for `cases.noNewFailures`, the ones that passed before and fail now (empty when none does). Absent when it could not tell, and on other checks."
           }
         }
       },
@@ -1866,7 +1873,7 @@
       "ReleaseGateSpec": {
         "type": "object",
         "additionalProperties": false,
-        "description": "What a pin must show. Every part is optional; an empty spec checks nothing. A pin must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.",
+        "description": "What a pin must show. Every part is optional; an empty spec checks nothing. A pin must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay`, `cases` or `onlyExpertGroups`. Unknown keys are refused.",
         "properties": {
           "comparison": {
             "type": "object",
@@ -1966,6 +1973,22 @@
               "maxStopped": {
                 "type": "integer",
                 "minimum": 0
+              }
+            }
+          },
+          "cases": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "The cases the comparison graded: each correction it checked is a case, and it passes when every repetition did.",
+            "properties": {
+              "minPassing": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "At least this many cases pass."
+              },
+              "noNewFailures": {
+                "type": "boolean",
+                "description": "No case that passed before fails: none of the comparison's corrections that are `fixed` now fails it."
               }
             }
           },
@@ -37109,7 +37132,7 @@
             }
           },
           "422": {
-            "description": "`gate-failed`: the gate refused it. `details.checks` has every check; the refusal is recorded (`details.changeId`).",
+            "description": "`gate-failed`: the gate refused it. `details.checks` has every check; the refusal is recorded (`details.changeId`). With the gate's `cases` rule, `details.passing` and `details.needs` come with `minPassing`, and `details.newlyFailing` (the cases that passed before and fail now) with `noNewFailures`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -44532,7 +44555,7 @@
             }
           },
           "422": {
-            "description": "`gate-failed`: the gate refused it (the error carries the checks and `suggestedChangeId`). The suggested change stays `ready`, with a `note`.",
+            "description": "`gate-failed`: the gate refused it (the error carries the checks and `suggestedChangeId`, and, with the gate's `cases` rule, `passing`, `needs` and `newlyFailing` as the agent pin does). The suggested change stays `ready`, with a `note`.",
             "content": {
               "application/json": {
                 "schema": {

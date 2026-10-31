@@ -98,6 +98,7 @@
   "CapabilityCollectionPage": ["CapabilityCollectionPage"],
   "CapabilityDescriptor": ["CapabilityDescriptor"],
   "CapabilityProvider": ["CapabilityProvider"],
+  "Cases": ["ReleaseGateSpec.cases"],
   "Change": [],
   "ChangeCorrectionBody": ["ChangeCorrectionBody"],
   "Changes": ["ComparisonCaseResult.changes"],

@@ -704,7 +704,7 @@ export const GateCheckSchema: JsonSchema = {
     name: {
       type: 'string',
       description:
-        'Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsPinned`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a pin it supersedes, to say what changed since the check.',
+        'Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsPinned`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `cases.minPassing|noNewFailures`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a pin it supersedes, to say what changed since the check.',
     },
     passed: { type: 'boolean' },
     message: {
@@ -713,6 +713,12 @@ export const GateCheckSchema: JsonSchema = {
     },
     value: { type: ['number', 'string'] },
     threshold: { type: ['number', 'string'] },
+    caseIds: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        'The cases it names: for `cases.noNewFailures`, the ones that passed before and fail now (empty when none does). Absent when it could not tell, and on other checks.',
+    },
   },
 };
 
@@ -764,7 +770,7 @@ export const ReleaseGateSpecSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'What a pin must show. Every part is optional; an empty spec checks nothing. A pin must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.',
+    'What a pin must show. Every part is optional; an empty spec checks nothing. A pin must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay`, `cases` or `onlyExpertGroups`. Unknown keys are refused.',
   properties: {
     comparison: {
       type: 'object',
@@ -804,6 +810,20 @@ export const ReleaseGateSpecSchema: JsonSchema = {
             "At most this many tool calls the replay refused (the comparison summary's `refusedWrites`). Reads count too, despite the name.",
         },
         maxStopped: { type: 'integer', minimum: 0 },
+      },
+    },
+    cases: {
+      type: 'object',
+      additionalProperties: false,
+      description:
+        'The cases the comparison graded: each correction it checked is a case, and it passes when every repetition did.',
+      properties: {
+        minPassing: { type: 'integer', minimum: 0, description: 'At least this many cases pass.' },
+        noNewFailures: {
+          type: 'boolean',
+          description:
+            "No case that passed before fails: none of the comparison's corrections that are `fixed` now fails it.",
+        },
       },
     },
     approvals: {

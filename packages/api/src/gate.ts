@@ -23,6 +23,8 @@ export interface GateCheck {
   readonly message: string;
   readonly value?: number | string;
   readonly threshold?: number | string;
+  /** The cases it names: for `cases.noNewFailures`, the ones that passed before and fail now. */
+  readonly caseIds?: readonly string[];
 }
 
 /** What a passing pin still needs: a reviewer's approval. */
@@ -52,6 +54,12 @@ export interface GateInput {
    * org pin). Absent: that project has no org, or none was looked up.
    */
   readonly summaryProjectOrgId?: string;
+  /**
+   * For `cases.noNewFailures`: the comparison's corrections that are
+   * `fixed` now, so passed before. Absent: they weren't read, and the
+   * check fails.
+   */
+  readonly passedBefore?: readonly string[];
   readonly now: Date;
 }
 
@@ -72,6 +80,7 @@ function needsComparison(spec: ReleaseGateSpec): boolean {
     spec.evidence !== undefined ||
     (spec.metrics?.length ?? 0) > 0 ||
     spec.replay !== undefined ||
+    spec.cases !== undefined ||
     spec.onlyExpertGroups === true
   );
 }
@@ -135,7 +144,28 @@ export function evaluateGate(input: GateInput): GateResult {
   }
   if (spec.replay !== undefined) checks.push(...replayChecks(spec.replay, summary));
   for (const metric of spec.metrics ?? []) checks.push(...metricChecks(metric, spec, summary));
+  if (spec.cases !== undefined)
+    checks.push(...casesChecks(spec.cases, summary, input.passedBefore));
   return result(checks, approval);
+}
+
+/**
+ * A refusal's figures for the gate's `cases` rule, read off its checks:
+ * `passing` and `needs` with `minPassing`, and `newlyFailing` with
+ * `noNewFailures` once it could tell. Empty without the rule.
+ */
+export function casesDetails(checks: readonly GateCheck[]): {
+  readonly passing?: number;
+  readonly needs?: number;
+  readonly newlyFailing?: readonly string[];
+} {
+  const min = checks.find((c) => c.name === 'cases.minPassing');
+  const none = checks.find((c) => c.name === 'cases.noNewFailures');
+  return {
+    ...(typeof min?.value === 'number' && { passing: min.value }),
+    ...(typeof min?.threshold === 'number' && { needs: min.threshold }),
+    ...(none?.caseIds !== undefined && { newlyFailing: none.caseIds }),
+  };
 }
 
 function result(checks: readonly GateCheck[], approval: GateApproval | undefined): GateResult {
@@ -375,6 +405,94 @@ function replayChecks(
       threshold: max,
     };
   });
+}
+
+/** Cases a failing check lists by id in its message; `caseIds` has them all. */
+const LISTED_CASES = 5;
+
+/** How many of the comparison's cases pass, and whether one that passed before fails now. */
+function casesChecks(
+  cases: NonNullable<ReleaseGateSpec['cases']>,
+  summary: CorrectedComparisonSummary,
+  passedBefore: readonly string[] | undefined,
+): GateCheck[] {
+  const graded = summary.corrections;
+  const checks: GateCheck[] = [];
+  if (cases.minPassing !== undefined) {
+    const passing = graded?.passed ?? 0;
+    const needs = cases.minPassing;
+    checks.push({
+      name: 'cases.minPassing',
+      passed: passing >= needs,
+      message: `${passing} of ${count(graded?.checked ?? 0, 'case')} pass; the gate needs at least ${needs}.`,
+      value: passing,
+      threshold: needs,
+    });
+  }
+  if (cases.noNewFailures === true) checks.push(noNewFailuresCheck(graded, passedBefore));
+  return checks;
+}
+
+function noNewFailuresCheck(
+  graded: CorrectedComparisonSummary['corrections'],
+  passedBefore: readonly string[] | undefined,
+): GateCheck {
+  const name = 'cases.noNewFailures';
+  if (passedBefore === undefined) {
+    return {
+      name,
+      passed: false,
+      message:
+        "The cases that passed before couldn't be read, so the gate can't tell whether one fails now.",
+    };
+  }
+  if (graded !== undefined && graded.results === undefined) {
+    return {
+      name,
+      passed: false,
+      message:
+        "The test run doesn't say how each case did (it was recorded before that was kept): run it again.",
+    };
+  }
+  const { checked, caseIds } = newlyFailing(graded?.results ?? [], new Set(passedBefore));
+  return {
+    name,
+    passed: caseIds.length === 0,
+    message: noNewFailuresMessage(checked, caseIds),
+    value: caseIds.length,
+    threshold: 0,
+    caseIds,
+  };
+}
+
+/**
+ * Of the graded corrections that passed before: how many the run
+ * checked, and the ones it failed. A correction graded on more than one
+ * case fails when any of them does.
+ */
+function newlyFailing(
+  results: readonly { readonly correctionId: string; readonly pass: boolean }[],
+  before: ReadonlySet<string>,
+): { checked: number; caseIds: string[] } {
+  const checked = new Set<string>();
+  const failing = new Set<string>();
+  for (const r of results) {
+    if (!before.has(r.correctionId)) continue;
+    checked.add(r.correctionId);
+    if (!r.pass) failing.add(r.correctionId);
+  }
+  return { checked: checked.size, caseIds: [...failing] };
+}
+
+function noNewFailuresMessage(checked: number, caseIds: readonly string[]): string {
+  if (caseIds.length > 0) {
+    const listed = caseIds.slice(0, LISTED_CASES).join(', ');
+    const more = caseIds.length - LISTED_CASES;
+    const verb = caseIds.length === 1 ? 'fails' : 'fail';
+    return `${count(caseIds.length, 'case')} that passed before ${verb} now: ${listed}${more > 0 ? `, and ${more} more` : ''}.`;
+  }
+  if (checked === 0) return 'The test run checked no case that passed before.';
+  return `${count(checked, 'case')} that passed before ${checked === 1 ? 'still passes' : 'all still pass'}.`;
 }
 
 function metricLabel(name: GateMetricName, metric: ComparisonMetric): string {
