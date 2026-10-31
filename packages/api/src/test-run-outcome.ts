@@ -38,7 +38,7 @@ const LATEST = 'latest:';
 /**
  * The correlation id prefixes of the test runs Kindgi starts itself, for a
  * pin change and for Latest moving. A caller's start of a test run may not
- * use them (`POST /v1/test-runs` answers `bad-input`).
+ * use them (`POST /v1/test-sets/{testSetId}/runs` answers `bad-input`).
  */
 export const RESERVED_CORRELATION_PREFIXES: readonly string[] = [PIN, LATEST];
 
