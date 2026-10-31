@@ -39,12 +39,12 @@ import {
   type CandidateCall,
   gradeExpectedDecisions,
 } from './expected-decisions.js';
-import type { TestCaseAnswer, TestCaseDecisions, TestCaseExpect } from './test-case-binding.js';
 import type {
   CorrectedTestCase,
   FrozenCaseStoreBinding,
   TestCaseExpectedDecisions,
 } from './frozen-case-binding.js';
+import type { TestCaseAnswer, TestCaseDecisions, TestCaseExpect } from './test-case-binding.js';
 import type {
   AgentRef,
   FlowRef,
