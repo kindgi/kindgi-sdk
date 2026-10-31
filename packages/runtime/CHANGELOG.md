@@ -1,5 +1,14 @@
 # @kindgi/runtime
 
+## 0.3.1-rc.1
+
+### Patch Changes
+
+- @kindgi/authz@0.3.1-rc.1
+  - @kindgi/flow@0.3.1-rc.1
+  - @kindgi/handler@0.3.1-rc.1
+  - @kindgi/types@0.3.1-rc.1
+
 ## 0.3.1-rc.0
 
 ### Patch Changes

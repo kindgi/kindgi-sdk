@@ -1,5 +1,12 @@
 # @kindgi/connections
 
+## 0.3.1-rc.1
+
+### Patch Changes
+
+- @kindgi/tools@0.3.1-rc.1
+  - @kindgi/types@0.3.1-rc.1
+
 ## 0.3.1-rc.0
 
 ### Patch Changes

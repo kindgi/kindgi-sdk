@@ -1,5 +1,16 @@
 # @kindgi/connections-inmemory
 
+## 0.3.1-rc.1
+
+### Patch Changes
+
+- @kindgi/agents@0.3.1-rc.1
+  - @kindgi/api@0.3.1-rc.1
+  - @kindgi/authz@0.3.1-rc.1
+  - @kindgi/connections@0.3.1-rc.1
+  - @kindgi/tools@0.3.1-rc.1
+  - @kindgi/types@0.3.1-rc.1
+
 ## 0.3.1-rc.0
 
 ### Patch Changes
