@@ -68,7 +68,7 @@ export function formatThrown(
     // unless --verbose asks otherwise.
     const detail = options.verbose
       ? `\n${JSON.stringify(wire, null, 2)}`
-      : formatValidationDetail(wire) + formatRecordState(wire);
+      : formatValidationDetail(wire) + formatRecordState(wire) + formatNotReady(wire);
     return cliError(`Error [${errorTag(wire)}]: ${wire.message}${detail}`, 1);
   }
   if (thrown instanceof Error) {
@@ -156,6 +156,47 @@ function formatRecordState(wire: KindgiError): string {
   if (typeof state !== 'string') return '';
   const reason = wire.fields?.reason;
   return `\nRecord state: ${state}${typeof reason === 'string' ? ` (${reason})` : ''}`;
+}
+
+/**
+ * An Improve run that isn't ready (`409 improve-not-ready`): each missing
+ * item, a line each, with how it's fixed and where (`details.items`).
+ */
+function formatNotReady(wire: KindgiError): string {
+  if (wire.code !== 'conflict' || wire.reason !== 'improve-not-ready') return '';
+  const items = wire.fields?.items;
+  if (!Array.isArray(items)) return '';
+  const lines: string[] = [];
+  for (const item of items as readonly unknown[]) {
+    if (item === null || typeof item !== 'object') continue;
+    const { key, missing, fix } = item as {
+      readonly key?: unknown;
+      readonly missing?: unknown;
+      readonly fix?: { readonly where?: unknown; readonly text?: unknown };
+    };
+    if (typeof key !== 'string' || missing !== true) continue;
+    const words =
+      typeof fix?.where === 'string' && typeof fix.text === 'string'
+        ? readinessFixWords({ where: fix.where, text: fix.text })
+        : 'missing';
+    lines.push(`  ✗ ${key}: ${words}`);
+  }
+  return lines.length > 0 ? `\n${lines.join('\n')}` : '';
+}
+
+/** Where an Improve run's readiness item is fixed, in words. */
+const FIX_WHERE: Readonly<Record<string, string>> = {
+  repo: "in the agent's code, then a deploy",
+  kindgi: 'in Kindgi',
+};
+
+/**
+ * A missing readiness item's fix, as `POST /v1/improve-runs/check` and a
+ * `409 improve-not-ready` give it: how, then where.
+ */
+export function readinessFixWords(fix: { readonly where: string; readonly text: string }): string {
+  const where = FIX_WHERE[fix.where] ?? fix.where;
+  return `${fix.text} (${where})`;
 }
 
 /**
