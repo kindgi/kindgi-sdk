@@ -296,11 +296,13 @@ value minus its lowest. In the clients, it's `repetitions`.
 Each metric has its value for the recorded runs (`baseline`) and for the
 version (`candidate`), the `delta`, and `n`, the cases it's based on.
 
-- **`passRate`,** "Share marked right" in the console: of the items in
-  the answer that people corrected, the share they marked right, weighted by
-  corrector group, with each case's [graded `expect`](#what-a-case-expects)
-  as one more check, of weight 1. 0.1.0's answers had 3 marked right of 9 corrected articles.
-  0.2.0's had 3 of 3: it kept only the right article each time.
+- **`passRate`,** "Share marked right" in the console: of what people
+  marked, the share marked right. Each item of the answer they corrected
+  counts, weighted by corrector group, and so does each part of a case's
+  [graded `expect`](#what-a-case-expects), its decisions and its answer,
+  as one check of weight 1. The example's cases expect items alone:
+  0.1.0's answers had 3 marked right of 9 corrected articles. 0.2.0's had
+  3 of 3: it kept only the right article each time.
 - **`caseCoverage`,** "Corrected items": the share of the answer's items
   that people corrected. Items no one corrected bring it down. Here, each
   answer's text is an item too, and no one corrected it.
@@ -418,11 +420,14 @@ is graded on its `expect`, part by part, on each repetition:
 The case has one entry in `corrections`, under the case's id, and it's
 counted in the summary's `corrections`. A repetition passes when every
 part the case expects passed on it, and the case passes when every
-repetition did. The entry is also one check in `passRate`, beside the
-case's items, so a release gate on `passRate` counts it: the recorded run
-passes it when every part the case expects is `right`, and each repetition
-that ran passes it when the case passed. For `decisions: "wrong"`, `correctionDifferences` says what
-differed. When an answer fails, `why` has the judging model's reason:
+repetition did. Its `parts` says whether each part, its decisions and its
+answer, passed on every repetition. Each graded part is one check in
+`passRate`, beside the case's items, so a case that expects both is two
+checks, and a release gate on `passRate` counts them. The recorded run
+passes a part when people marked it `right`, and each repetition that ran
+passes it when the part passed on every repetition. For
+`decisions: "wrong"`, `correctionDifferences` says what differed. When an
+answer fails, `why` has the judging model's reason:
 
 ```json
 {
@@ -430,7 +435,8 @@ differed. When an answer fails, `why` has the judging model's reason:
   "pass": false,
   "repetitionsPassed": 1,
   "repetitions": 3,
-  "why": "It never says how long the refund takes."
+  "why": "It never says how long the refund takes.",
+  "parts": { "decisions": true, "answer": false }
 }
 ```
 
@@ -442,17 +448,17 @@ differed. When an answer fails, `why` has the judging model's reason:
 - **What it costs.** Each answer checked is a call to the judging model,
   which costs money. It's counted in its repetition's `costUsd`, so it's in
   the test run's cost, even when the reply couldn't be read. Answers are
-  checked in order, and checking stops at the first repetition that fails,
-  since the case has failed then. A repetition whose decisions failed fails
-  without a check.
+  checked in order, and checking stops at the first answer that fails. An
+  answer is checked on a repetition whose decisions failed too, since it's
+  a check of its own.
 - **No pass.** A case that expects only `items` has no entry, and adds no
-  check to `passRate`: its items count toward the metrics. Neither does a case whose answer couldn't be
-  checked, say because the version has no model settings or the call to
-  the judging model failed, or one that expects `decisions: "right"` when
-  the recorded run's tool calls can't be read. A failed call doesn't stop
-  the test run.
+  check to `passRate`: its items count toward the metrics. Neither does a
+  case whose answer couldn't be checked, say because the version has no
+  model settings or the call to the judging model failed, or one that
+  expects `decisions: "right"` when the recorded run's tool calls can't be
+  read. A failed call doesn't stop the test run.
 - **A repetition that errored or stopped** fails every part, and its answer
-  isn't checked.
+  isn't checked, nor any after it.
 
 ## What a replay does
 

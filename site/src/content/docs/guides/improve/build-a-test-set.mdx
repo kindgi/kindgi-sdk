@@ -222,16 +222,16 @@ verdict on:
 | `decisions: "right"` | The same tools the run called, by name, in any order |
 | `answer: "wrong"` | An answer that does what `shouldSay` or `why` asks, checked by a judging model |
 | `answer: "right"` | An answer that says what the recorded one said, checked by a judging model |
-| `items` | The ranked items, scored as corrected items: in `passRate`, `caseCoverage` and `weightedPrecisionAtK` |
+| `items` | The ranked items, scored as corrected items: in `caseCoverage` and `weightedPrecisionAtK`, and in `passRate` beside the other parts' checks |
 
 - **`madeOn`** is the agent version the corrected run ran.
 - A correction whose words an [erasure](../../agents/erase-a-persons-data/) cleared
   leaves nothing to check, so it isn't a case.
 - A [test run](../compare-an-agent-version/#what-a-case-expects) checks
   each part on every repetition. A judging model checks answers, and its
-  calls cost money. The case's pass is one check in `passRate`, beside its
-  items. A case that expects only `items` has no pass: its items count
-  toward the metrics.
+  calls cost money. Each part the case expects, its decisions and its
+  answer, is one check in `passRate`, beside its items. A case that
+  expects only `items` has no pass: its items count toward the metrics.
 - **`expert: true`** marks an expert's case: a correction's case when the
   correction was made under a restricted expert group, and every case added
   by hand. A test run that counts only experts' corrections grades only
