@@ -434,7 +434,8 @@ The CSV has a header row, then one correction per line: `id`, `projectId`,
 `runId`, `agentVersion`, `madeBy` (`user:<id>` or `service:<id>`),
 `participantId`, `expert`, `decisions`, `shouldCall` and `mustNotCall` (these
 two as JSON), `answer`, `shouldSay`, `why`, `sortedTo`, `status`, `fixedIn` (the
-version that fixed it) and `createdAt`. A field that starts with `=`, `+`,
+version that fixed it), `reopenedIn` (the version whose test run reopened it)
+and `createdAt`. A field that starts with `=`, `+`,
 `-`, `@`, a tab or a carriage return gets a leading `'`, so a spreadsheet
 shows it rather than running it as a formula. Where a spreadsheet's list
 separator is `;`, import the file with a comma as the separator rather than

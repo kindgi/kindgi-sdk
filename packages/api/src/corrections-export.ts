@@ -58,6 +58,7 @@ export const CORRECTIONS_CSV_COLUMNS = [
   'sortedTo',
   'status',
   'fixedIn',
+  'reopenedIn',
   'createdAt',
 ] as const;
 
@@ -119,6 +120,7 @@ export function csvRow(correction: Correction): string {
     j.sortedTo ?? '',
     j.status,
     j.fixedIn?.version ?? '',
+    j.reopenedIn?.version ?? '',
     j.createdAt,
   ]);
 }
