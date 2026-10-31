@@ -432,10 +432,11 @@ uv run kindgi corrections export --agent=<agent-id> --format=jsonl --status=not-
   midnight UTC.
 - Like `list`, it leaves out replaced corrections, and removed ones unless
   `--status=removed` asks for them.
-- `--out` names the file, which only you can read. It takes that name only
-  once the whole export has arrived, and an existing file is kept unless
-  you add `--force`. Then it prints the agent, the format, the file and its
-  size in bytes, as JSON. Without `--out`, the export is printed.
+- `--out` names the file. On macOS and Linux, only you can read it. It
+  takes that name only once the whole export has arrived, and an existing
+  file is kept unless you add `--force`. Then it prints the agent, the
+  format, the file and its size in bytes, as JSON. Without `--out`, the
+  export is printed.
 - Each correction comes only when you may read its project.
 
 The CSV has a header row, then one correction per line: `id`, `projectId`,

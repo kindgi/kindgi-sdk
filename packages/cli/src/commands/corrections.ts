@@ -429,7 +429,8 @@ async function wholeText(
  * it takes the name only while nothing has it (`placeNew`). Otherwise that
  * file is removed, and `target` is as it was: the stop (`stop`, a Ctrl+C)
  * ends the stream as a cut connection does. The file is readable by its
- * owner only, since it holds people's words. Returns the bytes written.
+ * owner only, since it holds people's words: on macOS and Linux, as Windows
+ * takes only read-only from a mode. Returns the bytes written.
  */
 async function saveExport(
   body: ReadableStream<Uint8Array>,
