@@ -7360,6 +7360,9 @@ class TestRun(BaseModel):
     Why a `cancelled` run stopped when nobody cancelled it: its project or tenant took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.
     """
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
+    """
+    The id the run was started with. `pin:<change id>` is a test run Kindgi started for a pin change, and `latest:<agent id>:<project id>` one it started for Latest moving in a project; a caller can't start a run with either.
+    """
     comparison: TestRunComparison | None = None
 
 
@@ -7390,6 +7393,9 @@ class StartTestRunBody(BaseModel):
     flow_ref: Annotated[TestRunFlowRef | None, Field(alias="flowRef")] = None
     dry_run: Annotated[bool | None, Field(alias="dryRun")] = None
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
+    """
+    An id of your own, kept on the run. It may not start with `pin:` or `latest:` (`bad-input`): those are the test runs Kindgi starts itself, for a pin change or Latest moving.
+    """
     baseline: (
         Annotated[Literal["recorded"] | str, _open.OPEN]
         | TestRunBaseline1

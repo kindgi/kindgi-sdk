@@ -4,7 +4,12 @@
 import { describe, expect, test } from 'vitest';
 
 import type { CorrectionMadeBy, CorrectionStatus } from '../src/correction-binding.js';
-import { parseCorrectionLink, planChange, sortAtSave } from '../src/correction-sorting.js';
+import {
+  parseCorrectionLink,
+  planChange,
+  planRunOutcome,
+  sortAtSave,
+} from '../src/correction-sorting.js';
 
 const ana: CorrectionMadeBy = { kind: 'user', id: 'u-ana' };
 const at = '2026-10-30T10:00:00.000Z';
@@ -199,6 +204,32 @@ describe('planChange (the change table)', () => {
     expect(planChange(from('open'), {}, ana, at).kind).toBe('bad-input');
   });
 
+  test("a status set by hand ends a test run's reopening, with the fixedIn beside it; a re-sort alone keeps both", () => {
+    const reopened = {
+      ...from('open', 'improve'),
+      reopenedIn: { version: '13', how: 'went-back' as const, by: ana, at },
+    };
+    const link = { kind: 'improve-run' as const, id: 'ir-2' };
+    expect(planChange(reopened, { status: 'being-fixed', link }, ana, at)).toEqual({
+      kind: 'ok',
+      change: { status: 'being-fixed', link, reopenedIn: null, fixedIn: null },
+    });
+    expect(planChange(reopened, { status: 'wont-fix', reason: 'by design' }, ana, at)).toEqual({
+      kind: 'ok',
+      change: {
+        status: 'wont-fix',
+        link: null,
+        statusNote: { text: 'by design', by: ana, at },
+        reopenedIn: null,
+        fixedIn: null,
+      },
+    });
+    expect(planChange(reopened, { sortedTo: 'developer' }, ana, at)).toEqual({
+      kind: 'ok',
+      change: { sortedTo: 'developer', sorted: byAna },
+    });
+  });
+
   test('a re-sort and a status at once: the re-sort first, then the status from where it put it', () => {
     const link = { kind: 'suggested-change' as const, id: 'sc-9' };
     // with-owner -> (re-sort to improve) open -> being-fixed.
@@ -213,6 +244,142 @@ describe('planChange (the change table)', () => {
       kind: 'ok',
       change: { sortedTo: 'improve', sorted: byAna, status: 'being-fixed', link },
     });
+  });
+});
+
+describe('planRunOutcome (a test run of the version a project now runs)', () => {
+  const correction = (
+    id: string,
+    status: CorrectionStatus,
+    more: { sortedTo?: 'improve' | 'developer' | 'owner'; link?: true; note?: true } = {},
+  ) => ({
+    id,
+    status,
+    ...(more.sortedTo !== undefined && { sortedTo: more.sortedTo }),
+    ...(more.link === true && { link: { kind: 'improve-run' as const, id: 'ir-1' } }),
+    ...(more.note === true && { statusNote: { text: 'Back to open.', by: ana, at } }),
+  });
+  const pinAt = '2026-11-06T09:00:00.000Z';
+
+  test('a pass fixes an open, being-fixed or with-owner correction in the version; a fixed one keeps its first fixedIn', () => {
+    const plan = planRunOutcome({
+      version: '14',
+      how: 'pin',
+      follows: 'pin',
+      by: ana,
+      at: pinAt,
+      corrections: [
+        correction('c-open', 'open', { note: true }),
+        correction('c-fixing', 'being-fixed', { link: true }),
+        correction('c-owner', 'with-owner', { sortedTo: 'owner' }),
+        correction('c-fixed', 'fixed'),
+      ],
+      passed: new Map([
+        ['c-open', true],
+        ['c-fixing', true],
+        ['c-owner', true],
+        ['c-fixed', true],
+      ]),
+    });
+    const fixedIn = { version: '14', how: 'pin', by: ana, at: pinAt };
+    expect(plan).toEqual({
+      fixed: ['c-open', 'c-fixing', 'c-owner'],
+      reopened: [],
+      changes: [
+        { correctionId: 'c-open', status: 'fixed', fixedIn, reopenedIn: null, statusNote: null },
+        { correctionId: 'c-fixing', status: 'fixed', fixedIn, reopenedIn: null, link: null },
+        { correctionId: 'c-owner', status: 'fixed', fixedIn, reopenedIn: null },
+      ],
+    });
+  });
+
+  test('a fail reopens a fixed correction with reopenedIn, keeping its fixedIn, with-owner for one sorted to the owner; the others stay', () => {
+    const plan = planRunOutcome({
+      version: '13',
+      how: 'went-back',
+      follows: 'pin',
+      by: ana,
+      at: pinAt,
+      corrections: [
+        correction('c-fixed', 'fixed', { sortedTo: 'improve' }),
+        correction('c-fixed-owner', 'fixed', { sortedTo: 'owner' }),
+        correction('c-open', 'open'),
+        correction('c-wont', 'wont-fix'),
+      ],
+      passed: new Map([
+        ['c-fixed', false],
+        ['c-fixed-owner', false],
+        ['c-open', false],
+        ['c-wont', false],
+      ]),
+    });
+    const reopenedIn = { version: '13', how: 'went-back', by: ana, at: pinAt };
+    expect(plan).toEqual({
+      fixed: [],
+      reopened: ['c-fixed', 'c-fixed-owner'],
+      changes: [
+        { correctionId: 'c-fixed', status: 'open', reopenedIn },
+        { correctionId: 'c-fixed-owner', status: 'with-owner', reopenedIn },
+      ],
+    });
+  });
+
+  test('Latest moving fixes as latest, with no person; a correction the run did not check is left', () => {
+    const latest = planRunOutcome({
+      version: '15',
+      how: 'latest',
+      follows: 'latest',
+      at: pinAt,
+      corrections: [correction('c-open', 'open'), correction('c-unchecked', 'open')],
+      passed: new Map([['c-open', true]]),
+    });
+    expect(latest.changes).toEqual([
+      {
+        correctionId: 'c-open',
+        status: 'fixed',
+        fixedIn: { version: '15', how: 'latest', at: pinAt },
+        reopenedIn: null,
+      },
+    ]);
+  });
+
+  test('an unpin fixes as what the project follows now: latest on Latest, pin under a wider pin; its reopen says unpin', () => {
+    const unpin = (follows: 'pin' | 'latest') =>
+      planRunOutcome({
+        version: '15',
+        how: 'unpin',
+        follows,
+        by: ana,
+        at: pinAt,
+        corrections: [correction('c-open', 'open'), correction('c-fixed', 'fixed')],
+        passed: new Map([
+          ['c-open', true],
+          ['c-fixed', false],
+        ]),
+      }).changes;
+    const reopened = {
+      correctionId: 'c-fixed',
+      status: 'open',
+      reopenedIn: { version: '15', how: 'unpin', by: ana, at: pinAt },
+    };
+    expect(unpin('latest')).toEqual([
+      {
+        correctionId: 'c-open',
+        status: 'fixed',
+        fixedIn: { version: '15', how: 'latest', by: ana, at: pinAt },
+        reopenedIn: null,
+      },
+      reopened,
+    ]);
+    expect(unpin('pin')).toEqual([
+      {
+        correctionId: 'c-open',
+        status: 'fixed',
+        fixedIn: { version: '15', how: 'pin', by: ana, at: pinAt },
+        reopenedIn: null,
+      },
+      reopened,
+    ]);
   });
 });
 
