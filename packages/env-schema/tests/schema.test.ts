@@ -414,6 +414,28 @@ describe('envVarsForTarget — the pack service', () => {
     expect(names.sort()).toEqual([...PACK_SERVICE_VARS].sort());
   });
 
+  const PACK_ORCHESTRATOR_VARS = [
+    'KINDGI_ORCHESTRATOR_RUNTIME_URL',
+    'KINDGI_ORCHESTRATOR_SYSTEM_KEY',
+    'KINDGI_ORCHESTRATOR_PROJECT',
+    'KINDGI_ORCHESTRATOR_REGION',
+    'KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT',
+    'KINDGI_ORCHESTRATOR_PACK_SERVICE',
+  ];
+
+  test("component=pack-orchestrator is the orchestrator's vars, and no other process reads them", () => {
+    const names = envVarsForTarget({ component: 'pack-orchestrator' }).map((v) => v.name);
+    expect(names.sort()).toEqual([...PACK_ORCHESTRATOR_VARS].sort());
+    for (const target of [
+      {},
+      { component: 'server' as const },
+      { component: 'pack-service' as const },
+    ]) {
+      const others = envVarsForTarget(target).map((v) => v.name);
+      for (const name of PACK_ORCHESTRATOR_VARS) expect(others).not.toContain(name);
+    }
+  });
+
   test('a server target without a pack transport offers the URL only', () => {
     for (const target of [{}, { component: 'server' as const }]) {
       const names = envVarsForTarget(target).map((v) => v.name);

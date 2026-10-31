@@ -229,11 +229,16 @@ KINDGI_ARTIFACTS=gcs:acme-artifacts
 - **Warned:** a soft delete, which keeps a deleted file restorable for its
   period (Google turns it on for 7 days by default), and a lifecycle rule
   that can delete a live file under `tenants/`. Versioning is fine.
-- **The emulator:** `STORAGE_EMULATOR_HOST` sends every GCS request to that
-  host, with no credentials, so it's for development only. Outside
-  `KINDGI_DEV=true`, the runtime doesn't start with it and a `gcs:`
-  setting, and a command refuses its own `gcs:` `--from` or `--out` the
-  same way.
+- **The emulator variable:** `STORAGE_EMULATOR_HOST` sends every GCS
+  request to that host, with no credentials. Outside `KINDGI_DEV=true`, the
+  runtime doesn't start with it and a `gcs:` setting, and a command refuses
+  its own `gcs:` `--from` or `--out` the same way. Google's client, which
+  the runtime uses, takes the variable as the whole address of its JSON
+  API, with no `/storage/v1` added. So an emulator that serves that API only
+  under `/storage/v1`, such as fake-gcs-server, doesn't work through it. In
+  development, keep files in [a directory](#a-directory), or in MinIO
+  through `KINDGI_S3_ENDPOINT`
+  ([An S3-compatible store](#an-s3-compatible-store)).
 
 The permissions the identity needs, granted on each bucket:
 
