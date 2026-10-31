@@ -522,9 +522,9 @@ unset KEY
 
 Behind Cloud Run IAM, add the ID token line after the `curl` line, as in
 step 1. `KINDGI_API_TOKEN=$KEY` gives the key to that one command, off the
-command line. The key stays valid for the next cloud secret until you revoke
-it, `POST /v1/system/keys/{keyId}/revoke`, with its id from
-`GET /v1/system/keys`. Serving many tenants, the API token holds the full system
+command line. The key stays valid until you revoke it. Once you've set what
+you need, revoke it: `POST /v1/system/keys/{keyId}/revoke`, with its id from
+`GET /v1/system/keys` (its label is `cloud secrets`). Serving many tenants, the API token holds the full system
 capability, `kindgi:system`, so set it with the API token in
 `KINDGI_API_TOKEN` ([Serve many tenants](#serve-many-tenants)).
 

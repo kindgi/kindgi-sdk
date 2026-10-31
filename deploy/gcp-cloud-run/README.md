@@ -378,7 +378,7 @@ KEY=$(curl -sS -X POST "$URL/v1/system/keys" \
 unset KEY
 ```
 
-The key stays valid for the next cloud secret until you revoke it: `POST /v1/system/keys/{keyId}/revoke`, with its id from `GET /v1/system/keys`.
+The key stays valid until you revoke it. Once you've set what you need, revoke it: `POST /v1/system/keys/{keyId}/revoke`, with its id from `GET /v1/system/keys` (its label is `cloud secrets`).
 
 Serving many tenants (`tenancy = "multi"`), the API token holds the full system capability, `kindgi:system`, so set it with the API token in `KINDGI_API_TOKEN`.
 
