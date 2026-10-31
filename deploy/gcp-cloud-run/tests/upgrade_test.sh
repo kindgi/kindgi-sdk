@@ -487,6 +487,7 @@ run "yes" --to 0.4.0-rc.0
 assert_rc 0 "to an rc runs"
 assert_out "crossing: 0.1.9 0.1.10 0.2.0 0.3.0 0.3.1 0.4.0$"
 assert_out "STEPS-PENDING"
+assert_out "First start runs sixteen migrations"
 assert_out "autoCloseAfterInactiveSeconds"
 
 # 11. An rc promoted to its final carries both tags: the final is the version.
@@ -829,7 +830,7 @@ run "yes" --to 0.4.0.1
 assert_rc 0 "0.4.0 -> 0.4.0.1 runs"
 assert_out "upgrading 0.4.0 -> 0.4.0.1, a server fix for 0.4.0: no release crossed"
 assert_out "none: 0.4.0.1 is a server fix for 0.4.0."
-if grep -q -e "STEPS-PENDING" -e "Steps that finish the switch" "$OUT"; then fail "0.4.0's steps shown for 0.4.0 -> 0.4.0.1"; else pass; fi
+if grep -q -e "STEPS-PENDING" -e "First start runs sixteen migrations" -e "Steps that finish the switch" "$OUT"; then fail "0.4.0's steps shown for 0.4.0 -> 0.4.0.1"; else pass; fi
 assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.4.0.1 " "the server fix's own tag is read"
 assert_file_has "$STUB_DOCKER_LOG" "--tag $REPO/runtime:0.4.0.1 registry.kindgi.com/kindgi/runtime:0.4.0.1@$NEW_DIGEST" "the mirror tags it 0.4.0.1"
 assert_present "$STUB_MARKER_EXPORT" "backup"
@@ -1040,11 +1041,13 @@ jq -n '{pack_min_instances: 2,
 run "yes" --var-file "$PACK_ENV_FILE"
 assert_rc 0 "0.3.1 -> 0.4.0 runs"
 assert_out "crossing: 0.4.0$"
-assert_out "STEPS-PENDING: this copy doesn't have 0.4.0's runtime steps yet"
-assert_out "The plan moves the deployment from the one pack service to a pack service"
+assert_out "STEPS-PENDING: this copy's 0.4.0 runtime steps below aren't final yet."
+assert_out "The plan moves the deployment to a pack service for each deployment,"
 if grep -qxF "console -var-file=$VAR_FILE -var-file=$PACK_ENV_FILE" "$STUB_REMOVED_SAW"; then pass
 else fail "the variables 0.4.0 took out weren't read from both files: $(cat "$STUB_REMOVED_SAW")"; fi
 assert_out "nothing to build: the apply deletes the one pack service, and the pack orchestrator makes each deployment's own"
+assert_out "service, it deletes that service, its token's secret and their grants."
+assert_out "   - With the one pack service, from the apply until each pack is deployed"
 assert_out "plan check: it changes the image(s), and only what the releases crossed change."
 w="$(grep -n "This plan moves the deployment to a pack service for each deployment" "$OUT" | head -1 | cut -d: -f1)"
 y="$(grep -n "Apply this plan" "$OUT" | head -1 | cut -d: -f1)"
@@ -1102,8 +1105,13 @@ if grep -q "0.3.0's kindgi-runtime" "$OUT"; then fail "a run to 0.4.0 named 0.3.
 assert_out "First start runs no migrations. The steps are the packs'"
 assert_out "kindgi guardrails unregister <id>"
 assert_out "0.3.1 doesn't change the module."
-assert_out "STEPS-PENDING: this copy doesn't have 0.4.0's runtime steps yet"
-assert_out "The plan moves the deployment from the one pack service to a pack service"
+assert_out "STEPS-PENDING: this copy's 0.4.0 runtime steps below aren't final yet."
+assert_out "First start runs sixteen migrations: one new table, new columns that"
+assert_out "FROM judgments; and the same FROM"
+assert_out "grant roles/storage.legacyBucketReader on the bucket,"
+assert_out "kindgi mail-triggers update <trigger-id> --mailbox=google"
+assert_out "change judging=<level> to"
+assert_out "The plan moves the deployment to a pack service for each deployment,"
 if grep -q "the module here is this copy's" "$OUT"; then fail "the newest release warned of a module past it"; else pass; fi
 assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.4.0 " "0.4.0's tag is read"
 assert_out "nothing to build: the pack orchestrator makes each deployment's pack service, from the image its deploy names"
@@ -1119,7 +1127,7 @@ reset_env; export STUB_TAGS="0.3.1"
 run "yes" --to 0.4.0-rc.0
 assert_rc 0 "0.3.1 -> 0.4.0-rc.0 runs"
 assert_out "crossing: 0.4.0$"
-assert_out "STEPS-PENDING: this copy doesn't have 0.4.0's runtime steps yet"
+assert_out "STEPS-PENDING: this copy's 0.4.0 runtime steps below aren't final yet."
 if grep -q "kindgi guardrails unregister <id>" "$OUT"; then fail "0.3.1's steps printed for a run from 0.3.1"; else pass; fi
 assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.4.0-rc.0@$NEW_DIGEST" "the rc is copied from registry.kindgi.com"
 assert_out "plan check: it changes the image(s)"
@@ -1669,6 +1677,7 @@ assert_file_has "$OUT" "   - With tenancy = \"multi\", stop your own orchestrato
 w="$(grep -n "stop your own orchestrator before you answer yes" "$OUT" | head -1 | cut -d: -f1)"
 y="$(grep -n "Apply this plan" "$OUT" | head -1 | cut -d: -f1)"
 if [[ -n $w && -n $y && $w -lt $y ]]; then pass; else fail "the orchestrator's stop isn't said before the question (at ${w:-none}, question at ${y:-none})"; fi
+assert_out "The services yours made keep serving until each tenant deploys again."
 assert_out "nothing to build: the pack orchestrator makes each deployment's pack service"
 assert_file_has "$OUT" "kindgi env set SHOP_API_KEY --cloud-secret projects/demo-proj/secrets/acme-shop-key/versions/2 --tenant=<tenant id> " "the tenant by its id"
 assert_file_has "$OUT" " 4. Deploy each pack again" "the deploy, fourth"

@@ -1428,7 +1428,12 @@ if grep -q "0.3.0's kindgi-runtime" "$OUT"; then fail "a run to 0.4.0 named 0.3.
 assert_out "First start runs no migrations. The steps are the packs'"
 assert_out "kindgi guardrails unregister <id>"
 assert_out "0.3.1 doesn't change the module."
-assert_out "STEPS-PENDING: this copy doesn't have 0.4.0's runtime steps yet."
+assert_out "STEPS-PENDING: this copy's 0.4.0 runtime steps below aren't final yet."
+assert_out "First start runs sixteen migrations: one new table, new columns that"
+assert_out "FROM judgments; and the same FROM"
+assert_out "grant roles/storage.legacyBucketReader on the bucket,"
+assert_out "kindgi mail-triggers update <trigger-id> --mailbox=google"
+assert_out "change judging=<level> to"
 assert_out "0.4.0's plan changes nothing in the module by itself"
 if grep -q "the module here is this copy's" "$OUT"; then fail "the newest release's run says the module goes ahead"; else pass; fi
 assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.4.0 " "0.4.0's tag is read"
@@ -1451,14 +1456,15 @@ assert_out "0.3.0 -> 0.3.1-rc.0 applied"
 
 # 47c. 0.3.1 -> 0.4.0's candidate: it crosses 0.4.0 alone, whose module
 # changes nothing by itself, so the plan changes only the image. Until 0.4.0's
-# runtime steps are in, its steps are the STEPS-PENDING line, which the rc's
-# cut stops on.
+# runtime steps are final, they start with the STEPS-PENDING line, which the
+# rc's cut stops on.
 case_start "0.3.1 to 0.4.0-rc.0"
 reset_env; export STUB_TAGS="0.3.1"
 run "yes" --to 0.4.0-rc.0
 assert_rc 0 "0.3.1 -> 0.4.0-rc.0 runs"
 assert_out "crossing: 0.4.0$"
-assert_out "STEPS-PENDING: this copy doesn't have 0.4.0's runtime steps yet."
+assert_out "STEPS-PENDING: this copy's 0.4.0 runtime steps below aren't final yet."
+assert_out "First start runs sixteen migrations"
 assert_out "0.4.0's plan changes nothing in the module by itself"
 if grep -q "First start runs no migrations. The steps are the packs'" "$OUT"; then fail "0.3.1's steps printed for a run from 0.3.1"; else pass; fi
 if grep -q "the module here is this copy's" "$OUT"; then fail "a run to the newest release's rc says the module goes ahead"; else pass; fi

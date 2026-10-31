@@ -33,11 +33,11 @@
 # in server_env and server_secret_env, say), stops it before anything is
 # applied. "yes" applies exactly the plan shown.
 #
-# From a release before 0.4.0, the plan also moves the deployment from the one
-# pack service to a pack service for each deployment, which the pack
-# orchestrator makes (README "5. The pack orchestrator"). From the apply until
-# each pack is deployed again, calls to a deployed pack's tools are refused, so
-# run it at a quiet hour. After the apply it prints the steps that finish the
+# From a release before 0.4.0, the plan also moves the deployment to a pack
+# service for each deployment, which the pack orchestrator makes (README "5.
+# The pack orchestrator"). With the one pack service, from the apply until each
+# pack is deployed again, calls to a deployed pack's tools are refused, so run
+# it at a quiet hour. After the apply it prints the steps that finish the
 # switch, by hand: the orchestrator's key, a second apply, the pack's env and a
 # deploy of each pack. For those steps it reads the variables 0.4.0 took out
 # (pack_image, pack_min_instances, pack_env, pack_secret_env) from the var
@@ -1093,13 +1093,55 @@ EOT
 EOT
       ;;
     0.4.0)
-      # STEPS-PENDING marks a release whose runtime steps aren't here yet:
-      # they come from its release notes' Upgrade steps before its rc, and
-      # the rc's cut stops while either script has the marker.
+      # STEPS-PENDING marks a release whose runtime steps here aren't final
+      # yet: they come from its release notes' Upgrade steps before its rc,
+      # and the rc's cut stops while either script has the marker.
       cat <<'EOT'
-   - STEPS-PENDING: this copy doesn't have 0.4.0's runtime steps yet. Don't
-     upgrade a deployment you keep with it: read the 0.4.0 release notes'
-     Upgrade steps.
+   - STEPS-PENDING: this copy's 0.4.0 runtime steps below aren't final yet.
+     Don't upgrade a deployment you keep with it: read the 0.4.0 release
+     notes' Upgrade steps.
+   - First start runs sixteen migrations: one new table, new columns that
+     are empty or have a fixed default, nothing rewritten, and the
+     supervisor_fix_proposals table dropped. They lock the tables they
+     change or point to: agent_registry, agent_registry_versions,
+     agent_promotions, block_registry_versions, deployments,
+     deployment_endpoints, eval_runs, eval_suite_cases,
+     improvement_proposals, judgments and projects. Seven of them hold the
+     lock while they read every row, to check a new rule or build an
+     index. One keeps judgments locked while it indexes every judgment, so
+     people's judgments and corrections wait, on the old revision too; one
+     indexes eval_runs, so starting or updating a test run waits. With many
+     of either (SELECT count(*) FROM judgments; and the same FROM
+     eval_runs) upgrade at a quiet time.
+     A long transaction holding one of those tables makes the new revision
+     fail after about a minute, naming the session that holds it (end it
+     with pg_terminate_backend, or let it finish). The old revision keeps
+     serving meanwhile.
+   - With KINDGI_ARTIFACTS set to a gcs: bucket in server_env, give the
+     identity the server reads it as storage.buckets.get on that bucket
+     first: the 0.4.0 runtime reads the bucket's settings at start, and
+     without it the runtime refuses to start. roles/storage.objectAdmin
+     doesn't grant it: grant roles/storage.legacyBucketReader on the bucket,
+     or add the permission to a custom role. A ledger or purge-record bucket
+     needs only storage.objects.create.
+   - A mail trigger on the company's mailbox now stores the connection it
+     reads with. At its next look at the mailbox, one whose project has a
+     single company connection at the app stores that one and reads on.
+     With several, it reads nothing and shows connection-not-chosen, naming
+     them, until a project admin points it at one:
+       kindgi mail-triggers update <trigger-id> --mailbox=google \
+         --as=company --connection=<name>
+     (or --mailbox=microsoft), with --folder again if it watches a folder
+     other than the inbox, and --allow-unattended if it lists tools allowed
+     unattended.
+   - Upgrading drops the old supervisor_fix_proposals table; at 0.3.x no
+     route or job wrote to it.
+   - Projects gain one column, sort_end_user_corrections, empty on existing
+     projects, and empty reads as no: their end users' corrections aren't
+     sorted until a project turns it on.
+   - In KINDGI_LOG_LEVELS (server_env), change judging=<level> to
+     expert-queue=<level>. The old name only warns at boot, and has no
+     effect.
 EOT
       ;;
   esac
@@ -1160,20 +1202,21 @@ EOT
         return 0
       fi
       cat <<'EOT'
-   - The plan moves the deployment from the one pack service to a pack service
-     for each deployment, which the pack orchestrator makes: a Cloud Run Job,
-     from the server's image, that Cloud Scheduler runs once a minute. It
-     deletes the pack service, its token's secret and their grants. It makes
-     the orchestrator's account, its grants and its key's secret, the
-     server's right to invoke the project's services, and, with
+   - The plan moves the deployment to a pack service for each deployment,
+     which the pack orchestrator makes: a Cloud Run Job, from the server's
+     image, that Cloud Scheduler runs once a minute. With the one pack
+     service, it deletes that service, its token's secret and their grants.
+     It makes the orchestrator's account, its grants and its key's secret,
+     the server's right to invoke the project's services, and, with
      secrets_backend "none", the KMS key the pack services' tokens are sealed
      under. It gives the server its settings for routing each deployment
      (KINDGI_PACK_ROUTING and the rest). The Job and its schedule come at a
      second apply, by hand, once the orchestrator's key is in its secret.
-   - From the apply until each pack is deployed again, calls to a deployed
-     pack's tools are refused: pack-route-missing, then, for about a minute,
-     pack-endpoint-pending. Pick a quiet hour. Going back to the release it
-     runs now makes the one pack service again, with a second such window.
+   - With the one pack service, from the apply until each pack is deployed
+     again, calls to a deployed pack's tools are refused: pack-route-missing,
+     then, for about a minute, pack-endpoint-pending. Pick a quiet hour.
+     Going back to the release it runs now makes the one pack service again,
+     with a second such window.
    - After the apply, this script prints the steps that finish the switch, by
      hand: the orchestrator's key, the var file's second apply, the pack's
      env, and a deploy of each pack.
@@ -1310,7 +1353,8 @@ EOT
     new idempotency key, so the deploy isn't answered as the earlier one was:
       kindgi deploy --env <env> --endpoint $(printf '%q' "$SERVER_URL") --token <api token> --idempotency-key <new value>
     Its tools answer once the orchestrator has made its service, within about
-    a minute; until the deploy they answer pack-route-missing.
+    a minute; with the one pack service, until the deploy they answer
+    pack-route-missing.
     kindgi deployments get <deployment-id> shows whether its service is ready.
 EOT
   if [[ $TENANCY == "multi" ]]; then
@@ -1731,9 +1775,9 @@ check_plan "$PLAN" "$REBUILD_PACK" \
   || die "the plan check failed (above), so nothing was applied. (The backup stays at $EXPORT_URI.)"
 if [[ $SWITCH == true ]]; then
   printf '\n'
-  warn "This plan moves the deployment to a pack service for each deployment. From the apply until each pack is deployed again (the steps after it say how), calls to a deployed pack's tools are refused: pack-route-missing, then, for about a minute, pack-endpoint-pending. If that matters now, answer no and run this again at a quiet hour."
+  warn "This plan moves the deployment to a pack service for each deployment. With the one pack service, from the apply until each pack is deployed again (the steps after it say how), calls to a deployed pack's tools are refused: pack-route-missing, then, for about a minute, pack-endpoint-pending. If that matters now, answer no and run this again at a quiet hour."
   if [[ $TENANCY == "multi" ]]; then
-    warn "With tenancy = \"multi\", stop your own orchestrator before you answer yes: from the apply on, the module's makes each new deployment's service."
+    warn "With tenancy = \"multi\", stop your own orchestrator before you answer yes: from the apply on, the module's makes each new deployment's service. The services yours made keep serving until each tenant deploys again."
   fi
 fi
 
