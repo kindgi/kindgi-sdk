@@ -13,6 +13,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+## 0.3.1rc1
+
+No Python changes; the version moves with the npm packages.
+
 ## 0.3.1rc0
 
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",

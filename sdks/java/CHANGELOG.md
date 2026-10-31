@@ -10,6 +10,10 @@ candidates, and theirs are just below it.
 
 ## Unreleased
 
+## 0.3.1-rc.1
+
+No JVM changes; the version moves with the npm packages.
+
 ## 0.3.1-rc.0
 
 - `kindgi-pack`, `kindgi-pack-scala`: **an `llm-judge` guardrail is judged.** `Guardrail.define(id).kind("llm-judge").judgeCapabilities(Map.of("needs", List.of(Map.of("feature", "structured-output"))))` (Scala: `.judgeCapabilities(Map("needs" -> List(Map("feature" -> "structured-output"))))`) names what the judge model is routed by, and the index carries it; `check(...)` refuses an `llm-judge` guardrail without it. Before, the index schema refused the field, so `set("judgeCapabilities", ...)` failed the build, and without it the runtime refused the guardrail on every turn.
