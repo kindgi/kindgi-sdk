@@ -9226,6 +9226,149 @@ class DeploymentEndpoint(BaseModel):
     """
 
 
+class DeploymentReplacedBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    block_id: Annotated[str, Field(alias="blockId")]
+    from_: Annotated[str, Field(alias="from")]
+    """
+    The newest version that ran in a project of one of the pack's agents (a promotion: in its target).
+    """
+    to: str
+    """
+    The files' older version, which the deploy shipped (a promotion: the build's).
+    """
+    reason: str
+    """
+    Why, as the deploy or the promotion said.
+    """
+    by: PinActor
+
+
+class DeployReplaceBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    block_id: Annotated[str, Field(alias="blockId", min_length=1)]
+    reason: Annotated[str, Field(max_length=500, min_length=1)]
+    """
+    Why the older version goes back: 1 to 500 characters, no control characters.
+    """
+
+
+class DeployCheckAgentId(RootModel[str]):
+    root: Annotated[str, Field(min_length=1)]
+    """
+    An agent's id, as the image index names it.
+    """
+
+
+class ReplacedItem(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    block_id: Annotated[str, Field(alias="blockId")]
+    from_: Annotated[str, Field(alias="from")]
+    """
+    The newest version that runs now.
+    """
+    to: str
+    """
+    The files' version.
+    """
+
+
+class DeployCheckResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    replaced: list[ReplacedItem]
+    """
+    The blocks `replace` names that a newer version runs for: the deploy puts each back, and records it.
+    """
+    not_needed: Annotated[list[str], Field(alias="notNeeded")]
+    """
+    The blocks `replace` names that nothing newer runs for: nothing to replace.
+    """
+
+
+class By2(BaseModel):
+    """
+    Who pinned it, or who added it as Latest; a person with their name when the directory has one.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["user", "service"]
+    id: str
+    name: str | None = None
+
+
+class Runs(BaseModel):
+    """
+    Where the newest version runs: a project the caller reads, when there is one. In a project the caller can't read, the version only.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    follows: Literal["pin", "latest"] | None = None
+    segment: list[ScopeSegment] | None = None
+    """
+    The segment path, when a pin on a segment inside the project runs it.
+    """
+    by: By2 | None = None
+    """
+    Who pinned it, or who added it as Latest; a person with their name when the directory has one.
+    """
+    at: AwareDatetime | None = None
+    """
+    When it was pinned, or became Latest there.
+    """
+
+
+class Pr1(BaseModel):
+    """
+    The pull request opened for the newer version there, when one was.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    url: str
+
+
+class DeployCheckStop(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    block_id: Annotated[str, Field(alias="blockId")]
+    in_files: Annotated[str, Field(alias="inFiles")]
+    """
+    The version in the pack's files.
+    """
+    runs: Runs
+    """
+    Where the newest version runs: a project the caller reads, when there is one. In a project the caller can't read, the version only.
+    """
+    pr: Pr1 | None = None
+    """
+    The pull request opened for the newer version there, when one was.
+    """
+
+
 class DeploymentValueNeededBy(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -9293,6 +9436,10 @@ class DeploymentPromotionBody(BaseModel):
     pin: bool | None = None
     """
     Pin every agent version the promotion carries in the target project, each through its scope's release gate, and every flow version it carries (the project's pin), so a run there that names no version takes it. The answer's `pinned` reports each agent and `pinnedFlows` each flow. An error answered after some were already pinned lists those in `error.details.pinned` and `error.details.pinnedFlows`, in the answer's shapes.
+    """
+    replace: list[DeployReplaceBlock] | None = None
+    """
+    With `pin`: the blocks the pins put back to an older version than runs in the target now, on purpose, each with why; a block named once. Without it, a newer version of one of the build's blocks running in the target stops the promotion (`409 deploy-would-put-back-older-blocks`).
     """
 
 
@@ -9381,6 +9528,45 @@ class DeploymentPinnedFlow(BaseModel):
     version: str
 
 
+class ReplacedItem1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    block_id: Annotated[str, Field(alias="blockId")]
+    from_: Annotated[str, Field(alias="from")]
+    """
+    The newest version that ran in the target.
+    """
+    to: str
+    """
+    The build's version, which the pins put there.
+    """
+
+
+class PromotionBlockCheck(BaseModel):
+    """
+    The build's blocks against what runs in the target; present only when `pin` was asked of a runtime that checks them.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    checked: bool
+    """
+    `false` for a build deployed before deployments kept their blocks (`contents.blocks`): nothing was compared, and `replace` did nothing.
+    """
+    replaced: list[ReplacedItem1]
+    """
+    The blocks `replace` names that a newer version runs for in the target: the pins put each back, and the audit log records it.
+    """
+    not_needed: Annotated[list[str], Field(alias="notNeeded")]
+    """
+    The blocks `replace` names that nothing newer runs for in the target.
+    """
+
+
 class PromotionNextEnvironment(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -9428,6 +9614,10 @@ class DeploymentRegistrationBody(BaseModel):
     The project to deploy into, one per client: its agents, flows, tools and guardrails are registered there, and its secret sync writes there. It takes admin on that project (a key limited to another project is refused). Absent: a tenant-wide deploy, into the tenant's Default project. An id that already lives in another project is `409` (`tool-project-mismatch` and the like): each client gets its own pack, whose ids carry its own pack id. Not covered by the signature, which attests the image.
     """
     source: DeploymentSourceBody | None = None
+    replace: list[DeployReplaceBlock] | None = None
+    """
+    The blocks the deploy puts back to an older version than runs now, on purpose, each with why; a block named once. Without it, a newer version of one of the pack's blocks running in a project of one of its agents stops the deploy (`409 deploy-would-put-back-older-blocks`). The deployment records each one put back (`replaced`). Not covered by the signature.
+    """
 
 
 class DeploymentValidationDetails(BaseModel):
@@ -9547,6 +9737,7 @@ class EvidenceKind(RootModel[str]):
                 "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
+                "deployment-replaced-block",
                 "block-version-published",
                 "block-version-unregistered",
                 "block-version-reinstated",
@@ -9731,6 +9922,7 @@ class ComplianceEvidence(BaseModel):
                 "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
+                "deployment-replaced-block",
                 "block-version-published",
                 "block-version-unregistered",
                 "block-version-reinstated",
@@ -9843,6 +10035,7 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
+                "deployment-replaced-block",
                 "block-version-published",
                 "block-version-unregistered",
                 "block-version-reinstated",
@@ -9932,6 +10125,7 @@ class Filter(BaseModel):
                 "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
+                "deployment-replaced-block",
                 "block-version-published",
                 "block-version-unregistered",
                 "block-version-reinstated",
@@ -13429,6 +13623,15 @@ class DeploymentContentsBlock(BaseModel):
     """
 
 
+class DeployCheckBodyBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: Annotated[str, Field(min_length=1)]
+    version: str
+
+
 class PromotionMovesTool(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -16331,6 +16534,33 @@ class DeploymentRecord(BaseModel):
     primitives: DeploymentPrimitiveCounts
     contents: DeploymentContents
     source: DeploymentSource | None = None
+    replaced: list[DeploymentReplacedBlock] | None = None
+    """
+    The blocks the deploy put back to an older version than ran, on purpose (the body's `replace`). A deployment a promotion made has its own: the blocks that promotion's pins put back in its project, never the source deployment's. Absent when it put back none, and from a runtime that doesn't keep them.
+    """
+
+
+class DeployCheckBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The project the deploy goes into: the check takes the deploy's own right, admin on it. Absent: the tenant's Default project, admin on the tenant. Every project of the pack's agents counts, whichever this is.
+    """
+    agents: Annotated[list[DeployCheckAgentId], Field(max_length=500)]
+    """
+    The pack's agents, by id: the image index's.
+    """
+    blocks: Annotated[list[DeployCheckBodyBlock], Field(max_length=500)]
+    """
+    The pack's blocks, each at its version in the files; a block named once.
+    """
+    replace: list[DeployReplaceBlock] | None = None
+    """
+    As the deploy's `replace`: a block named once.
+    """
 
 
 class PromotionMoves(BaseModel):
@@ -16369,6 +16599,7 @@ class DeploymentPromotion(BaseModel):
     """
     Each carried flow version pinned in the target (the project's pin); present only when `pin` was asked of a runtime that pins flows.
     """
+    block_check: Annotated[PromotionBlockCheck | None, Field(alias="blockCheck")] = None
 
 
 class DeploymentPromotionCheck(BaseModel):

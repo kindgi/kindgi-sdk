@@ -160,6 +160,12 @@ async function run(
             calls.push(['projects.list', ...args]);
             return { data: opts.projects ?? PROJECTS, hasMore: false };
           },
+          // A stop names each project a block runs in.
+          get: async (id: string) => {
+            const project = (opts.projects ?? PROJECTS).find((p) => p.id === id);
+            if (project === undefined) throw new Error(`no project ${id}`);
+            return project;
+          },
         },
         deployments: {
           list: async (...args: unknown[]) => {
@@ -846,6 +852,140 @@ describe('kindgi promote --pin: exit 3 when a carried version is not pinned', ()
     const { out, calls } = await run(['promote', '--from=staging', '--to=prod', ...flags]);
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('--wait');
+    expect(calls.filter((c) => c[0] !== 'client')).toEqual([]);
+  });
+});
+
+describe("kindgi promote --pin: the build's blocks against what runs in --to", () => {
+  const promoted = (extra: Record<string, unknown>) => () => ({
+    deployment: deployment('dep-prod-1'),
+    created: true,
+    moved: MOVES,
+    pinned: [{ id: 'acme.matcher', version: '1.0.2', pinned: true }],
+    ...extra,
+  });
+
+  test('a newer version of a block running in --to stops it: the table, nothing promoted, exit 1', async () => {
+    const { out } = await run(['promote', '--from=staging', '--to=prod', '--pin'], {
+      promote: () => {
+        throw new KindgiApiError({
+          code: 'conflict',
+          serverCode: 'deploy-would-put-back-older-blocks',
+          message: 'This promotion would put back older versions of blocks than run now.',
+          reason: 'deploy-would-put-back-older-blocks',
+          fields: {
+            blocks: [
+              {
+                blockId: 'acme.tone',
+                inFiles: '3.0.0',
+                runs: {
+                  version: '4.0.0',
+                  projectId: 'p-prod',
+                  follows: 'latest',
+                  by: { kind: 'user', id: 'usr-ana', name: 'Ana' },
+                  at: '2026-11-05T09:12:00.000Z',
+                },
+                pr: { url: 'https://github.com/acme/shop/pull/214' },
+              },
+            ],
+          },
+        });
+      },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stdout).toContain('What moves from staging to prod');
+    expect(out.stdout).toContain(
+      [
+        '✗ Stopped: this promotion would put back older blocks than run now.',
+        '',
+        '  Block       In the build   Runs now',
+        '  acme.tone   3.0.0          4.0.0  latest in Prod (Ana, 11-05)',
+        '',
+        '  Nothing was promoted.',
+        '  To keep the newer versions:  merge https://github.com/acme/shop/pull/214, or deploy a build that has them to staging, then promote that one.',
+        '  To drop them on purpose:  kindgi promote --from=staging --to=prod --pin --replace=acme.tone --reason=<why>',
+        '',
+      ].join('\n'),
+    );
+    expect(out.stdout).not.toContain('Promoted');
+  });
+
+  test('--replace with --reason: each block in the body with the reason, and the lines the answer gives', async () => {
+    const { out, calls } = await run(
+      [
+        'promote',
+        '--from=staging',
+        '--to=prod',
+        '--pin',
+        '--replace=acme.tone',
+        '--replace=acme.rules',
+        '--reason=v4 was a try',
+      ],
+      {
+        promote: promoted({
+          blockCheck: {
+            checked: true,
+            replaced: [{ blockId: 'acme.tone', from: '4.0.0', to: '3.0.0' }],
+            notNeeded: ['acme.rules'],
+          },
+        }),
+      },
+    );
+    expect(out.exitCode).toBe(0);
+    expect(named(calls, 'promote')[0]?.[2]).toEqual({
+      toProjectId: 'p-prod',
+      reason: 'v4 was a try',
+      pin: true,
+      replace: [
+        { blockId: 'acme.tone', reason: 'v4 was a try' },
+        { blockId: 'acme.rules', reason: 'v4 was a try' },
+      ],
+    });
+    expect(out.stdout).toContain(
+      [
+        '  acme.tone: 4.0.0 runs now, 3.0.0 in the build; put back on purpose (--replace)',
+        '  acme.rules: nothing newer runs; --replace not needed',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  test('none older, a build deployed before deployments kept their blocks, and a runtime without the check: each said', async () => {
+    const none = await run(['promote', '--from=staging', '--to=prod', '--pin'], {
+      promote: promoted({ blockCheck: { checked: true, replaced: [], notNeeded: [] } }),
+    });
+    expect(none.out.stdout).toContain(
+      '  ✓ No block in the build is older than what runs in prod.\n',
+    );
+    const old = await run(['promote', '--from=staging', '--to=prod', '--pin'], {
+      promote: promoted({ blockCheck: { checked: false, replaced: [], notNeeded: [] } }),
+    });
+    expect(old.out.stdout).toContain(
+      "The build's blocks weren't checked against what runs in prod: it was deployed before deployments kept their blocks.\n",
+    );
+    const before = await run(['promote', '--from=staging', '--to=prod', '--pin'], {
+      promote: promoted({}),
+    });
+    expect(before.out.stdout).toContain(
+      "This runtime doesn't check the build's blocks against what runs in prod.\n",
+    );
+    for (const r of [none, old, before]) expect(r.out.exitCode).toBe(0);
+    // Without --pin, nothing of the check.
+    const unpinned = await run(['promote', '--from=staging', '--to=prod']);
+    expect(unpinned.out.stdout).not.toContain('against what runs');
+  });
+
+  test.each([
+    [['--replace=acme.tone', '--reason=why'], 'it goes with --pin, without --check'],
+    [
+      ['--pin', '--check', '--replace=acme.tone', '--reason=why'],
+      'it goes with --pin, without --check',
+    ],
+    [['--pin', '--replace=acme.tone'], 'say why with --reason=<text>'],
+  ])('%j is refused before anything is read: exit 2', async (flags, said) => {
+    const { out, calls } = await run(['promote', '--from=staging', '--to=prod', ...flags]);
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain(said);
     expect(calls.filter((c) => c[0] !== 'client')).toEqual([]);
   });
 });

@@ -55,6 +55,20 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   until when (`paused_until`, with `paused_reason` `month-cap`), and one whose
   owner lost `publish` on the agent is paused at its next fire, with
   `status_reason` `owner-lost-publish`.
+- `kindgi`: **a deployment never puts back an older block without saying
+  so.** `deployments.register` raises `ConflictError` with `server_code`
+  `deploy-would-put-back-older-blocks` when one of the pack's blocks is older
+  in the files than the newest version that runs in a project of the pack's
+  agents; `details["blocks"]` says, for each one, both versions, where the
+  newer one runs, who made it run there and when. Its body's `replace` names
+  each block put back on purpose, with a reason, and the deployment answers
+  them as `replaced`. `deployments.check` answers the same, writing nothing:
+  `replaced`, and `not_needed` for a `replace` nothing newer runs for.
+  `deployments.promote` with `pin` runs it against what runs in the target
+  project only: its body takes `replace` too, and its answer's
+  `block_check` says what was put back, what `replace` didn't need, and
+  `checked=False` for a build deployed before deployments kept their blocks.
+  The deployment it makes keeps its own `replaced`, never the source's.
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
   judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
   judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator

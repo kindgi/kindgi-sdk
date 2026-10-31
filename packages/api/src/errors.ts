@@ -549,6 +549,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'image-unverifiable': 400,
   'deployment-validation-failed': 400,
   'deployment-not-found': 404,
+  // A deploy, or a promotion that pins, that would put back an older
+  // version of a block than runs now, each in `details` (`deploy-check.ts`).
+  'deploy-would-put-back-older-blocks': 409,
   // Compliance routes.
   'compliance-evidence-not-found': 404,
   'compliance-export-failed': 500,
