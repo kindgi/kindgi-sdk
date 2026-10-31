@@ -13,6 +13,337 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **corrections export.** `kindgi.corrections.export(agent_id=...)`
+  yields an agent's corrections in chunks of bytes, as CSV, or as JSON lines
+  with `format="jsonl"`, taking the list's filters. Write the chunks to a file
+  as they come. A project you can't read raises `AuthError`, and a stream that
+  drops part way raises `NetworkError`.
+- `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
+  judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
+  judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator
+  refuses an `llm-judge` guardrail without it. Before, `@guardrail` had no way to name it,
+  and the runtime refused such a guardrail on every turn.
+- `kindgi`: **A judgment is now a correction.** This is a breaking rename, and
+  no old name is kept. `client.judgments` is `client.corrections`, and
+  `unregister` is `remove`, sync and async. The models follow: `Judgment` is
+  `Correction`, `Judged*` models are `Corrected*`, and the
+  `{ calls, not_called }` value that was `Correction` is `ExpectedDecisions`.
+  Fields named for judgments are named for corrections (`correction_id`,
+  `correction_ids`, `correction_count`), and a proposal's
+  `evidence.judgment_ids` is `evidence.fixes`, in a new proposal's body too. The
+  improve schedule's `threshold.judges` and `threshold.judgments` are
+  `threshold.correctors` and `threshold.corrections`, and a comparison summary's
+  `corrections.judgments` is `corrections.results` (its model
+  `JudgedComparisonSummaryCorrectionsJudgment` is `Result`). A comparison
+  case's `judged_items`, on its `baseline` and each `candidate`, is
+  `corrected_items`, and a `changes.new` entry's `judged` is `corrected`. The
+  retention domain `judgment` is `correction`.
+- `kindgi`: **Judge classes are now corrector groups, the judging queue is the
+  expert queue, and judging rules are queue rules.** This is a breaking rename,
+  and no old name is kept. `client.judge_classes` is `client.corrector_groups`,
+  `client.projects.judging_queue` is `client.projects.expert_queue`, and
+  `client.projects.judging_rules` is `client.projects.queue_rules`, sync and
+  async. The models follow (`JudgeClass*` models are `CorrectorGroup*`,
+  `JudgingRule*` models and a rule's results are `QueueRule*`, `JudgingQueue*`
+  models are `ExpertQueue*`, the other `Judging*` models put `ExpertQueue` in
+  place of `Judging`, and `Class` in a name is `Group`), `judge_class_id` is
+  `corrector_group_id`, `class_weights` is `group_weights` (its value
+  `restricted-only` is `experts-only`), and a correction's or a case item's
+  `restricted` is `expert` (its model `Restricted` is `Expert`). A release
+  gate's `only_restricted_classes` is `only_expert_groups`, and its check
+  `classWeights.restrictedOnly` is named `groupWeights.expertsOnly`. The expert
+  queue's state `judged` is `corrected`, as is a rule result's `judged` count;
+  `by_class` is `by_group`, in progress and in a rule's results, and
+  `wanted_class_ids` is `wanted_group_ids`. The retention domain `judge_class`
+  is `corrector_group`.
+- `kindgi`: **Eval suites are now test sets.** This is a breaking rename, and no
+  old name is kept. `client.eval_suites` is `client.test_sets`, sync and async.
+  The models follow (`EvalSuite*` models are `TestSet*`, and
+  `CorrectedEvalCase*` models are `CorrectedTestCase*`), `suite_id` is
+  `test_set_id` and `suite_version` is `test_set_version`, and a test set's or
+  an eval run's kind `judged` is `corrections`. The retention domain
+  `eval_suite` is `test_set`, and so is the authorization resource type
+  (`RoleActions.eval_suite` is `test_set`). A release gate's `comparison.suite`
+  is `comparison.test_set`, and a comparison's summary says `test_set`; their
+  models are `ReleaseGateSpecComparisonTestSet` and
+  `CorrectedComparisonSummaryTestSet` (were `Suite` and `Suite1`).
+- `kindgi`: **Proposals are now suggested changes.** This is a breaking rename,
+  and no old name is kept. `client.suggested_changes` holds suggested changes,
+  sync and async, and its `request` is `pin`; `rollback` is removed, since going
+  back is putting the agent's earlier version back in use. The
+  `client.proposals` methods `draft`, `dry_run`, `submit_review` and `apply`,
+  which only raised an error since 0.1.5, are removed. The models follow (`Proposal*` and `FixProposal*` models are
+  `SuggestedChange*`, and the block edit a suggested change carries is
+  `SuggestedChangeBlockEdit`), `proposal_id` is `suggested_change_id`, and a
+  suggested change's status `promoted` is `pinned`.
+- `kindgi`: **Eval runs are now test runs.** This is a breaking rename, and no
+  old name is kept. `client.eval_runs` is `client.test_runs`, sync and async.
+  The models follow (`EvalRun*` models are `TestRun*`, and `EvalComparison`,
+  `EvalBaseline1`, `EvalBaseline2`, `EvalOverrides` and `EvalSample` are
+  `TestRunComparison`, `TestRunBaseline1`, `TestRunBaseline2`, `TestRunOverrides`
+  and `TestRunSample`). A test run's own id is
+  `test_run_id` where it was `run_id`, `eval_run_id` is `test_run_id`, and the
+  stream's `eval-run.*` events are `test-run.*`.
+- `kindgi`: **a promotion into a scope where nothing runs yet raises
+  `ConflictError` with `server_code` `nothing-runs-in-scope`.** With no pin
+  covering the scope and no Latest there, there's nothing to measure the
+  version against: deploy or publish a version into the project first, or,
+  into a later environment, promote a build that ships one.
+- `kindgi`: **`client.agents.projects(agent_id)` says what runs in each
+  project.** Each project gains `runs` (the version a run there that names no
+  version gets, since when, and the pin or deployment behind it), `follows`
+  (`pin` or `latest`) and `segments` (the pins on segments inside it), and the
+  answer gains `highest`, the agent's highest version. A run that names no
+  version, in a scope no pin covers, now gets the agent's Latest in its
+  project: it moves only when a deployment into the project ships a version,
+  or when a person publishes a full version, and a derived version is never
+  Latest by itself. `client.agents.get(agent_id)` still answers the highest
+  version.
+- `kindgi`: **Improvement passes are now Improve runs.** This is a breaking
+  rename, and no old name is kept. `client.improvement_passes` and
+  `client.proposals` are `client.improve_runs`, sync and async, with `start`,
+  `check`, `list`, `get` and `cancel` (`start` and `check` were
+  `client.proposals.improve` and `improve_estimate`). The models follow
+  (`ImprovementPass*` models are `ImproveRun*`, `ImproveBody` is
+  `StartImproveRunBody`, `ImprovementPassEstimate` is `ImproveRunCheck`, and
+  `SuggestedChangeDrafter` is `SuggestedChangeMadeBy`). `pass_id` is
+  `improve_run_id`, a suggested change's `drafter` is `made_by` and its
+  `hypothesis` is `why`, and an Improve run's outcome `proposed` is
+  `suggested`. The webhook event `improvement-pass.finished` is
+  `improve-run.finished`, and its `data.pass_` is `data.improve_run`.
+- `kindgi`: **An agent's test set.** `client.agents.test_set` reads an agent's
+  test set one project at a time, sync and async: `get` (how many cases are
+  active and retired), `list_cases`, `add_case` (a case by hand, from a
+  correction's body on one of the agent's finished runs) and `retire_case`.
+  Its cases are the agent's corrections, except Won't fix and Removed ones,
+  and the cases added by hand. Once a test run has frozen the set, `get`
+  also answers `frozen_version`, the newest version frozen. The models are
+  `AgentTestSet`, `TestSetCaseCounts`, `TestSetFrozenVersion`, `TestCase*`
+  and `AddTestCaseBody`.
+- `kindgi`: **A frozen case says what it expects.** `CorrectedEvalCase` gains
+  `expect` (`TestCaseExpect`) and `segments` (its run's segment path), set on
+  a case of an agent's frozen test set.
+- `kindgi`: **Test sets built from corrections are gone.**
+  `client.test_sets.build_from_corrections` is removed, with
+  `BuildCorrectedTestSetBody`, `BuildCorrectedTestSetResult` and
+  `CorrectorGroupId`. A `corrections` test set built before is still read by
+  id, and `client.test_sets.list` lists it only with `kind="corrections"`,
+  as it does an agent's frozen versions.
+- `kindgi`: **A suggested change is made for one project, and checked on that
+  project's test set.** This is a breaking change.
+  - `client.suggested_changes.create` takes `agent_id`, `project_id`, `block`,
+    then `values` (a settings block) or `template` (a prompt block), `why` and
+    `fixes`. The change is built on the version the project runs, and its
+    check starts at once.
+  - In the check, its version (`with`) and the version it's built on (`now`)
+    run the same cases of the project's test set, frozen when the check
+    starts.
+  - `client.suggested_changes.check(suggested_change_id)` checks it again. It
+    replaces `evaluate` and `rescore`.
+  - `client.suggested_changes.add_as_latest(suggested_change_id)` makes its
+    version its project's Latest, for a project on Latest, with no gate. A
+    `reason` is kept on its `added_as_latest`.
+  - `list` filters by `agent_id`, `project_id`, `status` and `made_by`.
+  - `SuggestedChange` gains `project_id`, `title`, `built_on`, `version`,
+    `changes`, `fixes`, `check`, `note`, `pinned`, `approval_id`,
+    `added_as_latest` and `withdrawn`.
+  - Its `made_by` is now who or what made it: an Improve run, a person, a
+    service account, a deploy or an offer. It no longer says which drafter
+    wrote it.
+  - `from_version`, `scope`, `tier`, `change`, `evidence`, `candidate`,
+    `evaluation`, `pin` and `rolled_back` are gone.
+  - Its statuses are `checking`, `check-failed`, `ready`,
+    `waiting-for-second-person`, `pinned`, `added-as-latest` and `withdrawn`.
+  - A deploy makes one in each project that runs a pinned other version of
+    the agent (`made_by.kind` is `deploy`). Its one change is the code:
+    `kind` is `code`, with `deployment_id` and `image_digest`. When the
+    version its project runs has no finished run on the same cases, its
+    `note` is `not-running`, with that `version`, and its check has no `now`.
+  - Ids that start with `agent.` are agents' own test sets: publishing a
+    test set, or building a version from corrections, under one raises
+    `InvalidRequestError` (`400 bad-input`). A test set with such an id
+    published before keeps reading and running, but a new version of it is
+    refused: publish it under another id.
+  - `client.agents.derive_version` is removed, with
+    `POST /v1/agents/{agentId}/versions` and the `DeriveAgentVersionBody`
+    and `AgentPinSwaps` models. A suggested change makes an agent version
+    from a block's new content, and checks it.
+  - New models: `SuggestedChangeChange`, `SuggestedChangeCheck`,
+    `SuggestedChangeCheckSide`, `SuggestedChangeNote` and
+    `SuggestedChangeBlockContent`.
+  - Removed models: `SuggestedChangeBlockEdit`, `SuggestedChangeCandidate`,
+    `SuggestedChangeCost`, `SuggestedChangeDecisions`,
+    `SuggestedChangeEvaluation`, `SuggestedChangeEvidence`,
+    `SuggestedChangePin` and `EvaluateSuggestedChangeBody`.
+  - The numbered models `Model` to `Model4` are named after their owners:
+    - `ImproveRunModel` (an Improve run's model);
+    - `StartImproveRunBodyModel` (the start body's);
+    - `CorrectedComparisonSummarySamplingModel` (a corrected comparison's
+      sampling models);
+    - `ImproveScheduleInputModel` (an improve schedule's).
+  - New `server_code` values:
+    - `suggested-change-not-for-a-project` (`ConflictError`): one made for a
+      tenant, an org or a segment can only be withdrawn;
+    - `suggested-change-nothing-to-check` (`ConflictError`): the project's
+      test set has no cases;
+    - `suggested-change-project-on-latest` (`ConflictError`): a pin, for a
+      project that runs Latest;
+    - `suggested-change-project-pinned` (`ConflictError`): an add as Latest,
+      for a project that runs a pin;
+    - `suggested-change-check-unsupported` (`ServerError`, a 501): the
+      server freezes no test set, so nothing can be checked;
+    - `suggested-change-out-of-date` (`ConflictError`): a pin or an add as
+      Latest of one built on a version its project no longer runs. It's
+      being rebuilt on the version the project runs now when
+      `details["rebuilding"]` is true.
+  - A suggested change built on a version its project no longer runs is
+    rebuilt there, and checked again: `built_on.rebuilt_at` says when.
+  - An audit event's `kind` can be `suggested-change-created`,
+    `suggested-change-pinned`, `suggested-change-added-as-latest` or
+    `suggested-change-withdrawn`.
+- `kindgi`: **An agent's promotion is now a pin, as for flows and tools.** This
+  is a breaking rename, and no old name is kept. The models follow: `Promotion`,
+  `PromotionPage`, `PromotionCheck` and `SuggestedChangePromotion` are `Pin`,
+  `PinPage`, `PinCheck` and `SuggestedChangePin`; `PromoteBody` is
+  `AgentPinBody`, `UnpinBody` is `AgentUnpinBody`, and `LivePin`, `LivePinList`
+  and `LiveVersionResolution` are `AgentPinnedVersion`, `AgentPinnedVersionList`
+  and `AgentPinnedVersionResolution`. An agent pin's scope takes the flow and
+  tool pins' models: `LiveScopeOrg`, `LiveScopeProject`, `LiveScopeSegment` and
+  `LiveScopeTenant` are `PinScopeOrg`, `PinScopeProject`, `PinScopeSegment` and
+  `PinScopeTenant`, and `LiveScopeUnrecognized` is `AgentPinScopeUnrecognized`.
+  `RollbackBody` is removed, since going back is a pin of an earlier version.
+  `promotion_id` is `change_id`, a suggested change's `promotion` is `pin` and
+  its `live_now` is `pinned_now`, a pin's status `promoted` is `pinned`, and the
+  `via` value `live` is `pinned`, as is a queue rule's `when.versions` value. A
+  pin check's outcome `would-promote` is `would-pin`, and a pin's action is
+  `pin` or `unpin` (`promote` and `rollback` are gone). The approval subject
+  `agent-promotion` is `agent-pin`, and the permission `promote` on an agent is
+  `pin`. A test run's comparison baseline `live` is `pinned` (its model `Live`
+  is `Pinned`). The errors follow: `promotion-not-found` and
+  `promotion-superseded` are `pin-not-found` and `pin-superseded`,
+  `agent-version-live` is `agent-version-pinned`, and `nothing-to-roll-back` is
+  removed.
+- `kindgi`: **A gate policy is now a release gate.** This is a breaking rename,
+  and no old name is kept. `client.gate_policies` is `client.release_gates`, and
+  `client.agents.gate_policy` is `client.agents.release_gate`, sync and async;
+  `policy_id` is `release_gate_id`. The models follow: `GatePolicy`,
+  `GatePolicyPage`, `GatePolicyRef`, `GatePolicyResolution`, `GatePolicySpec`,
+  `GatePolicySpecComparisonTestSet` and `PublishGatePolicyBody` are
+  `ReleaseGate`, `ReleaseGatePage`, `ReleaseGateRef`, `ReleaseGateResolution`,
+  `ReleaseGateSpec`, `ReleaseGateSpecComparisonTestSet` and
+  `PublishReleaseGateBody`. A pin's, a pin check's, a release gate resolution's
+  and a deployment promotion's pin gate's `policy` is `release_gate`. The
+  metrics follow: a comparison's `weighted_yes_share` is `pass_rate` and its
+  `judged_coverage` is `case_coverage`, as are the metric names in a release
+  gate's spec and the `objective` value of a suggested change, an Improve run, a
+  schedule's Improve run and the Improve run webhook event (`passRate`). The
+  gate's check `baselineIsLive` is `baselineIsPinned`, and the `gate-policy-*`
+  errors are `release-gate-*`.
+- `kindgi`: **A deployment promotion's make-live is now a pin.** This is a
+  breaking rename, and no old name is kept. `client.deployments.promote`
+  takes `pin` where it took `make_live`, and its answer lists the carried
+  agents in `pinned` where it said `live` (`pinned_flows` stays), as does an
+  error's `details` after some were pinned. The models follow:
+  `DeploymentLivePin` and `DeploymentLivePinGate` are `DeploymentPinnedAgent`
+  and `DeploymentPinGate`.
+
+## 0.3.0
+
+- `kindgi`: **`client.flows.pinned` pins a flow's version per project, org or
+  tenant.** A run that names no flow version takes the version pinned for its
+  project (the project's own pin, then its org's, then the tenant's), else the
+  newest version the project reaches, so a new version can be published and
+  tried by naming it without going into use. `resolve`, `list`, `pin`, `unpin`
+  and `history`, sync and async. A run says how its version was chosen, in
+  `flow_version_via` (`explicit`, `pinned` or `latest`) and, for a pin,
+  `flow_pinned_scope`.
+- `kindgi`: **`client.tools.pinned` pins a tool's version per project, org or
+  tenant.** An agent or flow version made in a project a pin covers locks the
+  tool at the pinned version (an agent's tool range, when the pinned version
+  is in it), so a new tool version can be published without reaching what's
+  made there. The same five calls as `client.flows.pinned`, sync and async.
+- `kindgi`: **`DeploymentPromotion.pinned_flows`** lists each carried flow
+  version a promotion with `make_live` pinned in the target project.
+
+- `kindgi`: **a `retry` guardrail sends a failed answer back to the model,
+  for a new one**, until it has failed `maxAttempts` answers (2 when left
+  out), and then the turn fails with `guardrail-violation`.
+  `GuardrailViolationError.attempts` says how many answers the turn had
+  (`None` when a `halt` guardrail stopped it). The `@guardrail` docstring
+  says what `retry` does.
+- `kindgi`: **a trigger's versions.** `client.schedules.list_versions(trigger_id)` pages a schedule's versions, newest first (`GET /v1/schedules/{triggerId}/versions`), and `get_version(trigger_id, version)` reads one; `client.webhooks` and `client.mail_triggers` have the same. Each says when it was made (`created_at`), by whom (`created_by`), why (`cause`) and what the trigger was then (`definition`). A trigger's `version` names its newest, and a fire's and a run's `trigger.version` the one its run used; all three are absent from an older runtime. A version the trigger doesn't have is `404 trigger-version-not-found`.
+- `kindgi`: **`client.agents.projects(agent_id)` lists the projects an agent runs in** (`GET /v1/agents/{agentId}/projects`): the project it was first published in, then each project a deployment that isn't retired shipped a version of it into, such as the next environment `kindgi promote` carried its build to, among those the caller can read. A retired agent still answers.
+- `kindgi`: **`Agent(parallel_tool_calls=False)` runs every tool call a model
+  step asks for on its own.** By default an agent now runs a step's calls to
+  read-only tools (`mutating=False`, no changing effect) that come one after
+  another at the same time, up to 8 at once, and any other call on its own, in
+  the order the model asked; the results reach the conversation in that order
+  either way. A call that may wait, for another system's answer or for the
+  person who started the run to connect an app, runs on its own too. The
+  indexer writes it as the agent's `parallelToolCalls`, and `Agent` refuses a
+  value that isn't `True` or `False`. The client's `Agent` and
+  `PublishAgentBody` models gain `parallel_tool_calls`. `mutating`'s
+  description says it decides what runs together.
+- `kindgi`: **A union's members are named by the value that tells them
+  apart.** The members of five inline unions in `kindgi.client.models` had
+  numbered names, and four other models' numbered names would have shifted
+  into the freed ones. These names change, and no old name is kept:
+  - **A union's members, by their discriminator:**
+    - `Config`, `Config1`, `Config2` (an MCP endpoint's config: stdio,
+      http-sse, streamable-http): `MCPEndpointConfigStdio`,
+      `MCPEndpointConfigHttpSse`, `MCPEndpointConfigStreamableHttp`.
+    - `Config3` to `5` (the same, in a registration's body):
+      `RegisterMCPEndpointBodyConfigStdio`,
+      `RegisterMCPEndpointBodyConfigHttpSse`,
+      `RegisterMCPEndpointBodyConfigStreamableHttp`.
+    - `Content2`, `Content3` (an MCP prompt message's content: text, image):
+      `MCPPromptMessageContentText`, `MCPPromptMessageContentImage`.
+    - `Resume`, `Resume1` (how completing an approval resumed its run: ok,
+      failed): `CompleteApprovalResultResumeOk`,
+      `CompleteApprovalResultResumeFailed`.
+    - `Baseline`, `Baseline1` (what a judged comparison compared with:
+      recorded runs, a version): `JudgedComparisonSummaryBaselineRecorded`,
+      `JudgedComparisonSummaryBaselineVersion`.
+  - **Named after their field, so no freed name passes to them:**
+    - `Config6`, `Config7` (a schedule's config, registering and patching):
+      `RegisterScheduleBodyConfig`, `PatchScheduleBodyConfig`.
+    - `Config8` (a webhook trigger's config, in both bodies): now one class
+      per body, `RegisterWebhookTriggerBodyConfig` and
+      `PatchWebhookTriggerBodyConfig`. A mapping works for either; an
+      instance of one isn't taken by the other.
+    - `Baseline2` (a compared case's baseline score):
+      `ComparisonCaseResultBaseline`.
+
+  Code that imports an old name fails at the import, and an `isinstance` or
+  `match` on one needs the new name. The client's generation now keeps a
+  dropped name dropped, so no later model takes `Config` or `Baseline` with
+  another meaning. (#938)
+- `kindgi`: **An error inside a field is logged like `err`, and a value that
+  raises when read never fails the log call.** An error nested in a field (in a
+  mapping or a list) was written as its scrubbed `str()`, so its `name`, `code`
+  and causes were lost. It's now written as `err` is — its `name` (its class's),
+  scrubbed `message` and `code`, and its causes — without its stack at any
+  level. The message is written as the error gives it, with known secret shapes
+  masked; a database driver's message can itself quote the statement and the
+  values it was bound to (SQLAlchemy appends `[SQL: …]` and `[parameters: …]`
+  unless the engine has `hide_parameters=True`, and libpq keeps a `DETAIL:`
+  line), so when that matters log a field such as the SQLSTATE rather than the
+  error. None of the error's other attributes are written. An attribute that
+  raises when read counts as missing (a message that can't be read is empty), a
+  value that raises when read is `[unreadable]`, and fields whose keys can't be
+  listed are left out; the record is still written.
+- `kindgi`: **a guardrail the client reads or registers carries where in the
+  agent's turn it runs.** `at` is `"before-tool"`, `"after-tool"`,
+  `"model-step"` or `"final-answer"` (left out, the final answer); `sees` is
+  `"turn"` or `"conversation"`; and the scope's `tools` names the tools a
+  guardrail at a tool point checks. Registering one with a built-in check
+  that doesn't run at its `at` answers `guardrail-config-invalid`; a pack
+  check's points aren't checked then, and at such a point the guardrail
+  fails as a check that can't run (`check-point-unsupported`). The Python
+  pack's `@guardrail` doesn't take them yet.
+
+## 0.3.0rc0
+
 - `kindgi`: **`client.flows.pinned` pins a flow's version per project, org or
   tenant.** A run that names no flow version takes the version pinned for its
   project (the project's own pin, then its org's, then the tenant's), else the

@@ -49,19 +49,19 @@ describe('includeRetired and includeTombstoned', () => {
       '/v1/tools?includeRetired=true',
     ],
     [
-      'evalSuites.list',
-      (c: KindgiClient) => c.evalSuites.list({ includeRetired: true }),
-      '/v1/eval-suites?includeRetired=true',
+      'testSets.list',
+      (c: KindgiClient) => c.testSets.list({ includeRetired: true }),
+      '/v1/test-sets?includeRetired=true',
     ],
     [
-      'evalSuites.versions.list',
-      (c: KindgiClient) => c.evalSuites.versions.list('acme.cases', { includeTombstoned: true }),
-      '/v1/eval-suites/acme.cases/versions?includeTombstoned=true',
+      'testSets.versions.list',
+      (c: KindgiClient) => c.testSets.versions.list('acme.cases', { includeTombstoned: true }),
+      '/v1/test-sets/acme.cases/versions?includeTombstoned=true',
     ],
     [
-      'evalSuites.versions.list (default)',
-      (c: KindgiClient) => c.evalSuites.versions.list('acme.cases'),
-      '/v1/eval-suites/acme.cases/versions',
+      'testSets.versions.list (default)',
+      (c: KindgiClient) => c.testSets.versions.list('acme.cases'),
+      '/v1/test-sets/acme.cases/versions',
     ],
   ] as const)('%s', async (_, call, path) => {
     expect(await urlOf(call)).toBe(`${API}${path}`);

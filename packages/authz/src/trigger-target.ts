@@ -5,8 +5,8 @@ import { ref } from './check.js';
 import type { Action, ResourceRef } from './types.js';
 
 /**
- * What a trigger starts, by shape: a flow, an agent, or an improvement
- * pass on an agent. A schedule's or webhook's target fits it as is.
+ * What a trigger starts, by shape: a flow, an agent, or an Improve
+ * run on an agent. A schedule's or webhook's target fits it as is.
  */
 export type TriggerTargetRef =
   | { readonly kind: 'flow'; readonly flowId: string }
@@ -15,7 +15,7 @@ export type TriggerTargetRef =
 /**
  * What running a trigger's target takes, as starting it by hand does:
  * `execute` on the flow or agent a run starts; `publish` on the agent an
- * improvement pass works on (as `POST /v1/proposals/improve`). The one
+ * Improve run works on (as `POST /v1/improve-runs`). The one
  * mapping a trigger's checks use, when its owner is set and at every
  * fire, so the two can't disagree.
  */

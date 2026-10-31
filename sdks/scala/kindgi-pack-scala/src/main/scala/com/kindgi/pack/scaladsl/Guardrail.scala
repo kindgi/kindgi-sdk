@@ -48,6 +48,14 @@ final class GuardrailBuilder[C] private[scaladsl] (
   def kind(kind: String): GuardrailBuilder[C] = step(_.kind(kind))
 
   /**
+   * What an `llm-judge` guardrail's judge model is routed by, as a capability declaration
+   * (`Map("needs" -> List(Map("feature" -> "structured-output")))`). The runtime judges with the
+   * model it routes to, and the guardrail's `config` (its rubric); an `llm-judge` guardrail needs it.
+   */
+  def judgeCapabilities(capabilities: Map[String, Any]): GuardrailBuilder[C] =
+    step(_.judgeCapabilities(JsonValues.javaMap(capabilities)))
+
+  /**
    * What a violation does (`halt`, `retry`, `log-only`, …). The runtime acts on `halt`: the turn
    * fails with `guardrail-violation`. It acts on `retry` too: the answer goes back to the model
    * with the check's reason, for a new one, until the guardrail has failed two answers (`action`

@@ -1,0 +1,406 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+import type { TupleEnqueueHook } from '@kindgi/authz';
+import type { Scope } from '@kindgi/platform';
+import type { AgentId, Cursor, ProjectId, TenantId } from '@kindgi/types';
+
+/**
+ * Caller-plugged surface for the evaluation-harness test set catalog —
+ * part of the admin control plane. Registry-only: publish + read; run
+ * execution + per-kind grader dispatch are out of scope (see
+ * `TestRunBinding`). Graders — an eval-judge adapter, the HITL bridge,
+ * a sandboxed handler — consume test set definitions from this store at
+ * their own boundary.
+ *
+ * Mirrors `PolicyRegistryBinding` 1:1 — same versioned-CRUD shape,
+ * same tenant-scoped inputs, same opaque cursors, same "unregister a
+ * specific version" semantics.
+ *
+ * The wire shape is intentionally kind-neutral: `evalKind` selects the
+ * shape of `spec`. The route validates the closed set of `kind` values
+ * and the required top-level fields; deeper `spec` shape is the runtime
+ * consumer's responsibility (each kind's grader knows its own contract).
+ *
+ * Cursors are opaque — the binding chooses its encoding (index-based,
+ * `id@version`, ISO timestamps). The API layer only validates that a
+ * cursor round-trips as a string; it never inspects the payload.
+ */
+export interface TestSetRegistryBinding {
+  /**
+   * Cursor-paginated list of test sets (latest version per id, sorted
+   * by test set id ascending). Optional filters:
+   * - `evalKind` narrows to test sets of a single kind (exact match).
+   * - `nameFilter` is a prefix match on the test set id — dotted
+   *   namespaces are the natural filter shape (`acme.accuracy`).
+   */
+  list(input: TestSetListInput): Promise<TestSetPage>;
+  /**
+   * Latest version of the given test set id, or `null` if unknown. The
+   * route surfaces `null` as `404 test-set-not-found`.
+   */
+  get(input: TestSetGetInput): Promise<TestSetRecord | null>;
+  /**
+   * Specific `(testSetId, version)` lookup, or `null` if unknown.
+   * Returns tombstoned versions too (provenance paths).
+   */
+  getVersion(input: TestSetGetVersionInput): Promise<TestSetRecord | null>;
+  /**
+   * Head-row existence probe. Lets GET distinguish 410 gone from
+   * 404 not-found.
+   */
+  headExists(input: TestSetGetInput): Promise<boolean>;
+  /**
+   * Cursor-paginated list of versions for a specific test set id. Sort
+   * order is binding-defined (for example ascending semver). Returns an empty page (no error) when the id
+   * is unknown — the route flips that to `404` via a prior `get`.
+   */
+  listVersions(input: TestSetListVersionsInput): Promise<TestSetPage>;
+  /**
+   * Whether `cursor` is one this binding issued for `list` (`'versions'`:
+   * a `listVersions` page's `nextCursor`). Optional: without it, the route passes any
+   * cursor to the list, as before. With it, a cursor the binding didn't
+   * issue answers `400 bad-input` before the list is read, so a client
+   * paging until done is never sent back to the first page.
+   */
+  issuedCursor?(list: 'versions', cursor: Cursor): boolean;
+  /**
+   * Publish a validated test-set definition. The API route validates
+   * the wire shape (id / tenantId / semver version / kind / spec object)
+   * before calling — the binding receives a well-formed `TestSet`.
+   * Bindings MAY reject with `already-registered` when the same
+   * `(testSetId, version)` is re-published; the route maps that to `409`.
+   * A version of a test set whose versions live in another project is
+   * `project-mismatch` (test sets never move between projects; `409 test-set-project-mismatch`).
+   */
+  publish(input: TestSetPublishInput): Promise<TestSetPublishOutcome>;
+  /**
+   * Soft-tombstone a specific `(testSetId, version)`. When this leaves
+   * NO active versions, the test set has no latest version — derived
+   * "retired" state (GET returns 410 gone). Publish reactivates.
+   */
+  unregister(input: TestSetUnregisterInput): Promise<TestSetUnregisterOutcome>;
+  /**
+   * Un-tombstone a specific `(testSetId, version)`. Recomputes the
+   * test set's latest version. Restores bytes verbatim (semver hygiene).
+   * Idempotent.
+   */
+  reinstateVersion(input: TestSetReinstateVersionInput): Promise<TestSetReinstateVersionOutcome>;
+}
+
+/**
+ * Closed set of eval kinds the framework knows about. Extended
+ * additively — new kinds require a spec + validator update in tandem so
+ * the registry never accepts a kind no runtime consumer honors.
+ *
+ * - `accuracy` — metric-based grading against ground truth (input →
+ *   expectedOutput pairs; grader is an eval-judge adapter).
+ * - `pairwise` — A/B comparisons between two agent/flow versions.
+ * - `regression` — compare against a stored baseline run.
+ * - `human-review` — delegates rubric grading to HITL reviewers.
+ * - `benchmark` — reference to a standardized test set (name + version).
+ * - `custom` — caller-supplied evaluator handler.
+ */
+export const TEST_SET_KINDS = [
+  'accuracy',
+  'pairwise',
+  'regression',
+  'human-review',
+  'benchmark',
+  'custom',
+  /** Built from corrections of past runs: cases are copies of corrected runs (`FrozenCaseStoreBinding`). */
+  'corrections',
+] as const;
+export type TestSetKind = (typeof TEST_SET_KINDS)[number];
+
+/**
+ * The kinds `GET /v1/test-sets` lists unless asked for one: all but
+ * `corrections`. An agent's corrections are its test set now
+ * (`/v1/agents/{agentId}/test-set`); a `corrections` test set, an agent's
+ * frozen versions and those built before, is listed with `kind=corrections`
+ * and read by id.
+ */
+export const LISTED_TEST_SET_KINDS: readonly TestSetKind[] = TEST_SET_KINDS.filter(
+  (kind) => kind !== 'corrections',
+);
+
+/**
+ * Wire shape for a single test set. `spec` is a JSON object
+ * whose shape is dictated by `kind` — the registry treats it as opaque
+ * JSON so new kinds can extend the catalog without touching this file.
+ * Runtime consumers (the eval-judge adapter for `accuracy` / `pairwise`
+ * / `regression`, the HITL bridge for `human-review`, the sandbox
+ * handler for `custom`) deserialize `spec` against their own contract.
+ *
+ * Case data lives IN `spec` (not stored separately) — small enough at
+ * registry scale.
+ */
+export interface TestSet {
+  readonly id: string;
+  readonly tenantId: TenantId;
+  readonly version: string;
+  readonly kind: TestSetKind;
+  readonly description?: string;
+  readonly spec: Readonly<Record<string, unknown>>;
+}
+
+export interface TestSetListInput {
+  readonly tenantId: TenantId;
+  readonly limit: number;
+  readonly cursor?: Cursor;
+  /** Exact match on `TestSet.kind`. Undefined = no filter. */
+  readonly evalKind?: TestSetKind;
+  /** Prefix match on `TestSet.id`. Undefined = no filter. */
+  readonly nameFilter?: string;
+  /**
+   * Narrow the list to a specific scope. Absent = no scope narrow
+   * (return every row in the tenant the caller can see — admin/audit
+   * default).
+   *
+   * Content-scoped semantics (this binding):
+   * - `{ kind: 'project', projectId }` — rows in that project.
+   * - `{ kind: 'org', orgId }` — rows in every project belonging to
+   *   that org.
+   * - `{ kind: 'tenant', tenantId }` — every row in the tenant.
+   *
+   * Content rows always belong to a project, so `inherit` has no
+   * effect here.
+   */
+  readonly scope?: Scope;
+  /**
+   * `false` = literal-at-this-scope only (admin/audit view).
+   * `true` (default) = inheritance walk (user-facing view).
+   * No-op for content-scoped bindings (rows only exist at
+   * project-level — there is no upward hierarchy to walk). Kept for
+   * uniformity: scope-aware bindings share one filter shape across the
+   * SDK and OpenAPI schemas.
+   */
+  readonly inherit?: boolean;
+  /**
+   * `true` lists retired test sets too (every version unregistered), each
+   * as its highest version, with that version's `unregisteredAt`, so a
+   * client can find one to reinstate. Default: test sets with an active
+   * version only.
+   */
+  readonly includeRetired?: boolean;
+}
+
+export interface TestSetGetInput {
+  readonly tenantId: TenantId;
+  readonly testSetId: string;
+}
+
+export interface TestSetGetVersionInput {
+  readonly tenantId: TenantId;
+  readonly testSetId: string;
+  readonly version: string;
+}
+
+export interface TestSetListVersionsInput {
+  readonly tenantId: TenantId;
+  readonly testSetId: string;
+  readonly limit: number;
+  readonly cursor?: Cursor;
+  /** `true` lists unregistered versions too, each with `unregisteredAt`. Default: active only. */
+  readonly includeTombstoned?: boolean;
+}
+
+export interface TestSetPublishInput {
+  readonly tenantId: TenantId;
+  /**
+   * Project the test set is published into. REQUIRED. Callers that
+   * don't naturally know a projectId
+   * resolve the tenant's Default via
+   * `projectBinding.getDefault(tenantId)` at THEIR layer and thread
+   * the resolved id here — the storage adapter never silently falls
+   * back to Default.
+   */
+  readonly projectId: ProjectId;
+  readonly testSet: TestSet;
+  /**
+   * REQUIRED. Called inside the binding's write tx after row insert,
+   * receiving the business `testSetId`. Returns tuples for the same tx.
+   * See `AgentPublishInput.enqueueTuples` for the design rationale.
+   */
+  readonly enqueueTuples: TupleEnqueueHook;
+}
+
+export interface TestSetUnregisterInput {
+  readonly tenantId: TenantId;
+  readonly testSetId: string;
+  readonly version: string;
+}
+
+export interface TestSetReinstateVersionInput {
+  readonly tenantId: TenantId;
+  readonly testSetId: string;
+  readonly version: string;
+}
+
+export interface TestSetPage {
+  readonly data: readonly TestSetRecord[];
+  readonly nextCursor?: Cursor;
+}
+
+/**
+ * A test set version as the registry reads it (`get`, `getVersion`,
+ * `list`, `listVersions`): the test set, and its project when the store
+ * records it.
+ */
+export type TestSetRecord = TestSet & {
+  /**
+   * The test set's project, when the store records it: test sets never
+   * move between projects, so every version reads the same one. In a
+   * tenant with environment orders, a version may be made in another
+   * project of that project's order (`madeInProjectId`).
+   */
+  readonly projectId?: ProjectId;
+  /**
+   * The project this version was published in, when the store records it.
+   * The same as `projectId`, except in a tenant with environment orders,
+   * where a test set version may be published in any environment of the
+   * order, and is reachable there and in the later ones, never in an
+   * earlier one.
+   */
+  readonly madeInProjectId?: ProjectId;
+  /**
+   * ISO-8601; present only on an unregistered version: one
+   * `listVersions` lists with `includeTombstoned`, or a retired test
+   * set's highest version `list` lists with `includeRetired`.
+   */
+  readonly unregisteredAt?: string;
+};
+
+export type TestSetPublishOutcome =
+  | {
+      readonly kind: 'ok';
+      readonly testSetId: string;
+      readonly version: string;
+    }
+  | {
+      readonly kind: 'already-registered';
+      readonly testSetId: string;
+      readonly version: string;
+    }
+  | {
+      /**
+       * The caller-supplied `projectId` does not resolve to a real
+       * project row in this tenant. Distinct from
+       * `already-registered` so the route + deployment loop can
+       * surface a clean `400 bad-input` (per the route's error
+       * contract) rather than the misleading `already-registered`
+       * fallback. Implementations detect a missing project at publish
+       * time (a SQL store typically from its foreign-key violation).
+       */
+      readonly kind: 'project-not-found';
+      readonly testSetId: string;
+      readonly version: string;
+      readonly projectId: ProjectId;
+    }
+  | {
+      /**
+       * The test set's versions live in another project: a test set belongs to
+       * the project its first version was published into, and never
+       * moves. Nothing is written (the route answers `409 test-set-project-mismatch`).
+       */
+      readonly kind: 'project-mismatch';
+      readonly testSetId: string;
+      readonly version: string;
+      /** The project the test set belongs to. */
+      readonly projectId: ProjectId;
+    };
+
+export type TestSetUnregisterOutcome = {
+  readonly unregistered: boolean;
+};
+
+export type TestSetReinstateVersionOutcome =
+  | {
+      readonly kind: 'ok';
+      readonly testSetId: string;
+      readonly version: string;
+      readonly wasTombstoned: boolean;
+    }
+  | {
+      readonly kind: 'not-found';
+      readonly testSetId: string;
+      readonly version: string;
+    };
+
+/**
+ * A project's test set for an agent, frozen as a version: what a
+ * suggested change is checked on. The runtime keeps one test set per agent
+ * and project, made of the corrections that are cases there and the
+ * cases added by hand, and freezes a new version only when they changed
+ * since the newest (else that one is answered again).
+ */
+export interface TestSetFreezeBinding {
+  freezeTestSet(input: FreezeTestSetInput): Promise<FrozenTestSet>;
+}
+
+/**
+ * How every agent's test set id starts (`agentTestSetId`). It's reserved:
+ * only a freeze makes their versions, through the binding, and the routes
+ * refuse to publish a test set whose id starts with it.
+ */
+export const AGENT_TEST_SET_ID_PREFIX = 'agent.';
+
+/** Whether `testSetId` is reserved for an agent's test set (`AGENT_TEST_SET_ID_PREFIX`). */
+export function isAgentTestSetId(testSetId: string): boolean {
+  return testSetId.startsWith(AGENT_TEST_SET_ID_PREFIX);
+}
+
+/**
+ * The id of an agent's test set in one project: `agent.<agentId>.<projectId>`.
+ * A freeze publishes its versions under it, so a reader finds the newest
+ * frozen version with `TestSetRegistryBinding.get` and its cases under
+ * `/v1/test-sets/{testSetId}/versions/{version}/cases`. No `:`: an
+ * authorization object's id can't hold one.
+ */
+export function agentTestSetId(agentId: AgentId, projectId: ProjectId): string {
+  return `${AGENT_TEST_SET_ID_PREFIX}${agentId as unknown as string}.${projectId as unknown as string}`;
+}
+
+/**
+ * The refusal when a project's test set of an agent has no cases, so
+ * there's nothing to run: a suggested change's check and a test run of
+ * the agent's test set say the same.
+ */
+export function nothingToCheck(
+  agentId: AgentId,
+  projectId: ProjectId,
+): {
+  readonly code: 'suggested-change-nothing-to-check';
+  readonly message: string;
+  readonly projectId: string;
+} {
+  return {
+    code: 'suggested-change-nothing-to-check',
+    message: `Project ${projectId as unknown as string} has no corrections of ${agentId as unknown as string} to check a change on: correct some of its conversations first`,
+    projectId: projectId as unknown as string,
+  };
+}
+
+/** The answer when a caller publishes a test set under an agent's test set id. */
+export function agentTestSetIdReserved(testSetId: string): string {
+  return `Test set ids starting \`${AGENT_TEST_SET_ID_PREFIX}\` are agents' own test sets, and only a test run or a suggested change's check makes their versions. Publish "${testSetId}" under another id.`;
+}
+
+export interface FreezeTestSetInput {
+  readonly tenantId: TenantId;
+  readonly agentId: AgentId;
+  readonly projectId: ProjectId;
+}
+
+export interface FrozenTestSet {
+  readonly testSetId: string;
+  readonly testSetVersion: string;
+  /**
+   * Its cases. A correction's case has the correction's id as its own;
+   * a case added by hand names no correction, and still counts.
+   */
+  readonly cases: readonly {
+    readonly caseId: string;
+    readonly correctionId: string | null;
+  }[];
+}

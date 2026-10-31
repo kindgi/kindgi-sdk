@@ -64,6 +64,7 @@ import {
   retargets,
   sameToolList,
   toolsAllowedUnattendedProblem,
+  triggerScope,
 } from './trigger-tools.js';
 import { versionField, versionFields, versionOne, versionsPage } from './trigger-versions.js';
 import { UUID_RE } from './uuid-param.js';
@@ -307,7 +308,7 @@ export function mailTriggersRouter(
       if (refusedList !== undefined) return refusedList;
       const problem = await toolsAllowedUnattendedProblem(
         targetTools,
-        tenantId,
+        triggerScope(tenantId, project),
         target.value,
         tools.value,
       );
@@ -535,7 +536,7 @@ export function mailTriggersRouter(
       if (refusedList !== undefined) return refusedList;
       const problem = await toolsAllowedUnattendedProblem(
         targetTools,
-        tenantId,
+        triggerScope(tenantId, project),
         nextTarget,
         tools.value,
       );

@@ -201,7 +201,14 @@ export async function publishDeployedAgent(
     pinsDigest: pinsDigest(pins),
     existing,
     publish: async (version) => {
-      const outcome = await agents.publish({ tenantId, projectId, agent: version, enqueueTuples });
+      // A deploy's version: the deployment that ships it makes it Latest (`LatestBinding`).
+      const outcome = await agents.publish({
+        tenantId,
+        projectId,
+        agent: version,
+        madeFor: 'latest',
+        enqueueTuples,
+      });
       if (outcome.kind === 'ok') return 'ok';
       if (outcome.kind === 'already-registered') return 'taken';
       throw new PublishRefused('agent', `${agent.id}@${version.version}`, outcome);

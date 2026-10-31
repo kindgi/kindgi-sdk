@@ -168,7 +168,7 @@ describe('kindgi schedules', () => {
       '--improve=acme.scorer',
       '--project=p-1',
       '--segment=company:acme',
-      '--input={"threshold":{"judgments":10},"monthlyCapUsd":50}',
+      '--input={"threshold":{"corrections":10},"monthlyCapUsd":50}',
     ]);
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([
@@ -181,7 +181,7 @@ describe('kindgi schedules', () => {
           },
           config: {
             cronExpression: '0 * * * *',
-            input: { threshold: { judgments: 10 }, monthlyCapUsd: 50 },
+            input: { threshold: { corrections: 10 }, monthlyCapUsd: 50 },
           },
           projectId: 'p-1',
         },
@@ -210,7 +210,7 @@ describe('kindgi schedules', () => {
     }
   });
 
-  test('an improve schedule in the table, and a fire that started a pass', async () => {
+  test('an improve schedule in the table, and a fire that started an Improve run', async () => {
     const improving = {
       ...SCHEDULE,
       agentId: undefined,
@@ -226,7 +226,7 @@ describe('kindgi schedules', () => {
     });
     expect(out.exitCode, out.stderr).toBe(0);
     expect(out.stdout).toContain('improve acme.scorer (project p-1)');
-    const passId = '33333333-3333-4333-8333-333333333333';
+    const improveRunId = '33333333-3333-4333-8333-333333333333';
     const fires = await runCli({
       argv: ['schedules', 'fires', ID, '--table', '--url=https://x', '--token=t'],
       env: {},
@@ -237,7 +237,7 @@ describe('kindgi schedules', () => {
           schedules: {
             fires: async () => ({
               data: [
-                { ...FIRE, runId: undefined, missedCount: undefined, passId },
+                { ...FIRE, runId: undefined, missedCount: undefined, improveRunId },
                 {
                   ...FIRE,
                   fireId: 'f-2',
@@ -254,7 +254,7 @@ describe('kindgi schedules', () => {
         }) as never,
     });
     expect(fires.exitCode, fires.stderr).toBe(0);
-    expect(fires.stdout).toContain(`pass ${passId}`);
+    expect(fires.stdout).toContain(`Improve run ${improveRunId}`);
     expect(fires.stdout).toMatch(
       /skipped\s+Not enough new experts' corrections so far: 4 of 5 answers experts marked wrong/,
     );

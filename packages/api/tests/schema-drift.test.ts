@@ -34,7 +34,6 @@ import {
   AgentSchema,
   CodeArtifactRefSchema,
   ComplianceEvidenceSchema,
-  EvalSuiteSchema,
   FlowSchema,
   GuardrailSchema,
   HttpAuthSpecSchema,
@@ -44,11 +43,13 @@ import {
   NetworkPolicySchema,
   RuntimeLimitsSchema,
   SandboxModeSchema,
+  TestSetSchema,
   ToolSchema,
   ToolSecretRefSchema,
   ToolSpecSchema,
   TypedNeedsSchema,
 } from '../src/openapi/schemas.js';
+import { TEST_SET_KINDS } from '../src/test-set-binding.js';
 
 interface JsonSchemaLike {
   readonly required?: readonly string[];
@@ -96,12 +97,12 @@ describe('OpenAPI ↔ specs drift — aligned pairs (required[] identical)', () 
     );
   });
 
-  test('EvalSuite', async () => {
-    assertRequiredIdentical(
-      'eval-suite',
-      await loadSpec('eval-suite'),
-      EvalSuiteSchema as JsonSchemaLike,
-    );
+  test('TestSet', async () => {
+    const spec = await loadSpec('test-set');
+    assertRequiredIdentical('test-set', spec, TestSetSchema as JsonSchemaLike);
+    // The spec's closed `kind` enum is the API's list of test set kinds.
+    const kind = spec.properties?.kind as { readonly enum?: readonly string[] } | undefined;
+    expect(kind?.enum).toEqual([...TEST_SET_KINDS]);
   });
 
   test('Flow', async () => {

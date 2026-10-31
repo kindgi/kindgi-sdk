@@ -11,8 +11,8 @@ repository). Two files are written, both generated — never edit them:
 - `src/kindgi/client/_models.py`: pydantic v2 models for every component
   schema (datamodel-code-generator). Inline request and response schemas are
   first hoisted into components named after their operation. So are an
-  inline object whose own name would be a component's (`JudgedRunContext`'s
-  `flow` is `JudgedRunContextFlow`), and each member of a union with a
+  inline object whose own name would be a component's (`CorrectedRunContext`'s
+  `flow` is `CorrectedRunContextFlow`), and each member of a union with a
   discriminator: a union component's after it (`Scope`'s `ScopeTenant`,
   `ScopeOrg`, `ScopeProject`), an inline union's after its owner and field
   (`MCPEndpoint`'s `config`: `MCPEndpointConfigStdio`).
@@ -108,7 +108,7 @@ class Operation:
     body: str | None  # model class name
     body_kind: str | None  # json | multipart
     response: str | None  # model class name
-    response_kind: str  # json | sse | binary | empty
+    response_kind: str  # json | sse | binary | byte-stream | empty
     status: int
     # When the 2xx answers carry different models: each status's model
     # class name (`secrets.rotate`: 201 sync, 202 async). Empty otherwise.
@@ -176,9 +176,9 @@ def hoist(doc: dict[str, Any], schema: dict[str, Any], name: str) -> str:
 
 # More Python names for an operation, generated beside its own: the name
 # the other resources use for the same call, so the client's names line
-# up (`eval_suites.unregister`, as `agents.unregister`).
+# up (`test_sets.unregister`, as `agents.unregister`).
 ALIASES: dict[str, tuple[str, ...]] = {
-    "evalSuites.versions.unregister": ("evalSuites.unregister",),
+    "testSets.versions.unregister": ("testSets.unregister",),
 }
 
 # A run stream's follow method, generated beside it: the same call, through
@@ -196,38 +196,6 @@ FOLLOW_DESCRIPTION = (
     "connection, a 429 or a 502-504 is retried with backoff; any other error is raised. "
     "Ends after the terminal event."
 )
-
-
-# Operations a patch release removed from the API: each stays a method that
-# raises, naming its replacement, until the next minor (`id: (release,
-# replacement)`). Old calls still import and fail with a clear message.
-REMOVED: dict[str, tuple[str, str]] = {
-    "proposals.draft": ("0.1.5", "proposals.create"),
-    "proposals.dryRun": ("0.1.5", "proposals.evaluate"),
-    "proposals.submitReview": ("0.1.5", "proposals.request"),
-    "proposals.apply": ("0.1.5", "proposals.request"),
-}
-
-
-def removed_stubs(node: Resource, asynchronous: bool) -> list[str]:
-    out: list[str] = []
-    for op_id, (release, replacement) in REMOVED.items():
-        *resource, method = op_id.split(".")
-        if tuple(resource) != node.path:
-            continue
-        name = snake(method)
-        message = (
-            f"{'.'.join(snake(p) for p in resource)}.{name} was removed in {release}: "
-            f"use client.{'.'.join(snake(p) for p in replacement.split('.'))}"
-        )
-        prefix = "async def" if asynchronous else "def"
-        out += [
-            "",
-            f"    {prefix} {name}(self, *args: Any, **kwargs: Any) -> NoReturn:",
-            f'        """Removed in {release}: use `client.{replacement}`."""',
-            f'        raise InvalidRequestError("{message}", issues=[])',
-        ]
-    return out
 
 
 def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]:
@@ -307,6 +275,9 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                     )
                 elif content:
                     response_kind = "binary"
+                    if op.get("x-kindgi-streamed"):
+                        # A body handed on as it arrives (`corrections.export`), not read whole.
+                        response_kind = "byte-stream"
                 break
             # The client picks the model by status when the 2xx answers differ,
             # as the Java client does; otherwise every 2xx is the first's model.
@@ -410,9 +381,12 @@ def signature(op: Operation, asynchronous: bool) -> str:
         else f"_models.{op.response}",
         "empty": "None",
         "binary": "bytes",
+        "byte-stream": f"{'AsyncIterator' if asynchronous else 'Iterator'}[bytes]",
         "sse": f"{'AsyncIterator' if asynchronous else 'Iterator'}[_models.{op.response}]",
     }[op.response_kind]
-    prefix = "async def" if asynchronous and op.response_kind != "sse" else "def"
+    prefix = (
+        "async def" if asynchronous and op.response_kind not in ("sse", "byte-stream") else "def"
+    )
     return f"    {prefix} {op.name}({', '.join(parts)}) -> {returns}:"
 
 
@@ -439,6 +413,8 @@ def call(op: Operation, asynchronous: bool) -> str:
         args.append(f"response=_models.{op.response}")
     args.append("timeout=timeout")
     inner = ", ".join(args)
+    if op.response_kind == "byte-stream":
+        return f"        return self._client._stream_bytes({inner})"
     if op.response_kind == "sse":
         return f"        return self._client._{'follow' if op.follow else 'stream'}({inner})"
     keyword_await = "await " if asynchronous else ""
@@ -468,7 +444,6 @@ def render_resource(node: Resource, asynchronous: bool) -> list[str]:
         )
     for op in node.operations:
         out += ["", signature(op, asynchronous), docstring(op, "        "), call(op, asynchronous)]
-    out += removed_stubs(node, asynchronous)
     return out
 
 
@@ -482,12 +457,11 @@ def render_resources(root: Resource, ops: list[Operation]) -> str:
         "from __future__ import annotations",
         "",
         "from collections.abc import AsyncIterator, Iterator, Mapping, Sequence",
-        "from typing import Any, Literal, NoReturn, cast",
+        "from typing import Any, Literal, cast",
         "from uuid import UUID",
         "",
         "from . import _models",
         "from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments",
-        "from ._errors import InvalidRequestError",
         "",
         '__all__ = ["OPERATIONS", "AsyncResources", "Resources"]',
         "",
@@ -852,7 +826,8 @@ def model_locations(
 ) -> dict[str, list[str]]:
     """Where each model sits. A component's own model sits at its name; any other at each chain
     of fields from one, a field by its wire name and, in a union, by its member
-    (`member_keys`): `JudgedComparisonResult.cases.tool`, `CompleteApprovalResult.resume[kind=ok]`.
+    (`member_keys`): `CorrectedComparisonResult.cases.tool`,
+    `CompleteApprovalResult.resume[kind=ok]`.
     """
     models = model_fields(tree)
     components = doc["components"]["schemas"]
@@ -1270,7 +1245,7 @@ def open_mark(metadata: list[ast.expr]) -> str | None:
 
 
 def site(owner: str, path: tuple[Any, ...]) -> str:
-    """`Secret.state` for a component's property, `EvalBaseline/oneOf/0` for a member."""
+    """`Secret.state` for a component's property, `TestRunBaseline/oneOf/0` for a member."""
     out = owner
     for i, key in enumerate(path):
         if key != "properties":

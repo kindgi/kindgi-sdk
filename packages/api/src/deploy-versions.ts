@@ -6,6 +6,8 @@ import { canonicalize } from '@kindgi/schema';
 import { nextVersion } from '@kindgi/tools';
 import type { VersionDerivation, VersionDerivationReason } from '@kindgi/types';
 
+import type { AgentVersionRecord } from './agent-binding.js';
+
 /** A version a deploy registers with pins: an agent's or a flow's. */
 export interface PinnedDefinition {
   readonly version: string;
@@ -154,9 +156,37 @@ async function registerNextFree<T extends PinnedDefinition>(
 }
 
 /**
- * A definition: everything but its version and what the runtime sets
- * (pins, where a version came from, and where the registry keeps it and
- * where it was made).
+ * What a registry adds to a version it reads, never part of what the
+ * version is: where it's kept and where it was made, when it was
+ * unregistered, what it was made for, when and by whom it was made
+ * Latest, and its agent's owner. One list, so a definition's key and a
+ * derived version's manifest leave out the same fields.
+ */
+const RECORD_ONLY_FIELDS = [
+  'projectId',
+  'madeInProjectId',
+  'unregisteredAt',
+  'madeFor',
+  'latestAt',
+  'latestBy',
+  'owner',
+] as const satisfies readonly (keyof AgentVersionRecord)[];
+
+type RecordOnlyField = (typeof RECORD_ONLY_FIELDS)[number];
+
+const recordOnly: ReadonlySet<string> = new Set(RECORD_ONLY_FIELDS);
+
+/** A version a registry read, without what the registry adds (`RECORD_ONLY_FIELDS`). */
+export function withoutRecordFields<T extends object>(record: T): Omit<T, RecordOnlyField> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([field]) => !recordOnly.has(field)),
+  ) as Omit<T, RecordOnlyField>;
+}
+
+/**
+ * A definition: everything but its version, its pins and where it came
+ * from, and what a registry adds to a version it reads
+ * (`RECORD_ONLY_FIELDS`).
  */
 export function definitionKey(definition: PinnedDefinition): string {
   const {
@@ -164,10 +194,7 @@ export function definitionKey(definition: PinnedDefinition): string {
     pins: _p,
     pinsDigest: _d,
     derivedFrom: _f,
-    projectId: _project,
-    madeInProjectId: _madeIn,
-    unregisteredAt: _u,
     ...rest
-  } = definition;
+  } = withoutRecordFields(definition);
   return canonicalize(rest);
 }

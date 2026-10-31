@@ -6,8 +6,8 @@
 // The implementation is supplied by the Kindgi runtime.
 
 import type {
+  AgentPinScope,
   Cursor,
-  LiveScope,
   ProjectId,
   RecordedSecretScope,
   Result,
@@ -117,16 +117,16 @@ export interface TriggerRegistryBinding {
 
 /**
  * What a schedule runs: a flow at an exact version, or an agent. An agent
- * that names no version runs its live version for the schedule's project,
+ * that names no version runs its pinned version for the schedule's project,
  * as a run that names none does. `improve` starts an Improve run on an
- * agent for a live scope when enough answers have been marked wrong since
+ * agent for a pin scope when enough answers have been marked wrong since
  * its last one (its input says how many, and the Improve options);
  * otherwise its fire is `skipped`.
  */
 export type TriggerTarget =
   | { readonly kind: 'flow'; readonly flowId: string; readonly flowVersion: string }
   | { readonly kind: 'agent'; readonly agentId: string; readonly agentVersion?: string }
-  | { readonly kind: 'improve'; readonly agentId: string; readonly scope: LiveScope };
+  | { readonly kind: 'improve'; readonly agentId: string; readonly scope: AgentPinScope };
 
 /**
  * The principal a trigger's runs act as: whoever registered it, until an
@@ -278,7 +278,7 @@ export interface TriggerFire {
    * `skipped`, as `detail` says: a webhook trigger was paused; what the
    * target waits for wasn't there (an `improve` schedule's threshold, or its
    * monthly cap); its project is suspended (`project-suspended`); its run or
-   * pass hadn't started when its tenant was suspended, and the restore
+   * Improve run hadn't started when its tenant was suspended, and the restore
    * concluded it (`tenant-suspended`); or its tenant was suspended or closing
    * as its run started (`tenant-suspended`, `tenant-closing`). A skip for a
    * suspension or a close doesn't reset the count of refusals and failures
@@ -312,8 +312,8 @@ export interface TriggerFire {
    * Absent until it starts, and on a fire from before versions.
    */
   readonly version?: number;
-  /** The improvement pass it started, for an `improve` schedule. */
-  readonly passId?: string;
+  /** The Improve run it started, for an `improve` schedule. */
+  readonly improveRunId?: string;
   /** Why it was refused, skipped or failed, or why a `pending` mail fire waits (`thread-busy:`). */
   readonly detail?: string;
   /**

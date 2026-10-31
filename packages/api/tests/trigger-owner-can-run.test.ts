@@ -12,7 +12,7 @@
  *   `trigger-owner-cannot-run-target`, after the `act_as` gate, so no
  *   one past whom the gate stops learns anything.
  * - The account's check is `targetAccess`: `execute` on the flow or agent,
- *   `publish` on the agent for an improvement pass.
+ *   `publish` on the agent for an Improve run.
  * - A retarget (`PATCH` with a new target) of a schedule or mail trigger
  *   asks the same of its owner, of any kind, since the owner stays: unless
  *   the caller is the owner, or the owner is gone.
@@ -249,7 +249,7 @@ const FLOW_MESSAGE = `Service account "acme-nightly-bot" can't run flow "${FLOW}
 const IMPROVE_MESSAGE = `Service account "acme-nightly-bot" can't publish agent "${AGENT}", so the trigger can't run as it. Give the account the editor role on the target's project, or name another account.`;
 
 describe('targetAccess: the one mapping a trigger target is checked by', () => {
-  test('execute on a flow or an agent; publish on the agent an improvement pass works on', () => {
+  test('execute on a flow or an agent; publish on the agent an Improve run works on', () => {
     expect(targetAccess({ kind: 'flow', flowId: FLOW })).toEqual(['execute', ref('flow', FLOW)]);
     expect(targetAccess({ kind: 'agent', agentId: AGENT })).toEqual([
       'execute',
@@ -449,7 +449,7 @@ describe('retarget: the owner must be able to run the new target', () => {
     expect(JSON.stringify(got.body)).not.toContain(AGENT2);
   });
 
-  test('to an improvement pass, asked publish: an account with only execute gets a 409', async () => {
+  test('to an Improve run, asked publish: an account with only execute gets a 409', async () => {
     const h = harness([`bot execute agent:${AGENT}`]);
     const id = await botSchedule(h);
     const res = await h.call('PATCH', `/v1/schedules/${id}`, {

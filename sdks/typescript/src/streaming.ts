@@ -135,7 +135,7 @@ export interface SseEvent<T> {
  * Adapt a `readSse` iterable (frames with SSE envelope) into a bare
  * data-only iterable. Callers that don't need the SSE `event:` name or
  * `id:` field use this to expose a clean typed data stream — the SDK's
- * streaming resource methods (`runs.follow`, `evalRuns.events`,
+ * streaming resource methods (`runs.follow`, `testRuns.events`,
  * `adapters.prepare`, the secrets rotation event stream) all go through
  * this shim.
  *

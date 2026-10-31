@@ -12,8 +12,8 @@ const TENANT = '00000000-0000-4000-8000-000000000002';
 const WIRE_APPROVAL = {
   id: '33333333-3333-4333-8333-333333333333',
   tenantId: TENANT,
-  subjectKind: 'fix-proposal',
-  subjectRef: { proposalId: 'p-1' },
+  subjectKind: 'suggested-change',
+  subjectRef: { suggestedChangeId: 'p-1' },
   requiredRole: 'standard' as const,
   status: 'pending' as const,
   createdAt: '2026-09-20T00:00:00.000Z',
@@ -73,7 +73,7 @@ describe('approvals.list / get — /v1/approvals mapping', () => {
 
     const a = await client.approvals.get(WIRE_APPROVAL.id as never);
     expect(a.id).toBe(WIRE_APPROVAL.id);
-    expect(a.subjectKind).toBe('fix-proposal');
+    expect(a.subjectKind).toBe('suggested-change');
     expect(stub.calls[0]?.url).toBe(`https://api.example.com/v1/approvals/${WIRE_APPROVAL.id}`);
   });
 

@@ -36,7 +36,13 @@ import {
   requestOptions,
 } from './responses.js';
 import { retryAttempts, sendWithRetries } from './retry.js';
-import { SERVER_ENV_NEVER, computeCost, decodeToolName, encodeToolName } from './wire.js';
+import {
+  SERVER_ENV_NEVER,
+  computeCost,
+  decodeToolName,
+  encodeToolName,
+  outputCapOf,
+} from './wire.js';
 
 /**
  * Configuration for an OpenAI-compatible ModelProvider. `baseURL` is the
@@ -250,6 +256,7 @@ export function createOpenAICompatModelProvider(
 
       const messages = sent.map(toOpenAiMessage);
       const tools = input.tools?.map(toOpenAiTool);
+      const maxTokens = outputCapOf(modelInfo, input);
 
       const responseFormat = input.structuredOutput
         ? {
@@ -278,7 +285,7 @@ export function createOpenAICompatModelProvider(
                     OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming['reasoning_effort']
                   >,
                 }),
-                ...(input.maxOutputTokens !== undefined && { max_tokens: input.maxOutputTokens }),
+                ...(maxTokens !== undefined && { max_tokens: maxTokens }),
                 stream: false,
               },
               requestOptions(input),
