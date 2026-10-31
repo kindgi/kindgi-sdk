@@ -791,7 +791,7 @@ export const ERROR_ENTRIES = {
   },
   'promotions-unsupported': {
     description:
-      "This runtime can't promote deployments: it has nowhere to write a promotion. The promotion check still answers. Nothing is written. From a deployment promotion with `makeLive` on a runtime that can't make versions live, the build has already moved and nothing is pinned in the target: promote without `makeLive` there.",
+      "This runtime can't promote deployments: it has nowhere to write a promotion. The promotion check still answers. Nothing is written. From a deployment promotion with `pin` on a runtime that can't pin versions, the build has already moved and nothing is pinned in the target: promote without `pin` there.",
     details: [],
     seeAlso: ['POST /v1/deployments/{deploymentId}/promotions'],
   },
@@ -1233,9 +1233,9 @@ export const ERROR_ENTRIES = {
           "the tenant's limit on approvals waiting for a decision; absent when the server doesn't name it",
       },
       {
-        key: 'live',
+        key: 'pinned',
         meaning:
-          "from a deployment promotion with `makeLive`, when some were: the carried agents pinned before this one, in the answer's `live` shape",
+          "from a deployment promotion with `pin`, when some were: the carried agents pinned before this one, in the answer's `pinned` shape",
       },
     ],
   },
@@ -2029,19 +2029,19 @@ export const ERROR_ENTRIES = {
   },
   'nothing-runs-in-scope': {
     description:
-      "No version of the agent runs in the scope yet: no pin covers it, and the agent has no Latest there (a tenant or org scope takes Latest over every project), so there's nothing to measure the version against. Nothing is promoted. Deploy or publish a version into the project first; into a later environment of an order, which takes builds only by promotion, promote a build that ships a version of the agent. From a deployment promotion with `makeLive`, the move has already committed: the carried agents pinned before this one stay pinned (`details.live`), and this agent, the carried agents after it and the carried flows aren't pinned. The message names the agent. When the scope's project is suspended, the refusal is `project-suspended` instead.",
+      "No version of the agent runs in the scope yet: no pin covers it, and the agent has no Latest there (a tenant or org scope takes Latest over every project), so there's nothing to measure the version against. Nothing is promoted. Deploy or publish a version into the project first; into a later environment of an order, which takes builds only by promotion, promote a build that ships a version of the agent. From a deployment promotion with `pin`, the move has already committed: the carried agents pinned before this one stay pinned (`details.pinned`), and this agent, the carried agents after it and the carried flows aren't pinned. The message names the agent. When the scope's project is suspended, the refusal is `project-suspended` instead.",
     details: [
       {
-        key: 'live',
+        key: 'pinned',
         meaning:
-          "from a deployment promotion with `makeLive`, when some were: the carried agents pinned before this one, in the answer's `live` shape",
+          "from a deployment promotion with `pin`, when some were: the carried agents pinned before this one, in the answer's `pinned` shape",
       },
     ],
     seeAlso: [
-      'POST /v1/agents/{agentId}/promotions',
-      'POST /v1/agents/{agentId}/promotions/check',
+      'POST /v1/agents/{agentId}/pinned/pin',
+      'POST /v1/agents/{agentId}/pinned/check',
       'POST /v1/deployments/{deploymentId}/promotions',
-      'guides/evals/live-versions-reference',
+      'guides/improve/pinned-versions-reference',
     ],
   },
   'gate-failed': {
@@ -3155,7 +3155,6 @@ export const ERROR_ENTRIES = {
       'POST /v1/improve-runs',
       'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
       'POST /v1/deployments/{deploymentId}/promotions',
-      'POST /v1/agents/{agentId}/promotions',
     ],
   },
   'pack-suspended': {
