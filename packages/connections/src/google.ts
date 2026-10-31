@@ -30,11 +30,11 @@ const CALENDAR_CALLS_FREE = {
  *   when no other connection of theirs uses that grant.
  * - **Rate limits:** 6,000 units a minute per connection, in Gmail's quota
  *   units: a send costs 100, reading a message 60 (20 for its headers or
- *   its date only), a thread 120, a message list 5, the mailbox's history 2 and its
- *   profile 1. The Calendar API's 600 requests a minute per person, each
- *   call 1. Its 10,000 a minute for the tenant's whole Google Cloud
- *   project is Google's own to enforce: a call over it is refused as a
- *   rate limit, and `appFetch` tries again.
+ *   its date only), a thread 120, a message list 5, an attachment 5, the
+ *   mailbox's history 2 and its profile 1. The Calendar API's 600 requests
+ *   a minute per person, each call 1. Its 10,000 a minute for the tenant's
+ *   whole Google Cloud project is Google's own to enforce: a call over it
+ *   is refused as a rate limit, and `appFetch` tries again.
  */
 export const google = defineApp({
   id: 'google',
@@ -95,6 +95,7 @@ export const google = defineApp({
         'gmail.send': 100,
         'gmail.messages.get': 60,
         'gmail.messages.get.metadata': 20,
+        'gmail.attachments.get': 5,
         'gmail.threads.get': 120,
         'gmail.messages.list': 5,
         'gmail.history.list': 2,
