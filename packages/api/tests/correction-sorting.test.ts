@@ -204,7 +204,7 @@ describe('planChange (the change table)', () => {
     expect(planChange(from('open'), {}, ana, at).kind).toBe('bad-input');
   });
 
-  test("a status set by hand ends a test run's reopening; a re-sort alone keeps it", () => {
+  test("a status set by hand ends a test run's reopening, with the fixedIn beside it; a re-sort alone keeps both", () => {
     const reopened = {
       ...from('open', 'improve'),
       reopenedIn: { version: '13', how: 'went-back' as const, by: ana, at },
@@ -212,7 +212,7 @@ describe('planChange (the change table)', () => {
     const link = { kind: 'improve-run' as const, id: 'ir-2' };
     expect(planChange(reopened, { status: 'being-fixed', link }, ana, at)).toEqual({
       kind: 'ok',
-      change: { status: 'being-fixed', link, reopenedIn: null },
+      change: { status: 'being-fixed', link, reopenedIn: null, fixedIn: null },
     });
     expect(planChange(reopened, { status: 'wont-fix', reason: 'by design' }, ana, at)).toEqual({
       kind: 'ok',
@@ -221,6 +221,7 @@ describe('planChange (the change table)', () => {
         link: null,
         statusNote: { text: 'by design', by: ana, at },
         reopenedIn: null,
+        fixedIn: null,
       },
     });
     expect(planChange(reopened, { sortedTo: 'developer' }, ana, at)).toEqual({
@@ -264,6 +265,7 @@ describe('planRunOutcome (a test run of the version a project now runs)', () => 
     const plan = planRunOutcome({
       version: '14',
       how: 'pin',
+      follows: 'pin',
       by: ana,
       at: pinAt,
       corrections: [
@@ -291,10 +293,11 @@ describe('planRunOutcome (a test run of the version a project now runs)', () => 
     });
   });
 
-  test('a fail reopens a fixed correction with reopenedIn, with-owner for one sorted to the owner; the others stay', () => {
+  test('a fail reopens a fixed correction with reopenedIn, keeping its fixedIn, with-owner for one sorted to the owner; the others stay', () => {
     const plan = planRunOutcome({
       version: '13',
       how: 'went-back',
+      follows: 'pin',
       by: ana,
       at: pinAt,
       corrections: [
@@ -315,16 +318,17 @@ describe('planRunOutcome (a test run of the version a project now runs)', () => 
       fixed: [],
       reopened: ['c-fixed', 'c-fixed-owner'],
       changes: [
-        { correctionId: 'c-fixed', status: 'open', fixedIn: null, reopenedIn },
-        { correctionId: 'c-fixed-owner', status: 'with-owner', fixedIn: null, reopenedIn },
+        { correctionId: 'c-fixed', status: 'open', reopenedIn },
+        { correctionId: 'c-fixed-owner', status: 'with-owner', reopenedIn },
       ],
     });
   });
 
-  test('Latest moving or an unpin fixes as latest, with no person when Latest moved; a correction the run did not check is left', () => {
+  test('Latest moving fixes as latest, with no person; a correction the run did not check is left', () => {
     const latest = planRunOutcome({
       version: '15',
       how: 'latest',
+      follows: 'latest',
       at: pinAt,
       corrections: [correction('c-open', 'open'), correction('c-unchecked', 'open')],
       passed: new Map([['c-open', true]]),
@@ -337,30 +341,44 @@ describe('planRunOutcome (a test run of the version a project now runs)', () => 
         reopenedIn: null,
       },
     ]);
-    const unpin = planRunOutcome({
-      version: '15',
-      how: 'unpin',
-      by: ana,
-      at: pinAt,
-      corrections: [correction('c-open', 'open'), correction('c-fixed', 'fixed')],
-      passed: new Map([
-        ['c-open', true],
-        ['c-fixed', false],
-      ]),
-    });
-    expect(unpin.changes).toEqual([
+  });
+
+  test('an unpin fixes as what the project follows now: latest on Latest, pin under a wider pin; its reopen says unpin', () => {
+    const unpin = (follows: 'pin' | 'latest') =>
+      planRunOutcome({
+        version: '15',
+        how: 'unpin',
+        follows,
+        by: ana,
+        at: pinAt,
+        corrections: [correction('c-open', 'open'), correction('c-fixed', 'fixed')],
+        passed: new Map([
+          ['c-open', true],
+          ['c-fixed', false],
+        ]),
+      }).changes;
+    const reopened = {
+      correctionId: 'c-fixed',
+      status: 'open',
+      reopenedIn: { version: '15', how: 'unpin', by: ana, at: pinAt },
+    };
+    expect(unpin('latest')).toEqual([
       {
         correctionId: 'c-open',
         status: 'fixed',
         fixedIn: { version: '15', how: 'latest', by: ana, at: pinAt },
         reopenedIn: null,
       },
+      reopened,
+    ]);
+    expect(unpin('pin')).toEqual([
       {
-        correctionId: 'c-fixed',
-        status: 'open',
-        fixedIn: null,
-        reopenedIn: { version: '15', how: 'unpin', by: ana, at: pinAt },
+        correctionId: 'c-open',
+        status: 'fixed',
+        fixedIn: { version: '15', how: 'pin', by: ana, at: pinAt },
+        reopenedIn: null,
       },
+      reopened,
     ]);
   });
 });

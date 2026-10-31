@@ -316,7 +316,7 @@ export function inMemoryCorrections(): CorrectionRegistryBinding & {
           status: change.status,
           link: change.link === null ? undefined : link,
           statusNote: change.statusNote === null ? undefined : statusNote,
-          fixedIn: change.fixedIn ?? undefined,
+          fixedIn: change.fixedIn ?? fixedIn,
           reopenedIn: change.reopenedIn ?? undefined,
           updatedAt: now(),
         };

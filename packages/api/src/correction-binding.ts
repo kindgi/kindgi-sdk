@@ -401,9 +401,12 @@ export interface Correction {
   readonly sorted?: CorrectionSorted;
   /** Present while it's `being-fixed`. */
   readonly link?: CorrectionLink;
-  /** Present while it's `fixed`. */
+  /** Present while it's `fixed`, and beside `reopenedIn` after a test run reopened it. */
   readonly fixedIn?: CorrectionFixedIn;
-  /** Present after a test run got a `fixed` correction wrong again, until its status next changes. */
+  /**
+   * Present after a test run got a `fixed` correction wrong again, until a
+   * person sets its status or a test run fixes it.
+   */
   readonly reopenedIn?: CorrectionReopenedIn;
   readonly statusNote?: CorrectionStatusNote;
   /** The corrector's group; absent for an unclassified correction (weight 1). */
@@ -642,8 +645,8 @@ export interface CorrectionUpdateInput {
   /** `null` clears it. */
   readonly statusNote?: CorrectionStatusNote | null;
   /**
-   * `null` clears it, when the status leaves `fixed` (`fixedIn` is there only
-   * while it's fixed).
+   * `null` clears it, when the status leaves `fixed` or a reopening ends
+   * (`fixedIn` is there only while it's fixed, or beside `reopenedIn`).
    */
   readonly fixedIn?: null;
   /** `null` clears it: a status set by hand ends a test run's reopening. */
@@ -673,7 +676,12 @@ export interface CorrectionRunOutcomeInput {
 export interface CorrectionOutcomeChange {
   readonly correctionId: string;
   readonly status: CorrectionStatus;
-  readonly fixedIn: CorrectionFixedIn | null;
+  /**
+   * Set when it becomes `fixed`. Absent, it's kept: a reopened correction
+   * keeps the version it was fixed in, beside `reopenedIn`.
+   */
+  readonly fixedIn?: CorrectionFixedIn;
+  /** `null` when it becomes `fixed`, which ends a reopening before. */
   readonly reopenedIn: CorrectionReopenedIn | null;
   /** Cleared when it stops being fixed elsewhere. */
   readonly link?: null;
