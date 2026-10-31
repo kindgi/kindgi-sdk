@@ -44,12 +44,13 @@ Each way of running the runtime has its own way to upgrade:
 | On Azure Container Apps | [Upgrade](../azure-container-apps/#upgrade) on the Azure Container Apps page | None |
 
 **Before you start, read the upgrade steps of each release you're
-upgrading across.** From 0.1.8 on, they're in each release's notes:
-[0.2.0's](../../../releases/0.2.0/#upgrade-steps),
+upgrading across.** From 0.1.8 on, they're in each release's notes, which
+[Release notes](../../../releases/) lists newest first;
 [0.1.10's](../../../releases/0.1.10/#upgrade-steps),
 [0.1.9's](../../../releases/0.1.9/#upgrade-steps) and
-[0.1.8's](../../../releases/0.1.8/#upgrade-steps). Up to 0.1.7, they're
-on this page, from [From 0.1.6 to 0.1.7](#from-016-to-017) down.
+[0.1.8's](../../../releases/0.1.8/#upgrade-steps) are the first three.
+Up to 0.1.7, they're on this page, from
+[From 0.1.6 to 0.1.7](#from-016-to-017) down.
 
 ### With Docker
 
