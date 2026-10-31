@@ -453,7 +453,7 @@ A `default` the model doesn't take is refused, and nothing is registered:
 `provider "gemini" model "gemini-3.8-flash" thinking default "max" isn't a level this model takes: it takes lowest, low, medium, high`.
 
 An agent asks for a level with `thinking` in its
-[model settings](../evals/change-a-prompt-or-setting/#use-them-in-an-agent):
+[model settings](../improve/change-a-prompt-or-setting/#use-them-in-an-agent):
 `lowest`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. It wins over
 the model's `default`. A level the model doesn't take goes as the next one up
 that it takes, or as its highest when none is above. The call goes on, and
@@ -482,9 +482,9 @@ sends nothing for `none`, so `lowest` on a model whose `lowest` is `none` or
 adapter's models don't think.
 
 Thinking counts against the call's output cap, `maxOutputTokens`, and bills
-as output, so it's in a turn's tokens and cost. A guardrail's or an eval's
-model judge asks for the least thinking. It allows 2,048 tokens for thinking,
-on top of the 256 its verdict gets.
+as output, so it's in a turn's tokens and cost. A guardrail's model judge, or
+a test run's judging model, asks for the least thinking. It allows 2,048
+tokens for thinking, on top of the 256 its verdict gets.
 
 | Preset | Model | Takes a temperature | Thinks | Least thinking | Levels |
 | --- | --- | --- | --- | --- | --- |

@@ -36,11 +36,11 @@ const KINDS = [
   { kind: 'flow', path: '/v1/flows', registry: 'flowRegistry', idKey: 'flowId', type: 'flow' },
   { kind: 'tool', path: '/v1/tools', registry: 'toolRegistry', idKey: 'toolId', type: 'tool' },
   {
-    kind: 'eval_suite',
-    path: '/v1/eval-suites',
-    registry: 'evalSuiteRegistry',
-    idKey: 'suiteId',
-    type: 'eval_suite',
+    kind: 'test_set',
+    path: '/v1/test-sets',
+    registry: 'testSetRegistry',
+    idKey: 'testSetId',
+    type: 'test_set',
   },
   {
     kind: 'block',

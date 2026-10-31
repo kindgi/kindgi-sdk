@@ -180,7 +180,7 @@ What to check before you upgrade, and what's different after:
   runtime-only subpath `@kindgi/agents/migrations` now, with no alias.
 - **The API:**
   - A page cursor a list didn't issue answers `400 bad-input` on the
-    agents, flows, policies and eval-suites `/versions` lists and on an
+    agents, flows, policies and test-sets `/versions` lists and on an
     agent's go-live history, as it does on blocks' and tools' `/versions`.
   - When an admin ends someone's sessions, it shows on that person's
     sign-in history (`GET /v1/audit/sign-ins?userId=`), with `byUserId`
@@ -188,8 +188,8 @@ What to check before you upgrade, and what's different after:
   - Adding a team member who isn't a person of the tenant, was removed, or
     is named by a malformed id is refused with `404 identity-user-not-found`,
     as adding a project member is. Before, an unknown id was added.
-  - A judging rule's results count the runs their corrections come from
-    (`runsWithJudgments`).
+  - A queue rule's results count the runs their corrections come from
+    (`runsWithCorrections`).
 - **Models:**
   - Claude Haiku 4.5 asks for up to 16,000 output tokens by default in the
     `anthropic` and `bedrock` presets (it was 8,192). A model's
@@ -360,10 +360,10 @@ The database migrates when 0.1.6 starts.
   tool, an MCP endpoint or a webhook endpoint could name a model provider's
   key as its secret, and so hand the key to a pack's code or to another
   server. 0.1.6 refuses that (run `check provider-keys` first, below).
-- **Who may correct as a class was shown to every reader.** Anyone who
-  could read a judge class, a project viewer included, got the ids of the
+- **Who may correct as a group was shown to every reader.** Anyone who
+  could read a corrector group, a project viewer included, got the ids of the
   people and service accounts allowed to correct as it. 0.1.6 sends those ids only to
-  an admin of the class's scope; everyone else gets their number
+  an admin of the group's scope; everyone else gets their number
   (`assertableBy.principalCount`).
 - **A malformed MCP credential could appear in the runtime's log.** An MCP
   endpoint's credential, or a value in its `config.headers`, with a line
@@ -570,11 +570,11 @@ What to check before you upgrade, and what's different after:
   (in memory by default) to share the sign-in lookup limit across instances;
   a store that fails doesn't block sign-in.
 - **New in 0.1.6:**
-  - **Corrections:** a project's judging rules queue the runs that need a
+  - **Corrections:** a project's queue rules queue the runs that need a
     person's verdict, results per agent version, and runs on the test cases
     and suggested changes rescored after people correct the new answers
-    ([Correct a run's output](../../../guides/evals/judge-a-runs-output/),
-    [Improve an agent](../../../guides/evals/improve-an-agent/)).
+    ([Correct a run's output](../../../guides/improve/correct-a-runs-output/),
+    [Improve an agent](../../../guides/improve/improve-an-agent/)).
   - **What failed and why:** a project's failed runs grouped by cause and
     version (`GET /v1/runs/failures`) and a failure's `reason`
     ([See why runs failed](../../../guides/runs/see-why-runs-failed/)), and
@@ -597,7 +597,7 @@ What to check before you upgrade, and what's different after:
     [guardrails](../../../guides/guardrails/write-a-guardrail/#in-the-console) and
     [members](../../authorization/#in-the-console-members), each with a page of
     its own, plus
-    [Quality](../../../guides/evals/judging-reference/#in-the-console) for
+    [Quality](../../../guides/improve/expert-queue-reference/#in-the-console) for
     correcting runs, and [costs](../../../guides/observability/cost-per-run/#cost-in-the-console)
     for the project and each run. The tenant gets
     [Teams](../../authorization/#in-the-console-teams),
@@ -771,7 +771,7 @@ and what's different after:
   sessions. A project admin adds a member by email
   (`POST /v1/projects/<id>/memberships` with `email`), and a project admin's
   member key can manage that project's members.
-- **A project editor can start an eval run** (try a version on the test
+- **A project editor can start a test run** (try a version on the test
   cases); it took a project admin. Unregistering or reinstating a version
   of the test cases still does.
 - **The cost aggregate counts only what you may read.** Across projects (no
@@ -793,7 +793,7 @@ and what's different after:
 - **An agent, flow, tool or set of test cases stays in the project it was
   first published into.** Publishing a version of one under another project is
   refused with a `409` (`agent-project-mismatch`, `flow-…`, `tool-…`,
-  `eval-suite-project-mismatch`), even for an admin of both, and nothing is
+  `test-set-project-mismatch`), even for an admin of both, and nothing is
   written; 0.1.4 accepted it. A deploy that includes one is refused whole,
   even when it's unchanged. The refusal carries the id, not the other project
   ([Organize work by org and project](../../../guides/projects/organize-by-org-and-project/)).
@@ -937,7 +937,7 @@ and what's different after:
 - **The clients read every `409` as a conflict** (TypeScript
   `code: 'conflict'`, Python `ConflictError`). Twenty codes used to come back
   as a server error, among them `run-lease-lost`, `agent-version-mismatch` and
-  `secret-write-conflict`. Code that matched one of them by its class should
+  `secret-write-conflict`. Code that matched one of them by its group should
   match its code alone: `err.serverCode` (Python `e.server_code`).
 - **TypeScript's `runs.follow` and `runs.followProgress`** follow a run to its
   end, as in Python, which gains `runs.follow` too. `runs.stream` and
@@ -982,9 +982,9 @@ and what's different after:
     tenant admin can erase an end user's words, their conversations and the
     runs that served them (`kindgi memory erasures`).
   - **Improve:** suggest new settings or a new prompt for an agent
-    version, try the candidate on the test cases, and make it live through
-    the release gate policy where it goes live, after review
-    (`kindgi proposals`). Improve can look for better settings on its own,
+    version, try the candidate on the test cases, and pin it through
+    the release gate where it is pinned, after review
+    (`kindgi suggested-changes`). Improve can look for better settings on its own,
     and a schedule can start an Improve run.
   - **Files kept with a run** (artifacts) and the capability catalog
     ([Keep files with a run](../../../guides/runs/keep-files-with-a-run/)).

@@ -3,35 +3,35 @@
 
 import type {
   AgentId,
+  AgentPinScope,
   Cursor,
-  FixProposalId,
-  LiveScope,
   ObservationId,
   ProjectId,
   ProvenanceId,
   RunId,
   Semver,
+  SuggestedChangeId,
   SupervisorId,
   TenantId,
   Timestamp,
 } from '@kindgi/types';
 
 /**
- * Caller-plugged store behind improvement proposals (`/v1/proposals`)
+ * Caller-plugged store behind suggested changes (`/v1/suggested-changes`)
  * and the supervisor's observation readback (`/v1/observations`). Same
  * shape as `AgentRegistryBinding` / `MemoryBinding`: the API package
  * doesn't own the storage.
  *
- * A proposal is a change to one data block an agent version pins (new
- * settings values, or a new prompt template), for one live scope. The
+ * A suggested change is a change to one data block an agent version pins (new
+ * settings values, or a new prompt template), for one pin scope. The
  * API package runs its lifecycle from bindings that exist already:
  * evaluating publishes the block version and derives the agent version
- * (both serve nowhere until promoted) and starts a comparison eval run;
- * requesting runs the scope's gated promotion. This binding only keeps
+ * (both serve nowhere until pinned) and starts a comparison test run;
+ * requesting runs the scope's gated pin. This binding only keeps
  * the rows: what was proposed, then each step's outcome, recorded with
- * a compare-and-set on `revision`. A proposal's status is never stored:
- * the route derives it from the eval run and the promotion
- * (`proposalStatus`).
+ * a compare-and-set on `revision`. A suggested change's status is never stored:
+ * the route derives it from the test run and the pin
+ * (`suggestedChangeStatus`).
  *
  * `queryObservations` is the supervisor readback for `/v1/observations`
  * — a straight paginated list over the observation stream. Tenant-scoped
@@ -39,23 +39,23 @@ import type {
  */
 export interface SupervisorBinding {
   /**
-   * Cursor-paginated proposals in the tenant, newest first
+   * Cursor-paginated suggested changes in the tenant, newest first
    * (`createdAt desc, id desc`). Filters are optional.
    */
-  listProposals(input: ListProposalsInput): Promise<StoredProposalPage>;
-  /** One proposal, or `null` when the tenant has none with that id. */
-  getProposal(input: GetProposalInput): Promise<StoredProposal | null>;
+  listSuggestedChanges(input: ListSuggestedChangesInput): Promise<StoredSuggestedChangePage>;
+  /** One suggested change, or `null` when the tenant has none with that id. */
+  getSuggestedChange(input: GetSuggestedChangeInput): Promise<StoredSuggestedChange | null>;
   /**
-   * Store a new proposal at revision 1. One with the same `fingerprint`
+   * Store a new suggested change at revision 1. One with the same `fingerprint`
    * that isn't withdrawn yet answers `dedup` with that row instead.
    */
-  createProposal(input: CreateProposalInput): Promise<CreateProposalOutcome>;
+  createSuggestedChange(input: CreateSuggestedChangeInput): Promise<CreateSuggestedChangeOutcome>;
   /**
-   * Record a step on a proposal if it's still at `expectRevision`; the
+   * Record a step on a suggested change if it's still at `expectRevision`; the
    * row's revision goes up by one. `conflict` when another call recorded
    * a step first: the caller reads it again.
    */
-  recordProposal(input: RecordProposalInput): Promise<RecordProposalOutcome>;
+  recordSuggestedChange(input: RecordSuggestedChangeInput): Promise<RecordSuggestedChangeOutcome>;
   /**
    * Cursor-paginated observation readback for `/v1/observations`.
    * Tenant-scoped; supervisor/agent/conversation/time-window filters
@@ -69,15 +69,15 @@ export interface SupervisorBinding {
   ): Promise<SupervisorQueryObservationsOutcome>;
 }
 
-// ============ proposals ============
+// ============ suggested changes ============
 
-/** What a proposal changes: a data block the agent version pins. */
-export type ProposalTier = 'settings-block' | 'prompt-block';
+/** What a suggested change changes: a data block the agent version pins. */
+export type SuggestedChangeTier = 'settings-block' | 'prompt-block';
 
 /**
  * The change: one block, from the version the agent version pins, to new
- * content. Settings proposals give new `values` (the schema carries
- * over); prompt proposals give a new `template` (the parameters carry
+ * content. Settings suggested changes give new `values` (the schema carries
+ * over); prompt suggested changes give a new `template` (the parameters carry
  * over).
  */
 export type ProposedChange =
@@ -98,40 +98,40 @@ export type ProposedChange =
       };
     };
 
-/** Who wrote a proposal: a person, or one of the runtime's drafters. */
-export type ProposalDrafter =
+/** Who wrote a suggested change: a person, or one of the runtime's drafters. */
+export type SuggestedChangeDrafter =
   | { readonly kind: 'person'; readonly by: string }
   | {
       readonly kind: 'settings-optimizer' | 'prompt-drafter';
       readonly version: string;
       readonly model?: { readonly providerId: string; readonly model: string };
-      /** The improvement pass that drafted it. */
-      readonly passId?: string;
+      /** The Improve run that drafted it. */
+      readonly improveRunId?: string;
     };
 
-/** What a proposal rests on. */
-export interface ProposalEvidence {
-  /** The judgments that motivated it. */
-  readonly judgmentIds?: readonly string[];
+/** What a suggested change rests on. */
+export interface SuggestedChangeEvidence {
+  /** The corrections it fixes, by id. */
+  readonly fixes?: readonly string[];
   /**
-   * How many judgments it rests on, when `judgmentIds` names only the first
-   * of them: an improvement pass names at most 100. Absent when
-   * `judgmentIds` names them all.
+   * How many corrections it rests on, when `fixes` names only the first
+   * of them: an Improve run names at most 100. Absent when `fixes`
+   * names them all.
    */
-  readonly judgmentCount?: number;
+  readonly correctionCount?: number;
 }
 
-/** The versions evaluating a proposal published: inert until a promotion makes them live. */
-export interface ProposalCandidate {
-  /** The derived agent version (`derivedFrom.proposalId` names this proposal). */
+/** The versions evaluating a suggested change published: inert until a pin makes them serve. */
+export interface SuggestedChangeCandidate {
+  /** The derived agent version (`derivedFrom.suggestedChangeId` names this suggested change). */
   readonly agentVersion: string;
-  /** The block version published from the proposal's content. */
+  /** The block version published from the suggested change's content. */
   readonly blockVersion: string;
   readonly pinsDigest: string;
 }
 
 /** The metric that says whether a candidate is better. */
-export type ProposalObjective = 'weightedYesShare' | 'weightedPrecisionAtK';
+export type SuggestedChangeObjective = 'passRate' | 'weightedPrecisionAtK';
 
 /**
  * How a candidate is kept: `better`, it beat the recorded outputs on the
@@ -139,53 +139,53 @@ export type ProposalObjective = 'weightedYesShare' | 'weightedPrecisionAtK';
  * current version on the same cases (beyond the spread) and costs less
  * (beyond the cost's own spread).
  */
-export type ProposalRule = 'better' | 'cheaper';
+export type SuggestedChangeRule = 'better' | 'cheaper';
 
-/** The comparison a proposal was evaluated with. */
-export interface ProposalEvaluationRef {
-  readonly evalRunId: string;
-  readonly suiteId: string;
-  readonly objective: ProposalObjective;
+/** The comparison a suggested change was evaluated with. */
+export interface SuggestedChangeEvaluationRef {
+  readonly testRunId: string;
+  readonly testSetId: string;
+  readonly objective: SuggestedChangeObjective;
   readonly startedAt: Timestamp;
   /** How the candidate is kept. Absent: `better`. */
-  readonly rule?: ProposalRule;
+  readonly rule?: SuggestedChangeRule;
   /**
    * The current version replayed on the same cases: the comparison the
    * candidate's corrections and cost are held to. Set for a change to the
-   * model-settings block an improvement pass proposes: no correction the
+   * model-settings block an Improve run suggests: no correction the
    * current version passes may fail, whichever the rule.
    */
-  readonly reference?: { readonly evalRunId: string };
+  readonly reference?: { readonly testRunId: string };
 }
 
-/** A proposal as the binding stores it (no status: that's derived). */
-export interface StoredProposal {
-  readonly id: FixProposalId;
+/** A suggested change as the binding stores it (no status: that's derived). */
+export interface StoredSuggestedChange {
+  readonly id: SuggestedChangeId;
   readonly tenantId: TenantId;
   /** The agent version's project, when known. */
   readonly projectId?: ProjectId;
   readonly agentId: AgentId;
   /** The agent version the change applies to. */
   readonly fromVersion: string;
-  /** The live scope it's for. */
-  readonly scope: LiveScope;
-  readonly tier: ProposalTier;
+  /** The pin scope it's for. */
+  readonly scope: AgentPinScope;
+  readonly tier: SuggestedChangeTier;
   readonly change: ProposedChange['change'];
-  readonly hypothesis: string;
-  readonly evidence?: ProposalEvidence;
-  readonly drafter: ProposalDrafter;
-  /** Dedup key: the same change for the same scope is one proposal. */
+  readonly why: string;
+  readonly evidence?: SuggestedChangeEvidence;
+  readonly drafter: SuggestedChangeDrafter;
+  /** Dedup key: the same change for the same scope is one suggested change. */
   readonly fingerprint: string;
   /** Goes up by one with each recorded step. */
   readonly revision: number;
-  readonly candidate?: ProposalCandidate;
-  readonly evaluation?: ProposalEvaluationRef;
-  /** The promotion its request made (the latest, after a re-request). */
-  readonly promotionId?: string;
+  readonly candidate?: SuggestedChangeCandidate;
+  readonly evaluation?: SuggestedChangeEvaluationRef;
+  /** The pin change its pin made (the latest, after a re-pin). */
+  readonly pinChangeId?: string;
   readonly rolledBack?: {
     readonly at: Timestamp;
-    /** The rollback's own promotion row. */
-    readonly promotionId: string;
+    /** The rollback's own pin change row. */
+    readonly changeId: string;
     readonly by: string;
     readonly reason?: string;
   };
@@ -194,66 +194,68 @@ export interface StoredProposal {
   readonly updatedAt: Timestamp;
 }
 
-export interface ListProposalsInput {
+export interface ListSuggestedChangesInput {
   readonly tenantId: TenantId;
   readonly limit: number;
   readonly cursor?: Cursor;
   readonly agentId?: AgentId;
-  readonly tier?: ProposalTier;
-  /** Only proposals for exactly this live scope. */
-  readonly liveScope?: LiveScope;
+  readonly tier?: SuggestedChangeTier;
+  /** Only suggested changes for exactly this pin scope. */
+  readonly pinnedScope?: AgentPinScope;
 }
 
-export interface GetProposalInput {
+export interface GetSuggestedChangeInput {
   readonly tenantId: TenantId;
-  readonly proposalId: FixProposalId;
+  readonly suggestedChangeId: SuggestedChangeId;
 }
 
-export interface CreateProposalInput {
+export interface CreateSuggestedChangeInput {
   readonly tenantId: TenantId;
   /** The agent version's project, when the agent store records one: what a scoped list narrows by. */
   readonly projectId?: ProjectId;
   readonly agentId: AgentId;
   readonly fromVersion: string;
-  readonly scope: LiveScope;
-  readonly tier: ProposalTier;
+  readonly scope: AgentPinScope;
+  readonly tier: SuggestedChangeTier;
   readonly change: ProposedChange['change'];
-  readonly hypothesis: string;
-  readonly evidence?: ProposalEvidence;
-  readonly drafter: ProposalDrafter;
+  readonly why: string;
+  readonly evidence?: SuggestedChangeEvidence;
+  readonly drafter: SuggestedChangeDrafter;
   readonly fingerprint: string;
 }
 
-export type CreateProposalOutcome =
-  | { readonly kind: 'ok'; readonly proposal: StoredProposal }
-  | { readonly kind: 'dedup'; readonly proposal: StoredProposal };
+export type CreateSuggestedChangeOutcome =
+  | { readonly kind: 'ok'; readonly suggestedChange: StoredSuggestedChange }
+  | { readonly kind: 'dedup'; readonly suggestedChange: StoredSuggestedChange };
 
 /**
- * One step's outcome, recorded on the proposal. An `evaluation` replaces
- * the one before and clears `promotionId`: a new comparison starts the
+ * One step's outcome, recorded on the suggested change. An `evaluation` replaces
+ * the one before and clears `pinChangeId`: a new comparison starts the
  * request over. A `candidate` is recorded once.
  */
-export type ProposalStep =
-  | { readonly kind: 'candidate'; readonly candidate: ProposalCandidate }
-  | { readonly kind: 'evaluation'; readonly evaluation: ProposalEvaluationRef }
-  | { readonly kind: 'promotion'; readonly promotionId: string }
-  | { readonly kind: 'rolled-back'; readonly rolledBack: NonNullable<StoredProposal['rolledBack']> }
-  | { readonly kind: 'withdrawn'; readonly withdrawn: NonNullable<StoredProposal['withdrawn']> };
+export type SuggestedChangeStep =
+  | { readonly kind: 'candidate'; readonly candidate: SuggestedChangeCandidate }
+  | { readonly kind: 'evaluation'; readonly evaluation: SuggestedChangeEvaluationRef }
+  | { readonly kind: 'pin'; readonly pinChangeId: string }
+  | {
+      readonly kind: 'withdrawn';
+      readonly withdrawn: NonNullable<StoredSuggestedChange['withdrawn']>;
+    };
 
-export interface RecordProposalInput {
+export interface RecordSuggestedChangeInput {
   readonly tenantId: TenantId;
-  readonly proposalId: FixProposalId;
+  readonly suggestedChangeId: SuggestedChangeId;
   readonly expectRevision: number;
-  readonly step: ProposalStep;
+  readonly step: SuggestedChangeStep;
 }
 
-export type RecordProposalOutcome =
-  | { readonly kind: 'ok'; readonly proposal: StoredProposal }
+export type RecordSuggestedChangeOutcome =
+  | { readonly kind: 'ok'; readonly suggestedChange: StoredSuggestedChange }
   | { readonly kind: 'not-found' }
-  | { readonly kind: 'conflict'; readonly proposal: StoredProposal };
+  | { readonly kind: 'conflict'; readonly suggestedChange: StoredSuggestedChange };
 
-export interface StoredProposalPage {
-  readonly data: readonly StoredProposal[];
+export interface StoredSuggestedChangePage {
+  readonly data: readonly StoredSuggestedChange[];
   readonly nextCursor?: Cursor;
 }
 

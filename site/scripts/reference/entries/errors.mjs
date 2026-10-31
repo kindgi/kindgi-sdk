@@ -17,7 +17,7 @@
 export const ERROR_ENTRIES = {
   'validation-failed': {
     description:
-      "The request body is well-formed JSON but fails validation, for example an agent, flow, tool, policy or eval suite definition that breaks the rules, or a version pin that can't be resolved. Fix the entries in `details.issues` and resend. On `POST /v1/proposals/improve`, a version with nothing for the Improve run to work on is refused with no issues, and `details.reason` says what it lacks.",
+      "The request body is well-formed JSON but fails validation, for example an agent, flow, tool, policy or test set definition that breaks the rules, or a version pin that can't be resolved. Fix the entries in `details.issues` and resend. On `POST /v1/improve-runs`, a version with nothing for the Improve run to work on is refused with no issues, and `details.reason` says what it lacks.",
     details: [
       {
         key: 'issues',
@@ -26,13 +26,13 @@ export const ERROR_ENTRIES = {
       {
         key: 'reason',
         meaning:
-          "on `POST /v1/proposals/improve`, why the version has nothing for the Improve run to work on: `no-tunable-keys`, or `no-pinned-prompt-block` for a run on the agent's instructions (the `prompt` tier); other refusals leave it out",
+          "on `POST /v1/improve-runs`, why the version has nothing for the Improve run to work on: `no-tunable-keys`, or `no-pinned-prompt-block` for a run on the agent's instructions (the `prompt` tier); other refusals leave it out",
       },
     ],
   },
   'reference-out-of-scope': {
     description:
-      "A request names an item its project can't reach: a tool, agent, flow, guardrail, data block, check or eval suite that isn't registered in the project, its org or the tenant, or a version of an agent, flow or eval suite that the project doesn't run, such as one made in an earlier environment and not yet promoted. Nothing is written. Register the item where the project reaches it, use it from the project that has it, or promote the version first.",
+      "A request names an item its project can't reach: a tool, agent, flow, guardrail, data block, check or test set that isn't registered in the project, its org or the tenant, or a version of an agent, flow or test set that the project doesn't run, such as one made in an earlier environment and not yet promoted. Nothing is written. Register the item where the project reaches it, use it from the project that has it, or promote the version first.",
     details: [
       {
         key: 'issues',
@@ -380,9 +380,9 @@ export const ERROR_ENTRIES = {
   },
   'already-terminal': {
     description:
-      "The API doesn't send this code. Cancelling an eval run that has finished is answered `eval-run-already-terminal`.",
+      "The API doesn't send this code. Cancelling a test run that has finished is answered `test-run-already-terminal`.",
     details: [],
-    seeAlso: ['#eval-run-already-terminal'],
+    seeAlso: ['#test-run-already-terminal'],
   },
   'fact-changed': {
     description:
@@ -600,16 +600,16 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['GET /v1/policies/{policyId}'],
   },
-  'eval-suite-gone': {
+  'test-set-gone': {
     description:
-      'The eval suite has no active versions left; it exists but every version is unregistered. Reinstate a version or publish a new one.',
+      'The test set has no active versions left; it exists but every version is unregistered. Reinstate a version or publish a new one.',
     details: [
       {
-        key: 'suiteId',
-        meaning: 'the suite id',
+        key: 'testSetId',
+        meaning: 'the test set id',
       },
     ],
-    seeAlso: ['GET /v1/eval-suites/{suiteId}'],
+    seeAlso: ['GET /v1/test-sets/{testSetId}'],
   },
   'tool-gone': {
     description:
@@ -797,7 +797,7 @@ export const ERROR_ENTRIES = {
   },
   'pin-scope-spans-environments': {
     description:
-      "A flow or tool with a project in an environment order is pinned one project at a time: a pin for the whole tenant or an organization would act in every environment of the order at once. Pin a flow in each environment's project, and a tool in the order's first environment, where agent and flow versions are made.",
+      "An agent, flow or tool with a project in an environment order is pinned one project at a time: a pin for the whole tenant or an organization would act in every environment of the order at once, so it's refused. Pin an agent or a flow in each environment's project (or a segment of it), and a tool in the order's first environment, where agent and flow versions are made. To take a build from one environment to the next and pin it there, promote it (`kindgi promote --pin`). Nothing is changed.",
     details: [],
   },
   'tool-not-pinnable': {
@@ -809,11 +809,6 @@ export const ERROR_ENTRIES = {
         meaning: 'the tool',
       },
     ],
-  },
-  'live-scope-spans-environments': {
-    description:
-      "An agent with a project in an environment order is made live one project at a time, whether one project serves it or several. A live change for the whole tenant or an organization would reach every environment of the order at once, so it's refused. Name a project in the change's scope, or a segment of it. To take a build from one environment to the next and make it live there, promote it (`kindgi promote --make-live`). Nothing is changed.",
-    details: [],
   },
   'guardrail-config-invalid': {
     description:
@@ -1092,7 +1087,7 @@ export const ERROR_ENTRIES = {
         meaning: 'the run that failed',
       },
     ],
-    seeAlso: ['guides/evals/change-a-prompt-or-setting'],
+    seeAlso: ['guides/improve/change-a-prompt-or-setting'],
   },
   'tool-invocation-failed': {
     description:
@@ -1230,7 +1225,7 @@ export const ERROR_ENTRIES = {
   },
   'approvals-pending-limit': {
     description:
-      "A gate asked for an approval while the tenant's approvals waiting for a decision were at its limit (set by whoever runs the server). Nothing waits for an approval nobody can see: the step fails, naming the limit. `POST /v1/runs` answers `429` when the call waits for its run; with `options.wait: false` it answers `202`, and the run fails with this code. A request to make a version live whose release gate policy wants an approval is refused with it. Once some of the approvals waiting are decided, try again.",
+      "A gate asked for an approval while the tenant's approvals waiting for a decision were at its limit (set by whoever runs the server). Nothing waits for an approval nobody can see: the step fails, naming the limit. `POST /v1/runs` answers `429` when the call waits for its run; with `options.wait: false` it answers `202`, and the run fails with this code. A request to pin a version whose release gate wants an approval is refused with it. Once some of the approvals waiting are decided, try again.",
     details: [
       {
         key: 'approvalsPending',
@@ -1382,7 +1377,7 @@ export const ERROR_ENTRIES = {
   'invalid-transition': {
     description: "The API doesn't send this code.",
     details: [],
-    seeAlso: ['guides/evals/propose-a-change'],
+    seeAlso: ['guides/improve/suggest-a-change'],
   },
   'audit-bundle-not-found': {
     description:
@@ -1420,7 +1415,7 @@ export const ERROR_ENTRIES = {
   'observation-not-found': {
     description: "The API doesn't send this code.",
     details: [],
-    seeAlso: ['guides/evals/improve-an-agent'],
+    seeAlso: ['guides/improve/improve-an-agent'],
   },
   'provenance-not-found': {
     description:
@@ -1486,23 +1481,23 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['guides/observability/export-signed-evidence'],
   },
-  'proposal-not-found': {
+  'suggested-change-not-found': {
     description:
       "The suggested change doesn't exist in the tenant, or your key can't see its agent.",
     details: [
       {
-        key: 'proposalId',
+        key: 'suggestedChangeId',
         meaning: 'the suggested change id that was looked up',
       },
     ],
-    seeAlso: ['guides/evals/propose-a-change'],
+    seeAlso: ['guides/improve/suggest-a-change'],
   },
-  'proposal-invalid-state-transition': {
+  'suggested-change-invalid-state-transition': {
     description:
       "The suggested change's status doesn't allow this action, or it changed while the request ran. Read the suggested change again and retry if it still applies.",
     details: [
       {
-        key: 'proposalId',
+        key: 'suggestedChangeId',
         meaning: 'the suggested change id',
       },
       {
@@ -1512,30 +1507,30 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'proposal-needs-pin': {
+  'suggested-change-needs-pin': {
     description:
-      'The agent has no live version for the whole tenant, so a new version would serve every scope nothing is pinned for. Make its current version live tenant-wide, then retry.',
+      'The agent has no pinned version for the whole tenant, so a new version would serve every scope nothing is pinned for. Pin its current version for the tenant first, then retry.',
     details: [],
   },
   'improve-unsupported': {
     description: "This runtime doesn't run Improve.",
     details: [],
   },
-  'improvement-pass-not-found': {
+  'improve-run-not-found': {
     description: "The Improve run doesn't exist, or your key can't read its agent.",
     details: [
       {
-        key: 'passId',
+        key: 'improveRunId',
         meaning: 'the Improve run id that was looked up',
       },
     ],
-    seeAlso: ['POST /v1/improvement-passes/{passId}/cancel'],
+    seeAlso: ['POST /v1/improve-runs/{improveRunId}/cancel'],
   },
-  'improvement-pass-finished': {
+  'improve-run-finished': {
     description: 'The Improve run has already ended, so there is nothing to cancel.',
     details: [
       {
-        key: 'passId',
+        key: 'improveRunId',
         meaning: 'the Improve run id',
       },
       {
@@ -1547,7 +1542,7 @@ export const ERROR_ENTRIES = {
   'version-already-exists': {
     description: "The API doesn't send this code.",
     details: [],
-    seeAlso: ['guides/evals/propose-a-change'],
+    seeAlso: ['guides/improve/suggest-a-change'],
   },
   'supervisor-header-missing': {
     description: "The API doesn't send this code.",
@@ -1833,23 +1828,23 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'eval-suite-not-found': {
-    description: 'No eval suite is registered with that id.',
+  'test-set-not-found': {
+    description: 'No test set is registered with that id.',
     details: [
       {
-        key: 'suiteId',
-        meaning: 'the suite id that was looked up',
+        key: 'testSetId',
+        meaning: 'the test set id that was looked up',
       },
     ],
-    seeAlso: ['GET /v1/eval-suites/{suiteId}'],
+    seeAlso: ['GET /v1/test-sets/{testSetId}'],
   },
-  'eval-suite-already-registered': {
+  'test-set-already-registered': {
     description:
-      'That eval suite id and version are already registered; versions never change, so publish a new version.',
+      'That test set id and version are already registered; versions never change, so publish a new version.',
     details: [
       {
-        key: 'suiteId',
-        meaning: 'the suite id',
+        key: 'testSetId',
+        meaning: 'the test set id',
       },
       {
         key: 'version',
@@ -1857,29 +1852,29 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'eval-suite-project-mismatch': {
+  'test-set-project-mismatch': {
     description:
-      'The eval suite belongs to another project and suites never move. Publish or build its versions in the project that owns it.',
+      'The test set belongs to another project and test sets never move. Publish or build its versions in the project that owns it.',
     details: [
       {
-        key: 'suiteId',
-        meaning: 'the suite id',
+        key: 'testSetId',
+        meaning: 'the test set id',
       },
     ],
   },
-  'eval-run-not-found': {
-    description: 'No eval run exists with that id in the tenant.',
+  'test-run-not-found': {
+    description: 'No test run exists with that id in the tenant.',
     details: [
       {
         key: 'runId',
         meaning: 'the run id that was looked up',
       },
     ],
-    seeAlso: ['guides/evals/compare-an-agent-version'],
+    seeAlso: ['guides/improve/compare-an-agent-version'],
   },
-  'eval-run-not-rescorable': {
+  'test-run-not-rescorable': {
     description:
-      "Only a completed run on the test cases can be rescored; this eval run is of another kind or hasn't completed.",
+      "Only a completed run on the test cases can be rescored; this test run is of another kind or hasn't completed.",
     details: [
       {
         key: 'runId',
@@ -1887,41 +1882,50 @@ export const ERROR_ENTRIES = {
       },
     ],
   },
-  'judgment-not-found': {
+  'correction-not-found': {
     description:
-      "No correction exists with that id, or it's in a project your key can't read. Unregistering also needs it to be live.",
+      "No correction exists with that id, or it's in a project your key can't read. Removing one also needs it to be live.",
     details: [],
-    seeAlso: ['guides/evals/judge-a-runs-output'],
+    seeAlso: ['guides/improve/correct-a-runs-output'],
   },
-  'judge-class-not-found': {
-    description: 'No live judge class exists with that id.',
+  'correction-status-change-not-allowed': {
+    description:
+      "The change isn't allowed from the correction's status: re-sorting only from `open`, `being-fixed` or `with-owner`; `being-fixed` only from `open` or `with-owner`; `open` only from `being-fixed` or `wont-fix`; `wont-fix` from anything but `removed`. `fixed` is set only by a pin or a deploy.",
+    details: [
+      { key: 'from', meaning: "the correction's status" },
+      { key: 'to', meaning: 'the status the change would have set' },
+    ],
+  },
+  'corrector-group-not-found': {
+    description: 'No live corrector group exists with that id.',
     details: [],
   },
-  'judging-rule-not-found': {
-    description: 'The project has no judging rule with that id.',
+  'queue-rule-not-found': {
+    description: 'The project has no queue rule with that id.',
     details: [],
   },
-  'judging-item-not-found': {
+  'expert-queue-item-not-found': {
     description: "The run isn't in the project's To correct list.",
     details: [],
   },
-  'judging-item-not-open': {
+  'expert-queue-item-not-open': {
     description:
       "The queue item isn't in the state this action needs: dismiss needs it open, and reopen needs it dismissed.",
     details: [],
   },
-  'judge-class-name-taken': {
-    description: 'A judge class with that name already exists in this scope. Pick another name.',
+  'corrector-group-name-taken': {
+    description:
+      'A corrector group with that name already exists in this scope. Pick another name.',
     details: [],
   },
-  'judge-class-not-applicable': {
+  'corrector-group-not-applicable': {
     description:
-      "The judge class you named doesn't exist, or doesn't apply to this run's project or agent.",
+      "The corrector group you named doesn't exist, or doesn't apply to this run's project or agent.",
     details: [],
   },
-  'judge-class-not-allowed': {
+  'corrector-group-not-allowed': {
     description:
-      "The judge class limits who may assert it, and your key or role isn't one of them, so you can't record a correction as that class.",
+      "The corrector group limits who may assert it, and your key or role isn't one of them, so you can't record a correction as that class.",
     details: [
       {
         key: 'action',
@@ -1942,51 +1946,46 @@ export const ERROR_ENTRIES = {
       "The agent has no active version with that number: it was never registered or has since been unregistered. Pick a version from the agent's version list.",
     details: [],
   },
-  'promotion-not-found': {
-    description: "No entry with that id exists in this agent's go-live history.",
+  'pin-not-found': {
+    description: "No entry with that id exists in this agent's pin history.",
     details: [],
-    seeAlso: ['guides/evals/release-an-agent-version'],
-  },
-  'nothing-to-roll-back': {
-    description:
-      "The scope's live version has no earlier version to go back to. Unpin the scope to fall back to the scope above, or name a version to roll back to.",
-    details: [],
+    seeAlso: ['guides/improve/release-an-agent-version'],
   },
   'not-pinned': {
     description:
-      "The scope has no pin of its own (for an agent, no live version of its own), so there's nothing to roll back or unpin. Pin a version for the scope first.",
+      "The scope has no pin of its own (for an agent, no pinned version of its own), so there's nothing to unpin. Pin a version for the scope first.",
     details: [],
   },
   'gate-failed': {
     description:
-      'A release gate policy refused making the version live because one or more of its checks failed. The refusal is recorded; read the failing checks and fix what they name.',
+      'A release gate refused pinning the version because one or more of its checks failed. The refusal is recorded; read the failing checks and fix what they name.',
     details: [
       {
-        key: 'promotionId',
-        meaning: 'the recorded refused request to make it live',
+        key: 'changeId',
+        meaning: 'the recorded refused pin request',
       },
       {
-        key: 'policy',
-        meaning: 'the release gate policy that applied (id and version), or null',
+        key: 'releaseGate',
+        meaning: 'the release gate that applied (id and version), or null',
       },
       {
         key: 'checks',
-        meaning: 'every check the release gate policy ran, with whether each passed',
+        meaning: 'every check the release gate ran, with whether each passed',
       },
       {
-        key: 'proposalId',
+        key: 'suggestedChangeId',
         meaning: 'the suggested change, when the request came through a suggested change',
       },
     ],
   },
-  'promotion-superseded': {
+  'pin-superseded': {
     description:
-      "The scope's live version changed while the release gate policy was being checked, so the check no longer applies. Check the go-live again against the new live version.",
+      "The scope's pinned version changed while the release gate was being checked, so the check no longer applies. Check the pin again against the new pinned version.",
     details: [],
   },
-  'promotion-gate-unsupported': {
+  'pin-gate-unsupported': {
     description:
-      "A release gate policy applies to this go-live, and the deployment can't record a gated go-live, so the go-live is refused.",
+      "A release gate applies to this pin, and the deployment can't record a gated pin, so the pin is refused.",
     details: [],
   },
   'separate-approver-required': {
@@ -2011,50 +2010,49 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['guides/approvals/decide-an-approval'],
   },
-  'gate-policy-not-found': {
-    description:
-      'No release gate policy with that id exists, or it has no version with that number.',
+  'release-gate-not-found': {
+    description: 'No release gate with that id exists, or it has no version with that number.',
     details: [
       {
-        key: 'policyId',
-        meaning: 'the policy id that was looked up',
+        key: 'releaseGateId',
+        meaning: 'the release gate id that was looked up',
       },
     ],
-    seeAlso: ['POST /v1/gate-policies'],
+    seeAlso: ['POST /v1/release-gates'],
   },
-  'gate-policy-already-registered': {
+  'release-gate-already-registered': {
     description:
-      'The release gate policy already has a version with that number. Publish with a new version number.',
+      'The release gate already has a version with that number. Publish with a new version number.',
     details: [],
   },
-  'gate-policy-scope-taken': {
+  'release-gate-scope-taken': {
     description:
-      'Another release gate policy already gates this agent for the same scope. Publish a new version of that policy instead, or unregister it first.',
+      'Another release gate already gates this agent for the same scope. Publish a new version of that gate instead, or unregister it first.',
     details: [
       {
         key: 'heldBy',
-        meaning: 'id of the policy that holds the scope',
+        meaning: 'id of the release gate that holds the scope',
       },
     ],
   },
-  'gate-policy-scope-changed': {
+  'release-gate-scope-changed': {
     description:
-      "A new version of a release gate policy can't change the agent or the scope the policy gates. Create a new policy for the other agent or scope.",
+      "A new version of a release gate can't change the agent or the scope it gates. Create a new release gate for the other agent or scope.",
     details: [],
   },
-  'gate-policy-scope-unpinned': {
+  'release-gate-scope-unpinned': {
     description:
-      'The scope has no live version of its own, so the release gate policy would not take effect. Pin a version for the scope first.',
+      'The scope has no pinned version of its own, so the release gate would not take effect. Pin a version for the scope first.',
     details: [],
   },
-  'gate-policy-needs-pin': {
+  'release-gate-needs-pin': {
     description:
-      "The scope has a release gate policy, and a gated scope keeps its own live version, so it can't be unpinned. Unregister the release gate policy first, or roll back instead.",
+      "The scope has a release gate, and a gated scope keeps its own pinned version, so it can't be unpinned. Unregister the release gate first, or pin an earlier version instead.",
     details: [],
   },
-  'gate-policy-descendant-unpinned': {
+  'release-gate-descendant-unpinned': {
     description:
-      'The change would also move a narrower scope that a release gate policy applies to and that has no live version of its own, bypassing that policy. Pin that scope at its current version first.',
+      'The change would also move a narrower scope that a release gate applies to and that has no pinned version of its own, bypassing that gate. Pin that scope at its current version first.',
     details: [],
   },
   'principal-not-found': {
@@ -2240,7 +2238,7 @@ export const ERROR_ENTRIES = {
   },
   'tenant-closing': {
     description:
-      "The tenant is closing. Its own keys and sessions can read and export it until it's deleted, but not change it: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers that proves its sender is refused the same way, and nothing is recorded for it. So is an answer to one of its runs' waits through the wait token's link, and nothing is taken. A schedule's or webhook trigger's fire whose run starts as the tenant starts closing is recorded `skipped`, with `tenant-closing` in its `detail`, and doesn't count toward a schedule's auto-pause. An eval run or an Improve run going as it starts closing stops at its next case: it ends `cancelled`, with `tenant-closing` in its `cancelReason`. The system routes that change its settings, limits, image prefix, a suspension or a deployment's endpoint refuse a closing tenant; clearing its deployments' endpoints, which retires its pack services, still works. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+      "The tenant is closing. Its own keys and sessions can read and export it until it's deleted, but not change it: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers that proves its sender is refused the same way, and nothing is recorded for it. So is an answer to one of its runs' waits through the wait token's link, and nothing is taken. A schedule's or webhook trigger's fire whose run starts as the tenant starts closing is recorded `skipped`, with `tenant-closing` in its `detail`, and doesn't count toward a schedule's auto-pause. A test run or an Improve run going as it starts closing stops at its next case: it ends `cancelled`, with `tenant-closing` in its `cancelReason`. The system routes that change its settings, limits, image prefix, a suspension or a deployment's endpoint refuse a closing tenant; clearing its deployments' endpoints, which retires its pack services, still works. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
     details: [
       {
         key: 'state',
@@ -2254,7 +2252,7 @@ export const ERROR_ENTRIES = {
   },
   'tenant-suspended': {
     description:
-      "The tenant is suspended. Its own keys and sessions can read and export it, but not change it until it's restored: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: tenant-suspended`, and nothing is recorded or kept for it. A sender that can redeliver by hand can resend it once the tenant is restored, and a restore is seen within 5 seconds. An answer to one of its runs' waits through the wait token's link is refused with this code, and nothing is taken: a suspension cancels the tenant's runs, paused ones included. Its schedules don't fire while it's suspended, and nothing is caught up: at the restore, a schedule's or webhook trigger's fire whose run or Improve run hadn't started is recorded `skipped`, with `tenant-suspended` in its `detail`, and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. An eval run or an Improve run going as it's suspended stops at its next case: it ends `cancelled`, with `tenant-suspended` in its `cancelReason`. A fire whose run was starting as the tenant was suspended is recorded `skipped` right away, with `tenant-suspended` in its `detail`. None of it counts toward a schedule's auto-pause. Setting a deployment's endpoint (`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`) refuses a suspended tenant too. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
+      "The tenant is suspended. Its own keys and sessions can read and export it, but not change it until it's restored: deletes, revocations, erasures, signing in and out, and the signed exports still work. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: tenant-suspended`, and nothing is recorded or kept for it. A sender that can redeliver by hand can resend it once the tenant is restored, and a restore is seen within 5 seconds. An answer to one of its runs' waits through the wait token's link is refused with this code, and nothing is taken: a suspension cancels the tenant's runs, paused ones included. Its schedules don't fire while it's suspended, and nothing is caught up: at the restore, a schedule's or webhook trigger's fire whose run or Improve run hadn't started is recorded `skipped`, with `tenant-suspended` in its `detail`, and a schedule that's on fires next at its first occurrence after the restore, whatever its `catchUp`. A test run or an Improve run going as it's suspended stops at its next case: it ends `cancelled`, with `tenant-suspended` in its `cancelReason`. A fire whose run was starting as the tenant was suspended is recorded `skipped` right away, with `tenant-suspended` in its `detail`. None of it counts toward a schedule's auto-pause. Setting a deployment's endpoint (`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`) refuses a suspended tenant too. On the S3-compatible surface, the same refusal is S3's `403 AllAccessDisabled`.",
     details: [
       {
         key: 'state',
@@ -2483,14 +2481,19 @@ export const ERROR_ENTRIES = {
       "The runtime runs without an authorization store, so it can't read or change a person's grants.",
     details: [],
   },
+  'agent-owner-unsupported': {
+    description:
+      "The runtime's agent store doesn't keep an owner, so an agent's owner can't be set. Nothing changed.",
+    details: [],
+  },
   'permissions-unsupported': {
     description:
       "The runtime runs without an authorization store, so it can't say what the caller may do. Read whoami's `tenantAdmin` and `reviewerRole` instead.",
     details: [],
   },
-  'agent-version-live': {
+  'agent-version-pinned': {
     description:
-      "The version is live in one or more scopes, so it can't be unregistered. Roll back, unpin or make another version live there first.",
+      "The version is pinned in one or more scopes, so it can't be unregistered. Unpin it, or pin another version there first.",
     details: [
       {
         key: 'agentId',
@@ -2502,7 +2505,7 @@ export const ERROR_ENTRIES = {
       },
       {
         key: 'scopes',
-        meaning: 'the scopes where it is live',
+        meaning: 'the scopes where it is pinned',
       },
     ],
   },
@@ -2606,35 +2609,35 @@ export const ERROR_ENTRIES = {
     description: "This deployment can't list a project's pinned versions.",
     details: [],
   },
-  'eval-run-already-terminal': {
+  'test-run-already-terminal': {
     description:
-      "The eval run has already finished, failed or been cancelled, so it can't be cancelled.",
+      "The test run has already finished, failed or been cancelled, so it can't be cancelled.",
     details: [
       {
         key: 'runId',
-        meaning: 'the eval run',
+        meaning: 'the test run',
       },
       {
         key: 'status',
         meaning: 'its final status',
       },
     ],
-    seeAlso: ['guides/evals/compare-an-agent-version'],
+    seeAlso: ['guides/improve/compare-an-agent-version'],
   },
   'dispatcher-not-registered': {
     description:
-      "The runtime has no eval-run dispatcher for the suite's kind, so it can't start a run of that suite.",
+      "The runtime has no test-run dispatcher for the test set's kind, so it can't start a run of that test set.",
     details: [
       {
         key: 'evalKind',
-        meaning: 'the suite kind with no dispatcher',
+        meaning: 'the test set kind with no dispatcher',
       },
     ],
-    seeAlso: ['guides/evals/compare-an-agent-version'],
+    seeAlso: ['guides/improve/compare-an-agent-version'],
   },
   'dispatcher-input-invalid': {
     description:
-      "The eval run's input doesn't fit the suite's kind: neither an agent nor a flow reference was given, or the kind's validation rejected the target or comparison.",
+      "The test run's input doesn't fit the test set's kind: neither an agent nor a flow reference was given, or the kind's validation rejected the target or comparison.",
     details: [],
   },
   'mcp-endpoint-not-found': {
@@ -3033,7 +3036,7 @@ export const ERROR_ENTRIES = {
   },
   'project-suspended': {
     description:
-      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an answer to one of its runs' waits (through the wait token's link or `POST /v1/runs/{runId}/resume`; a suspension cancels its runs, paused ones included), an eval run started in it, an Improve run for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. An eval run or an Improve run already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or Improve run: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project. A promotion from it or into it is refused too: `details.environment` says which.",
+      "The project is suspended, so nothing new starts in it until it's restored: a deploy into it (the named project, or the Default for a tenant-wide deploy), a run or a turn started in it, an answer to one of its runs' waits (through the wait token's link or `POST /v1/runs/{runId}/resume`; a suspension cancels its runs, paused ones included), a test run started in it, an Improve run for one of its agents, or the operator setting the pack service of one of its deployments. What's already deployed stays. A test run or an Improve run already going stops at its next case: it ends `cancelled`, with `project-suspended` in its `cancelReason`. A delivery to one of its webhook triggers isn't refused: one that proves its sender is answered `202` with `skipped: project-suspended`, and nothing is recorded or kept for it. A schedule's fire on it starts no run or Improve run: it's recorded `skipped`, with `project-suspended` in its `detail`, and doesn't count toward the schedule's auto-pause, so the schedule stays on and fires again once the project is restored. A webhook delivery taken before the suspension whose run hadn't started is recorded `skipped` the same way, and its event is dropped. Ask the operator to restore the project. A promotion from it or into it is refused too: `details.environment` says which.",
     details: [
       {
         key: 'environment',
@@ -3043,8 +3046,8 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: [
       'POST /v1/deployments',
-      'POST /v1/eval-suites/{suiteId}/runs',
-      'POST /v1/proposals/improve',
+      'POST /v1/test-sets/{testSetId}/runs',
+      'POST /v1/improve-runs',
       'PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',
       'POST /v1/deployments/{deploymentId}/promotions',
     ],

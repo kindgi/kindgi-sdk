@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pydantic
 import pytest
 
 from kindgi.client import (
@@ -147,8 +148,8 @@ def test_a_field_named_for_a_keyword_takes_a_trailing_underscore() -> None:
 
 
 def test_a_field_set_to_none_is_sent_as_null() -> None:
-    # `assertable_by=None` lifts a judge class's restriction; a field left out stays out.
-    judge_class = {
+    # `assertable_by=None` lifts a corrector group's restriction; a field left out stays out.
+    corrector_group = {
         "id": "jc-1",
         "tenantId": "t-1",
         "scope": {"kind": "tenant"},
@@ -157,9 +158,9 @@ def test_a_field_set_to_none_is_sent_as_null() -> None:
         "createdAt": "2026-10-06T00:00:00.000Z",
         "updatedAt": "2026-10-06T00:00:00.000Z",
     }
-    api, seen = client(lambda r: httpx.Response(200, json=judge_class))
-    api.judge_classes.update("jc-1", assertable_by=None)
-    api.judge_classes.update("jc-1", weight=2)
+    api, seen = client(lambda r: httpx.Response(200, json=corrector_group))
+    api.corrector_groups.update("jc-1", assertable_by=None)
+    api.corrector_groups.update("jc-1", weight=2)
     assert [json.loads(r.content) for r in seen] == [{"assertableBy": None}, {"weight": 2}]
 
 
@@ -193,15 +194,15 @@ def test_path_and_query_parameters() -> None:
     assert dict(seen[1].url.params) == {"limit": "5", "topLevel": "true"}
 
 
-def test_eval_suites_unregister_names_the_call_as_the_other_resources_do() -> None:
-    # `eval_suites.unregister`, as `agents.unregister`: the same call as
-    # `eval_suites.versions.unregister`.
-    answer = {"suiteId": "acme.set", "version": "1.0.0", "unregistered": True}
+def test_test_sets_unregister_names_the_call_as_the_other_resources_do() -> None:
+    # `test_sets.unregister`, as `agents.unregister`: the same call as
+    # `test_sets.versions.unregister`.
+    answer = {"testSetId": "acme.set", "version": "1.0.0", "unregistered": True}
     api, seen = client(lambda r: httpx.Response(200, json=answer))
-    api.eval_suites.unregister("acme.set", "1.0.0")
-    api.eval_suites.versions.unregister("acme.set", "1.0.0")
+    api.test_sets.unregister("acme.set", "1.0.0")
+    api.test_sets.versions.unregister("acme.set", "1.0.0")
     assert [(r.method, r.url.path) for r in seen] == [
-        ("POST", "/v1/eval-suites/acme.set/versions/1.0.0/unregister"),
+        ("POST", "/v1/test-sets/acme.set/versions/1.0.0/unregister"),
     ] * 2
 
 
@@ -224,6 +225,36 @@ def test_a_usage_group_keeps_a_kind_class_or_state_this_client_does_not_list() -
     (got,) = read.data
     assert (got.kind, got.class_, got.state) == ("a-later-kind", "a-later-class", "a-later-state")
     assert seen[0].url.path == "/v1/system/usage"
+
+
+def test_an_items_key_and_pointer_have_caps_when_sent_but_not_when_read() -> None:
+    # A new correction's item key is an id, at most 200 characters, and its
+    # pointer at most 500. One saved before the caps may hold longer ones,
+    # and it still reads.
+    key, pointer = "k" * 201, "/" + "p" * 500
+    correction = {
+        "id": "c-1",
+        "tenantId": RUN["tenantId"],
+        "projectId": "p-1",
+        "runId": RUN["id"],
+        "subject": {"kind": "agent", "id": "acme.refunds", "version": "2.1.0"},
+        "items": [{"key": key, "pointer": pointer, "verdict": "wrong"}],
+        "madeBy": {"kind": "user", "id": "u-1"},
+        "status": "open",
+        "createdAt": "2026-10-01T14:07:42.379Z",
+        "updatedAt": "2026-10-01T14:07:42.379Z",
+    }
+    api, seen = client(lambda r: httpx.Response(201, json=correction))
+    for item in (
+        {"key": key, "verdict": "wrong"},
+        {"key": "kb-101", "pointer": pointer, "verdict": "wrong"},
+    ):
+        with pytest.raises(pydantic.ValidationError):
+            api.corrections.create(run_id=RUN["id"], items=[item])
+    assert seen == []
+    read = api.corrections.create(run_id=RUN["id"], items=[{"key": "kb-101", "verdict": "wrong"}])
+    assert read.items is not None
+    assert [(i.key, i.pointer) for i in read.items] == [(key, pointer)]
 
 
 def test_a_tenant_is_renamed_by_its_admins_or_the_operator_and_answers_nothing() -> None:
@@ -256,11 +287,11 @@ def test_a_segment_path_is_its_steps_written_in_order() -> None:
         lambda r: httpx.Response(
             200,
             json={"agentId": "acme.drafter", "version": "1.1.0", "via": "latest"}
-            if r.url.path.endswith("/live")
+            if r.url.path.endswith("/pinned")
             else {"data": [], "hasMore": False},
         )
     )
-    resolved = api.agents.live.resolve(
+    resolved = api.agents.pinned.resolve(
         "acme.drafter",
         project_id=project,
         segments=[
@@ -271,14 +302,14 @@ def test_a_segment_path_is_its_steps_written_in_order() -> None:
     assert resolved.via == "latest"
     assert seen[0].url.params.get_list("segment") == ["company:acme", "role:counsel"]
     assert seen[0].url.params["projectId"] == project
-    api.agents.promotions.list(
+    api.agents.pinned.history(
         "acme.drafter",
         scope_kind="segment",
         scope_id=project,
         segments=[{"key": "company", "value": "acme"}],
     )
     assert seen[1].url.params.get_list("segment") == ["company:acme"]
-    api.agents.live.resolve("acme.drafter", project_id=project)
+    api.agents.pinned.resolve("acme.drafter", project_id=project)
     assert "segment" not in seen[2].url.params
 
 
@@ -311,14 +342,9 @@ def test_a_segment_path_is_its_steps_written_in_order() -> None:
             lambda e: e.server_code == "registry-read-only",
         ),
         (
-            error(409, "nothing-to-roll-back"),
+            error(409, "agent-version-pinned"),
             ConflictError,
-            lambda e: e.server_code == "nothing-to-roll-back",
-        ),
-        (
-            error(409, "agent-version-live"),
-            ConflictError,
-            lambda e: e.server_code == "agent-version-live",
+            lambda e: e.server_code == "agent-version-pinned",
         ),
         (
             error(404, "agent-version-not-found"),
@@ -393,7 +419,7 @@ def test_a_post_without_an_idempotency_key_is_not_retried(monkeypatch: pytest.Mo
     monkeypatch.setattr("kindgi.client._base.time.sleep", lambda s: None)
     api, seen = client(lambda r: httpx.Response(503))
     with pytest.raises(ServerError):
-        api.eval_runs.cancel("run-1")
+        api.test_runs.cancel("run-1")
     assert len(seen) == 1 and "idempotency-key" not in seen[0].headers
 
 
@@ -1010,7 +1036,7 @@ def test_my_permissions() -> None:
                     "flow",
                     "tool",
                     "guardrail",
-                    "eval_suite",
+                    "test_set",
                     "trigger",
                     "conversation",
                     "secret",
@@ -1056,12 +1082,12 @@ def test_named_models_keep_their_names() -> None:
 
 
 def test_a_model_is_its_schemas_and_its_old_names_stay_gone() -> None:
-    # A judged run's inline `flow` and an approval's inline `tool` once took `Flow` and
+    # A corrected run's inline `flow` and an approval's inline `tool` once took `Flow` and
     # `Tool` (the flow graph and the tool were `Flow1`, `Tool1`); a union's members were
     # numbered in the order codegen met them (`Scope2` the tenant, `Scope4` the project).
     assert {"nodes", "edges"} <= set(models.Flow.model_fields)
     assert {"input", "output"} <= set(models.Tool.model_fields)
-    assert set(models.JudgedRunContextFlow.model_fields) == {"calls", "steps", "truncated"}
+    assert set(models.CorrectedRunContextFlow.model_fields) == {"calls", "steps", "truncated"}
     assert set(models.RunWaitingApprovalTool.model_fields) == {"id", "version", "call_id"}
     assert models.ScopeOrg(kind="org", tenant_id="t", org_id="o").org_id == "o"
     for name in (
@@ -1081,9 +1107,9 @@ def test_a_model_is_its_schemas_and_its_old_names_stay_gone() -> None:
         "HttpRequestBodySpec1",
         "HttpRequestBodySpec2",
         "HttpRequestBodySpec3",
-        "JudgeClassScope1",
-        "JudgeClassScope2",
-        "JudgeClassScope3",
+        "CorrectorGroupScope1",
+        "CorrectorGroupScope2",
+        "CorrectorGroupScope3",
         "RecordedSecretScope1",
         "RecordedSecretScope2",
         "RecordedSecretScope3",
@@ -1277,8 +1303,8 @@ def test_retention_scheduled_and_sweep() -> None:
     assert (seen[1].method, seen[1].url.path) == ("POST", "/v1/retention/sweep")
     assert json.loads(seen[1].content) == {"maxPerDomain": 100}
 
-    api.retention.sweep_domain("judge_class")
-    assert seen[2].url.path == "/v1/retention/sweep/judge_class"
+    api.retention.sweep_domain("corrector_group")
+    assert seen[2].url.path == "/v1/retention/sweep/corrector_group"
 
 
 def test_retention_scheduled_pages_with_a_cursor() -> None:
@@ -1413,33 +1439,33 @@ def test_secrets_rotate_async_client_reads_the_202() -> None:
     asyncio.run(scenario())
 
 
-def test_a_judging_rule_takes_its_when_in_python_or_wire_case() -> None:
+def test_a_queue_rule_takes_its_when_in_python_or_wire_case() -> None:
     # The guide's example passes `when` with snake_case keys; wire case works too.
     project = "d4910d76-7355-4022-8f3c-514361cfa986"
     rule = {
         "ruleId": "6f1d9a0e-2b8c-4f4e-9d61-0c2a7e5b3f10",
         "projectId": project,
         "version": 1,
-        "name": "Live refund runs",
-        "when": {"agentIds": ["acme.refunds"], "versions": ["live"]},
+        "name": "Pinned refund runs",
+        "when": {"agentIds": ["acme.refunds"], "versions": ["pinned"]},
         "sample": 0.05,
         "maxOpen": 20,
         "enabled": True,
         "createdAt": "2026-10-10T09:00:00.000Z",
     }
     api, seen = client(lambda r: httpx.Response(201, json=rule))
-    made = api.projects.judging_rules.create(
+    made = api.projects.queue_rules.create(
         project,
-        name="Live refund runs",
-        when={"agent_ids": ["acme.refunds"], "versions": ["live"]},
+        name="Pinned refund runs",
+        when={"agent_ids": ["acme.refunds"], "versions": ["pinned"]},
         sample=0.05,
         max_open=20,
     )
-    api.projects.judging_rules.create(
+    api.projects.queue_rules.create(
         project,
         {
-            "name": "Live refund runs",
-            "when": {"agentIds": ["acme.refunds"], "versions": ["live"]},
+            "name": "Pinned refund runs",
+            "when": {"agentIds": ["acme.refunds"], "versions": ["pinned"]},
             "sample": 0.05,
             "maxOpen": 20,
         },
@@ -1447,10 +1473,10 @@ def test_a_judging_rule_takes_its_when_in_python_or_wire_case() -> None:
     assert made.rule_id == rule["ruleId"] and made.when.agent_ids == ["acme.refunds"]
     sent = [json.loads(r.content) for r in seen]
     assert sent[0] == sent[1] == {k: rule[k] for k in ("name", "when", "sample", "maxOpen")}
-    assert seen[0].url == f"http://kindgi.test/v1/projects/{project}/judging-rules"
+    assert seen[0].url == f"http://kindgi.test/v1/projects/{project}/queue-rules"
 
 
-def test_a_judging_rule_change_sends_null_to_remove_the_cap() -> None:
+def test_a_queue_rule_change_sends_null_to_remove_the_cap() -> None:
     project, rule_id = (
         "d4910d76-7355-4022-8f3c-514361cfa986",
         "6f1d9a0e-2b8c-4f4e-9d61-0c2a7e5b3f10",
@@ -1459,14 +1485,14 @@ def test_a_judging_rule_change_sends_null_to_remove_the_cap() -> None:
         "ruleId": rule_id,
         "projectId": project,
         "version": 2,
-        "name": "Live refund runs",
+        "name": "Pinned refund runs",
         "when": {},
         "sample": 0.05,
         "enabled": True,
         "createdAt": "2026-10-10T09:00:00.000Z",
     }
     api, seen = client(lambda r: httpx.Response(200, json=rule))
-    api.projects.judging_rules.update(project, rule_id, max_open=None, sample=0.05)
+    api.projects.queue_rules.update(project, rule_id, max_open=None, sample=0.05)
     assert json.loads(seen[0].content) == {"maxOpen": None, "sample": 0.05}
 
 

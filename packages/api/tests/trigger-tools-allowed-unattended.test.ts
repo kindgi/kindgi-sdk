@@ -219,7 +219,7 @@ describe('which tools a target calls', () => {
     ]);
   });
 
-  test('an agent: at its version, else its latest; an improvement pass: none; unreadable: undefined', async () => {
+  test('an agent: at its version, else its latest; an Improve run: none; unreadable: undefined', async () => {
     const deps = { agents: agentRegistry, flows: flowRegistry };
     const at = (target: Record<string, unknown>) =>
       toolsTargetCanCall(deps, tenantId, target as never).then((s) =>
@@ -362,7 +362,7 @@ describe('a schedule', () => {
     ).toBe(201);
   });
 
-  test('an improvement pass calls no tools: only `[]`', async () => {
+  test('an Improve run calls no tools: only `[]`', async () => {
     const h = harness();
     const improve = {
       improve: { agentId: 'acme.digest', scope: { kind: 'project', projectId: PROJECT } },
@@ -374,7 +374,7 @@ describe('a schedule', () => {
     });
     expect([listed.status, listed.body.error.message]).toEqual([
       400,
-      'an improvement pass calls no tools: its `toolsAllowedUnattended` can only be empty',
+      'an Improve run calls no tools: its `toolsAllowedUnattended` can only be empty',
     ]);
     expect(
       (await h.call('POST', '/v1/schedules', { ...improve, toolsAllowedUnattended: [] })).status,

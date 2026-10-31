@@ -11,9 +11,10 @@ import {
   pinsDigest,
 } from '@kindgi/agents';
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
-import type { Cursor, LiveScope, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
+import type { AgentPinScope, Cursor, ProjectId, Semver, TenantId, UserId } from '@kindgi/types';
 
 import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
+import type { AgentPinBindings } from '../agent-pin-binding.js';
 import { resolveAgentPins, toolPinLookup } from '../agent-pins.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
 import {
@@ -29,18 +30,18 @@ import {
 } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
+import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import {
   type ItemCheck,
   type ItemRights,
   type ItemServing,
+  agentPinChangeRefusal,
   itemMiddleware,
   itemPathCheck,
-  liveChangeRefusal,
   readCheck,
   shownLatest,
   underItem,
 } from '../item-rights.js';
-import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import type { PinnedVersionBinding } from '../pinned-version-binding.js';
@@ -53,17 +54,17 @@ import {
 import { refuseReadOnly, refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
+import { agentPinScopeToWire, parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
 import {
-  type AgentReleaseGateDeps,
-  isLiveSet,
-  isLiveUndo,
-  isPromotionCheck,
-  isPromotionRequest,
-  isPromotionWrite,
-  mountAgentReleaseRoutes,
-} from './agent-releases.js';
+  type AgentPinGateDeps,
+  isAgentPinCheck,
+  isAgentPinRequest,
+  isAgentPinSet,
+  isAgentPinWrite,
+  isAgentUnpin,
+  mountAgentPinRoutes,
+} from './agent-pins.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
-import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
@@ -92,10 +93,10 @@ export function agentsRouter(
   authorizer?: Authorizer,
   toolRegistry?: ToolRegistryBinding,
   blockRegistry?: BlockRegistryBinding,
-  /** Live versions per scope and promotions (evals step 4); absent → those routes aren't mounted. */
-  releases?: AgentReleaseBindings,
-  /** What a promotion's gate reads besides the releases (evals step 4b). */
-  gateDeps?: AgentReleaseGateDeps,
+  /** Pinned versions per scope and their pin history; absent → those routes aren't mounted. */
+  agentPins?: AgentPinBindings,
+  /** What a pin's gate reads besides the pins. */
+  gateDeps?: AgentPinGateDeps,
   /** What the deployment can do for an agent's turns, for publish warnings. */
   capabilities: AgentPublishCapabilities = {},
   /** What an agent's project may reference (`reference-scope.ts`); absent → as named. */
@@ -112,21 +113,23 @@ export function agentsRouter(
   itemServing?: ItemServing,
   /** The tools' pinned versions, read when a version is pinned; absent → each range's newest. */
   pinnedVersions?: PinnedVersionBinding,
+  /** Who an owner is (`owner.name`), and that a new owner is a person of the tenant; absent → the id alone. */
+  identityDirectory?: Pick<IdentityDirectoryBinding, 'getUser'>,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
   const publishCompiles = publishCompilesMiddleware();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
   // every write before anything else runs. One that takes Improve's
-  // candidates lets a promotion through (it writes the candidate where
+  // candidates lets a pin through (it writes the candidate where
   // the definitions come from), and refuses an undo with its own reason.
   const refuseWrites = refuseWritesWhenReadOnly(() => binding.readOnly);
   r.use('*', async (c, next) => {
     const candidates = binding.readOnly?.takesCandidates;
     if (candidates !== undefined) {
       const { method, path } = c.req;
-      if (isPromotionRequest(method, path) || isPromotionCheck(method, path)) return next();
-      if (isLiveUndo(method, path)) return refuseReadOnly(c, { reason: candidates.undoReason });
+      if (isAgentPinRequest(method, path) || isAgentPinCheck(method, path)) return next();
+      if (isAgentUnpin(method, path)) return refuseReadOnly(c, { reason: candidates.undoReason });
     }
     return refuseWrites(c, next);
   });
@@ -141,9 +144,10 @@ export function agentsRouter(
   //   POST /:agentId/versions                        → publish on the agent (derive)
   //   POST /:agentId/versions/:version/unregister    → admin on the agent
   //   POST /:agentId/versions/:version/reinstate     → admin on the agent
-  //   POST /:agentId/promotions, /live/rollback, /live/unpin → promote on the agent
-  //   POST /:agentId/promotions/check                → read on the agent (changes nothing)
-  //   GET /:agentId/live, /live-versions, /promotions[/…]    → read on the agent
+  //   PUT /:agentId/owner                            → admin on the agent
+  //   POST /:agentId/pinned/pin, /pinned/unpin       → pin on the agent
+  //   POST /:agentId/pinned/check                    → read on the agent (changes nothing)
+  //   GET /:agentId/pinned, /pinned-versions, /pin-history[/…] → read on the agent
   //   GET /:agentId/projects                         → read on the agent; names
   //                                                    the projects the caller reads
   //   GET / (list)                                   → tenant-scoped fetch;
@@ -181,17 +185,17 @@ export function agentsRouter(
       const mw = authorizer.authorize('read', () => ref('project', scopeProjectId));
       return mw(c, next);
     });
-    // Changing what's live is its own permission (`promote`, granted to the
-    // agent's admins), checked as a deployment's promotion that makes what
-    // it moved live checks it (`liveChangeRefusal`).
+    // Changing what's pinned is its own permission (`pin`, granted to the
+    // agent's admins), checked as a deployment's promotion that pins what
+    // it moves checks it (`agentPinChangeRefusal`).
     r.use('/:agentId/*', async (c, next) => {
-      if (!isPromotionWrite(c.req.method, c.req.path)) return next();
-      const refused = await liveChangeRefusal(c, {
+      if (!isAgentPinWrite(c.req.method, c.req.path)) return next();
+      const refused = await agentPinChangeRefusal(c, {
         authorizer,
         rights: itemRights,
         agentId: c.req.param('agentId') ?? '',
         scope: await bodyScope(c),
-        setsLive: isLiveSet(c.req.method, c.req.path),
+        setsPin: isAgentPinSet(c.req.method, c.req.path),
       });
       return refused ?? next();
     });
@@ -206,12 +210,12 @@ export function agentsRouter(
         kind: 'agent',
         id: (c) => c.req.param('agentId') ?? '',
         // Deriving a version (POST …/versions) is `publish` on the agent;
-        // unregister and reinstate are `admin`. A change to what's live is
+        // unregister and reinstate are `admin`. A change to what's pinned is
         // checked above.
         today: (c) =>
-          c.req.method === 'GET' || isPromotionCheck(c.req.method, c.req.path)
+          c.req.method === 'GET' || isAgentPinCheck(c.req.method, c.req.path)
             ? 'read'
-            : isPromotionWrite(c.req.method, c.req.path)
+            : isAgentPinWrite(c.req.method, c.req.path)
               ? undefined
               : c.req.path.endsWith('/versions')
                 ? 'publish'
@@ -228,7 +232,7 @@ export function agentsRouter(
    * made in the first environment of the agent's order, so deriving is
    * `write` there (`deriveAgentVersion`). Unregistering or reinstating a
    * version is `admin` on each project it can run in; anything else, on
-   * each of the agent's. A change to what's live is `liveChangeRefusal`'s.
+   * each of the agent's. A change to what's pinned is `agentPinChangeRefusal`'s.
    */
   async function agentCheck(
     c: Context<AppEnv>,
@@ -236,7 +240,7 @@ export function agentsRouter(
   ): Promise<ItemCheck> {
     const under = underItem(c);
     if (c.req.method === 'GET') return readCheck(under);
-    if (isPromotionCheck(c.req.method, c.req.path)) return { rule: 'read' };
+    if (isAgentPinCheck(c.req.method, c.req.path)) return { rule: 'read' };
     if (under.length === 1 && under[0] === 'versions') {
       const home = projects[0] as ProjectId;
       const tenantId = c.get('tenantId') as TenantId;
@@ -394,8 +398,26 @@ export function agentsRouter(
         ),
       );
     }
-    return c.json(serializeAgent(shown.row));
+    // The owner is the agent's, not a version's: it's read off the head
+    // record, whichever version is shown.
+    return c.json({ ...serializeAgent(shown.row), ...(await ownerField(tenantId, latest)) });
   });
+
+  /** `owner: { userId, name? }`, the name when the directory has one for the person. */
+  async function ownerField(
+    tenantId: TenantId,
+    a: AgentVersionRecord,
+  ): Promise<{ owner?: { userId: string; name?: string } }> {
+    if (a.owner === undefined) return {};
+    const user = await identityDirectory?.getUser({ tenantId, userId: a.owner.userId });
+    const name = user?.displayName;
+    return {
+      owner: {
+        userId: a.owner.userId as unknown as string,
+        ...(name !== undefined && name.length > 0 && { name }),
+      },
+    };
+  }
 
   // ---------- GET /:agentId/projects (the projects it runs in) ----------
   // Its own project first, then each other project a version of it can run
@@ -726,18 +748,18 @@ export function agentsRouter(
     const version = c.req.param('version') as Semver;
 
     const outcome = await binding.unregister({ tenantId, agentId, version });
-    if (!outcome.unregistered && outcome.live !== undefined && outcome.live.length > 0) {
-      c.status(statusFor('agent-version-live') as never);
+    if (!outcome.unregistered && outcome.pinned !== undefined && outcome.pinned.length > 0) {
+      c.status(statusFor('agent-version-pinned') as never);
       return c.json(
         toWireError(
           {
-            code: 'agent-version-live',
-            message: `${agentId as unknown as string} ${version as unknown as string} is live in ${
-              outcome.live.length === 1 ? 'a scope' : `${outcome.live.length} scopes`
-            }: roll back, unpin, or promote another version there first, then unregister it.`,
+            code: 'agent-version-pinned',
+            message: `${agentId as unknown as string} ${version as unknown as string} is pinned in ${
+              outcome.pinned.length === 1 ? 'a scope' : `${outcome.pinned.length} scopes`
+            }: unpin, or pin another version there first, then unregister it.`,
             agentId: agentId as unknown as string,
             version: version as unknown as string,
-            scopes: outcome.live.map(liveScopeToWire),
+            scopes: outcome.pinned.map(agentPinScopeToWire),
           },
           requestId,
         ),
@@ -812,19 +834,109 @@ export function agentsRouter(
     });
   });
 
-  if (releases !== undefined) {
-    mountAgentReleaseRoutes(r, binding, releases, gateDeps, referenceScope, itemRights);
+  // ---------- PUT /:agentId/owner ----------
+  // The person the agent's corrections go to when they need its owner. One
+  // per agent; setting it again replaces the one before. With a directory,
+  // the person must be one of the tenant's.
+  r.put('/:agentId/owner', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const agentId = c.req.param('agentId') as AgentId;
+
+    if (binding.setOwner === undefined) {
+      c.status(statusFor('agent-owner-unsupported') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'agent-owner-unsupported',
+            message: "This runtime's agent store doesn't keep an owner.",
+          },
+          requestId,
+        ),
+      );
+    }
+    const userId = await ownerBody(c);
+    if (userId === undefined) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: 'The body is { "userId": "<the person\'s id>" }.' },
+          requestId,
+        ),
+      );
+    }
+    const user = await identityDirectory?.getUser({ tenantId, userId });
+    if (identityDirectory !== undefined && (user === null || user?.unregisteredAt !== undefined)) {
+      c.status(statusFor('identity-user-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'identity-user-not-found',
+            message: `No person "${userId as unknown as string}" in this tenant to own the agent`,
+            userId: userId as unknown as string,
+          },
+          requestId,
+        ),
+      );
+    }
+    const principal = c.get('principal') as Principal | undefined;
+    const outcome = await binding.setOwner({
+      tenantId,
+      agentId,
+      userId,
+      ...(principal !== undefined && { setBy: principal.actor.id }),
+    });
+    if (outcome.kind === 'not-found') {
+      c.status(statusFor('agent-not-found') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'agent-not-found',
+            message: `No agent registered with id "${agentId as unknown as string}"`,
+            agentId: agentId as unknown as string,
+          },
+          requestId,
+        ),
+      );
+    }
+    const name = user?.displayName;
+    return c.json({
+      agentId: agentId as unknown as string,
+      owner: {
+        userId: userId as unknown as string,
+        ...(name !== undefined && name.length > 0 && { name }),
+      },
+    });
+  });
+
+  if (agentPins !== undefined) {
+    mountAgentPinRoutes(r, binding, agentPins, gateDeps, referenceScope, itemRights);
   }
 
   return r;
 }
 
-/** The scope a promotion, rollback or unpin body names; `undefined` when it names none (the route's 400). */
-async function bodyScope(c: Context<AppEnv>): Promise<LiveScope | undefined> {
+/** The owner body's `userId`: `{ "userId": "…" }` and nothing else, or undefined. */
+async function ownerBody(c: Context<AppEnv>): Promise<UserId | undefined> {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return undefined;
+  }
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) return undefined;
+  const fields = body as Record<string, unknown>;
+  const { userId } = fields;
+  if (Object.keys(fields).some((k) => k !== 'userId')) return undefined;
+  return typeof userId === 'string' && userId.length > 0 ? (userId as UserId) : undefined;
+}
+
+/** The scope a pin or unpin body names; `undefined` when it names none (the route's 400). */
+async function bodyScope(c: Context<AppEnv>): Promise<AgentPinScope | undefined> {
   try {
     const body: unknown = await c.req.json();
     if (body === null || typeof body !== 'object') return undefined;
-    const scope = parseLiveScopeBody((body as Record<string, unknown>).scope);
+    const scope = parseAgentPinScopeBody((body as Record<string, unknown>).scope);
     return scope.kind === 'ok' ? scope.scope : undefined;
   } catch {
     return undefined;

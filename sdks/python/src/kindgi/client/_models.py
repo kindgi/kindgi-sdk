@@ -113,45 +113,7 @@ class ScopeSegment(BaseModel):
     value: Annotated[str, Field(max_length=256, min_length=1)]
 
 
-class LiveScopeTenant(BaseModel):
-    """
-    The agent's default for the whole tenant.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["tenant"]
-
-
-class LiveScopeOrg(BaseModel):
-    """
-    An org's projects.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["org"]
-    org_id: Annotated[UUID, Field(alias="orgId")]
-
-
-class LiveScopeProject(BaseModel):
-    """
-    One project.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["project"]
-    project_id: Annotated[UUID, Field(alias="projectId")]
-
-
-class LiveScopeSegment(BaseModel):
+class PinScopeSegment(BaseModel):
     """
     A segment path within a project: it covers every run whose path starts with it.
     """
@@ -246,7 +208,7 @@ class PinActor(BaseModel):
 
 class GateCheck(BaseModel):
     """
-    One of a gate's checks, as the promotion records it.
+    One of a gate's checks, as the pin records it.
     """
 
     model_config = ConfigDict(
@@ -255,18 +217,18 @@ class GateCheck(BaseModel):
     )
     name: str
     """
-    Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.suite`, `sameContents`, `baselineIsLive`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `classWeights.restrictedOnly`, and `approval.recheck`, which an approval adds to a promotion it supersedes, to say what changed since the check.
+    Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsPinned`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a pin it supersedes, to say what changed since the check.
     """
     passed: bool
     message: str
     """
-    A plain sentence: what was found against what the policy asks.
+    A plain sentence: what was found against what the gate asks.
     """
     value: float | str | None = None
     threshold: float | str | None = None
 
 
-class GatePolicyRef(BaseModel):
+class ReleaseGateRef(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -277,7 +239,7 @@ class GatePolicyRef(BaseModel):
 
 class GateApproval(BaseModel):
     """
-    The approval a passing promotion waits for.
+    The approval a passing pin waits for.
     """
 
     model_config = ConfigDict(
@@ -288,31 +250,13 @@ class GateApproval(BaseModel):
     count: Annotated[int, Field(ge=1)]
     separate_approver: Annotated[bool, Field(alias="separateApprover")]
     """
-    Whoever asked for the promotion may not approve it.
+    Whoever asked for the pin may not approve it.
     """
-
-
-class Suite(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: str
-    version: str | None = None
-
-
-class Comparison(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    max_age_hours: Annotated[float | None, Field(alias="maxAgeHours", gt=0.0)] = None
-    suite: Suite | None = None
 
 
 class Evidence(BaseModel):
     """
-    The judged evidence behind each gated metric; for a metric with `maxDrop`, the baseline's too.
+    The evidence from corrections behind each gated metric; for a metric with `maxDrop`, the baseline's too.
     """
 
     model_config = ConfigDict(
@@ -328,9 +272,7 @@ class Metric(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    name: Annotated[
-        Literal["weightedYesShare", "judgedCoverage", "weightedPrecisionAtK"] | str, _open.OPEN
-    ]
+    name: Annotated[Literal["passRate", "caseCoverage", "weightedPrecisionAtK"] | str, _open.OPEN]
     k: Annotated[int | None, Field(ge=1, le=100)] = None
     """
     `weightedPrecisionAtK` only: the summary's `k` must be this.
@@ -338,7 +280,7 @@ class Metric(BaseModel):
     min_candidate: Annotated[float | None, Field(alias="minCandidate", ge=0.0, le=1.0)] = None
     max_drop: Annotated[float | None, Field(alias="maxDrop", ge=0.0, le=1.0)] = None
     """
-    How far the candidate may fall below the baseline (the live version).
+    How far the candidate may fall below the baseline (the pinned version).
     """
 
 
@@ -362,7 +304,7 @@ class Replay(BaseModel):
 
 class Approvals(BaseModel):
     """
-    A passing promotion waits for a reviewer.
+    A passing pin waits for a reviewer.
     """
 
     model_config = ConfigDict(
@@ -379,48 +321,19 @@ class Approvals(BaseModel):
     """
 
 
-class GatePolicySpec(BaseModel):
+class PinCheck(BaseModel):
     """
-    What a promotion must show. Every part is optional; an empty spec checks nothing. A promotion must name a comparison (`evalRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyRestrictedClasses`. Unknown keys are refused.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    comparison: Comparison | None = None
-    evidence: Evidence | None = None
-    """
-    The judged evidence behind each gated metric; for a metric with `maxDrop`, the baseline's too.
-    """
-    metrics: list[Metric] | None = None
-    replay: Replay | None = None
-    """
-    Each knob left out of the block is 0. No block: no replay checks.
-    """
-    approvals: Approvals | None = None
-    """
-    A passing promotion waits for a reviewer.
-    """
-    only_restricted_classes: Annotated[bool | None, Field(alias="onlyRestrictedClasses")] = None
-    """
-    Only restricted judge classes count: the comparison must be weighted `restricted-only`, so a class anyone may assert can't move the gate.
-    """
-
-
-class PromotionCheck(BaseModel):
-    """
-    What the gate would say about a promotion. Nothing is recorded.
+    What the gate would say about a pin. Nothing is recorded.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    outcome: Annotated[Literal["would-promote", "needs-approval", "gate-failed"] | str, _open.OPEN]
-    policy: GatePolicyRef | None
+    outcome: Annotated[Literal["would-pin", "needs-approval", "gate-failed"] | str, _open.OPEN]
+    release_gate: Annotated[ReleaseGateRef | None, Field(alias="releaseGate")]
     """
-    The policy that applies; null when none does.
+    The release gate that applies; null when none does.
     """
     checks: list[GateCheck]
     approval: GateApproval | None = None
@@ -571,7 +484,7 @@ class StartRunBody1(BaseModel):
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion")] = None
     """
-    Semver. Omit → the conversation's own version for a follow-up turn, else the version live for the run's scope, else the latest.
+    Semver. Omit → the conversation's own version for a follow-up turn, else the version pinned for the run's scope, else the latest.
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
@@ -579,7 +492,7 @@ class StartRunBody1(BaseModel):
     """
     segments: Annotated[list[ScopeSegment] | None, Field(max_length=8)] = None
     """
-    The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version live on a prefix of it serves the run.
+    The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version pinned on a prefix of it serves the run.
     """
     input: Any
     """
@@ -611,7 +524,7 @@ class StartRunBody2(BaseModel):
     """
     segments: Annotated[list[ScopeSegment] | None, Field(max_length=8)] = None
     """
-    The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version live on a prefix of it serves the run.
+    The run's segment path below its project, coarse to fine (an app-defined finer scope, e.g. company then role). A version pinned on a prefix of it serves the run.
     """
     input: Any
     """
@@ -2083,7 +1996,7 @@ class LicenseUsage(BaseModel):
     """
     runs: Annotated[int, Field(ge=0)]
     """
-    Runs started in the period: not dry runs, replays, evals or child runs.
+    Runs started in the period: not dry runs, replays, test runs or child runs.
     """
     people: Annotated[int, Field(ge=0)]
     """
@@ -2246,18 +2159,18 @@ class ObservationCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class UnregisterJudgeClassResult(BaseModel):
+class UnregisterCorrectorGroupResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    judge_class_id: Annotated[str, Field(alias="judgeClassId")]
+    corrector_group_id: Annotated[str, Field(alias="correctorGroupId")]
     unregistered: Literal[True]
 
 
-class JudgedSubject(BaseModel):
+class CorrectedSubject(BaseModel):
     """
-    What a judged run ran: an agent at a version, or a flow at a version.
+    What a corrected run ran: an agent at a version, or a flow at a version.
     """
 
     model_config = ConfigDict(
@@ -2269,9 +2182,9 @@ class JudgedSubject(BaseModel):
     version: str
 
 
-class JudgedItem(BaseModel):
+class CorrectedItem(BaseModel):
     """
-    The judged item of a run's output.
+    The corrected item of a run's output.
     """
 
     model_config = ConfigDict(
@@ -2280,7 +2193,7 @@ class JudgedItem(BaseModel):
     )
     key: Annotated[str, Field(min_length=1)]
     """
-    The caller's stable id for the item. `kindgi:correction` is reserved: a judgment on it is accepted only when it carries a correction at pointer `""`.
+    The caller's stable id for the item, such as a matched case's id, never the item's own text. `kindgi:correction` is reserved for Kindgi.
     """
     pointer: str | None = None
     """
@@ -2308,9 +2221,9 @@ class NotCalledItem(RootModel[str]):
     root: Annotated[str, Field(max_length=200, min_length=1)]
 
 
-class Correction(BaseModel):
+class ExpectedDecisions(BaseModel):
     """
-    An expert's correction of a run's decisions: the tool calls the agent should have made, and the tools it should not have called at all. Graded deterministically on a replay. A tool can't be in both `calls` and `notCalled`, and one of them must be non-empty (both empty is a 400).
+    What the agent should have done, by an expert's correction of a run's decisions: the tool calls it should have made, and the tools it should not have called at all. Graded deterministically on a replay. A tool can't be in both `calls` and `notCalled`, and one of them must be non-empty (both empty is a 400).
     """
 
     model_config = ConfigDict(
@@ -2327,9 +2240,9 @@ class Correction(BaseModel):
     """
 
 
-class JudgmentAssertedBy(BaseModel):
+class CorrectionMadeBy(BaseModel):
     """
-    Who asserted a judgment: the authenticated caller, never a typed name.
+    Who asserted a correction: the authenticated caller, never a typed name.
     """
 
     model_config = ConfigDict(
@@ -2343,45 +2256,163 @@ class JudgmentAssertedBy(BaseModel):
     """
 
 
-class Judgment(BaseModel):
+class CorrectedAnswerItem(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
+    key: Annotated[str, Field(min_length=1)]
+    """
+    The caller's stable id for the item, such as a matched case's id, never the item's own text.
+    """
+    pointer: str | None = None
+    """
+    Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`.
+    """
+    rank: Annotated[int | None, Field(ge=0)] = None
+    """
+    The item's position in the ranked list (0 = first).
+    """
+    verdict: Annotated[Literal["right", "wrong"] | str, _open.OPEN]
+
+
+class CorrectedAnswerItemInput(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key: Annotated[str, Field(max_length=200, min_length=1)]
+    """
+    The caller's stable id for the item, such as a matched case's id, never the item's own text.
+    """
+    pointer: Annotated[str | None, Field(max_length=500)] = None
+    """
+    Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`.
+    """
+    rank: Annotated[int | None, Field(ge=0)] = None
+    """
+    The item's position in the ranked list (0 = first).
+    """
+    verdict: Literal["right", "wrong"]
+
+
+class By(BaseModel):
+    """
+    The fix job, the rule at save, or the caller who re-sorted it: a user or a service, with its id.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["fix-job", "rule"]
+
+
+class By1(BaseModel):
+    """
+    The fix job, the rule at save, or the caller who re-sorted it: a user or a service, with its id.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["user", "service"]
     id: str
-    tenant_id: Annotated[str, Field(alias="tenantId")]
-    project_id: Annotated[str, Field(alias="projectId")]
-    run_id: Annotated[str, Field(alias="runId")]
-    subject: JudgedSubject
-    item: JudgedItem
-    verdict: Annotated[Literal["yes", "no"] | str, _open.OPEN]
-    reason: str | None = None
-    correction: Correction | None = None
+
+
+class CorrectionLink1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["improve-run", "suggested-change"]
+    id: str
     """
-    The expert's correction of the run's decisions, when they gave one.
+    The Improve run's or suggested change's id, without its prefix.
     """
-    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
+
+
+class CorrectionLink2(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["pull-request"]
+    url: AnyUrl
+
+
+class CorrectionFixedIn(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str | None = None
     """
-    The judge class the judgment is recorded under. Absent when unclassified (counts with weight 1).
+    The version that fixed it. Absent for `recorded-right`, which nothing had to fix.
     """
-    restricted: Literal[True] | None = None
+    how: Annotated[Literal["pin", "latest", "recorded-right"] | str, _open.OPEN]
     """
-    Present (true) when the judge class was restricted (`assertableBy`) when the judgment was recorded, so the judge was checked against it. A restriction added or lifted later doesn't change it.
+    `pin`: a pin fixed it. `latest`: a deploy or an add moved Latest in a project that follows it. `recorded-right`: it said nothing was wrong.
     """
-    asserted_by: Annotated[JudgmentAssertedBy, Field(alias="assertedBy")]
-    participant_id: Annotated[str | None, Field(alias="participantId")] = None
+    by: CorrectionMadeBy | None = None
+    at: AwareDatetime
+
+
+class CorrectionStatusNote(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    text: str
+    by: CorrectionMadeBy
+    at: AwareDatetime
+
+
+class ChangeCorrectionBody(BaseModel):
     """
-    The app's opaque id for its end user who judged, when an app judged on their behalf.
+    A re-sort, a status, or both (the re-sort first). `fixed` is set only by a pin or a deploy, and `removed` by `POST /v1/corrections/{correctionId}/remove`.
     """
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    sorted_to: Annotated[
+        Literal["improve", "developer", "owner"] | None, Field(alias="sortedTo")
+    ] = None
     """
-    Set when the judgment was removed or superseded.
+    From `open`, `being-fixed` or `with-owner`. To `owner` sets `with-owner`; away from `owner`, `open`.
     """
-    superseded_by: Annotated[str | None, Field(alias="supersededBy")] = None
+    status: Literal["open", "being-fixed", "wont-fix"] | None = None
     """
-    The judgment that replaced this one.
+    `being-fixed` from `open` or `with-owner`, with `link`. `open` from `being-fixed` or `wont-fix`. `wont-fix` from anything but `removed`, with `reason`.
     """
+    link: str | None = None
+    """
+    With `status: "being-fixed"`: a pull request URL, an Improve run (`ir-<its id>`) or a suggested change (`sc-<its id>`).
+    """
+    reason: Annotated[str | None, Field(max_length=4000, min_length=1)] = None
+    """
+    Required for `wont-fix`; with `open`, why it went back. Otherwise the re-sort's reason.
+    """
+
+
+class CorrectionCounts(BaseModel):
+    """
+    How many of a project's (or an agent's) live corrections are in each status.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    open: Annotated[int, Field(ge=0)]
+    being_fixed: Annotated[int, Field(alias="beingFixed", ge=0)]
+    with_owner: Annotated[int, Field(alias="withOwner", ge=0)]
+    fixed: Annotated[int, Field(ge=0)]
+    wont_fix: Annotated[int, Field(alias="wontFix", ge=0)]
+    removed: Annotated[int, Field(ge=0)]
 
 
 class SessionApproval(BaseModel):
@@ -2400,54 +2431,77 @@ class SessionApproval(BaseModel):
     """
 
 
-class JudgmentCollectionPage(BaseModel):
+class ShouldCallItem(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Judgment]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    tool: Annotated[str, Field(max_length=200, min_length=1)]
+    args: Annotated[dict[str, Any] | None, Field(max_length=100)] = None
     """
-    Opaque cursor. Treat as opaque on the client.
+    Only when the inputs matter: the top-level argument fields to compare, by value. Left out, only the call is checked. At most 4000 characters in canonical JSON.
     """
-    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class CreateJudgmentBody(BaseModel):
+class MustNotCallItem(RootModel[str]):
+    root: Annotated[str, Field(max_length=200, min_length=1)]
+
+
+class CreateCorrectionBody(BaseModel):
+    """
+    At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     run_id: Annotated[str, Field(alias="runId", min_length=1)]
-    item: JudgedItem
-    verdict: Literal["yes", "no"]
-    reason: Annotated[str | None, Field(max_length=4000)] = None
-    judge_class_id: Annotated[str | None, Field(alias="judgeClassId", min_length=1)] = None
+    decisions: Literal["right", "wrong"] | None = None
+    should_call: Annotated[
+        list[ShouldCallItem] | None, Field(alias="shouldCall", max_length=50)
+    ] = None
+    """
+    Only with `decisions: "wrong"`: the calls the agent should have made.
+    """
+    must_not_call: Annotated[
+        list[MustNotCallItem] | None, Field(alias="mustNotCall", max_length=50)
+    ] = None
+    """
+    Only with `decisions: "wrong"`: tools that shouldn't have been called. A tool can't be in both.
+    """
+    answer: Literal["right", "wrong"] | None = None
+    should_say: Annotated[str | None, Field(alias="shouldSay", max_length=4000)] = None
+    """
+    Only with `answer: "wrong"`: what it should have said.
+    """
+    why: Annotated[str | None, Field(max_length=4000)] = None
+    items: Annotated[list[CorrectedAnswerItemInput] | None, Field(max_length=100)] = None
+    """
+    For an answer that is a ranked list: each item, and whether it was right. Each key once.
+    """
+    corrector_group_id: Annotated[str | None, Field(alias="correctorGroupId", min_length=1)] = None
     """
     Optional. When given it must exist and apply to the run.
     """
     participant_id: Annotated[str | None, Field(alias="participantId", min_length=1)] = None
     """
-    An app's opaque id for its end user, when judging on their behalf.
-    """
-    correction: Correction | None = None
-    """
-    Optional. The tool calls the agent should have made, graded on a replay. A correction judges the run's whole output, so it is recorded under one reserved item (`item.key` `"kindgi:correction"`, `item.pointer` `""`): a correction on any other item is a 400, and a second correction of the run by the same expert replaces the first, so it counts once.
+    An app's opaque id for its end user, when correcting on their behalf.
     """
 
 
-class UnregisterJudgmentResult(BaseModel):
+class RemoveCorrectionResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    correction_id: Annotated[str, Field(alias="correctionId")]
     unregistered: Literal[True]
 
 
-class Restricted(BaseModel):
+class Expert(BaseModel):
     """
-    The same weights, counting only judgments recorded while their class was restricted (`Judgment.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.
+    The same weights, counting only corrections recorded while their group was restricted (`Correction.expert`), for a comparison weighted `experts-only`. Absent from a test set built before restrictions.
     """
 
     model_config = ConfigDict(
@@ -2456,9 +2510,9 @@ class Restricted(BaseModel):
     )
     yes_weight: Annotated[float, Field(alias="yesWeight")]
     total_weight: Annotated[float, Field(alias="totalWeight")]
-    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
+    correction_ids: Annotated[list[str] | None, Field(alias="correctionIds")] = None
     """
-    The judgments behind these two. Absent from a test set built before judgment ids.
+    The corrections behind these two. Absent from a test set built before correction ids.
     """
 
 
@@ -2469,19 +2523,19 @@ class Reason(BaseModel):
     )
     verdict: Annotated[Literal["yes", "no"] | str, _open.OPEN]
     reason: str
-    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
+    corrector_group_id: Annotated[str | None, Field(alias="correctorGroupId")] = None
     """
-    The judgment's class, when it had one.
+    The correction's group, when it had one.
     """
-    restricted: Literal[True] | None = None
+    expert: Literal[True] | None = None
     """
-    Set when the judgment was recorded while its class was restricted (`Judgment.restricted`).
+    Set when the correction was recorded while its group was restricted (`Correction.expert`).
     """
 
 
-class JudgedItemSummary(BaseModel):
+class CorrectedItemSummary(BaseModel):
     """
-    The judgments of one item of a case's output, summed up.
+    The corrections of one item of a case's output, summed up.
     """
 
     model_config = ConfigDict(
@@ -2493,27 +2547,27 @@ class JudgedItemSummary(BaseModel):
     rank: Annotated[int | None, Field(ge=0)] = None
     yes: Annotated[int, Field(ge=0)]
     """
-    How many judgments said yes.
+    How many corrections said yes.
     """
     no: Annotated[int, Field(ge=0)]
     """
-    How many judgments said no.
+    How many corrections said no.
     """
     yes_weight: Annotated[float, Field(alias="yesWeight")]
     """
-    The weight behind "yes" (an unclassified judgment counts 1).
+    The weight behind "yes" (an unclassified correction counts 1).
     """
     total_weight: Annotated[float, Field(alias="totalWeight")]
     """
-    The weight behind all judgments of the item.
+    The weight behind all corrections of the item.
     """
-    restricted: Restricted | None = None
+    expert: Expert | None = None
     """
-    The same weights, counting only judgments recorded while their class was restricted (`Judgment.restricted`), for a comparison weighted `restricted-only`. Absent from a test set built before restrictions.
+    The same weights, counting only corrections recorded while their group was restricted (`Correction.expert`), for a comparison weighted `experts-only`. Absent from a test set built before restrictions.
     """
-    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
+    correction_ids: Annotated[list[str] | None, Field(alias="correctionIds")] = None
     """
-    The judgments summed into the item, by id: what a comparison on this case counts. Absent from a test set built before judgment ids.
+    The corrections summed into the item, by id: what a comparison on this case counts. Absent from a test set built before correction ids.
     """
     reasons: list[Reason]
     """
@@ -2525,9 +2579,9 @@ class PrincipalId(RootModel[str]):
     root: Annotated[str, Field(min_length=1)]
 
 
-class JudgeClassAssertableBy(BaseModel):
+class CorrectorGroupAssertableBy(BaseModel):
     """
-    Who may assert the class: every part that is set must hold. A class with one is restricted: a judgment recorded while it is carries `restricted`, and a comparison weighted `restricted-only` counts only those.
+    Who may assert the group: every part that is set must hold. A group with one is expert: a correction recorded while it is carries `expert`, and a comparison weighted `experts-only` counts only those.
     """
 
     model_config = ConfigDict(
@@ -2554,9 +2608,9 @@ class JudgeClassAssertableBy(BaseModel):
     """
 
 
-class JudgeClassAssertableByView(BaseModel):
+class CorrectorGroupAssertableByView(BaseModel):
     """
-    Who may assert the class, as the caller sees it: every part that is set must hold. `principalIds` is sent only to an admin on the class's scope; `principalCount` to everyone who reads it.
+    Who may assert the group, as the caller sees it: every part that is set must hold. `principalIds` is sent only to an admin on the group's scope; `principalCount` to everyone who reads it.
     """
 
     model_config = ConfigDict(
@@ -2581,21 +2635,21 @@ class JudgeClassAssertableByView(BaseModel):
         list[PrincipalId] | None, Field(alias="principalIds", max_length=100, min_length=1)
     ] = None
     """
-    Only these principals: user ids, or service token ids. Sent only to an admin on the class's scope.
+    Only these principals: user ids, or service token ids. Sent only to an admin on the group's scope.
     """
     principal_count: Annotated[int | None, Field(alias="principalCount", ge=1)] = None
     """
-    How many principals the class is restricted to (`principalIds`), for every reader. Absent when it names none.
+    How many principals the group is restricted to (`principalIds`), for every reader. Absent when it names none.
     """
 
 
-class JudgeClassId(RootModel[str]):
+class CorrectorGroupId(RootModel[str]):
     root: Annotated[str, Field(min_length=1)]
 
 
-class BuildJudgedSuiteBody(BaseModel):
+class BuildCorrectedTestSetBody(BaseModel):
     """
-    Name the agent (`agentId`) or the flow (`flowId`) whose judged runs to use.
+    Name the agent (`agentId`) or the flow (`flowId`) whose corrected runs to use.
     """
 
     model_config = ConfigDict(
@@ -2615,39 +2669,41 @@ class BuildJudgedSuiteBody(BaseModel):
     flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
     since: AwareDatetime | None = None
     """
-    Runs first judged at or after this time.
+    Runs first corrected at or after this time.
     """
     until: AwareDatetime | None = None
     """
-    Runs first judged before this time.
+    Runs first corrected before this time.
     """
-    judge_class_ids: Annotated[list[JudgeClassId] | None, Field(alias="judgeClassIds")] = None
+    corrector_group_ids: Annotated[
+        list[CorrectorGroupId] | None, Field(alias="correctorGroupIds")
+    ] = None
     """
-    Count only judgments recorded under these judge classes.
+    Count only corrections recorded under these corrector groups.
     """
-    min_judgments: Annotated[int | None, Field(alias="minJudgments", ge=1)] = None
+    min_corrections: Annotated[int | None, Field(alias="minCorrections", ge=1)] = None
     """
-    Leave out runs with fewer counted judgments. Default 1.
+    Leave out runs with fewer counted corrections. Default 1.
     """
     segments: list[ScopeSegment] | None = None
     """
-    Only runs started in this segment path or below it, coarse to fine (e.g. `company=acme`). A run judged before its segments were recorded with its judgments is in no segment, so it's left out.
+    Only runs started in this segment path or below it, coarse to fine (e.g. `company=acme`). A run corrected before its segments were recorded with its corrections is in no segment, so it's left out.
     """
     description: str | None = None
 
 
-class BuildJudgedSuiteResult(BaseModel):
+class BuildCorrectedTestSetResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    suite_id: Annotated[str, Field(alias="suiteId")]
+    test_set_id: Annotated[str, Field(alias="testSetId")]
     version: str
-    kind: Annotated[Literal["judged"] | str, _open.OPEN]
+    kind: Annotated[Literal["corrections"] | str, _open.OPEN]
     case_count: Annotated[int, Field(alias="caseCount", ge=0)]
     truncated: bool
     """
-    Whether more judged runs matched than the 1000 cases a set holds.
+    Whether more corrected runs matched than the 1000 cases a set holds.
     """
 
 
@@ -2952,9 +3008,9 @@ class VersionDerivation(BaseModel):
     """
     For `edited`: who derived it (`user:<id>`).
     """
-    proposal_id: Annotated[str | None, Field(alias="proposalId")] = None
+    suggested_change_id: Annotated[str | None, Field(alias="suggestedChangeId")] = None
     """
-    For `edited`: the improvement proposal it was derived for. Such a version serves no scope until a promotion makes it live.
+    For `edited`: the suggested change it was derived for. Such a version serves no scope until a pin makes it serve.
     """
 
 
@@ -2979,7 +3035,7 @@ class AgentPinSwaps(BaseModel):
 
 class FlowPins(BaseModel):
     """
-    The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the tenant), else to its latest version then; each agent it runs at no named version resolves once to its version live for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's gate policies set on a segment covers runs the agent's version live for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version live for the run, else its latest.
+    The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the tenant), else to its latest version then; each agent it runs at no named version resolves once to its version pinned for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's release gates set on a segment covers runs the agent's version pinned for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version pinned for the run, else its latest.
     """
 
     model_config = ConfigDict(
@@ -3091,6 +3147,42 @@ class PublishAgentResult(BaseModel):
     """
     What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings), `remember-unavailable` (the agent remembers and the deployment cannot store agent memories), `recall-other-people` (an intent recalls conversations in the run's segment or project, whoever had them) or `recall-unavailable` (the deployment cannot recall earlier conversations).
     """
+
+
+class AgentOwner(BaseModel):
+    """
+    The person the agent's corrections go to when they need its owner. Until one is set, those go to everyone who may publish the agent.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId", min_length=1)]
+    name: str | None = None
+    """
+    The person's display name, when the runtime's directory has one.
+    """
+
+
+class SetAgentOwnerBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId", min_length=1)]
+    """
+    The new owner's user id.
+    """
+
+
+class SetAgentOwnerResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId")]
+    owner: AgentOwner
 
 
 class UnregisterAgentResult(BaseModel):
@@ -4464,7 +4556,7 @@ class Content(BaseModel):
     template: str | None = None
 
 
-class ProposalChange(BaseModel):
+class SuggestedChangeBlockEdit(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -4496,9 +4588,9 @@ class Model(BaseModel):
     model: str
 
 
-class ProposalDrafter(BaseModel):
+class SuggestedChangeMadeBy(BaseModel):
     """
-    Who wrote the proposal: a person, or one of the runtime's drafters.
+    Who wrote the suggested change: a person, or one of the runtime's drafters.
     """
 
     model_config = ConfigDict(
@@ -4518,34 +4610,34 @@ class ProposalDrafter(BaseModel):
     """
     For a drafter that used a model: which.
     """
-    pass_id: Annotated[str | None, Field(alias="passId")] = None
+    improve_run_id: Annotated[str | None, Field(alias="improveRunId")] = None
     """
-    For a drafter: the improvement pass that drafted it (`GET /v1/improvement-passes/{passId}`).
+    For a drafter: the Improve run that drafted it (`GET /v1/improve-runs/{improveRunId}`).
     """
 
 
-class ProposalEvidence(BaseModel):
+class SuggestedChangeEvidence(BaseModel):
     """
-    What a proposal rests on.
+    What a suggested change rests on.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
+    fixes: list[str] | None = None
     """
-    The judgments that motivated it. An improvement pass's proposal names the judgments it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt pass, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items judged wrong, then the rest.
+    The corrections it fixes, by id. An Improve run's suggested change names the corrections it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt Improve run, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items corrected as wrong, then the rest.
     """
-    judgment_count: Annotated[int | None, Field(alias="judgmentCount", ge=0)] = None
+    correction_count: Annotated[int | None, Field(alias="correctionCount", ge=0)] = None
     """
-    How many judgments it rests on, when `judgmentIds` names only the first of them. Absent when `judgmentIds` names them all.
+    How many corrections it rests on, when `fixes` names only the first of them. Absent when `fixes` names them all.
     """
 
 
-class ProposalCandidate(BaseModel):
+class SuggestedChangeCandidate(BaseModel):
     """
-    The versions evaluating the proposal published. They serve no scope until a promotion makes the agent version live.
+    The versions evaluating the suggested change published. They serve no scope until a pin makes the agent version serve.
     """
 
     model_config = ConfigDict(
@@ -4554,16 +4646,16 @@ class ProposalCandidate(BaseModel):
     )
     agent_version: Annotated[str, Field(alias="agentVersion")]
     """
-    The derived agent version (its `derivedFrom.proposalId` names the proposal).
+    The derived agent version (its `derivedFrom.suggestedChangeId` names the suggested change).
     """
     block_version: Annotated[str, Field(alias="blockVersion")]
     """
-    The block version published from the proposal's content.
+    The block version published from the suggested change's content.
     """
     pins_digest: Annotated[str, Field(alias="pinsDigest")]
 
 
-class ProposalCost(BaseModel):
+class SuggestedChangeCost(BaseModel):
     """
     What the replays cost in model calls on the same cases, in US dollars, averaged over the repetitions: the current version's and the candidate's. Set for a change held to the current version once both comparisons finished, when both reported a cost.
     """
@@ -4576,7 +4668,7 @@ class ProposalCost(BaseModel):
     candidate: Annotated[float, Field(ge=0.0)]
 
 
-class ProposalDecisions(BaseModel):
+class SuggestedChangeDecisions(BaseModel):
     """
     The corrections the current version was checked on, replayed on the same cases, against the candidate's. A model-settings change is kept only with at least one checked and none broken. Set once both comparisons finished.
     """
@@ -4600,9 +4692,9 @@ class ProposalDecisions(BaseModel):
     """
 
 
-class ProposalPromotion(BaseModel):
+class SuggestedChangePin(BaseModel):
     """
-    The promotion the proposal's request made.
+    The pin the suggested change's request made.
     """
 
     model_config = ConfigDict(
@@ -4611,17 +4703,16 @@ class ProposalPromotion(BaseModel):
     )
     id: str
     status: Annotated[
-        Literal["promoted", "pending-approval", "refused", "superseded", "rejected", "expired"]
-        | str,
+        Literal["pinned", "pending-approval", "refused", "superseded", "rejected", "expired"] | str,
         _open.OPEN,
     ]
     approval_id: Annotated[str | None, Field(alias="approvalId")] = None
     """
     The approval a request in review waits on.
     """
-    live_now: Annotated[bool | None, Field(alias="liveNow")] = None
+    pinned_now: Annotated[bool | None, Field(alias="pinnedNow")] = None
     """
-    For a promoted proposal: whether its version still serves the scope.
+    For a pinned suggested change: whether its version still serves the scope.
     """
 
 
@@ -4631,9 +4722,9 @@ class RolledBack(BaseModel):
         populate_by_name=True,
     )
     at: AwareDatetime
-    promotion_id: Annotated[str, Field(alias="promotionId")]
+    change_id: Annotated[str, Field(alias="changeId")]
     """
-    The rollback's own promotion row.
+    The rollback's own pin change row.
     """
     by: str
     reason: str | None = None
@@ -4656,7 +4747,7 @@ class ImprovementBudget(BaseModel):
     )
     max_cost_usd: Annotated[float, Field(alias="maxCostUsd", gt=0.0, le=100.0)]
     """
-    The most the pass's comparisons may cost, in US dollars.
+    The most the Improve run's comparisons may cost, in US dollars.
     """
     max_candidates: Annotated[int, Field(alias="maxCandidates", ge=1, le=200)]
     """
@@ -4675,17 +4766,17 @@ class HoldOut(BaseModel):
     spread: float | None = None
 
 
-class ImprovementPassOutcome(BaseModel):
+class ImproveRunOutcome(BaseModel):
     """
-    What a finished pass found. `proposed`: its best candidate beat the current values on the test set's hold-out part, so it wrote an improvement proposal (`proposalId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.
+    What a finished Improve run found. `suggested`: its best candidate beat the current values on the test set's hold-out part, so it wrote a suggested change (`suggestedChangeId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    kind: Annotated[Literal["proposed", "nothing-found", "failed"] | str, _open.OPEN]
-    proposal_id: Annotated[UUID | None, Field(alias="proposalId")] = None
+    kind: Annotated[Literal["suggested", "nothing-found", "failed"] | str, _open.OPEN]
+    suggested_change_id: Annotated[UUID | None, Field(alias="suggestedChangeId")] = None
     reason: str | None = None
     hold_out: Annotated[HoldOut | None, Field(alias="holdOut")] = None
     message: str | None = None
@@ -4693,7 +4784,7 @@ class ImprovementPassOutcome(BaseModel):
 
 class Model1(BaseModel):
     """
-    For a prompt pass: the provider and model that drafts the templates.
+    For a prompt Improve run: the provider and model that drafts the templates.
     """
 
     model_config = ConfigDict(
@@ -4718,7 +4809,7 @@ class Comparison1(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    eval_run_id: Annotated[UUID | None, Field(alias="evalRunId")] = None
+    test_run_id: Annotated[UUID | None, Field(alias="testRunId")] = None
     role: Annotated[Literal["reference", "candidate", "proof"] | str, _open.OPEN]
     part: Annotated[Literal["search", "hold-out"] | str, _open.OPEN]
     block_id: Annotated[str | None, Field(alias="blockId")] = None
@@ -4729,7 +4820,7 @@ class Comparison1(BaseModel):
     """
     For a drafted template that was never compared: why the check refused it (what it reads or names that the agent doesn't have, or its size).
     """
-    hypothesis: str | None = None
+    why: str | None = None
     """
     For a drafted template: what the drafter meant it to change.
     """
@@ -4737,7 +4828,7 @@ class Comparison1(BaseModel):
 
 class Trigger(BaseModel):
     """
-    The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for a pass a person started.
+    The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for an Improve run a person started.
     """
 
     model_config = ConfigDict(
@@ -4750,7 +4841,7 @@ class Trigger(BaseModel):
 
 class Model2(BaseModel):
     """
-    For a prompt pass: the tenant's provider and model that drafts the templates.
+    For a prompt Improve run: the tenant's provider and model that drafts the templates.
     """
 
     model_config = ConfigDict(
@@ -4785,7 +4876,7 @@ class Basis(BaseModel):
     )
     replays: Annotated[int, Field(ge=0)]
     """
-    How many replay runs the pass's comparisons would make.
+    How many replay runs the Improve run's comparisons would make.
     """
     mean_run_cost_usd: Annotated[str | None, Field(alias="meanRunCostUsd")] = None
     """
@@ -4793,9 +4884,9 @@ class Basis(BaseModel):
     """
 
 
-class ImprovementPassEstimate(BaseModel):
+class ImproveRunCheck(BaseModel):
     """
-    What a pass this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.
+    What an Improve run this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.
     """
 
     model_config = ConfigDict(
@@ -4849,10 +4940,10 @@ class Evidence1(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
+    fixes: list[str] | None = None
 
 
-class ProposalReasonBody(BaseModel):
+class SuggestedChangeReasonBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -4860,7 +4951,7 @@ class ProposalReasonBody(BaseModel):
     reason: Annotated[str | None, Field(max_length=2000, min_length=1)] = None
 
 
-class WithdrawProposalBody(BaseModel):
+class WithdrawSuggestedChangeBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -6221,7 +6312,7 @@ class RetentionPolicyConflict(BaseModel):
             "agent",
             "flow",
             "tool",
-            "eval_suite",
+            "test_set",
             "guardrail",
             "mcp_endpoint",
             "env",
@@ -6229,8 +6320,8 @@ class RetentionPolicyConflict(BaseModel):
             "run",
             "artifact",
             "policy",
-            "judgment",
-            "judge_class",
+            "correction",
+            "corrector_group",
             "provider",
             "memory",
             "conversation",
@@ -6265,7 +6356,7 @@ class RetentionScheduledItem(BaseModel):
             "agent",
             "flow",
             "tool",
-            "eval_suite",
+            "test_set",
             "guardrail",
             "mcp_endpoint",
             "env",
@@ -6273,8 +6364,8 @@ class RetentionScheduledItem(BaseModel):
             "run",
             "artifact",
             "policy",
-            "judgment",
-            "judge_class",
+            "correction",
+            "corrector_group",
             "provider",
             "memory",
             "conversation",
@@ -6341,7 +6432,7 @@ class RetentionScheduledPage(BaseModel):
                     "agent",
                     "flow",
                     "tool",
-                    "eval_suite",
+                    "test_set",
                     "guardrail",
                     "mcp_endpoint",
                     "env",
@@ -6349,8 +6440,8 @@ class RetentionScheduledPage(BaseModel):
                     "run",
                     "artifact",
                     "policy",
-                    "judgment",
-                    "judge_class",
+                    "correction",
+                    "corrector_group",
                     "provider",
                     "memory",
                     "conversation",
@@ -6375,7 +6466,7 @@ class RetentionScheduledPage(BaseModel):
                     "agent",
                     "flow",
                     "tool",
-                    "eval_suite",
+                    "test_set",
                     "guardrail",
                     "mcp_endpoint",
                     "env",
@@ -6383,8 +6474,8 @@ class RetentionScheduledPage(BaseModel):
                     "run",
                     "artifact",
                     "policy",
-                    "judgment",
-                    "judge_class",
+                    "correction",
+                    "corrector_group",
                     "provider",
                     "memory",
                     "conversation",
@@ -6419,7 +6510,7 @@ class RetentionSweepBody(BaseModel):
                 "agent",
                 "flow",
                 "tool",
-                "eval_suite",
+                "test_set",
                 "guardrail",
                 "mcp_endpoint",
                 "env",
@@ -6427,8 +6518,8 @@ class RetentionSweepBody(BaseModel):
                 "run",
                 "artifact",
                 "policy",
-                "judgment",
-                "judge_class",
+                "correction",
+                "corrector_group",
                 "provider",
                 "memory",
                 "conversation",
@@ -6472,7 +6563,7 @@ class PerDomainItem(BaseModel):
             "agent",
             "flow",
             "tool",
-            "eval_suite",
+            "test_set",
             "guardrail",
             "mcp_endpoint",
             "env",
@@ -6480,8 +6571,8 @@ class PerDomainItem(BaseModel):
             "run",
             "artifact",
             "policy",
-            "judgment",
-            "judge_class",
+            "correction",
+            "corrector_group",
             "provider",
             "memory",
             "conversation",
@@ -6527,7 +6618,7 @@ class RetentionSweepResult(BaseModel):
     """
 
 
-class EvalSuite(BaseModel):
+class TestSet(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -6540,11 +6631,17 @@ class EvalSuite(BaseModel):
     """
     version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
     """
-    Semver — publishing a modified suite produces a new version.
+    Semver — publishing a modified test set produces a new version.
     """
     kind: Annotated[
         Literal[
-            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+            "accuracy",
+            "pairwise",
+            "regression",
+            "human-review",
+            "benchmark",
+            "custom",
+            "corrections",
         ]
         | str,
         _open.OPEN,
@@ -6552,25 +6649,25 @@ class EvalSuite(BaseModel):
     description: str | None = None
     spec: dict[str, Any]
     """
-    Kind-specific suite body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`.
+    Kind-specific test set body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`.
     """
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
     """
-    Present only on an unregistered version: one `GET …/versions?includeTombstoned=true` lists, or a retired test set (every version unregistered) as `GET /v1/eval-suites?includeRetired=true` lists it.
+    Present only on an unregistered version: one `GET …/versions?includeTombstoned=true` lists, or a retired test set (every version unregistered) as `GET /v1/test-sets?includeRetired=true` lists it.
     """
 
 
-class EvalSuiteCollectionPage(BaseModel):
+class TestSetCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[EvalSuite]
+    data: list[TestSet]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class PublishEvalSuiteBody(BaseModel):
+class PublishTestSetBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -6587,7 +6684,13 @@ class PublishEvalSuiteBody(BaseModel):
     version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
     kind: Annotated[
         Literal[
-            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+            "accuracy",
+            "pairwise",
+            "regression",
+            "human-review",
+            "benchmark",
+            "custom",
+            "corrections",
         ]
         | str,
         _open.OPEN,
@@ -6596,31 +6699,31 @@ class PublishEvalSuiteBody(BaseModel):
     spec: dict[str, Any]
 
 
-class PublishEvalSuiteResult(BaseModel):
+class PublishTestSetResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    suite_id: Annotated[str, Field(alias="suiteId")]
+    test_set_id: Annotated[str, Field(alias="testSetId")]
     version: str
 
 
-class UnregisterEvalSuiteResult(BaseModel):
+class UnregisterTestSetResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    suite_id: Annotated[str, Field(alias="suiteId")]
+    test_set_id: Annotated[str, Field(alias="testSetId")]
     version: str
     unregistered: Literal[True]
 
 
-class ReinstateEvalSuiteVersionResult(BaseModel):
+class ReinstateTestSetVersionResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    suite_id: Annotated[str, Field(alias="suiteId")]
+    test_set_id: Annotated[str, Field(alias="testSetId")]
     version: str
     was_tombstoned: Annotated[bool, Field(alias="wasTombstoned")]
 
@@ -6741,11 +6844,11 @@ class ReinstateBlockResult(BaseModel):
     was_tombstoned: Annotated[bool, Field(alias="wasTombstoned")]
 
 
-class EvalRunStatus(RootModel[Literal["pending", "running", "completed", "failed", "cancelled"]]):
+class TestRunStatus(RootModel[Literal["pending", "running", "completed", "failed", "cancelled"]]):
     root: Literal["pending", "running", "completed", "failed", "cancelled"]
 
 
-class EvalRunAgentRef(BaseModel):
+class TestRunAgentRef(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -6754,7 +6857,7 @@ class EvalRunAgentRef(BaseModel):
     version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
 
 
-class EvalRunFlowRef(BaseModel):
+class TestRunFlowRef(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -6763,9 +6866,9 @@ class EvalRunFlowRef(BaseModel):
     version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
 
 
-class EvalBaseline1(BaseModel):
+class TestRunBaseline1(BaseModel):
     """
-    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version pinned in a scope (`{ pinned: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
 
     model_config = ConfigDict(
@@ -6776,7 +6879,7 @@ class EvalBaseline1(BaseModel):
     version: str
 
 
-class Live(BaseModel):
+class Pinned(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -6784,20 +6887,20 @@ class Live(BaseModel):
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     segments: Annotated[list[ScopeSegment] | None, Field(max_length=8)] = None
     """
-    A segment path in `projectId`, coarse to fine, as live versions resolve it. Needs `projectId`.
+    A segment path in `projectId`, coarse to fine, as pinned versions resolve it. Needs `projectId`.
     """
 
 
-class EvalBaseline2(BaseModel):
+class TestRunBaseline2(BaseModel):
     """
-    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version pinned in a scope (`{ pinned: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    live: Live
+    pinned: Pinned
 
 
 class Prompts(BaseModel):
@@ -6808,9 +6911,9 @@ class Prompts(BaseModel):
     template: str
 
 
-class EvalOverrides(BaseModel):
+class TestRunOverrides(BaseModel):
     """
-    For an agent candidate: block content its replays run instead of the version's pinned content (an improvement pass's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a promotion.
+    For an agent candidate: block content its replays run instead of the version's pinned content (an Improve run's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a pin.
     """
 
     model_config = ConfigDict(
@@ -6821,9 +6924,9 @@ class EvalOverrides(BaseModel):
     prompts: Annotated[dict[str, Prompts] | None, Field(max_length=1)] = None
 
 
-class EvalSample(BaseModel):
+class TestRunSample(BaseModel):
     """
-    Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a "no" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).
+    Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified (the cases that carry a correction, then of the others the cases with a "no" and the rest, each split on its own, a stratum of two or more giving each part at least one, so both parts check a correction when two cases carry one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A release gate refuses a comparison on the search part (`comparison.sample`).
     """
 
     model_config = ConfigDict(
@@ -6835,18 +6938,18 @@ class EvalSample(BaseModel):
     hold_out_share: Annotated[float, Field(alias="holdOutShare", ge=0.1, le=0.9)]
 
 
-class EvalComparison(BaseModel):
+class TestRunComparison(BaseModel):
     """
-    A comparison eval run's settings (a `judged` suite).
+    A comparison test run's settings (a `corrections` test set).
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    baseline: Annotated[Literal["recorded"] | str, _open.OPEN] | EvalBaseline1 | EvalBaseline2
+    baseline: Annotated[Literal["recorded"] | str, _open.OPEN] | TestRunBaseline1 | TestRunBaseline2
     """
-    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version pinned in a scope (`{ pinned: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
     reads: Annotated[Literal["recorded", "live"] | str, _open.OPEN]
     """
@@ -6855,24 +6958,24 @@ class EvalComparison(BaseModel):
     repetitions: Annotated[int, Field(ge=1, le=10)]
     k: Annotated[int, Field(ge=1, le=100)]
     versions: FlowVersionOverrides | None = None
-    class_weights: Annotated[
-        Annotated[Literal["as-recorded", "restricted-only"] | str, _open.OPEN] | None,
-        Field(alias="classWeights"),
+    group_weights: Annotated[
+        Annotated[Literal["as-recorded", "experts-only"] | str, _open.OPEN] | None,
+        Field(alias="groupWeights"),
     ] = None
     """
-    Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).
+    Which corrections count: each at its group's weight (`as-recorded`, the default), or only those recorded while their group was restricted (`Correction.expert`), the others weighing 0 (`experts-only`).
     """
-    overrides: EvalOverrides | None = None
-    sample: EvalSample | None = None
+    overrides: TestRunOverrides | None = None
+    sample: TestRunSample | None = None
     rescore_of: Annotated[str | None, Field(alias="rescoreOf")] = None
     """
-    Rescore that comparison eval run instead of replaying: its replays' outputs are scored again, with the judgments recorded on them since (a changed answer judged on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/eval-runs/{runId}/rescore`.
+    Rescore that comparison test run instead of replaying: its replays' outputs are scored again, with the corrections recorded on them since (a changed answer corrected on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/test-runs/{testRunId}/rescore`.
     """
 
 
 class ComparisonMetric(BaseModel):
     """
-    One metric, the recorded runs beside the candidate. `null` where a side had no judged evidence; `n` / `weight` are the candidate's evidence (cases with judged items, and the judgment weight behind them), `baselineN` / `baselineWeight` the recorded side's.
+    One metric, the recorded runs beside the candidate. `null` where a side had no evidence from corrections; `n` / `weight` are the candidate's evidence (cases with corrected items, and the correction weight behind them), `baselineN` / `baselineWeight` the recorded side's.
     """
 
     model_config = ConfigDict(
@@ -6897,17 +7000,8 @@ class ComparisonMetric(BaseModel):
     """
     fresh_weight: Annotated[float | None, Field(alias="freshWeight", ge=0.0)] = None
     """
-    Of `weight`, the part judged on the candidate's replays themselves (a rescore, after people judged a changed answer there). Absent when none. Not on `weightedPrecisionAtK`.
+    Of `weight`, the part corrected on the candidate's replays themselves (a rescore, after people corrected a changed answer there). Absent when none. Not on `weightedPrecisionAtK`.
     """
-
-
-class Suite1(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: str
-    version: str
 
 
 class Model3(BaseModel):
@@ -6936,12 +7030,44 @@ class Metrics(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    weighted_yes_share: Annotated[ComparisonMetric, Field(alias="weightedYesShare")]
-    judged_coverage: Annotated[ComparisonMetric, Field(alias="judgedCoverage")]
+    pass_rate: Annotated[ComparisonMetric, Field(alias="passRate")]
+    case_coverage: Annotated[ComparisonMetric, Field(alias="caseCoverage")]
     weighted_precision_at_k: Annotated[ComparisonMetric, Field(alias="weightedPrecisionAtK")]
 
 
-class JudgedComparisonCost(BaseModel):
+class Result(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    correction_id: Annotated[str, Field(alias="correctionId")]
+    pass_: Annotated[bool, Field(alias="pass")]
+
+
+class Corrections(BaseModel):
+    """
+    Corrections graded across the cases: shown for a release gate, not enforced. Absent when the test set carries no corrections.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    checked: Annotated[int, Field(ge=0)]
+    """
+    How many corrections were graded.
+    """
+    passed: Annotated[int, Field(ge=0)]
+    """
+    How many passed (every repetition passed).
+    """
+    results: list[Result] | None = None
+    """
+    Each correction graded: whether it passed (every repetition did). What an Improve run compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.
+    """
+
+
+class CorrectedComparisonCost(BaseModel):
     """
     What the candidate's replays cost in model calls, as the runtime reported it. Absent from a summary when no case's replays reported a cost.
     """
@@ -6975,7 +7101,7 @@ class TopK(BaseModel):
 
 class Fresh(BaseModel):
     """
-    The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.
+    The part of these sums corrected on this output itself (a replay corrected after it ran). Absent when none was.
     """
 
     model_config = ConfigDict(
@@ -6989,7 +7115,7 @@ class Fresh(BaseModel):
 
 class CandidateItem(BaseModel):
     """
-    An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
+    An output's score: Σ yesWeight and Σ totalWeight over its corrected items, and over those among the first `k` ranked items.
     """
 
     model_config = ConfigDict(
@@ -6999,11 +7125,11 @@ class CandidateItem(BaseModel):
     yes_weight: Annotated[float, Field(alias="yesWeight")]
     total_weight: Annotated[float, Field(alias="totalWeight")]
     items: Annotated[int, Field(ge=0)]
-    judged_items: Annotated[int, Field(alias="judgedItems", ge=0)]
+    corrected_items: Annotated[int, Field(alias="correctedItems", ge=0)]
     top_k: Annotated[TopK, Field(alias="topK")]
     fresh: Fresh | None = None
     """
-    The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.
+    The part of these sums corrected on this output itself (a replay corrected after it ran). Absent when none was.
     """
 
 
@@ -7026,9 +7152,9 @@ class DroppedItem(BaseModel):
     rank_before: Annotated[int | None, Field(alias="rankBefore")] = None
 
 
-class Judged(BaseModel):
+class Corrected(BaseModel):
     """
-    What people said about this item on the replay itself, once they judged it there.
+    What people said about this item on the replay itself, once they corrected it there.
     """
 
     model_config = ConfigDict(
@@ -7047,15 +7173,15 @@ class NewItem(BaseModel):
     key: str
     pointer: str
     rank: int | None = None
-    judged: Judged | None = None
+    corrected: Corrected | None = None
     """
-    What people said about this item on the replay itself, once they judged it there.
+    What people said about this item on the replay itself, once they corrected it there.
     """
 
 
 class Changes(BaseModel):
     """
-    The first repetition's items against the judged ones.
+    The first repetition's items against the corrected ones.
     """
 
     model_config = ConfigDict(
@@ -7085,28 +7211,34 @@ class Stopped(BaseModel):
     reason: str | None = None
 
 
-class EvalRun(BaseModel):
+class TestRun(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    run_id: Annotated[UUID, Field(alias="runId")]
+    test_run_id: Annotated[UUID, Field(alias="testRunId")]
     tenant_id: Annotated[UUID, Field(alias="tenantId")]
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The project the eval run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6.
+    The project the test run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6.
     """
-    suite_id: Annotated[str, Field(alias="suiteId")]
-    suite_version: Annotated[str, Field(alias="suiteVersion", pattern="^\\d+\\.\\d+\\.\\d+$")]
+    test_set_id: Annotated[str, Field(alias="testSetId")]
+    test_set_version: Annotated[str, Field(alias="testSetVersion", pattern="^\\d+\\.\\d+\\.\\d+$")]
     kind: Annotated[
         Literal[
-            "accuracy", "pairwise", "regression", "human-review", "benchmark", "custom", "judged"
+            "accuracy",
+            "pairwise",
+            "regression",
+            "human-review",
+            "benchmark",
+            "custom",
+            "corrections",
         ]
         | str,
         _open.OPEN,
     ]
-    agent_ref: Annotated[EvalRunAgentRef | None, Field(alias="agentRef")] = None
-    flow_ref: Annotated[EvalRunFlowRef | None, Field(alias="flowRef")] = None
+    agent_ref: Annotated[TestRunAgentRef | None, Field(alias="agentRef")] = None
+    flow_ref: Annotated[TestRunFlowRef | None, Field(alias="flowRef")] = None
     status: Annotated[
         Literal["pending", "running", "completed", "failed", "cancelled"] | str, _open.OPEN
     ]
@@ -7115,7 +7247,7 @@ class EvalRun(BaseModel):
     completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
     result: dict[str, Any] | None = None
     """
-    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `judged` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`weightedYesShare`, `judgedCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.
+    Kind-specific opaque JSON. For `accuracy`, contains `{ passCount, totalCount, meanScore, perCase[] }`. For `corrections` (a comparison), `{ summary, perCase[] }`: the summary has the baseline (the versions behind the recorded runs) and the candidate (`{ kind: "agent", agentId, version }` or `{ kind: "flow", flowId, version, versions? }`), the case counts (`cases`, `diverged`, `refusedWrites`, `errors`, and `stopped`: flow cases that stopped at a refused tool call, left out of the metrics), the models that answered, and `metrics` (`passRate`, `caseCoverage`, `weightedPrecisionAtK`, each `{ baseline, candidate, delta, n, weight, baselineN, baselineWeight, direction, k?, spread? }`); each case has its replay runs, the scores, the items kept, dropped and new, the tool calls with what happened to each, and `stopped` (what it would have done) when it stopped. Other kinds define their own shapes as their dispatchers ship.
     """
     error: str | None = None
     cancel_reason: Annotated[str | None, Field(alias="cancelReason")] = None
@@ -7123,22 +7255,22 @@ class EvalRun(BaseModel):
     Why a `cancelled` run stopped when nobody cancelled it: its project or tenant took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.
     """
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
-    comparison: EvalComparison | None = None
+    comparison: TestRunComparison | None = None
 
 
-class EvalRunCollectionPage(BaseModel):
+class TestRunCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[EvalRun]
+    data: list[TestRun]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class StartEvalRunBody(BaseModel):
+class StartTestRunBody(BaseModel):
     """
-    Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).
+    Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `corrections` test set (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).
     """
 
     model_config = ConfigDict(
@@ -7149,33 +7281,36 @@ class StartEvalRunBody(BaseModel):
     """
     Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
     """
-    agent_ref: Annotated[EvalRunAgentRef | None, Field(alias="agentRef")] = None
-    flow_ref: Annotated[EvalRunFlowRef | None, Field(alias="flowRef")] = None
+    agent_ref: Annotated[TestRunAgentRef | None, Field(alias="agentRef")] = None
+    flow_ref: Annotated[TestRunFlowRef | None, Field(alias="flowRef")] = None
     dry_run: Annotated[bool | None, Field(alias="dryRun")] = None
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
     baseline: (
-        Annotated[Literal["recorded"] | str, _open.OPEN] | EvalBaseline1 | EvalBaseline2 | None
+        Annotated[Literal["recorded"] | str, _open.OPEN]
+        | TestRunBaseline1
+        | TestRunBaseline2
+        | None
     ) = None
     """
-    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was judged), a version (`{ agentId, version }`, replayed under the same rules), or the version live in a scope (`{ live: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
+    What a comparison compares the candidate against: `'recorded'` (each case's recorded output, what was corrected), a version (`{ agentId, version }`, replayed under the same rules), or the version pinned in a scope (`{ pinned: { projectId?, segments? } }`, `segments` a path in the project, coarse to fine). Only `'recorded'` runs today; the others are refused when the run starts.
     """
     reads: Literal["recorded", "live"] | None = None
     repetitions: Annotated[int | None, Field(ge=1, le=10)] = None
     k: Annotated[int | None, Field(ge=1, le=100)] = None
     versions: FlowVersionOverrides | None = None
-    class_weights: Annotated[
-        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
+    group_weights: Annotated[
+        Literal["as-recorded", "experts-only"] | None, Field(alias="groupWeights")
     ] = None
     """
-    Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).
+    Which corrections count: each at its group's weight (`as-recorded`, the default), or only those recorded while their group was restricted (`Correction.expert`), the others weighing 0 (`experts-only`).
     """
-    overrides: EvalOverrides | None = None
-    sample: EvalSample | None = None
+    overrides: TestRunOverrides | None = None
+    sample: TestRunSample | None = None
 
 
-class RescoreEvalRunBody(BaseModel):
+class RescoreTestRunBody(BaseModel):
     """
-    Body of `POST /v1/eval-runs/{runId}/rescore`: optional.
+    Body of `POST /v1/test-runs/{testRunId}/rescore`: optional.
     """
 
     model_config = ConfigDict(
@@ -7188,12 +7323,12 @@ class RescoreEvalRunBody(BaseModel):
     """
 
 
-class StartEvalRunResult(BaseModel):
+class StartTestRunResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    run_id: Annotated[UUID, Field(alias="runId")]
+    test_run_id: Annotated[UUID, Field(alias="testRunId")]
     dry_run_preview: Annotated[dict[str, Any] | None, Field(alias="dryRunPreview")] = None
 
 
@@ -7977,7 +8112,7 @@ class PersonGrantBody(BaseModel):
     kind: Literal["tenant-admin"]
 
 
-class JudgingRuleWhen(BaseModel):
+class QueueRuleWhen(BaseModel):
     """
     Which of a project's runs a rule matches as they end. Every field narrows; absent fields don't. `agentIds` or `flowIds`, not both. Top-level runs only (an agent's own runs, not its turns as a flow's step); replays never match.
     """
@@ -7994,14 +8129,14 @@ class JudgingRuleWhen(BaseModel):
     )
     versions: Annotated[list[str] | None, Field(max_length=50, min_length=1)] = None
     """
-    These versions exactly, or `live`: runs that got the agent's live version, not one the caller named. Runs from before the runtime recorded how their version was chosen never match `live`.
+    These versions exactly, or `pinned`: runs that got the agent's pinned version, not one the caller named. Runs from before the runtime recorded how their version was chosen never match `pinned`.
     """
     status: Annotated[
         list[Annotated[Literal["completed", "failed", "cancelled"] | str, _open.OPEN]] | None,
         Field(min_length=1),
     ] = None
     """
-    How the run ended. Only `completed` today: a judgment needs a completed run, so `failed` and `cancelled` are refused (400). Absent: `completed`.
+    How the run ended. Only `completed` today: a correction needs a completed run, so `failed` and `cancelled` are refused (400). Absent: `completed`.
     """
     include_dry_runs: Annotated[bool | None, Field(alias="includeDryRuns")] = None
     """
@@ -8009,9 +8144,9 @@ class JudgingRuleWhen(BaseModel):
     """
 
 
-class JudgingRuleSpec(BaseModel):
+class QueueRuleSpec(BaseModel):
     """
-    A judging rule as written. It only lists runs: nothing here starts a model.
+    A queue rule as written. It only lists runs: nothing here starts a model.
     """
 
     model_config = ConfigDict(
@@ -8019,7 +8154,7 @@ class JudgingRuleSpec(BaseModel):
         populate_by_name=True,
     )
     name: Annotated[str, Field(max_length=200, min_length=1)]
-    when: JudgingRuleWhen
+    when: QueueRuleWhen
     sample: Annotated[float | None, Field(gt=0.0, le=1.0)] = None
     """
     The share of matching runs queued, decided by the run and rule ids: the same every time and across the rule's versions, so raising it keeps the runs it took before. Default 1.
@@ -8028,9 +8163,9 @@ class JudgingRuleSpec(BaseModel):
     """
     Queue nothing while this rule has this many open items. Absent: no cap.
     """
-    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
+    corrector_group_id: Annotated[str | None, Field(alias="correctorGroupId")] = None
     """
-    Whose judgment it wants: one of this class closes it. Absent: any judgment does.
+    Whose correction it wants: one of this group closes it. Absent: any correction does.
     """
     enabled: bool | None = None
     """
@@ -8038,7 +8173,7 @@ class JudgingRuleSpec(BaseModel):
     """
 
 
-class JudgingRulePatch(BaseModel):
+class QueueRulePatch(BaseModel):
     """
     The fields to change; `when` is replaced whole.
     """
@@ -8048,7 +8183,7 @@ class JudgingRulePatch(BaseModel):
         populate_by_name=True,
     )
     name: Annotated[str | None, Field(max_length=200, min_length=1)] = None
-    when: JudgingRuleWhen | None = None
+    when: QueueRuleWhen | None = None
     sample: Annotated[float | None, Field(gt=0.0, le=1.0)] = None
     """
     The share of matching runs queued, decided by the run and rule ids: the same every time and across the rule's versions, so raising it keeps the runs it took before. Default 1.
@@ -8057,9 +8192,9 @@ class JudgingRulePatch(BaseModel):
     """
     Queue nothing while this rule has this many open items. `null` removes the cap.
     """
-    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
+    corrector_group_id: Annotated[str | None, Field(alias="correctorGroupId")] = None
     """
-    Whose judgment it wants: one of this class closes it. `null`: any judgment does.
+    Whose correction it wants: one of this group closes it. `null`: any correction does.
     """
     enabled: bool | None = None
     """
@@ -8067,9 +8202,9 @@ class JudgingRulePatch(BaseModel):
     """
 
 
-class JudgingRule(BaseModel):
+class QueueRule(BaseModel):
     """
-    One version of a judging rule; the latest live one applies.
+    One version of a queue rule; the latest live one applies.
     """
 
     model_config = ConfigDict(
@@ -8080,15 +8215,15 @@ class JudgingRule(BaseModel):
     project_id: Annotated[str, Field(alias="projectId")]
     version: Annotated[int, Field(ge=1)]
     name: Annotated[str, Field(max_length=200, min_length=1)]
-    when: JudgingRuleWhen
+    when: QueueRuleWhen
     sample: Annotated[float, Field(gt=0.0, le=1.0)]
     max_open: Annotated[int | None, Field(alias="maxOpen", ge=1, le=10000)] = None
     """
     Queue nothing while this rule has this many open items. Absent: no cap.
     """
-    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
+    corrector_group_id: Annotated[str | None, Field(alias="correctorGroupId")] = None
     """
-    Whose judgment it wants: one of this class closes it. Absent: any judgment does.
+    Whose correction it wants: one of this group closes it. Absent: any correction does.
     """
     enabled: bool
     created_by: Annotated[str | None, Field(alias="createdBy")] = None
@@ -8099,17 +8234,17 @@ class JudgingRule(BaseModel):
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
 
 
-class JudgingRulePage(BaseModel):
+class QueueRulePage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[JudgingRule]
+    data: list[QueueRule]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class JudgingRuleUnregisterResult(BaseModel):
+class QueueRuleUnregisterResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -8118,21 +8253,21 @@ class JudgingRuleUnregisterResult(BaseModel):
     unregistered: bool
 
 
-class JudgingClassCount(BaseModel):
+class ExpertQueueGroupCount(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")]
+    corrector_group_id: Annotated[str | None, Field(alias="correctorGroupId")]
     """
     `null`: unclassified.
     """
     count: Annotated[int, Field(ge=0)]
 
 
-class JudgingProgress(BaseModel):
+class ExpertQueueProgress(BaseModel):
     """
-    The live judgments on the run so far, by class.
+    The live corrections on the run so far, by group.
     """
 
     model_config = ConfigDict(
@@ -8140,12 +8275,12 @@ class JudgingProgress(BaseModel):
         populate_by_name=True,
     )
     total: Annotated[int, Field(ge=0)]
-    by_class: Annotated[list[JudgingClassCount], Field(alias="byClass")]
+    by_group: Annotated[list[ExpertQueueGroupCount], Field(alias="byGroup")]
 
 
-class JudgingItemCan(BaseModel):
+class ExpertQueueItemCan(BaseModel):
     """
-    What the caller may do with the item, by the check the routes make (`write` on the project, as judging the run needs).
+    What the caller may do with the item, by the check the routes make (`write` on the project, as correcting the run needs).
     """
 
     model_config = ConfigDict(
@@ -8156,7 +8291,7 @@ class JudgingItemCan(BaseModel):
     reopen: bool
 
 
-class JudgingItemRule(BaseModel):
+class ExpertQueueItemRule(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -8165,7 +8300,7 @@ class JudgingItemRule(BaseModel):
     version: Annotated[int, Field(ge=1)]
 
 
-class JudgingQueueItem(BaseModel):
+class ExpertQueueItem(BaseModel):
     """
     A queued run: never its content, only what it was and where it stands.
     """
@@ -8187,23 +8322,23 @@ class JudgingQueueItem(BaseModel):
     How a run ended.
     """
     completed_at: Annotated[AwareDatetime, Field(alias="completedAt")]
-    rules: list[JudgingItemRule]
+    rules: list[ExpertQueueItemRule]
     """
     The rules that queued it, each at the version that did.
     """
-    wanted_class_ids: Annotated[list[str], Field(alias="wantedClassIds")]
+    wanted_group_ids: Annotated[list[str], Field(alias="wantedGroupIds")]
     """
-    The judge classes its rules want.
+    The corrector groups its rules want.
     """
-    any_judgment: Annotated[bool, Field(alias="anyJudgment")]
+    any_correction: Annotated[bool, Field(alias="anyCorrection")]
     """
-    One of its rules wants any judgment.
+    One of its rules wants any correction.
     """
-    progress: JudgingProgress
+    progress: ExpertQueueProgress
     added_at: Annotated[AwareDatetime, Field(alias="addedAt")]
-    state: Annotated[Literal["open", "judged", "dismissed", "erased"] | str, _open.OPEN]
+    state: Annotated[Literal["open", "corrected", "dismissed", "erased"] | str, _open.OPEN]
     """
-    Where a queued run stands. `judged`: every rule that queued it has the judgment it wants. `erased`: the run's content is gone (erased, or the run purged); the item shows nothing of it.
+    Where a queued run stands. `corrected`: every rule that queued it has the correction it wants. `erased`: the run's content is gone (erased, or the run purged); the item shows nothing of it.
     """
     closed_at: Annotated[AwareDatetime | None, Field(alias="closedAt")] = None
     closed_by: Annotated[str | None, Field(alias="closedBy")] = None
@@ -8214,15 +8349,15 @@ class JudgingQueueItem(BaseModel):
     """
     Why it was dismissed, when they said.
     """
-    can: JudgingItemCan
+    can: ExpertQueueItemCan
 
 
-class JudgingQueuePage(BaseModel):
+class ExpertQueuePage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[JudgingQueueItem]
+    data: list[ExpertQueueItem]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     total: Annotated[int, Field(ge=0)]
@@ -8231,7 +8366,7 @@ class JudgingQueuePage(BaseModel):
     """
 
 
-class JudgingDismissBody(BaseModel):
+class ExpertQueueDismissBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -8239,22 +8374,22 @@ class JudgingDismissBody(BaseModel):
     reason: Annotated[str | None, Field(max_length=500)] = None
 
 
-class JudgingClassResult(BaseModel):
+class QueueRuleGroupResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")]
+    corrector_group_id: Annotated[str | None, Field(alias="correctorGroupId")]
     """
     `null`: unclassified.
     """
-    judgments: Annotated[int, Field(ge=0)]
+    corrections: Annotated[int, Field(ge=0)]
     yes: Annotated[int, Field(ge=0)]
 
 
-class JudgingResultGroup(BaseModel):
+class QueueRuleResultGroup(BaseModel):
     """
-    One rule version's runs of one agent version. `added` = `open` + `judged` + `dismissed` + `erased`.
+    One rule version's runs of one agent version. `added` = `open` + `corrected` + `dismissed` + `erased`.
     """
 
     model_config = ConfigDict(
@@ -8268,45 +8403,45 @@ class JudgingResultGroup(BaseModel):
     """
     added: Annotated[int, Field(ge=0)]
     open: Annotated[int, Field(ge=0)]
-    judged: Annotated[int, Field(ge=0)]
+    corrected: Annotated[int, Field(ge=0)]
     dismissed: Annotated[int, Field(ge=0)]
     erased: Annotated[int, Field(ge=0)]
     skipped_by_cap: Annotated[int, Field(alias="skippedByCap", ge=0)]
     """
     Runs the rule matched and sampled but didn't queue, because `maxOpen` were waiting, even when another rule queued them. Non-zero: the queued runs lean toward quiet times. `added` + `skippedByCap` = every run the rule matched and sampled.
     """
-    judgments: Annotated[int, Field(ge=0)]
+    corrections: Annotated[int, Field(ge=0)]
     """
-    Live judgments on the queued runs: each is one person's verdict on one item of a run's output.
+    Live corrections on the queued runs: each is one person's verdict on one item of a run's output.
     """
-    runs_with_judgments: Annotated[int | None, Field(alias="runsWithJudgments", ge=0)] = None
+    runs_with_corrections: Annotated[int | None, Field(alias="runsWithCorrections", ge=0)] = None
     """
-    The queued runs with at least one live judgment: the runs `judgments` and `yesShare` come from, whatever their item's state now (still `open`, closed as `judged`, or dismissed after someone judged it). Several people judging one run make several judgments but one run here. Absent from a runtime that doesn't count them.
+    The queued runs with at least one live correction: the runs `corrections` and `yesShare` come from, whatever their item's state now (still `open`, closed as `corrected`, or dismissed after someone corrected it). Several people correcting one run make several corrections but one run here. Absent from a runtime that doesn't count them.
     """
     yes_share: Annotated[float | None, Field(alias="yesShare")]
     """
-    The `yes` share of those judgments, each weighted by its class (unclassified: 1). `null` with none.
+    The `yes` share of those corrections, each weighted by its group (no group: 1). `null` with none.
     """
-    by_class: Annotated[list[JudgingClassResult], Field(alias="byClass")]
+    by_group: Annotated[list[QueueRuleGroupResult], Field(alias="byGroup")]
     """
-    The same judgments by class, unweighted.
+    The same corrections by group, unweighted.
     """
 
 
-class JudgingRuleResults(BaseModel):
+class QueueRuleResults(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     rule_id: Annotated[str, Field(alias="ruleId")]
     since: AwareDatetime | None = None
-    groups: list[JudgingResultGroup]
+    groups: list[QueueRuleResultGroup]
     """
     By the rule's version and the agent's, newest rule version first: two versions of a rule are two sampling designs, never pooled.
     """
 
 
-class JudgingRulePreview(BaseModel):
+class QueueRulePreview(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -8321,7 +8456,7 @@ class JudgingRulePreview(BaseModel):
     """
 
 
-class JudgingQueueRecentInput(BaseModel):
+class ExpertQueueRecentInput(BaseModel):
     """
     Which recent runs to catch the rule up on. Give `last`, `since`, or both.
     """
@@ -8340,7 +8475,7 @@ class JudgingQueueRecentInput(BaseModel):
     """
 
 
-class JudgingRecentQueued(BaseModel):
+class ExpertQueueRecentQueued(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -8355,7 +8490,7 @@ class JudgingRecentQueued(BaseModel):
     """
     already_reviewed: Annotated[int, Field(alias="alreadyReviewed", ge=0)]
     """
-    Matching recent runs whose run was already judged or dismissed: left as they are, not re-queued. An already-erased run is no longer a match and is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed` together are the matches.
+    Matching recent runs whose run was already corrected or dismissed: left as they are, not re-queued. An already-erased run is no longer a match and is counted nowhere, so `queued`, `alreadyQueued` and `alreadyReviewed` together are the matches.
     """
 
 
@@ -8464,7 +8599,7 @@ class RoleActions(BaseModel):
     project: list[Annotated[Literal["read", "write", "admin", "delete"] | str, _open.OPEN]]
     agent: list[
         Annotated[
-            Literal["read", "write", "delete", "admin", "execute", "publish", "promote"] | str,
+            Literal["read", "write", "delete", "admin", "execute", "publish", "pin"] | str,
             _open.OPEN,
         ]
     ]
@@ -8478,7 +8613,7 @@ class RoleActions(BaseModel):
         Annotated[Literal["read", "write", "delete", "admin", "invoke", "pin"] | str, _open.OPEN]
     ]
     guardrail: list[Annotated[Literal["read", "write", "delete", "admin"] | str, _open.OPEN]]
-    eval_suite: list[
+    test_set: list[
         Annotated[
             Literal["read", "write", "delete", "admin", "execute", "publish"] | str, _open.OPEN
         ]
@@ -8733,9 +8868,9 @@ class DeploymentPromotionBody(BaseModel):
     """
     Why, kept in the `deployment-promoted` audit record.
     """
-    make_live: Annotated[bool | None, Field(alias="makeLive")] = None
+    pin: bool | None = None
     """
-    Make every agent version the promotion carries live in the target project, each through its scope's gate, and pin every flow version it carries there (the project's pin), so a run there that names no version takes it. The answer's `live` reports each agent and `pinnedFlows` each flow. An error answered after some were already pinned lists those in `error.details.live` and `error.details.pinnedFlows`, in the answer's shapes.
+    Pin every agent version the promotion carries in the target project, each through its scope's release gate, and every flow version it carries (the project's pin), so a run there that names no version takes it. The answer's `pinned` reports each agent and `pinnedFlows` each flow. An error answered after some were already pinned lists those in `error.details.pinned` and `error.details.pinnedFlows`, in the answer's shapes.
     """
 
 
@@ -8780,20 +8915,19 @@ class LeftBehindVersion(BaseModel):
     """
 
 
-class DeploymentLivePinGate(BaseModel):
+class DeploymentPinGate(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     status: Annotated[
-        Literal["promoted", "pending-approval", "refused", "superseded", "rejected", "expired"]
-        | str,
+        Literal["pinned", "pending-approval", "refused", "superseded", "rejected", "expired"] | str,
         _open.OPEN,
     ]
-    promotion_id: Annotated[UUID, Field(alias="promotionId")]
-    policy: GatePolicyRef | None = None
+    change_id: Annotated[UUID, Field(alias="changeId")]
+    release_gate: Annotated[ReleaseGateRef | None, Field(alias="releaseGate")] = None
     """
-    The gate policy that applied; null when none did.
+    The release gate that applied; null when none did.
     """
     approval_id: Annotated[str | None, Field(alias="approvalId")] = None
     """
@@ -8802,7 +8936,7 @@ class DeploymentLivePinGate(BaseModel):
     checks: list[GateCheck] | None = None
 
 
-class DeploymentLivePin(BaseModel):
+class DeploymentPinnedAgent(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -8811,9 +8945,9 @@ class DeploymentLivePin(BaseModel):
     version: str
     pinned: bool
     """
-    Live now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).
+    Pinned now (`true`), or waiting on a gate — an approval, or a check it failed (`false`, with `gate`).
     """
-    gate: DeploymentLivePinGate | None = None
+    gate: DeploymentPinGate | None = None
 
 
 class DeploymentPinnedFlow(BaseModel):
@@ -8943,7 +9077,7 @@ class EvidenceKind(RootModel[str]):
                 "secret-rotation",
                 "incident-event",
                 "guardrail-violation",
-                "eval-run",
+                "test-run",
                 "approval-completed",
                 "data-retention-action",
                 "authn-event",
@@ -8966,11 +9100,10 @@ class EvidenceKind(RootModel[str]):
                 "hitl-decision",
                 "wait-token-completed",
                 "wait-token-discarded",
-                "agent-promotion",
-                "agent-promotion-refused",
-                "agent-rollback",
-                "agent-live-unpinned",
-                "agent-live-pin-inactive",
+                "agent-pinned",
+                "agent-pin-refused",
+                "agent-unpinned",
+                "agent-pin-inactive",
                 "flow-pinned",
                 "flow-unpinned",
                 "flow-pin-inactive",
@@ -9119,7 +9252,7 @@ class ComplianceEvidence(BaseModel):
                 "secret-rotation",
                 "incident-event",
                 "guardrail-violation",
-                "eval-run",
+                "test-run",
                 "approval-completed",
                 "data-retention-action",
                 "authn-event",
@@ -9142,11 +9275,10 @@ class ComplianceEvidence(BaseModel):
                 "hitl-decision",
                 "wait-token-completed",
                 "wait-token-discarded",
-                "agent-promotion",
-                "agent-promotion-refused",
-                "agent-rollback",
-                "agent-live-unpinned",
-                "agent-live-pin-inactive",
+                "agent-pinned",
+                "agent-pin-refused",
+                "agent-unpinned",
+                "agent-pin-inactive",
                 "flow-pinned",
                 "flow-unpinned",
                 "flow-pin-inactive",
@@ -9223,7 +9355,7 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "secret-rotation",
                 "incident-event",
                 "guardrail-violation",
-                "eval-run",
+                "test-run",
                 "approval-completed",
                 "data-retention-action",
                 "authn-event",
@@ -9246,11 +9378,10 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "hitl-decision",
                 "wait-token-completed",
                 "wait-token-discarded",
-                "agent-promotion",
-                "agent-promotion-refused",
-                "agent-rollback",
-                "agent-live-unpinned",
-                "agent-live-pin-inactive",
+                "agent-pinned",
+                "agent-pin-refused",
+                "agent-unpinned",
+                "agent-pin-inactive",
                 "flow-pinned",
                 "flow-unpinned",
                 "flow-pin-inactive",
@@ -9304,7 +9435,7 @@ class Filter(BaseModel):
                 "secret-rotation",
                 "incident-event",
                 "guardrail-violation",
-                "eval-run",
+                "test-run",
                 "approval-completed",
                 "data-retention-action",
                 "authn-event",
@@ -9327,11 +9458,10 @@ class Filter(BaseModel):
                 "hitl-decision",
                 "wait-token-completed",
                 "wait-token-discarded",
-                "agent-promotion",
-                "agent-promotion-refused",
-                "agent-rollback",
-                "agent-live-unpinned",
-                "agent-live-pin-inactive",
+                "agent-pinned",
+                "agent-pin-refused",
+                "agent-unpinned",
+                "agent-pin-inactive",
                 "flow-pinned",
                 "flow-unpinned",
                 "flow-pin-inactive",
@@ -10211,7 +10341,7 @@ class ScheduleFire(BaseModel):
         _open.OPEN,
     ]
     """
-    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or pass started; its run or pass hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.
+    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or Improve run started; its run or Improve run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.
     """
     run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
@@ -10221,9 +10351,9 @@ class ScheduleFire(BaseModel):
     """
     The trigger's version its run started with: the newest when it started. Absent until the run starts.
     """
-    pass_id: Annotated[UUID | None, Field(alias="passId")] = None
+    improve_run_id: Annotated[UUID | None, Field(alias="improveRunId")] = None
     """
-    The improvement pass it started (an improve schedule).
+    The Improve run it started (an improve schedule).
     """
     detail: str | None = None
     """
@@ -10441,7 +10571,7 @@ class MailTriggerRecord(BaseModel):
     flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
     agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
     """
-    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     project_id: Annotated[UUID, Field(alias="projectId")]
@@ -10562,7 +10692,7 @@ class RegisterMailTriggerBody(BaseModel):
     flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
     agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
     """
-    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
@@ -10606,7 +10736,7 @@ class PatchMailTriggerBody(BaseModel):
     flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
     agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
     """
-    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     config: PatchMailTriggerBodyConfig | None = None
@@ -10692,7 +10822,7 @@ class MailTriggerDefinition(BaseModel):
     flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
     agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
     """
-    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     project_id: Annotated[UUID, Field(alias="projectId")]
@@ -10834,7 +10964,7 @@ class CreateWebhookEndpointBody(BaseModel):
     events: Annotated[
         list[
             Annotated[
-                Literal["run.finished", "improvement-pass.finished", "approval.requested"] | str,
+                Literal["run.finished", "improve-run.finished", "approval.requested"] | str,
                 _open.OPEN,
             ]
         ],
@@ -10858,7 +10988,7 @@ class PatchWebhookEndpointBody(BaseModel):
     events: Annotated[
         list[
             Annotated[
-                Literal["run.finished", "improvement-pass.finished", "approval.requested"] | str,
+                Literal["run.finished", "improve-run.finished", "approval.requested"] | str,
                 _open.OPEN,
             ]
         ]
@@ -11434,7 +11564,7 @@ class Model4(BaseModel):
 
 class Budget3(BaseModel):
     """
-    Each pass's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
+    Each Improve run's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
     """
 
     model_config = ConfigDict(
@@ -11447,21 +11577,21 @@ class Budget3(BaseModel):
 
 class Threshold(BaseModel):
     """
-    Default 5 judgments, across 3 runs, from 2 judges.
+    Default 5 corrections, across 3 runs, from 2 correctors.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    judgments: Annotated[int | None, Field(ge=1, le=1000)] = None
+    corrections: Annotated[int | None, Field(ge=1, le=1000)] = None
     runs: Annotated[int | None, Field(ge=1, le=1000)] = None
-    judges: Annotated[int | None, Field(ge=1, le=1000)] = None
+    correctors: Annotated[int | None, Field(ge=1, le=1000)] = None
 
 
 class ImproveScheduleInput(BaseModel):
     """
-    An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `classWeights` counts them: by default everyone's corrections until a restricted (experts') judge class is named, then experts' only. When there are enough, across enough runs and judges, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.
+    An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `groupWeights` counts them: by default everyone's corrections until a restricted (experts') corrector group is named, then experts' only. When there are enough, across enough runs and correctors, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.
     """
 
     model_config = ConfigDict(
@@ -11469,23 +11599,23 @@ class ImproveScheduleInput(BaseModel):
         populate_by_name=True,
     )
     tiers: list[Literal["settings", "prompt"]] | None = None
-    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = None
-    class_weights: Annotated[
-        Literal["restricted-only", "as-recorded"] | None, Field(alias="classWeights")
+    objective: Literal["passRate", "weightedPrecisionAtK"] | None = None
+    group_weights: Annotated[
+        Literal["experts-only", "as-recorded"] | None, Field(alias="groupWeights")
     ] = None
     model: Model4 | None = None
     candidates: Annotated[int | None, Field(ge=1, le=5)] = None
     budget: Budget3 | None = None
     """
-    Each pass's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
+    Each Improve run's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
     """
     threshold: Threshold | None = None
     """
-    Default 5 judgments, across 3 runs, from 2 judges.
+    Default 5 corrections, across 3 runs, from 2 correctors.
     """
     monthly_cap_usd: Annotated[float | None, Field(alias="monthlyCapUsd", gt=0.0, le=1000.0)] = None
     """
-    The most its passes may cost in a calendar month (UTC). Default 20.
+    The most its Improve runs may cost in a calendar month (UTC). Default 20.
     """
 
 
@@ -11900,9 +12030,9 @@ class CompleteApprovalResultResumeFailed(BaseModel):
     message: str
 
 
-class JudgeClassScopeTenant(BaseModel):
+class CorrectorGroupScopeTenant(BaseModel):
     """
-    Where a judge class applies: the whole tenant, one project, or one agent in a project.
+    Where a corrector group applies: the whole tenant, one project, or one agent in a project.
     """
 
     model_config = ConfigDict(
@@ -11912,9 +12042,9 @@ class JudgeClassScopeTenant(BaseModel):
     kind: Literal["tenant"]
 
 
-class JudgeClassScopeProject(BaseModel):
+class CorrectorGroupScopeProject(BaseModel):
     """
-    Where a judge class applies: the whole tenant, one project, or one agent in a project.
+    Where a corrector group applies: the whole tenant, one project, or one agent in a project.
     """
 
     model_config = ConfigDict(
@@ -11925,9 +12055,9 @@ class JudgeClassScopeProject(BaseModel):
     project_id: Annotated[str, Field(alias="projectId", min_length=1)]
 
 
-class JudgeClassScopeAgent(BaseModel):
+class CorrectorGroupScopeAgent(BaseModel):
     """
-    Where a judge class applies: the whole tenant, one project, or one agent in a project.
+    Where a corrector group applies: the whole tenant, one project, or one agent in a project.
     """
 
     model_config = ConfigDict(
@@ -12192,7 +12322,7 @@ class MCPPromptMessageContentImage(BaseModel):
 
 class Overrides(BaseModel):
     """
-    The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.
+    The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a pin. Absent otherwise.
     """
 
     model_config = ConfigDict(
@@ -12217,11 +12347,11 @@ class ComparisonCandidateAgent(BaseModel):
     version: str
     pins_digest: Annotated[str | None, Field(alias="pinsDigest")] = None
     """
-    The version's pinsDigest: what it ran, as a promotion gate checks. Absent for a version published before pins, and from a comparison recorded before it.
+    The version's pinsDigest: what it ran, as a release gate checks. Absent for a version published before pins, and from a comparison recorded before it.
     """
     overrides: Overrides | None = None
     """
-    The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.
+    The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a pin. Absent otherwise.
     """
 
 
@@ -12251,7 +12381,7 @@ class Version(BaseModel):
     cases: Annotated[int, Field(ge=0)]
 
 
-class JudgedComparisonSummaryBaselineRecorded(BaseModel):
+class CorrectedComparisonSummaryBaselineRecorded(BaseModel):
     """
     What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
     """
@@ -12264,7 +12394,7 @@ class JudgedComparisonSummaryBaselineRecorded(BaseModel):
     versions: list[Version]
 
 
-class JudgedComparisonSummaryBaselineVersion(BaseModel):
+class CorrectedComparisonSummaryBaselineVersion(BaseModel):
     """
     What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
     """
@@ -12276,13 +12406,13 @@ class JudgedComparisonSummaryBaselineVersion(BaseModel):
     kind: Literal["version"]
     agent_id: Annotated[str, Field(alias="agentId")]
     version: str
-    via: Literal["explicit", "live"]
-    live_scope: Annotated[dict[str, Any] | None, Field(alias="liveScope")] = None
+    via: Literal["explicit", "pinned"]
+    pinned_scope: Annotated[dict[str, Any] | None, Field(alias="pinnedScope")] = None
 
 
 class CallDifferenceCount(BaseModel):
     """
-    One way a run's calls differed from a correction; it can quote argument values.
+    One way a run's calls differed from a correction's expected decisions; it can quote argument values.
     """
 
     model_config = ConfigDict(
@@ -12301,7 +12431,7 @@ class CallDifferenceCount(BaseModel):
 
 class CallDifferenceMustNotCall(BaseModel):
     """
-    One way a run's calls differed from a correction; it can quote argument values.
+    One way a run's calls differed from a correction's expected decisions; it can quote argument values.
     """
 
     model_config = ConfigDict(
@@ -12319,7 +12449,7 @@ class CallDifferenceMustNotCall(BaseModel):
 
 class CallDifferenceMissingField(BaseModel):
     """
-    One way a run's calls differed from a correction; it can quote argument values.
+    One way a run's calls differed from a correction's expected decisions; it can quote argument values.
     """
 
     model_config = ConfigDict(
@@ -12338,7 +12468,7 @@ class CallDifferenceMissingField(BaseModel):
 
 class CallDifferenceFieldValue(BaseModel):
     """
-    One way a run's calls differed from a correction; it can quote argument values.
+    One way a run's calls differed from a correction's expected decisions; it can quote argument values.
     """
 
     model_config = ConfigDict(
@@ -12549,6 +12679,15 @@ class RunWaitingTokenTool(BaseModel):
     """
 
 
+class ReleaseGateSpecComparisonTestSet(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str | None = None
+
+
 class Call(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -12571,7 +12710,7 @@ class Call(BaseModel):
     result: Any | None = None
     from_event: Annotated[Literal[True] | None, Field(alias="fromEvent")] = None
     """
-    An agent step's turn kept the result as outside data: another system's answer to a paused call, or a result its tool says is outside data. A replay hands it to the model as data, as the turn did. Absent for a tool node's call, and for a run judged before the mark was kept.
+    An agent step's turn kept the result as outside data: another system's answer to a paused call, or a result its tool says is outside data. A replay hands it to the model as data, as the turn did. Absent for a tool node's call, and for a run corrected before the mark was kept.
     """
 
 
@@ -12595,9 +12734,9 @@ class Step(BaseModel):
     """
 
 
-class JudgedRunContextFlow(BaseModel):
+class CorrectedRunContextFlow(BaseModel):
     """
-    For a flow run: what it did, kept at its first judgment so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.
+    For a flow run: what it did, kept at its first correction so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.
     """
 
     model_config = ConfigDict(
@@ -12612,22 +12751,22 @@ class JudgedRunContextFlow(BaseModel):
     """
 
 
-class JudgedEvalCaseCorrection(BaseModel):
+class CorrectedTestCaseCorrection(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    correction_id: Annotated[str, Field(alias="correctionId")]
     """
-    The judgment the correction was recorded on.
+    The correction they were recorded on.
     """
-    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
+    corrector_group_id: Annotated[str | None, Field(alias="correctorGroupId")] = None
     """
-    The judgment's class, when it had one.
+    The correction's group, when it had one.
     """
-    restricted: Literal[True] | None = None
+    expert: Literal[True] | None = None
     """
-    Set when the judgment was recorded while its class was restricted (`Judgment.restricted`).
+    Set when the correction was recorded while its group was restricted (`Correction.expert`).
     """
     calls: Annotated[list[ExpectedCall], Field(max_length=50)]
     """
@@ -12639,9 +12778,18 @@ class JudgedEvalCaseCorrection(BaseModel):
     """
 
 
-class JudgedComparisonSummaryScope(BaseModel):
+class CorrectedComparisonSummaryTestSet(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str
+
+
+class CorrectedComparisonSummaryScope(BaseModel):
     """
-    Where the test set's judgments came from.
+    Where the test set's corrections came from.
     """
 
     model_config = ConfigDict(
@@ -12651,18 +12799,9 @@ class JudgedComparisonSummaryScope(BaseModel):
     project_id: Annotated[str | None, Field(alias="projectId")] = None
 
 
-class JudgedComparisonSummaryCorrectionsJudgment(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    judgment_id: Annotated[str, Field(alias="judgmentId")]
-    pass_: Annotated[bool, Field(alias="pass")]
-
-
 class ComparisonCaseResultBaseline(BaseModel):
     """
-    An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
+    An output's score: Σ yesWeight and Σ totalWeight over its corrected items, and over those among the first `k` ranked items.
     """
 
     model_config = ConfigDict(
@@ -12672,11 +12811,11 @@ class ComparisonCaseResultBaseline(BaseModel):
     yes_weight: Annotated[float, Field(alias="yesWeight")]
     total_weight: Annotated[float, Field(alias="totalWeight")]
     items: Annotated[int, Field(ge=0)]
-    judged_items: Annotated[int, Field(alias="judgedItems", ge=0)]
+    corrected_items: Annotated[int, Field(alias="correctedItems", ge=0)]
     top_k: Annotated[TopK, Field(alias="topK")]
     fresh: Fresh | None = None
     """
-    The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.
+    The part of these sums corrected on this output itself (a replay corrected after it ran). Absent when none was.
     """
 
 
@@ -12703,7 +12842,7 @@ class ComparisonCaseResultCorrection(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    correction_id: Annotated[str, Field(alias="correctionId")]
     pass_: Annotated[bool, Field(alias="pass")]
     """
     Passed only when every repetition passed.
@@ -12898,6 +13037,21 @@ class AccessPathUnrecognized(BaseModel):
     """
 
 
+class AgentPinScopeUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
 class CodeArtifactRefUnrecognized(BaseModel):
     """
     A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
@@ -12914,6 +13068,51 @@ class CodeArtifactRefUnrecognized(BaseModel):
 
 
 class CompleteApprovalResultResumeUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class CorrectionLinkUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class CorrectionSortedByUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class CorrectorGroupScopeUnrecognized(BaseModel):
     """
     A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
     """
@@ -12989,36 +13188,6 @@ class HttpRequestBodySpecUnrecognized(BaseModel):
 
 
 class IdentityProviderConfigUnrecognized(BaseModel):
-    """
-    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: str
-    """
-    The `kind` it came with.
-    """
-
-
-class JudgeClassScopeUnrecognized(BaseModel):
-    """
-    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: str
-    """
-    The `kind` it came with.
-    """
-
-
-class LiveScopeUnrecognized(BaseModel):
     """
     A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
     """
@@ -13263,7 +13432,7 @@ class RunWaitingToken(BaseModel):
     """
 
 
-class LiveVersionResolution(BaseModel):
+class AgentPinnedVersionResolution(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -13273,58 +13442,58 @@ class LiveVersionResolution(BaseModel):
     """
     The version a run would use (semver).
     """
-    via: Annotated[Literal["live", "latest"] | str, _open.OPEN]
+    via: Annotated[Literal["pinned", "latest"] | str, _open.OPEN]
     """
-    A live pin chose it, or nothing is live on the way up and it is the latest.
+    A pin chose it, or nothing is pinned on the way up and it is the latest.
     """
-    live_scope: Annotated[
+    pinned_scope: Annotated[
         Annotated[
-            LiveScopeTenant
-            | LiveScopeOrg
-            | LiveScopeProject
-            | LiveScopeSegment
-            | LiveScopeUnrecognized,
-            _open.OpenUnion("kind", LiveScopeUnrecognized),
+            PinScopeTenant
+            | PinScopeOrg
+            | PinScopeProject
+            | PinScopeSegment
+            | AgentPinScopeUnrecognized,
+            _open.OpenUnion("kind", AgentPinScopeUnrecognized),
         ]
         | None,
-        Field(alias="liveScope"),
+        Field(alias="pinnedScope"),
     ] = None
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
 
 
-class LivePin(BaseModel):
+class AgentPinnedVersion(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     agent_id: Annotated[str, Field(alias="agentId")]
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
     version: str
-    promotion_id: Annotated[UUID, Field(alias="promotionId")]
+    change_id: Annotated[UUID, Field(alias="changeId")]
     """
-    The promotion that set it.
+    The pin change that set it.
     """
     set_at: Annotated[AwareDatetime, Field(alias="setAt")]
 
 
-class LivePinList(BaseModel):
+class AgentPinnedVersionList(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[LivePin]
+    data: list[AgentPinnedVersion]
 
 
 class ProjectPinnedVersionPage(BaseModel):
@@ -13332,14 +13501,14 @@ class ProjectPinnedVersionPage(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    data: list[LivePin]
+    data: list[AgentPinnedVersion]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class Promotion(BaseModel):
+class Pin(BaseModel):
     """
-    One change of a scope's live version, kept for good: what was live before, what is after, who asked and why.
+    One change of a scope's pinned version, kept for good: what was pinned before, what is after, who asked and why.
     """
 
     model_config = ConfigDict(
@@ -13349,17 +13518,17 @@ class Promotion(BaseModel):
     id: UUID
     agent_id: Annotated[str, Field(alias="agentId")]
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
-    action: Annotated[Literal["promote", "rollback", "unpin"] | str, _open.OPEN]
+    action: Annotated[Literal["pin", "unpin"] | str, _open.OPEN]
     from_version: Annotated[str | None, Field(alias="fromVersion")]
     """
     The scope's own pin before; null when it had none.
@@ -13370,43 +13539,43 @@ class Promotion(BaseModel):
     """
     requested_by: Annotated[RequestedBy, Field(alias="requestedBy")]
     reason: str | None = None
-    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    test_run_id: Annotated[str | None, Field(alias="testRunId")] = None
     """
-    The comparison the change was judged on.
+    The comparison behind the change.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     status: (
         Annotated[
-            Literal["promoted", "pending-approval", "refused", "superseded", "rejected", "expired"]
+            Literal["pinned", "pending-approval", "refused", "superseded", "rejected", "expired"]
             | str,
             _open.OPEN,
         ]
         | None
     ) = None
     """
-    A `promote` row's state: it changes once, from `pending-approval` to its final state. Absent on rollback and unpin rows, and on promotions made before gates (`promoted`).
+    A `pin` row's state: it changes once, from `pending-approval` to its final state. Absent on unpin rows, and on pins made before gates (`pinned`).
     """
-    policy: GatePolicyRef | None = None
+    release_gate: Annotated[ReleaseGateRef | None, Field(alias="releaseGate")] = None
     """
-    The gate policy that applied; null when none did. Absent before gates.
+    The release gate that applied; null when none did. Absent before gates.
     """
     checks: list[GateCheck] | None = None
     approval_id: Annotated[str | None, Field(alias="approvalId")] = None
     """
-    The approval a `pending-approval` promotion waits on (kept once decided).
+    The approval a `pending-approval` pin waits on (kept once decided).
     """
     resolved_at: Annotated[AwareDatetime | None, Field(alias="resolvedAt")] = None
     """
-    When a `pending-approval` promotion reached its final state.
+    When a `pending-approval` pin reached its final state.
     """
 
 
-class PromotionPage(BaseModel):
+class PinPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Promotion]
+    data: list[Pin]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
@@ -13547,7 +13716,45 @@ class UnpinVersionBody(BaseModel):
     reason: Annotated[str | None, Field(max_length=2000)] = None
 
 
-class GatePolicy(BaseModel):
+class Comparison(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    max_age_hours: Annotated[float | None, Field(alias="maxAgeHours", gt=0.0)] = None
+    test_set: Annotated[ReleaseGateSpecComparisonTestSet | None, Field(alias="testSet")] = None
+
+
+class ReleaseGateSpec(BaseModel):
+    """
+    What a pin must show. Every part is optional; an empty spec checks nothing. A pin must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    comparison: Comparison | None = None
+    evidence: Evidence | None = None
+    """
+    The evidence from corrections behind each gated metric; for a metric with `maxDrop`, the baseline's too.
+    """
+    metrics: list[Metric] | None = None
+    replay: Replay | None = None
+    """
+    Each knob left out of the block is 0. No block: no replay checks.
+    """
+    approvals: Approvals | None = None
+    """
+    A passing pin waits for a reviewer.
+    """
+    only_expert_groups: Annotated[bool | None, Field(alias="onlyExpertGroups")] = None
+    """
+    Only expert groups count: the comparison must be weighted `experts-only`, so a group anyone may assert can't move the gate.
+    """
+
+
+class ReleaseGate(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -13556,33 +13763,33 @@ class GatePolicy(BaseModel):
     version: str
     agent_id: Annotated[str, Field(alias="agentId")]
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
-    spec: GatePolicySpec
+    spec: ReleaseGateSpec
     description: str | None = None
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
 
 
-class GatePolicyPage(BaseModel):
+class ReleaseGatePage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[GatePolicy]
+    data: list[ReleaseGate]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class PublishGatePolicyBody(BaseModel):
+class PublishReleaseGateBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -13594,96 +13801,73 @@ class PublishGatePolicyBody(BaseModel):
     version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
     agent_id: Annotated[str, Field(alias="agentId")]
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
-    spec: GatePolicySpec
+    spec: ReleaseGateSpec
     description: str | None = None
 
 
-class GatePolicyResolution(BaseModel):
+class ReleaseGateResolution(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    policy: GatePolicy | None
+    release_gate: Annotated[ReleaseGate | None, Field(alias="releaseGate")]
     """
-    The policy that gates a promotion for the scope; null when none does.
+    The release gate that checks a pin for the scope; null when none does.
     """
 
 
-class PromoteBody(BaseModel):
+class AgentPinBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     version: str
     """
-    The agent version to make live (registered, active).
+    The agent version to pin (registered, active).
     """
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
     reason: Annotated[str | None, Field(max_length=2000)] = None
-    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    test_run_id: Annotated[str | None, Field(alias="testRunId")] = None
     """
-    The comparison this promotion was judged on.
+    The comparison behind this pin.
     """
 
 
-class RollbackBody(BaseModel):
+class AgentUnpinBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
-    """
-    to_version: Annotated[str | None, Field(alias="toVersion")] = None
-    """
-    An earlier version to go back to; omit → the scope's previous live version.
-    """
-    reason: Annotated[str | None, Field(max_length=2000)] = None
-
-
-class UnpinBody(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
-    ]
-    """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
     reason: Annotated[str | None, Field(max_length=2000)] = None
 
@@ -14253,7 +14437,7 @@ class LicenseStatus(BaseModel):
     preview: LicensePreview | None = None
 
 
-class JudgeClass(BaseModel):
+class CorrectorGroup(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -14261,39 +14445,41 @@ class JudgeClass(BaseModel):
     id: str
     tenant_id: Annotated[str, Field(alias="tenantId")]
     scope: Annotated[
-        JudgeClassScopeTenant
-        | JudgeClassScopeProject
-        | JudgeClassScopeAgent
-        | JudgeClassScopeUnrecognized,
-        _open.OpenUnion("kind", JudgeClassScopeUnrecognized),
+        CorrectorGroupScopeTenant
+        | CorrectorGroupScopeProject
+        | CorrectorGroupScopeAgent
+        | CorrectorGroupScopeUnrecognized,
+        _open.OpenUnion("kind", CorrectorGroupScopeUnrecognized),
     ]
     """
-    Where a judge class applies: the whole tenant, one project, or one agent in a project.
+    Where a corrector group applies: the whole tenant, one project, or one agent in a project.
     """
     name: str
     """
-    The deployment's own word for the class: "expert", "user", "arbitrator".
+    The deployment's own word for the group: "expert", "user", "arbitrator".
     """
     weight: Annotated[float, Field(ge=0.0)]
     """
-    How much a judgment of this class counts, relative to the others.
+    How much a correction of this group counts, relative to the others.
     """
     description: str | None = None
-    assertable_by: Annotated[JudgeClassAssertableByView | None, Field(alias="assertableBy")] = None
+    assertable_by: Annotated[CorrectorGroupAssertableByView | None, Field(alias="assertableBy")] = (
+        None
+    )
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
     """
-    Set when the class was retired.
+    Set when the group was retired.
     """
 
 
-class JudgeClassCollectionPage(BaseModel):
+class CorrectorGroupCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[JudgeClass]
+    data: list[CorrectorGroup]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
     Opaque cursor. Treat as opaque on the client.
@@ -14301,43 +14487,59 @@ class JudgeClassCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class CreateJudgeClassBody(BaseModel):
+class CreateCorrectorGroupBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     scope: Annotated[
-        JudgeClassScopeTenant
-        | JudgeClassScopeProject
-        | JudgeClassScopeAgent
-        | JudgeClassScopeUnrecognized,
-        _open.OpenUnion("kind", JudgeClassScopeUnrecognized),
+        CorrectorGroupScopeTenant
+        | CorrectorGroupScopeProject
+        | CorrectorGroupScopeAgent
+        | CorrectorGroupScopeUnrecognized,
+        _open.OpenUnion("kind", CorrectorGroupScopeUnrecognized),
     ]
     """
-    Where a judge class applies: the whole tenant, one project, or one agent in a project.
+    Where a corrector group applies: the whole tenant, one project, or one agent in a project.
     """
     name: Annotated[str, Field(max_length=100, min_length=1)]
     weight: Annotated[float, Field(ge=0.0)]
     description: str | None = None
-    assertable_by: Annotated[JudgeClassAssertableBy | None, Field(alias="assertableBy")] = None
+    assertable_by: Annotated[CorrectorGroupAssertableBy | None, Field(alias="assertableBy")] = None
 
 
-class UpdateJudgeClassBody(BaseModel):
+class UpdateCorrectorGroupBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     weight: Annotated[float | None, Field(ge=0.0)] = None
     description: str | None = None
-    assertable_by: Annotated[JudgeClassAssertableBy | None, Field(alias="assertableBy")] = None
+    assertable_by: Annotated[CorrectorGroupAssertableBy | None, Field(alias="assertableBy")] = None
     """
-    Who may assert the class; `null` lifts the restriction.
+    Who may assert the group; `null` lifts the restriction.
     """
 
 
-class JudgedRunContext(BaseModel):
+class CorrectionSorted(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    by: Annotated[
+        By | By1 | CorrectionSortedByUnrecognized,
+        _open.OpenUnion("kind", CorrectionSortedByUnrecognized),
+    ]
     """
-    What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results. For both: the env values its tools were sent.
+    The fix job, the rule at save, or the caller who re-sorted it: a user or a service, with its id.
+    """
+    reason: str | None = None
+    at: AwareDatetime
+
+
+class CorrectedRunContext(BaseModel):
+    """
+    What a corrected run needs besides its input to be replayed, captured when it was first corrected. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results. For both: the env values its tools were sent.
     """
 
     model_config = ConfigDict(
@@ -14364,9 +14566,9 @@ class JudgedRunContext(BaseModel):
     """
     The reviewer's decision at the turn's session approval gate, when the turn waited on one. A replay of the turn follows it.
     """
-    flow: JudgedRunContextFlow | None = None
+    flow: CorrectedRunContextFlow | None = None
     """
-    For a flow run: what it did, kept at its first judgment so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.
+    For a flow run: what it did, kept at its first correction so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.
     """
     tool_env: Annotated[dict[str, dict[str, str]] | None, Field(alias="toolEnv")] = None
     """
@@ -14374,13 +14576,13 @@ class JudgedRunContext(BaseModel):
     """
     replay_of: Annotated[str | None, Field(alias="replayOf")] = None
     """
-    When the judged run is a comparison's replay: the run it re-ran, stamped at its first judgment. A test set built from judgments leaves replays out.
+    When the corrected run is a comparison's replay: the run it re-ran, stamped at its first correction. A test set built from corrections leaves replays out.
     """
 
 
-class JudgedRunCopy(BaseModel):
+class CorrectedRunCopy(BaseModel):
     """
-    The stored copy of a judged run's input and output, taken when it was first judged.
+    The stored copy of a corrected run's input and output, taken when it was first corrected.
     """
 
     model_config = ConfigDict(
@@ -14388,36 +14590,20 @@ class JudgedRunCopy(BaseModel):
         populate_by_name=True,
     )
     run_id: Annotated[str, Field(alias="runId")]
-    subject: JudgedSubject
+    subject: CorrectedSubject
     input: Any
-    context: JudgedRunContext | None = None
+    context: CorrectedRunContext | None = None
     output: Any
     segments: list[ScopeSegment] | None = None
     """
-    The segment path the run was started with (empty: none). Absent for runs judged before it was recorded.
+    The segment path the run was started with (empty: none). Absent for runs corrected before it was recorded.
     """
     captured_at: Annotated[AwareDatetime, Field(alias="capturedAt")]
 
 
-class JudgmentWithCopies(Judgment):
+class CorrectedTestCase(BaseModel):
     """
-    A judgment with the stored copies of what was judged.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    run: JudgedRunCopy
-    item_value: Annotated[Any | None, Field(alias="itemValue")] = None
-    """
-    The judged item's value, when the judgment pointed at it.
-    """
-
-
-class JudgedEvalCase(BaseModel):
-    """
-    One case of a `judged` eval suite: a copy of a judged run with its items' judgments summed up.
+    One case of a `corrections` test set: a copy of a corrected run with its items' corrections summed up.
     """
 
     model_config = ConfigDict(
@@ -14426,29 +14612,29 @@ class JudgedEvalCase(BaseModel):
     )
     case_id: Annotated[str, Field(alias="caseId")]
     """
-    The judged run's id.
+    The corrected run's id.
     """
-    subject: JudgedSubject
+    subject: CorrectedSubject
     input: Any
-    context: JudgedRunContext | None = None
+    context: CorrectedRunContext | None = None
     output: Any
-    items: list[JudgedItemSummary]
-    corrections: list[JudgedEvalCaseCorrection] | None = None
+    items: list[CorrectedItemSummary]
+    corrections: list[CorrectedTestCaseCorrection] | None = None
     """
-    Experts' corrections carried onto this case from its judgments, each graded on the replay. Empty or absent when none. `restricted-only` keeps only the entries whose judgment was restricted.
+    Experts' expected decisions carried onto this case from its corrections, each graded on the replay. Empty or absent when none. `experts-only` keeps only the entries whose correction was restricted.
     """
     erased: Literal[True] | None = None
     """
-    An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and eval runs leave it out (counted as `erased`).
+    An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and test runs leave it out (counted as `erased`).
     """
 
 
-class JudgedEvalCaseCollectionPage(BaseModel):
+class CorrectedTestCaseCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[JudgedEvalCase]
+    data: list[CorrectedTestCase]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
     Opaque cursor. Treat as opaque on the client.
@@ -14523,6 +14709,10 @@ class Agent(BaseModel):
     ] = None
     """
     Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks.
+    """
+    owner: AgentOwner | None = None
+    """
+    `GET /v1/agents/{agentId}` only: the agent's owner, absent until one is set (`PUT /v1/agents/{agentId}/owner`).
     """
 
 
@@ -14700,21 +14890,21 @@ class RegisterToolBody(BaseModel):
     spec: ToolSpec | None = None
 
 
-class ProposalEvaluation(BaseModel):
+class SuggestedChangeEvaluation(BaseModel):
     """
-    The comparison the proposal was evaluated with, and what it found on the objective metric (the full summary is the eval run's).
+    The comparison the suggested change was evaluated with, and what it found on the objective metric (the full summary is the test run's).
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    eval_run_id: Annotated[UUID, Field(alias="evalRunId")]
-    suite_id: Annotated[str, Field(alias="suiteId")]
+    test_run_id: Annotated[UUID, Field(alias="testRunId")]
+    test_set_id: Annotated[str, Field(alias="testSetId")]
     """
-    The test set (a judged eval suite).
+    The test set (a corrections test set).
     """
-    objective: Annotated[Literal["weightedYesShare", "weightedPrecisionAtK"] | str, _open.OPEN]
+    objective: Annotated[Literal["passRate", "weightedPrecisionAtK"] | str, _open.OPEN]
     started_at: Annotated[AwareDatetime, Field(alias="startedAt")]
     run_status: Annotated[
         Annotated[
@@ -14724,11 +14914,11 @@ class ProposalEvaluation(BaseModel):
         Field(alias="runStatus"),
     ] = None
     """
-    The eval run's status. Absent when the run can't be read.
+    The test run's status. Absent when the run can't be read.
     """
     baseline: float | None = None
     """
-    The recorded outputs' score; `null` without judged evidence.
+    The recorded outputs' score; `null` without evidence from corrections.
     """
     candidate: float | None = None
     """
@@ -14748,13 +14938,13 @@ class ProposalEvaluation(BaseModel):
     """
     How the candidate is kept. `better`: it beats the recorded outputs by more than the noise. `cheaper`: it's no worse than the current version replayed on the same cases (beyond that run's spread) and costs less (beyond the cost's own spread), with no errored case; `better` may then be false while the status is `evaluated`. Absent: `better`.
     """
-    cost_usd: Annotated[ProposalCost | None, Field(alias="costUsd")] = None
-    decisions: ProposalDecisions | None = None
+    cost_usd: Annotated[SuggestedChangeCost | None, Field(alias="costUsd")] = None
+    decisions: SuggestedChangeDecisions | None = None
 
 
-class FixProposal(BaseModel):
+class SuggestedChange(BaseModel):
     """
-    An improvement proposal: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.
+    A suggested change: a change to one data block an agent version pins, for one pin scope, taken through the same comparison, gate and pin as any other version.
     """
 
     model_config = ConfigDict(
@@ -14768,27 +14958,27 @@ class FixProposal(BaseModel):
     The agent version the change applies to.
     """
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
     tier: Annotated[Literal["settings-block", "prompt-block"] | str, _open.OPEN]
     """
-    What a proposal changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
+    What a suggested change changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
     """
-    change: ProposalChange
-    hypothesis: str
+    change: SuggestedChangeBlockEdit
+    why: str
     """
     What the change should improve, and why.
     """
-    evidence: ProposalEvidence | None = None
-    drafter: ProposalDrafter
+    evidence: SuggestedChangeEvidence | None = None
+    made_by: Annotated[SuggestedChangeMadeBy, Field(alias="madeBy")]
     status: Annotated[
         Literal[
             "draft",
@@ -14797,7 +14987,7 @@ class FixProposal(BaseModel):
             "not-better",
             "evaluation-failed",
             "in-review",
-            "promoted",
+            "pinned",
             "refused",
             "rejected",
             "expired",
@@ -14809,30 +14999,30 @@ class FixProposal(BaseModel):
         _open.OPEN,
     ]
     """
-    Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.
+    Where a suggested change stands, from its comparison and its pin (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `pinned`: pinned for the scope (`pin.pinnedNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's pinned version or policy changed. `rolled-back`: only on an older suggested change rolled back by its own `rollback`, which is removed; going back is a pin of an earlier version, through the agent's pin routes, and leaves it `pinned`. `withdrawn`: withdrawn.
     """
-    candidate: ProposalCandidate | None = None
-    evaluation: ProposalEvaluation | None = None
-    promotion: ProposalPromotion | None = None
+    candidate: SuggestedChangeCandidate | None = None
+    evaluation: SuggestedChangeEvaluation | None = None
+    pin: SuggestedChangePin | None = None
     rolled_back: Annotated[RolledBack | None, Field(alias="rolledBack")] = None
     withdrawn: Withdrawn | None = None
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
 
 
-class FixProposalCollectionPage(BaseModel):
+class SuggestedChangeCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[FixProposal]
+    data: list[SuggestedChange]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class ImprovementPass(BaseModel):
+class ImproveRun(BaseModel):
     """
-    An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes an improvement proposal.
+    An Improve run: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes a suggested change.
     """
 
     model_config = ConfigDict(
@@ -14846,36 +15036,36 @@ class ImprovementPass(BaseModel):
     The version whose settings it tunes.
     """
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
-    suite_id: Annotated[str, Field(alias="suiteId")]
+    test_set_id: Annotated[str, Field(alias="testSetId")]
     """
     The test set it searches and proves on.
     """
     tiers: list[Annotated[Literal["settings", "prompt"] | str, _open.OPEN]]
-    objective: Annotated[Literal["weightedYesShare", "weightedPrecisionAtK"] | str, _open.OPEN]
-    class_weights: Annotated[
-        Annotated[Literal["as-recorded", "restricted-only"] | str, _open.OPEN] | None,
-        Field(alias="classWeights"),
+    objective: Annotated[Literal["passRate", "weightedPrecisionAtK"] | str, _open.OPEN]
+    group_weights: Annotated[
+        Annotated[Literal["as-recorded", "experts-only"] | str, _open.OPEN] | None,
+        Field(alias="groupWeights"),
     ] = None
     """
-    Which judgments its comparisons count. Absent from older servers: `restricted-only`.
+    Which corrections its comparisons count. Absent from older servers: `experts-only`.
     """
     model: Model1 | None = None
     """
-    For a prompt pass: the provider and model that drafts the templates.
+    For a prompt Improve run: the provider and model that drafts the templates.
     """
     candidates: Annotated[int | None, Field(ge=1, le=5)] = None
     """
-    For a prompt pass: how many templates it drafts.
+    For a prompt Improve run: how many templates it drafts.
     """
     budget: ImprovementBudget
     requested_by: Annotated[str, Field(alias="requestedBy")]
@@ -14885,37 +15075,37 @@ class ImprovementPass(BaseModel):
     """
     What its comparisons have cost so far (US dollars).
     """
-    outcome: ImprovementPassOutcome | None = None
+    outcome: ImproveRunOutcome | None = None
     cancel_reason: Annotated[str | None, Field(alias="cancelReason")] = None
     """
-    Why a `cancelled` pass stopped when nobody cancelled it: a comparison's eval run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no proposal. Absent when it was cancelled.
+    Why a `cancelled` Improve run stopped when nobody cancelled it: a comparison's test run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no suggested change. Absent when it was cancelled.
     """
     comparisons: list[Comparison1] | None = None
     """
-    Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.
+    Its comparisons so far, each a test run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the suggested change, on the hold-out part). Absent from older servers.
     """
     trigger: Trigger | None = None
     """
-    The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for a pass a person started.
+    The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for an Improve run a person started.
     """
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
     finished_at: Annotated[AwareDatetime | None, Field(alias="finishedAt")] = None
 
 
-class ImprovementPassCollectionPage(BaseModel):
+class ImproveRunCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[ImprovementPass]
+    data: list[ImproveRun]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class ImproveBody(BaseModel):
+class StartImproveRunBody(BaseModel):
     """
-    Start an improvement pass.
+    Start an Improve run.
     """
 
     model_config = ConfigDict(
@@ -14929,53 +15119,53 @@ class ImproveBody(BaseModel):
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The project the pass works in: `suiteId` must be a test set it reaches, the version must reach it, and the pass's eval runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.
+    The project the Improve run works in: `testSetId` must be a test set it reaches, the version must reach it, and the Improve run's test runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.
     """
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
-    suite_id: Annotated[str, Field(alias="suiteId")]
+    test_set_id: Annotated[str, Field(alias="testSetId")]
     """
-    The test set (a judged eval suite). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.
+    The test set (a corrections test set). The Improve run splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.
     """
     tiers: Annotated[
         list[Literal["settings", "prompt"]] | None, Field(max_length=1, min_length=1)
     ] = ["settings"]
     """
-    `['settings']`: values for the tunable settings keys. `['prompt']`: a model drafts templates for the prompt block (needs `model`); a template that reads or names anything the agent doesn't have is refused, and a drafted proposal always waits for a reviewer.
+    `['settings']`: values for the tunable settings keys. `['prompt']`: a model drafts templates for the prompt block (needs `model`); a template that reads or names anything the agent doesn't have is refused, and a drafted suggested change always waits for a reviewer.
     """
     model: Model2 | None = None
     """
-    For a prompt pass: the tenant's provider and model that drafts the templates.
+    For a prompt Improve run: the tenant's provider and model that drafts the templates.
     """
     candidates: Annotated[int | None, Field(ge=1, le=5)] = 3
     """
-    For a prompt pass: how many templates it drafts.
+    For a prompt Improve run: how many templates it drafts.
     """
-    class_weights: Annotated[
-        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
+    group_weights: Annotated[
+        Literal["as-recorded", "experts-only"] | None, Field(alias="groupWeights")
     ] = None
     """
-    Which judgments the pass learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the pass reads its judgments from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has a restricted judge class, then only judgments recorded under one (`restricted-only`).
+    Which corrections the Improve run learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the Improve run reads its corrections from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has an expert group, then only corrections recorded under one (`experts-only`).
     """
-    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
+    objective: Literal["passRate", "weightedPrecisionAtK"] | None = "passRate"
     budget: Budget2 | None = None
     """
     Default: $5 and 30 candidates.
     """
 
 
-class CreateProposalBody(BaseModel):
+class CreateSuggestedChangeBody(BaseModel):
     """
-    A hand-written proposal: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one proposal (answered with `X-Proposal-Deduped: true`).
+    A hand-written suggested change: new content for a data block that `fromVersion` pins, for a pin scope. The same change from the same version for the same scope is one suggested change (answered with `X-Suggested-Change-Deduped: true`).
     """
 
     model_config = ConfigDict(
@@ -14988,49 +15178,49 @@ class CreateProposalBody(BaseModel):
     The agent version the change applies to.
     """
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
     tier: Annotated[Literal["settings-block", "prompt-block"] | str, _open.OPEN]
     """
-    What a proposal changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
+    What a suggested change changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
     """
     change: Change
-    hypothesis: Annotated[str, Field(max_length=2000, min_length=1)]
+    why: Annotated[str, Field(max_length=2000, min_length=1)]
     evidence: Evidence1 | None = None
 
 
-class EvaluateProposalBody(BaseModel):
+class EvaluateSuggestedChangeBody(BaseModel):
     """
-    Compare the proposal's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).
+    Compare the suggested change's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until pinned).
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    suite_id: Annotated[str, Field(alias="suiteId")]
+    test_set_id: Annotated[str, Field(alias="testSetId")]
     """
-    The test set: a judged eval suite.
+    The test set: a corrections test set.
     """
-    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
+    objective: Literal["passRate", "weightedPrecisionAtK"] | None = "passRate"
     """
     The metric that says whether the candidate is better.
     """
     reads: Literal["recorded", "live"] | None = None
     repetitions: Annotated[int | None, Field(ge=1, le=10)] = None
     k: Annotated[int | None, Field(ge=1, le=100)] = None
-    class_weights: Annotated[
-        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
+    group_weights: Annotated[
+        Literal["as-recorded", "experts-only"] | None, Field(alias="groupWeights")
     ] = None
-    sample: EvalSample | None = None
+    sample: TestRunSample | None = None
 
 
 class CallUsage(BaseModel):
@@ -15285,53 +15475,30 @@ class CostRecordCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class Corrections(BaseModel):
+class CorrectedComparisonSummary(BaseModel):
     """
-    Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    checked: Annotated[int, Field(ge=0)]
-    """
-    How many corrections were graded.
-    """
-    passed: Annotated[int, Field(ge=0)]
-    """
-    How many passed (every repetition passed).
-    """
-    judgments: list[JudgedComparisonSummaryCorrectionsJudgment] | None = None
-    """
-    Each correction graded, by its judgment: whether it passed (every repetition did). What an improvement pass compares, run to run, to keep only a model-settings change that breaks none the current version passes. Absent from a comparison recorded before it.
-    """
-
-
-class JudgedComparisonSummary(BaseModel):
-    """
-    What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a promotion gate reads.
+    What a comparison concluded: the candidate beside the recorded runs, the case counts, and the metrics. What a release gate reads.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    eval_run_id: Annotated[str, Field(alias="evalRunId")]
+    test_run_id: Annotated[str, Field(alias="testRunId")]
     status: Literal["completed", "partial", "failed"]
     completed_at: Annotated[AwareDatetime, Field(alias="completedAt")]
-    suite: Suite1
+    test_set: Annotated[CorrectedComparisonSummaryTestSet, Field(alias="testSet")]
     candidate: ComparisonCandidateAgent | ComparisonCandidateFlow
     """
     What ran on the cases: an agent version, or a flow version (with any versions it swapped in).
     """
-    baseline: JudgedComparisonSummaryBaselineRecorded | JudgedComparisonSummaryBaselineVersion
+    baseline: CorrectedComparisonSummaryBaselineRecorded | CorrectedComparisonSummaryBaselineVersion
     """
     What the candidate was compared with: `recorded` (the test set's recorded runs, with the versions that served them), or another version.
     """
-    scope: JudgedComparisonSummaryScope
+    scope: CorrectedComparisonSummaryScope
     """
-    Where the test set's judgments came from.
+    Where the test set's corrections came from.
     """
     cases: Annotated[int, Field(ge=0)]
     diverged: Annotated[int, Field(ge=0)]
@@ -15352,7 +15519,7 @@ class JudgedComparisonSummary(BaseModel):
     """
     rescore_of: Annotated[str | None, Field(alias="rescoreOf")] = None
     """
-    A rescore: the comparison eval run whose replays it scored again.
+    A rescore: the comparison test run whose replays it scored again.
     """
     not_rescored: Annotated[int | None, Field(alias="notRescored", ge=1)] = None
     """
@@ -15363,13 +15530,13 @@ class JudgedComparisonSummary(BaseModel):
     Flow cases that stopped at a refused tool call: no output to score, so they're left out of the metrics.
     """
     reads: Literal["recorded", "live"]
-    class_weights: Annotated[
-        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
+    group_weights: Annotated[
+        Literal["as-recorded", "experts-only"] | None, Field(alias="groupWeights")
     ] = None
     """
-    Which judgments counted. Absent from a comparison recorded before restricted classes: `as-recorded`.
+    Which corrections counted. Absent from a comparison recorded before expert groups: `as-recorded`.
     """
-    sample: EvalSample | None = None
+    sample: TestRunSample | None = None
     """
     The part of the test set it ran. Absent: every case.
     """
@@ -15378,9 +15545,9 @@ class JudgedComparisonSummary(BaseModel):
     metrics: Metrics
     corrections: Corrections | None = None
     """
-    Corrections graded across the cases: shown for a promotion gate, not enforced. Absent when the test set carries no corrections.
+    Corrections graded across the cases: shown for a release gate, not enforced. Absent when the test set carries no corrections.
     """
-    cost_usd: Annotated[JudgedComparisonCost | None, Field(alias="costUsd")] = None
+    cost_usd: Annotated[CorrectedComparisonCost | None, Field(alias="costUsd")] = None
 
 
 class CorrectionDifference(BaseModel):
@@ -15388,7 +15555,7 @@ class CorrectionDifference(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    judgment_id: Annotated[str, Field(alias="judgmentId")]
+    correction_id: Annotated[str, Field(alias="correctionId")]
     repetition: Annotated[int, Field(ge=1)]
     """
     Which repetition (1-based) these differences are from.
@@ -15417,7 +15584,7 @@ class ComparisonCaseResult(BaseModel):
     """
     baseline: ComparisonCaseResultBaseline
     """
-    An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
+    An output's score: Σ yesWeight and Σ totalWeight over its corrected items, and over those among the first `k` ranked items.
     """
     candidate: list[CandidateItem]
     """
@@ -15425,7 +15592,7 @@ class ComparisonCaseResult(BaseModel):
     """
     changes: Changes | None = None
     """
-    The first repetition's items against the judged ones.
+    The first repetition's items against the corrected ones.
     """
     tools: list[ComparisonCaseResultTool] | None = None
     """
@@ -15439,7 +15606,7 @@ class ComparisonCaseResult(BaseModel):
         list[CorrectionDifference] | None, Field(alias="correctionDifferences")
     ] = None
     """
-    The ways each correction's calls differed, by judgment: the differences from the first repetition that failed it, and that repetition's number. Quotes argument values, so an erasure clears it (the verdicts and counts stay in `corrections`).
+    The ways each correction's calls differed, by correction: the differences from the first repetition that failed it, and that repetition's number. Quotes argument values, so an erasure clears it (the verdicts and counts stay in `corrections`).
     """
     cost_usd: Annotated[list[CostUsdItem] | None, Field(alias="costUsd")] = None
     """
@@ -15463,16 +15630,16 @@ class ComparisonCaseResult(BaseModel):
     """
 
 
-class JudgedComparisonResult(BaseModel):
+class CorrectedComparisonResult(BaseModel):
     """
-    A comparison's `result` (a `judged` eval run's): the summary and each case. `EvalRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).
+    A comparison's `result` (a `corrections` test run's): the summary and each case. `TestRun.result` stays an open object, since each kind has its own; the clients read it as this (TS `comparisonOf(run)`, Python `comparison_of(run)`).
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    summary: JudgedComparisonSummary
+    summary: CorrectedComparisonSummary
     per_case: Annotated[list[ComparisonCaseResult], Field(alias="perCase")]
 
 
@@ -15770,13 +15937,13 @@ class DeploymentPromotion(BaseModel):
     """
     Edits of the build's agents and flows that stay behind; absent when none.
     """
-    live: list[DeploymentLivePin] | None = None
+    pinned: list[DeploymentPinnedAgent] | None = None
     """
-    Each carried agent pinned live in the target; present only when `makeLive` was asked.
+    Each carried agent's pin in the target, done or held by its gate; present only when `pin` was asked.
     """
     pinned_flows: Annotated[list[DeploymentPinnedFlow] | None, Field(alias="pinnedFlows")] = None
     """
-    Each carried flow version pinned in the target (the project's pin); present only when `makeLive` was asked of a runtime that pins flows.
+    Each carried flow version pinned in the target (the project's pin); present only when `pin` was asked of a runtime that pins flows.
     """
 
 
@@ -16587,8 +16754,7 @@ class WebhookEndpoint(BaseModel):
     url: AnyUrl
     events: list[
         Annotated[
-            Literal["run.finished", "improvement-pass.finished", "approval.requested"] | str,
-            _open.OPEN,
+            Literal["run.finished", "improve-run.finished", "approval.requested"] | str, _open.OPEN
         ]
     ]
     filter: WebhookEndpointFilter
@@ -16765,15 +16931,15 @@ class Data1(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    pass_: Annotated[ImprovementPass, Field(alias="pass")]
+    improve_run: Annotated[ImproveRun, Field(alias="improveRun")]
     """
-    The pass, as `GET /v1/improvement-passes/{passId}` shows it.
+    The Improve run, as `GET /v1/improve-runs/{improveRunId}` shows it.
     """
 
 
-class ImprovementPassFinishedEvent(BaseModel):
+class ImproveRunFinishedEvent(BaseModel):
     """
-    An improvement pass ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the proposal it wrote, if it wrote one.
+    An Improve run ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the suggested change it wrote, if it wrote one.
     """
 
     model_config = ConfigDict(
@@ -16784,14 +16950,14 @@ class ImprovementPassFinishedEvent(BaseModel):
     """
     Event id, also sent as the `webhook-id` header; the same on every retry.
     """
-    type: Literal["improvement-pass.finished"]
+    type: Literal["improve-run.finished"]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     data: Data1
 
 
 class ImproveScheduleTarget(BaseModel):
     """
-    What an improve schedule works on: the agent, and the live scope its passes propose for and count judgments in.
+    What an improve schedule works on: the agent, and the pinned scope its Improve runs suggest changes for and count corrections in.
     """
 
     model_config = ConfigDict(
@@ -16800,15 +16966,15 @@ class ImproveScheduleTarget(BaseModel):
     )
     agent_id: Annotated[str, Field(alias="agentId", min_length=1)]
     scope: Annotated[
-        LiveScopeTenant
-        | LiveScopeOrg
-        | LiveScopeProject
-        | LiveScopeSegment
-        | LiveScopeUnrecognized,
-        _open.OpenUnion("kind", LiveScopeUnrecognized),
+        PinScopeTenant
+        | PinScopeOrg
+        | PinScopeProject
+        | PinScopeSegment
+        | AgentPinScopeUnrecognized,
+        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
     ]
     """
-    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
 
 
@@ -16860,27 +17026,27 @@ class RunAgent(BaseModel):
     conversation_id: Annotated[UUID, Field(alias="conversationId")]
     via: (
         Annotated[
-            Literal["explicit", "flow-pin", "conversation", "live", "latest"] | str, _open.OPEN
+            Literal["explicit", "flow-pin", "conversation", "pinned", "latest"] | str, _open.OPEN
         ]
         | None
     ) = None
     """
-    Why this version ran: named by the caller (`explicit`); held by the flow version a flow's agent step runs in (`flow-pin`: the node's `config.version`, else the version the flow version pinned when it was published); the conversation's own (`conversation`); the version live for the run's scope (`live`); or the latest, nothing being live (`latest`). Absent on runs from before Kindgi 0.1.4.
+    Why this version ran: named by the caller (`explicit`); held by the flow version a flow's agent step runs in (`flow-pin`: the node's `config.version`, else the version the flow version pinned when it was published); the conversation's own (`conversation`); the version pinned for the run's scope (`pinned`); or the latest, nothing being pinned (`latest`). Absent on runs from before Kindgi 0.1.4.
     """
-    live_scope: Annotated[
+    pinned_scope: Annotated[
         Annotated[
-            LiveScopeTenant
-            | LiveScopeOrg
-            | LiveScopeProject
-            | LiveScopeSegment
-            | LiveScopeUnrecognized,
-            _open.OpenUnion("kind", LiveScopeUnrecognized),
+            PinScopeTenant
+            | PinScopeOrg
+            | PinScopeProject
+            | PinScopeSegment
+            | AgentPinScopeUnrecognized,
+            _open.OpenUnion("kind", AgentPinScopeUnrecognized),
         ]
         | None,
-        Field(alias="liveScope"),
+        Field(alias="pinnedScope"),
     ] = None
     """
-    The pin that chose the version, when `via` is `live`.
+    The pin that chose the version, when `via` is `pinned`.
     """
 
 
@@ -16983,7 +17149,7 @@ class Run(BaseModel):
     """
     acts_for: Annotated[str | None, Field(alias="actsFor")] = None
     """
-    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
+    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
     """
     tools_allowed_unattended: Annotated[list[str] | None, Field(alias="toolsAllowedUnattended")] = (
         None
@@ -16993,16 +17159,16 @@ class Run(BaseModel):
     """
     replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
     """
-    Set on a replay run (an eval run re-running a past run): the run it replays.
+    Set on a replay run (a test run re-running a past run): the run it replays.
     """
-    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    test_run_id: Annotated[str | None, Field(alias="testRunId")] = None
     """
-    Set on a replay run: the eval run that started it.
+    Set on a replay run: the test run that started it.
     """
     versions: FlowVersionOverrides | None = None
     segments: list[ScopeSegment] | None = None
     """
-    The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.
+    The segment path the run was started with (coarse to fine), which picks pinned agent versions. A child run has its parent's. Absent when there was none.
     """
     trace_id: Annotated[str | None, Field(alias="traceId", pattern="^[0-9a-f]{32}$")] = None
     """
@@ -17098,7 +17264,7 @@ class Datum(BaseModel):
     """
     acts_for: Annotated[str | None, Field(alias="actsFor")] = None
     """
-    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, an eval run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
+    Whom the run acts for, whose access it has, recorded when it was created and never changed: `user:<id>` (a person) or `service_account:<id>` (a service account), the same strings as an approval's `requestedBy`, a conversation's `openedBy` and `whoami`'s `actor`. A person who starts a run, signed in or with their own API key, is whom it acts for, and so is a service account whose key starts one. A run a schedule, a webhook or a mail trigger fired (`startedBy` `schedule`, `webhook` or `mail`) acts for the trigger's owner when it fired; a child run for its parent's; an agent acting for someone for that someone. An approval or a resume doesn't change it. An id, never a name: show the caller's own as `you`, and a name only where the caller may read that person or service account. Absent on a run that acts for no one (a system job, an agent on its own, a test run's replay run) and on runs from before runs recorded it. Never on a public run token's progress view or its stream, nor on the `run.finished` webhook's run.
     """
     tools_allowed_unattended: Annotated[list[str] | None, Field(alias="toolsAllowedUnattended")] = (
         None
@@ -17108,16 +17274,16 @@ class Datum(BaseModel):
     """
     replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
     """
-    Set on a replay run (an eval run re-running a past run): the run it replays.
+    Set on a replay run (a test run re-running a past run): the run it replays.
     """
-    eval_run_id: Annotated[str | None, Field(alias="evalRunId")] = None
+    test_run_id: Annotated[str | None, Field(alias="testRunId")] = None
     """
-    Set on a replay run: the eval run that started it.
+    Set on a replay run: the test run that started it.
     """
     versions: FlowVersionOverrides | None = None
     segments: list[ScopeSegment] | None = None
     """
-    The segment path the run was started with (coarse to fine), which picks live agent versions. A child run has its parent's. Absent when there was none.
+    The segment path the run was started with (coarse to fine), which picks pinned agent versions. A child run has its parent's. Absent when there was none.
     """
     trace_id: Annotated[str | None, Field(alias="traceId", pattern="^[0-9a-f]{32}$")] = None
     """
@@ -17144,6 +17310,128 @@ class RunCollectionPage(BaseModel):
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
     Opaque cursor for the next page. Absent when `hasMore: false`. See `docs/API-ROUTE-CONVENTIONS.md` §5.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class Correction(BaseModel):
+    """
+    A person's correction of one run: whether its decisions (the tool calls) and its answer were right, and what was right instead. It says at least one of `decisions`, `answer` and `items`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    tenant_id: Annotated[str, Field(alias="tenantId")]
+    project_id: Annotated[str, Field(alias="projectId")]
+    run_id: Annotated[str, Field(alias="runId")]
+    subject: CorrectedSubject
+    decisions: Annotated[Literal["right", "wrong"] | str, _open.OPEN] | None = None
+    """
+    Whether the run's decisions were right. Absent when it says nothing about them.
+    """
+    should_call: Annotated[list[ExpectedCall] | None, Field(alias="shouldCall")] = None
+    """
+    With `decisions: "wrong"`: the calls the agent should have made.
+    """
+    must_not_call: Annotated[list[str] | None, Field(alias="mustNotCall")] = None
+    """
+    With `decisions: "wrong"`: the tools that should not have been called.
+    """
+    answer: Annotated[Literal["right", "wrong"] | str, _open.OPEN] | None = None
+    """
+    Whether the run's answer was right. Absent when it says nothing about it.
+    """
+    should_say: Annotated[str | None, Field(alias="shouldSay")] = None
+    """
+    With `answer: "wrong"`: what it should have said.
+    """
+    why: str | None = None
+    items: list[CorrectedAnswerItem] | None = None
+    """
+    For an answer that is a ranked list: each item, and whether it was right there.
+    """
+    corrector_group_id: Annotated[str | None, Field(alias="correctorGroupId")] = None
+    """
+    The corrector group the correction is recorded under. Absent when unclassified (counts with weight 1).
+    """
+    expert: Literal[True] | None = None
+    """
+    Present (true) when the corrector group was restricted (`assertableBy`) when the correction was recorded, so whoever recorded it was checked against it. A restriction added or lifted later doesn't change it.
+    """
+    made_by: Annotated[CorrectionMadeBy, Field(alias="madeBy")]
+    participant_id: Annotated[str | None, Field(alias="participantId")] = None
+    """
+    The app's opaque id for its end user who corrected it, when an app corrected it on their behalf.
+    """
+    status: Annotated[
+        Literal["open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"] | str,
+        _open.OPEN,
+    ]
+    """
+    Where it is in being fixed. `with-owner` while the agent's owner decides; `fixed` only when a pin or a deploy fixed it, or it said nothing was wrong; `removed` can't come back.
+    """
+    sorted_to: Annotated[
+        Annotated[Literal["improve", "developer", "owner"] | str, _open.OPEN] | None,
+        Field(alias="sortedTo"),
+    ] = None
+    """
+    Who works on it: Improve, a developer, or the agent's owner. Absent while unsorted.
+    """
+    sorted: CorrectionSorted | None = None
+    link: (
+        Annotated[
+            CorrectionLink1 | CorrectionLink2 | CorrectionLinkUnrecognized,
+            _open.OpenUnion("kind", CorrectionLinkUnrecognized),
+        ]
+        | None
+    ) = None
+    """
+    The work fixing it. Present while it is `being-fixed`.
+    """
+    fixed_in: Annotated[CorrectionFixedIn | None, Field(alias="fixedIn")] = None
+    """
+    Present while it is `fixed`.
+    """
+    status_note: Annotated[CorrectionStatusNote | None, Field(alias="statusNote")] = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    """
+    When it last changed: `createdAt` until something changes it.
+    """
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Set when the correction was removed or superseded.
+    """
+    superseded_by: Annotated[str | None, Field(alias="supersededBy")] = None
+    """
+    The correction that replaced this one.
+    """
+
+
+class CorrectionWithCopies(Correction):
+    """
+    A correction with the stored copies of what was corrected.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run: CorrectedRunCopy
+
+
+class CorrectionCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[Correction]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor. Treat as opaque on the client.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
 
@@ -17507,7 +17795,7 @@ class ScheduleRecord(BaseModel):
     flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
     agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
     """
-    A schedule that runs an agent: the agent, at `agentVersion`, else its version live for the schedule's project (else the latest), as a run that names none.
+    A schedule that runs an agent: the agent, at `agentVersion`, else its version pinned for the schedule's project (else the latest), as a run that names none.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     improve: ImproveScheduleTarget | None = None
@@ -17595,7 +17883,7 @@ class ScheduleCollectionPage(BaseModel):
 
 class RegisterScheduleBody(BaseModel):
     """
-    Name what it runs: `flowId` with `flowVersion`, `agentId` (with an optional `agentVersion`), or `improve` (improvement passes). Registering needs `write` on the project and `execute` on what it runs (`publish` on the agent for `improve`); its runs act as the caller.
+    Name what it runs: `flowId` with `flowVersion`, `agentId` (with an optional `agentVersion`), or `improve` (Improve runs). Registering needs `write` on the project and `execute` on what it runs (`publish` on the agent for `improve`); its runs act as the caller.
     """
 
     model_config = ConfigDict(
@@ -17609,12 +17897,12 @@ class RegisterScheduleBody(BaseModel):
     flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
     agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
     """
-    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     improve: ImproveScheduleTarget | None = None
     """
-    Start an improvement pass instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the pass options; registering needs `publish` on the agent.
+    Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `publish` on the agent.
     """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
@@ -17671,12 +17959,12 @@ class PatchScheduleBody(BaseModel):
     flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
     agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
     """
-    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     improve: ImproveScheduleTarget | None = None
     """
-    Start an improvement pass instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the pass options; registering needs `publish` on the agent.
+    Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `publish` on the agent.
     """
     config: PatchScheduleBodyConfig | None = None
     catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
@@ -17722,7 +18010,7 @@ class ScheduleDefinition(BaseModel):
     flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
     agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
     """
-    A schedule that runs an agent: the agent, at `agentVersion`, else its version live for the schedule's project (else the latest), as a run that names none.
+    A schedule that runs an agent: the agent, at `agentVersion`, else its version pinned for the schedule's project (else the latest), as a run that names none.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     improve: ImproveScheduleTarget | None = None
@@ -17886,7 +18174,7 @@ class WebhookDelivery(BaseModel):
     endpoint_id: Annotated[str, Field(alias="endpointId")]
     event: Annotated[
         RunFinishedEvent
-        | ImprovementPassFinishedEvent
+        | ImproveRunFinishedEvent
         | ApprovalRequestedEvent
         | WebhookTestEvent
         | WebhookEventUnrecognized,

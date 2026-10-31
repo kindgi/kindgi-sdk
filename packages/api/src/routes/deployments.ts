@@ -50,6 +50,7 @@ import type {
 } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
+import type { AgentPinBindings, AgentPinnedVersionBinding } from '../agent-pin-binding.js';
 import {
   type ToolPinLookup,
   type UnpinnableRef,
@@ -84,12 +85,11 @@ import { environmentTakesPromotionsResponse, laterEnvironment } from '../environ
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { type WireErrorBody, retryAfterSeconds, statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
-import { type FlowPinsLive, publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
+import { type FlowAgentPins, publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
 import type { GuardrailRecord, GuardrailRegistryBinding } from '../guardrail-binding.js';
 import { imageRefWithin, parseImagePrefix, parseImageRef } from '../image-ref.js';
 import type { ImageRegistryBinding, ImageRegistryError } from '../image-registry-binding.js';
 import type { ItemRights } from '../item-rights.js';
-import type { AgentReleaseBindings, LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
 import { packEnvCheck } from '../pack-env.js';
@@ -119,7 +119,7 @@ import { type ServedEnvRule, readReferencesOnce, refuseUnservedValue } from '../
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
-import type { AgentReleaseGateDeps } from './agent-releases.js';
+import type { AgentPinGateDeps } from './agent-pins.js';
 import { capabilityRefusal, deniedBy } from './denied.js';
 import {
   carriedFor,
@@ -265,16 +265,16 @@ export interface DeploymentsRouterBindings {
   readonly agentRegistry?: AgentRegistryBinding;
   readonly flowRegistry?: FlowRegistryBinding;
   /**
-   * The agents' live versions: a deployed flow's agent step that names no
-   * version pins the one live for the deploy's project, else the latest.
+   * The agents' pinned versions: a deployed flow's agent step that names no
+   * version pins the one pinned for the deploy's project, else the latest.
    */
-  readonly liveVersions?: LiveVersionBinding;
+  readonly agentPinned?: AgentPinnedVersionBinding;
   /**
    * The flows' and tools' pinned versions: each tool a deployed agent or
    * flow runs pins the version pinned for the deploy's project (an
    * agent's, when it's in the reference's range), else as without it; and
-   * a promotion asked to make what it carried live (`{ makeLive: true }`)
-   * pins each carried flow version in the target. Absent: neither.
+   * a promotion asked to pin what it carried (`{ pin: true }`) pins each
+   * carried flow version in the target. Absent: neither.
    */
   readonly pinnedVersions?: PinnedVersionBinding;
   /** Data blocks: an agent's block references are pinned at deploy with its tools. */
@@ -341,19 +341,19 @@ export interface DeploymentsRouterBindings {
   /** Where a promotion is recorded (`deployment-promoted`). Absent: it isn't. */
   readonly auditEvents?: AuditEventBinding;
   /**
-   * The agents' live versions and gated promotions, for a promotion asked
-   * to make what it carried live (`{ makeLive: true }`): each carried
-   * agent is pinned in the target through the same gate a live route uses
-   * (`requestPromotion`). Absent: `makeLive` answers `501`.
+   * The agents' pinned versions and gated pins, for a promotion asked
+   * to pin what it carried (`{ pin: true }`): each carried agent is
+   * pinned in the target through the same gate a pin route uses
+   * (`requestPin`). Absent: `pin` answers `501`.
    */
-  readonly agentReleases?: AgentReleaseBindings;
-  /** What the make-live gate reads besides the releases (`requestPromotion`): comparisons, projects, the reference scope. */
-  readonly releaseGateDeps?: AgentReleaseGateDeps;
+  readonly agentPins?: AgentPinBindings;
+  /** What a promotion's pin gate reads besides the pins (`requestPin`): comparisons, projects, the reference scope. */
+  readonly agentPinGateDeps?: AgentPinGateDeps;
   /**
-   * Rights on an agent more than one project serves, for a make-live: an
+   * Rights on an agent more than one project serves, for a promotion's pin: an
    * agent in an order is pinned by an admin of the target project, and a
-   * pin wider than one project is refused (`liveChangeRefusal`). Absent, or
-   * with no authorizer: today's `promote` check.
+   * pin wider than one project is refused (`agentPinChangeRefusal`). Absent, or
+   * with no authorizer: today's `pin` check.
    */
   readonly itemRights?: ItemRights;
 }
@@ -1283,7 +1283,7 @@ export function deploymentsRouter(
               flows: bindings.flowRegistry,
               tools: bindings.toolRegistry,
               agents: bindings.agentRegistry,
-              ...(bindings.liveVersions !== undefined && { live: bindings.liveVersions }),
+              ...(bindings.agentPinned !== undefined && { agentPinned: bindings.agentPinned }),
               toolPins,
               tenantId,
               projectId: targetProjectId,
@@ -2887,8 +2887,8 @@ async function registerAgents(input: {
  * agents, so a flow's agent pins see the versions this deploy
  * registered: a tool change cascades through an agent into a flow
  * within the one deploy, each derived once. An agent step that names no
- * version pins what a run in the project gets: the agent's live version
- * there, with `live`, else the latest (this deploy's, when it registered
+ * version pins what a run in the project gets: the agent's pinned version
+ * there, with `agentPinned`, else the latest (this deploy's, when it registered
  * one).
  *
  * With the tool and agent registries, every flow is pinned first; one
@@ -2900,7 +2900,7 @@ async function registerFlows(input: {
   readonly flows: FlowRegistryBinding;
   readonly tools: ToolRegistryBinding | undefined;
   readonly agents: AgentRegistryBinding | undefined;
-  readonly live?: LiveVersionBinding;
+  readonly agentPinned?: AgentPinnedVersionBinding;
   /** The tools' pins for the deploy's project, shared with its agents. */
   readonly toolPins: ToolPinLookup | undefined;
   readonly tenantId: TenantId;
@@ -2910,7 +2910,7 @@ async function registerFlows(input: {
   readonly referenceScope: ReferenceScopeBinding | undefined;
   readonly rolled: RollbackAction[];
 }): Promise<DeployedFlow[]> {
-  const { flows, tools, agents, live, toolPins, tenantId, projectId, rolled } = input;
+  const { flows, tools, agents, agentPinned, toolPins, tenantId, projectId, rolled } = input;
   const enqueueTuples = (flowId: string) =>
     tuplesForCreate({ kind: 'flow', id: flowId as FlowId, tenantId, projectId });
   const written = (flowId: FlowId, version: string) =>
@@ -2954,7 +2954,7 @@ async function registerFlows(input: {
     agents,
     tenantId,
     input.defined,
-    live !== undefined ? { binding: live, projectId } : undefined,
+    agentPinned !== undefined ? { binding: agentPinned, projectId } : undefined,
     toolPins,
   );
   const deployed: DeployedFlow[] = [];
@@ -2981,13 +2981,13 @@ async function pinFlows(
   agents: AgentRegistryBinding,
   tenantId: TenantId,
   defined: readonly Flow[],
-  live: FlowPinsLive | undefined,
+  agentPins: FlowAgentPins | undefined,
   toolPins: ToolPinLookup | undefined,
 ): Promise<FlowPins[]> {
   const pins: FlowPins[] = [];
   const unpinnable: UnpinnableRef[] = [];
   for (const [i, flow] of defined.entries()) {
-    const resolved = await resolveFlowPins(tools, agents, tenantId, flow, live, toolPins);
+    const resolved = await resolveFlowPins(tools, agents, tenantId, flow, agentPins, toolPins);
     if (resolved.kind === 'ok') {
       pins.push(resolved.pins);
       continue;

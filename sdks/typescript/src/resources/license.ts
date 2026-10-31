@@ -27,7 +27,7 @@ export interface LicenseClient {
   /**
    * How much the deployment was used since `since`: what a free key's
    * renewal carries (`kindgi license renew --runtime`). The runs started
-   * (not dry runs, replays, evals or child runs), the distinct people who
+   * (not dry runs, replays, test runs or child runs), the distinct people who
    * started runs or decided approvals (counted in each tenant and summed),
    * the projects in production when the runtime can put projects in
    * production, and its version. Counts only. A `since` up to five minutes
