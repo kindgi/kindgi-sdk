@@ -6,6 +6,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import { type Agent, type AgentPins, pinsDigest } from '@kindgi/agents';
+import type { AuditEvent } from '@kindgi/audit-events';
+import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
 import { SELF_HOSTED_BOUNDS, currentTenant } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import { generateEd25519KeyPair, serializePublicKeyPem, signEd25519 } from '@kindgi/crypto';
@@ -13,8 +15,9 @@ import { type Flow, type FlowPins, flowPinsDigest } from '@kindgi/flow';
 import type { Guardrail } from '@kindgi/guardrails';
 import type { LogFields, Logger } from '@kindgi/log';
 import type { Project, ProjectBinding } from '@kindgi/platform';
-import { latestVersion } from '@kindgi/tools';
+import { highestVersion } from '@kindgi/tools';
 import type {
+  AgentId,
   Cursor,
   EnvName,
   OrgId,
@@ -28,19 +31,22 @@ import type { Scope } from '@kindgi/platform';
 import { makeEnvName } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
+import { agentTestSetId, createApp, resolveAtScope, scopeOfRecorded } from '../src/index.js';
 import type {
+  AgentPinBindings,
+  AgentPinResolveInput,
   AgentRegistryBinding,
-  AgentReleaseBindings,
+  BlockUse,
+  BlockVersionPullRequestBinding,
   Deployment,
   DeploymentBinding,
   DeploymentPrimitiveCounts,
   DeploymentRegisterInput,
   FlowRegistryBinding,
+  GuardrailRegisterInput,
   GuardrailRegistryBinding,
   ImageRegistryBinding,
   ImageRegistryError,
-  LiveResolveInput,
   PinnedResolveInput,
   ProviderRegistryBinding,
   RunHandlerBinding,
@@ -48,6 +54,8 @@ import type {
   SecretRecord,
   SecretVersionRecord,
   SigningKeyBinding as SigningKeyRegistryBinding,
+  TestRunBinding,
+  TestSetFreezeBinding,
   TokenResolver,
   ToolRegistryBinding,
 } from '../src/index.js';
@@ -55,6 +63,8 @@ import { sameGuardrailDefinition } from '../src/routes/deployments.js';
 import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
+import { inMemorySuggestedChanges } from './support/in-memory-suggested-changes.js';
+import { itemProjects } from './support/order-items.js';
 import { toolPinsBinding } from './support/tool-pins.js';
 
 /**
@@ -95,6 +105,9 @@ const runHandler: RunHandlerBinding = {
 function makeInMemoryDeploymentBinding(): DeploymentBinding {
   const byTenant = new Map<string, Deployment[]>();
   let seq = 0;
+  // Registration order, for ties on `activatedAt`: the route mints a
+  // random id, so the id alone no longer orders two deploys in one ms.
+  const registered = new Map<string, number>();
   return {
     async register(input) {
       const list = byTenant.get(input.tenantId as unknown as string) ?? [];
@@ -104,7 +117,7 @@ function makeInMemoryDeploymentBinding(): DeploymentBinding {
       }
       seq += 1;
       const deployment: Deployment = {
-        deploymentId: `dep-${seq.toString().padStart(4, '0')}`,
+        deploymentId: input.deploymentId ?? `dep-${seq.toString().padStart(4, '0')}`,
         tenantId: input.tenantId,
         imageRef: input.imageRef,
         imageDigest: input.imageDigest,
@@ -119,8 +132,11 @@ function makeInMemoryDeploymentBinding(): DeploymentBinding {
         ...(input.packEnv !== undefined && { packEnv: input.packEnv }),
         primitives: input.primitives,
         contents: input.contents,
+        ...(input.source !== undefined && { source: input.source }),
+        ...(input.replaced !== undefined && { replaced: input.replaced }),
       };
       byTenant.set(input.tenantId as unknown as string, [...list, deployment]);
+      registered.set(deployment.deploymentId, seq);
       return { kind: 'ok', deployment };
     },
     async get({ tenantId, deploymentId }) {
@@ -144,7 +160,8 @@ function makeInMemoryDeploymentBinding(): DeploymentBinding {
       });
       const sorted = [...filtered].sort((a, b) =>
         a.activatedAt === b.activatedAt
-          ? b.deploymentId.localeCompare(a.deploymentId)
+          ? (registered.get(b.deploymentId) ?? 0) - (registered.get(a.deploymentId) ?? 0) ||
+            b.deploymentId.localeCompare(a.deploymentId)
           : b.activatedAt.localeCompare(a.activatedAt),
       );
       let startAt = 0;
@@ -348,12 +365,26 @@ function makeInMemoryToolRegistry(opts: { refreshes?: boolean } = {}): ToolRegis
 
 let lastGuardrailRegisterProjectId: ProjectId | undefined;
 
-/** Guardrails by tenant, each row in its project, as the registry keeps them. */
+/**
+ * Guardrails by tenant, each row in its project with the points its pack
+ * check runs at when a deploy gave them, as the registry keeps them.
+ */
+interface GuardrailRow {
+  readonly guardrail: unknown;
+  readonly projectId: ProjectId;
+  readonly checkPoints?: readonly string[];
+}
+
 function makeInMemoryGuardrailRegistry(
   opts: { refreshes?: boolean } = {},
 ): GuardrailRegistryBinding {
-  const store = new Map<string, Map<string, { guardrail: unknown; projectId: ProjectId }>>();
-  const forT = (t: TenantId): Map<string, { guardrail: unknown; projectId: ProjectId }> => {
+  const store = new Map<string, Map<string, GuardrailRow>>();
+  const recordOf = (row: GuardrailRow): never =>
+    ({
+      ...(row.guardrail as Record<string, unknown>),
+      ...(row.checkPoints !== undefined && { checkPoints: row.checkPoints }),
+    }) as never;
+  const forT = (t: TenantId): Map<string, GuardrailRow> => {
     const k = t as unknown as string;
     let s = store.get(k);
     if (s === undefined) {
@@ -367,18 +398,23 @@ function makeInMemoryGuardrailRegistry(
       const rows = [...forT(tenantId).entries()]
         .filter(([id]) => nameFilter === undefined || id.startsWith(nameFilter))
         .filter(([, row]) => scope?.kind !== 'project' || row.projectId === scope.projectId);
-      return { data: rows.map(([, row]) => row.guardrail) as never[] };
+      return { data: rows.map(([, row]) => recordOf(row)) };
     },
     async get({ tenantId, guardrailId }) {
-      return (forT(tenantId).get(guardrailId as unknown as string)?.guardrail as never) ?? null;
+      const row = forT(tenantId).get(guardrailId as unknown as string);
+      return row === undefined ? null : recordOf(row);
     },
-    async register({ tenantId, projectId, guardrail }) {
+    async register({ tenantId, projectId, guardrail, checkPoints }) {
       lastGuardrailRegisterProjectId = projectId;
       const s = forT(tenantId);
       if (s.has(guardrail.id as unknown as string)) {
         return { kind: 'already-registered', guardrailId: guardrail.id };
       }
-      s.set(guardrail.id as unknown as string, { guardrail, projectId });
+      s.set(guardrail.id as unknown as string, {
+        guardrail,
+        projectId,
+        ...(checkPoints !== undefined && { checkPoints }),
+      });
       return { kind: 'ok', guardrailId: guardrail.id };
     },
     async unregister({ tenantId, guardrailId }) {
@@ -390,6 +426,7 @@ function makeInMemoryGuardrailRegistry(
         guardrailId,
         codeArtifactRef,
         configSchema,
+        checkPoints,
         expected,
       }) {
         const s = forT(tenantId);
@@ -401,6 +438,7 @@ function makeInMemoryGuardrailRegistry(
           canon({
             codeArtifactRef: held.codeArtifactRef ?? null,
             configSchema: held.configSchema ?? null,
+            checkPoints: row.checkPoints ?? null,
           }) !== canon(expected)
         ) {
           return { refreshed: false };
@@ -417,6 +455,7 @@ function makeInMemoryGuardrailRegistry(
             ...(codeArtifactRef !== null && { codeArtifactRef }),
             ...(configSchema !== null && { configSchema }),
           },
+          ...(checkPoints !== null && { checkPoints }),
         });
         return { refreshed: true };
       },
@@ -510,6 +549,7 @@ function makeInMemoryAgentRegistry(
       if (byId === undefined) return { unregistered: false };
       return { unregistered: byId.delete(version as unknown as string) };
     },
+    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
     async reinstateVersion({ agentId, version }) {
       return { kind: 'not-found', agentId, version };
     },
@@ -719,7 +759,7 @@ function makeApp(opts: {
   agentRegistry?: AgentRegistryBinding;
   toolRegistry?: ToolRegistryBinding;
   flowRegistry?: FlowRegistryBinding;
-  /** More of the app's bindings, as given (e.g. `agentReleases`). */
+  /** More of the app's bindings, as given (e.g. `agentPins`). */
   extra?: Partial<Parameters<typeof createApp>[0]>;
   /** A binding the app goes without (`tools`: no tool registry, so agents and flows register unpinned). */
   omit?: 'deployment' | 'signing' | 'image' | 'tools';
@@ -983,6 +1023,8 @@ describe("POST /v1/deployments — the image's index is what registers", () => {
     const order: string[] = [];
     const blocks = inMemoryBlocks();
     await blocks.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
       tenantId,
       projectId: DEFAULT_PROJECT_ID,
       block: {
@@ -1291,7 +1333,10 @@ describe('POST /v1/deployments — happy path', () => {
       activatedAt: string;
       primitives: DeploymentPrimitiveCounts;
     };
-    expect(body.deploymentId).toMatch(/^dep-/);
+    // The route mints it, a UUID, before the pack's blocks are published.
+    expect(body.deploymentId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
     expect(body.artifactVersion).toBe('20260920.1');
     expect(body.imageRef).toBe(fixture.imageRef);
     expect(body.primitives.tools).toBe(1);
@@ -1303,6 +1348,7 @@ describe('POST /v1/deployments — happy path', () => {
       guardrails: [{ id: 'acme.no-fabricated-quotes' }],
       agents: [],
       flows: [],
+      blocks: [],
     });
 
     // Primitives landed in their catalogs.
@@ -1634,8 +1680,57 @@ describe('POST /v1/deployments — happy path', () => {
       sees: 'conversation',
       scope: { tools: ['acme.woo.*'] },
     });
-    // The index's list of the check's points is the deployment's to read, not the guardrail's.
-    expect(guardrail.checkPoints).toBeUndefined();
+    // The registry keeps the check's points beside the guardrail: the runtime runs the check at them.
+    expect(guardrail.checkPoints).toEqual(['before-tool', 'final-answer']);
+  });
+
+  test("the registry gets a pack check's points beside the guardrail, never in it: the known ones, in order, else the final answer", async () => {
+    const index = pointIndex({ checkId: 'acme.checks.args' }) as { guardrails: unknown[] };
+    index.guardrails.push(
+      {
+        id: 'acme.args-at-tools',
+        kind: 'zero-llm',
+        action: { 'on-violation': 'halt' },
+        checkModulePath: './guardrails/args-at-tools.js',
+        checkId: 'acme.checks.tool-args',
+        checkPoints: ['final-answer', 'before-tool', 'before-tool', 'mid-thought'],
+        at: 'before-tool',
+      },
+      {
+        id: 'acme.no-refund-tool',
+        kind: 'zero-llm',
+        action: { 'on-violation': 'halt' },
+        checkModulePath: './guardrails/no-refund-tool.js',
+        checkId: 'never-call-tool',
+        checkBuiltIn: true,
+        config: { tools: ['acme.woo.refund'] },
+        at: 'before-tool',
+      },
+    );
+    const fixture = buildSignedDeploy({ index: index as Record<string, unknown> });
+    const { app, guardrailRegistry } = makeApp({ fixture });
+    const register = guardrailRegistry.register.bind(guardrailRegistry);
+    const given: GuardrailRegisterInput[] = [];
+    (guardrailRegistry as { register: GuardrailRegistryBinding['register'] }).register = async (
+      input,
+    ) => {
+      given.push(input);
+      return register(input);
+    };
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status, await res.clone().text()).toBe(201);
+    expect(given.map((input) => [input.guardrail.id, input.checkPoints])).toEqual([
+      // An older CLI's index lists none: the final answer only.
+      ['acme.no-refunds', ['final-answer']],
+      ['acme.args-at-tools', ['before-tool', 'final-answer']],
+      // A built-in's points are the runtime's.
+      ['acme.no-refund-tool', undefined],
+    ]);
+    for (const input of given) expect(input.guardrail).not.toHaveProperty('checkPoints');
   });
 
   test("a guardrail naming a built-in, which the index lists no points for, takes the built-in's points", async () => {
@@ -4471,7 +4566,7 @@ describe('POST /v1/deployments/:deploymentId/secrets — Idempotency-Key', () =>
   });
 });
 
-// ---------------- agents are pinned (evals step 2) ----------------
+// ---------------- agents are pinned ----------------
 
 /** A tool registry keyed by (id, version), as the runtime's is. */
 function makeVersionedToolRegistry(): ToolRegistryBinding & { versions: (id: string) => string[] } {
@@ -4540,7 +4635,7 @@ function makeVersionedAgentRegistry(
       return { data: [] };
     },
     async get() {
-      const latest = latestVersion([...rows.keys()]);
+      const latest = highestVersion([...rows.keys()]);
       return latest === undefined ? null : (rows.get(latest) ?? null);
     },
     async getVersion({ version }) {
@@ -4573,6 +4668,7 @@ function makeVersionedAgentRegistry(
     async unregister({ version }) {
       return { unregistered: rows.delete(version as unknown as string) };
     },
+    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
     async reinstateVersion({ agentId, version }) {
       return { kind: 'not-found', agentId, version };
     },
@@ -4717,8 +4813,8 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
     return setupWith(undefined, ...packs);
   }
 
-  function setupWith(agentReleases: AgentReleaseBindings | undefined, ...packs: SignedDeploy[]) {
-    return setupWithApp(agentReleases !== undefined ? { agentReleases } : {}, ...packs);
+  function setupWith(agentPins: AgentPinBindings | undefined, ...packs: SignedDeploy[]) {
+    return setupWithApp(agentPins !== undefined ? { agentPins } : {}, ...packs);
   }
 
   function setupWithApp(extra: Partial<Parameters<typeof createApp>[0]>, ...packs: SignedDeploy[]) {
@@ -5085,12 +5181,12 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
     expect(agents.versions()).toEqual([]);
   });
 
-  test("with live versions, a deployed flow's agent pins to what's live for the project, not the version this deploy registered (T268)", async () => {
+  test("with pinned versions, a deployed flow's agent pins to what's pinned for the project, not the version this deploy registered (T268)", async () => {
     const pack = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.4.0', flowVersion: '2.0.0' });
-    const asked: LiveResolveInput[] = [];
-    const releases = {
-      live: {
-        async resolve(input: LiveResolveInput) {
+    const asked: AgentPinResolveInput[] = [];
+    const pinStore = {
+      pinned: {
+        async resolve(input: AgentPinResolveInput) {
           asked.push(input);
           return input.agentId === 'acme.matcher'
             ? { version: '1.3.0' as Semver, scope: { kind: 'tenant' as const } }
@@ -5098,9 +5194,9 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
         },
         list: async () => [],
       },
-      promotions: {},
-    } as unknown as AgentReleaseBindings;
-    const { flows, deploy } = setupWith(releases, pack);
+      changes: {},
+    } as unknown as AgentPinBindings;
+    const { flows, deploy } = setupWith(pinStore, pack);
 
     const res = await deploy(pack);
     expect(res.status).toBe(201);
@@ -5659,6 +5755,7 @@ function makeRetiringAgentRegistry(versions: RetiringVersions): AgentRegistryBin
     async unregister({ agentId, version }) {
       return { unregistered: versions.unregister(agentId, version) };
     },
+    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
     async reinstateVersion({ agentId, version }) {
       const wasTombstoned = versions.reinstate(agentId, version);
       return wasTombstoned === undefined
@@ -6100,12 +6197,49 @@ describe("POST /v1/deployments — a guardrail id that's already live", () => {
   });
 
   test.each([
+    ['only its point', { at: 'before-tool' }],
+    ['only what its check sees', { sees: 'conversation' }],
+  ])(
+    'in this project with %s changed: 409 guardrail-already-registered, the old one kept',
+    async (_why, changed) => {
+      // A deploy that kept it would run it where, and on what, the pack no longer says.
+      const CHECK = {
+        checkId: 'acme.aperture.checks.quotes',
+        checkPoints: ['before-tool', 'final-answer'],
+      };
+      const first = buildSignedDeploy({
+        artifactVersion: '20260920.1',
+        index: indexWith('20260920.1', CHECK),
+      });
+      const second = laterImage({ ...CHECK, ...changed });
+      const { guardrailRegistry, deploy } = twoImages(second, { first });
+      expect((await deploy(first)).status).toBe(201);
+
+      const answer = await deploy(second);
+      expect(answer.status).toBe(409);
+      expect((JSON.parse(answer.text) as { error: { code: string } }).error.code).toBe(
+        'guardrail-already-registered',
+      );
+      const kept = (await guardrailRegistry.get({
+        tenantId,
+        guardrailId: 'acme.no-fabricated-quotes' as never,
+      })) as unknown as Record<string, unknown>;
+      expect([kept.at, kept.sees]).toEqual([undefined, undefined]);
+    },
+  );
+
+  test.each([
     [
       'stored by a 0.1.4 deploy (no configSchema), the pack now carrying one',
       {},
       { configSchema: { type: 'object', properties: { min: { type: 'integer' } } } },
     ],
     ['stored with a field a later release added', { checkBuiltIn: false }, {}],
+    [
+      'stored with no `at` or `sees`, the pack naming their defaults',
+      {},
+      { at: 'final-answer', sees: 'turn' },
+    ],
   ])('in this project, %s: kept, the deploy goes through', async (_why, stored, indexed) => {
     const fixture = buildSignedDeploy({ index: indexWith('20260920.1', indexed) });
     const { app, guardrailRegistry } = makeApp({ fixture });
@@ -6620,6 +6754,8 @@ describe('sameGuardrailDefinition', () => {
     ['an undefined field', g({ description: undefined })],
     ['a configSchema only one has', g({ configSchema: { type: 'object' } })],
     ['a field a later release adds', g({ checkBuiltIn: true })],
+    ["the final answer named, where it's absent", g({ at: 'final-answer' })],
+    ["'turn' named, where it's absent", g({ sees: 'turn' })],
     [
       'another image and artifact version',
       g({
@@ -6640,6 +6776,8 @@ describe('sameGuardrailDefinition', () => {
     ['another check', g({ check: 'never-call-tool' })],
     ['another description', g({ description: 'Quotes must be cited.' })],
     ['a config', g({ config: { min: 1 } })],
+    ['another point', g({ at: 'before-tool' })],
+    ['another view of the conversation', g({ sees: 'conversation' })],
     [
       'another module path',
       g({ codeArtifactRef: { ...(base.codeArtifactRef as object), modulePath: './other.js' } }),
@@ -6772,7 +6910,7 @@ describe('POST /v1/deployments — a redeploy refreshes what it derived', () => 
     expect((await made.deploy(second)).status).toBe(409);
     expect(rollbackWarns(logger)).toEqual([
       {
-        message: `deploy rollback: couldn't put back the code pointer and config schema of guardrail "acme.no-fabricated-quotes", so it stays as this deploy left it`,
+        message: `deploy rollback: couldn't put back the code pointer, config schema and check points of guardrail "acme.no-fabricated-quotes", so it stays as this deploy left it`,
         fields: { primitive: 'guardrail', id: 'acme.no-fabricated-quotes', err: down },
       },
       {
@@ -6784,6 +6922,80 @@ describe('POST /v1/deployments — a redeploy refreshes what it derived', () => 
       guardrail: '20260921.1',
       schema: SCHEMA,
       tool: '20260921.1',
+    });
+  });
+
+  describe("a pack check's points", () => {
+    const CHECK = { checkId: 'acme.aperture.checks.quotes' };
+    const firstAt = (checkPoints: unknown) =>
+      buildSignedDeploy({
+        artifactVersion: '20260920.1',
+        index: indexWith('20260920.1', { ...CHECK, checkPoints }),
+      });
+    const pointsOf = async (made: ReturnType<typeof twoImages>) =>
+      (
+        (await made.guardrailRegistry.get({
+          tenantId,
+          guardrailId: 'acme.no-fabricated-quotes' as never,
+        })) as unknown as { checkPoints?: unknown }
+      ).checkPoints;
+
+    test('a redeploy whose check now runs at other points keeps the guardrail and gives it those points', async () => {
+      const second = laterImage({ ...CHECK, checkPoints: ['before-tool', 'final-answer'] });
+      const made = twoImages(second, { refreshes: true, first: firstAt(['final-answer']) });
+      expect((await made.deploy(made.first)).status).toBe(201);
+      expect(await pointsOf(made)).toEqual(['final-answer']);
+      const answer = await made.deploy(second);
+      expect(answer.status, answer.text).toBe(201);
+      expect(await pointsOf(made)).toEqual(['before-tool', 'final-answer']);
+    });
+
+    test('a guardrail an earlier deploy registered without points (final answer only) is given them', async () => {
+      const second = laterImage({ ...CHECK, checkPoints: ['before-tool', 'final-answer'] });
+      const made = twoImages(second, { refreshes: true, first: firstAt(undefined) });
+      const register = made.guardrailRegistry.register.bind(made.guardrailRegistry);
+      (made.guardrailRegistry as { register: GuardrailRegistryBinding['register'] }).register =
+        async ({ checkPoints: _points, ...input }) => register(input);
+      expect((await made.deploy(made.first)).status).toBe(201);
+      expect(await pointsOf(made)).toBeUndefined();
+      (made.guardrailRegistry as { register: GuardrailRegistryBinding['register'] }).register =
+        register;
+      expect((await made.deploy(second)).status).toBe(201);
+      expect(await pointsOf(made)).toEqual(['before-tool', 'final-answer']);
+    });
+
+    test('a deploy refused after giving them puts the old points back', async () => {
+      const index = indexWith('20260921.1', {
+        ...CHECK,
+        checkPoints: ['before-tool', 'final-answer'],
+      }) as { guardrails: unknown[] };
+      index.guardrails.push({
+        id: 'acme.elsewhere',
+        kind: 'zero-llm',
+        check: 'must-cite',
+        action: { 'on-violation': 'halt' },
+      });
+      const second = buildSignedDeploy({
+        artifactVersion: '20260921.1',
+        keyId: SECOND_KEY_ID,
+        index: index as Record<string, unknown>,
+      });
+      const made = twoImages(second, { refreshes: true, first: firstAt(['final-answer']) });
+      expect((await made.deploy(made.first)).status).toBe(201);
+      await made.guardrailRegistry.register({
+        tenantId,
+        projectId: randomUUID() as ProjectId,
+        guardrail: {
+          id: 'acme.elsewhere',
+          kind: 'zero-llm',
+          check: 'must-cite',
+          action: { 'on-violation': 'halt' },
+        } as never,
+        enqueueTuples: () => [],
+      });
+
+      expect((await made.deploy(second)).status).toBe(409);
+      expect(await pointsOf(made)).toEqual(['final-answer']);
     });
   });
 
@@ -6838,6 +7050,7 @@ describe('POST /v1/deployments — a redeploy refreshes what it derived', () => 
           guardrailId: 'acme.no-fabricated-quotes' as never,
           codeArtifactRef: third('./guardrails/must-cite.js'),
           configSchema: THIRD_SCHEMA,
+          checkPoints: null,
         });
       }
       return get(input);
@@ -7732,7 +7945,10 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     const pinned: unknown[] = [];
     const written: string[] = [];
     const asked: string[] = [];
-    const deploy = async (f: SignedDeploy) => {
+    const audited: AuditEvent[] = [];
+    const store = createInMemoryAuditEventBinding();
+    /** `f` deployed; `extra`: more fields in its body. */
+    const deploy = async (f: SignedDeploy, extra: Record<string, unknown> = {}) => {
       const { app } = makeApp({
         fixture: f,
         agentRegistry: {
@@ -7764,18 +7980,26 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
               return true;
             },
           },
+          auditEvents: {
+            ...store,
+            append: async (events) => {
+              audited.push(...events);
+              return store.append(events);
+            },
+          },
         },
       });
       const res = await app.request('/v1/deployments', {
         method: 'POST',
         headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-        body: JSON.stringify(f.wire),
+        body: JSON.stringify({ ...f.wire, ...extra }),
       });
       return { status: res.status, body: (await res.json()) as Record<string, any> };
     };
     const held = (blockId: string, version: string) =>
       blocks.getVersion({ tenantId, blockId, version });
-    return { blocks, deploy, held, pinned, written, asked, failing };
+    const events = (kind: string) => audited.filter((e) => e.kind === kind);
+    return { blocks, deploy, held, pinned, written, asked, failing, events };
   }
 
   test('a read-only block registry refuses the deploy before anything is written', async () => {
@@ -7815,9 +8039,124 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     expect(asked.filter((a) => a.startsWith('block:'))).toEqual([]);
   });
 
+  const SOURCE = {
+    repo: 'github.com/acme/agents',
+    path: 'packs/support',
+    commit: 'b'.repeat(40),
+    branch: 'main',
+    dirty: true,
+  };
+
+  test("the deployment lists its blocks, and keeps where its pack lives with each block's file from the index", async () => {
+    const { deploy } = setup();
+    // A file the client names is not taken: the index says where each block is.
+    const res = await deploy(pack([REPLY, STYLE]), {
+      source: { ...SOURCE, blockFiles: { 'acme.reply': 'elsewhere.json' }, later: 'ignored' },
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.contents.blocks).toEqual([
+      { id: 'acme.reply', version: '1.0.0' },
+      { id: 'acme.style', version: '1.0.0' },
+    ]);
+    expect(res.body.source).toEqual({
+      ...SOURCE,
+      blockFiles: { 'acme.reply': 'blocks/reply.json', 'acme.style': 'blocks/style.json' },
+    });
+  });
+
+  test('a deploy from outside git keeps no source; a detached HEAD or no origin keeps what there is', async () => {
+    const { deploy } = setup();
+    const outside = await deploy(pack([REPLY, STYLE]));
+    expect(outside.status, JSON.stringify(outside.body)).toBe(201);
+    expect(outside.body).not.toHaveProperty('source');
+
+    const { repo: _repo, branch: _branch, ...bare } = SOURCE;
+    const detached = await deploy(pack([REPLY, STYLE], '20261020.2'), {
+      source: { ...bare, path: '.' },
+    });
+    expect(detached.status, JSON.stringify(detached.body)).toBe(201);
+    expect(detached.body.source).toEqual({
+      ...bare,
+      path: '.',
+      blockFiles: { 'acme.reply': 'blocks/reply.json', 'acme.style': 'blocks/style.json' },
+    });
+  });
+
+  test("a source that isn't one is 400 bad-input, naming the field, and nothing is written", async () => {
+    const { deploy, written } = setup();
+    const cases: [unknown, string][] = [
+      ['github.com/acme/agents', 'source'],
+      [{ ...SOURCE, repo: 'https://github.com/acme/agents' }, 'source.repo'],
+      [{ ...SOURCE, repo: 'x-access-token:not-a-token@github.com/acme/agents' }, 'source.repo'],
+      [{ ...SOURCE, repo: 'github.com/acme' }, 'source.repo'],
+      [{ ...SOURCE, repo: 'github.com/acme/../agents' }, 'source.repo'],
+      [{ ...SOURCE, path: '/home/someone/agents/packs/support' }, 'source.path'],
+      [{ ...SOURCE, path: '../support' }, 'source.path'],
+      [{ ...SOURCE, path: 'packs\\support' }, 'source.path'],
+      [{ ...SOURCE, commit: 'b'.repeat(7) }, 'source.commit'],
+      [{ ...SOURCE, commit: 'B'.repeat(40) }, 'source.commit'],
+      [{ ...SOURCE, branch: 'a..b' }, 'source.branch'],
+      [{ ...SOURCE, branch: 'has space' }, 'source.branch'],
+      [{ ...SOURCE, dirty: 'yes' }, 'source.dirty'],
+    ];
+    for (const [source, path] of cases) {
+      const res = await deploy(pack([REPLY, STYLE]), { source });
+      expect(res.status, JSON.stringify(source)).toBe(400);
+      expect(res.body.error.code).toBe('bad-input');
+      expect(res.body.error.details.issues.map((i: { path: string }) => i.path)).toEqual([path]);
+    }
+    expect(written).toEqual([]);
+  });
+
+  test('each new block version names the deployment and its caller, audited once the deployment is recorded', async () => {
+    const { deploy, held, events } = setup();
+    const res = await deploy(pack([REPLY, STYLE]));
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const deploymentId = res.body.deploymentId as string;
+    for (const blockId of ['acme.reply', 'acme.style']) {
+      const record = await held(blockId, '1.0.0');
+      expect(record?.source).toEqual({ kind: 'deploy', id: deploymentId });
+      expect(record?.publishedBy).toEqual({ kind: expect.any(String), id: expect.any(String) });
+    }
+    expect(
+      events('block-version-published').map((e) => (e.payload as { doc: unknown }).doc),
+    ).toEqual([
+      {
+        blockId: 'acme.reply',
+        version: '1.0.0',
+        kind: 'prompt',
+        source: { kind: 'deploy', id: deploymentId },
+      },
+      {
+        blockId: 'acme.style',
+        version: '1.0.0',
+        kind: 'settings',
+        source: { kind: 'deploy', id: deploymentId },
+      },
+    ]);
+    // A later deploy that brings the same versions keeps them: they go on
+    // naming the deploy that published them, and nothing new is audited.
+    const later = await deploy(pack([REPLY, STYLE], '20261020.2'));
+    expect(later.status, JSON.stringify(later.body)).toBe(201);
+    expect((await held('acme.reply', '1.0.0'))?.source).toEqual({
+      kind: 'deploy',
+      id: deploymentId,
+    });
+    expect(events('block-version-published')).toHaveLength(2);
+  });
+
+  test('a deploy that rolls its blocks back records no block audit event', async () => {
+    const { deploy, held, events } = setup({ agentFails: true });
+    expect((await deploy(pack([REPLY, STYLE]))).status).toBe(500);
+    expect(await held('acme.reply', '1.0.0')).toHaveProperty('unregisteredAt');
+    expect(events('block-version-published')).toEqual([]);
+  });
+
   test('a version it holds with the same content is kept, a settings version keeping its schema included', async () => {
     const { blocks, deploy, held, written } = setup();
     await blocks.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
       tenantId,
       projectId: DEFAULT_PROJECT_ID,
       block: {
@@ -7844,6 +8183,8 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
   test('a version it holds with other content is refused before anything is written: give it a new version', async () => {
     const { blocks, deploy, written } = setup();
     await blocks.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
       tenantId,
       projectId: DEFAULT_PROJECT_ID,
       block: { id: 'acme.reply', version: '1.0.0', kind: 'prompt', content: { template: 'Hi.' } },
@@ -7863,6 +8204,8 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
   test('an unregistered version is refused, naming how to reinstate it', async () => {
     const { blocks, deploy, written } = setup();
     await blocks.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
       tenantId,
       projectId: DEFAULT_PROJECT_ID,
       block: { id: 'acme.style', version: '1.0.0', kind: 'settings', content: STYLE.content },
@@ -7880,6 +8223,8 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
   test("a block that doesn't hold up, or a version of another kind: deployment-validation-failed, at its place in blocks", async () => {
     const { blocks, deploy, written } = setup();
     await blocks.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
       tenantId,
       projectId: DEFAULT_PROJECT_ID,
       block: { id: 'acme.style', version: '0.9.0', kind: 'prompt', content: { template: 'x' } },
@@ -7908,6 +8253,8 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
   test('a block whose versions live in another project is refused, even unchanged; nothing stays published', async () => {
     const { blocks, deploy, written } = setup();
     await blocks.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
       tenantId,
       projectId: ELSEWHERE_PROJECT_ID,
       block: { id: 'acme.style', version: '1.0.0', kind: 'settings', content: STYLE.content },
@@ -7929,6 +8276,8 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
   test('a write that fails after them rolls its new blocks back', async () => {
     const { blocks, deploy, held } = setup({ agentFails: true });
     await blocks.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
       tenantId,
       projectId: DEFAULT_PROJECT_ID,
       block: { id: 'acme.style', version: '1.0.0', kind: 'settings', content: STYLE.content },
@@ -7980,6 +8329,8 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
   /** Publish a version of the prompt block straight to the runtime, as `kindgi blocks publish` does. */
   async function publishReply(blocks: ReturnType<typeof inMemoryBlocks>, version: string) {
     await blocks.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
       tenantId,
       projectId: DEFAULT_PROJECT_ID,
       block: { id: 'acme.reply', version, kind: 'prompt', content: { template: 'Hello.' } },
@@ -8074,5 +8425,453 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     };
     expect(doc.info['x-kindgi-capabilities']).toContain('deploy-publishes-pack-blocks');
     expect(doc.info.version).toBe('0.1.0');
+  });
+});
+
+// ---------------- the cards a deploy makes ----------------
+
+describe('POST /v1/deployments — a pinned project gets a suggested change for each agent version the deploy registered', () => {
+  /**
+   * An app with suggested changes, in which `acme.matcher` runs `pinned`
+   * in the deploy's project (Latest when `null`); its test set freezes to
+   * no cases yet, so a card is made unchecked. `freezeThrows`: making one
+   * fails.
+   */
+  function withCards(pack: SignedDeploy, pinned: string | null, freezeThrows = false) {
+    const supervisor = inMemorySuggestedChanges();
+    const agentPins = {
+      pinned: {
+        resolve: async ({ agentId, projectId }: AgentPinResolveInput) =>
+          pinned !== null && agentId === 'acme.matcher' && projectId === DEFAULT_PROJECT_ID
+            ? { version: pinned as Semver, scope: { kind: 'project' as const, projectId } }
+            : null,
+        list: async () => [],
+      },
+      // Latest is the version the deploy registered.
+      latest: {
+        latest: async () => ({ version: '1.4.0' as Semver, since: '2026-10-11T00:00:00.000Z' }),
+        byProject: async () => [],
+      },
+      changes: {},
+    } as unknown as AgentPinBindings;
+    const testSetFreeze: TestSetFreezeBinding = {
+      async freezeTestSet({ agentId, projectId }) {
+        if (freezeThrows) throw new Error('the test set store is down');
+        return {
+          testSetId: agentTestSetId(agentId, projectId),
+          testSetVersion: '1.0.0',
+          cases: [],
+        };
+      },
+    };
+    const { app } = makeApp({
+      toolRegistry: makeVersionedToolRegistry(),
+      agentRegistry: makeVersionedAgentRegistry(),
+      flowRegistry: makeVersionedFlowRegistry(),
+      extra: {
+        supervisor,
+        agentPins,
+        blockRegistry: inMemoryBlocks(),
+        testRunBinding: {} as TestRunBinding,
+        testSetFreeze,
+      },
+      extraTrust: [
+        { keyId: KEY_ID, tenantId, publicKey: Buffer.from(pack.publicKeyRaw).toString('base64') },
+      ],
+      extraImages: [{ imageRef: pack.imageRef, digest: pack.digest, indexBytes: pack.indexBytes }],
+    });
+    const deploy = async () => {
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(pack.wire),
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, any> };
+    };
+    return { supervisor, deploy };
+  }
+
+  const pack = () =>
+    pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.4.0', flowVersion: '2.0.0' });
+
+  test("a project pinned to another version: a card for the deploy's version, made by the deploy", async () => {
+    const p = pack();
+    const h = withCards(p, '1.3.0');
+    const res = await h.deploy();
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const cards = [...h.supervisor.rows.values()];
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({
+      agentId: 'acme.matcher',
+      fromVersion: '1.3.0',
+      scope: { kind: 'project', projectId: DEFAULT_PROJECT_ID },
+      tier: 'code',
+      change: { deploymentId: res.body.deploymentId, imageDigest: p.digest },
+      madeBy: { kind: 'deploy', deploymentId: res.body.deploymentId },
+      candidate: { agentVersion: '1.4.0' },
+    });
+  });
+
+  test('a project on Latest, or pinned to the version, gets none; nor does a redeploy that registered nothing', async () => {
+    for (const pinned of [null, '1.4.0']) {
+      const h = withCards(pack(), pinned);
+      const res = await h.deploy();
+      expect(res.status, `${pinned} ${JSON.stringify(res.body)}`).toBe(201);
+      expect(h.supervisor.rows.size).toBe(0);
+    }
+    const h = withCards(pack(), '1.3.0');
+    expect((await h.deploy()).status).toBe(201);
+    h.supervisor.rows.clear();
+    expect((await h.deploy()).status).toBe(200);
+    expect(h.supervisor.rows.size).toBe(0);
+  });
+
+  test("a card whose check can't start never fails the deploy: it's made unchecked", async () => {
+    const h = withCards(pack(), '1.3.0', true);
+    const res = await h.deploy();
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const cards = [...h.supervisor.rows.values()];
+    expect(cards).toHaveLength(1);
+    expect(cards[0]?.evaluation).toBeUndefined();
+  });
+});
+
+// ---------------- a deploy's blocks against what runs ----------------
+
+describe('POST /v1/deployments and /v1/deployments/check — a deploy against what runs', () => {
+  const AGENT = 'acme.replier';
+  const REPLY = 'acme.reply';
+  const DEPLOYER = 'deployments-deployer-token';
+  const PR_URL = 'https://github.com/acme/support/pull/214';
+
+  /** A pack whose agent takes its prompt from `acme.reply`, at `version` in its files. */
+  function pack(version: string) {
+    const artifactVersion = '20261031.1';
+    const publishedAt = '2026-10-31T06:00:00.000Z';
+    return buildSignedDeploy({
+      artifactVersion,
+      publishedAt,
+      index: {
+        v: 1,
+        packId: 'acme.support',
+        packVersion: '1.0.0',
+        artifactVersion,
+        publishedAt,
+        tools: [],
+        guardrails: [],
+        agents: [
+          {
+            id: AGENT,
+            version: '1.0.0',
+            name: 'Replier',
+            instructions: { prompt: REPLY, version: `^${version}` },
+            capabilities: [{ feature: 'model.text.chat' }],
+            tools: [],
+          },
+        ],
+        flows: [],
+        blocks: [
+          {
+            id: REPLY,
+            version,
+            kind: 'prompt',
+            content: { template: 'Reply to {{ name }}.' },
+            modulePath: 'blocks/reply.json',
+          },
+        ],
+      },
+    });
+  }
+
+  const uses = (version: string): BlockUse => ({
+    agentId: AGENT as AgentId,
+    version,
+    as: 'prompt',
+    blockVersion: version,
+  });
+
+  /**
+   * An app in which the replier runs 2.0.0, which pins `acme.reply` 2.0.0,
+   * as Latest in CLIENT_B (added by usr-ana). `pr`: the pull request opened
+   * for that version there, by its state, or a binding that throws.
+   * `grants`: an authorizer that grants the deployer (usr-dev) exactly these.
+   * `fixture`: the pack a deploy sends.
+   */
+  function setup(
+    opts: {
+      readonly pr?: 'open' | 'merged' | 'throws';
+      readonly grants?: readonly string[];
+      readonly fixture?: SignedDeploy;
+      readonly runs?: boolean;
+    } = {},
+  ) {
+    const audited: AuditEvent[] = [];
+    const store = createInMemoryAuditEventBinding();
+    const logger = recordingLogger();
+    const asked: string[] = [];
+    const agentPins = {
+      pinned: { resolve: async () => null, list: async () => [] },
+      latest: {
+        latest: async () => null,
+        byProject: async ({ agentId }: { agentId: string }) =>
+          agentId === AGENT
+            ? [
+                {
+                  projectId: CLIENT_B,
+                  version: '2.0.0' as Semver,
+                  since: '2026-10-30T09:12:00.000Z',
+                  by: { kind: 'user', id: 'usr-ana' },
+                },
+              ]
+            : [],
+      },
+      changes: { get: async () => null, list: async () => ({ data: [] }) },
+    } as unknown as AgentPinBindings;
+    const pullRequests: BlockVersionPullRequestBinding = {
+      forVersion: async ({ projectId, blockId, version }) => {
+        asked.push(`${projectId as unknown as string} ${blockId}@${version}`);
+        if (opts.pr === undefined) return null;
+        if (opts.pr === 'throws') {
+          throw new TypeError('the repository answered 502 for acme/support');
+        }
+        return { number: 214, url: PR_URL, state: opts.pr };
+      },
+    };
+    const decide = (principal: unknown, action: string, resource: { type: string; id: string }) => {
+      const allowed = (
+        (principal as { actor: { id: string } }).actor.id === 'usr-dev' ? (opts.grants ?? []) : []
+      ).includes(`${action} ${resource.type}:${resource.id}`);
+      return {
+        allowed,
+        reason: allowed ? 'test: granted' : 'test: not granted',
+        evidence: {
+          action,
+          relation: '',
+          resource: `${resource.type}:${resource.id}`,
+          actorSubject: '',
+        },
+      };
+    };
+    const { app, deploymentRegistry } = makeApp({
+      ...(opts.fixture !== undefined && { fixture: opts.fixture }),
+      extra: {
+        logger,
+        ...(opts.runs !== false && {
+          agentPins,
+          blockUse: {
+            pinningBlock: async ({ blockId }: { blockId: string }) =>
+              blockId === REPLY ? [uses('1.0.0'), uses('2.0.0')] : [],
+          } as never,
+        }),
+        itemProjects: itemProjects([{ kind: 'agent', id: AGENT, projects: [CLIENT_B] }]),
+        blockVersionPullRequests: pullRequests,
+        blockRegistry: inMemoryBlocks(),
+        auditEvents: {
+          ...store,
+          append: async (events) => {
+            audited.push(...events);
+            return store.append(events);
+          },
+        },
+        resolveToken: async (token) =>
+          token === DEPLOYER ? { tenantId, userId: 'usr-dev' as never } : resolveToken(token),
+        ...(opts.grants !== undefined && {
+          authz: {
+            fgaApiUrl: 'http://fga.invalid',
+            authzCheckBinding: {
+              check: async (p, a, r) => decide(p, a, r) as never,
+              checkBatch: async (p, a, rs) => rs.map((r) => decide(p, a, r)) as never,
+            },
+          },
+        }),
+      },
+    });
+    const post = async (path: string, body: unknown) => {
+      const res = await app.request(path, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${DEPLOYER}`, 'content-type': 'application/json' },
+        body: typeof body === 'string' ? body : JSON.stringify(body),
+      });
+      return { status: res.status, body: (await res.json()) as Record<string, any> };
+    };
+    const deploy = (f: SignedDeploy, extra: Record<string, unknown> = {}) =>
+      post('/v1/deployments', { ...f.wire, projectId: CLIENT_B, ...extra });
+    const check = (body: unknown) => post('/v1/deployments/check', body);
+    const checkBody = (version: string, extra: Record<string, unknown> = {}) => ({
+      projectId: CLIENT_B,
+      agents: [AGENT],
+      blocks: [{ id: REPLY, version }],
+      ...extra,
+    });
+    const events = () => audited.filter((e) => e.kind === 'deployment-replaced-block');
+    const deployments = () => deploymentRegistry.list({ tenantId, limit: 10 });
+    return { deploy, check, checkBody, events, deployments, logger, asked };
+  }
+
+  const STOP = {
+    blockId: REPLY,
+    inFiles: '1.0.0',
+    runs: {
+      version: '2.0.0',
+      projectId: CLIENT_B,
+      follows: 'latest',
+      by: { kind: 'user', id: 'usr-ana' },
+      at: '2026-10-30T09:12:00.000Z',
+    },
+  };
+
+  test('a deploy that would put back an older block stops: 409, each block in details.blocks, nothing registered', async () => {
+    const fixture = pack('1.0.0');
+    const h = setup({ fixture });
+    const res = await h.deploy(fixture);
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error.code).toBe('deploy-would-put-back-older-blocks');
+    expect(res.body.error.details).toEqual({ blocks: [STOP] });
+    expect((await h.deployments()).data).toEqual([]);
+    expect(h.events()).toEqual([]);
+  });
+
+  test('a deploy with replace goes: the deployment keeps each block put back, by the deployer, with one audit event each', async () => {
+    const fixture = pack('1.0.0');
+    const h = setup({ fixture });
+    const res = await h.deploy(fixture, {
+      replace: [{ blockId: REPLY, reason: 'v2 was a try in the sandbox' }],
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    const replaced = [
+      {
+        blockId: REPLY,
+        from: '2.0.0',
+        to: '1.0.0',
+        reason: 'v2 was a try in the sandbox',
+        by: { kind: 'user', id: 'usr-dev' },
+      },
+    ];
+    expect(res.body.replaced).toEqual(replaced);
+    expect((await h.deployments()).data.map((d) => d.replaced)).toEqual([replaced]);
+    expect(h.events()).toHaveLength(1);
+    expect(h.events()[0]).toMatchObject({
+      outcome: 'succeeded',
+      projectId: CLIENT_B,
+      payload: {
+        doc: {
+          deploymentId: res.body.deploymentId,
+          blockId: REPLY,
+          from: '2.0.0',
+          to: '1.0.0',
+          reason: 'v2 was a try in the sandbox',
+        },
+      },
+    });
+  });
+
+  test('a replace nothing newer runs for is not recorded', async () => {
+    const fixture = pack('2.0.0');
+    const h = setup({ fixture });
+    const res = await h.deploy(fixture, { replace: [{ blockId: REPLY, reason: 'just in case' }] });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.replaced).toBeUndefined();
+    expect(h.events()).toEqual([]);
+  });
+
+  test("a runtime that doesn't read pins and Latest deploys as before, unchecked", async () => {
+    const fixture = pack('1.0.0');
+    const h = setup({ fixture, runs: false });
+    expect((await h.deploy(fixture)).status).toBe(201);
+  });
+
+  test('POST /check answers the same, writing nothing: 200 { replaced, notNeeded }, or 409', async () => {
+    const h = setup();
+    expect(await h.check(h.checkBody('2.0.0'))).toEqual({
+      status: 200,
+      body: { replaced: [], notNeeded: [] },
+    });
+    expect(
+      await h.check(h.checkBody('1.0.0', { replace: [{ blockId: REPLY, reason: 'a try' }] })),
+    ).toEqual({
+      status: 200,
+      body: { replaced: [{ blockId: REPLY, from: '2.0.0', to: '1.0.0' }], notNeeded: [] },
+    });
+    expect(
+      (await h.check(h.checkBody('2.0.0', { replace: [{ blockId: REPLY, reason: 'a try' }] })))
+        .body,
+    ).toEqual({ replaced: [], notNeeded: [REPLY] });
+    const stopped = await h.check(h.checkBody('1.0.0'));
+    expect(stopped.status).toBe(409);
+    expect(stopped.body.error).toMatchObject({
+      code: 'deploy-would-put-back-older-blocks',
+      details: { blocks: [STOP] },
+    });
+    expect(h.events()).toEqual([]);
+    expect((await h.deployments()).data).toEqual([]);
+  });
+
+  test("POST /check on a runtime that doesn't read pins and Latest: 501 runs-in-unsupported", async () => {
+    const h = setup({ runs: false });
+    const res = await h.check(h.checkBody('1.0.0'));
+    expect(res.status).toBe(501);
+    expect(res.body.error.code).toBe('runs-in-unsupported');
+  });
+
+  test('POST /check with a bad body, or a projectId that is not a UUID: 400 bad-input', async () => {
+    const h = setup();
+    for (const body of [
+      '{not json',
+      { agents: 'acme.replier', blocks: [] },
+      { agents: [AGENT], blocks: [{ id: REPLY }] },
+      h.checkBody('1.0.0', { projectId: 'acme' }),
+    ]) {
+      const res = await h.check(body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      expect(res.body.error.code).toBe('bad-input');
+    }
+  });
+
+  test("POST /check asks admin on the body's project, else on the tenant", async () => {
+    const onProject = setup({ grants: [`admin project:${CLIENT_B}`, `read project:${CLIENT_B}`] });
+    expect((await onProject.check(onProject.checkBody('2.0.0'))).status).toBe(200);
+    const { projectId: _, ...tenantWide } = onProject.checkBody('2.0.0');
+    expect((await onProject.check(tenantWide)).status).toBe(403);
+    const onTenant = setup({ grants: [`admin tenant:${tenantId}`] });
+    expect((await onTenant.check(tenantWide)).status).toBe(200);
+    expect((await onTenant.check(onTenant.checkBody('2.0.0'))).status).toBe(403);
+  });
+
+  test("a stop names the newer version's open pull request in a project the caller reads, and only an open one", async () => {
+    const open = setup({ pr: 'open' });
+    expect((await open.check(open.checkBody('1.0.0'))).body.error.details.blocks).toEqual([
+      { ...STOP, pr: { url: PR_URL } },
+    ]);
+    expect(open.asked).toEqual([`${CLIENT_B} ${REPLY}@2.0.0`]);
+    const merged = setup({ pr: 'merged' });
+    expect((await merged.check(merged.checkBody('1.0.0'))).body.error.details.blocks).toEqual([
+      STOP,
+    ]);
+  });
+
+  test("a project the caller can't read is never named, nor its pull request asked", async () => {
+    // The deployer deploys into CLIENT_A; the newer version runs in CLIENT_B, which they can't read.
+    const h = setup({
+      pr: 'open',
+      grants: [`admin project:${CLIENT_A}`, `read project:${CLIENT_A}`],
+    });
+    const res = await h.check(h.checkBody('1.0.0', { projectId: CLIENT_A }));
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error.details.blocks).toEqual([
+      { blockId: REPLY, inFiles: '1.0.0', runs: { version: '2.0.0' } },
+    ]);
+    expect(h.asked).toEqual([]);
+  });
+
+  test("a pull request that can't be read leaves the stop without one, logged by the error's name only", async () => {
+    const h = setup({ pr: 'throws' });
+    const res = await h.check(h.checkBody('1.0.0'));
+    expect(res.status).toBe(409);
+    expect(res.body.error.details.blocks).toEqual([STOP]);
+    expect(h.logger.warns).toContainEqual({
+      message: 'A block version pull request could not be read',
+      fields: { blockId: REPLY, version: '2.0.0', projectId: CLIENT_B, error: 'TypeError' },
+    });
+    expect(JSON.stringify(h.logger.warns)).not.toContain('502');
   });
 });

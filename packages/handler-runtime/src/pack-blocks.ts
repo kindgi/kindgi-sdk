@@ -301,49 +301,145 @@ export async function writePackBlock(
       `${current.modulePath} holds ${write.id} ${current.version} now, not older than ${write.version}: evaluate the change again from the pack's version`,
     );
   }
-  const allowed = CONTENT_FIELDS[current.kind] as readonly string[];
-  const extra = Object.keys(write.content).find(
-    (k) => k === 'templateFile' || !allowed.includes(k),
-  );
-  if (extra !== undefined) {
-    return refused('invalid', `"content.${extra}" doesn't fit a ${current.kind} block`);
-  }
-  if (current.kind === 'prompt' && typeof write.content.template !== 'string') {
-    return refused('invalid', 'a prompt needs `content.template`');
-  }
-  if (current.kind === 'settings' && !isObject(write.content.values)) {
-    return refused('invalid', 'settings need `content.values`, an object');
-  }
+  const problem = contentProblem(current.kind, write.content);
+  if (problem !== undefined) return refused('invalid', problem);
 
   const filePath = path.join(root, current.modulePath);
-  const text = utf8(await fs.readFile(filePath));
-  const raw = JSON.parse(text) as Record<string, unknown>;
-  const rawContent = isObject(raw.content) ? raw.content : {};
+  const next = blockFileText(utf8(await fs.readFile(filePath)), current.kind, write);
+  if (next.kind === 'err') return next;
   let templateFile: string | undefined;
-  let content: Record<string, unknown> = { ...write.content };
-  if (current.kind === 'prompt' && typeof rawContent.templateFile === 'string') {
+  if (next.template !== undefined) {
     // The template stays in its own file, where the block's file points.
-    const template = await readTemplate(root, folder, current.modulePath, rawContent.templateFile);
+    const template = await readTemplate(root, folder, current.modulePath, next.template.file);
     if (template.kind === 'err') return refused('invalid', template.message);
     templateFile = template.relPath;
-    const { template: templateText, ...rest } = write.content;
-    content = { ...rest, templateFile: rawContent.templateFile };
-    await replaceFile(path.join(root, templateFile), String(templateText));
+    await replaceFile(path.join(root, templateFile), next.template.text);
   }
-  const next: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(raw)) {
-    next[key] = key === 'version' ? write.version : key === 'content' ? content : value;
-  }
-  await replaceFile(
-    filePath,
-    `${JSON.stringify(next, null, indentOf(text))}${text.endsWith('\n') ? '\n' : ''}`,
-  );
+  await replaceFile(filePath, next.text);
   return {
     kind: 'ok',
     file: current.modulePath,
     ...(templateFile !== undefined && { templateFile }),
     replaced: current.version,
   };
+}
+
+/** What a block's new version makes of its file's text (`blockFileText`). */
+export type BlockFileText =
+  | {
+      readonly kind: 'ok';
+      /** The block's file, with the new version and content. */
+      readonly text: string;
+      /**
+       * For a prompt whose file keeps its template apart: the file's
+       * `content.templateFile` as it names it (relative to the block's
+       * file), and the new template text for that file.
+       */
+      readonly template?: { readonly file: string; readonly text: string };
+      /** The version the file held. */
+      readonly replaced: string;
+    }
+  | {
+      readonly kind: 'err';
+      /** `invalid`: the write doesn't fit the block, or the text isn't its file; `not-newer`: its version isn't past the file's. */
+      readonly reason: 'invalid' | 'not-newer';
+      readonly message: string;
+    };
+
+/**
+ * A block's new version written into its file's `text`, without the
+ * disk: `writePackBlock` writes the result into the pack, and the runtime
+ * commits it to the pack's repository. The file keeps its other fields,
+ * their order and its indentation. A prompt whose file names
+ * `content.templateFile` keeps that field, and its template comes back
+ * apart, for the caller to write into that file.
+ *
+ * Refused: content that doesn't fit `kind`, text that isn't this block's
+ * file (another id or kind, or no `major.minor.patch` version), and a
+ * version that isn't past the file's.
+ */
+export function blockFileText(
+  text: string,
+  kind: IndexedBlock['kind'],
+  write: PackBlockWrite,
+): BlockFileText {
+  const refused = (reason: 'invalid' | 'not-newer', message: string) =>
+    ({ kind: 'err', reason, message }) as const;
+  if (!VERSION.test(write.version)) {
+    return refused('invalid', '`version` must be major.minor.patch, e.g. "1.0.1"');
+  }
+  const problem = contentProblem(kind, write.content);
+  if (problem !== undefined) return refused('invalid', problem);
+  const raw = blockFileOf(text, kind, write.id);
+  if (raw === undefined) {
+    return refused(
+      'invalid',
+      `the text isn't the file of ${kind} block "${write.id}" with a major.minor.patch version`,
+    );
+  }
+  if (compareVersions(write.version, raw.version) <= 0) {
+    return refused(
+      'not-newer',
+      `the file holds ${write.id} ${raw.version}, not older than ${write.version}`,
+    );
+  }
+  const rawContent = isObject(raw.content) ? raw.content : {};
+  let content: Record<string, unknown> = { ...write.content };
+  let template: { readonly file: string; readonly text: string } | undefined;
+  if (kind === 'prompt' && typeof rawContent.templateFile === 'string') {
+    const { template: templateText, ...rest } = write.content;
+    content = { ...rest, templateFile: rawContent.templateFile };
+    template = { file: rawContent.templateFile, text: String(templateText) };
+  }
+  const next: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    next[key] = key === 'version' ? write.version : key === 'content' ? content : value;
+  }
+  return {
+    kind: 'ok',
+    text: `${JSON.stringify(next, null, indentOf(text))}${text.endsWith('\n') ? '\n' : ''}`,
+    ...(template !== undefined && { template }),
+    replaced: raw.version,
+  };
+}
+
+/** `text` as the file of block `id` of `kind`, with a `major.minor.patch` version; `undefined` when it isn't. */
+function blockFileOf(
+  text: string,
+  kind: IndexedBlock['kind'],
+  id: string,
+): (Record<string, unknown> & { readonly version: string }) | undefined {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  return isObject(raw) &&
+    raw.id === id &&
+    raw.kind === kind &&
+    typeof raw.version === 'string' &&
+    VERSION.test(raw.version)
+    ? (raw as Record<string, unknown> & { readonly version: string })
+    : undefined;
+}
+
+/** Why `content` doesn't fit a block of `kind`; `undefined` when it does. */
+function contentProblem(
+  kind: IndexedBlock['kind'],
+  content: Readonly<Record<string, unknown>>,
+): string | undefined {
+  if (!isObject(content)) return '`content` must be an object';
+  const allowed = CONTENT_FIELDS[kind] as readonly string[];
+  const extra = Object.keys(content).find((k) => k === 'templateFile' || !allowed.includes(k));
+  if (extra !== undefined) return `"content.${extra}" doesn't fit a ${kind} block`;
+  if (kind === 'prompt' && typeof content.template !== 'string') {
+    return 'a prompt needs `content.template`';
+  }
+  if (kind === 'settings' && !isObject(content.values)) {
+    return 'settings need `content.values`, an object';
+  }
+  return undefined;
 }
 
 /** `a` before, equal to, or after `b`: major.minor.patch, compared as numbers. */

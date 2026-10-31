@@ -20,6 +20,7 @@ import type {
   ProjectPatch as ProjectPatchBody,
   ProjectPinnedVersionPage as ProjectPinnedVersionPageWire,
   ProjectProduction as ProjectProductionWire,
+  ProjectRepoConnection as ProjectRepoConnectionWire,
   ProjectRole as ProjectRoleWire,
   ProjectSpec as ProjectSpecBody,
   Project as ProjectWire,
@@ -29,11 +30,11 @@ import type {
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 import {
-  type JudgingQueueClient,
-  type JudgingRulesClient,
-  makeJudgingQueueClient,
-  makeJudgingRulesClient,
-} from './judging.js';
+  type ExpertQueueClient,
+  type QueueRulesClient,
+  makeExpertQueueClient,
+  makeQueueRulesClient,
+} from './expert-queue.js';
 import { type SitesClient, makeSitesClient } from './sites.js';
 
 export type ProjectShape = ProjectWire;
@@ -47,6 +48,8 @@ export type AddProjectMembershipOutcome = AddProjectMembershipResult;
 /** A role on a project, as read: `member` only on one given before it was retired. */
 /** A project's production state: `productionSince` is `null` while it isn't in production. */
 export type ProjectProductionShape = ProjectProductionWire;
+/** A project's repo connection: `repoConnectionId` is `null` once cleared. */
+export type ProjectRepoConnectionShape = ProjectRepoConnectionWire;
 export type ProjectRoleValue = ProjectRoleWire;
 /** A role to give on a project: `member` is refused, give `viewer`. */
 export type AssignableProjectRoleValue = AssignableProjectRoleWire;
@@ -189,11 +192,35 @@ export interface ProjectsClient {
     production: boolean,
     options?: { readonly idempotencyKey?: string },
   ): Promise<ProjectProductionShape>;
+  /**
+   * Set the company-wide GitHub connection the project opens its block
+   * changes' pull requests through. Needs `admin` on the project. A
+   * connection that isn't there is `404 connection-not-found`; one that
+   * isn't the company's, or isn't GitHub's, is
+   * `400 repo-connection-not-company-github`.
+   *
+   * @wire PUT /v1/projects/:projectId/repo-connection
+   */
+  setRepoConnection(
+    projectId: string,
+    connectionId: string,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<ProjectRepoConnectionShape>;
+  /**
+   * Clear the project's repo connection: its block changes open no pull
+   * request after this. Needs `admin` on the project.
+   *
+   * @wire DELETE /v1/projects/:projectId/repo-connection
+   */
+  clearRepoConnection(
+    projectId: string,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<ProjectRepoConnectionShape>;
   readonly memberships: ProjectMembershipsClient;
-  /** Which of the project's runs to queue for a person's judgment. */
-  readonly judgingRules: JudgingRulesClient;
-  /** The runs queued for a person's judgment. */
-  readonly judgingQueue: JudgingQueueClient;
+  /** Which of the project's runs to queue for a person's correction. */
+  readonly queueRules: QueueRulesClient;
+  /** The runs queued for a person's correction. */
+  readonly expertQueue: ExpertQueueClient;
   readonly teamGrants: ProjectTeamGrantsClient;
   /** The sites that sign their own people in to the project (tenant admins). */
   readonly sites: SitesClient;
@@ -287,8 +314,23 @@ export function makeProjectsClient(transport: Transport): ProjectsClient {
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },
-    judgingRules: makeJudgingRulesClient(transport),
-    judgingQueue: makeJudgingQueueClient(transport),
+    async setRepoConnection(projectId, connectionId, options) {
+      return transport.request<ProjectRepoConnectionShape>({
+        method: 'PUT',
+        path: `/v1/projects/${seg(projectId)}/repo-connection`,
+        body: { connectionId },
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+    async clearRepoConnection(projectId, options) {
+      return transport.request<ProjectRepoConnectionShape>({
+        method: 'DELETE',
+        path: `/v1/projects/${seg(projectId)}/repo-connection`,
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+    queueRules: makeQueueRulesClient(transport),
+    expertQueue: makeExpertQueueClient(transport),
     sites: makeSitesClient(transport),
     memberships: {
       async list(projectId, filter) {

@@ -7,7 +7,6 @@
 
 import type {
   Cursor,
-  LiveScope,
   ProjectId,
   RecordedSecretScope,
   Result,
@@ -50,6 +49,18 @@ export interface TriggerRegistryBinding {
 
   /** One of a trigger's versions; `null` when the tenant's trigger has no such version. */
   getVersion(input: GetTriggerVersionInput): Promise<TriggerVersionRecord | null>;
+
+  /**
+   * The agent and project's `improve` schedule, active or paused; `null`
+   * when they have none. A second one is refused (`409 schedule-exists`).
+   * Optional: without it, the route pages through the project's schedules
+   * (`list`) to find it.
+   */
+  findImproveSchedule?(input: {
+    readonly tenantId: TenantId;
+    readonly agentId: string;
+    readonly projectId: ProjectId;
+  }): Promise<CronTriggerRecord | null>;
 
   /**
    * The receiver's lookup: the webhook trigger with this routable id,
@@ -117,16 +128,27 @@ export interface TriggerRegistryBinding {
 
 /**
  * What a schedule runs: a flow at an exact version, or an agent. An agent
- * that names no version runs its live version for the schedule's project,
+ * that names no version runs its pinned version for the schedule's project,
  * as a run that names none does. `improve` starts an Improve run on an
- * agent for a live scope when enough answers have been marked wrong since
- * its last one (its input says how many, and the Improve options);
- * otherwise its fire is `skipped`.
+ * agent in a project (the schedule's) when the project has enough open
+ * corrections sorted to improve (its input says how many, and what a run
+ * and the month may cost); otherwise its fire is `skipped`. An agent and
+ * project have one `improve` schedule at most.
  */
 export type TriggerTarget =
   | { readonly kind: 'flow'; readonly flowId: string; readonly flowVersion: string }
   | { readonly kind: 'agent'; readonly agentId: string; readonly agentVersion?: string }
-  | { readonly kind: 'improve'; readonly agentId: string; readonly scope: LiveScope };
+  | {
+      readonly kind: 'improve';
+      readonly agentId: string;
+      /**
+       * The project its Improve runs work in, the schedule's own;
+       * registering one names it. Absent on a schedule registered for a
+       * tenant or an org before Improve schedules worked in a project: its
+       * fires are refused until its target is saved with the project.
+       */
+      readonly projectId?: ProjectId;
+    };
 
 /**
  * The principal a trigger's runs act as: whoever registered it, until an
@@ -276,9 +298,9 @@ export interface TriggerFire {
    * run start answered `erasure-in-progress`). Skipped fires never count
    * toward the auto-pause; refused and failed ones do.
    * `skipped`, as `detail` says: a webhook trigger was paused; what the
-   * target waits for wasn't there (an `improve` schedule's threshold, or its
-   * monthly cap); its project is suspended (`project-suspended`); its run or
-   * pass hadn't started when its tenant was suspended, and the restore
+   * target waits for wasn't there (an `improve` schedule's open corrections,
+   * or room under its month's cap); its project is suspended (`project-suspended`); its run or
+   * Improve run hadn't started when its tenant was suspended, and the restore
    * concluded it (`tenant-suspended`); or its tenant was suspended or closing
    * as its run started (`tenant-suspended`, `tenant-closing`). A skip for a
    * suspension or a close doesn't reset the count of refusals and failures
@@ -312,8 +334,8 @@ export interface TriggerFire {
    * Absent until it starts, and on a fire from before versions.
    */
   readonly version?: number;
-  /** The improvement pass it started, for an `improve` schedule. */
-  readonly passId?: string;
+  /** The Improve run it started, for an `improve` schedule. */
+  readonly improveRunId?: string;
   /** Why it was refused, skipped or failed, or why a `pending` mail fire waits (`thread-busy:`). */
   readonly detail?: string;
   /**
@@ -576,8 +598,21 @@ export interface CronTriggerRecord extends TriggerRecordBase {
   readonly overlap: ScheduleOverlap;
   readonly startingDeadlineSeconds: number;
   readonly nextFireAt: string | null;
-  /** Why the runtime paused it (repeated refused or failed fires; skipped ones never count), when it did. */
+  /**
+   * Why the runtime paused it, when it did: repeated refused or failed fires
+   * (skipped ones never count), or, for an `improve` schedule, at once
+   * `owner-lost-publish` (its owner no longer has `publish` on the agent;
+   * saving it with a new owner resumes it).
+   */
   readonly statusReason?: string;
+  /**
+   * For an `improve` schedule whose month's Improve runs have reached its
+   * monthly cap: when it starts again by itself (the 1st of next month, UTC).
+   * It stays `active`; its fires until then are `skipped`. Derived on read.
+   */
+  readonly pausedUntil?: string;
+  /** Why it waits until `pausedUntil`: its month's cap (`month-cap`). */
+  readonly pausedReason?: 'month-cap';
   /** The next occurrences, when the read asked for them (`GetTriggerInput.upcoming`). */
   readonly upcoming?: readonly string[];
   /**

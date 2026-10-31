@@ -23,28 +23,26 @@ import {
 import type { EnvName, SigningKeyId, TenantId } from '@kindgi/types';
 import type {
   AdapterRegistryBinding,
+  AgentPinBindings,
   AgentRegistryBinding,
-  AgentReleaseBindings,
   BlobStorageBinding,
   BlockRegistryBinding,
   CapabilityRegistryBinding,
   ConnectionBinding,
+  CorrectionRegistryBinding,
   CostBinding,
   CreateAppInput,
   DeploymentBinding,
   EnvBinding,
   EnvironmentOrderBinding,
-  EvalCaseStoreBinding,
-  EvalRunBinding,
-  EvalSuiteRegistryBinding,
+  ExpertQueueBinding,
   FlowRegistryBinding,
+  FrozenCaseStoreBinding,
   GuardrailRegistryBinding,
   HitlBinding,
   IdentityDirectoryBinding,
   IdentityProviderBinding,
   ImageRegistryBinding,
-  JudgingQueueBinding,
-  JudgmentRegistryBinding,
   MCPEndpointRegistryBinding,
   MemoryBinding,
   MemoryErasureBinding,
@@ -62,6 +60,9 @@ import type {
   SessionStoreBinding,
   SigningKeyBinding as SigningKeyRegistryBinding,
   SupervisorBinding,
+  TestRunBinding,
+  TestSetFreezeBinding,
+  TestSetRegistryBinding,
   TokenAdmin,
   TokenResolver,
   ToolRegistryBinding,
@@ -69,6 +70,7 @@ import type {
   WebhookEndpointBinding,
 } from '../../src/index.js';
 import { createStubAppBindings, createStubBinding } from '../../src/testing/index.js';
+import { highestAsLatest } from './latest.js';
 
 // Compliance routes mount when a classifier + generator are wired. The drift
 // test only needs them mounted, so the classifier is a minimal literal and the
@@ -146,6 +148,7 @@ const noopAgentRegistry: AgentRegistryBinding = {
   listVersions: async () => ({ data: [] }),
   publish: async ({ agent }) => ({ kind: 'ok', agentId: agent.id, version: agent.version }),
   unregister: async () => ({ unregistered: false }),
+  markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
   reinstateVersion: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
 };
 const noopFlowRegistry: FlowRegistryBinding = {
@@ -339,15 +342,19 @@ const noopPolicyRegistry: PolicyRegistryBinding = {
   reinstateVersion: async ({ policyId, version }) => ({ kind: 'not-found', policyId, version }),
 };
 
-const noopEvalSuiteRegistry: EvalSuiteRegistryBinding = {
+const noopTestSetFreeze: TestSetFreezeBinding = {
+  freezeTestSet: async () => ({ testSetId: 'noop', testSetVersion: '1.0.0', cases: [] }),
+};
+
+const noopTestSetRegistry: TestSetRegistryBinding = {
   list: async () => ({ data: [] }),
   get: async () => null,
   getVersion: async () => null,
   headExists: async () => false,
   listVersions: async () => ({ data: [] }),
-  publish: async ({ suite }) => ({ kind: 'ok', suiteId: suite.id, version: suite.version }),
+  publish: async ({ testSet }) => ({ kind: 'ok', testSetId: testSet.id, version: testSet.version }),
   unregister: async () => ({ unregistered: false }),
-  reinstateVersion: async ({ suiteId, version }) => ({ kind: 'not-found', suiteId, version }),
+  reinstateVersion: async ({ testSetId, version }) => ({ kind: 'not-found', testSetId, version }),
 };
 
 const noopBlockRegistry: BlockRegistryBinding = {
@@ -360,37 +367,49 @@ const noopBlockRegistry: BlockRegistryBinding = {
   reinstateVersion: async ({ blockId, version }) => ({ kind: 'not-found', blockId, version }),
 };
 
-const noopEvalCaseStore: EvalCaseStoreBinding = {
+const noopFrozenCaseStore: FrozenCaseStoreBinding = {
   putCases: async () => undefined,
   listCases: async () => ({ data: [], hasMore: false }),
 };
 
-const noopJudgmentRegistry: JudgmentRegistryBinding = {
-  createClass: async () => ({ kind: 'name-taken' }),
-  listClasses: async () => ({ data: [], hasMore: false }),
-  getClass: async () => null,
-  updateClass: async () => null,
-  unregisterClass: async () => ({ unregistered: false }),
+const noopCorrectionRegistry: CorrectionRegistryBinding = {
+  createGroup: async () => ({ kind: 'name-taken' }),
+  listGroups: async () => ({ data: [], hasMore: false }),
+  getGroup: async () => null,
+  updateGroup: async () => null,
+  unregisterGroup: async () => ({ unregistered: false }),
   record: async () => {
     throw new Error('noop');
   },
   list: async () => ({ data: [], hasMore: false }),
   get: async () => null,
   unregister: async () => ({ unregistered: false }),
+  update: async () => ({ kind: 'not-found' }),
+  applyRunOutcome: async () => [],
+  counts: async () => ({ open: 0, beingFixed: 0, withOwner: 0, fixed: 0, wontFix: 0, removed: 0 }),
+  correctionsByIds: async () => [],
+  testSet: async () => ({ active: 0, retired: 0 }),
+  listCases: async () => ({ data: [], hasMore: false }),
+  getCase: async () => null,
+  runCopies: async () => [],
+  addCase: async () => {
+    throw new Error('noop');
+  },
+  retireCase: async () => ({ kind: 'not-found' }),
 };
 
-const noopJudgingQueue: JudgingQueueBinding = {
+const noopExpertQueue: ExpertQueueBinding = {
   createRule: async () => ({
     kind: 'err',
-    error: { code: 'judging-rule-not-found', message: 'noop' },
+    error: { code: 'queue-rule-not-found', message: 'noop' },
   }),
   updateRule: async () => ({
     kind: 'err',
-    error: { code: 'judging-rule-not-found', message: 'noop' },
+    error: { code: 'queue-rule-not-found', message: 'noop' },
   }),
   queueRecent: async () => ({
     kind: 'err',
-    error: { code: 'judging-rule-not-found', message: 'noop' },
+    error: { code: 'queue-rule-not-found', message: 'noop' },
   }),
   unregisterRule: async () => ({ unregistered: false }),
   getRule: async () => null,
@@ -399,18 +418,21 @@ const noopJudgingQueue: JudgingQueueBinding = {
   listQueue: async () => ({ data: [], hasMore: false, total: 0 }),
   dismiss: async () => ({
     kind: 'err',
-    error: { code: 'judging-item-not-found', message: 'noop' },
+    error: { code: 'expert-queue-item-not-found', message: 'noop' },
   }),
-  reopen: async () => ({ kind: 'err', error: { code: 'judging-item-not-found', message: 'noop' } }),
+  reopen: async () => ({
+    kind: 'err',
+    error: { code: 'expert-queue-item-not-found', message: 'noop' },
+  }),
   results: async () => ({
     kind: 'err',
-    error: { code: 'judging-rule-not-found', message: 'noop' },
+    error: { code: 'queue-rule-not-found', message: 'noop' },
   }),
   preview: async () => ({ considered: 0, matched: 0, failed: 0 }),
 };
 
-const noopEvalRunBinding: EvalRunBinding = {
-  start: async () => ({ kind: 'suite-not-found', suiteId: 'noop' }),
+const noopTestRunBinding: TestRunBinding = {
+  start: async () => ({ kind: 'test-set-not-found', testSetId: 'noop' }),
   get: async () => null,
   list: async () => ({ data: [] }),
   cancel: async () => ({ kind: 'not-found' }),
@@ -441,19 +463,19 @@ const noopPinnedVersions: PinnedVersionBinding = {
   history: async () => ({ data: [] }),
 };
 
-const noopAgentReleases: AgentReleaseBindings = {
-  live: { resolve: async () => null, list: async () => [] },
-  promotions: {
-    promote: async () => ({
+const noopAgentPins: AgentPinBindings = {
+  pinned: { resolve: async () => null, list: async () => [] },
+  latest: highestAsLatest(noopAgentRegistry),
+  changes: {
+    pin: async () => ({
       kind: 'err',
       error: { code: 'agent-version-not-found', message: 'noop' },
     }),
-    rollback: async () => ({ kind: 'err', error: { code: 'not-pinned', message: 'noop' } }),
     unpin: async () => ({ kind: 'err', error: { code: 'not-pinned', message: 'noop' } }),
     list: async () => ({ data: [] }),
     get: async () => null,
   },
-  gatePolicies: {
+  releaseGates: {
     publish: async () => ({ kind: 'err', error: { code: 'persistence-error', message: 'noop' } }),
     get: async () => null,
     getVersion: async () => null,
@@ -461,11 +483,11 @@ const noopAgentReleases: AgentReleaseBindings = {
     list: async () => ({ data: [] }),
     unregister: async () => ({
       kind: 'err',
-      error: { code: 'gate-policy-not-found', message: 'noop' },
+      error: { code: 'release-gate-not-found', message: 'noop' },
     }),
     reinstate: async () => ({
       kind: 'err',
-      error: { code: 'gate-policy-not-found', message: 'noop' },
+      error: { code: 'release-gate-not-found', message: 'noop' },
     }),
     resolve: async () => null,
   },
@@ -652,10 +674,10 @@ const noopSecretsBinding: SecretBinding = {
 };
 
 const noopSupervisor: SupervisorBinding = {
-  listProposals: async () => ({ data: [] }),
-  getProposal: async () => null,
-  createProposal: async () => ({ kind: 'ok', proposal: {} as never }),
-  recordProposal: async () => ({ kind: 'not-found' }),
+  listSuggestedChanges: async () => ({ data: [] }),
+  getSuggestedChange: async () => null,
+  createSuggestedChange: async () => ({ kind: 'ok', suggestedChange: {} as never }),
+  recordSuggestedChange: async () => ({ kind: 'not-found' }),
   queryObservations: async () => ({ kind: 'ok', page: { data: [] } }),
 };
 
@@ -674,7 +696,7 @@ export function fullAppInput(): CreateAppInput {
     reviewerRegistry: noopReviewerRegistry,
     enableObservations: true,
     agentRegistry: noopAgentRegistry,
-    agentReleases: noopAgentReleases,
+    agentPins: noopAgentPins,
     pinnedVersions: noopPinnedVersions,
     flowRegistry: noopFlowRegistry,
     toolRegistry: noopToolRegistry,
@@ -694,12 +716,13 @@ export function fullAppInput(): CreateAppInput {
     publicRunTokens: publicRunTokensConfig(),
     policyRegistry: noopPolicyRegistry,
     retention: noopRetention,
-    evalSuiteRegistry: noopEvalSuiteRegistry,
+    testSetRegistry: noopTestSetRegistry,
+    testSetFreeze: noopTestSetFreeze,
     blockRegistry: noopBlockRegistry,
-    evalRunBinding: noopEvalRunBinding,
-    judgmentRegistry: noopJudgmentRegistry,
-    judgingQueue: noopJudgingQueue,
-    evalCaseStore: noopEvalCaseStore,
+    testRunBinding: noopTestRunBinding,
+    correctionRegistry: noopCorrectionRegistry,
+    expertQueue: noopExpertQueue,
+    frozenCaseStore: noopFrozenCaseStore,
     sessionStore: noopSessionStore,
     session: { cookie: { allowedOrigins: ['https://console.example.com'] }, tokenSignIn: true },
     identityProvider: noopIdentityProvider,

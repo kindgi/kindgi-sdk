@@ -66,7 +66,7 @@ const child = runRow({
   startedBy: 'person',
   actsFor: `user:${PERSON}`,
 });
-const replay = runRow({ replayOf: byPerson.runId, evalRunId: 'eval-1' });
+const replay = runRow({ replayOf: byPerson.runId, testRunId: 'eval-1' });
 const older = runRow({});
 const rows = [byPerson, byKey, byWebhook, child, replay, older];
 

@@ -18,7 +18,7 @@
 
 import type { Agent } from '@kindgi/agents';
 import { type Flow, type FlowNode, isFanoutNode, isLoopNode, isSubflowNode } from '@kindgi/flow';
-import type { LiveScope, ProjectId, TenantId } from '@kindgi/types';
+import type { AgentPinScope, ProjectId, TenantId } from '@kindgi/types';
 
 import type { TriggerTarget } from '@kindgi/runtime';
 import type { Context } from 'hono';
@@ -27,13 +27,20 @@ import { blockRefs } from './block-pins.js';
 import { statusFor, toWireError } from './errors.js';
 
 /** The kinds of item a flow, agent, trigger or run can reference. */
-export type ReferenceKind = 'tool' | 'agent' | 'flow' | 'guardrail' | 'block' | 'check' | 'suite';
+export type ReferenceKind =
+  | 'tool'
+  | 'agent'
+  | 'flow'
+  | 'guardrail'
+  | 'block'
+  | 'check'
+  | 'test-set';
 
 export interface ItemReference {
   readonly kind: ReferenceKind;
   readonly id: string;
   /**
-   * One version of an agent, flow or eval suite, when the reference is to
+   * One version of an agent, flow or test set, when the reference is to
    * that version: reached when a run in the project may run that version
    * (where it was made, or what reached the project with a build). Absent:
    * the item itself, by its id.
@@ -69,7 +76,7 @@ const NOUN: Readonly<Record<ReferenceKind, string>> = {
   guardrail: 'guardrail',
   block: 'data block',
   check: 'check',
-  suite: 'eval suite',
+  'test-set': 'test set',
 };
 
 /**
@@ -206,7 +213,7 @@ export function reservedToolMetadataMessage(key: string): string {
 /**
  * What a trigger (a schedule, a webhook, an event trigger) runs, as a
  * reference: a flow at its version, an agent at the version it names (none:
- * whichever its project runs), an improve pass's agent by its id.
+ * whichever its project runs), an Improve run's agent by its id.
  */
 export function triggerTargetReference(target: TriggerTarget): ItemReference {
   if (target.kind === 'flow') {
@@ -240,18 +247,18 @@ export function outOfScopeResponse(
 }
 
 /**
- * Whether making `agentId` live for `scope` stays within the scope's
+ * Whether pinning `agentId` for `scope` stays within the scope's
  * project: a project or segment scope must reach the agent. A tenant or
  * org scope isn't checked (other projects can't name the agent anyway).
  */
-export async function liveScopeOutOfScope(
+export async function agentPinScopeOutOfScope(
   scope: ReferenceScopeBinding | undefined,
   tenantId: TenantId,
   agentId: string,
-  live: LiveScope,
+  pinScope: AgentPinScope,
 ): Promise<ReferenceOutOfScopeError | undefined> {
-  if (live.kind !== 'project' && live.kind !== 'segment') return undefined;
-  return referencesOutOfScope(scope, tenantId, live.projectId, [
+  if (pinScope.kind !== 'project' && pinScope.kind !== 'segment') return undefined;
+  return referencesOutOfScope(scope, tenantId, pinScope.projectId, [
     { path: '/scope', kind: 'agent', id: agentId },
   ]);
 }

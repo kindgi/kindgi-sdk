@@ -12,7 +12,7 @@ import com.kindgi.client.models.RunProgressEvent;
 import com.kindgi.client.models.ScopeSegment;
 import com.kindgi.client.models.StartRunBody;
 import com.kindgi.client.models.ValidationException;
-import com.kindgi.client.resources.AgentsLiveResolveParams;
+import com.kindgi.client.resources.AgentsPinnedResolveParams;
 import com.kindgi.client.resources.ApprovalsListParams;
 import com.kindgi.client.resources.RunsListParams;
 import com.kindgi.client.resources.RunsStartParams;
@@ -146,7 +146,7 @@ class TransportTest {
   void aSegmentPathIsRepeatedKeyValueSteps() {
     handler = (ex, n) -> answer(ex, 200, "{}");
     try {
-      client.agents().live().resolve("acme.bookkeeper", AgentsLiveResolveParams.builder()
+      client.agents().pinned().resolve("acme.bookkeeper", AgentsPinnedResolveParams.builder()
           .segments(List.of(ScopeSegment.builder().key("company").value("acme co").build(), ScopeSegment.builder().key("region").value("eu").build()))
           .build());
     } catch (KindgiApiException e) {

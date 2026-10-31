@@ -622,9 +622,9 @@ export interface ModelUsageRecord {
   readonly durationMs: number;
   /**
    * Set on a replay turn's calls: the past run it re-runs (`of`) and the
-   * eval run it's for, so eval spend can be told apart from production.
+   * test run it's for, so eval spend can be told apart from production.
    */
-  readonly replay?: { readonly of: string; readonly evalRunId: string };
+  readonly replay?: { readonly of: string; readonly testRunId: string };
 }
 
 /**

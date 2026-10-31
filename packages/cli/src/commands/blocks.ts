@@ -3,9 +3,19 @@
 
 import { readFile } from 'node:fs/promises';
 
+import {
+  type DiscoveryConfig,
+  readPackBlocks,
+  resolveDiscovery,
+  writePackBlock,
+} from '@kindgi/handler-runtime';
+import semver from 'semver';
+
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
+import { loadPackConfig } from '../pack-config.js';
 import { callWaitingOutRateLimits } from '../rate-limit-wait.js';
+import { packDirOf } from './environments.js';
 import { integerFlag, readJsonInput, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
@@ -214,10 +224,97 @@ const reinstate: LeafCommand = {
     }),
 };
 
+/** A block file `pull` wrote: the version it held, the one it holds now, and where. */
+interface PulledBlock {
+  readonly blockId: string;
+  readonly from: string;
+  readonly to: string;
+  /** The block's file, relative to the pack root. */
+  readonly file: string;
+  /** The prompt's template file, when it keeps one. */
+  readonly templateFile?: string;
+}
+
+/** A block file `pull` left: nothing newer than it runs (`runs`, the newest that does). */
+interface UnchangedBlock {
+  readonly blockId: string;
+  readonly version: string;
+  readonly runs?: string;
+}
+
+const pull: LeafCommand = {
+  kind: 'leaf',
+  name: 'pull',
+  description:
+    "Write the newest version of each block that runs anywhere into the pack's block file, where it's newer than the file.",
+  usage: 'kindgi blocks pull [<block-id>...] [--path=<dir>]',
+  optionSpec: {
+    path: { type: 'string', description: 'The pack directory. Default: the current one.' },
+  },
+  run: (ctx) =>
+    runSdk(ctx, 'blocks pull', async () => {
+      const packDir = packDirOf(ctx);
+      const loaded = await loadPackConfig(ctx, packDir);
+      if (loaded.kind === 'missing') {
+        throw new UsageError(
+          `No pack config here (${loaded.message}). Run this in a pack, or pass --path=<dir>.`,
+        );
+      }
+      if (loaded.kind === 'invalid') {
+        throw new UsageError(`Couldn't read the pack config: ${loaded.message}`);
+      }
+      const pattern = resolveDiscovery(
+        loaded.config.discovery as DiscoveryConfig | undefined,
+      ).blocks;
+      const { blocks } = await readPackBlocks(packDir, pattern);
+      const named = ctx.positionals;
+      const unknown = named.filter((id) => !blocks.some((b) => b.id === id));
+      if (unknown.length > 0) {
+        throw new UsageError(`Not among the pack's blocks (${pattern}): ${unknown.join(', ')}`);
+      }
+      const client = ctx.client();
+      const wrote: PulledBlock[] = [];
+      const unchanged: UnchangedBlock[] = [];
+      for (const block of named.length === 0
+        ? blocks
+        : blocks.filter((b) => named.includes(b.id))) {
+        const { data } = await client.blocks.runsIn(block.id);
+        const runs = data.map((row) => row.blockVersion).sort(semver.rcompare)[0];
+        if (runs === undefined || !semver.gt(runs, block.version)) {
+          unchanged.push({
+            blockId: block.id,
+            version: block.version,
+            ...(runs !== undefined && { runs }),
+          });
+          continue;
+        }
+        const { content } = await client.blocks.versions.get(block.id, runs);
+        const outcome = await writePackBlock(packDir, pattern, {
+          id: block.id,
+          version: runs,
+          content,
+        });
+        if (outcome.kind === 'err') {
+          throw new Error(
+            `Couldn't write ${block.id} ${runs} into ${block.modulePath}: ${outcome.message}`,
+          );
+        }
+        wrote.push({
+          blockId: block.id,
+          from: outcome.replaced,
+          to: runs,
+          file: outcome.file,
+          ...(outcome.templateFile !== undefined && { templateFile: outcome.templateFile }),
+        });
+      }
+      return { wrote, unchanged };
+    }),
+};
+
 export const blocksCommand: Command = {
   kind: 'group',
   name: 'blocks',
   description:
-    'Data blocks: versioned prompts and settings agent versions pin (list / show / versions / publish / unregister / reinstate).',
-  subcommands: [list, show, versions, publish, unregister, reinstate],
+    'Data blocks: versioned prompts and settings agent versions pin (list / show / versions / publish / unregister / reinstate / pull).',
+  subcommands: [list, show, versions, publish, unregister, reinstate, pull],
 };

@@ -3,7 +3,7 @@
 
 /**
  * Publishing an existing id keeps it in its project. An agent, flow,
- * tool or eval suite belongs to the project its first version went to,
+ * tool or test set belongs to the project its first version went to,
  * as a block does (`block-project-mismatch`): a version published under
  * another project is refused with `409 <kind>-project-mismatch`, even
  * for an admin of both projects, and nothing is written. The answer
@@ -37,7 +37,7 @@ interface PublishInput {
   readonly agent?: { readonly id: string; readonly version: string };
   readonly flow?: { readonly id: string; readonly version: string };
   readonly tool?: { readonly id: string; readonly version: string };
-  readonly suite?: { readonly id: string; readonly version: string };
+  readonly testSet?: { readonly id: string; readonly version: string };
 }
 
 /**
@@ -50,7 +50,7 @@ function projectRegistry(idField: string) {
   const versions = new Set<string>();
   const written: string[] = [];
   async function publish(input: PublishInput) {
-    const definition = input.agent ?? input.flow ?? input.tool ?? input.suite;
+    const definition = input.agent ?? input.flow ?? input.tool ?? input.testSet;
     if (definition === undefined) throw new Error('nothing to publish');
     const { id, version } = definition;
     const owner = owners.get(id);
@@ -117,10 +117,10 @@ const KINDS = [
     }),
   },
   {
-    kind: 'eval-suite',
-    path: '/v1/eval-suites',
-    registry: 'evalSuiteRegistry',
-    idField: 'suiteId',
+    kind: 'test-set',
+    path: '/v1/test-sets',
+    registry: 'testSetRegistry',
+    idField: 'testSetId',
     id: 'acme.drafting-accuracy',
     body: (version: string) => ({
       id: 'acme.drafting-accuracy',
@@ -139,7 +139,7 @@ async function harness(k: (typeof KINDS)[number], grants: readonly string[]) {
   const registry = projectRegistry(k.idField);
   await registry.binding.publish({
     projectId: projectA,
-    [k.kind === 'eval-suite' ? 'suite' : k.kind]: { id: k.id, version: '1.0.0' },
+    [k.kind === 'test-set' ? 'testSet' : k.kind]: { id: k.id, version: '1.0.0' },
   });
   const asked: string[] = [];
   const decide = (action: Action, r: ResourceRef): Decision => {

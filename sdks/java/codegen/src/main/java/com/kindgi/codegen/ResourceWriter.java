@@ -155,7 +155,7 @@ final class ResourceWriter {
     skipped.add(")");
     tb.addField(
         FieldSpec.builder(ParameterizedTypeName.get(ClassName.get(Set.class), ModelPlanner.STRING), "WITHOUT_METHOD", Modifier.PUBLIC, Modifier.STATIC, Modifier.FINAL)
-            .addJavadoc("The API's operations that have no client method ({@code HEAD}).\n")
+            .addJavadoc("The API's operations that have no client method: a {@code HEAD}, an outside sender's path, or a streamed body.\n")
             .initializer(skipped.build())
             .build());
     return tb.build();

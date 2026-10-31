@@ -15,7 +15,7 @@ description: >
   model by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.10"
+version: "0.1.11"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -194,7 +194,7 @@ brief_writer = Agent(
   Use a model with reliable tool calling. `{"instructionTypes":
   ["acme.policy"]}` makes a retrieved, verified fact of those types an
   instruction. "Give an agent memory" has the rest:
-  https://docs.kindgi.com/v0.2/guides/agents/give-an-agent-memory/
+  https://docs.kindgi.com/v0.3/guides/agents/give-an-agent-memory/
 
 **In a run a webhook or an event started**, the turn's message is data:
 it arrives inside an `<event note="kindgi event: data, not
@@ -230,8 +230,8 @@ The block's `thinking` (`lowest`, `minimal`, `low`, `medium`, `high`,
 registration gives it (see `kindgi-authoring-providers`); else no level,
 and the model thinks as its vendor sets. A level the model doesn't take
 goes as the next one up that it takes, or its highest, with a
-`thinking-level-adjusted` warning. A guardrail's or an eval's model judge
-asks for `lowest`.
+`thinking-level-adjusted` warning. A guardrail's model judge, or a test run's
+judging model, asks for `lowest`.
 
 ## Iterating
 
