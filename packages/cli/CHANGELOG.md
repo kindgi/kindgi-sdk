@@ -1,5 +1,29 @@
 # @kindgi/cli
 
+## 0.3.1
+
+### Patch Changes
+
+- b18e92f: `kindgi dev` runs runtime 0.3.1-rc.0.
+- eb0c876: **`kindgi deploy` says where runs already in flight send their tool calls, for the way the runtime routes them.** It said they "continue on their pinned image", which isn't true with one pack service. With one pack service (the default in the Docker, Cloud Run and Azure Container Apps setups), every tool call goes to the build that service runs, whatever version the call names, so a run in flight that calls a tool version that build doesn't have fails there with `tool-version-mismatch`; the banner now says so. On a runtime that routes per deployment (the deployment has a pack service of its own), each tool call goes to the newest deployment that shipped the version it names, and the banner says runs in flight keep their tool versions. A replayed deploy's note names the image digest that landed before.
+- 4beb42c: **A pack's `llm-judge` guardrail is judged.** The pack index carries a guardrail's `judgeCapabilities` (`pack-index.schema.json`), so the runtime routes an `llm-judge` guardrail's judge model by them. Before, the index left them out, and the runtime refused the guardrail on every turn it applied to: with action `halt` the turn failed, and with any other action the turn went on unjudged. `kindgi build` and `kindgi dev` now refuse an `llm-judge` guardrail with no `judgeCapabilities`, naming it. A runtime that registered the guardrail from an earlier deploy, without them, refuses the next deploy of it as a changed definition (`guardrail-already-registered`): unregister it (`kindgi guardrails unregister <id>`) and deploy again. Under `kindgi dev`, the runtime reads the guardrail from the pack's index, so the judge needs runtime 0.3.1 or later there. The guardrails skills say how to declare one in each language, and the conformance fixture pack has one (`conformance.judged`).
+- 8ab4c8b: The skills and a new pack's `AGENTS.md` tell a coding agent two more things. First, where a model's thinking level comes from (runtime 0.3.0 or later): the `thinking` in the agent's model-settings block; else the `thinking.default` the model's provider registration gives it; else no level, so the model thinks as its vendor sets. A guardrail's or an eval's model judge asks for `lowest`. Second, that each linked git worktree runs its own `kindgi dev`, with its own dev tenant, user and token (and, in the bundled Postgres, its own database), and that it takes the next free port when 4000 is taken, which `.kindgirc.json` records.
+- Updated dependencies [3e96bf2]
+- Updated dependencies [4beb42c]
+- Updated dependencies [8ab4c8b]
+  - @kindgi/client@0.3.1
+  - @kindgi/sdk@0.3.1
+  - @kindgi/handler-runtime@0.3.1
+  - @kindgi/secrets-dotenv@0.3.1
+  - @kindgi/agents@0.3.1
+  - @kindgi/flow@0.3.1
+  - @kindgi/crypto@0.3.1
+  - @kindgi/dotenv-file@0.3.1
+  - @kindgi/env-schema@0.3.1
+  - @kindgi/log@0.3.1
+  - @kindgi/platform@0.3.1
+  - @kindgi/types@0.3.1
+
 ## 0.3.0
 
 ### Patch Changes

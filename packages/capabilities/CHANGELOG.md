@@ -1,5 +1,13 @@
 # @kindgi/capabilities
 
+## 0.3.1
+
+### Patch Changes
+
+- @kindgi/schema@0.3.1
+  - @kindgi/platform@0.3.1
+  - @kindgi/types@0.3.1
+
 ## 0.3.0
 
 ### Patch Changes
