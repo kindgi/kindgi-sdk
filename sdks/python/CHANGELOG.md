@@ -91,6 +91,13 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `block_check` says what was put back, what `replace` didn't need, and
   `checked=False` for a build deployed before deployments kept their blocks.
   The deployment it makes keeps its own `replaced`, never the source's.
+- `kindgi`: **a fact's approval takes the reviewer's text.**
+  `client.approvals.complete(approval_id, decision="approve", fact_text=...)`
+  approves a fact an agent wants to remember (`subject_kind` `fact`) with
+  that text in place of the agent's. Only with `approve` on such an
+  approval; anything else is refused (400 `bad-input`). The decision it
+  answers and the approval read back carry it (`ReviewDecision.fact_text`,
+  `ApprovalDecisionRecord.fact_text`).
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
   judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
   judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator

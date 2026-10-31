@@ -1787,6 +1787,10 @@ class ApprovalDecisionRecord(BaseModel):
     """
     The reviewer's display name when they decided: a person renamed since still shows as they were. Absent on decisions an older runtime recorded.
     """
+    fact_text: Annotated[str | None, Field(alias="factText")] = None
+    """
+    The text a reviewer approved a remembered fact with, in place of the agent's (the approval's `description`), which the fact now holds. Absent when the fact was approved as the agent wrote it.
+    """
 
 
 class ReviewDecision(BaseModel):
@@ -1807,6 +1811,10 @@ class ReviewDecision(BaseModel):
     Reviewer role class. Hierarchy: standard < senior < admin.
     """
     decided_at: Annotated[AwareDatetime, Field(alias="decidedAt")]
+    fact_text: Annotated[str | None, Field(alias="factText")] = None
+    """
+    The text a reviewer approved a remembered fact with, in place of the agent's (the approval's `description`), which the fact now holds. Absent when the fact was approved as the agent wrote it.
+    """
 
 
 class CompleteApprovalBody(BaseModel):
@@ -1819,6 +1827,10 @@ class CompleteApprovalBody(BaseModel):
     value: Any | None = None
     """
     Payload passed to the run waitpoint (`RunBinding.completeToken`) when the approval is linked to a suspended run and the decision is `approve` or `reject`. Refused (400 `bad-input`) for an agent's tool-call or session gate (`tool-call:pending`, `agent-turn:session-hitl-gate`): those resume on the decision alone.
+    """
+    fact_text: Annotated[str | None, Field(alias="factText", max_length=2000, min_length=1)] = None
+    """
+    Only with `decision: approve`, on the approval of a fact an agent wants to remember (`subjectKind: fact`): the text the fact holds once approved, in place of the agent's. The approval keeps the agent's text as its `description`, and its decision records this one. More than spaces, at most 2000 characters. Refused (400 `bad-input`) on any other decision or approval.
     """
 
 

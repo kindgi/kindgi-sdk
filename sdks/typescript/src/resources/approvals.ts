@@ -257,6 +257,14 @@ export interface DecideInput {
    * Ignored otherwise.
    */
   readonly value?: unknown;
+  /**
+   * Only with `approve`, on the approval of a fact an agent wants to
+   * remember (`subjectKind: 'fact'`): the text the fact holds once
+   * approved, in place of the agent's. More than spaces, at most 2000
+   * characters. The API refuses it (400 `bad-input`) on any other
+   * decision or approval.
+   */
+  readonly factText?: string;
   readonly idempotencyKey?: string;
 }
 
@@ -327,6 +335,7 @@ export function makeApprovalsClient(transport: Transport): ApprovalsClient {
       const body: Record<string, unknown> = { decision: input.decision };
       if (input.rationale !== undefined) body.rationale = input.rationale;
       if (input.value !== undefined) body.value = input.value;
+      if (input.factText !== undefined) body.factText = input.factText;
       return transport.request<CompleteApprovalResult>({
         method: 'POST',
         path: `/v1/approvals/${encodeURIComponent(id as unknown as string)}/complete`,
