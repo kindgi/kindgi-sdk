@@ -809,6 +809,17 @@ export const CLI_DEFAULTS = {
     'sorted-to': 'none (at least one of `--status` or `--sorted-to` is required)',
     status: 'none (at least one of `--status` or `--sorted-to` is required)',
   },
+  'corrections export': {
+    agent: 'required',
+    format: '`csv`',
+    from: '`all`',
+    out: 'none (the export is printed)',
+    project: 'none',
+    since: 'none',
+    'sorted-to': 'none',
+    status: 'none (every status but `removed`)',
+    until: 'none',
+  },
   'corrector-groups list': {
     agent: 'none',
     cursor: 'none',

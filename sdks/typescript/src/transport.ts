@@ -215,7 +215,8 @@ export function seconds(ms: number): string {
   return `${ms / 1000} s`;
 }
 
-function buildUrl(
+/** `apiUrl` + `path`, with the query: `undefined` values dropped, an array repeating its key. */
+export function buildUrl(
   apiUrl: string,
   path: string,
   query?: Readonly<Record<string, QueryValue>>,

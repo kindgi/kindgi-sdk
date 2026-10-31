@@ -376,6 +376,79 @@ run's own retention. The clients have the same: `corrections.list`,
 filters by status, sorting, who made it and when, as
 [Where a correction goes](#where-a-correction-goes) shows.
 
+## Export the corrections
+
+An agent's corrections export as a CSV file, for a spreadsheet, or as JSON
+lines, for a script:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi corrections export --agent=<agent-id> --since=2026-10-01 --until=2026-11-01 --out=october.csv
+pnpm exec kindgi corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=not-fixed.jsonl
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi corrections export --agent=<agent-id> --since=2026-10-01 --until=2026-11-01 --out=october.csv
+uv run kindgi corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=not-fixed.jsonl
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```sh
+./kindgiw corrections export --agent=<agent-id> --since=2026-10-01 --until=2026-11-01 --out=october.csv
+./kindgiw corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=not-fixed.jsonl
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```sh
+./kindgiw corrections export --agent=<agent-id> --since=2026-10-01 --until=2026-11-01 --out=october.csv
+./kindgiw corrections export --agent=<agent-id> --format=jsonl --status=not-fixed --out=not-fixed.jsonl
+```
+
+</TabItem>
+</Tabs>
+
+- `<agent-id>` is the agent whose corrections you export. It filters as
+  the clients' `corrections.list` does: `--project`, `--status` and
+  `--sorted-to` (each repeatable), `--from` (`experts`, `end-users` or
+  `all`), `--since` and `--until`. A date, such as `2026-10-01`, is
+  midnight UTC.
+- Like `list`, it leaves out replaced corrections, and removed ones unless
+  `--status=removed` asks for them.
+- `--out` names the file. On macOS and Linux, only you can read it. It
+  takes that name only once the whole export has arrived, and an existing
+  file is kept unless you add `--force`. Then it prints the agent, the
+  format, the file and its size in bytes, as JSON. Without `--out`, the
+  export is printed.
+- Each correction comes only when you may read its project.
+
+The CSV has a header row, then one correction per line: `id`, `projectId`,
+`runId`, `agentVersion`, `madeBy` (`user:<id>` or `service:<id>`),
+`participantId`, `expert`, `decisions`, `shouldCall` and `mustNotCall` (these
+two as JSON), `answer`, `shouldSay`, `why`, `sortedTo`, `status`, `fixedIn` (the
+version that fixed it) and `createdAt`. A field that starts with `=`, `+`,
+`-`, `@`, a tab or a carriage return gets a leading `'`, so a spreadsheet
+shows it rather than running it as a formula. Where a spreadsheet's list
+separator is `;`, import the file with a comma as the separator rather than
+opening it directly. JSON lines have one correction per line, as each one
+in `list`'s `data`. Neither has the run's own input or output, only the
+run's id.
+
+Every export is in the audit log, with who exported, the filters and how
+many rows went out. In the TypeScript and Python clients it's
+`corrections.export`: TypeScript's returns the body as a stream, and
+Python's yields it in chunks. The Java client has no method for it: use
+the CLI, or call `GET /v1/corrections/export`, as
+[Export](../expert-queue-reference/#export) shows.
+
 ## Where a correction goes
 
 Each correction has a `status`, and `sortedTo` says who fixes it:

@@ -43,8 +43,11 @@ export interface ResponseSpec {
   readonly description: string;
   /** JSON body schema for `application/json` responses. Omit for streaming responses. */
   readonly schema?: JsonSchema;
-  /** Content-type of the response body. Defaults to `application/json`. */
-  readonly contentType?: string;
+  /**
+   * Content-type of the response body, or several, each with the schema.
+   * Defaults to `application/json`.
+   */
+  readonly contentType?: string | readonly string[];
 }
 
 export interface OperationSpec {
@@ -91,6 +94,12 @@ export interface OperationSpec {
    * `x-kindgi-sender-only`, and the client generators skip it.
    */
   readonly senderOnly?: string;
+  /**
+   * The 2xx body is handed on as it arrives, not read whole
+   * (`corrections.export`). Emitted as `x-kindgi-streamed: true`; the
+   * Python client yields its chunks.
+   */
+  readonly streamed?: true;
 }
 
 // ---------------- shared parameters ----------------
@@ -6008,6 +6017,44 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'Page of corrections.', schema: ref('CorrectionCollectionPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed query parameter.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/corrections/export',
+    openapiPath: '/v1/corrections/export',
+    operationId: 'corrections.export',
+    summary: 'Export corrections',
+    description:
+      "Every correction of an agent the list's filters match, streamed as CSV (`format=csv`, the default: RFC 4180, UTF-8, a header row) or JSON lines (`format=jsonl`: one correction per line, as the list sends it). Each comes only when the caller may read its project, and a project scope the caller can't read is a 403 before anything is sent. The run's own text isn't exported, only its id. A CSV field that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, so a spreadsheet doesn't run it. Recorded in the audit log: `corrections-export-started` before the first row (when it can't be written, a 500 and nothing is sent), and `corrections-exported` when the stream ends, with the rows sent and `succeeded` or `failed`.",
+    tags: ['corrections'],
+    security: 'bearer',
+    streamed: true,
+    parameters: [
+      correctionQuery('format', '`csv` (the default) or `jsonl`.', {
+        type: 'string',
+        enum: ['csv', 'jsonl'],
+      }),
+      ...CorrectionListQueryParams.map((p) =>
+        p.name === 'agentId'
+          ? { ...p, required: true, description: 'The agent whose corrections are exported.' }
+          : p,
+      ),
+      ScopeKindQueryParam,
+      ScopeIdQueryParam,
+    ],
+    responses: {
+      '200': {
+        description: 'The corrections, as CSV or JSON lines (by `format`).',
+        contentType: ['text/csv', 'application/jsonl'],
+        schema: { type: 'string' },
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Malformed query parameter, no `agentId`, or a `limit` or `cursor`.'),
+      '403': ErrorResponse("`permission-denied`: a project scope the caller can't read."),
+      '500': ErrorResponse(
+        "`persistence-error`: the export couldn't be recorded, so nothing was sent.",
+      ),
     },
   },
   {

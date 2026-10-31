@@ -13,6 +13,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **corrections export.** `kindgi.corrections.export(agent_id=...)`
+  yields an agent's corrections in chunks of bytes, as CSV, or as JSON lines
+  with `format="jsonl"`, taking the list's filters. Write the chunks to a file
+  as they come. A project you can't read raises `AuthError`, and a stream that
+  drops part way raises `NetworkError`.
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
   judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
   judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator
