@@ -339,7 +339,7 @@ Ollama:
   `thinking`: see [Temperature and thinking](#temperature-and-thinking).
   A field a model doesn't take is refused, so a misspelled one can't
   register the model without the setting it meant:
-  `provider "ollama" model "llama3.1" has "thinkng", which isn't a model field: a model takes name, contextWindow, features, cost, p95LatencyMs, maxOutputTokens, sampling, thinking, description`.
+  `provider "ollama" model "llama3.1" has "thinkng", which isn't a model field: a model takes name, contextWindow, …`.
   `metadata` refuses a field it doesn't take the same way.
 - **`metadata.defaultModel`** (optional) is the model an agent gets when
   nothing else decides: no preference, and equal weights. Without it, that's
