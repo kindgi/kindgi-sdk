@@ -66,7 +66,7 @@ apart, and the two that let you allow and count them:
 | Setting | What it does |
 |---|---|
 | `KINDGI_TENANT_HOST_ACCESS=isolated` | What a tenant registers reaches public hosts only: not the metadata server, this host or private networks, and never with the server's own cloud credentials. The server then refuses `KINDGI_DEV`, `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow` and `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`. |
-| `KINDGI_PACK_ROUTING=per-deployment` | Each call goes to the pack service of the newest deployment in the run's project that shipped the tool or check, never to one pack service every tenant shares. A run with no project uses the Default project, whose deployments include each one that named no project. It needs `KINDGI_SECRETS_BACKEND=postgres`, because each endpoint's token is sealed under the secrets' key. `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused. |
+| `KINDGI_PACK_ROUTING=per-deployment` | Each call goes to the pack service of the newest deployment in the run's project that shipped the tool or check, never to one pack service every tenant shares. A run with no project uses the Default project, whose deployments include each one that named no project. It needs a key to seal each endpoint's token under: `KINDGI_PACK_ENDPOINT_KMS_KEY`, or else the secrets' own, with `KINDGI_SECRETS_BACKEND=postgres`. `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused. |
 | `KINDGI_PACK_ENDPOINT_HOSTS` | The hosts a deployment's pack service may be on, comma-separated: a host name, `*.` and a domain, or `*-`, a tail and a domain. |
 | `KINDGI_OPENFGA_API_URL` and `KINDGI_OPENFGA_PRESHARED_KEY` | The authorization store, and the key it requires of its callers, so only the server reads and writes tenants' grants ([Require a key for OpenFGA](../../authorization/#require-a-key-for-openfga)). |
 | `KINDGI_PRODUCTION_GATE=on` | A tenant puts a project in production only once you allow it ([Limits and production](#limits-and-production)). |
@@ -253,6 +253,15 @@ Neither can a slug that `KINDGI_AUTH_VERIFIED_DOMAINS` names
 Each deployment runs in its own pack service, which you run: an orchestrator,
 or a script, with a `system:deployments` key. The runtime records where each
 service is, and checks it. It never creates or deletes one.
+
+A pack's code may read whatever its service's account may. On
+[Cloud Run](../cloud-run/#serve-many-tenants), every tenant's pack services
+run as the module's one pack account, `$N-pack`. So each tenant's pack code
+can read every `kp-` secret, other tenants' pack service tokens and secret
+env values among them, and every secret in `pack_secret_readers`. One such
+installation is for tenants that trust one another's pack code. Give tenants
+that don't an installation each
+([Your tools' code](../../../concepts/security/#your-tools-code)).
 
 1. **List the deployments that need a service:**
    `GET /v1/system/deployments?endpoint=missing`, oldest first across tenants.

@@ -1,14 +1,12 @@
-# Example values (placeholders). Copy to <env>.tfvars, fill in, and add the
-# pack's env from `kindgi env plan --env <name>` (Terraform output) as
-# pack_env / pack_secret_env, or pass that JSON as <env>.pack-env.auto.tfvars.json
-# after renaming its keys to pack_env / pack_secret_env.
+# Example values (placeholders). Copy to <env>.tfvars and fill in. The pack's
+# env isn't set here: each deployment's pack service gets it from the runtime
+# (README, "The pack services").
 
 project_id = "acme-kindgi-dev"
 region     = "northamerica-northeast2"
 kindgi_env = "dev"
 
 server_image = "northamerica-northeast2-docker.pkg.dev/acme-kindgi-dev/kindgi/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-pack_image   = "northamerica-northeast2-docker.pkg.dev/acme-kindgi-dev/kindgi/acme-app@sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
 seed_tenant_id = "00000000-0000-0000-0000-000000000001"
 seed_user_id   = "00000000-0000-0000-0000-000000000002"
@@ -16,6 +14,10 @@ seed_user_id   = "00000000-0000-0000-0000-000000000002"
 # The version of the AAD key the server reads: the first one added (README step 3).
 # Pinned, never "latest": every secret stored in Postgres is bound to it.
 secrets_aad_key_version = "1"
+
+# Set after the first apply, once the orchestrator's key is minted and added
+# (README, "5. The pack orchestrator"). Pinned, never "latest".
+# orchestrator_key_version = "1"
 
 cors_origins = ["https://app.acme.example"]
 
@@ -30,13 +32,13 @@ server_env = {
   KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
 }
 
-pack_env = {
-  LOG_LEVEL = "info"
-}
-
-pack_secret_env = {
-  DATABASE_URL = { secret = "acme-app-database-url", version = "3" }
-}
+# A secret of yours that the pack's env names as a cloud secret, pinned to a
+# version. List it here and apply first, then set it, with a system key
+# holding system:env-refs (README, "The pack services"):
+#   kindgi env set DATABASE_URL --cloud-secret
+#   projects/acme-kindgi-dev/secrets/acme-app-database-url/versions/3
+#   --tenant=<id> --scope=tenant --env=<env>
+# pack_secret_readers = [{ secret = "acme-app-database-url" }]
 
 pack_cloud_sql_instances = ["acme-kindgi-dev:northamerica-northeast2:acme-app"]
 pack_bucket_readers      = ["acme-app-corpus"]

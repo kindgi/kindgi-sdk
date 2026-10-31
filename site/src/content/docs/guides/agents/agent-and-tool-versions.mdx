@@ -320,11 +320,13 @@ made it Latest.
 ### A self-hosted runtime runs what your pack has
 
 A self-hosted runtime with one pack service, as in the
-[Docker](../../../deploy/self-hosted/self-host/),
-[Cloud Run](../../../deploy/self-hosted/cloud-run/) and
+[Docker](../../../deploy/self-hosted/self-host/) and
 [Azure Container Apps](../../../deploy/self-hosted/azure-container-apps/)
 setups, sends every tool call to that service, whatever version the call
-names. A new build of your pack replaces the one the service runs. So a tool
+names. (On [Cloud Run](../../../deploy/self-hosted/cloud-run/), each
+deployment has a pack service of its own, and a call goes to the newest
+deployment in the run's project that shipped the tool version it names.) A
+new build of your pack replaces the one the service runs. So a tool
 version runs only while the build the service runs has it, and so does each
 agent and flow version that locks it. What this page says about an older
 version still running holds there while its tools are in the pack.
@@ -360,8 +362,8 @@ same way, since the build before it doesn't have their new tool versions.
 
 The [many-tenants setup](../../../deploy/self-hosted/serve-many-tenants/)
 runs a pack service for each deployment, and sends each call to the newest
-one that shipped the version it names. There, a version keeps running after
-later deploys while that service is up.
+one in the run's project that shipped the version it names. There, a version
+keeps running after later deploys while that service is up.
 
 ## What unregistering a version does
 

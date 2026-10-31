@@ -4,12 +4,13 @@
 
 project_id  = "acme-app-dev"
 region      = "northamerica-northeast2"
-name_prefix = "kindgi-dev" # one prefix per environment when environments share a project
+name_prefix = "kindgi-dev" # one installation per project: environments never share one
 kindgi_env  = "dev"
 
-# No VPC: the server reaches the internet and the pack service over Cloud
-# Run's own egress, so the pack service takes all ingress (IAM still admits
-# only the server's account). No private-IP database, no static egress IP.
+# No VPC: the server reaches the internet and the pack services over Cloud
+# Run's own egress, so each pack service takes all ingress (IAM still admits
+# only the project's invokers, the server's account among them). No
+# private-IP database, no static egress IP.
 network_mode = "none"
 pack_ingress = "INGRESS_TRAFFIC_ALL"
 
@@ -34,7 +35,6 @@ server_memory = "2Gi"
 server_min_instances = 1
 
 server_image = "northamerica-northeast2-docker.pkg.dev/acme-app-dev/kindgi-dev/runtime@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-pack_image   = "northamerica-northeast2-docker.pkg.dev/acme-app-dev/kindgi-dev/acme-app@sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
 seed_tenant_id = "00000000-0000-0000-0000-000000000001"
 seed_user_id   = "00000000-0000-0000-0000-000000000002"
@@ -44,6 +44,10 @@ seed_user_id   = "00000000-0000-0000-0000-000000000002"
 # set secrets_backend = "none" instead if you store no model keys (Vertex AI).
 secrets_aad_key_version = "1"
 
-# The pack service sleeps to zero; the first tool call after idle cold-starts.
-pack_min_instances = 0
+# Set after the first apply, once the orchestrator's key is minted and added
+# (README, "5. The pack orchestrator"). Pinned, never "latest".
+# orchestrator_key_version = "1"
+
+# Each pack service scales to zero unless its version is pinned; the first
+# tool call after idle cold-starts.
 pack_max_instances = 2
