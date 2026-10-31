@@ -103,7 +103,7 @@ The transport makes one attempt per call and does not retry. Mutating calls acce
 | `provenance` | `/v1/provenance` | `verify` |
 | `proposals` | `/v1/proposals` | — |
 | `supervisor` | — | `define`, `get`, `list`, `versions`, `delete`, and every `proposals.*` method (removed in 0.1.5: use `client.proposals`) |
-| `observations` | `/v1/observations` | `recordRun`, `patterns` |
+| `observations` | `/v1/observations` | — |
 | `approvals` | `/v1/approvals` | `batch`, `assign`, `reviewers.updateRole`, `audit.get`, `audit.list`, `audit.verify` |
 | `tenant` | `/v1/tenant` | — |
 | `cost` | `/v1/cost` | `budgets.get`, `budgets.set`, `budgets.getRemaining` |
