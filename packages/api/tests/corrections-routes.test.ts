@@ -1973,7 +1973,7 @@ describe('GET /v1/corrections/export', () => {
     const lines = (await res.text()).split('\r\n');
     expect(lines.at(-1)).toBe('');
     expect(lines[0]).toBe(
-      'id,projectId,runId,agentVersion,madeBy,participantId,expert,decisions,shouldCall,mustNotCall,answer,shouldSay,why,sortedTo,status,fixedIn,createdAt',
+      'id,projectId,runId,agentVersion,madeBy,participantId,expert,decisions,shouldCall,mustNotCall,answer,shouldSay,why,sortedTo,status,fixedIn,reopenedIn,createdAt',
     );
     expect(lines.slice(1, -1).map((l) => l.split(',')[0])).toEqual([
       ids.projectB,

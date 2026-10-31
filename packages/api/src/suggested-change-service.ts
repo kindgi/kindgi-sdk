@@ -96,6 +96,7 @@ import {
   type FrozenTestSet,
   type TestSetFreezeBinding,
   nothingToCheck,
+  projectHasCases,
 } from './test-set-binding.js';
 import { type WhatRuns, projectsPinTakesOffLatest, whatRuns } from './what-runs.js';
 
@@ -697,13 +698,32 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
     return narrower === undefined ? undefined : { code: 'registry-read-only', message: narrower };
   }
 
-  /** The project's test set, frozen for a check; the 409 when it has no cases. */
+  /** Whether the corrections say the project has no case of the agent; `false` without them. */
+  async function knownEmpty(
+    tenantId: TenantId,
+    agentId: AgentId,
+    projectId: ProjectId,
+  ): Promise<boolean> {
+    return (
+      deps.corrections !== undefined &&
+      !(await projectHasCases(deps.corrections, { tenantId, agentId, projectId }))
+    );
+  }
+
+  /**
+   * The project's test set, frozen for a check; the 409 when it has no
+   * cases. One read of its cases comes first, as a pin's test runs do, so a
+   * project with none freezes nothing: a freeze makes a version. Without
+   * the corrections, the freeze alone says.
+   */
   async function frozenSet(
     testSets: TestSetFreezeBinding,
     tenantId: TenantId,
     agentId: AgentId,
     projectId: ProjectId,
   ): Promise<SuggestedChangeOutcome<FrozenTestSet>> {
+    if (await knownEmpty(tenantId, agentId, projectId))
+      return err(nothingToCheck(agentId, projectId));
     const frozen = await testSets.freezeTestSet({ tenantId, agentId, projectId });
     if (frozen.cases.length > 0) return { kind: 'ok', value: frozen };
     return err(nothingToCheck(agentId, projectId));
@@ -1019,9 +1039,10 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       },
     });
     if (withVersion.kind === 'err' || deps.testSets === undefined) return withVersion;
-    const frozen = await deps.testSets.freezeTestSet({ tenantId, agentId, projectId });
-    if (frozen.cases.length === 0) return withVersion;
-    return checkOn(withVersion.value, input.by, projectId, frozen);
+    // With no case in the project, it's left unchecked, and nothing is frozen for it.
+    const frozen = await frozenSet(deps.testSets, tenantId, agentId, projectId);
+    if (frozen.kind === 'err') return withVersion;
+    return checkOn(withVersion.value, input.by, projectId, frozen.value);
   }
 
   /** Store a deploy card built on `fromVersion`, what its project runs; or find the same one open. */

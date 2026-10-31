@@ -38,6 +38,7 @@ import {
   type FrozenTestSet,
   type TestSetFreezeBinding,
   agentTestSetId,
+  projectHasCases,
 } from './test-set-binding.js';
 import { type WhatRuns, whatRunsByProject } from './what-runs.js';
 
@@ -126,7 +127,9 @@ export async function startPinTestRuns(
  * first. A project with neither, nor one of its runs still going, gets one
  * started, unless `start` is `false`; a run still going applies at its own
  * end. Applying again changes nothing, so the start-up reconcile can retry
- * it, with `start: false`: it applies what's there and starts no run. A
+ * it, with `start: false`: it applies what's there and starts no run, and
+ * for a change that names no run it reads whether the project has a case
+ * rather than freezing its test set, since no run will use the freeze. A
  * project whose step throws is logged, and the others still go. Answers
  * nothing for a change that didn't take effect.
  */
@@ -147,17 +150,45 @@ export async function pinTookEffect(
   const inside = await projectsInside(deps, tenantId, agentId, change.scope);
   const rows = await whatRunsByProject(deps.agentPins, { tenantId, agentId }, inside);
   const found = collect();
+  const mayStart = input.start !== false;
   for (const { projectId } of rows.filter((row) => row.pin?.changeId === change.id)) {
-    await eachProject(input.log, changeRuns(change), projectId, async () => {
-      const frozen = await activeCases(deps, tenantId, change, projectId);
-      if (frozen === undefined) return;
-      if (await reuseNamed(deps, tenantId, change, projectId, frozen, found)) return;
-      const own = await ownRuns(deps, tenantId, change, projectId);
-      if (own.length > 0) await applyOwn(deps, tenantId, projectId, own, found);
-      else if (input.start !== false) await start(deps, tenantId, change, projectId, frozen, found);
-    });
+    await eachProject(input.log, changeRuns(change), projectId, () =>
+      tookEffectIn(deps, { tenantId, change, projectId, mayStart }, found),
+    );
   }
   return found.answer();
+}
+
+/**
+ * One project of `pinTookEffect`. The test set is frozen only for a run
+ * that may use it, one to reuse or one to start; otherwise one read of the
+ * cases says whether there's anything to apply.
+ */
+async function tookEffectIn(
+  deps: PinTestRunDeps,
+  q: {
+    readonly tenantId: TenantId;
+    readonly change: Pin;
+    readonly projectId: ProjectId;
+    readonly mayStart: boolean;
+  },
+  found: Found,
+): Promise<void> {
+  const { tenantId, change, projectId } = q;
+  let frozen: FrozenTestSet | undefined;
+  if (q.mayStart || change.testRunId !== undefined) {
+    frozen = await activeCases(deps, tenantId, change, projectId);
+    if (frozen === undefined) return;
+    if (await reuseNamed(deps, tenantId, change, projectId, frozen, found)) return;
+  } else {
+    const agentId = change.agentId as AgentId;
+    if (!(await projectHasCases(deps.corrections, { tenantId, agentId, projectId }))) return;
+  }
+  const own = await ownRuns(deps, tenantId, change, projectId);
+  if (own.length > 0) await applyOwn(deps, tenantId, projectId, own, found);
+  else if (q.mayStart && frozen !== undefined) {
+    await start(deps, tenantId, change, projectId, frozen, found);
+  }
 }
 
 /** The change's own runs in a project, listed, and the ended ones applied, newest first. */
@@ -409,13 +440,8 @@ async function frozenWithCases(
   agentId: AgentId,
   projectId: ProjectId,
 ): Promise<FrozenTestSet | undefined> {
-  const some = await deps.corrections.listCases({
-    tenantId,
-    agentId: agentId as unknown as string,
-    projectId,
-    limit: 1,
-  });
-  if (some.data.length === 0) return undefined;
+  if (!(await projectHasCases(deps.corrections, { tenantId, agentId, projectId })))
+    return undefined;
   const frozen = await deps.testSets.freezeTestSet({ tenantId, agentId, projectId });
   return frozen.cases.length === 0 ? undefined : frozen;
 }

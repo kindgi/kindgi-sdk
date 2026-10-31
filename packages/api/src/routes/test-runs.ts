@@ -9,6 +9,7 @@ import { type Action, ref } from '@kindgi/authz';
 import type { Cursor, FlowId, ProjectId, RunId, Semver, TenantId, Timestamp } from '@kindgi/types';
 
 import { VERSIONS_NEED_A_FLOW } from '../corrected-dispatcher.js';
+import type { CorrectionRegistryBinding } from '../correction-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import { type ItemRights, filterOwned, ownProject, runIn } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -35,6 +36,7 @@ import {
   agentTestSetId,
   isAgentTestSetId,
   nothingToCheck,
+  projectHasCases,
 } from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
@@ -108,6 +110,11 @@ export function testRunsRouters(
    * run of it. Absent: such a run answers 501, as a suggested change's check does.
    */
   testSetFreeze?: TestSetFreezeBinding,
+  /**
+   * The corrections, read for whether the project has a case before its
+   * test set is frozen. Absent: the freeze alone says.
+   */
+  corrections?: Pick<CorrectionRegistryBinding, 'listCases'>,
 ): TestRunsRouters {
   return {
     start: startRouter(
@@ -119,6 +126,7 @@ export function testRunsRouters(
       projectSuspended,
       itemRights,
       testSetFreeze,
+      corrections,
     ),
     readback: readbackRouter(binding, authorizer, itemRights),
   };
@@ -206,11 +214,13 @@ function ownSetMismatch(
  * An agent's own test set as it is now, for a run of it (`ownSetMismatch`
  * passed): frozen first, as a suggested change's check freezes it, so the
  * run records that version as its `testSetVersion`. Refused with 501 when
- * nothing freezes it, and with the check's 409 when it has no cases.
+ * nothing freezes it, and with the check's 409 when it has no cases, read
+ * from the corrections before the freeze when there are corrections.
  * `undefined` for any other test set, which runs its latest version.
  */
 async function frozenFor(
   testSetFreeze: TestSetFreezeBinding | undefined,
+  corrections: Pick<CorrectionRegistryBinding, 'listCases'> | undefined,
   tenantId: TenantId,
   testSetId: string,
   agentRef: AgentRef | undefined,
@@ -235,6 +245,12 @@ async function frozenFor(
       },
     };
   }
+  if (
+    corrections !== undefined &&
+    !(await projectHasCases(corrections, { tenantId, agentId, projectId }))
+  ) {
+    return { kind: 'refused', error: nothingToCheck(agentId, projectId) };
+  }
   const frozen = await testSetFreeze.freezeTestSet({ tenantId, agentId, projectId });
   return frozen.cases.length === 0
     ? { kind: 'refused', error: nothingToCheck(agentId, projectId) }
@@ -250,6 +266,7 @@ function startRouter(
   projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>,
   itemRights?: ItemRights,
   testSetFreeze?: TestSetFreezeBinding,
+  corrections?: Pick<CorrectionRegistryBinding, 'listCases'>,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -366,7 +383,14 @@ function startRouter(
       return c.json(toWireError(refusal, requestId));
     }
 
-    const frozen = await frozenFor(testSetFreeze, tenantId, testSetId, agentRef, projectId);
+    const frozen = await frozenFor(
+      testSetFreeze,
+      corrections,
+      tenantId,
+      testSetId,
+      agentRef,
+      projectId,
+    );
     if (frozen?.kind === 'refused') {
       c.status(statusFor(frozen.error.code) as never);
       return c.json(toWireError(frozen.error, requestId));
