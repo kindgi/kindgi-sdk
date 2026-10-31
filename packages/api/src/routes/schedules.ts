@@ -40,6 +40,7 @@ import {
   type OwnerFacts,
   type TriggerOwnerNames,
   type TriggerOwnerNotices,
+  callerOwns,
   isTriggerAdmin,
   namesAnOwner,
   noteChangeForOwner,
@@ -105,8 +106,13 @@ import { UUID_RE } from './uuid-param.js';
  * An Improve schedule (`improve: { agentId, projectId }`) is in the project
  * it improves, and an agent and project have one at most: a second is
  * `409 schedule-exists`. Registering or changing one takes `publish` on the
- * agent, as starting an Improve run does, and not `write` on the project. Its
- * read says when its month's cap has paused it (`pausedUntil`, `pausedReason`).
+ * agent, as starting an Improve run does, and not `write` on the project:
+ * its owner changes, pauses, fires or deletes theirs with that alone, and
+ * anyone else's change to a personal one still takes a project admin, as a
+ * shared one's target, input and tool list do. Retargeting one to an agent
+ * or a flow takes what registering that takes. Reading one takes `read` on
+ * its project or on its agent, as an Improve run's read does. Its read says
+ * when its month's cap has paused it (`pausedUntil`, `pausedReason`).
  */
 export function schedulesRouter(
   binding: TriggerRegistryBinding,
@@ -204,13 +210,63 @@ export function schedulesRouter(
       return { kind: 'err', response: notFound(c, requestId, triggerId) };
     }
     const projectId = rec.projectId as unknown as string;
+    const improve = rec.target.kind === 'improve' ? rec.target : undefined;
     // Changing an Improve schedule takes `publish` on its agent, as registering it does.
     const refused =
-      action === 'write' && rec.target.kind === 'improve'
-        ? await targetRefused(c, rec.target, projectId)
+      action === 'write' && improve !== undefined
+        ? await targetRefused(c, improve, projectId)
         : await denied(c, action, ref('project', projectId));
-    if (refused !== undefined) return { kind: 'err', response: refused };
+    if (refused !== undefined) {
+      // Reading one, `read` on its project or on its agent.
+      const readsIt =
+        action === 'read' && improve !== undefined && (await readsAgent(c, improve.agentId));
+      if (!readsIt) return { kind: 'err', response: refused };
+    }
     return { kind: 'ok', value: rec };
+  }
+
+  /** Whether the caller reads the agent: `read` on it, or for one more than one project serves, on any of them. */
+  async function readsAgent(c: Context<AppEnv>, agentId: string): Promise<boolean> {
+    if (authorizer === undefined) return true;
+    const projects = await itemRights?.multi(c, 'agent', agentId);
+    return itemRights !== undefined && projects !== undefined
+      ? (await itemRights.read(c, 'agent', agentId, projects)) === undefined
+      : authorizer.can(c, 'read', ref('agent', agentId));
+  }
+
+  /**
+   * What registering `target` in `project` takes: `write` on the project
+   * (a tenant admin when there's none), except for an Improve schedule, and
+   * what firing the target takes ({@link targetRefused}). A retarget asks
+   * the same of its new target.
+   */
+  async function registerRefusal(
+    c: Context<AppEnv>,
+    target: TriggerTarget,
+    project: string | undefined,
+  ): Promise<Response | undefined> {
+    const tenantId = c.get('tenantId') as TenantId;
+    const projectRefused =
+      target.kind === 'improve'
+        ? undefined
+        : project === undefined
+          ? await denied(c, 'admin', ref('tenant', tenantId as unknown as string))
+          : await denied(c, 'write', ref('project', project));
+    return projectRefused ?? (await targetRefused(c, target, project));
+  }
+
+  /**
+   * The owner rule for a change ({@link personalTriggerRefusal}). An
+   * Improve schedule's owner passes on `publish` on the agent, which
+   * {@link scheduleFor} asked, not on `write` on the project; anyone else's
+   * change to a personal one still takes a project admin.
+   */
+  async function notOwnersRefusal(
+    c: Context<AppEnv>,
+    rec: CronTriggerRecord,
+  ): Promise<Response | undefined> {
+    if (rec.target.kind === 'improve' && callerOwns(c, rec.owner)) return undefined;
+    return personalTriggerRefusal(c, authorizer, names, owned(rec), 'schedule');
   }
 
   /**
@@ -317,13 +373,7 @@ export function schedulesRouter(
       (improves as string | undefined) ??
       ((await projects?.getDefault(tenantId))?.id as string | undefined);
     // An Improve schedule takes `publish` on the agent only, as starting a run does.
-    const refused =
-      (improves !== undefined
-        ? undefined
-        : project === undefined
-          ? await denied(c, 'admin', ref('tenant', tenantId as unknown as string))
-          : await denied(c, 'write', ref('project', project))) ??
-      (await targetRefused(c, target.value, project));
+    const refused = await registerRefusal(c, target.value, project);
     if (refused !== undefined) return refused;
     const exists = await improveScheduleExists(c, target.value);
     if (exists !== undefined) return exists;
@@ -520,23 +570,19 @@ export function schedulesRouter(
 
     const found = await scheduleFor(c, 'write');
     if (found.kind === 'err') return found.response;
-    const notOwners = await personalTriggerRefusal(
-      c,
-      authorizer,
-      names,
-      owned(found.value),
-      'schedule',
-    );
+    const notOwners = await notOwnersRefusal(c, found.value);
     if (notOwners !== undefined) return notOwners;
     if (target !== undefined) {
       if (target.value.kind === 'improve' && target.value.projectId !== found.value.projectId) {
         return bad(c, requestId, IN_ITS_PROJECT);
       }
-      const refused = await targetRefused(
-        c,
-        target.value,
-        found.value.projectId as unknown as string,
-      );
+      // A new target takes what registering it takes. Loading the schedule
+      // asked `write` on the project, unless it's an Improve schedule's.
+      const project = found.value.projectId as unknown as string;
+      const refused =
+        found.value.target.kind === 'improve'
+          ? await registerRefusal(c, target.value, project)
+          : await targetRefused(c, target.value, project);
       if (refused !== undefined) return refused;
       const exists = await improveScheduleExists(c, target.value, found.value.triggerId);
       if (exists !== undefined) return exists;
@@ -682,13 +728,7 @@ export function schedulesRouter(
       const requestId = c.get('requestId');
       const found = await scheduleFor(c, 'write');
       if (found.kind === 'err') return found.response;
-      const notOwners = await personalTriggerRefusal(
-        c,
-        authorizer,
-        names,
-        owned(found.value),
-        'schedule',
-      );
+      const notOwners = await notOwnersRefusal(c, found.value);
       if (notOwners !== undefined) return notOwners;
       const { tenantId, triggerId } = found.value;
       const result = await binding[verb]({ tenantId, triggerId });
@@ -708,13 +748,7 @@ export function schedulesRouter(
   r.post('/:triggerId/unregister', async (c) => {
     const found = await scheduleFor(c, 'write');
     if (found.kind === 'err') return found.response;
-    const notOwners = await personalTriggerRefusal(
-      c,
-      authorizer,
-      names,
-      owned(found.value),
-      'schedule',
-    );
+    const notOwners = await notOwnersRefusal(c, found.value);
     if (notOwners !== undefined) return notOwners;
     const { tenantId, triggerId } = found.value;
     const outcome = await binding.unregister({ tenantId, triggerId });
@@ -785,13 +819,7 @@ export function schedulesRouter(
     const requestId = c.get('requestId');
     const found = await scheduleFor(c, 'write');
     if (found.kind === 'err') return found.response;
-    const notOwners = await personalTriggerRefusal(
-      c,
-      authorizer,
-      names,
-      owned(found.value),
-      'schedule',
-    );
+    const notOwners = await notOwnersRefusal(c, found.value);
     if (notOwners !== undefined) return notOwners;
     if (binding.fireNow === undefined) return unsupported(c, requestId, 'run-now');
     const { tenantId, triggerId } = found.value;

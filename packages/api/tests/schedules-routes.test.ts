@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import { describe, expect, test } from 'vitest';
 
+import { userPrincipal } from '@kindgi/authz';
 import type { ProjectId, TenantId, TriggerId, UserId } from '@kindgi/types';
 import { createInMemoryTriggerRegistry, createStubAppBindings } from '../src/testing/index.js';
 
@@ -671,6 +672,155 @@ describe('what each route asks the authorizer', () => {
       }),
     });
     expect(checked).toEqual(expected);
+  });
+});
+
+describe("an improve schedule's owner, its readers, and a retarget to another kind", () => {
+  const OWNER = randomUUID();
+  const OTHER = randomUUID();
+  const SCORER = 'publish agent:acme.scorer';
+  const DIGEST = 'execute agent:acme.digest';
+  const WRITE = `write project:${PROJECT}`;
+  const ADMIN = `admin project:${PROJECT}`;
+
+  /** Allows only what `grants()` holds (`<action> <type>:<id>`), recording every check, `can` too. */
+  function granting(grants: () => readonly string[], checked: string[]): Authorizer {
+    const allows = (action: string, r: { type: string; id: string }) => {
+      const asked = `${action} ${r.type}:${r.id}`;
+      checked.push(asked);
+      return grants().includes(asked);
+    };
+    return {
+      authorize: (action, getResource) => async (c, next) =>
+        allows(action, await getResource(c))
+          ? next()
+          : c.json({ error: { code: 'forbidden', message: 'refused' } }, 403),
+      can: async (_c, action, r) => allows(action, r),
+      canFor: async () => {
+        throw new Error('unused');
+      },
+      check: async () => {
+        throw new Error('unused');
+      },
+      filterByCan: async () => [],
+    };
+  }
+
+  /**
+   * An improve schedule for acme.scorer, registered with only `publish` on
+   * it by `registrant` (a person; absent, there's no principal, so it's
+   * shared), then called by `caller` (the registrant unless named) holding
+   * `granted`.
+   */
+  async function asked(opts: { registrant?: string; caller?: string; granted: readonly string[] }) {
+    const registry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT });
+    const checked: string[] = [];
+    let who = opts.registrant;
+    let grants: readonly string[] = [SCORER];
+    const r = new Hono<AppEnv>();
+    r.use('*', async (c, next) => {
+      c.set('tenantId' as never, tenantId as never);
+      c.set('requestId' as never, 'req-schedules' as never);
+      if (who !== undefined) c.set('principal' as never, userPrincipal(who, tenantId) as never);
+      return next();
+    });
+    r.route(
+      '/',
+      schedulesRouter(
+        registry,
+        granting(() => grants, checked),
+      ),
+    );
+    const created = await r.request('/', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(hourly),
+    });
+    expect(created.status).toBe(201);
+    const id = ((await created.json()) as { scheduleId: string }).scheduleId;
+    who = opts.caller ?? opts.registrant;
+    grants = opts.granted;
+    checked.length = 0;
+    const call = (method: string, path = '', body?: unknown) =>
+      r.request(`/${id}${path}`, {
+        method,
+        ...(body !== undefined && {
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        }),
+      });
+    const stored = () => registry.get({ tenantId, triggerId: id as TriggerId });
+    return { call, checked, stored };
+  }
+
+  test('its owner, with only publish on the agent, changes, pauses, resumes, fires and deletes it', async () => {
+    const { call } = await asked({ registrant: OWNER, granted: [SCORER] });
+    expect((await call('PATCH', '', { label: 'nightly scorer' })).status).toBe(200);
+    expect((await call('PATCH', '', { config: { input: { corrections: 8 } } })).status).toBe(200);
+    expect((await call('POST', '/pause')).status).toBe(200);
+    expect((await call('POST', '/resume')).status).toBe(200);
+    expect((await call('POST', '/run-now')).status).toBe(202);
+    expect((await call('POST', '/unregister')).status).toBe(200);
+  });
+
+  test("another person with publish on the agent can't change the owner's; a project admin can", async () => {
+    const other = await asked({ registrant: OWNER, caller: OTHER, granted: [SCORER] });
+    expect((await other.call('PATCH', '', { label: 'mine now' })).status).toBe(403);
+    // Its publish, then the project admin it isn't: never `write` on the project.
+    expect(other.checked).toEqual([SCORER, ADMIN]);
+    expect((await other.stored())?.label ?? undefined).toBeUndefined();
+
+    const admin = await asked({ registrant: OWNER, caller: OTHER, granted: [SCORER, ADMIN] });
+    expect((await admin.call('PATCH', '', { label: 'renamed' })).status).toBe(200);
+    expect((await admin.stored())?.label).toBe('renamed');
+  });
+
+  test.each([
+    ['a personal one, by its owner', OWNER],
+    ['a shared one', undefined],
+  ])(
+    '%s: retargeting it to an agent asks write on the project, as registering one does',
+    async (_name, registrant) => {
+      const retarget = {
+        agentId: 'acme.digest',
+        agentVersion: '1.0.0',
+        config: { input: { userMessage: 'Digest the night.' } },
+      };
+      const without = await asked({
+        ...(registrant !== undefined && { registrant }),
+        granted: [SCORER, DIGEST],
+      });
+      expect((await without.call('PATCH', '', retarget)).status).toBe(403);
+      expect(without.checked).toContain(WRITE);
+      expect((await without.stored())?.target).toEqual({
+        kind: 'improve',
+        agentId: 'acme.scorer',
+        projectId: PROJECT,
+      });
+
+      // A shared one's new target is also a project admin's, as for any schedule.
+      const granted =
+        registrant === undefined ? [SCORER, DIGEST, WRITE, ADMIN] : [SCORER, DIGEST, WRITE];
+      const withWrite = await asked({ ...(registrant !== undefined && { registrant }), granted });
+      const res = await withWrite.call('PATCH', '', retarget);
+      expect(res.status, await res.text()).toBe(200);
+      expect((await withWrite.stored())?.target).toMatchObject({
+        kind: 'agent',
+        agentId: 'acme.digest',
+      });
+    },
+  );
+
+  test('reading one takes read on its project or on its agent', async () => {
+    for (const [granted, status] of [
+      [[`read project:${PROJECT}`], 200],
+      [['read agent:acme.scorer'], 200],
+      [[], 403],
+    ] as const) {
+      const { call } = await asked({ registrant: OWNER, caller: OTHER, granted });
+      expect((await call('GET')).status, JSON.stringify(granted)).toBe(status);
+      expect((await call('GET', '/fires')).status, JSON.stringify(granted)).toBe(status);
+    }
   });
 });
 

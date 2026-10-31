@@ -554,8 +554,16 @@ FIRED                     FOR      OUTCOME          STARTED                     
   schedule is paused at its next fire, with `statusReason`
   `owner-lost-publish`. Saving it with a new owner
   ([`take-ownership`](#shared-or-personal)) resumes it.
-- **At most once an hour.** Registering or changing one needs `publish` on
-  the agent, as starting an Improve run does, and not `write` on the project.
+- **At most once an hour.**
+- **Who may change it:** registering one takes `publish` on the agent, as
+  starting an Improve run does, and not `write` on the project. So does
+  changing, pausing, resuming, firing or unregistering one: its owner does
+  that with `publish` alone. Anyone else's change to a personal one takes a
+  project admin, as changing what a shared one runs (its agent, input or
+  tools) does. Saving one with an agent or a flow in place of the Improve
+  target takes what registering that takes.
+- **Who may read it:** reading one, or its fires, takes `read` on its
+  project or on the agent, as reading an Improve run does.
 
 `list --table` shows each one's agent and project under `RUNS`, such as
 `improve acme.rank.scorer (project <project-id>)`, and under `STATUS` a
