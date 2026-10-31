@@ -102,7 +102,7 @@ describe('conversations.list', () => {
       limit: 5,
     });
 
-    expect(page.items[0]?.id).toBe('00000000-0000-4000-8000-000000000001');
+    expect(page.data[0]?.id).toBe('00000000-0000-4000-8000-000000000001');
     const url = new URL(stub.calls[0]?.url);
     expect(url.searchParams.get('agentId')).toBe('acme.drafter');
     expect(url.searchParams.get('status')).toBe('open');
@@ -136,7 +136,7 @@ describe('conversations.list', () => {
 
     expect(new URL(filtered.calls[0]?.url).searchParams.get('openedBy')).toBe('me');
     expect(page?.openedBy).toBe('me');
-    expect(page?.items).toHaveLength(1);
+    expect(page?.data).toHaveLength(1);
     expect(older?.openedBy).toBeUndefined();
     expect(older).not.toHaveProperty('openedBy');
   });
@@ -192,8 +192,8 @@ describe('conversations.messages', () => {
       { limit: 10 },
     );
 
-    expect(page.items[0]?.sequence).toBe(0);
-    expect(page.items[0]?.role).toBe('user');
+    expect(page.data[0]?.sequence).toBe(0);
+    expect(page.data[0]?.role).toBe('user');
     const url = new URL(stub.calls[0]?.url);
     expect(url.pathname).toBe('/v1/conversations/00000000-0000-4000-8000-000000000001/messages');
     expect(url.searchParams.get('limit')).toBe('10');

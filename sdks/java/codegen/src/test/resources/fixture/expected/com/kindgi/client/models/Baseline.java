@@ -50,7 +50,7 @@ public sealed interface Baseline extends Model permits Baseline.WithAgentId, Bas
 
         @Override
         public void validate(Checks checks) {
-            // Nothing to check: the client doesn't know this variant's constraints.
+            checks.unrecognized();
         }
     }
 
@@ -66,7 +66,7 @@ public sealed interface Baseline extends Model permits Baseline.WithAgentId, Bas
 
         @Override
         public void validate(Checks checks) {
-            checks.oneOf("", value, List.of("recorded"));
+            checks.known("", value, List.of("recorded"));
         }
     }
 

@@ -155,6 +155,8 @@ async function rememberTurn(options: {
     usage: { steps: 1, promptTokens: 0, completionTokens: 0, totalCostUsd: 0 },
     provenance,
     hitlPolicy: resolveEffectiveHitlPolicy({ tenant: undefined, agent }),
+    // The loop's messages are the step's own (`nextMessages: []`).
+    initialMessageCount: 0,
   } as unknown as TurnContext;
   ctx.tools = withRememberTool(ctx, {
     definitions: [{ name: lookup.id, description: lookup.description, inputSchema: {} }],
@@ -298,6 +300,19 @@ describe('the remember tool in a turn', () => {
     expect(outputOf(turn)).toEqual({
       status: 'not-remembered',
       reason: 'Not remembered: this runtime cannot store agent memories.',
+    });
+  });
+
+  test('a text of only spaces is not remembered, and nothing is written', async () => {
+    const turn = await rememberTurn({
+      policy: { types: ['preference'], scope: 'same-user' },
+      args: { type: 'preference', content: '   ' },
+      participantId: 'end-7',
+    });
+    expect(turn.writes).toEqual([]);
+    expect(outputOf(turn)).toEqual({
+      status: 'not-remembered',
+      reason: 'Not remembered: the text must not be empty.',
     });
   });
 

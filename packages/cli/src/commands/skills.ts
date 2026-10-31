@@ -7,24 +7,34 @@
  * and `.agents/skills/` hold the same copies, one per coding agent's way
  * of finding them.
  *
+ * A skill is a folder: its `SKILL.md` (the entry, which coding agents
+ * load) and the files the entry links, which an agent reads only for its
+ * case. A copy is the skill's files in one of the pack's folders.
+ *
  * Update semantics with version + hash tracking, for each folder's copy:
  *
- *  - **Added** — bundled skill not present locally. Copy in.
- *  - **Updated** — bundled skill differs from what was last installed
- *    (higher `library_version` OR different content hash). Copy in,
- *    only if the user hasn't locally modified their copy.
- *  - **Unchanged** — bundled skill matches the last installed
- *    version + hash. No write.
- *  - **Skipped (modified)** — local copy has been edited since last
- *    install; the user's edits would be lost. Skipped by default;
- *    `--force` overwrites.
+ *  - **Added** — the copy has no `SKILL.md`. Copy the skill in.
+ *  - **Updated** — a bundled file differs from the copy's, or is
+ *    missing from it, or a file an earlier sync wrote is no longer
+ *    bundled (it's removed). Written only if the user hasn't edited
+ *    the copy.
+ *  - **Unchanged** — every bundled file matches the copy's. No write.
+ *  - **Skipped (modified)** — a file of the copy was edited since the
+ *    last install; the user's edits would be lost. The whole copy is
+ *    skipped by default; `--force` overwrites.
  *  - **Local-only** — a skill in the folder that the bundle doesn't
  *    ship. User-authored (or removed from a newer bundle). Left
  *    untouched.
  *
+ * A file the user added to a copy's folder is theirs: it's never read,
+ * written or removed, unless a later bundle ships a file by that name.
+ * That file then differs from the bundle's, with no hash recorded, so it
+ * counts as an edit.
+ *
  * Sync state lives in `.claude/skills/.kindgi-manifest.json`, for both
- * folders — records what version + hash of each skill was installed.
- * Commit this file to git so teammates see the same installed state.
+ * folders — records what version of each skill was installed, and the
+ * hash of each of its files. Commit this file to git so teammates see
+ * the same installed state.
  *
  * A pack gets the skills written for its language: each skill lists
  * them in its frontmatter (`pack_languages: [node, python, java, scala]`); a
@@ -32,7 +42,7 @@
  */
 
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
 
 import { type KindgiConfig, type PackLanguage, packLanguage } from '@kindgi/handler-runtime';
@@ -50,8 +60,19 @@ interface ManifestEntry {
   readonly installedVersion: string;
   /** SDK release version this skill was shipped with. Informational. */
   readonly installedSdkVersion: string;
+  /** The hash of the copy's `SKILL.md`. */
   readonly installedHash: string;
+  /**
+   * The hash of each file the copy was installed with, by name, `SKILL.md`
+   * among them. A manifest from before skills had more files has none: it
+   * reads as `SKILL.md` alone, at `installedHash`, which is what was
+   * installed then.
+   */
+  readonly installedFiles: Readonly<Record<string, string>>;
 }
+
+/** A skill's entry: the file coding agents load, and the one that names its version. */
+const ENTRY = 'SKILL.md';
 
 /**
  * The folders a pack's skills are copied into, from its root. Claude Code
@@ -61,6 +82,11 @@ interface ManifestEntry {
 export const SKILL_FOLDERS = ['.claude/skills', '.agents/skills'] as const;
 export type SkillFolder = (typeof SKILL_FOLDERS)[number];
 
+/**
+ * Version 2, entries with `installedFiles` or without: a CLI from before the
+ * field reads the rest of an entry (`installedHash` is still the entry's) and
+ * drops the field when it writes.
+ */
 interface Manifest {
   readonly v: 2;
   /** `.claude/skills/`'s copies. */
@@ -103,7 +129,30 @@ export interface SkillSyncOutcome {
   readonly toVersion?: string;
   /** SDK release version the bundled skill was shipped with (informational). */
   readonly sdkVersion?: string;
+  /** The bundled skill's files, `SKILL.md` first; none for a local-only skill. */
+  readonly files?: readonly string[];
+  /**
+   * The files this sync wrote into the copy (on a dry run, would write):
+   * each one that was missing or differed from the bundle's. Only for
+   * `added` and `updated`.
+   */
+  readonly written?: readonly string[];
+  /** Files an earlier sync wrote that the bundle no longer ships, removed from the copy. */
+  readonly removed?: readonly string[];
   readonly reason?: string;
+}
+
+/**
+ * Where `outcome`'s copy keeps its files, in the pack at `targetDir`: every
+ * file of the bundled skill (`files`), or the ones this sync wrote
+ * (`written`).
+ */
+export function skillCopyPaths(
+  targetDir: string,
+  outcome: SkillSyncOutcome,
+  which: 'files' | 'written',
+): string[] {
+  return (outcome[which] ?? []).map((file) => join(targetDir, outcome.folder, outcome.name, file));
 }
 
 export interface SkillSyncReport {
@@ -251,14 +300,15 @@ async function syncFrom(
     const installed = installedIn(manifest, folder);
     const folderGone = keepRemoved && !(await pathExists(skillsDir));
     for (const skill of bundled) {
-      const path = join(skillsDir, skill.name, 'SKILL.md');
+      const dir = join(skillsDir, skill.name);
       const prior = installed[skill.name];
+      const path = join(dir, ENTRY);
       const left = await leftOutCopy({ skill, folder, path, prior, folderGone, keepRemoved });
       if (left !== undefined) {
         leftOut.push(left);
         continue;
       }
-      const synced = await syncCopy({ skill, folder, path, prior, force, dryRun });
+      const synced = await syncCopy({ skill, folder, dir, prior, force, dryRun });
       outcomes.push(synced.outcome);
       if (synced.installed !== undefined) next[folder][skill.name] = synced.installed;
     }
@@ -451,10 +501,11 @@ function formatterIgnoreLines(outcome: FormatterIgnoreOutcome | undefined): Said
   return [];
 }
 
-/** A bundled skill's SKILL.md, with what the manifest records of it. */
+/** A bundled skill: its files, by name, with what the manifest records of it. */
 interface BundledSkill {
   readonly name: string;
-  readonly bytes: Uint8Array;
+  /** `SKILL.md` first, then the rest by name. */
+  readonly files: ReadonlyMap<string, Uint8Array>;
   readonly entry: ManifestEntry;
 }
 
@@ -464,15 +515,23 @@ async function readBundledSkills(
 ): Promise<readonly BundledSkill[]> {
   const skills: BundledSkill[] = [];
   for (const name of await listBundledSkills(root, language)) {
-    const bytes = await readFile(join(root, name, 'SKILL.md'));
-    const text = bytes.toString('utf8');
+    const dir = join(root, name);
+    const entry = await readFile(join(dir, ENTRY));
+    const files = new Map<string, Uint8Array>([[ENTRY, entry]]);
+    for (const file of await filesBesideEntry(dir)) {
+      files.set(file, await readFile(join(dir, file)));
+    }
+    const text = entry.toString('utf8');
     skills.push({
       name,
-      bytes,
+      files,
       entry: {
         installedVersion: parseFrontmatterField(text, 'version'),
         installedSdkVersion: parseFrontmatterField(text, 'sdk_version'),
-        installedHash: hashBytes(bytes),
+        installedHash: hashBytes(entry),
+        installedFiles: Object.fromEntries(
+          [...files].map(([file, bytes]) => [file, hashBytes(bytes)]),
+        ),
       },
     });
   }
@@ -480,41 +539,64 @@ async function readBundledSkills(
 }
 
 /**
+ * A skill folder's files besides `SKILL.md`, by name. Flat: a folder in
+ * it, or a dotfile, isn't the skill's.
+ */
+async function filesBesideEntry(dir: string): Promise<string[]> {
+  return (await readdir(dir, { withFileTypes: true }))
+    .filter((e) => e.isFile() && !e.name.startsWith('.') && e.name !== ENTRY)
+    .map((e) => e.name)
+    .sort();
+}
+
+/**
  * Brings one folder's copy of `skill` up to the bundle, unless it was
  * edited since `prior` (what was last installed there) and `force` is
  * off. `installed` is what the copy is now, for the manifest; `undefined`
  * keeps the entry it had.
+ *
+ * A file is edited when the copy's differs from both the bundle's and
+ * what was installed: one the bundle no longer ships counts too, and one
+ * that was never installed (the manifest doesn't name it) counts unless it
+ * matches the bundle's. A file that's missing is written; it's no edit.
  */
 async function syncCopy(inputs: {
   readonly skill: BundledSkill;
   readonly folder: SkillFolder;
-  readonly path: string;
+  readonly dir: string;
   readonly prior: ManifestEntry | undefined;
   readonly force: boolean;
   readonly dryRun: boolean;
 }): Promise<{ readonly outcome: SkillSyncOutcome; readonly installed?: ManifestEntry }> {
-  const { skill, folder, path, prior, force, dryRun } = inputs;
-  const which = { name: skill.name, folder };
+  const { skill, folder, dir, prior, force, dryRun } = inputs;
+  const which = { name: skill.name, folder, files: [...skill.files.keys()] };
   const to = {
     toVersion: skill.entry.installedVersion,
     sdkVersion: skill.entry.installedSdkVersion,
   };
+  const bundled = skill.entry.installedFiles;
+  const recorded = prior?.installedFiles ?? {};
 
-  if (!(await pathExists(path))) {
-    if (!dryRun) await writeSkill(path, skill.bytes);
-    return { outcome: { ...which, status: 'added', ...to }, installed: skill.entry };
+  const local = new Map<string, string | undefined>();
+  for (const file of new Set([...skill.files.keys(), ...Object.keys(recorded)])) {
+    local.set(file, await hashFile(join(dir, file)));
   }
-
-  const localHash = hashBytes(await readFile(path));
+  const stale = [...skill.files].filter(([file]) => local.get(file) !== bundled[file]);
+  const dropped = Object.keys(recorded).filter(
+    (file) => !skill.files.has(file) && local.get(file) !== undefined,
+  );
   // Content already matches bundle — nothing to do.
-  if (localHash === skill.entry.installedHash) {
+  if (stale.length === 0 && dropped.length === 0) {
     return { outcome: { ...which, status: 'unchanged', ...to }, installed: skill.entry };
   }
 
-  // Local differs from bundle. Determine if the user modified the
-  // local copy or if the bundle simply advanced.
-  const userModified = prior === undefined || prior.installedHash !== localHash;
-  const from = prior !== undefined && { fromVersion: prior.installedVersion };
+  // A copy without its entry is gone: it's added. Otherwise determine if
+  // the user edited the copy or the bundle simply advanced.
+  const added = local.get(ENTRY) === undefined;
+  const userModified = [...local].some(
+    ([file, hash]) => hash !== undefined && hash !== bundled[file] && hash !== recorded[file],
+  );
+  const from = !added && prior !== undefined && { fromVersion: prior.installedVersion };
 
   if (userModified && !force) {
     return {
@@ -528,13 +610,18 @@ async function syncCopy(inputs: {
     };
   }
 
-  if (!dryRun) await writeSkill(path, skill.bytes);
+  if (!dryRun) {
+    for (const [file, bytes] of stale) await writeSkillFile(join(dir, file), bytes);
+    for (const file of dropped) await unlink(join(dir, file));
+  }
   return {
     outcome: {
       ...which,
-      status: 'updated',
+      status: added ? 'added' : 'updated',
       ...to,
       ...from,
+      written: stale.map(([file]) => file),
+      ...(dropped.length > 0 && { removed: dropped }),
       ...(force && userModified && { reason: 'Overwrote local edits (--force)' }),
     },
     installed: skill.entry,
@@ -608,15 +695,37 @@ function readEntries(field: unknown): Record<string, ManifestEntry> {
       typeof (v as { installedHash?: unknown }).installedHash === 'string'
     ) {
       const sdkVer = (v as { installedSdkVersion?: unknown }).installedSdkVersion;
+      const installedHash = (v as { installedHash: string }).installedHash;
       out[k] = {
         installedVersion: (v as { installedVersion: string }).installedVersion,
         installedSdkVersion: typeof sdkVer === 'string' ? sdkVer : 'unknown',
-        installedHash: (v as { installedHash: string }).installedHash,
+        installedHash,
+        installedFiles: {
+          ...readInstalledFiles((v as { installedFiles?: unknown }).installedFiles),
+          [ENTRY]: installedHash,
+        },
       };
     }
   }
   return out;
 }
+
+/**
+ * An entry's `installedFiles`, each a file's name in the skill's folder and
+ * its hash. A name that isn't one plain file name (`../x`, `a/b`, `.x`) is
+ * dropped, so a manifest can't point the sync outside the copy.
+ */
+function readInstalledFiles(field: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (typeof field !== 'object' || field === null) return out;
+  for (const [file, hash] of Object.entries(field as Record<string, unknown>)) {
+    if (SKILL_FILE_NAME.test(file) && typeof hash === 'string') out[file] = hash;
+  }
+  return out;
+}
+
+/** A file's name in a skill's folder: no path, no dotfile. */
+const SKILL_FILE_NAME = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
 
 async function writeManifest(
   path: string,
@@ -691,6 +800,17 @@ async function pathExists(p: string): Promise<boolean> {
   }
 }
 
+/** The hash of the file at `path`; `undefined` when there's none. */
+async function hashFile(path: string): Promise<string | undefined> {
+  try {
+    return hashBytes(await readFile(path));
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return undefined;
+    throw err;
+  }
+}
+
 function hashBytes(bytes: Uint8Array): string {
   return `sha256:${createHash('sha256').update(bytes).digest('hex').slice(0, 16)}`;
 }
@@ -713,7 +833,7 @@ function parseFrontmatterField(text: string, field: string): string {
   return versionMatch !== null && versionMatch[1] !== undefined ? versionMatch[1] : 'unknown';
 }
 
-async function writeSkill(path: string, bytes: Uint8Array): Promise<void> {
+async function writeSkillFile(path: string, bytes: Uint8Array): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, bytes);
 }
@@ -818,8 +938,9 @@ function renderOutcome(o: SkillSyncOutcome): string {
       : o.toVersion !== undefined
         ? ` @${o.toVersion}`
         : '';
+  const removed = o.removed !== undefined ? ` (removed ${o.removed.join(', ')})` : '';
   const reason = o.reason !== undefined ? ` — ${o.reason}` : '';
-  return `  ${STATUS_SYMBOLS[o.status]} ${o.name}${version}${reason}`;
+  return `  ${STATUS_SYMBOLS[o.status]} ${o.name}${version}${removed}${reason}`;
 }
 
 /** One folder's block: a line per outcome, then the folder's counts. */

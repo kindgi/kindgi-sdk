@@ -100,9 +100,27 @@ describe('the GitHub entry', () => {
   });
 
   it('reads issues, and labels and edits them', () => {
-    expect(Object.keys(github.permissions)).toEqual(['issues.read', 'issues.write']);
     expect(github.permissions['issues.write']).toMatchObject({
       grants: 'issues:write',
+      changes: true,
+    });
+  });
+
+  it("reads and commits a repository's files, and opens its pull requests, for a project's repo connection", () => {
+    expect(Object.keys(github.permissions)).toEqual([
+      'issues.read',
+      'issues.write',
+      'contents.read',
+      'contents.write',
+      'pull_requests.read',
+      'pull_requests.write',
+    ]);
+    expect(github.permissions['contents.write']).toMatchObject({
+      grants: 'contents:write',
+      changes: true,
+    });
+    expect(github.permissions['pull_requests.write']).toMatchObject({
+      grants: 'pull_requests:write',
       changes: true,
     });
   });

@@ -158,14 +158,23 @@ On the Responses API:
 - a reasoning model's reasoning between tool calls goes back to it with the
   calls;
 - `extraBody` can't set `model`, `input`, `tools`, `text`, `temperature`,
-  `max_output_tokens`, `stream` or `store`, and
-  `"extraBody.reasoning.effort": "low"` sets a reasoning model's effort.
+  `max_output_tokens`, `stream` or `store`.
 
 To keep an OpenAI registration on Chat Completions, set
 `"api": "chat-completions"`: GPT-6.1 Sol and Astra then can't call tools. Its
-`extraBody` fields written for Chat Completions, such as `reasoning_effort`,
-either stay on that API or move to the Responses names, such as
-`extraBody.reasoning.effort`.
+`extraBody` fields written for Chat Completions either stay on that API or
+move to the Responses names.
+
+A model's reasoning effort follows its thinking level: an agent's `thinking`,
+or else the model's `thinking.default`, as
+[Temperature and thinking](../#temperature-and-thinking) shows. It goes as
+`reasoning.effort` on the Responses API and `reasoning_effort` on Chat
+Completions, and wins over the same field in `extraBody`. An effort in
+`extraBody`, such as `"extraBody.reasoning.effort": "low"`, still goes out
+when the model has no `thinking` in its entry, or when the call asks no
+level and the model has no `default`. The call's cost record then names no
+level, since Kindgi didn't set one. Other `extraBody.reasoning` fields go
+out beside the level's effort.
 
 Another value of `api` is refused when you register:
 

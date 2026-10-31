@@ -7,6 +7,7 @@ import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
 import type { Cursor, EnvName, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types';
 
+import { activeToolVersions } from '../agent-pins.js';
 import { environmentTakesPromotionsResponse, laterEnvironment } from '../environment-entry.js';
 import type { EnvironmentOrderBinding } from '../environment-orders-binding.js';
 import { statusFor, toWireError } from '../errors.js';
@@ -19,8 +20,13 @@ import {
 } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
-import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
-import { reservedToolMetadataKeys, reservedToolMetadataMessage } from '../reference-scope.js';
+import type { PinnedVersionBinding } from '../pinned-version-binding.js';
+import { type ProviderKeys, refuseSecretNames } from '../provider-keys.js';
+import {
+  type ReferenceScopeBinding,
+  reservedToolMetadataKeys,
+  reservedToolMetadataMessage,
+} from '../reference-scope.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import { type SecretScopeDeps, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
 import type {
@@ -32,6 +38,13 @@ import type {
 } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import {
+  type PinnedItem,
+  isPinWrite,
+  mountPinnedVersionRoutes,
+  pinRightsMiddleware,
+  versionPinnedResponse,
+} from './pinned-versions.js';
 import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
 import { isRegistryVersionsCursor } from './versions-cursor.js';
@@ -48,6 +61,11 @@ import { isRegistryVersionsCursor } from './versions-cursor.js';
  * must already be registered with the runtime — deployments publish
  * tools whose code is already bundled server-side. Handler code is not
  * uploaded over this surface.
+ *
+ * With `pinnedVersions`, a tool's versions can be pinned per project, org
+ * or tenant (`…/pinned`, `pinned-versions.ts`): an agent or flow version
+ * made where a pin covers locks the tool at the pinned version. Without
+ * it, the pin routes aren't mounted.
  */
 /**
  * Optional side-effect callback fired after a successful write
@@ -84,9 +102,23 @@ export function toolsRouter(
     readonly itemRights?: ItemRights;
     /** With no authorizer: which projects serve it, for `?projectId=` (`itemServingOf`). */
     readonly itemServing?: ItemServing;
+    /** What a project may reference: a project's pin must reach the tool (`reference-scope.ts`). */
+    readonly referenceScope?: ReferenceScopeBinding;
+    /** The tools' pinned versions; absent → no pin routes, and a lock takes the newest version. */
+    readonly pinnedVersions?: PinnedVersionBinding;
   } = {},
 ): Hono<AppEnv> {
-  const itemRights = options.itemRights;
+  const { itemRights, pinnedVersions } = options;
+  const pinDeps = {
+    ...(authorizer !== undefined && { authorizer }),
+    ...(itemRights !== undefined && { itemRights }),
+    ...(options.referenceScope !== undefined && { referenceScope: options.referenceScope }),
+    ...(options.environmentOrders !== undefined && {
+      environmentOrders: options.environmentOrders,
+    }),
+  };
+  const pinWrite = (c: Context<AppEnv>) =>
+    pinnedVersions !== undefined && isPinWrite(c.req.method, c.req.path);
   const r = new Hono<AppEnv>();
   // Every schema a publish compiles counts against its tenant's budget.
   const publishCompiles = publishCompilesMiddleware();
@@ -130,8 +162,14 @@ export function toolsRouter(
       const mw = authorizer.authorize('read', () => ref('project', scopeProjectId));
       return mw(c, next);
     });
+    // Pinning a version is its own permission (`pin`, granted to the
+    // tool's admins; `pinChangeRefusal`).
+    if (pinnedVersions !== undefined) {
+      r.use('/:toolId/*', pinRightsMiddleware('tool', 'toolId', pinDeps));
+    }
     // An item more than one project serves is checked on those projects
-    // instead (`item-rights.ts`).
+    // instead (`item-rights.ts`). A pin write is checked above.
+    // '/:toolId/*' matches '/:toolId' too: this one gate decides both, once.
     r.use(
       '/:toolId/*',
       itemMiddleware({
@@ -139,20 +177,8 @@ export function toolsRouter(
         rights: itemRights,
         kind: 'tool',
         id: (c) => c.req.param('toolId') ?? '',
-        today: (c) => (c.req.method === 'GET' ? 'read' : 'admin'),
+        today: (c) => (c.req.method === 'GET' ? 'read' : pinWrite(c) ? undefined : 'admin'),
         check: itemPathCheck,
-        versionNotFound: toolVersionNotFound,
-      }),
-    );
-    r.use(
-      '/:toolId',
-      itemMiddleware({
-        authorizer,
-        rights: itemRights,
-        kind: 'tool',
-        id: (c) => c.req.param('toolId') ?? '',
-        today: (c) => (c.req.method === 'GET' ? 'read' : undefined),
-        check: () => ({ rule: 'read' }),
         versionNotFound: toolVersionNotFound,
       }),
     );
@@ -468,8 +494,8 @@ export function toolsRouter(
       );
     }
 
-    // A model provider's key is never a tool's.
-    const refusal = await refuseProviderKeys(
+    // A reserved `kindgi.` name or a model provider's key is never a tool's.
+    const refusal = await refuseSecretNames(
       options.providerKeys,
       tenantId,
       toolSecretNames(validated.value),
@@ -568,6 +594,9 @@ export function toolsRouter(
     const version = c.req.param('version') as never;
 
     const outcome = await binding.unregister({ tenantId, toolId, version });
+    if (!outcome.unregistered && outcome.pinned !== undefined && outcome.pinned.length > 0) {
+      return versionPinnedResponse(c, 'tool', toolId, version as unknown as string, outcome.pinned);
+    }
     if (!outcome.unregistered) {
       c.status(statusFor('tool-not-found') as never);
       return c.json(
@@ -608,23 +637,21 @@ export function toolsRouter(
     const toolId = c.req.param('toolId') as ToolId;
     const version = c.req.param('version') as never;
 
-    // A model provider's key is never a tool's: a version naming one, retired
-    // before its provider was registered, stays retired.
-    if (options.providerKeys !== undefined) {
-      const retired = await binding.getVersion({ tenantId, toolId, version });
-      const refusal =
-        retired === null
-          ? undefined
-          : await refuseProviderKeys(
-              options.providerKeys,
-              tenantId,
-              toolSecretNames(retired),
-              'a tool',
-            );
-      if (refusal !== undefined) {
-        c.status(statusFor(refusal.code) as never);
-        return c.json(toWireError(refusal, requestId));
-      }
+    // A reserved `kindgi.` name or a model provider's key is never a tool's: a
+    // version naming one, retired before it was refused, stays retired.
+    const retired = await binding.getVersion({ tenantId, toolId, version });
+    const named =
+      retired === null
+        ? undefined
+        : await refuseSecretNames(
+            options.providerKeys,
+            tenantId,
+            toolSecretNames(retired),
+            'a tool',
+          );
+    if (named !== undefined) {
+      c.status(statusFor(named.code) as never);
+      return c.json(toWireError(named, requestId));
     }
 
     const outcome = await binding.reinstateVersion({ tenantId, toolId, version });
@@ -652,7 +679,61 @@ export function toolsRouter(
     });
   });
 
+  if (pinnedVersions !== undefined) {
+    mountPinnedVersionRoutes(
+      r,
+      'toolId',
+      toolPinnedItem(binding, itemRights ?? options.itemServing),
+      pinnedVersions,
+      pinDeps,
+    );
+  }
+
   return r;
+}
+
+/** What the pin routes ask of the tool registry (`pinned-versions.ts`). */
+function toolPinnedItem(
+  binding: ToolRegistryBinding,
+  serving: ItemServing | undefined,
+): PinnedItem {
+  return {
+    kind: 'tool',
+    async state(tenantId, itemId) {
+      const toolId = itemId as ToolId;
+      if ((await binding.get({ tenantId, toolId })) !== null) return 'ok';
+      return (await binding.headExists({ tenantId, toolId })) ? 'gone' : 'not-found';
+    },
+    // The versions a lock picks from (`activeToolVersions`), so a pin
+    // names one a lock can take.
+    async active(tenantId, itemId, version) {
+      const active = await activeToolVersions(binding, tenantId, itemId as ToolId);
+      return active.includes(version as unknown as string);
+    },
+    // What the next agent or flow version locks when no pin covers: the
+    // newest version, or the newest in `?projectId=`, as `GET /:toolId`
+    // answers it.
+    async latest(c, tenantId, itemId) {
+      const toolId = itemId as ToolId;
+      const newest = await binding.get({ tenantId, toolId });
+      if (newest === null) return undefined;
+      const shown = await shownLatest(c, serving, 'tool', itemId, newest, {
+        versionOf: (t) => t.version as unknown as string,
+        projectOf: (t) => t.projectId as unknown as string | undefined,
+        getVersion: (version) =>
+          binding.getVersion({ tenantId, toolId, version: version as never }),
+      });
+      return shown.kind === 'ok' ? (shown.row.version as unknown as string) : undefined;
+    },
+    // A tool an MCP endpoint's catalog lists carries the catalog's own
+    // metadata (`kindgi.mcp`, a key a published tool can't set): a call
+    // goes to the live server whatever the version, so it follows the
+    // server.
+    async followsItsServer(tenantId, itemId) {
+      const newest = await binding.get({ tenantId, toolId: itemId as ToolId });
+      return newest !== null && reservedToolMetadataKeys(newest.metadata).length > 0;
+    },
+  };
 }
 
 /** A reinstate's refusal: no such version (`404 tool-not-found`), or `409 tool-kind-mismatch`. */

@@ -72,6 +72,11 @@ export interface ValueRecordedPayload {
  * with attempts remaining. The executor waits `nextDelayMs` (subject to the
  * backoff shape) then re-dispatches the node.
  *
+ * Also emitted, with `left: true` and `nextDelayMs: 0`, when a step is left
+ * for the run's next resume instead: a read the step needs failed, so the
+ * run is given up, still running, and the step runs again when the run is
+ * resumed.
+ *
  * `attempt` is 1-based: `1` means the first retry (following the initial
  * failure), `2` the second, etc. The number of `step.retry-scheduled`
  * entries for a given node is the attempt count at derivation time.
@@ -81,6 +86,12 @@ export interface StepRetryScheduledPayload {
   readonly attempt: number;
   readonly nextDelayMs: number;
   readonly previousError: string;
+  /**
+   * `true` when the step was left for the run's next resume; absent for a
+   * retry by the edge's policy. Written from runtime 0.3.0; earlier runtimes
+   * never set it.
+   */
+  readonly left?: true;
 }
 
 /**
@@ -260,10 +271,12 @@ export interface FanoutSettleAllOutput {
 }
 
 /**
- * Journal payload for `subgraph.dispatched`. Emitted before the child
- * kernel run is started, so restarts observe consistent parent-journal
- * state. Carries the child `runId` so replay can resolve back to the
- * exact sub-run (rather than re-dispatching a fresh one).
+ * Journal payload for `subgraph.dispatched`. Emitted once the child run,
+ * started inside the parent's dispatch, has returned: finished, or left
+ * for its parent's next resume. (The child's id is the database's, known
+ * only once it's started.) Carries the child `runId` so a resume of the
+ * parent goes back to the exact child run rather than starting a fresh
+ * one.
  */
 export interface SubflowDispatchedPayload {
   readonly subgraphNodeId: NodeId;
@@ -271,6 +284,13 @@ export interface SubflowDispatchedPayload {
   readonly flowRef: { readonly flowId: string; readonly version: string };
   readonly subInput: unknown;
   readonly depth: number;
+  /**
+   * The loop iteration the subgraph node ran in, when it's in a loop body
+   * (as a body step's `step.*` entries carry it): a resume finds the child
+   * run of that iteration. Absent outside a loop body. Written from runtime
+   * 0.3.0; earlier runtimes never set it.
+   */
+  readonly loopContext?: LoopContext | undefined;
 }
 
 /**
@@ -284,6 +304,13 @@ export interface SubflowCompletedPayload {
   readonly subgraphNodeId: NodeId;
   readonly subRunId: RunId;
   readonly output: unknown;
+  /**
+   * The loop iteration the subgraph node ran in, when it's in a loop body
+   * (as a body step's `step.*` entries carry it): a resume finds the child
+   * run of that iteration. Absent outside a loop body. Written from runtime
+   * 0.3.0; earlier runtimes never set it.
+   */
+  readonly loopContext?: LoopContext | undefined;
 }
 
 /**
@@ -314,6 +341,13 @@ export interface SubflowFailedPayload {
     | 'resolver-missing';
   readonly message: string;
   readonly schemaErrors?: readonly unknown[];
+  /**
+   * The loop iteration the subgraph node ran in, when it's in a loop body
+   * (as a body step's `step.*` entries carry it): a resume finds the child
+   * run of that iteration. Absent outside a loop body. Written from runtime
+   * 0.3.0; earlier runtimes never set it.
+   */
+  readonly loopContext?: LoopContext | undefined;
 }
 
 /**
@@ -328,6 +362,13 @@ export interface SubflowCancelledPayload {
   readonly subgraphNodeId: NodeId;
   readonly subRunId: RunId;
   readonly stopReason: 'cancelled';
+  /**
+   * The loop iteration the subgraph node ran in, when it's in a loop body
+   * (as a body step's `step.*` entries carry it): a resume finds the child
+   * run of that iteration. Absent outside a loop body. Written from runtime
+   * 0.3.0; earlier runtimes never set it.
+   */
+  readonly loopContext?: LoopContext | undefined;
 }
 
 /**
@@ -357,6 +398,72 @@ export interface JournalEntry {
   readonly nodeId?: NodeId;
   readonly payload?: unknown;
   readonly timestamp: Timestamp;
+}
+
+/**
+ * Where a journal entry sits, kept beside its payload so a reader can
+ * place the entry without reading the payload, which can hold a value.
+ * Each fact is one scalar: an id from the flow definition, an index, a
+ * number, a boolean or a fixed word, never a value or text taken from
+ * data. The kernel keeps the facts each kind lists below. Entries
+ * written before it kept them have none, and erasing a person's data
+ * clears them with the payload.
+ */
+export interface JournalEntryFacts {
+  /**
+   * The step's scope where it isn't the entry's node id: a loop-body
+   * step's `bodyStepKey` on its `step.*` entries. On `iteration.*`
+   * entries, always the loop execution's scope: a nested loop's
+   * `bodyStepKey`, a top-level loop's node id. On `wait.*` entries,
+   * always the waiting step's scope.
+   */
+  readonly scope?: string;
+  /**
+   * In a loop body (`step.*` of a body step, a body `edge.evaluated`):
+   * the scope of the innermost loop, its node id when that loop isn't
+   * itself in a loop body.
+   */
+  readonly loopScope?: string;
+  /** With `loopScope`, and on `iteration.*`: the innermost loop's iteration, from 0. */
+  readonly iteration?: number;
+  /** `edge.evaluated`: the edge, and whether it was taken. */
+  readonly edgeId?: string;
+  readonly decision?: boolean;
+  /**
+   * A fixed word: `step.failed`'s attribution (`timeout`, `cancelled`),
+   * `fanout.branch-failed`'s and `fanout.cancelled-siblings`' reason, or
+   * `run.cancelled`'s or `wait.cancelled`'s (such as `timeout`,
+   * `conversation-closed`, `approval-withdrawn`), when it's one the
+   * kernel knows. More words may come.
+   */
+  readonly reason?: string;
+  /** `step.failed` on a timeout. */
+  readonly limitMs?: number;
+  readonly elapsedMs?: number;
+  /** `step.retry-scheduled`. */
+  readonly attempt?: number;
+  readonly nextDelayMs?: number;
+  /** `iteration.*`. */
+  readonly bodyExecuted?: boolean;
+  readonly exitConditionResult?: boolean;
+  readonly outputSchemaValid?: boolean;
+  /** `iteration.completed` on a loop's last iteration, and a loop's, fanout's or sub-flow's `step.failed`. */
+  readonly stopReason?: string;
+  /** `fanout.*`: the branch, from the flow definition. */
+  readonly fanoutNodeId?: string;
+  readonly branchId?: string;
+}
+
+/**
+ * A journal entry without its payload, with its facts: what a reader
+ * that must not read values is handed.
+ */
+export interface JournalEntryPosition {
+  readonly sequence: number;
+  readonly kind: JournalKind;
+  readonly nodeId?: NodeId;
+  readonly timestamp: Timestamp;
+  readonly facts?: JournalEntryFacts;
 }
 
 /** Kernel run-configuration knobs. */

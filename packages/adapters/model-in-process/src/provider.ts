@@ -12,6 +12,7 @@ import type {
   ModelProvider,
   ProviderMetadata,
 } from '@kindgi/capabilities';
+import { thinkingFor } from '@kindgi/capabilities';
 
 import { DEFAULT_LOCAL_MODEL, type LocalModel, MODEL_SPECS, type ModelSpec } from './models.js';
 
@@ -112,6 +113,11 @@ export function createInProcessModelProvider(
         );
       }
       const spec = MODEL_SPECS[modelKey];
+      // These models carry no thinking setting, so an asked level is sent
+      // nowhere and warns `thinking-unsupported`.
+      const modelInfo = metadata.models.find((m) => m.name === modelKey);
+      const { warnings } =
+        modelInfo !== undefined ? thinkingFor(modelInfo, input) : { warnings: [] };
       const p = await loadPipeline(modelKey);
       // A local model takes text only: a text file is read in, and an image
       // or a PDF is a line saying it isn't shown.
@@ -153,6 +159,7 @@ export function createInProcessModelProvider(
         costUsd: 0,
         durationMs,
         provider: { id: providerId, model: modelKey },
+        ...(warnings.length > 0 && { warnings }),
       };
     },
   };

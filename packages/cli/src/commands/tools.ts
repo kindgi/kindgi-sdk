@@ -14,6 +14,7 @@ import {
   stringFlag,
   truncateCell,
 } from './helpers.js';
+import { pinnedVersionCommands } from './pinned-versions.js';
 import type { Command, LeafCommand } from './types.js';
 
 /** `tools list --table`. */
@@ -191,6 +192,15 @@ const reinstate: LeafCommand = {
 export const toolsCommand: Command = {
   kind: 'group',
   name: 'tools',
-  description: 'Manage tool registrations.',
-  subcommands: [list, get, publish, unregister, versions, getVersion, reinstate],
+  description: 'Manage tool registrations and which version new agent and flow versions lock.',
+  subcommands: [
+    list,
+    get,
+    publish,
+    unregister,
+    versions,
+    getVersion,
+    reinstate,
+    ...pinnedVersionCommands('tools'),
+  ],
 };

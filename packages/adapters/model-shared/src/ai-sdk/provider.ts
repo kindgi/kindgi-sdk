@@ -32,9 +32,16 @@ import type {
   LanguageModelV4Prompt,
   SharedV4ProviderMetadata,
   SharedV4ProviderOptions,
+  SharedV4Warning,
 } from '@ai-sdk/provider';
 
-import { fileParts, headedFileParts, samplingFor } from '@kindgi/capabilities';
+import {
+  THINKING_UNSUPPORTED,
+  fileParts,
+  headedFileParts,
+  samplingFor,
+  thinkingFor,
+} from '@kindgi/capabilities';
 import type {
   FilePart,
   FilePartsOptions,
@@ -44,8 +51,10 @@ import type {
   ModelInfo,
   ModelMessage,
   ModelProvider,
+  ModelThinking,
   ModelToolCall,
   ProviderMetadata,
+  ThinkingLevel,
   UsageCounters,
 } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
@@ -66,6 +75,12 @@ export interface AiSdkModelProviderOptions {
    * undefined. Which messages are marked: `withCacheMarks`.
    */
   readonly cacheMark?: (model: ModelInfo) => SharedV4ProviderOptions | undefined;
+  /**
+   * Whether the vendor's AI SDK provider sends nothing for this `reasoning` and gives no warning
+   * either (Bedrock's `none`, on any model). The call then reports no level
+   * sent, with `thinking-unsupported`, as when the AI SDK warns that it dropped one.
+   */
+  readonly sendsNoReasoning?: (model: ModelInfo, reasoning: PortableReasoning) => boolean;
   /** Our cost formula for this vendor, from its usage. */
   readonly cost: (model: ModelInfo, usage: UsageCounters) => number;
   /** The vendor's own file limits, where they're lower than Kindgi's (`FILE_LIMITS`). */
@@ -141,6 +156,12 @@ export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): Mo
       const toolIds = input.tools?.map((t) => t.name) ?? [];
       const toolIdOf = toolIdsBySentName(toolIds, wireName, ourName);
       const sampling = samplingFor(model, input);
+      // The call's level, or the model's default, as one the model takes.
+      const thinking = thinkingFor(model, input);
+      const reasoning =
+        thinking.level !== undefined && model.thinking !== undefined
+          ? portableReasoning(thinking.level, model.thinking)
+          : undefined;
       const maxOutputTokens = input.maxOutputTokens ?? model.maxOutputTokens;
       const extra = options.providerOptions?.(model);
       const files = await fileParts(input.messages, filePartsFor(model, input, options.fileLimits));
@@ -175,8 +196,7 @@ export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): Mo
             name: input.structuredOutput.name,
           },
         }),
-        ...(input.thinking === 'lowest' &&
-          model.thinking !== undefined && { reasoning: portableReasoning(model.thinking.lowest) }),
+        ...(reasoning !== undefined && { reasoning }),
         ...(input.abortSignal !== undefined && { abortSignal: input.abortSignal }),
         ...(input.traceparent !== undefined && { headers: { traceparent: input.traceparent } }),
         ...(extra !== undefined && { providerOptions: extra }),
@@ -224,8 +244,15 @@ export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): Mo
       }
       const text = result.content.flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('');
       const usage = toUsage(result.usage);
+      // The AI SDK maps `reasoning` for each vendor, and says so when it drops it, except where
+      // the adapter knows it drops one without a word.
+      const dropped =
+        reasoning !== undefined &&
+        (result.warnings.some(dropsReasoning) ||
+          options.sendsNoReasoning?.(model, reasoning) === true);
       const warnings: ModelCallWarning[] = [
         ...sampling.warnings,
+        ...thinking.warnings,
         ...result.warnings.map((w) => ({
           code: `sdk-${w.type}`,
           message:
@@ -235,6 +262,14 @@ export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): Mo
                 ? String(w.message)
                 : JSON.stringify(w),
         })),
+        ...(dropped
+          ? [
+              {
+                code: THINKING_UNSUPPORTED,
+                message: `${model.name} doesn't take reasoning ${reasoning} through the AI SDK, so the call sent no level (it asked for ${input.thinking ?? thinking.level}).`,
+              },
+            ]
+          : []),
       ];
       const headers = result.response?.headers ?? {};
       const requestId =
@@ -254,17 +289,42 @@ export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): Mo
         ...(requestId !== undefined && { providerRequestId: requestId }),
         ...(counted.attempts > 0 && { attempts: counted.attempts }),
         ...(result.usage.raw !== undefined && { rawUsage: result.usage.raw }),
+        // What was handed to the AI SDK; a value it mapped is in its `sdk-compatibility` warning.
+        ...(reasoning !== undefined &&
+          thinking.level !== undefined &&
+          !dropped && { thinking: { level: thinking.level, sent: { reasoning } } }),
         ...(warnings.length > 0 && { warnings }),
       };
     },
   };
 }
 
-/** Our lowest-thinking values onto the SDK's portable `reasoning` levels. */
-function portableReasoning(lowest: string): NonNullable<LanguageModelV4CallOptions['reasoning']> {
+type PortableReasoning = NonNullable<LanguageModelV4CallOptions['reasoning']>;
+
+/**
+ * A level onto the AI SDK's portable `reasoning`: `lowest` is the model's
+ * `thinking.lowest` (`disabled` is `none`, `between_tools` is `low`), and
+ * every other level is the portable value of the same name.
+ */
+function portableReasoning(level: ThinkingLevel, thinking: ModelThinking): PortableReasoning {
+  if (level !== 'lowest') return level;
+  const { lowest } = thinking;
   if (lowest === 'disabled') return 'none';
   if (lowest === 'between_tools') return 'low';
-  return lowest as NonNullable<LanguageModelV4CallOptions['reasoning']>;
+  return lowest as PortableReasoning;
+}
+
+/**
+ * The AI SDK's word that it sent no reasoning: an `unsupported` warning on
+ * `reasoning` (its portable mapping, and Bedrock's) or on `reasoningEffort`
+ * (the OpenAI provider, which Azure uses, for an effort the model doesn't
+ * take).
+ */
+function dropsReasoning(warning: SharedV4Warning): boolean {
+  return (
+    warning.type === 'unsupported' &&
+    (warning.feature === 'reasoning' || warning.feature === 'reasoningEffort')
+  );
 }
 
 /** The model's own reason when the library has no unified one for it: out of context is `length`. */

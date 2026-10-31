@@ -5,6 +5,7 @@ import { type Context, Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
 import type {
+  JournalPage,
   KernelRunRecord,
   ListRunsInput,
   RunBinding,
@@ -45,16 +46,17 @@ import {
   outOfScopeResponse,
   referencesOutOfScope,
 } from '../reference-scope.js';
-import { resumeInline } from '../resume-inline.js';
+import { logResumeAfterAnswer, resumeInline } from '../resume-inline.js';
 import { type RunFailure, runFailure } from '../run-failure.js';
 import { runWaitingFor } from '../run-waiting-for.js';
 import type { AppEnv } from '../types.js';
 import type { CompleteWaitTokenInput, WaitTokenBinding } from '../wait-token-binding.js';
+import { agentPinScopeToWire } from './agent-pin-scope-wire.js';
 import { deniedBy } from './denied.js';
-import { liveScopeToWire } from './live-scope-wire.js';
 import type { DecodedCursor } from './pagination.js';
 import { clampLimit, decodeCursor, isCursorTime } from './pagination.js';
 import { participantRefusal } from './participant-access.js';
+import { pinScopeToWire } from './pin-scope-wire.js';
 import { runFailuresHandler } from './run-failures.js';
 import { parseListScope } from './scope-params.js';
 import { parseSegmentsBody } from './segments.js';
@@ -593,6 +595,10 @@ export function runsRouter(
 
     const encoder = new TextEncoder();
     let lastEmittedSeq = since ?? -1;
+    // Each read asks only for what this stream hasn't sent: a poll every
+    // 200 ms no longer reads the whole journal. `emitEntry` still skips
+    // what was sent, for a binding that gives every entry.
+    const sinceEmitted = (): JournalPage => (lastEmittedSeq < 0 ? {} : { after: lastEmittedSeq });
     const POLL_MS = 200;
     const MAX_WAIT_MS = 5 * 60_000;
     // Aborted when the client goes away: the reader cancels the stream, or
@@ -672,7 +678,7 @@ export function runsRouter(
             // reconnect with `Last-Event-Id` doesn't miss events that
             // landed while the client was disconnected. Then subscribe
             // for the tail push-side.
-            const backfill = await runBinding.readJournal(tenantId, runId);
+            const backfill = await runBinding.readJournal(tenantId, runId, sinceEmitted());
             if (backfill.kind === 'err') {
               controller.enqueue(
                 encoder.encode(
@@ -771,7 +777,7 @@ export function runsRouter(
         // journal every 200 ms until a terminal entry or the max-wait
         // window elapses.
         const pollEmit = async (): Promise<{ terminal: boolean }> => {
-          const journal = await runBinding.readJournal(tenantId, runId);
+          const journal = await runBinding.readJournal(tenantId, runId, sinceEmitted());
           if (journal.kind === 'err') {
             const frame = formatSseFrame({
               id: `${runId}:error`,
@@ -841,7 +847,14 @@ export function runsRouter(
     }
     const { limit, after } = paging;
 
-    const journal = await runBinding.readJournal(tenantId, runId);
+    // Only the page is read (`journalPageToRead`). A binding that gives the
+    // whole journal anyway gets the same page: the filter and the slice below
+    // make it.
+    const journal = await runBinding.readJournal(
+      tenantId,
+      runId,
+      journalPageToRead(since, after, limit),
+    );
     if (journal.kind === 'err') {
       const err = journal.error;
       const busy = databaseBusyAnswer(err, c);
@@ -1030,12 +1043,7 @@ async function resumeAfterAnswer(
     traceId: trace.traceId,
     spanId: trace.spanId,
   });
-  if (resumed.kind === 'failed') {
-    c.get('log').warn('resume after a wait token answer failed', {
-      runId,
-      code: resumed.code,
-    });
-  }
+  logResumeAfterAnswer(c.get('log'), runId, resumed);
 }
 
 /** `{ waitpointId, value? }`, and nothing else. */
@@ -1227,7 +1235,7 @@ function invokeFromBody(
  * single-run responses carry it, lists only with `?include=output`
  * (outputs can be large). Child runs carry their parent's run + node;
  * an agent's turns, the agent, its version and the conversation; a
- * replay run, the run it replays and its eval run.
+ * replay run, the run it replays and its test run.
  */
 function serializeRun(
   row: KernelRunRecord,
@@ -1239,6 +1247,7 @@ function serializeRun(
     projectId: row.projectId as unknown as string,
     flowId: row.flowId,
     flowVersion: row.flowVersion,
+    ...withFlowVersionChoice(row),
     status: row.status,
     dryRun: row.dryRun,
     createdAt: row.createdAt as unknown as string,
@@ -1255,13 +1264,13 @@ function serializeRun(
         version: row.agent.version,
         conversationId: row.agent.conversationId as unknown as string,
         ...(row.agent.via !== undefined && { via: row.agent.via }),
-        ...(row.agent.liveScope !== undefined && {
-          liveScope: liveScopeToWire(row.agent.liveScope),
+        ...(row.agent.pinnedScope !== undefined && {
+          pinnedScope: agentPinScopeToWire(row.agent.pinnedScope),
         }),
       },
     }),
     ...(row.replayOf != null && { replayOf: row.replayOf as unknown as string }),
-    ...(row.evalRunId != null && { evalRunId: row.evalRunId }),
+    ...(row.testRunId != null && { testRunId: row.testRunId }),
     ...(row.trigger !== undefined && {
       trigger: {
         triggerId: row.trigger.triggerId as unknown as string,
@@ -1270,6 +1279,7 @@ function serializeRun(
         ...(row.trigger.scheduledFor !== undefined && {
           scheduledFor: row.trigger.scheduledFor as unknown as string,
         }),
+        ...(row.trigger.version !== undefined && { version: row.trigger.version }),
       },
     }),
     ...(row.startedBy !== undefined && { startedBy: row.startedBy }),
@@ -1287,6 +1297,16 @@ function serializeRun(
         segments: row.segments.map(({ key, value }) => ({ key, value })),
       }),
     ...(row.traceId != null && { traceId: row.traceId }),
+  };
+}
+
+/** How the run's flow version was chosen, when the run recorded it. */
+function withFlowVersionChoice(row: KernelRunRecord): Record<string, unknown> {
+  return {
+    ...(row.flowVersionVia !== undefined && { flowVersionVia: row.flowVersionVia }),
+    ...(row.flowPinnedScope !== undefined && {
+      flowPinnedScope: pinScopeToWire(row.flowPinnedScope),
+    }),
   };
 }
 
@@ -1354,7 +1374,7 @@ function listRunsInput(input: {
     ...(filter.topLevelOnly && { topLevelOnly: true }),
     ...(filter.agentId !== undefined && { agentId: filter.agentId }),
     replays: filter.replays,
-    ...(filter.evalRunId !== undefined && { evalRunId: filter.evalRunId }),
+    ...(filter.testRunId !== undefined && { testRunId: filter.testRunId }),
     ...(filter.triggerId !== undefined && { triggerId: filter.triggerId }),
     ...(filter.statuses !== undefined && { statuses: filter.statuses }),
     ...(filter.createdAfter !== undefined && { createdAfter: filter.createdAfter }),
@@ -1370,7 +1390,7 @@ interface RunListFilter {
   readonly topLevelOnly: boolean;
   readonly agentId?: string;
   readonly replays: 'exclude' | 'include' | 'only';
-  readonly evalRunId?: string;
+  readonly testRunId?: string;
   readonly triggerId?: TriggerId;
   readonly statuses?: readonly RunStatus[];
   readonly createdAfter?: Timestamp;
@@ -1481,7 +1501,7 @@ function parseRunNarrowing(
 /**
  * `?parentRunId=` (children of a run), `?topLevel=true`, `?agentId=` (an
  * agent's turns), `?replays=exclude|include|only` (default `exclude`),
- * `?evalRunId=` (one eval run's replays; implies they are included),
+ * `?testRunId=` (one test run's replays; implies they are included),
  * `?triggerId=` (the runs a trigger started), `?include=output`, and the
  * narrowing in `parseRunNarrowing`.
  */
@@ -1489,7 +1509,7 @@ function parseRunListFilter(
   query: Readonly<Record<string, string>>,
   status?: readonly string[],
 ): { kind: 'ok'; value: RunListFilter } | { kind: 'err'; message: string } {
-  const { parentRunId, topLevel, agentId, replays, evalRunId, triggerId, include } = query;
+  const { parentRunId, topLevel, agentId, replays, testRunId, triggerId, include } = query;
   if (triggerId !== undefined && !UUID_RE.test(triggerId)) {
     return { kind: 'err', message: '`triggerId` must be a trigger id (a UUID)' };
   }
@@ -1514,11 +1534,11 @@ function parseRunListFilter(
   ) {
     return { kind: 'err', message: '`replays` must be `exclude`, `include` or `only`' };
   }
-  if (evalRunId !== undefined && evalRunId.trim() === '') {
-    return { kind: 'err', message: '`evalRunId` must not be empty' };
+  if (testRunId !== undefined && testRunId.trim() === '') {
+    return { kind: 'err', message: '`testRunId` must not be empty' };
   }
-  if (evalRunId !== undefined && replays === 'exclude') {
-    return { kind: 'err', message: '`evalRunId` and `replays=exclude` cannot be combined' };
+  if (testRunId !== undefined && replays === 'exclude') {
+    return { kind: 'err', message: '`testRunId` and `replays=exclude` cannot be combined' };
   }
   const includes = include === undefined ? [] : include.split(',').map((i) => i.trim());
   const unknown = includes.filter((i) => i !== 'output');
@@ -1534,8 +1554,8 @@ function parseRunListFilter(
       ...(parentRunId !== undefined && { parentRunId: parentRunId as RunId }),
       topLevelOnly,
       ...(agentId !== undefined && { agentId }),
-      replays: replays ?? (evalRunId !== undefined ? 'include' : 'exclude'),
-      ...(evalRunId !== undefined && { evalRunId }),
+      replays: replays ?? (testRunId !== undefined ? 'include' : 'exclude'),
+      ...(testRunId !== undefined && { testRunId }),
       ...(triggerId !== undefined && { triggerId: triggerId as TriggerId }),
       includeOutput: includes.includes('output'),
     },
@@ -1713,6 +1733,25 @@ function parseJournalPaging(
     after = decoded;
   }
   return { kind: 'ok', limit, after };
+}
+
+/**
+ * What a journal answer reads: the entries after the later of `since` (when
+ * it's a number) and the cursor's sequence, and one more than `limit`, to
+ * tell whether more remain after the page.
+ */
+function journalPageToRead(
+  since: number | undefined,
+  after: number | undefined,
+  limit: number | undefined,
+): JournalPage {
+  const sinceSeq = since !== undefined && Number.isFinite(since) ? since : undefined;
+  const from =
+    sinceSeq === undefined ? after : after === undefined ? sinceSeq : Math.max(sinceSeq, after);
+  return {
+    ...(from !== undefined && { after: from }),
+    ...(limit !== undefined && { limit: limit + 1 }),
+  };
 }
 
 /**

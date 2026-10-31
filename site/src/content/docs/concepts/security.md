@@ -43,11 +43,21 @@ another's is how that service runs:
   So trust that code with every project the runtime serves. To keep
   projects apart, give each its own installation, with its own runtime,
   database and pack service: a testing installation apart from
-  production, say, or one for each customer. A runtime that serves many
-  tenants can give each deployment its own pack service instead, to run
-  under an identity of its own (`KINDGI_PACK_ROUTING=per-deployment`,
-  which needs `KINDGI_TENANCY=multi`;
-  [Serve many tenants](../../deploy/self-hosted/serve-many-tenants/)).
+  production, say, or one for each customer. A runtime can give each
+  deployment its own pack service instead
+  (`KINDGI_PACK_ROUTING=per-deployment`), whether it serves one tenant or
+  [many](../../deploy/self-hosted/serve-many-tenants/), so no deployment's
+  code shares a process with another's. They all run as the
+  installation's one pack identity, apart from the runtime's: whatever one
+  of them may read, every one may, each other's secrets included. Whatever
+  runs those services records each one's endpoint and gives each its
+  values, secrets included, with system keys holding `system:deployments`
+  and `system:pack-env`. Those keys reach nothing else of the runtime, and
+  the system access record keeps each request they make. Since every one of
+  those services can read what the pack identity can, only the operator
+  sets a name to a secret the cloud holds for them, with a system key
+  holding `system:env-refs`
+  ([Set a name to a cloud secret](../../deploy/self-hosted/serve-many-tenants/#set-a-name-to-a-cloud-secret)).
 - **On Kindgi Cloud,** each deployment's tools' code runs in a pack service
   of its own, apart from every other workspace's. Up to 3 of a workspace's
   projects run their tools' code under an identity of their own, so other

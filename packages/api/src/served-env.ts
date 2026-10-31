@@ -153,7 +153,7 @@ export async function refuseUnservedValue(
     readonly scope: Scope;
     readonly envName: EnvName;
     readonly name: string;
-    readonly kind: 'secret' | 'env value';
+    readonly kind: 'secret' | 'env value' | 'cloud secret';
     readonly storeWith?: string;
   },
 ): Promise<EnvNotServed | undefined> {

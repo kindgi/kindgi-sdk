@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/cli/src/commands/*.ts
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -43,8 +44,8 @@ describe('commands the API does not wire yet', () => {
     const root = rootHelpText();
     expect(root).toContain('  runs');
     expect(root).not.toMatch(/^ {2}observations /m);
-    // Wired with `kindgi proposals` (T278).
-    expect(root).toMatch(/^ {2}proposals /m);
+    // Wired with `kindgi improve`.
+    expect(root).toMatch(/^ {2}improve /m);
     // Wired in 0.1.5 (T252): the runtime serves both.
     expect(root).toMatch(/^ {2}artifacts /m);
     expect(root).toMatch(/^ {2}capabilities /m);

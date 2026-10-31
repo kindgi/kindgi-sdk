@@ -28,7 +28,9 @@ import type {
   TokenResolver,
   ToolRegistryBinding,
 } from '../src/index.js';
+import type { PinnedResolveInput, PinnedVersionBinding } from '../src/index.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
+import { toolPinsBinding } from './support/tool-pins.js';
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'agents-pins-token';
@@ -84,6 +86,7 @@ function agentBinding(): AgentRegistryBinding & {
     async unregister() {
       return { unregistered: false };
     },
+    markLatest: async ({ agentId, version }) => ({ kind: 'not-found', agentId, version }),
     async reinstateVersion({ agentId, version }) {
       return { kind: 'not-found', agentId, version };
     },
@@ -120,7 +123,11 @@ function toolBinding(versions: Record<string, readonly string[]>): ToolRegistryB
   } as unknown as ToolRegistryBinding;
 }
 
-function makeApp(tools?: Record<string, readonly string[]>, blocks?: BlockRegistryBinding) {
+function makeApp(
+  tools?: Record<string, readonly string[]>,
+  blocks?: BlockRegistryBinding,
+  pinnedVersions?: PinnedVersionBinding,
+) {
   const agents = agentBinding();
   const app = createApp({
     ...createStubAppBindings(),
@@ -129,6 +136,7 @@ function makeApp(tools?: Record<string, readonly string[]>, blocks?: BlockRegist
     agentRegistry: agents,
     ...(tools !== undefined && { toolRegistry: toolBinding(tools) }),
     ...(blocks !== undefined && { blockRegistry: blocks }),
+    ...(pinnedVersions !== undefined && { pinnedVersions }),
   });
   return { app, agents };
 }
@@ -258,7 +266,13 @@ describe('POST /v1/agents pins the data blocks an agent references', () => {
   async function withBlocks() {
     const blocks = inMemoryBlocks();
     const put = (block: Parameters<BlockRegistryBinding['publish']>[0]['block']) =>
-      blocks.publish({ tenantId, projectId, block });
+      blocks.publish({
+        publishedBy: { kind: 'user', id: 'user-1' },
+        source: { kind: 'api' },
+        tenantId,
+        projectId,
+        block,
+      });
     await put({
       id: 'acme.intake-prompt',
       version: '1.0.0',
@@ -381,5 +395,49 @@ describe('POST /v1/agents pins the data blocks an agent references', () => {
     const { app } = makeApp(PUBLISHED);
     const res = await publish(app, body([], refs));
     expect(res.status).toBe(400);
+  });
+});
+
+describe('POST /v1/agents pins a tool at its pinned version, when the range allows it', () => {
+  async function lockOf(range: string, pinned: string) {
+    const asked: PinnedResolveInput[] = [];
+    const { app } = makeApp(
+      PUBLISHED,
+      undefined,
+      toolPinsBinding({ 'acme.lookup': pinned }, asked),
+    );
+    const projectId = randomUUID();
+    const res = await publish(
+      app,
+      body(
+        [
+          { id: 'acme.lookup', version: range },
+          { id: 'acme.score', version: '^0.3.0' },
+        ],
+        { projectId },
+      ),
+    );
+    expect(res.status).toBe(201);
+    const got = await app.request('/v1/agents/acme.intake/versions/1.0.0', { headers: auth });
+    const { pins } = (await got.json()) as { pins: Agent['pins'] };
+    return { tools: pins?.tools, asked, projectId };
+  }
+
+  test('a pin in the range is the lock; a tool with no pin takes its newest in range', async () => {
+    const { tools, asked, projectId } = await lockOf('^1.0.0', '1.0.0');
+    expect(tools).toEqual({ 'acme.lookup': '1.0.0', 'acme.score': '0.3.1' });
+    expect(asked.map((a) => [a.kind, a.itemId, a.projectId])).toEqual([
+      ['tool', 'acme.lookup', projectId],
+      ['tool', 'acme.score', projectId],
+    ]);
+  });
+
+  test('a pin outside the range is passed over: the newest in range, or the exact version', async () => {
+    expect((await lockOf('^1.1.0', '1.0.0')).tools?.['acme.lookup']).toBe('1.2.0');
+    expect((await lockOf('1.1.3', '1.0.0')).tools?.['acme.lookup']).toBe('1.1.3');
+  });
+
+  test('a pin whose version is not active counts as none', async () => {
+    expect((await lockOf('^1.0.0', '1.5.0')).tools?.['acme.lookup']).toBe('1.2.0');
   });
 });

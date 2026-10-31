@@ -212,21 +212,32 @@ describe('each kind reads its route as the route takes it', () => {
 
   test.each(kinds)('%s: the route takes each query value it sends', (_name, kind: ExportKind) => {
     const query = params(kind.route, 'query');
-    const unknown = Object.keys(kind.query ?? {}).filter((name) => !query.has(name));
-    expect(unknown, kind.route).toEqual([]);
-    const outside = Object.entries(kind.query ?? {}).filter(([name, value]) => {
-      const schema = query.get(name)?.schema;
-      const allowed = schema === undefined ? undefined : deref(schema).enum;
-      return allowed !== undefined && !allowed.includes(value);
-    });
-    expect(outside, kind.route).toEqual([]);
+    // A further read is only for a top-level kind: a child kind is read once per parent.
+    expect(kind.alsoAsk === undefined || kind.parent === undefined, kind.route).toBe(true);
+    for (const sent of [kind.query ?? {}, ...(kind.alsoAsk ?? [])]) {
+      const unknown = Object.keys(sent).filter((name) => !query.has(name));
+      expect(unknown, kind.route).toEqual([]);
+      const outside = Object.entries(sent).filter(([name, value]) => {
+        const schema = query.get(name)?.schema;
+        const allowed = schema === undefined ? undefined : deref(schema).enum;
+        return allowed !== undefined && !allowed.includes(value);
+      });
+      expect(outside, kind.route).toEqual([]);
+    }
+    const fromParent = Object.keys(kind.parent?.query ?? {}).filter((name) => !query.has(name));
+    expect(fromParent, kind.route).toEqual([]);
   });
 
   test.each(kinds)('%s: it sends every query value the route needs', (_name, kind: ExportKind) => {
     const query = params(kind.route, 'query');
     const scoped = kind.envScoped === true ? ['envName', 'scopeKind', 'scopeId'] : [];
     const paged = kind.paging === 'cursor' ? ['limit', 'cursor'] : [];
-    const given = new Set([...Object.keys(kind.query ?? {}), ...scoped, ...paged]);
+    const given = new Set([
+      ...Object.keys(kind.query ?? {}),
+      ...Object.keys(kind.parent?.query ?? {}),
+      ...scoped,
+      ...paged,
+    ]);
     const missing = [...query.values()].filter((p) => p.required === true && !given.has(p.name));
     expect(missing.map((p) => p.name)).toEqual([]);
     expect(scoped.filter((name) => name !== 'scopeId' && !query.has(name))).toEqual([]);
@@ -247,11 +258,22 @@ describe('each kind reads its route as the route takes it', () => {
   });
 
   test.each(kinds.filter(([, k]) => k.parent !== undefined))(
-    '%s: its parent’s records carry what fills its path',
+    '%s: its parent’s records carry what fills its path and its query',
     (_name, kind: ExportKind) => {
-      const parent = recordSchema(kindNamed(kind.parent?.kind as string));
-      const fields = Object.values(kind.parent?.params ?? {});
-      expect(fields.filter((field) => !fillsAPath(fieldAt(parent, [field])))).toEqual([]);
+      const of = kindNamed(kind.parent?.kind as string);
+      const parent = recordSchema(of);
+      // A parent that is a child kind lends its own line's parent fields.
+      const lent = new Set([
+        ...Object.keys(of.parent?.params ?? {}),
+        ...Object.keys(of.parent?.query ?? {}),
+      ]);
+      const fields = [
+        ...Object.values(kind.parent?.params ?? {}),
+        ...Object.values(kind.parent?.query ?? {}),
+      ];
+      expect(
+        fields.filter((field) => !lent.has(field) && !fillsAPath(fieldAt(parent, [field]))),
+      ).toEqual([]);
     },
   );
 

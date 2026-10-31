@@ -19,9 +19,10 @@ async function main(): Promise<void> {
 
   const { runCli } = await import('./main.js');
 
-  // SIGINT/SIGTERM/SIGHUP → an AbortSignal so long-lived commands
-  // (currently only `kindgi dev` — the watch loop) can shut down cleanly;
-  // a second Ctrl+C forces the exit. Short-lived commands never observe it.
+  // SIGINT/SIGTERM/SIGHUP → an AbortSignal so long-lived commands (`kindgi
+  // dev`'s watch loop, a download, a deploy's waits) stop cleanly on the
+  // first Ctrl+C; a second one forces the exit. A command that doesn't
+  // watch it stops only at that second one.
   const stopSignal = createStopSignal(process, (code) => process.exit(code));
   ignoreOutputAfterHangup(process, [process.stdout, process.stderr]);
 

@@ -6,7 +6,7 @@
 
 1. **Type-only, with small exceptions.** Every export is a `type` except a few helpers with no dependencies: `makeEnvName` (the validated `EnvName` factory), `headerValueProblem` and `bearerValueProblem`, `CORRECTION_ITEM`, and `isFileValue` with `FILE_NOT_SHOWN_REASONS`. Consumers pay zero runtime cost for using branded types.
 2. **Nominal typing via brands.** Every entity ID is nominally distinct from any other. A `TenantId` and a `UserId` are both structurally `string`, but statically incompatible. Cross-boundary confusion becomes a compile error.
-3. **Correspondence to JSON Schemas.** Most entity kinds in `@kindgi/specs/*.schema.json` have a branded ID here (eval suites, for one, do not). If a schema defines a new entity kind, its ID goes here. Some IDs (e.g. `ConversationId`, `TriggerId`) name entities that have no schema.
+3. **Correspondence to JSON Schemas.** Most entity kinds in `@kindgi/specs/*.schema.json` have a branded ID here (test sets, for one, do not). If a schema defines a new entity kind, its ID goes here. Some IDs (e.g. `ConversationId`, `TriggerId`) name entities that have no schema.
 4. **Two or more consumers rule.** A type belongs in `@kindgi/types` only if two or more packages use it. Package-scoped types stay in that package.
 
 ## Brand mechanism
@@ -64,7 +64,7 @@ Two things worth emphasizing:
 
 ### IDs (`src/ids.ts`)
 
-Entity kinds that appear in `@kindgi/specs/*.schema.json` and their branded IDs; the table lists the main ones (see `src/ids.ts` for the full set, including `ConversationId`, `ReviewerId`, `SupervisorId`, `ObservationId`, `FixProposalId`, `AuditBundleId`, `ScheduleId`, `ProviderId`, `ApiTokenId`, `WebhookId`, `WebhookEndpointId`, `WebhookEventId`, `WebhookDeliveryId`, `InstallationId`, `SigningKeyId`, `TriggerId`):
+Entity kinds that appear in `@kindgi/specs/*.schema.json` and their branded IDs; the table lists the main ones (see `src/ids.ts` for the full set, including `ConversationId`, `ReviewerId`, `SupervisorId`, `ObservationId`, `SuggestedChangeId`, `AuditBundleId`, `ScheduleId`, `ProviderId`, `ApiTokenId`, `WebhookId`, `WebhookEndpointId`, `WebhookEventId`, `WebhookDeliveryId`, `InstallationId`, `SigningKeyId`, `TriggerId`):
 
 | Schema entity | Type |
 |---|---|

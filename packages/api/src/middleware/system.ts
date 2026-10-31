@@ -10,13 +10,14 @@ import { statusFor, toWireError } from '../errors.js';
 import { refused } from '../routes/denied.js';
 import {
   FULL_SYSTEM_CAPABILITY,
-  ONE_TENANT_SYSTEM_SCOPES,
   SYSTEM_PRINCIPAL_ALLOWED_ROUTES,
   type SystemPrincipal,
   type SystemScope,
   holdsSystemScope,
+  isOneTenantDeploymentRoute,
   isSystemCapability,
   isSystemKeysPath,
+  oneTenantSystemScopes,
 } from '../system.js';
 import type { AppEnv } from '../types.js';
 import type { Authorizer } from './authorize.js';
@@ -122,6 +123,14 @@ export interface SystemPrincipalFenceOptions {
    * system keys take the deployment's own token.
    */
   readonly tenancy?: 'single' | 'multi';
+  /**
+   * Serving one tenant: whether it runs a pack service per deployment
+   * (`systemDeployments`). A system key may then hold
+   * `ONE_TENANT_DEPLOYMENT_SCOPES` too, its orchestrator's, and reaches
+   * the routes `isOneTenantDeploymentRoute` names under `/v1/system/*`,
+   * each checking its own scope.
+   */
+  readonly servesDeployments?: boolean;
 }
 
 /**
@@ -136,11 +145,14 @@ export interface SystemPrincipalFenceOptions {
  *   many tenants it loses `kindgi:system` and `system:*`, with a warning
  *   naming the key: a key minted before the runtime served many tenants
  *   keeps none of the operator's powers.
- * - **Serving one tenant,** a system key holds `system:license` alone: one
- *   holding anything else (minted while the runtime served many tenants,
- *   say) is refused on every route, `403 system-key-scope-not-served`. It
- *   reaches the license routes and nothing under `/v1/system/*`, where the
- *   system keys take the deployment's own token (`403 system-scope-missing`).
+ * - **Serving one tenant,** a system key holds `system:license` alone, and,
+ *   with `servesDeployments`, the orchestrator's scopes
+ *   (`ONE_TENANT_DEPLOYMENT_SCOPES`): one holding anything else (minted
+ *   while the runtime served many tenants, say) is refused on every route,
+ *   `403 system-key-scope-not-served`. It reaches the license routes and,
+ *   with `servesDeployments`, the orchestrator's routes under
+ *   `/v1/system/*`, nothing else there: the system keys take the
+ *   deployment's own token (`403 system-scope-missing`).
  *
  * The record is written once the response is known. An action already
  * taken can't be undone, so a failed write is logged at error level and
@@ -149,7 +161,7 @@ export interface SystemPrincipalFenceOptions {
 export function systemPrincipalFence(
   options: SystemPrincipalFenceOptions = {},
 ): MiddlewareHandler<AppEnv> {
-  const { audit, authorizer, tenancy } = options;
+  const { audit, authorizer, tenancy, servesDeployments = false } = options;
   return async (c, next) => {
     const system = c.get('systemPrincipal');
     if (system === undefined) {
@@ -184,7 +196,9 @@ export function systemPrincipalFence(
       return undefined;
     };
     const refusal =
-      (tenancy === 'multi' ? undefined : oneTenantRefusal(c, system, authorizer)) ??
+      (tenancy === 'multi'
+        ? undefined
+        : oneTenantRefusal(c, system, authorizer, servesDeployments)) ??
       (await admitSystemRequest(c, proceed, authorizer));
     if (audit !== undefined) await recordSystemRequest(c, audit, system, refusal, attemptId);
     return refusal;
@@ -192,16 +206,18 @@ export function systemPrincipalFence(
 }
 
 /**
- * Serving one tenant: a system key holding anything but `system:license`
- * is refused outright, and one holding it is refused under `/v1/system/*`,
- * where the system keys take the deployment's own token. The deployment's
- * own token (`boot`) is a system principal on `/v1/system/keys` alone, and
- * is refused as one anywhere else.
+ * Serving one tenant: a system key holding a scope it doesn't serve is
+ * refused outright, and one holding only served scopes is refused under
+ * `/v1/system/*`, where the system keys take the deployment's own token,
+ * except, with `servesDeployments`, on the orchestrator's routes. The
+ * deployment's own token (`boot`) is a system principal on
+ * `/v1/system/keys` alone, and is refused as one anywhere else.
  */
 function oneTenantRefusal(
   c: Context<AppEnv>,
   system: SystemPrincipal,
   authorizer: Authorizer | undefined,
+  servesDeployments: boolean,
 ): Response | undefined {
   if (system.keyId === 'boot') {
     if (isSystemKeysPath(c.req.path)) return undefined;
@@ -212,24 +228,29 @@ function oneTenantRefusal(
       `This runtime serves one tenant, where the deployment's own token is a system principal on /v1/system/keys alone, not on ${c.req.path}.`,
     );
   }
+  const servedScopes = oneTenantSystemScopes(servesDeployments);
   const held = c.get('capabilities') ?? [];
-  const served =
-    held.length > 0 && held.every((cap) => ONE_TENANT_SYSTEM_SCOPES.includes(cap as SystemScope));
+  const served = held.length > 0 && held.every((cap) => servedScopes.includes(cap as SystemScope));
   if (!served) {
     return deny(
       c,
       authorizer,
       'system-key-scope-not-served',
-      `This runtime serves one tenant, where a system key holds ${ONE_TENANT_SYSTEM_SCOPES.join(', ')} alone; this one holds ${held.length > 0 ? held.join(', ') : 'no scope'}. Mint one with the deployment's own token (POST /v1/system/keys).`,
-      { scopes: [...held], served: [...ONE_TENANT_SYSTEM_SCOPES] },
+      `This runtime serves one tenant, where a system key holds ${servedScopes.join(', ')} alone; this one holds ${held.length > 0 ? held.join(', ') : 'no scope'}. Mint one with the deployment's own token (POST /v1/system/keys).`,
+      { scopes: [...held], served: [...servedScopes] },
     );
   }
   if (isSystemPath(c.req.path)) {
+    if (servesDeployments && isOneTenantDeploymentRoute(c.req.method, c.req.path)) {
+      return undefined;
+    }
     return deny(
       c,
       authorizer,
       'system-scope-missing',
-      `This runtime serves one tenant, where a system key reads the license alone and reaches no /v1/system/* route, not ${c.req.path}: the system keys take the deployment's own token.`,
+      servesDeployments
+        ? `This runtime serves one tenant, where a system key reaches only its pack services' routes under /v1/system/*, not ${c.req.method} ${c.req.path}: the system keys take the deployment's own token.`
+        : `This runtime serves one tenant, where a system key reads the license alone and reaches no /v1/system/* route, not ${c.req.path}: the system keys take the deployment's own token.`,
       { scope: FULL_SYSTEM_CAPABILITY },
     );
   }

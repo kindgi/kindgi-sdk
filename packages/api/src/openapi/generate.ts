@@ -17,6 +17,8 @@ import {
   type OperationSpec,
   type ParameterSpec,
   type ResponseSpec,
+  answersDatabaseBusy,
+  answersIdempotencyStoreUnavailable,
   honoToOpenapiPath,
 } from './operations.js';
 import { COMPONENT_SCHEMAS, type JsonSchema, ref } from './schemas.js';
@@ -78,8 +80,7 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   approvals: 'Human-in-the-loop review queue (role-scoped).',
   observations: 'Supervisor readback of run outcomes.',
   agents: 'Agent catalog (list, get, publish, unregister — caller-plugged registry).',
-  'gate-policies':
-    'What a promotion of an agent must show before a version goes live for a scope (evals step 4b).',
+  'release-gates': 'What an agent version must show before it is pinned for a scope.',
   flows:
     'Flow catalog (list, get, publish, unregister — caller-plugged registry). Enables non-agent workflows via HTTP — publish once, execute many via `POST /v1/runs`.',
   tools: 'Tool catalog (list, get, register, unregister — caller-plugged registry, metadata-only).',
@@ -88,8 +89,10 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   conversations: 'Durable multi-turn threads (open, list, get, close, read messages).',
   memory:
     'Fact catalog + retrieval (list, get, write, supersede, retrieve — caller-plugged binding wraps the memory subsystem).',
-  proposals:
-    'Supervisor fix-proposal lifecycle (draft, dry-run, submit-review, apply, rollback, withdraw — caller-plugged binding wraps the supervisor).',
+  'suggested-changes':
+    'Suggested changes: a change to one data block an agent version pins, for one pinned scope (list, get, draft, evaluate, rescore, pin, withdraw).',
+  'improve-runs':
+    'Improve runs: the runtime looking for better settings (start, check, list, get, cancel).',
   provenance:
     "Causal DAG readback + signed exports (list, get, export), signed with the deployment's export key.",
   artifacts:
@@ -107,18 +110,18 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
     'Tenant policy catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `flows` 1:1. Registry-only: enforcement is out of scope. `policyKind` selects the shape of `spec` — closed enum, extended additively (`access-control`, `model-routing`, `adapter-allowlist`, `rate-limit`, `retention`, `compliance`). Runtime consumers (e.g. model routing for `model-routing`, retention sweeps for `retention`) read policies from this store and apply them at their own boundary. Caller-plugged via `PolicyRegistryBinding`.',
   retention:
     "Deleted rows' retention (scheduled, sweep) — part of the admin control plane. Deleting most things is a tombstone; a `retention` policy per domain (see `policies`) sets how long tombstones stay before a sweep purges them for good. `scheduled` lists what's due and when; `sweep` purges what's past its grace. Nothing sweeps on its own: call `sweep` from a schedule. Caller-plugged via `RetentionBinding`.",
-  'eval-suites':
-    'Evaluation suite catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: eval-run execution + per-kind grader dispatch live on the `eval-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `judged`). The cases of a `judged` suite are copies of judged runs built from judgments (`POST .../versions/from-judgments`, listed at `GET .../versions/{version}/cases`; `EvalCaseStoreBinding`). Runs against these suites are started through the `eval-runs` tag. Caller-plugged via `EvalSuiteRegistryBinding`.',
+  'test-sets':
+    "Test set catalog (list, get, versions, publish, unregister) — part of the admin control plane. Full versioned CRUD, mirrors `policies` 1:1. Registry-only: test-run execution + per-kind grader dispatch live on the `test-runs` tag. `evalKind` selects the shape of `spec` — closed enum, extended additively (`accuracy`, `pairwise`, `regression`, `human-review`, `benchmark`, `custom`, `corrections`). The cases of a `corrections` test set are copies of corrected runs, built before an agent's corrections were its test set (`/v1/agents/{agentId}/test-set`); they're read at `GET .../versions/{version}/cases` (`FrozenCaseStoreBinding`), and `GET /v1/test-sets` doesn't list them. Runs against these test sets are started through the `test-runs` tag. Caller-plugged via `TestSetRegistryBinding`.",
   blocks:
     "Data blocks: versioned prompts and settings an agent version pins when it's published (list, get, versions, publish, unregister, reinstate). A version never changes, nor does a block's kind; a settings block's values satisfy its schema and the latest version's. A block belongs to one project and is authorized through it: `read` on the project to read, `write` to publish, unregister or reinstate. Caller-plugged via `BlockRegistryBinding`.",
-  judgments:
-    "Judgments: yes or no, with an optional reason, about one item of a finished run's output, optionally recorded under a judge class (list, get, create, unregister). Each judgment keeps copies of what was judged (the run's input and output, and the item) so they outlive the run's own retention. Who judged comes from the authenticated caller, never the body; an app judging for one of its users passes that user's opaque id as `participantId`. One live judgment per run, item key, caller and participant: judging again supersedes the earlier one, which stays as history. Caller-plugged via `JudgmentRegistryBinding`.",
-  judging:
-    "A project's judging rules (which runs to queue for a person's judgment when they end) and the queue they fill. Rules only list runs; nothing here starts a model.",
-  'judge-classes':
-    'Judge classes (list, get, create, update, unregister): the deployment\'s named kinds of judge ("expert", "user", ...), each with a weight, scoped to the tenant, a project, or an agent in a project. A judgment may name a class; an unclassified judgment counts with weight 1. Caller-plugged via `JudgmentRegistryBinding`.',
-  'eval-runs':
-    'Eval-run data plane (start, list, get, cancel, events SSE). Dispatches an eval run against a registered suite. Dispatch is per-`EvalKind`; kinds without a registered dispatcher return `422 dispatcher-not-registered`. `result` is kind-specific opaque JSON on the wire — for `accuracy` it is `{ passCount, totalCount, meanScore, perCase[] }`. SSE events mirror run streaming: per-case progress followed by a terminal frame carrying the aggregate. Caller-plugged via `EvalRunBinding`.',
+  corrections:
+    "Corrections: whether a finished run's decisions, answer and items were right, what it should have called or said, and why, with where each correction stands and who it's sorted to (create, list, get, change, remove, counts). Each correction keeps copies of the run's input and output so they outlive the run's own retention, and may be recorded under a corrector group. Who corrected comes from the authenticated caller, never the body; an app correcting for one of its users passes that user's opaque id as `participantId`. One live correction per run, caller and participant: correcting again replaces the earlier one, which stays as history. Caller-plugged via `CorrectionRegistryBinding`.",
+  'expert-queue':
+    "A project's queue rules (which runs to queue for a person's correction when they end) and the queue they fill. Rules only list runs; nothing here starts a model.",
+  'corrector-groups':
+    'Corrector groups (list, get, create, update, unregister): the deployment\'s named kinds of person who corrects ("expert", "user", ...), each with a weight, scoped to the tenant, a project, or an agent in a project. A correction may name a class; an unclassified correction counts with weight 1. Caller-plugged via `CorrectionRegistryBinding`.',
+  'test-runs':
+    'Test-run data plane (start, list, get, cancel, events SSE). Dispatches a test run against a registered test set. Dispatch is per-`TestSetKind`; kinds without a registered dispatcher return `422 dispatcher-not-registered`. `result` is kind-specific opaque JSON on the wire — for `accuracy` it is `{ passCount, totalCount, meanScore, perCase[] }`. SSE events mirror run streaming: per-case progress followed by a terminal frame carrying the aggregate. Caller-plugged via `TestRunBinding`.',
   sites:
     "Sites that sign their own people in to one project: a site (a WordPress admin, say) vouches for whoever is signed in there, so they ask the project's agents and decide its approvals as themselves. A site holds its own Ed25519 key; Kindgi only ever has the public half.",
   auth: 'OIDC and SAML identity providers + session lifecycle. Layers browser-based auth on top of the static bearer-token surface: bearer tokens continue to work byte-shape-identical; session tokens use the `kgi_sk_*` prefix so the same middleware routes both flavors. Providers are caller-plugged via `IdentityProviderBinding` (no baked-in list); sign-in runs in the deployment, which reads them. Sessions persist via `SessionStoreBinding`. `clientSecretRef` is a REFERENCE — the plaintext secret never crosses the wire.',
@@ -284,10 +287,10 @@ function buildOutboundWebhooks(): Record<string, unknown> {
       'A top-level run completed, failed or was cancelled',
       'RunFinishedEvent',
     ),
-    'improvement-pass.finished': event(
-      'improvement-pass.finished',
-      'An improvement pass completed, failed or was cancelled',
-      'ImprovementPassFinishedEvent',
+    'improve-run.finished': event(
+      'improve-run.finished',
+      'An Improve run completed, failed or was cancelled',
+      'ImproveRunFinishedEvent',
     ),
     'approval.requested': event(
       'approval.requested',
@@ -331,19 +334,65 @@ const REQUEST_TOO_LARGE: ResponseSpec = {
   schema: ref('WireError'),
 };
 
+/**
+ * What a `GET` or `HEAD` answers when the database is too busy to answer in
+ * time, unless the operation declares a 503 of its own. Every served read
+ * but the storage-free ones gets it — see `answersDatabaseBusy`.
+ */
+const DATABASE_BUSY: ResponseSpec = {
+  description:
+    'The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.',
+  schema: ref('WireError'),
+};
+
+/** The same on a `HEAD`: the status and `Retry-After`, with no body. */
+const DATABASE_BUSY_HEAD: ResponseSpec = {
+  description:
+    'The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again. No body, as with any `HEAD`.',
+};
+
+/**
+ * What a write that takes an `Idempotency-Key` answers when the key's store
+ * fails before the write runs, unless the operation declares a 503 of its
+ * own — see `answersIdempotencyStoreUnavailable`.
+ */
+const IDEMPOTENCY_STORE_UNAVAILABLE: ResponseSpec = {
+  description:
+    "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+  schema: ref('WireError'),
+};
+
+/**
+ * An operation's own responses plus the ones the generator shares across
+ * operations: a 413 for anything with a body, the 503 a read answers when
+ * the database is too busy, and the 503 a keyed write answers when its
+ * key's store fails — each only when the operation doesn't declare that
+ * status itself.
+ */
+function responsesWithShared(op: OperationSpec): Readonly<Record<string, ResponseSpec>> {
+  let responses = op.responses;
+  if (op.requestBody !== undefined && responses['413'] === undefined) {
+    responses = { ...responses, '413': REQUEST_TOO_LARGE };
+  }
+  if (answersDatabaseBusy(op) && responses['503'] === undefined) {
+    responses = { ...responses, '503': op.method === 'head' ? DATABASE_BUSY_HEAD : DATABASE_BUSY };
+  }
+  if (answersIdempotencyStoreUnavailable(op) && responses['503'] === undefined) {
+    responses = { ...responses, '503': IDEMPOTENCY_STORE_UNAVAILABLE };
+  }
+  return responses;
+}
+
 function buildOperation(op: OperationSpec): Record<string, unknown> {
-  const responses =
-    op.requestBody !== undefined && op.responses['413'] === undefined
-      ? { ...op.responses, '413': REQUEST_TOO_LARGE }
-      : op.responses;
   const doc: Record<string, unknown> = {
     operationId: op.operationId,
     summary: op.summary,
     tags: [...op.tags],
-    responses: buildResponses(responses),
+    responses: buildResponses(responsesWithShared(op)),
   };
   if (op.description !== undefined) doc.description = op.description;
   if (op.senderOnly !== undefined) doc['x-kindgi-sender-only'] = true;
+  if (op.streamed === true) doc['x-kindgi-streamed'] = true;
   if (op.parameters !== undefined && op.parameters.length > 0) {
     doc.parameters = op.parameters.map(buildParameter);
   }
@@ -393,9 +442,10 @@ function buildResponses(
   for (const [status, spec] of Object.entries(responses)) {
     const entry: Record<string, unknown> = { description: spec.description };
     if (spec.schema !== undefined) {
-      const contentType = spec.contentType ?? 'application/json';
+      const contentTypes = spec.contentType ?? 'application/json';
+      const types = typeof contentTypes === 'string' ? [contentTypes] : contentTypes;
       entry.content = {
-        [contentType]: { schema: spec.schema as JsonSchema },
+        ...Object.fromEntries(types.map((type) => [type, { schema: spec.schema as JsonSchema }])),
         ...(spec.orJson !== undefined && {
           'application/json': { schema: spec.orJson as JsonSchema },
         }),
