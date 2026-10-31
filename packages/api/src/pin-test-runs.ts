@@ -124,16 +124,19 @@ export async function startPinTestRuns(
  * covers that has active cases, apply the run the change names where it's
  * reusable, and the change's own finished `pin:<changeId>` runs, newest
  * first. A project with neither, nor one of its runs still going, gets one
- * started; a run still going applies at its own end. Applying again changes
- * nothing, so the start-up reconcile can retry it. A project whose step
- * throws is logged, and the others still go. Answers nothing for a change
- * that didn't take effect.
+ * started, unless `start` is `false`; a run still going applies at its own
+ * end. Applying again changes nothing, so the start-up reconcile can retry
+ * it, with `start: false`: it applies what's there and starts no run. A
+ * project whose step throws is logged, and the others still go. Answers
+ * nothing for a change that didn't take effect.
  */
 export async function pinTookEffect(
   deps: PinTestRunDeps,
   input: {
     readonly tenantId: TenantId;
     readonly changeId: string;
+    /** `false`: start no run where the change has none; apply only. Default `true`. */
+    readonly start?: boolean;
     readonly log?: Pick<Logger, 'warn'>;
   },
 ): Promise<PinTestRuns> {
@@ -150,16 +153,24 @@ export async function pinTookEffect(
       if (frozen === undefined) return;
       if (await reuseNamed(deps, tenantId, change, projectId, frozen, found)) return;
       const own = await ownRuns(deps, tenantId, change, projectId);
-      if (own.length === 0) {
-        await start(deps, tenantId, change, projectId, frozen, found);
-        return;
-      }
-      for (const run of own) found.run(projectId, run.testRunId);
-      const ended = own.filter((run) => run.status === 'completed').map((run) => run.testRunId);
-      found.add(await reapplyTestRunOutcomes(deps, { tenantId, testRunIds: ended }));
+      if (own.length > 0) await applyOwn(deps, tenantId, projectId, own, found);
+      else if (input.start !== false) await start(deps, tenantId, change, projectId, frozen, found);
     });
   }
   return found.answer();
+}
+
+/** The change's own runs in a project, listed, and the ended ones applied, newest first. */
+async function applyOwn(
+  deps: PinTestRunDeps,
+  tenantId: TenantId,
+  projectId: ProjectId,
+  own: readonly TestRun[],
+  found: Found,
+): Promise<void> {
+  for (const run of own) found.run(projectId, run.testRunId);
+  const ended = own.filter((run) => run.status === 'completed').map((run) => run.testRunId);
+  found.add(await reapplyTestRunOutcomes(deps, { tenantId, testRunIds: ended }));
 }
 
 /** A project an unpin may move, with the version it runs before the unpin (`null`: none). */

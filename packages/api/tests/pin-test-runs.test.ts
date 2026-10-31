@@ -332,7 +332,8 @@ function harness() {
     apply: (testRunId: RunId) => applyTestRunOutcome(deps, { tenantId, testRunId }),
     latestMoved: (projects: readonly ProjectId[]) =>
       latestMoved(deps, { tenantId, agentId, projects, log }),
-    tookEffect: (change: Pin) => pinTookEffect(deps, { tenantId, changeId: change.id, log }),
+    tookEffect: (change: Pin, opts: { start?: boolean } = {}) =>
+      pinTookEffect(deps, { tenantId, changeId: change.id, log, ...opts }),
     get: (correctionId: string) => corrections.get({ tenantId, correctionId }),
   };
 }
@@ -794,6 +795,32 @@ describe('a pin that waits for approval', () => {
     expect(h.started.map((s) => s.correlationId)).toEqual([pinRunCorrelation(waiting.change.id)]);
     expect(effect).toMatchObject({ testRuns: [{ projectId: support }], fixed: [], reopened: [] });
     expect(await h.get(id)).toMatchObject({ status: 'open' });
+  });
+
+  test('with `start: false` it starts nothing, and still applies a run that ended', async () => {
+    const h = harness();
+    h.onLatest(support, '12.0.0');
+    h.onLatest(returns, '12.0.0');
+    const waiting = await h.pin('13.0.0', { kind: 'tenant' }, { waits: true });
+    expect(waiting.testRuns).toEqual([]);
+    const id = await h.corrected(support);
+    await h.corrected(returns);
+    const approved = h.approve(waiting.change);
+    // No run of the change anywhere: nothing starts, nothing changes.
+    expect(await h.tookEffect(approved, { start: false })).toEqual({
+      testRuns: [],
+      fixed: [],
+      reopened: [],
+    });
+    expect(h.started).toEqual([]);
+    // The approval's own call starts them; one that ends applies on the next `start: false`.
+    const effect = await h.tookEffect(approved);
+    expect(h.started).toHaveLength(2);
+    const run = effect.testRuns.find((r) => r.projectId === support);
+    if (run === undefined) throw new Error('no run');
+    h.end(run.testRunId, { [id]: true });
+    expect(await h.tookEffect(approved, { start: false })).toMatchObject({ fixed: [id] });
+    expect(h.started).toHaveLength(2);
   });
 
   test("the approval leaves out a project whose test run doesn't start, and logs it", async () => {
