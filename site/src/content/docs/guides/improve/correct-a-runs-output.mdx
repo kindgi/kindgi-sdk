@@ -413,8 +413,9 @@ curl -X PATCH "$KINDGI_API_URL/v1/projects/<project-id>" \
 ```
 
 In TypeScript, that's
-`kindgi.projects.update(projectId, { sortEndUserCorrections: true })`. A
-project reads it back as `sortEndUserCorrections`, `false` until it's on.
+`kindgi.projects.update(projectId, { sortEndUserCorrections: true })`, and in
+Python, `kindgi.projects.update(project_id, sort_end_user_corrections=True)`.
+A project reads it back as `sortEndUserCorrections`, `false` until it's on.
 
 A person then moves it on. With `publish` on the agent,
 `corrections.change` re-sorts it, changes its status, or both. Here a
