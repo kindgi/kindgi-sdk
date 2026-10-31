@@ -50,9 +50,10 @@ another's is how that service runs:
   code shares a process with another's. They all run as the
   installation's one pack identity, apart from the runtime's: whatever one
   of them may read, every one may, each other's secrets included. Whatever
-  runs those services records each one's endpoint with a system key
-  holding `system:deployments`, and reaches nothing else of the runtime
-  with it.
+  runs those services records each one's endpoint and gives each its
+  values, secrets included, with system keys holding `system:deployments`
+  and `system:pack-env`. Those keys reach nothing else of the runtime, and
+  the system access record keeps each request they make.
 - **On Kindgi Cloud,** each deployment's tools' code runs in a pack service
   of its own, apart from every other workspace's. Up to 3 of a workspace's
   projects run their tools' code under an identity of their own, so other
