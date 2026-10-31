@@ -543,6 +543,7 @@
           "image-unverifiable": 400,
           "deployment-validation-failed": 400,
           "deployment-not-found": 404,
+          "deploy-would-put-back-older-blocks": 409,
           "compliance-evidence-not-found": 404,
           "compliance-export-failed": 500,
           "org-not-found": 404,
@@ -20903,6 +20904,254 @@
           },
           "source": {
             "$ref": "#/components/schemas/DeploymentSource"
+          },
+          "replaced": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeploymentReplacedBlock"
+            },
+            "description": "The blocks the deploy put back to an older version than ran, on purpose (the body's `replace`). A deployment a promotion made has its own: the blocks that promotion's pins put back in its project, never the source deployment's. Absent when it put back none, and from a runtime that doesn't keep them."
+          }
+        }
+      },
+      "DeploymentReplacedBlock": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "blockId",
+          "from",
+          "to",
+          "reason",
+          "by"
+        ],
+        "properties": {
+          "blockId": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string",
+            "description": "The newest version that ran in a project of one of the pack's agents (a promotion: in its target)."
+          },
+          "to": {
+            "type": "string",
+            "description": "The files' older version, which the deploy shipped (a promotion: the build's)."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why, as the deploy or the promotion said."
+          },
+          "by": {
+            "$ref": "#/components/schemas/PinActor"
+          }
+        }
+      },
+      "DeployReplaceBlock": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "blockId",
+          "reason"
+        ],
+        "properties": {
+          "blockId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Why the older version goes back: 1 to 500 characters, no control characters."
+          }
+        }
+      },
+      "DeployCheckAgentId": {
+        "type": "string",
+        "minLength": 1,
+        "description": "An agent's id, as the image index names it."
+      },
+      "DeployCheckBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agents",
+          "blocks"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The project the deploy goes into: the check takes the deploy's own right, admin on it. Absent: the tenant's Default project, admin on the tenant. Every project of the pack's agents counts, whichever this is."
+          },
+          "agents": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "$ref": "#/components/schemas/DeployCheckAgentId"
+            },
+            "description": "The pack's agents, by id: the image index's."
+          },
+          "blocks": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "version"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "version": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The pack's blocks, each at its version in the files; a block named once."
+          },
+          "replace": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeployReplaceBlock"
+            },
+            "description": "As the deploy's `replace`: a block named once."
+          }
+        }
+      },
+      "DeployCheckResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "replaced",
+          "notNeeded"
+        ],
+        "properties": {
+          "replaced": {
+            "type": "array",
+            "description": "The blocks `replace` names that a newer version runs for: the deploy puts each back, and records it.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "blockId",
+                "from",
+                "to"
+              ],
+              "properties": {
+                "blockId": {
+                  "type": "string"
+                },
+                "from": {
+                  "type": "string",
+                  "description": "The newest version that runs now."
+                },
+                "to": {
+                  "type": "string",
+                  "description": "The files' version."
+                }
+              }
+            }
+          },
+          "notNeeded": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The blocks `replace` names that nothing newer runs for: nothing to replace."
+          }
+        }
+      },
+      "DeployCheckStop": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "blockId",
+          "inFiles",
+          "runs"
+        ],
+        "properties": {
+          "blockId": {
+            "type": "string"
+          },
+          "inFiles": {
+            "type": "string",
+            "description": "The version in the pack's files."
+          },
+          "runs": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "version"
+            ],
+            "description": "Where the newest version runs: a project the caller reads, when there is one. In a project the caller can't read, the version only.",
+            "properties": {
+              "version": {
+                "type": "string"
+              },
+              "projectId": {
+                "type": "string"
+              },
+              "follows": {
+                "type": "string",
+                "enum": [
+                  "pin",
+                  "latest"
+                ]
+              },
+              "segment": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ScopeSegment"
+                },
+                "description": "The segment path, when a pin on a segment inside the project runs it."
+              },
+              "by": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "description": "Who pinned it, or who added it as Latest; a person with their name when the directory has one.",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "user",
+                      "service"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time",
+                "description": "When it was pinned, or became Latest there."
+              }
+            }
+          },
+          "pr": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "url"
+            ],
+            "description": "The pull request opened for the newer version there, when one was.",
+            "properties": {
+              "url": {
+                "type": "string"
+              }
+            }
           }
         }
       },
@@ -20997,6 +21246,13 @@
           "pin": {
             "type": "boolean",
             "description": "Pin every agent version the promotion carries in the target project, each through its scope's release gate, and every flow version it carries (the project's pin), so a run there that names no version takes it. The answer's `pinned` reports each agent and `pinnedFlows` each flow. An error answered after some were already pinned lists those in `error.details.pinned` and `error.details.pinnedFlows`, in the answer's shapes."
+          },
+          "replace": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeployReplaceBlock"
+            },
+            "description": "With `pin`: the blocks the pins put back to an older version than runs in the target now, on purpose, each with why; a block named once. Without it, a newer version of one of the build's blocks running in the target stops the promotion (`409 deploy-would-put-back-older-blocks`)."
           }
         }
       },
@@ -21255,6 +21511,58 @@
               "$ref": "#/components/schemas/DeploymentPinnedFlow"
             },
             "description": "Each carried flow version pinned in the target (the project's pin); present only when `pin` was asked of a runtime that pins flows."
+          },
+          "blockCheck": {
+            "$ref": "#/components/schemas/PromotionBlockCheck"
+          }
+        }
+      },
+      "PromotionBlockCheck": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "checked",
+          "replaced",
+          "notNeeded"
+        ],
+        "description": "The build's blocks against what runs in the target; present only when `pin` was asked of a runtime that checks them.",
+        "properties": {
+          "checked": {
+            "type": "boolean",
+            "description": "`false` for a build deployed before deployments kept their blocks (`contents.blocks`): nothing was compared, and `replace` did nothing."
+          },
+          "replaced": {
+            "type": "array",
+            "description": "The blocks `replace` names that a newer version runs for in the target: the pins put each back, and the audit log records it.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "blockId",
+                "from",
+                "to"
+              ],
+              "properties": {
+                "blockId": {
+                  "type": "string"
+                },
+                "from": {
+                  "type": "string",
+                  "description": "The newest version that ran in the target."
+                },
+                "to": {
+                  "type": "string",
+                  "description": "The build's version, which the pins put there."
+                }
+              }
+            }
+          },
+          "notNeeded": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The blocks `replace` names that nothing newer runs for in the target."
           }
         }
       },
@@ -21362,6 +21670,13 @@
           },
           "source": {
             "$ref": "#/components/schemas/DeploymentSourceBody"
+          },
+          "replace": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeployReplaceBlock"
+            },
+            "description": "The blocks the deploy puts back to an older version than runs now, on purpose, each with why; a block named once. Without it, a newer version of one of the pack's blocks running in a project of one of its agents stops the deploy (`409 deploy-would-put-back-older-blocks`). The deployment records each one put back (`replaced`). Not covered by the signature."
           }
         }
       },
@@ -21592,6 +21907,7 @@
           "trigger-changed-for-owner",
           "environment-order-set",
           "deployment-promoted",
+          "deployment-replaced-block",
           "block-version-published",
           "block-version-unregistered",
           "block-version-reinstated",
@@ -21774,6 +22090,7 @@
               "trigger-changed-for-owner",
               "environment-order-set",
               "deployment-promoted",
+              "deployment-replaced-block",
               "block-version-published",
               "block-version-unregistered",
               "block-version-reinstated",
@@ -21979,6 +22296,7 @@
               "trigger-changed-for-owner",
               "environment-order-set",
               "deployment-promoted",
+              "deployment-replaced-block",
               "block-version-published",
               "block-version-unregistered",
               "block-version-reinstated",
@@ -22082,6 +22400,7 @@
                   "trigger-changed-for-owner",
                   "environment-order-set",
                   "deployment-promoted",
+                  "deployment-replaced-block",
                   "block-version-published",
                   "block-version-unregistered",
                   "block-version-reinstated",
@@ -57379,7 +57698,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many tenants (`KINDGI_TENANCY=multi`), where each tenant deploys only its own images: `image-not-allowed`, the image is outside the tenant's repository (`details.imagePrefix`, its own), or `image-prefix-unset`, the tenant has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or `tool-project-mismatch`, `agent-project-mismatch`, `flow-project-mismatch` or `block-project-mismatch`: one of the image's tools, agents, flows or data blocks belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `block-already-registered`: the runtime holds one of the pack's data block versions with other content, and a version never changes; or holds versions of the pack's blocks unregistered, by hand or by the rollback of a deploy that failed after publishing them, and a deploy never reinstates one (`details.primitive` is `block`, `details.id` is `<id>@<version>`, the first such block); the message says to give it a new version, or names each unregistered one with the command that reinstates it; nothing was deployed. Or `tool-already-registered`: the runtime holds one of the pack's tool versions, active or unregistered, with another definition, and a version never changes (`details.primitive` is `tool`, `details.id` is `<id>@<version>`, `details.fields` the fields of its definition that differ: the manifest's top-level fields, and `modulePath` for where its code lives in the pack). A new image of the same tool isn't another definition: its image and artifact version aren't compared. The message says to give the tool a new version; nothing was deployed. Or `tool-kind-mismatch`: one of the image's tools has the id of an MCP endpoint's tool (`details.endpointId`; `details.primitive`, `details.id`), whose active versions are all the endpoint's; nothing was deployed. Or `project-suspended`: the project the deploy goes into (the named one, or the Default for a tenant-wide deploy) is suspended, and nothing deploys into it until it's restored. Or `environment-takes-promotions`: the project the deploy goes into is a later environment of an environment order, which takes builds only by promotion from the one before it; deploy into the order's first environment and promote the build from there (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many tenants (`KINDGI_TENANCY=multi`), where each tenant deploys only its own images: `image-not-allowed`, the image is outside the tenant's repository (`details.imagePrefix`, its own), or `image-prefix-unset`, the tenant has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or `tool-project-mismatch`, `agent-project-mismatch`, `flow-project-mismatch` or `block-project-mismatch`: one of the image's tools, agents, flows or data blocks belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `block-already-registered`: the runtime holds one of the pack's data block versions with other content, and a version never changes; or holds versions of the pack's blocks unregistered, by hand or by the rollback of a deploy that failed after publishing them, and a deploy never reinstates one (`details.primitive` is `block`, `details.id` is `<id>@<version>`, the first such block); the message says to give it a new version, or names each unregistered one with the command that reinstates it; nothing was deployed. Or `tool-already-registered`: the runtime holds one of the pack's tool versions, active or unregistered, with another definition, and a version never changes (`details.primitive` is `tool`, `details.id` is `<id>@<version>`, `details.fields` the fields of its definition that differ: the manifest's top-level fields, and `modulePath` for where its code lives in the pack). A new image of the same tool isn't another definition: its image and artifact version aren't compared. The message says to give the tool a new version; nothing was deployed. Or `tool-kind-mismatch`: one of the image's tools has the id of an MCP endpoint's tool (`details.endpointId`; `details.primitive`, `details.id`), whose active versions are all the endpoint's; nothing was deployed. Or `project-suspended`: the project the deploy goes into (the named one, or the Default for a tenant-wide deploy) is suspended, and nothing deploys into it until it's restored. Or `environment-takes-promotions`: the project the deploy goes into is a later environment of an environment order, which takes builds only by promotion from the one before it; deploy into the order's first environment and promote the build from there (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead. Or `deploy-would-put-back-older-blocks`: a newer version of one of the pack's data blocks than its files' runs now in a project of one of its agents (a project's own version, or a segment pin inside one), and the body's `replace` doesn't name it. `details.blocks` lists each (`DeployCheckStop`): the files' version and the newest that runs, where, who made it run there and when, and the pull request opened for it; in a project the caller can't read, the version only. Every project counts, whoever deploys. Nothing was deployed. A runtime that doesn't read the agents' pins and Latest doesn't check.",
             "content": {
               "application/json": {
                 "schema": {
@@ -57576,6 +57895,103 @@
             "description": "Filter to one pack's deployments (`packId`)."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/deployments/check": {
+      "post": {
+        "operationId": "deployments.check",
+        "summary": "Check a deploy's blocks against what runs",
+        "tags": [
+          "deployments"
+        ],
+        "responses": {
+          "200": {
+            "description": "The deploy can go: the blocks it puts back on purpose, and the ones `replace` names that need none.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeployCheckResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad-input`: a body that isn't `{ projectId?, agents, blocks, replace? }`, a block named twice, a version that isn't one, or a `replace` reason that isn't 1 to 500 characters with no control characters (`details.issues`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No admin on `projectId` (`forbidden`), or a key limited to another project; without it, no admin on the tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`deploy-would-put-back-older-blocks`, as `POST /v1/deployments` answers it: each block in `details.blocks` (`DeployCheckStop`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`runs-in-unsupported`: this runtime doesn't read the agents' pins and Latest, or the agent versions that pin each block, so it can't check; its deploys aren't checked either.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. It takes the deploy's own right: admin on `projectId`, else on the tenant.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeployCheckBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []
@@ -58057,7 +58473,7 @@
             }
           },
           "409": {
-            "description": "`promotion-not-next-environment`: the target isn't the next environment of the deployment's order, or the deployment's environment is last or in no order (`details.position`, the next environment's place; `details.nextProjectId`, when you can read it). `promotion-values-not-ready`: values the build needs aren't ready in the target, each in `details.values` (`DeploymentValue`). `deployment-superseded`: the deployment no longer serves its environment, or the target's copy no longer serves there: newer deployments serve every tool version it ships (`details.environment`, `source` or `target`; `details.newerDeploymentId`). `project-suspended`, `pack-suspended`, `tenant-suspended` or `tenant-closing`: a suspension of the source or the target (`details.environment`). Nothing is written for any of these. With `pin`, after the move has committed: `nothing-runs-in-scope`, a carried agent has no version running in the target yet (the message names it); or `pin-superseded` or `release-gate-descendant-unpinned`, as `POST /v1/agents/{agentId}/pinned/pin` answers them. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
+            "description": "`promotion-not-next-environment`: the target isn't the next environment of the deployment's order, or the deployment's environment is last or in no order (`details.position`, the next environment's place; `details.nextProjectId`, when you can read it). `promotion-values-not-ready`: values the build needs aren't ready in the target, each in `details.values` (`DeploymentValue`). `deployment-superseded`: the deployment no longer serves its environment, or the target's copy no longer serves there: newer deployments serve every tool version it ships (`details.environment`, `source` or `target`; `details.newerDeploymentId`). `project-suspended`, `pack-suspended`, `tenant-suspended` or `tenant-closing`: a suspension of the source or the target (`details.environment`). `deploy-would-put-back-older-blocks`, with `pin`: a newer version of one of the build's blocks than its own runs in the target now, each in `details.blocks` (`DeployCheckStop`). Nothing is written for any of these. With `pin`, after the move has committed: `nothing-runs-in-scope`, a carried agent has no version running in the target yet (the message names it); or `pin-superseded` or `release-gate-descendant-unpinned`, as `POST /v1/agents/{agentId}/pinned/pin` answers them. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
             "content": {
               "application/json": {
                 "schema": {
@@ -58107,7 +58523,7 @@
             }
           }
         },
-        "description": "Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `pin`, the move commits first; then each carried agent is pinned through its target scope's release gate, and each carried flow is pinned. A release gate that refuses or holds an agent isn't an error: its `pinned` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.pinned` and `details.pinnedFlows`.",
+        "description": "Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `pin`, the build's blocks (`contents.blocks`) are checked first against what runs in the target, as a deploy's are against what runs: a newer version of one running there stops the promotion with nothing written, unless `replace` names the block, and `blockCheck` answers what the check found. Then the move commits; then each carried agent is pinned through its target scope's release gate, and each carried flow is pinned. A release gate that refuses or holds an agent isn't an error: its `pinned` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.pinned` and `details.pinnedFlows`.",
         "parameters": [
           {
             "name": "deploymentId",

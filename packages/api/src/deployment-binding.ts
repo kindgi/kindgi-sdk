@@ -11,6 +11,7 @@ import type {
   VersionDerivationReason,
 } from '@kindgi/types';
 
+import type { PinActor } from './agent-pin-binding.js';
 import {
   PACK_ENV_PROBLEM_CODES,
   PACK_ENV_SECRET_GIVE_CODES,
@@ -99,8 +100,9 @@ export interface DeploymentBinding {
    * transaction: a deployment in the target project with the source's
    * signed fields, contents, pack, pack checks and git `source` (as
    * `register` writes one, with its routes and pending endpoint) and
-   * `promotedFromDeploymentId`; the versions carried with it; and where
-   * each tool's secrets are read in the target. Registries aren't touched,
+   * `promotedFromDeploymentId`, and its own `replaced` (the input's, never
+   * the source's); the versions carried with it; and where each tool's
+   * secrets are read in the target. Registries aren't touched,
    * and nothing is built: the image is the one the source runs.
    *
    * The route checks everything first (the order, the source served, the
@@ -150,6 +152,16 @@ export function serializeDeployment(d: Deployment): Record<string, unknown> {
     },
     contents: d.contents,
     ...(d.source !== undefined && { source: d.source }),
+    ...(d.replaced !== undefined &&
+      d.replaced.length > 0 && {
+        replaced: d.replaced.map(({ blockId, from, to, reason, by }) => ({
+          blockId,
+          from,
+          to,
+          reason,
+          by: { kind: by.kind, id: by.id },
+        })),
+      }),
   };
 }
 
@@ -398,6 +410,14 @@ export interface Deployment {
    * before deploys said, and from a binding that doesn't keep it.
    */
   readonly source?: DeploymentSource;
+  /**
+   * The blocks the deploy put back to an older version than ran, on
+   * purpose (`replace`). A deployment a promotion made has its own: the
+   * blocks that promotion's pins put back in its project, never the
+   * source's. Absent when it put back none, and from a binding that
+   * doesn't keep them.
+   */
+  readonly replaced?: readonly DeploymentReplacedBlock[];
 }
 
 /**
@@ -423,6 +443,19 @@ export interface DeploymentSource {
   readonly dirty: boolean;
   /** Each of the pack's blocks by id: its file, relative to the pack's folder. */
   readonly blockFiles: Readonly<Record<string, string>>;
+}
+
+/**
+ * A block a deploy put back on purpose: the newest version that ran in a
+ * project of one of its agents, the files' older one the deploy shipped,
+ * why, and who deployed.
+ */
+export interface DeploymentReplacedBlock {
+  readonly blockId: string;
+  readonly from: string;
+  readonly to: string;
+  readonly reason: string;
+  readonly by: PinActor;
 }
 
 /** A primitive a deployment shipped. Guardrails have no version. */
@@ -535,6 +568,8 @@ export interface DeploymentRegisterInput {
   readonly packEnv?: PackEnvDeclaration;
   /** Where the pack lives in git (`Deployment.source`), when the deploy said. */
   readonly source?: DeploymentSource;
+  /** The blocks the deploy put back on purpose (`Deployment.replaced`). */
+  readonly replaced?: readonly DeploymentReplacedBlock[];
 }
 
 export type DeploymentRegisterOutcome =
@@ -642,6 +677,13 @@ export interface DeploymentPromoteInput {
   readonly carried: readonly CarriedVersion[];
   /** Each tool version it ships, with where its secrets are read in the target. */
   readonly toolSecretScopes: readonly PromotedToolSecretScopes[];
+  /**
+   * The blocks this promotion's pins put back on purpose in the target
+   * (`replace`), from its own check against what runs there; `by` is who
+   * promoted. Recorded as the new deployment's `replaced`, never the
+   * source's. A target that has the digest already keeps its row as it is.
+   */
+  readonly replaced?: readonly DeploymentReplacedBlock[];
 }
 
 export type DeploymentPromoteOutcome =

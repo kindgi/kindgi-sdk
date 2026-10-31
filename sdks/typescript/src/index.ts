@@ -503,7 +503,10 @@ export type {
   ListEvidenceFilter,
 } from './resources/compliance.js';
 export type {
+  CheckDeploymentInput,
   CheckDeploymentPromotionInput,
+  DeployCheckResult,
+  DeployCheckStop,
   Deployment,
   DeploymentPage,
   DeploymentPromotion,
@@ -517,6 +520,7 @@ export type {
   PackEnvNameStatus,
   PackEnvNames,
   PromoteDeploymentInput,
+  PromotionBlockCheck,
   RegisterDeploymentInput,
   SyncSecretsInput,
   SyncSecretsResult,

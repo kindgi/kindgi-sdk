@@ -24,8 +24,9 @@ export interface PinnedDefinition {
 
 /**
  * How a deploy registered one of its agents or flows, given its pins.
- * A deploy never keeps a version's old pins and never refuses a
- * routine deploy:
+ * A deploy never keeps a version's old pins, and registering never
+ * refuses a routine deploy. (What can stop one comes before: a pack
+ * block older than the version that runs now, `deploy-check.ts`.)
  *
  * - `registered`: the definition's version was free, and is now
  *   registered with these pins;

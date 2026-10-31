@@ -12288,6 +12288,181 @@ export const DeploymentRecordSchema: JsonSchema = {
     primitives: { $ref: '#/components/schemas/DeploymentPrimitiveCounts' },
     contents: { $ref: '#/components/schemas/DeploymentContents' },
     source: { $ref: '#/components/schemas/DeploymentSource' },
+    replaced: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/DeploymentReplacedBlock' },
+      description:
+        "The blocks the deploy put back to an older version than ran, on purpose (the body's `replace`). A deployment a promotion made has its own: the blocks that promotion's pins put back in its project, never the source deployment's. Absent when it put back none, and from a runtime that doesn't keep them.",
+    },
+  },
+};
+
+/** A block a deploy, or a promotion's pins, put back on purpose (`DeploymentRecord.replaced`). */
+export const DeploymentReplacedBlockSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['blockId', 'from', 'to', 'reason', 'by'],
+  properties: {
+    blockId: { type: 'string' },
+    from: {
+      type: 'string',
+      description:
+        "The newest version that ran in a project of one of the pack's agents (a promotion: in its target).",
+    },
+    to: {
+      type: 'string',
+      description: "The files' older version, which the deploy shipped (a promotion: the build's).",
+    },
+    reason: { type: 'string', description: 'Why, as the deploy or the promotion said.' },
+    by: { $ref: '#/components/schemas/PinActor' },
+  },
+};
+
+/** A block a deploy puts back on purpose, as its body names it. */
+export const DeployReplaceBlockSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['blockId', 'reason'],
+  properties: {
+    blockId: { type: 'string', minLength: 1 },
+    reason: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 500,
+      description: 'Why the older version goes back: 1 to 500 characters, no control characters.',
+    },
+  },
+};
+
+/**
+ * One of the pack's agents in a deploy check, by id. A component of its
+ * own: named after its property, it would take the name `Agent`'s
+ * component has.
+ */
+export const DeployCheckAgentIdSchema: JsonSchema = {
+  type: 'string',
+  minLength: 1,
+  description: "An agent's id, as the image index names it.",
+};
+
+/** `POST /v1/deployments/check`'s body. */
+export const DeployCheckBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['agents', 'blocks'],
+  properties: {
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        "The project the deploy goes into: the check takes the deploy's own right, admin on it. Absent: the tenant's Default project, admin on the tenant. Every project of the pack's agents counts, whichever this is.",
+    },
+    agents: {
+      type: 'array',
+      maxItems: 500,
+      items: { $ref: '#/components/schemas/DeployCheckAgentId' },
+      description: "The pack's agents, by id: the image index's.",
+    },
+    blocks: {
+      type: 'array',
+      maxItems: 500,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['id', 'version'],
+        properties: { id: { type: 'string', minLength: 1 }, version: { type: 'string' } },
+      },
+      description: "The pack's blocks, each at its version in the files; a block named once.",
+    },
+    replace: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/DeployReplaceBlock' },
+      description: "As the deploy's `replace`: a block named once.",
+    },
+  },
+};
+
+/** `POST /v1/deployments/check`'s answer when the deploy can go. */
+export const DeployCheckResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['replaced', 'notNeeded'],
+  properties: {
+    replaced: {
+      type: 'array',
+      description:
+        'The blocks `replace` names that a newer version runs for: the deploy puts each back, and records it.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['blockId', 'from', 'to'],
+        properties: {
+          blockId: { type: 'string' },
+          from: { type: 'string', description: 'The newest version that runs now.' },
+          to: { type: 'string', description: "The files' version." },
+        },
+      },
+    },
+    notNeeded: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The blocks `replace` names that nothing newer runs for: nothing to replace.',
+    },
+  },
+};
+
+/**
+ * One block in `409 deploy-would-put-back-older-blocks`'s `details.blocks`:
+ * the files' version, and where a newer one runs.
+ */
+export const DeployCheckStopSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['blockId', 'inFiles', 'runs'],
+  properties: {
+    blockId: { type: 'string' },
+    inFiles: { type: 'string', description: "The version in the pack's files." },
+    runs: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['version'],
+      description:
+        "Where the newest version runs: a project the caller reads, when there is one. In a project the caller can't read, the version only.",
+      properties: {
+        version: { type: 'string' },
+        projectId: { type: 'string' },
+        follows: { type: 'string', enum: ['pin', 'latest'] },
+        segment: {
+          type: 'array',
+          items: { $ref: '#/components/schemas/ScopeSegment' },
+          description: 'The segment path, when a pin on a segment inside the project runs it.',
+        },
+        by: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['kind', 'id'],
+          description:
+            'Who pinned it, or who added it as Latest; a person with their name when the directory has one.',
+          properties: {
+            kind: { type: 'string', enum: ['user', 'service'] },
+            id: { type: 'string' },
+            name: { type: 'string' },
+          },
+        },
+        at: {
+          type: 'string',
+          format: 'date-time',
+          description: 'When it was pinned, or became Latest there.',
+        },
+      },
+    },
+    pr: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['url'],
+      description: 'The pull request opened for the newer version there, when one was.',
+      properties: { url: { type: 'string' } },
+    },
   },
 };
 
@@ -12362,6 +12537,12 @@ export const DeploymentPromotionBodySchema: JsonSchema = {
       type: 'boolean',
       description:
         "Pin every agent version the promotion carries in the target project, each through its scope's release gate, and every flow version it carries (the project's pin), so a run there that names no version takes it. The answer's `pinned` reports each agent and `pinnedFlows` each flow. An error answered after some were already pinned lists those in `error.details.pinned` and `error.details.pinnedFlows`, in the answer's shapes.",
+    },
+    replace: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/DeployReplaceBlock' },
+      description:
+        "With `pin`: the blocks the pins put back to an older version than runs in the target now, on purpose, each with why; a block named once. Without it, a newer version of one of the build's blocks running in the target stops the promotion (`409 deploy-would-put-back-older-blocks`).",
     },
   },
 };
@@ -12506,6 +12687,43 @@ export const DeploymentPromotionSchema: JsonSchema = {
       items: { $ref: '#/components/schemas/DeploymentPinnedFlow' },
       description:
         "Each carried flow version pinned in the target (the project's pin); present only when `pin` was asked of a runtime that pins flows.",
+    },
+    blockCheck: { $ref: '#/components/schemas/PromotionBlockCheck' },
+  },
+};
+
+/** What a promotion that pins found, checking the build's blocks against what runs in the target. */
+export const PromotionBlockCheckSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['checked', 'replaced', 'notNeeded'],
+  description:
+    "The build's blocks against what runs in the target; present only when `pin` was asked of a runtime that checks them.",
+  properties: {
+    checked: {
+      type: 'boolean',
+      description:
+        '`false` for a build deployed before deployments kept their blocks (`contents.blocks`): nothing was compared, and `replace` did nothing.',
+    },
+    replaced: {
+      type: 'array',
+      description:
+        'The blocks `replace` names that a newer version runs for in the target: the pins put each back, and the audit log records it.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['blockId', 'from', 'to'],
+        properties: {
+          blockId: { type: 'string' },
+          from: { type: 'string', description: 'The newest version that ran in the target.' },
+          to: { type: 'string', description: "The build's version, which the pins put there." },
+        },
+      },
+    },
+    notNeeded: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The blocks `replace` names that nothing newer runs for in the target.',
     },
   },
 };
@@ -12690,6 +12908,12 @@ export const DeploymentRegistrationBodySchema: JsonSchema = {
         "The project to deploy into, one per client: its agents, flows, tools and guardrails are registered there, and its secret sync writes there. It takes admin on that project (a key limited to another project is refused). Absent: a tenant-wide deploy, into the tenant's Default project. An id that already lives in another project is `409` (`tool-project-mismatch` and the like): each client gets its own pack, whose ids carry its own pack id. Not covered by the signature, which attests the image.",
     },
     source: { $ref: '#/components/schemas/DeploymentSourceBody' },
+    replace: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/DeployReplaceBlock' },
+      description:
+        "The blocks the deploy puts back to an older version than runs now, on purpose, each with why; a block named once. Without it, a newer version of one of the pack's blocks running in a project of one of its agents stops the deploy (`409 deploy-would-put-back-older-blocks`). The deployment records each one put back (`replaced`). Not covered by the signature.",
+    },
   },
 };
 
@@ -17348,6 +17572,12 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['DeploymentEndpointProblem', DeploymentEndpointProblemSchema],
   ['DeploymentEndpoint', DeploymentEndpointSchema],
   ['DeploymentRecord', DeploymentRecordSchema],
+  ['DeploymentReplacedBlock', DeploymentReplacedBlockSchema],
+  ['DeployReplaceBlock', DeployReplaceBlockSchema],
+  ['DeployCheckAgentId', DeployCheckAgentIdSchema],
+  ['DeployCheckBody', DeployCheckBodySchema],
+  ['DeployCheckResult', DeployCheckResultSchema],
+  ['DeployCheckStop', DeployCheckStopSchema],
   ['DeploymentValueNeededBy', DeploymentValueNeededBySchema],
   ['DeploymentValue', DeploymentValueSchema],
   ['DeploymentValueList', DeploymentValueListSchema],
@@ -17360,6 +17590,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['DeploymentPinnedAgent', DeploymentPinnedAgentSchema],
   ['DeploymentPinnedFlow', DeploymentPinnedFlowSchema],
   ['DeploymentPromotion', DeploymentPromotionSchema],
+  ['PromotionBlockCheck', PromotionBlockCheckSchema],
   ['PromotionNextEnvironment', PromotionNextEnvironmentSchema],
   ['DeploymentPromotionCheck', DeploymentPromotionCheckSchema],
   ['DeploymentRegistrationBody', DeploymentRegistrationBodySchema],

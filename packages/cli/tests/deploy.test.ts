@@ -2986,11 +2986,20 @@ describe('kindgi deploy — a pack with blocks goes only to a runtime that publi
     { id: 'my-pack.style', version: '1.0.0', kind: 'settings', content: { values: {} } },
   ];
 
-  /** A runtime whose `/v1/openapi.json` lists `capabilities` (none: no entry), and the URLs asked. */
+  /**
+   * A runtime whose `/v1/openapi.json` lists `capabilities` (none: no
+   * entry), and whose check against what runs passes; the URLs asked.
+   */
   function runtime(capabilities?: readonly string[], status = 200) {
     const asked: string[] = [];
     const fetchImpl = (async (url: unknown) => {
       asked.push(String(url));
+      if (String(url).endsWith('/v1/deployments/check')) {
+        return new Response(JSON.stringify({ replaced: [], notNeeded: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
       const info = {
         title: 'Kindgi Platform API',
         version: '0.1.0',
@@ -3024,7 +3033,10 @@ describe('kindgi deploy — a pack with blocks goes only to a runtime that publi
     const { fetchImpl, asked } = runtime(['some-later-capability', 'deploy-publishes-pack-blocks']);
     const { out, fixtures } = await deployWith(fetchImpl);
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(asked).toEqual(['https://api.staging.example.com/v1/openapi.json']);
+    expect(asked).toEqual([
+      'https://api.staging.example.com/v1/openapi.json',
+      'https://api.staging.example.com/v1/deployments/check',
+    ]);
     expect(fixtures.state.postCalls).toBe(1);
   });
 
@@ -3058,11 +3070,11 @@ describe('kindgi deploy — a pack with blocks goes only to a runtime that publi
     expect(fixtures.state.postCalls).toBe(0);
   });
 
-  test('--dry-run sends nothing, so asks nothing', async () => {
+  test('--dry-run sends nothing, so asks no capability: only the check against what runs', async () => {
     const { fetchImpl, asked } = runtime();
     const { out } = await deployWith(fetchImpl, { argv: ['--dry-run'] });
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(asked).toEqual([]);
+    expect(asked).toEqual(['https://api.staging.example.com/v1/deployments/check']);
   });
 
   test("with no envelope yet, the pack's block files are checked before the build", async () => {
@@ -3079,6 +3091,233 @@ describe('kindgi deploy — a pack with blocks goes only to a runtime that publi
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain("doesn't publish a pack's blocks (blocks/: 2 files)");
     expect(fixtures.state.buildCalls).toBe(0);
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+});
+
+describe("kindgi deploy — the pack's blocks against what runs", () => {
+  const PROJECT = '0b3f6a9e-7c1d-4e2a-9b8f-1a2b3c4d5e6f';
+  const SANDBOX = '5d6e7f80-1a2b-4c3d-8e9f-0a1b2c3d4e5f';
+  const BLOCKS = [
+    { id: 'my-pack.tone', version: '3.0.0', kind: 'prompt', content: { template: 'Hi.' } },
+    { id: 'my-pack.rules', version: '1.0.0', kind: 'settings', content: { values: {} } },
+  ];
+  const STOP = {
+    blockId: 'my-pack.tone',
+    inFiles: '3.0.0',
+    runs: {
+      version: '4.0.0',
+      projectId: SANDBOX,
+      follows: 'latest',
+      by: { kind: 'user', id: 'usr-ana', name: 'Ana' },
+      at: '2026-11-05T09:12:00.000Z',
+    },
+    pr: { url: 'https://github.com/acme/returns/pull/214' },
+  };
+
+  function json(status: number, body: unknown): Response {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  /** A runtime that publishes a pack's blocks and answers the check `check`; each check body sent is kept. */
+  function runtime(check: { status: number; body: unknown }) {
+    const checks: unknown[] = [];
+    const fetchImpl = (async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/openapi.json')) {
+        return json(200, {
+          openapi: '3.1.0',
+          info: { 'x-kindgi-capabilities': ['deploy-publishes-pack-blocks'] },
+        });
+      }
+      if (u.endsWith('/v1/deployments/check')) {
+        checks.push(JSON.parse(String(init?.body)));
+        return json(check.status, check.body);
+      }
+      if (u.endsWith(`/v1/projects/${SANDBOX}`)) {
+        return json(200, { id: SANDBOX, name: 'Support sandbox', slug: 'support-sandbox' });
+      }
+      return json(404, { error: { code: 'not-found', message: 'Not found', requestId: 'r' } });
+    }) as typeof fetch;
+    return { fetchImpl, checks };
+  }
+
+  async function deployWith(fetchImpl: typeof fetch, argv: readonly string[] = []) {
+    const index = { ...(makeEnvelope().index as Record<string, unknown>), blocks: BLOCKS };
+    await writeAutoEnvelope({ index });
+    const fixtures = makeFixtures({ envelope: makeEnvelope({ index }) });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`, ...argv],
+      fetchImpl,
+    });
+    return { out, fixtures };
+  }
+
+  const stopAnswer = {
+    status: 409,
+    body: {
+      error: {
+        code: 'deploy-would-put-back-older-blocks',
+        message: 'This deploy would put back older versions of blocks than run now.',
+        details: { blocks: [STOP] },
+        requestId: 'r',
+      },
+    },
+  };
+
+  test("a newer block than the files' that runs now stops the deploy: the table, nothing deployed, exit 1", async () => {
+    const { fetchImpl, checks } = runtime(stopAnswer);
+    const { out, fixtures } = await deployWith(fetchImpl);
+    expect(out.exitCode).toBe(1);
+    expect(checks).toEqual([
+      {
+        agents: ['my-pack.agent'],
+        blocks: [
+          { id: 'my-pack.tone', version: '3.0.0' },
+          { id: 'my-pack.rules', version: '1.0.0' },
+        ],
+      },
+    ]);
+    expect(out.stderr).toContain('  Checking my-pack against what runs…\n');
+    expect(out.stderr).toContain(
+      [
+        '✗ Stopped: this deploy would put back older blocks than run now.',
+        '',
+        '  Block          In your files   Runs now',
+        '  my-pack.tone   3.0.0           4.0.0  latest in Support sandbox (Ana, 11-05)',
+        '',
+        '  Nothing was deployed.',
+        '  To keep the newer versions:  merge https://github.com/acme/returns/pull/214, or run `kindgi blocks pull`, then deploy again.',
+        '  To drop them on purpose:  kindgi deploy --env=staging --replace=my-pack.tone --reason=<why>',
+      ].join('\n'),
+    );
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('--dry-run asks the check too, and a stop exits 1 there as well', async () => {
+    const { fetchImpl, checks } = runtime(stopAnswer);
+    const { out, fixtures } = await deployWith(fetchImpl, ['--dry-run']);
+    expect(out.exitCode).toBe(1);
+    expect(checks).toHaveLength(1);
+    expect(out.stderr).toContain('  Nothing was deployed.');
+    expect(out.stderr).not.toContain('--dry-run set. No request sent.');
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('--replace with --reason: the check and the deploy carry each block with the reason, and it says what it puts back', async () => {
+    const { fetchImpl, checks } = runtime({
+      status: 200,
+      body: {
+        replaced: [{ blockId: 'my-pack.tone', from: '4.0.0', to: '3.0.0' }],
+        notNeeded: ['my-pack.rules'],
+      },
+    });
+    const { out, fixtures } = await deployWith(fetchImpl, [
+      `--project=${PROJECT}`,
+      '--replace=my-pack.tone',
+      '--replace=my-pack.rules',
+      '--reason=v4 was a try in the sandbox',
+    ]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    const replace = [
+      { blockId: 'my-pack.tone', reason: 'v4 was a try in the sandbox' },
+      { blockId: 'my-pack.rules', reason: 'v4 was a try in the sandbox' },
+    ];
+    expect(checks).toEqual([
+      {
+        projectId: PROJECT,
+        agents: ['my-pack.agent'],
+        blocks: [
+          { id: 'my-pack.tone', version: '3.0.0' },
+          { id: 'my-pack.rules', version: '1.0.0' },
+        ],
+        replace,
+      },
+    ]);
+    expect(out.stderr).toContain(
+      '  my-pack.tone: 4.0.0 runs now, 3.0.0 in your files; put back on purpose (--replace)\n',
+    );
+    expect(out.stderr).toContain('  my-pack.rules: nothing newer runs; --replace not needed\n');
+    expect(fixtures.state.postCalls).toBe(1);
+    expect(fixtures.state.capturedPost?.body.projectId).toBe(PROJECT);
+    expect(fixtures.state.capturedPost?.body.replace).toEqual(replace);
+  });
+
+  test('--replace without --reason, or --reason without --replace, asks nothing and deploys nothing', async () => {
+    for (const [argv, said] of [
+      [['--replace=my-pack.tone'], 'say why with --reason=<text>'],
+      [['--reason=why'], 'it goes with --replace=<block>'],
+    ] as const) {
+      const { fetchImpl, checks } = runtime(stopAnswer);
+      const { out, fixtures } = await deployWith(fetchImpl, argv);
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(said);
+      expect(checks).toEqual([]);
+      expect(fixtures.state.loadCalls).toBe(0);
+    }
+  });
+
+  test('a runtime without the check (404, or 501 runs-in-unsupported) deploys as before, and says so in one line', async () => {
+    for (const answer of [
+      { status: 404, body: { error: { code: 'not-found', message: 'Not found', requestId: 'r' } } },
+      {
+        status: 501,
+        body: { error: { code: 'runs-in-unsupported', message: 'No pins', requestId: 'r' } },
+      },
+    ]) {
+      const { fetchImpl } = runtime(answer);
+      const { out, fixtures } = await deployWith(fetchImpl);
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(out.stderr).toContain(
+        "  This runtime doesn't check blocks against what runs: deploying as before.\n",
+      );
+      expect(fixtures.state.postCalls).toBe(1);
+    }
+  });
+
+  const forbidden = {
+    status: 403,
+    body: {
+      error: { code: 'permission-denied', message: 'Needs admin on the tenant', requestId: 'r' },
+    },
+  };
+  const FORBIDDEN_LINE =
+    "  This key can't check blocks against what runs here (403): deploying without the check; a runtime that has it still holds it on the deploy.\n";
+
+  test('a key the check refuses (403) deploys without it, and says so in one line', async () => {
+    const { fetchImpl, checks } = runtime(forbidden);
+    const { out, fixtures } = await deployWith(fetchImpl);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(checks).toHaveLength(1);
+    expect(out.stderr).toContain(FORBIDDEN_LINE);
+    expect(fixtures.state.postCalls).toBe(1);
+  });
+
+  test('--dry-run with a key the check refuses (403) goes on to print the request, sending nothing', async () => {
+    const { fetchImpl } = runtime(forbidden);
+    const { out, fixtures } = await deployWith(fetchImpl, ['--dry-run']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain(FORBIDDEN_LINE);
+    expect(out.stderr).toContain('--dry-run set. No request sent.');
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('a check the runtime refuses for another reason fails the deploy before anything is sent', async () => {
+    const { fetchImpl } = runtime({
+      status: 400,
+      body: {
+        error: { code: 'bad-input', message: '`blocks` must be a list', requestId: 'r' },
+      },
+    });
+    const { out, fixtures } = await deployWith(fetchImpl);
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      "Couldn't check the pack's blocks against what runs (POST /v1/deployments/check): bad-input: `blocks` must be a list",
+    );
     expect(fixtures.state.postCalls).toBe(0);
   });
 });

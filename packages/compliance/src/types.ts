@@ -124,6 +124,12 @@ export const EVIDENCE_KINDS = [
   // names both deployments, both projects, the image digest and the
   // versions carried — never anything a project holds.
   'deployment-promoted',
+  // A deploy, or a promotion that pins, put back an older version of a
+  // block than ran in a project of one of its agents, on purpose
+  // (`replace`). One per block: the payload names the deployment, the
+  // block, the version that ran (`from`), the files' one shipped (`to`)
+  // and the reason given — never the block's content.
+  'deployment-replaced-block',
   // A prompt or settings block version was published. The payload names
   // the block, its version and kind, and where it came from (`source`:
   // the API, a deploy or a suggested change, with its id) — never its

@@ -22,6 +22,11 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   (`from_="everyone"`) counts end users' corrections: at its next check, every one
   since its last run, older ones included. Once it's off, none of them counts, even
   one sorted while it was on or by a person.
+- `kindgi`: **corrections export.** `kindgi.corrections.export(agent_id=...)`
+  yields an agent's corrections in chunks of bytes, as CSV, or as JSON lines
+  with `format="jsonl"`, taking the list's filters. Write the chunks to a file
+  as they come. A project you can't read raises `AuthError`, and a stream that
+  drops part way raises `NetworkError`.
 - `kindgi`: **An Improve run works in a project, checks it's ready first, and
   keeps a change only when it passes more of the cases and fails none that
   passed. An Improve schedule runs on new corrections, within a run cap and a
@@ -59,11 +64,20 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   until when (`paused_until`, with `paused_reason` `month-cap`), and one whose
   owner lost `publish` on the agent is paused at its next fire, with
   `status_reason` `owner-lost-publish`.
-- `kindgi`: **corrections export.** `kindgi.corrections.export(agent_id=...)`
-  yields an agent's corrections in chunks of bytes, as CSV, or as JSON lines
-  with `format="jsonl"`, taking the list's filters. Write the chunks to a file
-  as they come. A project you can't read raises `AuthError`, and a stream that
-  drops part way raises `NetworkError`.
+- `kindgi`: **a deployment never puts back an older block without saying
+  so.** `deployments.register` raises `ConflictError` with `server_code`
+  `deploy-would-put-back-older-blocks` when one of the pack's blocks is older
+  in the files than the newest version that runs in a project of the pack's
+  agents; `details["blocks"]` says, for each one, both versions, where the
+  newer one runs, who made it run there and when. Its body's `replace` names
+  each block put back on purpose, with a reason, and the deployment answers
+  them as `replaced`. `deployments.check` answers the same, writing nothing:
+  `replaced`, and `not_needed` for a `replace` nothing newer runs for.
+  `deployments.promote` with `pin` runs it against what runs in the target
+  project only: its body takes `replace` too, and its answer's
+  `block_check` says what was put back, what `replace` didn't need, and
+  `checked=False` for a build deployed before deployments kept their blocks.
+  The deployment it makes keeps its own `replaced`, never the source's.
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
   judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
   judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator
