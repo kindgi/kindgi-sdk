@@ -135,6 +135,12 @@ again. On a self-hosted runtime with one pack service, that version runs only
 while your pack still has the tool versions it locked
 ([A self-hosted runtime runs what your pack has](../../agents/agent-and-tool-versions/#a-self-hosted-runtime-runs-what-your-pack-has)).
 
+An unpin answers as a pin does, `201` with `{ pin, testRuns, fixed, reopened }`,
+the unpin under `pin`. In each project whose version it changes and that has
+corrections on its test set, it starts a test run of the version the project
+runs now, listed in `testRuns`. The corrections change when that run ends.
+An unpin reuses no run, so `fixed` and `reopened` are empty.
+
 What a request to pin or unpin refuses:
 
 - a version that isn't registered:

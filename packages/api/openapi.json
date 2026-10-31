@@ -38253,12 +38253,12 @@
           "agents"
         ],
         "responses": {
-          "200": {
-            "description": "Unpinned.",
+          "201": {
+            "description": "Unpinned, with the test runs that check what each project runs now (`testRuns`).",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Pin"
+                  "$ref": "#/components/schemas/PinAnswer"
                 }
               }
             }
@@ -38324,7 +38324,7 @@
             }
           }
         },
-        "description": "Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a pin. Needs `pin` on the agent.",
+        "description": "Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a pin. Needs `pin` on the agent.\n\nThe unpin answers as a pin does, with the unpin change under `pin`. It checks each project the pin covered that now runs another version and has active cases, on the project's agent test set (`testRuns`), with a run of the version it runs now that it starts, correlation id `pin:<changeId>` of the unpin, whose outcome changes the corrections' statuses when it ends. An unpin reuses no run, so `fixed` and `reopened` are empty.",
         "parameters": [
           {
             "name": "agentId",

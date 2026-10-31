@@ -3155,7 +3155,7 @@ class AgentsPinnedResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Pin:
+    ) -> _models.PinAnswer:
         """Remove a scope's pinned version. `POST /v1/agents/{agentId}/pinned/unpin`
 
         Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a pin. Needs `pin` on the agent.
@@ -3166,7 +3166,7 @@ class AgentsPinnedResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.AgentUnpinBody, body, fields),
-            response=_models.Pin,
+            response=_models.PinAnswer,
             timeout=timeout,
         )
 
@@ -12967,7 +12967,7 @@ class AsyncAgentsPinnedResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Pin:
+    ) -> _models.PinAnswer:
         """Remove a scope's pinned version. `POST /v1/agents/{agentId}/pinned/unpin`
 
         Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a pin. Needs `pin` on the agent.
@@ -12978,7 +12978,7 @@ class AsyncAgentsPinnedResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.AgentUnpinBody, body, fields),
-            response=_models.Pin,
+            response=_models.PinAnswer,
             timeout=timeout,
         )
 

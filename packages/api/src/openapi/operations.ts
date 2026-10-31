@@ -4268,13 +4268,17 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.pinned.unpin',
     summary: "Remove a scope's pinned version",
     description:
-      "Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a pin. Needs `pin` on the agent.",
+      "Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a pin. Needs `pin` on the agent.\n\nThe unpin answers as a pin does, with the unpin change under `pin`. It checks each project the pin covered that now runs another version and has active cases, on the project's agent test set (`testRuns`), with a run of the version it runs now that it starts, correlation id `pin:<changeId>` of the unpin, whose outcome changes the corrections' statuses when it ends. An unpin reuses no run, so `fixed` and `reopened` are empty.",
     tags: ['agents'],
     security: 'bearer',
     parameters: [AgentIdPathParam, IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('AgentUnpinBody') },
     responses: {
-      '200': { description: 'Unpinned.', schema: ref('Pin') },
+      '201': {
+        description:
+          'Unpinned, with the test runs that check what each project runs now (`testRuns`).',
+        schema: ref('PinAnswer'),
+      },
       ...CommonMutationErrors,
       '409': ErrorResponse(
         "`not-pinned`: the scope has no pin of its own. `release-gate-needs-pin`: the scope has a release gate of its own, and a gated scope keeps its own pin; unregister the gate first, or pin an earlier version instead. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. Or `registry-read-only`: under `kindgi dev`, a pinned version was written into the pack's files; undo it there, with git.",

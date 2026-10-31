@@ -198,13 +198,13 @@ describe('agents.pinned', () => {
   });
 
   it('pinned.pin POSTs the version and scope, with an idempotency key', async () => {
-    const stub = jsonFetch(pin, { status: 201 });
+    const stub = jsonFetch({ pin, testRuns: [], fixed: [], reopened: [] }, { status: 201 });
     const made = await client(stub).agents.pinned.pin(
       'acme.drafter',
       { version: '1.1.0', scope: { kind: 'project', projectId: PROJECT_ID }, reason: 'evals' },
       { idempotencyKey: 'idem-1' },
     );
-    expect(made.toVersion).toBe('1.1.0');
+    expect(made.pin.toVersion).toBe('1.1.0');
     const req = stub.calls[0]!;
     expect(req.method).toBe('POST');
     expect(req.url).toBe('https://api.example.com/v1/agents/acme.drafter/pinned/pin');
@@ -241,14 +241,19 @@ describe('agents.pinned', () => {
   });
 
   it('pinned.unpin POSTs the scope, with an idempotency key', async () => {
+    const unpin = { ...pin, action: 'unpin', toVersion: null };
     const stub = recordingFetch([
-      { status: 200, body: JSON.stringify({ ...pin, action: 'unpin' }) },
+      {
+        status: 201,
+        body: JSON.stringify({ pin: unpin, testRuns: [], fixed: [], reopened: [] }),
+      },
     ]);
-    await client(stub).agents.pinned.unpin(
+    const made = await client(stub).agents.pinned.unpin(
       'acme.drafter',
       { scope: { kind: 'tenant' }, reason: 'done' },
       { idempotencyKey: 'idem-2' },
     );
+    expect(made.pin.action).toBe('unpin');
     const req = stub.calls[0]!;
     expect([req.method, new URL(req.url).pathname, JSON.parse(req.body ?? '{}')]).toEqual([
       'POST',

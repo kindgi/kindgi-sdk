@@ -24,7 +24,9 @@ import {
   type PinTestRunDeps,
   pinTookEffect,
   projectsPinMoves,
+  projectsUnpinCovers,
   startPinTestRuns,
+  startUnpinTestRuns,
 } from '../src/pin-test-runs.js';
 import type { TestRun, TestRunStartInput } from '../src/test-run-binding.js';
 import { applyTestRunOutcome, pinRunCorrelation } from '../src/test-run-outcome.js';
@@ -247,6 +249,26 @@ function harness() {
         change,
         ...(await startPinTestRuns(deps, { tenantId, change, projects: moved, log })),
       };
+    },
+    /**
+     * Unpin as the unpin route does: the projects it covers read first,
+     * then the unpin recorded, then its runs.
+     */
+    async unpin(scope: AgentPinScope, by: PinActor = ana) {
+      const covered = await projectsUnpinCovers(deps, { tenantId, agentId, scope });
+      const change: Pin = {
+        id: `pc-${changes.length + 1}`,
+        agentId,
+        scope,
+        action: 'unpin',
+        fromVersion: pinned.get(scopeKey(scope))?.version ?? null,
+        toVersion: null,
+        requestedBy: by,
+        createdAt: at(),
+      };
+      changes.push(change);
+      pinned.delete(scopeKey(scope));
+      return { change, ...(await startUnpinTestRuns(deps, { tenantId, change, covered, log })) };
     },
     /** The approval pins a waiting change: the same id and `createdAt`, with `resolvedAt`. */
     approve(change: Pin): Pin {
@@ -488,6 +510,108 @@ describe('a tenant or org pin', () => {
     await h.apply(run.testRunId);
     expect(await h.get(id)).toMatchObject({ status: 'open' });
     expect(run.projectId).toBe(returns);
+  });
+});
+
+describe('an unpin', () => {
+  test('a project unpin checks what the project runs after it, its Latest, which applies at its end', async () => {
+    const h = harness();
+    h.onLatest(support, '12.0.0');
+    const id = await h.corrected(support);
+    const pinned = await h.pin('13.0.0', project(support));
+    const [pinRun] = pinned.testRuns;
+    if (pinRun === undefined) throw new Error('no run');
+    h.end(pinRun.testRunId, { [id]: true });
+    await h.apply(pinRun.testRunId);
+    h.started.length = 0;
+    const unpinned = await h.unpin(project(support), ben);
+    expect(h.started).toEqual([
+      {
+        tenantId,
+        projectId: support,
+        testSetId: agentTestSetId(agentId as AgentId, support),
+        testSetVersion: '1',
+        agentRef: { agentId, version: '12.0.0' },
+        correlationId: pinRunCorrelation(unpinned.change.id),
+      },
+    ]);
+    expect(unpinned).toMatchObject({ testRuns: [{ projectId: support }], fixed: [], reopened: [] });
+    const [run] = unpinned.testRuns;
+    if (run === undefined) throw new Error('no run');
+    h.end(run.testRunId, { [id]: false });
+    expect(await h.apply(run.testRunId)).toEqual({ fixed: [], reopened: [id] });
+    expect(await h.get(id)).toMatchObject({
+      status: 'open',
+      reopenedIn: { version: '12.0.0', how: 'unpin', by: ben },
+    });
+  });
+
+  test("a project unpin under an org pin checks the org pin's version", async () => {
+    const h = harness();
+    h.onLatest(support, '12.0.0');
+    await h.corrected(support);
+    await h.pin('12.5.0', { kind: 'org', orgId: north });
+    await h.pin('13.0.0', project(support));
+    h.started.length = 0;
+    await h.unpin(project(support));
+    expect(h.started.map((s) => [s.projectId, s.agentRef?.version])).toEqual([[support, '12.5.0']]);
+  });
+
+  test('checks nothing where the version it runs stays, or with no active cases', async () => {
+    const h = harness();
+    h.onLatest(support, '13.0.0');
+    await h.corrected(support);
+    await h.pin('13.0.0', project(support));
+    h.onLatest(billing, '12.0.0');
+    await h.pin('13.0.0', project(billing));
+    h.started.length = 0;
+    expect(await h.unpin(project(support))).toMatchObject({ testRuns: [] });
+    expect(await h.unpin(project(billing))).toMatchObject({ testRuns: [] });
+    expect(h.started).toEqual([]);
+  });
+
+  test('a tenant unpin checks each project it covered, not one under its own pin', async () => {
+    const h = harness();
+    for (const p of [support, billing, returns]) {
+      h.onLatest(p, '12.0.0');
+      await h.corrected(p);
+    }
+    await h.pin('12.5.0', project(billing));
+    await h.pin('13.0.0', { kind: 'tenant' });
+    h.started.length = 0;
+    await h.unpin({ kind: 'tenant' });
+    expect(h.started.map((s) => [s.projectId, s.agentRef?.version])).toEqual([
+      [support, '12.0.0'],
+      [returns, '12.0.0'],
+    ]);
+  });
+
+  test("an org unpin leaves out a project whose test run doesn't start, and logs it", async () => {
+    const h = harness();
+    for (const p of [support, billing]) {
+      h.onLatest(p, '12.0.0');
+      await h.corrected(p);
+    }
+    await h.pin('13.0.0', { kind: 'org', orgId: north });
+    h.failing.add(billing);
+    const unpinned = await h.unpin({ kind: 'org', orgId: north });
+    expect(unpinned.testRuns.map((r) => r.projectId)).toEqual([support]);
+    expect(h.warned).toEqual([
+      `pin change ${unpinned.change.id}'s test run in project ${billing as unknown as string} didn't start or apply: the test set store is down`,
+    ]);
+  });
+
+  test('a segment unpin checks nothing', async () => {
+    const h = harness();
+    h.onLatest(support, '12.0.0');
+    await h.corrected(support);
+    const segment: AgentPinScope = {
+      kind: 'segment',
+      projectId: support,
+      path: [{ key: 'company', value: 'acme' }],
+    };
+    expect(await h.unpin(segment)).toMatchObject({ testRuns: [], fixed: [], reopened: [] });
+    expect(h.started).toEqual([]);
   });
 });
 

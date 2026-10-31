@@ -203,11 +203,21 @@ export interface AgentPinnedClient {
   check(agentId: AgentId | string, input: AgentPinInput): Promise<PinCheck>;
   /**
    * Remove the scope's own pin: its runs use the next scope up.
-   * `409 not-pinned` when it has none.
+   * `409 not-pinned` when it has none. The answer's `pin` is the unpin
+   * change. An unpin never waits for an approval.
+   *
+   * `testRuns` are the test runs that check the version each project
+   * runs now, in each project whose running version the unpin changes
+   * and that has active cases. Their outcomes change the corrections
+   * when they end.
    *
    * @wire POST /v1/agents/:agentId/pinned/unpin
    */
-  unpin(agentId: AgentId | string, input: AgentUnpinInput, options?: MutationOptions): Promise<Pin>;
+  unpin(
+    agentId: AgentId | string,
+    input: AgentUnpinInput,
+    options?: MutationOptions,
+  ): Promise<PinAnswer>;
   /** @wire GET /v1/agents/:agentId/pin-history: newest first */
   history(agentId: AgentId | string, filter?: ListPinHistoryFilter): Promise<PinPage>;
   /** @wire GET /v1/agents/:agentId/pin-history/:changeId */
@@ -491,7 +501,7 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
         });
       },
       async unpin(agentId, input, options) {
-        return transport.request<Pin>({
+        return transport.request<PinAnswer>({
           method: 'POST',
           path: `/v1/agents/${seg(agentId as string)}/pinned/unpin`,
           body: input,

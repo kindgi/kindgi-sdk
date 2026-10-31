@@ -187,12 +187,14 @@ describe('kindgi agents — pinned versions', () => {
     expect(calls).toEqual([]);
   });
 
-  test('unpin the tenant', async () => {
+  test('unpin the tenant, the answer printed as a pin answers', async () => {
     const { calls, rec } = recorder();
-    const client = { agents: { pinned: { unpin: rec('unpin', pin({ action: 'unpin' })) } } };
+    const unpin = answer(pin({ action: 'unpin', fromVersion: '1.1.0', toVersion: null }));
+    const client = { agents: { pinned: { unpin: rec('unpin', unpin) } } };
     const unpinned = await run(['agents', 'unpin', 'acme.drafter', '--tenant'], client);
     expect(unpinned.exitCode, unpinned.stderr).toBe(0);
     expect(calls).toEqual([['unpin', 'acme.drafter', { scope: { kind: 'tenant' } }, {}]]);
+    expect(JSON.parse(unpinned.stdout)).toEqual(unpin);
   });
 
   test('pinned-versions --table shows each scope and its version', async () => {

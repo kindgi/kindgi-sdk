@@ -6,13 +6,15 @@
  * checks the version it pins in each project whose running version it
  * changes and that has active cases: a project pin its project, a tenant
  * or org pin each such project the agent runs in, a segment pin none
- * (`projectsPinMoves`). The run the pin names (`Pin.testRunId`) is reused
- * where it can stand for the check (`isReusableTestRun`), and applies at
- * once when the pin took effect (`applyNamedTestRun`). Elsewhere a run
- * starts with correlation `pin:<changeId>`, and applies at its end
- * (`applyTestRunOutcome`). A pin that waits for approval starts its runs
- * at once, and changes nothing until the approval pins it
- * (`pinTookEffect`).
+ * (`projectsPinMoves`). An unpin checks the version each project it
+ * covered runs after it, where that changed (10.5,
+ * `startUnpinTestRuns`). The run the pin names (`Pin.testRunId`) is
+ * reused where it can stand for the check (`isReusableTestRun`), and
+ * applies at once when the pin took effect (`applyNamedTestRun`).
+ * Elsewhere a run starts with correlation `pin:<changeId>`, and applies
+ * at its end (`applyTestRunOutcome`). A pin that waits for approval
+ * starts its runs at once, and changes nothing until the approval pins
+ * it (`pinTookEffect`).
  */
 
 import type { Logger } from '@kindgi/log';
@@ -156,6 +158,72 @@ export async function pinTookEffect(
   return found.answer();
 }
 
+/** A project an unpin may move, with the version it runs before the unpin (`null`: none). */
+export interface UnpinCovered {
+  readonly projectId: ProjectId;
+  readonly version: Semver | null;
+}
+
+/**
+ * The projects an unpin of `scope` may move, read before it's recorded: of
+ * the projects inside the scope (`projectsInside`), each that the scope's
+ * pin covers now, since nothing more specific than it covers it, with the
+ * version it runs. None for a segment, as a segment pin checks none.
+ */
+export async function projectsUnpinCovers(
+  deps: Pick<PinTestRunDeps, 'agentPins' | 'projects' | 'itemProjects'>,
+  q: { readonly tenantId: TenantId; readonly agentId: string; readonly scope: AgentPinScope },
+): Promise<readonly UnpinCovered[]> {
+  const { tenantId, agentId, scope } = q;
+  const inside = await projectsInside(deps, tenantId, agentId, scope);
+  const rows = await whatRunsByProject(deps.agentPins, { tenantId, agentId }, inside);
+  // Inside the scope, a covering pin of the scope's own kind is the scope's pin.
+  return rows.flatMap(({ projectId, runs }) =>
+    runs?.follows === 'pin' && runs.pinnedScope.kind === scope.kind
+      ? [{ projectId, version: runs.version }]
+      : [],
+  );
+}
+
+/**
+ * Check a recorded unpin (DESIGN 10.5) in each project it covered
+ * (`projectsUnpinCovers`, read before it was recorded) that runs another
+ * version now, the scope above's pin or Latest, and has active cases: a
+ * run of that version, with correlation `pin:<changeId>` of the unpin.
+ * An unpin names no run, so none is reused, and `fixed` and `reopened`
+ * stay empty. Like a pin's, a step that throws or a start the binding
+ * refuses leaves only its project out (logged).
+ */
+export async function startUnpinTestRuns(
+  deps: PinTestRunDeps,
+  input: {
+    readonly tenantId: TenantId;
+    readonly change: Pin;
+    readonly covered: readonly UnpinCovered[];
+    readonly log?: Pick<Logger, 'warn'>;
+  },
+): Promise<PinTestRuns> {
+  const { tenantId, change, covered } = input;
+  if (change.action !== 'unpin' || covered.length === 0) return NO_PIN_TEST_RUNS;
+  const before = new Map(covered.map((c) => [c.projectId, c.version]));
+  const rows = await whatRunsByProject(
+    deps.agentPins,
+    { tenantId, agentId: change.agentId },
+    covered.map((c) => c.projectId),
+  );
+  const found = collect();
+  for (const { projectId, runs } of rows) {
+    if (runs === null || runs.version === before.get(projectId)) continue;
+    const { version } = runs;
+    await eachProject(input.log, change, projectId, async () => {
+      const frozen = await activeCases(deps, tenantId, change, projectId);
+      if (frozen === undefined) return;
+      await start(deps, tenantId, change, projectId, frozen, found, version);
+    });
+  }
+  return found.answer();
+}
+
 /**
  * One project's step of a recorded change's check. A throw there is
  * logged and leaves that project out, so the others still go.
@@ -265,7 +333,10 @@ async function reuseNamed(
   return true;
 }
 
-/** Start the change's check of the project, on its test set as frozen now. */
+/**
+ * Start the change's check of the project, on its test set as frozen now,
+ * of `version`: the version a pin pins, or what the project runs after an unpin.
+ */
 async function start(
   deps: Pick<PinTestRunDeps, 'testRuns'>,
   tenantId: TenantId,
@@ -273,13 +344,14 @@ async function start(
   projectId: ProjectId,
   frozen: FrozenTestSet,
   found: Found,
+  version: Semver = change.toVersion as Semver,
 ): Promise<void> {
   const started = await deps.testRuns.start({
     tenantId,
     projectId,
     testSetId: frozen.testSetId,
     testSetVersion: frozen.testSetVersion,
-    agentRef: { agentId: change.agentId as AgentId, version: change.toVersion as Semver },
+    agentRef: { agentId: change.agentId as AgentId, version },
     correlationId: pinRunCorrelation(change.id),
   });
   if (started.kind === 'ok') found.run(projectId, started.testRunId);

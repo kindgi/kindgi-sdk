@@ -24,6 +24,7 @@ import type {
   AgentPinInput,
   AgentPinResolveInput,
   AgentPinnedVersion,
+  AgentUnpinInput,
   Pin,
   PinActor,
 } from '../agent-pin-binding.js';
@@ -38,7 +39,9 @@ import {
   type PinTestRunDeps,
   type PinTestRuns,
   projectsPinMoves,
+  projectsUnpinCovers,
   startPinTestRuns,
+  startUnpinTestRuns,
 } from '../pin-test-runs.js';
 import {
   type ReferenceScopeBinding,
@@ -357,15 +360,20 @@ export function mountAgentPinRoutes(
     if (scope.kind === 'err') return badInput(c, requestId, scope.message);
     const text = optionalText(body, ['reason']);
     if (text.kind === 'err') return badInput(c, requestId, text.message);
-    const outcome = await agentPins.changes.unpin({
+    const input = {
       tenantId: c.get('tenantId') as TenantId,
       agentId: c.req.param('agentId'),
       scope: scope.scope,
       requestedBy: actorOf(c),
       ...text.value,
-    });
+    };
+    // An unpin answers as a pin does (DESIGN 10.3), with the test runs it started.
+    const moves = await unpinMoves(agentPins, deps, input, c.get('log'));
+    const outcome = await agentPins.changes.unpin(input);
     if (outcome.kind === 'err') return failed(c, requestId, outcome.error);
-    return c.json(serializePin(outcome.value));
+    const runs = await moves.check(outcome.value);
+    c.status(201);
+    return c.json(pinAnswer({ kind: 'ok', pin: outcome.value, runs }));
   });
 }
 
@@ -588,6 +596,33 @@ export function pinStopsLatest(projects: readonly ProjectOnLatest[]): {
   };
 }
 
+/** What a pin change's test runs read and write; `undefined` when test runs aren't wired. */
+function pinRunDeps(
+  agentPins: AgentPinBindings,
+  deps: AgentPinGateDeps,
+): PinTestRunDeps | undefined {
+  const { testRuns, testSets, corrections, projects, itemProjects } = deps;
+  if (
+    testRuns === undefined ||
+    testSets === undefined ||
+    corrections === undefined ||
+    projects === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    testRuns,
+    testSets,
+    corrections,
+    projects,
+    agentPins,
+    ...(itemProjects !== undefined && { itemProjects }),
+  };
+}
+
+/** A change's check, with none when test runs aren't wired. */
+const NO_CHECK = { check: async (): Promise<PinTestRuns> => NO_PIN_TEST_RUNS };
+
 /**
  * The projects a pin moves to its version, read before it's recorded
  * (`projectsPinMoves`), and the check of the recorded change in them
@@ -599,23 +634,8 @@ async function pinMoves(
   input: AgentPinInput,
   log: Pick<Logger, 'warn'> | undefined,
 ): Promise<{ check(change: Pin): Promise<PinTestRuns> }> {
-  const { testRuns, testSets, corrections, projects, itemProjects } = deps;
-  if (
-    testRuns === undefined ||
-    testSets === undefined ||
-    corrections === undefined ||
-    projects === undefined
-  ) {
-    return { check: async () => NO_PIN_TEST_RUNS };
-  }
-  const runDeps: PinTestRunDeps = {
-    testRuns,
-    testSets,
-    corrections,
-    projects,
-    agentPins,
-    ...(itemProjects !== undefined && { itemProjects }),
-  };
+  const runDeps = pinRunDeps(agentPins, deps);
+  if (runDeps === undefined) return NO_CHECK;
   const { tenantId } = input;
   const moved = await projectsPinMoves(runDeps, input);
   return {
@@ -624,6 +644,33 @@ async function pinMoves(
         tenantId,
         change,
         projects: moved,
+        ...(log !== undefined && { log }),
+      }),
+  };
+}
+
+/**
+ * The projects an unpin covers, with what each runs, read before it's
+ * recorded (`projectsUnpinCovers`), and the check of the recorded unpin in
+ * each that then runs another version (`startUnpinTestRuns`, DESIGN 10.5).
+ * With no test runs wired, it checks none.
+ */
+async function unpinMoves(
+  agentPins: AgentPinBindings,
+  deps: AgentPinGateDeps,
+  input: Pick<AgentUnpinInput, 'tenantId' | 'agentId' | 'scope'>,
+  log: Pick<Logger, 'warn'> | undefined,
+): Promise<{ check(change: Pin): Promise<PinTestRuns> }> {
+  const runDeps = pinRunDeps(agentPins, deps);
+  if (runDeps === undefined) return NO_CHECK;
+  const { tenantId } = input;
+  const covered = await projectsUnpinCovers(runDeps, input);
+  return {
+    check: (change) =>
+      startUnpinTestRuns(runDeps, {
+        tenantId,
+        change,
+        covered,
         ...(log !== undefined && { log }),
       }),
   };
