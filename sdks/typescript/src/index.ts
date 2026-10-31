@@ -460,6 +460,8 @@ export type {
 } from './resources/system-keys.js';
 export type {
   DeploymentEndpointProblemSpec,
+  OrchestratorRound,
+  OrchestratorRoundSpec,
   PackEndpointSpec,
   PackEnvRecordSpec,
   PackSuspension,

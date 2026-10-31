@@ -108,6 +108,12 @@ OPERATIONS: dict[str, Operation] = {
     "systemDeployments.list": Operation(
         "systemDeployments.list", "GET", "/v1/system/deployments", "json", False
     ),
+    "systemDeployments.claimRound": Operation(
+        "systemDeployments.claimRound", "POST", "/v1/system/deployments/round", "json", True
+    ),
+    "systemDeployments.endRound": Operation(
+        "systemDeployments.endRound", "POST", "/v1/system/deployments/round/end", "empty", True
+    ),
     "systemDeployments.setEndpoint": Operation(
         "systemDeployments.setEndpoint",
         "PUT",
@@ -2401,6 +2407,51 @@ class SystemDeploymentsResource:
             query={"endpoint": endpoint, "cursor": cursor, "limit": limit},
             headers={},
             response=_models.SystemDeploymentPage,
+            timeout=timeout,
+        )
+
+    def claim_round(
+        self,
+        body: _models.ClaimOrchestratorRoundBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.OrchestratorRound:
+        """Claim the orchestrator's round. `POST /v1/system/deployments/round`
+
+        One orchestrator pass at a time, whatever starts them (scheduled runs can overlap): a pass claims the round before it acts, for `holdSeconds`, and stops on a `409`. A claim is never renewed, the claimant's own included: the pass ends within its hold (`round/end`), or its claim lapses and the next pass takes the round over. Takes `system:deployments`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemDeployments.claimRound"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ClaimOrchestratorRoundBody, body, fields),
+            response=_models.OrchestratorRound,
+            timeout=timeout,
+        )
+
+    def end_round(
+        self,
+        body: _models.EndOrchestratorRoundBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """End the orchestrator's round. `POST /v1/system/deployments/round/end`
+
+        Ends the round the pass claimed, so the next pass claims it at once instead of waiting for the hold to lapse. Takes `system:deployments`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemDeployments.endRound"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EndOrchestratorRoundBody, body, fields),
             timeout=timeout,
         )
 
@@ -12367,6 +12418,51 @@ class AsyncSystemDeploymentsResource:
             query={"endpoint": endpoint, "cursor": cursor, "limit": limit},
             headers={},
             response=_models.SystemDeploymentPage,
+            timeout=timeout,
+        )
+
+    async def claim_round(
+        self,
+        body: _models.ClaimOrchestratorRoundBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.OrchestratorRound:
+        """Claim the orchestrator's round. `POST /v1/system/deployments/round`
+
+        One orchestrator pass at a time, whatever starts them (scheduled runs can overlap): a pass claims the round before it acts, for `holdSeconds`, and stops on a `409`. A claim is never renewed, the claimant's own included: the pass ends within its hold (`round/end`), or its claim lapses and the next pass takes the round over. Takes `system:deployments`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemDeployments.claimRound"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ClaimOrchestratorRoundBody, body, fields),
+            response=_models.OrchestratorRound,
+            timeout=timeout,
+        )
+
+    async def end_round(
+        self,
+        body: _models.EndOrchestratorRoundBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """End the orchestrator's round. `POST /v1/system/deployments/round/end`
+
+        Ends the round the pass claimed, so the next pass claims it at once instead of waiting for the hold to lapse. Takes `system:deployments`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemDeployments.endRound"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.EndOrchestratorRoundBody, body, fields),
             timeout=timeout,
         )
 

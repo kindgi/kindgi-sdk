@@ -3157,6 +3157,68 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/system/deployments/round',
+    openapiPath: '/v1/system/deployments/round',
+    operationId: 'systemDeployments.claimRound',
+    summary: "Claim the orchestrator's round",
+    description:
+      "One orchestrator pass at a time, whatever starts them (scheduled runs can overlap): a pass claims the round before it acts, for `holdSeconds`, and stops on a `409`. A claim is never renewed, the claimant's own included: the pass ends within its hold (`round/end`), or its claim lapses and the next pass takes the round over. Takes `system:deployments`.",
+    tags: ['system-deployments'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('ClaimOrchestratorRoundBody') },
+    responses: {
+      '200': { description: 'Claimed, until `heldUntil`.', schema: ref('OrchestratorRound') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A malformed body, a `claimant` that isn't 1 to 128 printable characters, or a `holdSeconds` that isn't a whole number from 30 to 3600 (`bad-input`).",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:deployments` (`system-scope-missing`).",
+      ),
+      '409': ErrorResponse(
+        "Another pass's live claim holds the round (`orchestrator-round-held`): this pass stops.",
+      ),
+      '501': ErrorResponse(
+        'This server keeps no orchestrator round (`orchestrator-round-unsupported`): whatever runs its pack services keeps one pass at a time itself.',
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/system/deployments/round/end',
+    openapiPath: '/v1/system/deployments/round/end',
+    operationId: 'systemDeployments.endRound',
+    summary: "End the orchestrator's round",
+    description:
+      'Ends the round the pass claimed, so the next pass claims it at once instead of waiting for the hold to lapse. Takes `system:deployments`.',
+    tags: ['system-deployments'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('EndOrchestratorRoundBody') },
+    responses: {
+      '204': { description: 'Ended.' },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('A malformed body, or a malformed `claimant` (`bad-input`).'),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:deployments` (`system-scope-missing`).",
+      ),
+      '409': ErrorResponse(
+        "The claimant doesn't hold the round: its hold ran out, and another pass may hold it now (`orchestrator-round-not-held`).",
+      ),
+      '501': ErrorResponse(
+        'This server keeps no orchestrator round (`orchestrator-round-unsupported`).',
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+      ),
+    },
+  },
+  {
     method: 'put',
     honoPath: '/v1/system/tenants/:tenantId/deployments/:deploymentId/endpoint',
     openapiPath: '/v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint',

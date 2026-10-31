@@ -2332,6 +2332,49 @@ export const RecordDeploymentProblemBodySchema: JsonSchema = {
   },
 };
 
+const ORCHESTRATOR_CLAIMANT: JsonSchema = {
+  type: 'string',
+  pattern: '^[\\x21-\\x7e]{1,128}$',
+  description: "The pass's own id: 1 to 128 printable characters, no spaces.",
+};
+
+export const ClaimOrchestratorRoundBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['claimant', 'holdSeconds'],
+  properties: {
+    claimant: ORCHESTRATOR_CLAIMANT,
+    holdSeconds: {
+      type: 'integer',
+      minimum: 30,
+      maximum: 3600,
+      description:
+        'How long the pass holds the round. A claim is never renewed: the pass ends within it, or its claim lapses and the next pass takes the round over.',
+    },
+  },
+};
+
+export const OrchestratorRoundSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['claimant', 'heldUntil'],
+  properties: {
+    claimant: ORCHESTRATOR_CLAIMANT,
+    heldUntil: {
+      type: 'string',
+      format: 'date-time',
+      description: "When the claim lapses, by the server's clock.",
+    },
+  },
+};
+
+export const EndOrchestratorRoundBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['claimant'],
+  properties: { claimant: ORCHESTRATOR_CLAIMANT },
+};
+
 export const SetPackSuspendedBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -17298,6 +17341,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RecordPackEnvBody', RecordPackEnvBodySchema],
   ['PackEnvNames', PackEnvNamesSchema],
   ['RecordDeploymentProblemBody', RecordDeploymentProblemBodySchema],
+  ['ClaimOrchestratorRoundBody', ClaimOrchestratorRoundBodySchema],
+  ['OrchestratorRound', OrchestratorRoundSchema],
+  ['EndOrchestratorRoundBody', EndOrchestratorRoundBodySchema],
   ['SetPackSuspendedBody', SetPackSuspendedBodySchema],
   ['PackSuspension', PackSuspensionSchema],
   ['SystemTenant', SystemTenantSchema],
