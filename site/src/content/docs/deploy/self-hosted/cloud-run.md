@@ -495,9 +495,11 @@ By default (`tenancy = "single"`) the server serves one tenant,
 `seed_tenant_id`'s, and calls one pack service (`pack_image`). With `"multi"`,
 on runtime 0.1.8 or later, it serves every tenant created through
 `POST /v1/system/tenants`, and takes each request's tenant from its key or
-session. Each deployment is then a Cloud Run service of its own: your
-orchestrator creates it and records its endpoint through the runtime's
-`/v1/system/…` deployment routes. This module doesn't.
+session. Each deployment is then a Cloud Run service of its own, which an
+orchestrator creates and records through the runtime's `/v1/system/…`
+deployment routes. This module doesn't:
+[run the runtime's own](../pack-orchestrator/) as a Cloud Run Job, or your
+own.
 
 ```hcl
 tenancy         = "multi"
