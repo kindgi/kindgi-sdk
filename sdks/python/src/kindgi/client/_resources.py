@@ -11,6 +11,7 @@ from uuid import UUID
 
 from . import _models
 from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments
+from ._thumbs import AsyncThumbs, Thumbs
 
 __all__ = ["OPERATIONS", "AsyncResources", "Resources"]
 
@@ -5480,7 +5481,7 @@ class ProvidersResource:
         )
 
 
-class CorrectionsResource:
+class CorrectionsResource(Thumbs):
     """`client.corrections` — the `corrections` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
@@ -15452,7 +15453,7 @@ class AsyncProvidersResource:
         )
 
 
-class AsyncCorrectionsResource:
+class AsyncCorrectionsResource(AsyncThumbs):
     """`client.corrections` — the `corrections` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:

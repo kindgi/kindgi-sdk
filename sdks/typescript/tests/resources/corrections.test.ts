@@ -80,6 +80,67 @@ describe('corrections.create', () => {
   });
 });
 
+describe('corrections.thumbs', () => {
+  it('POSTs a thumbs up as a right answer, for the end user', async () => {
+    const stub = jsonFetch({ ...CORRECTION, answer: 'right', why: undefined }, { status: 201 });
+    const result = await clientFor(stub).corrections.thumbs(
+      { runId: 'run-1', participantId: 'end-user-1', up: true },
+      { idempotencyKey: 'idem-t' },
+    );
+    expect(result.answer).toBe('right');
+    const req = stub.calls[0]!;
+    expect(req.method).toBe('POST');
+    expect(req.url).toBe('https://api.example.com/v1/corrections');
+    expect(req.headers['idempotency-key']).toBe('idem-t');
+    expect(JSON.parse(req.body!)).toEqual({
+      runId: 'run-1',
+      participantId: 'end-user-1',
+      answer: 'right',
+    });
+  });
+
+  it('POSTs a thumbs down as a wrong answer, with their words as why', async () => {
+    const stub = jsonFetch(CORRECTION, { status: 201 });
+    await clientFor(stub).corrections.thumbs({
+      runId: 'run-1',
+      participantId: 'end-user-1',
+      up: false,
+      why: 'The match is the wrong company.',
+    });
+    expect(JSON.parse(stub.calls[0]!.body!)).toEqual({
+      runId: 'run-1',
+      participantId: 'end-user-1',
+      answer: 'wrong',
+      why: 'The match is the wrong company.',
+    });
+  });
+
+  it("surfaces the API's refusal of a thumbs down without why", async () => {
+    const stub = errorFetch(400, {
+      code: 'bad-input',
+      message: 'answer: "wrong" needs shouldSay or why.',
+    });
+    await expect(
+      clientFor(stub).corrections.thumbs({
+        runId: 'run-1',
+        participantId: 'end-user-1',
+        up: false,
+      }),
+    ).rejects.toMatchObject({
+      error: {
+        code: 'invalid-request',
+        serverCode: 'bad-input',
+        message: 'answer: "wrong" needs shouldSay or why.',
+      },
+    });
+    expect(JSON.parse(stub.calls[0]!.body!)).toEqual({
+      runId: 'run-1',
+      participantId: 'end-user-1',
+      answer: 'wrong',
+    });
+  });
+});
+
 describe('corrections.list', () => {
   it('GETs /v1/corrections with every filter', async () => {
     const stub = jsonFetch({ data: [CORRECTION], hasMore: true, nextCursor: 'c2' });
