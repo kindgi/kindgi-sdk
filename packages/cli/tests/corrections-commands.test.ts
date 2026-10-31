@@ -569,8 +569,8 @@ describe('kindgi corrections', () => {
         '--agent=acme.matcher',
         '--project=p-1',
         '--status=not-fixed',
-        '--status=fixed',
-        '--sorted-to=developer',
+        '--status=fixed,wont-fix',
+        '--sorted-to=developer,none',
         '--from=end-users',
         '--since=2026-10-01',
         '--until=2026-11-01T00:00:00Z',
@@ -585,8 +585,8 @@ describe('kindgi corrections', () => {
         {
           agentId: 'acme.matcher',
           scope: { kind: 'project', projectId: 'p-1' },
-          status: ['not-fixed', 'fixed'],
-          sortedTo: ['developer'],
+          status: ['not-fixed', 'fixed', 'wont-fix'],
+          sortedTo: ['developer', 'none'],
           from: 'end-users',
           since: '2026-10-01T00:00:00.000Z',
           until: '2026-11-01T00:00:00.000Z',
@@ -684,13 +684,15 @@ describe('kindgi corrections', () => {
     );
   });
 
-  test('export needs --agent, a known --format and --from, and times it can read; none of these sends a request', async () => {
+  test('export needs --agent, known --format, --from, --status and --sorted-to values, and times it can read; none of these sends a request', async () => {
     const { calls, rec } = recorder();
     const client = { corrections: { export: rec('export', body(CSV).stream) } };
     const cases: [string[], string][] = [
       [[], '--agent'],
-      [['--agent=a', '--format=xml'], '--format'],
-      [['--agent=a', '--from=nobody'], '--from'],
+      [['--agent=a', '--format=xml'], '--format must be one of csv, jsonl'],
+      [['--agent=a', '--from=nobody'], '--from must be one of experts, end-users, all'],
+      [['--agent=a', '--status=open,done'], '--status must be one of'],
+      [['--agent=a', '--sorted-to=expert'], '--sorted-to must be one of'],
       [['--agent=a', '--since=yesterday'], '--since'],
       [['--agent=a', '--until=soon'], '--until'],
     ];

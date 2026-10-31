@@ -511,13 +511,13 @@ const exportCorrections: LeafCommand = {
       type: 'string',
       multiple: true,
       description:
-        'Only corrections in this status (repeatable): open, being-fixed, with-owner, fixed, wont-fix, removed, or not-fixed.',
+        'Only corrections in these statuses (repeat, or comma-separate): `open`, `being-fixed`, `with-owner`, `fixed`, `wont-fix` or `removed`, or `not-fixed` for the first three.',
     },
     'sorted-to': {
       type: 'string',
       multiple: true,
       description:
-        'Only corrections sorted to this (repeatable): improve, developer, owner, or none.',
+        'Only corrections sorted to these (repeat, or comma-separate): `improve`, `developer` or `owner`, or `none` for unsorted ones.',
     },
     from: {
       type: 'string',
@@ -566,28 +566,21 @@ function exportFilter(ctx: CommandContext): CorrectionExportFilter {
     throw new UsageError('--agent is required: the agent whose corrections to export');
   }
   const format = stringFlag(ctx, 'format');
-  if (format !== undefined && !(EXPORT_FORMATS as readonly string[]).includes(format)) {
-    throw new UsageError(`--format must be csv or jsonl; got "${format}"`);
-  }
   const from = stringFlag(ctx, 'from');
-  if (from !== undefined && !(FROM as readonly string[]).includes(from)) {
-    throw new UsageError(`--from must be experts, end-users or all; got "${from}"`);
-  }
   const projectId = stringFlag(ctx, 'project');
-  const status = listFlag(ctx, 'status');
-  const sortedTo = listFlag(ctx, 'sorted-to');
+  const status = valuesOf(ctx, 'status', LISTED_STATUSES);
+  const sortedTo = valuesOf(ctx, 'sorted-to', LISTED_SORTED_TO);
   const since = timeFlag(ctx, 'since');
   const until = timeFlag(ctx, 'until');
-  // A status or a sorting the API doesn't know comes back as its 400, as for `list`.
   return {
     agentId,
     ...(projectId !== undefined && { scope: { kind: 'project' as const, projectId } }),
-    ...(status.length > 0 && { status: status as never }),
-    ...(sortedTo.length > 0 && { sortedTo: sortedTo as never }),
-    ...(from !== undefined && { from: from as (typeof FROM)[number] }),
+    ...(status.length > 0 && { status }),
+    ...(sortedTo.length > 0 && { sortedTo }),
+    ...(from !== undefined && { from: oneOf('from', from, FROM) }),
     ...(since !== undefined && { since }),
     ...(until !== undefined && { until }),
-    ...(format !== undefined && { format: format as (typeof EXPORT_FORMATS)[number] }),
+    ...(format !== undefined && { format: oneOf('format', format, EXPORT_FORMATS) }),
   };
 }
 
