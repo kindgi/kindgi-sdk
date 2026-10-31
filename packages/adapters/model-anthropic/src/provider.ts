@@ -12,7 +12,7 @@ import type {
   ModelThinking,
   ProviderMetadata,
 } from '@kindgi/capabilities';
-import { samplingFor, thinkingFor } from '@kindgi/capabilities';
+import { fileParts, samplingFor, thinkingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 import { createClientsByKey } from '@kindgi/capabilities/clients-by-key';
 import { nameToolsAsSent, toolIdsBySentName } from '@kindgi/capabilities/tool-names';
@@ -175,7 +175,15 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       const startedAt = Date.now();
       const client = await resolveClient();
 
-      const translated = toAnthropicMessages(input.messages);
+      // Images and PDFs go to a model that declares `vision`; text files to any.
+      const vision = modelInfo.features.includes('vision');
+      const files = await fileParts(input.messages, {
+        readFile: input.readFile,
+        images: vision,
+        documents: vision,
+        contextWindow: modelInfo.contextWindow,
+      });
+      const translated = toAnthropicMessages(input.messages, files);
       // The system prompt names the call's tools as they're sent (`acme__lookup_order`):
       // a model told to call `acme.lookup_order` calls a name it wasn't given (T311).
       const toolNames = input.tools?.map((t) => t.name) ?? [];
