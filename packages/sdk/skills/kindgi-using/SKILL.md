@@ -15,7 +15,7 @@ description: >
   with the person.
 type: core
 library: "@kindgi/sdk"
-version: "0.1.3"
+version: "0.1.4"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 ---
@@ -100,8 +100,10 @@ decided one opens its own page.
 | Mail triggers | `mail-triggers`, one: `mail-triggers/<triggerId>` | the mailbox each watches and what it starts; its latest mails, and the run each started |
 | Conversations | `conversations`, one: `conversations/<conversationId>` | each conversation's turns |
 | Cost | `cost` | what the project's model calls cost, by agent, model, flow or kind |
-| Quality | `quality` | answers waiting to be rated, rating rules, trends |
-| Test sets | `test-sets` | the saved cases agents are tested on |
+| Quality | `quality` | answers waiting for a correction (To correct), the queue's rules, trends, corrector groups, suggested changes |
+| An agent's test set | `agents/<agentId>/test-set` | each correction on its runs as a case, and cases added by hand |
+| Suggested changes | `agents/<agentId>/suggested-changes`, one: `…/suggested-changes/<suggestedChangeId>` | changes to a prompt or settings for one project, each with its check |
+| Pinned versions | `agents/<agentId>/pinned` | where each version is pinned, and the pin history |
 | Evidence | `compliance` | the records kept for audits |
 | Members | `members` | who has a role on this project |
 
@@ -255,6 +257,14 @@ say there were none.
   one's run, `answer` and `why`. In `kindgi dev`, the CLI and the
   console's sign-in are the same seed user.
 - In the console: each run's `runs/<runId>/corrections`, and `quality`.
+
+**"What are people correcting, and what's being fixed?"**
+- In the CLI: `kindgi corrections list --agent=<agentId> --status=not-fixed`
+  (each one's `status`, and its `link` once someone took it), and
+  `kindgi suggested-changes list --agent=<agentId>` (each change's
+  `status`: its check, then pinned or added as Latest).
+- In the console: `quality`, its To correct and Suggested changes tabs,
+  and the agent's `agents/<agentId>/test-set`.
 
 **"What did each answer cost this week?"**
 - In the CLI: one answer at a time: `kindgi runs get <runId>`, its
