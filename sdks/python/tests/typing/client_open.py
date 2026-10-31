@@ -17,7 +17,7 @@ def read_open(kindgi: Kindgi) -> None:
     pin = kindgi.agents.pinned.unpin("acme.triage", scope={"kind": "tenant"})
     assert_type(pin.action, Literal["pin", "unpin"] | str)
     scope = pin.scope
-    if isinstance(scope, models.PinScopeUnrecognized):
+    if isinstance(scope, models.AgentPinScopeUnrecognized):
         assert_type(scope.kind, str)
     elif scope.kind == "tenant":
         assert_type(scope, models.PinScopeTenant)

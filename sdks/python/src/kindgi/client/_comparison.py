@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from ._models import TestRun, CorrectedComparisonResult
+from ._models import CorrectedComparisonResult, TestRun
 
 __all__ = ["comparison_of"]
 
