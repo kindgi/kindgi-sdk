@@ -665,6 +665,8 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
     'computed from corrections, agent-test-set-cases and test-set-versions',
   '/v1/flows/{flowId}/pinned': 'computed from flow-pinned-versions and flow-versions',
   '/v1/tools/{toolId}/pinned': 'computed from tool-pinned-versions and tool-versions',
+  '/v1/blocks/{blockId}/runs-in':
+    'computed from agent-versions, agent-pinned-versions and deployments',
   '/v1/guardrails/{guardrailId}/outcomes': 'computed from runs',
   '/v1/projects/{projectId}/queue-rules/preview': 'computed from queue-rules and runs',
   '/v1/projects/{projectId}/queue-rules/{ruleId}/results': 'computed from corrections',
