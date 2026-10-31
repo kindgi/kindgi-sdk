@@ -375,7 +375,8 @@ export function schedulesRouter(
       (projectId as string | undefined) ??
       (improves as string | undefined) ??
       ((await projects?.getDefault(tenantId))?.id as string | undefined);
-    // An Improve schedule takes `publish` on the agent only, as starting a run does.
+    // `write` on the project, then what firing it takes: for an Improve
+    // schedule, `publish` on the agent, as starting an Improve run does.
     const refused = await registerRefusal(c, target.value, project);
     if (refused !== undefined) return refused;
     const exists = await improveScheduleExists(c, target.value);
@@ -586,12 +587,9 @@ export function schedulesRouter(
         return bad(c, requestId, IN_ITS_PROJECT);
       }
       // A new target takes what registering it takes. Loading the schedule
-      // asked `write` on the project, unless it's an Improve schedule's.
+      // asked `write` on the project.
       const project = found.value.projectId as unknown as string;
-      const refused =
-        found.value.target.kind === 'improve'
-          ? await registerRefusal(c, target.value, project)
-          : await targetRefused(c, target.value, project);
+      const refused = await targetRefused(c, target.value, project);
       if (refused !== undefined) return refused;
       const exists = await improveScheduleExists(c, target.value, found.value.triggerId);
       if (exists !== undefined) return exists;
