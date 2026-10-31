@@ -1608,7 +1608,7 @@ export const ERROR_ENTRIES = {
       {
         key: 'items',
         meaning:
-          "the missing readiness items, each with its `key` (`wording`, `settings`, `test-cases`, `permission`, `one-at-a-time`, `project` or `registry`) and its `fix`: `where` (`repo`, in the agent's code, then a deploy; `kindgi`, in Kindgi) and `text`",
+          "the missing readiness items, each with its `key` (`wording`, `settings`, `test-cases`, `permission`, `one-at-a-time` or `project`) and its `fix`: `where` (`repo`, in the agent's code, then a deploy; `kindgi`, in Kindgi) and `text`",
       },
     ],
     seeAlso: ['guides/improve/improve-an-agent'],
