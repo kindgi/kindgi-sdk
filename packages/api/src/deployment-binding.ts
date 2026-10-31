@@ -242,6 +242,8 @@ export type SystemDeploymentRetireReason = (typeof SYSTEM_DEPLOYMENT_RETIRE_REAS
  *   again;
  * - `pack-env-secret-too-large`: a secret's value is over 32768 bytes, the
  *   most a pack service can be given;
+ * - `pack-env-name-too-long`: a name set as a secret is too long for the
+ *   secret it's kept in, which is named after the pack service;
  * - `pack-env-secret-capacity`: a name is set only as a secret, and there's
  *   no room just now for a pack service that can be given one, apart from
  *   other projects'. It's tried again.

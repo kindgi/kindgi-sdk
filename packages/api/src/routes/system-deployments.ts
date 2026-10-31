@@ -12,6 +12,7 @@ import {
   DEPLOYMENT_ENDPOINT_PROBLEM_CODES,
   type DeploymentBinding,
   type DeploymentEndpoint,
+  type DeploymentEndpointProblem,
   type DeploymentEndpointProblemCode,
   type SystemDeploymentRetireReason,
   endpointToWire,
@@ -61,6 +62,16 @@ export interface SystemDeploymentEntry {
   readonly artifactVersion: string;
   /** ISO-8601. */
   readonly activatedAt: string;
+}
+
+/** A deployment that needs a pack service, and why it has none yet, if a problem was recorded. */
+export interface SystemDeploymentMissing extends SystemDeploymentEntry {
+  /**
+   * The last problem recorded for it (`PUT …/endpoint/problem`), with when
+   * that code was first recorded, so the orchestrator can space its tries.
+   * Absent when none is.
+   */
+  readonly problem?: DeploymentEndpointProblem;
 }
 
 export interface SystemDeploymentToRetire extends SystemDeploymentEntry {
@@ -166,7 +177,7 @@ export interface SystemDeploymentsBinding {
   listNeedingEndpoint(input: {
     readonly cursor?: string;
     readonly limit: number;
-  }): Promise<SystemDeploymentPage<SystemDeploymentEntry>>;
+  }): Promise<SystemDeploymentPage<SystemDeploymentMissing>>;
   /**
    * Across tenants, oldest `activatedAt` first: deployments with an
    * endpoint whose pack service should go, each with its `reason`.
@@ -363,6 +374,7 @@ export function systemDeploymentsRouter(
       data: result.data.map((entry) => ({
         ...entryToWire(entry),
         ...('reason' in entry && { reason: entry.reason }),
+        ...('problem' in entry && entry.problem !== undefined && { problem: entry.problem }),
       })),
       ...(result.nextCursor !== undefined && { nextCursor: result.nextCursor }),
       hasMore: result.nextCursor !== undefined,

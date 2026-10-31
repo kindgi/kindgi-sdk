@@ -40,10 +40,12 @@
 export interface EnvTarget {
   /**
    * Which process reads the env: the Kindgi `server` (the default when
-   * absent), or the `pack-service`, the separate process that runs a
-   * pack's code (its tools and guardrail checks).
+   * absent); the `pack-service`, the separate process that runs a pack's
+   * code (its tools and guardrail checks); or the `pack-orchestrator`, the
+   * runtime's `kindgi-runtime packs orchestrate`, which makes a pack
+   * service for each deployment.
    */
-  readonly component?: 'server' | 'pack-service';
+  readonly component?: 'server' | 'pack-service' | 'pack-orchestrator';
   readonly secretsBackend?: 'none' | 'postgres' | 'secret-manager' | 'dotenv';
   readonly secretsBackendKms?: 'gcp' | 'azure' | 'aws' | 'libsodium' | 'vault';
   /**
@@ -118,6 +120,8 @@ export const ENV_GROUPS = {
   'local-key': 'Local key (postgres + libsodium: a key this runtime holds, single-node)',
   'pack-service': 'Pack service (runs the pack code: tools and guardrail checks)',
   'image-registry': "Image registry (where deployments' images are read from)",
+  'pack-orchestrator':
+    'Pack orchestrator (`kindgi-runtime packs orchestrate`: a pack service for each deployment, on Cloud Run)',
   dev: 'Development (`kindgi dev`; each needs `KINDGI_DEV=true`)',
 } as const;
 
@@ -125,8 +129,9 @@ export const ENV_GROUPS = {
 // The registry.
 // ---------------------------------------------------------------------
 
-/** The server's own vars: every target but the pack service's. */
-const appliesToServer = (t: EnvTarget): boolean => t.component !== 'pack-service';
+/** The server's own vars: the server's targets, and a target that names no process. */
+const appliesToServer = (t: EnvTarget): boolean =>
+  t.component === undefined || t.component === 'server';
 
 const appliesToPostgresBackend = (t: EnvTarget): boolean =>
   appliesToServer(t) && t.secretsBackend === 'postgres';
@@ -152,6 +157,8 @@ const appliesToSecretManager =
     appliesToSecretManagerBackend(t) && t.secretsManager === manager;
 
 const appliesToPackService = (t: EnvTarget): boolean => t.component === 'pack-service';
+
+const appliesToPackOrchestrator = (t: EnvTarget): boolean => t.component === 'pack-orchestrator';
 
 /** The server, calling a pack service over HTTP. */
 const appliesToServerHttpPackTransport = (t: EnvTarget): boolean =>
@@ -1593,6 +1600,61 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: appliesToServer,
     group: 'image-registry',
     allowedValues: ['static', 'google', 'azure'],
+  },
+  {
+    name: 'KINDGI_ORCHESTRATOR_RUNTIME_URL',
+    description:
+      'The server, as the pack orchestrator reaches it: its base URL, `https` (`http` only on a loopback host). The orchestrator calls its system routes there: the deployments to give a pack service and to retire, their pack env, and the round that keeps two passes from running at once. The server needs `KINDGI_PACK_ROUTING=per-deployment`.',
+    example: 'https://kindgi-runtime-123456789012.us-central1.run.app',
+    required: true,
+    appliesTo: appliesToPackOrchestrator,
+    group: 'pack-orchestrator',
+  },
+  {
+    name: 'KINDGI_ORCHESTRATOR_SYSTEM_KEY',
+    description:
+      'A system key holding `system:deployments` and `system:pack-env`, which the orchestrator sends to the server. Set it from a secret (on Cloud Run, a Secret Manager reference), never in a file or a command line. It never reaches the pack services.',
+    example: '',
+    required: true,
+    appliesTo: appliesToPackOrchestrator,
+    group: 'pack-orchestrator',
+  },
+  {
+    name: 'KINDGI_ORCHESTRATOR_PROJECT',
+    description:
+      "The Google Cloud project the pack services run in, by id. The orchestrator's own identity (Application Default Credentials: on Cloud Run, the Job's service account) makes, updates and deletes them there, and keeps their tokens and secret env in its Secret Manager, as secrets named `kp-…`.",
+    example: 'acme-kindgi',
+    required: true,
+    appliesTo: appliesToPackOrchestrator,
+    group: 'pack-orchestrator',
+  },
+  {
+    name: 'KINDGI_ORCHESTRATOR_REGION',
+    description:
+      'The region the pack services run in, and their secrets are kept in (replicated there only).',
+    example: 'us-central1',
+    required: true,
+    appliesTo: appliesToPackOrchestrator,
+    group: 'pack-orchestrator',
+  },
+  {
+    name: 'KINDGI_ORCHESTRATOR_PACK_SERVICE_ACCOUNT',
+    description:
+      "The service account every pack service runs as, by email. It's one identity for all of them, apart from the server's: whatever one pack service may read, each may, the others' secrets included. Give it no more than the packs need.",
+    example: 'kindgi-packs@acme-kindgi.iam.gserviceaccount.com',
+    required: true,
+    appliesTo: appliesToPackOrchestrator,
+    group: 'pack-orchestrator',
+  },
+  {
+    name: 'KINDGI_ORCHESTRATOR_PACK_SERVICE',
+    description:
+      'How each pack service runs, as one JSON object; every field is optional. `ingress`: `all` (default), `internal` or `internal-and-cloud-load-balancing`. `egress`: `{"kind":"none"}` (default), `{"kind":"subnet","subnetwork":"projects/<project>/regions/<region>/subnetworks/<name>","networkTags":[…]}` (all of it through the subnet) or `{"kind":"connector","connector":"projects/<project>/locations/<region>/connectors/<name>"}` (private ranges through the connector). `timeoutSeconds` (300), `concurrency` (32), `maxInstances` (8), `cpu` (`1`), `memory` (`1Gi`), `startupCpuBoost` (`true`), `cloudSqlInstances` (none: connection names, mounted at `/cloudsql`). A field it doesn\'t know, or a value out of range, stops the orchestrator, naming it.',
+    example:
+      '{"ingress":"internal","egress":{"kind":"connector","connector":"projects/acme-kindgi/locations/us-central1/connectors/kindgi"}}',
+    required: false,
+    appliesTo: appliesToPackOrchestrator,
+    group: 'pack-orchestrator',
   },
   {
     name: 'KINDGI_PACK_DIR',

@@ -93,6 +93,9 @@ export type PackEnvProblemCode = (typeof PACK_ENV_PROBLEM_CODES)[number];
  *   tried again;
  * - `pack-env-secret-too-large`: a secret's value is over 32768 bytes, the
  *   most a pack service can be given;
+ * - `pack-env-name-too-long`: a name set as a secret is too long for the
+ *   secret the orchestrator keeps it in, which is named after the pack
+ *   service. Shorten the name in the pack.
  * - `pack-env-cloud-secret-unsupported`: a name is set to a cloud secret, and
  *   the host the pack service runs on can't give it one. It waits for the
  *   name to be set another way.
@@ -100,6 +103,7 @@ export type PackEnvProblemCode = (typeof PACK_ENV_PROBLEM_CODES)[number];
 export const PACK_ENV_SECRET_GIVE_CODES = [
   'pack-env-secrets-unaudited',
   'pack-env-secret-too-large',
+  'pack-env-name-too-long',
   'pack-env-cloud-secret-unsupported',
 ] as const;
 

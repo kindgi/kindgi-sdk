@@ -331,7 +331,9 @@ service is, and checks it. It never creates or deletes one.
    `pack-env-secret-unreadable`, a runtime with nowhere to audit one refuses
    with `501 pack-env-secrets-unaudited`, and a secret over 32768 bytes is
    more than a pack service can be given (`pack-env-secret-too-large`):
-   record the code. Record `pack-env-secret-capacity` when there's no room
+   record the code. So is a name set as a secret that's too long for the
+   secret you keep it in (`pack-env-name-too-long`), which the owner
+   shortens in the pack. Record `pack-env-secret-capacity` when there's no room
    just now for a service that can be given a secret, kept apart from other
    projects': try again. The tenant sees the code and when, so a deploy that
    waits for its pack service says why at once.
