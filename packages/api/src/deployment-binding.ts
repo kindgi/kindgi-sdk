@@ -97,8 +97,8 @@ export interface DeploymentBinding {
   /**
    * Promote a deployment into the next environment of its order, in one
    * transaction: a deployment in the target project with the source's
-   * signed fields, contents, pack and pack checks (as `register` writes
-   * one, with its routes and pending endpoint) and
+   * signed fields, contents, pack, pack checks and git `source` (as
+   * `register` writes one, with its routes and pending endpoint) and
    * `promotedFromDeploymentId`; the versions carried with it; and where
    * each tool's secrets are read in the target. Registries aren't touched,
    * and nothing is built: the image is the one the source runs.
@@ -149,6 +149,7 @@ export function serializeDeployment(d: Deployment): Record<string, unknown> {
       flows: d.primitives.flows,
     },
     contents: d.contents,
+    ...(d.source !== undefined && { source: d.source }),
   };
 }
 
@@ -391,6 +392,37 @@ export interface Deployment {
    * enough to know which code a deployment made live.
    */
   readonly contents: DeploymentContents;
+  /**
+   * Where its pack lives in git, as `kindgi deploy` read it from the work
+   * tree it ran in. Absent for a deploy made outside git, one recorded
+   * before deploys said, and from a binding that doesn't keep it.
+   */
+  readonly source?: DeploymentSource;
+}
+
+/**
+ * Where a deployment's pack lives in git, when the deploy ran inside a
+ * work tree. No local path and no credential are in it: `repo` is a host
+ * and a path, and `path` and each file are relative.
+ */
+export interface DeploymentSource {
+  /**
+   * The `origin` remote as `host/owner/name` (a group path may stand for
+   * the owner: `host/group/sub/name`), with no scheme, user, password,
+   * token or `.git`. Absent when the work tree has no `origin`, or one
+   * that isn't a host and a path.
+   */
+  readonly repo?: string;
+  /** The pack's folder, relative to the repository's root: `.` when it's the root. */
+  readonly path: string;
+  /** The commit checked out (`HEAD`), its full hex id. */
+  readonly commit: string;
+  /** The branch checked out; absent on a detached `HEAD`. */
+  readonly branch?: string;
+  /** The pack's folder had changes the commit doesn't hold (`git status`, untracked files included). */
+  readonly dirty: boolean;
+  /** Each of the pack's blocks by id: its file, relative to the pack's folder. */
+  readonly blockFiles: Readonly<Record<string, string>>;
 }
 
 /** A primitive a deployment shipped. Guardrails have no version. */
@@ -427,6 +459,12 @@ export interface DeploymentContents {
   readonly guardrails: readonly DeployedPrimitive[];
   readonly agents: readonly DeployedAgent[];
   readonly flows: readonly DeployedFlow[];
+  /**
+   * The pack's data blocks, each `{ id, version }`. Absent on a deployment
+   * recorded before deployments listed them, and from a binding that
+   * doesn't keep them.
+   */
+  readonly blocks?: readonly DeployedPrimitive[];
 }
 
 export interface DeploymentPrimitiveCounts {
@@ -495,6 +533,8 @@ export interface DeploymentRegisterInput {
    * deployment keeps them, so whatever runs it can give it their values.
    */
   readonly packEnv?: PackEnvDeclaration;
+  /** Where the pack lives in git (`Deployment.source`), when the deploy said. */
+  readonly source?: DeploymentSource;
 }
 
 export type DeploymentRegisterOutcome =

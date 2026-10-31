@@ -9415,6 +9415,70 @@ export const BlockCollectionPageSchema: JsonSchema = {
   },
 };
 
+export const BlockRunsInSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'agentId', 'agentVersion', 'blockVersion', 'follows'],
+  description:
+    'One place a version of the block runs: a project, or a segment pin inside one, whose running version of an agent pins it.',
+  properties: {
+    projectId: { type: 'string' },
+    agentId: { type: 'string' },
+    agentVersion: {
+      type: 'string',
+      description: "The agent's version that runs there, as `agents.projects` gives it.",
+    },
+    blockVersion: { type: 'string', description: 'The block version that agent version pins.' },
+    follows: {
+      type: 'string',
+      enum: ['pin', 'latest'],
+      description:
+        "Why the agent version runs there: `pin`, a pin that covers the project or the segment; `latest`, no pin covers it, so it runs the project's Latest.",
+    },
+    segment: {
+      type: 'array',
+      description:
+        "A segment pin's path inside the project, which runs `agentVersion` instead. Absent for the project's own row.",
+      items: { $ref: '#/components/schemas/ScopeSegment' },
+    },
+    inYourFiles: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['state'],
+      description:
+        "Whether the pack's files have `blockVersion`: `yes` when the newest deployment in the project that ships `agentId` (its pack's newest there, looked for among the project's 200 newest deployments) lists the block at that version or a newer one, or the pull request opened for it there was merged; `not-yet` otherwise. Absent from a runtime that can't say, and for a row whose pull request can't be read now.",
+      properties: {
+        state: { type: 'string', enum: ['yes', 'not-yet'] },
+        pr: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['number', 'url', 'state'],
+          description:
+            "The newest pull request opened for this version in the project, a draft on the pack's repository. Absent when none was opened: no repo connected, a pin wider than the project, or a version that came from the files.",
+          properties: {
+            number: { type: 'integer', minimum: 1 },
+            url: { type: 'string' },
+            state: {
+              type: 'string',
+              enum: ['open', 'merged', 'closed'],
+              description: 'As the repository said, read at most a minute ago.',
+            },
+          },
+        },
+      },
+    },
+  },
+};
+
+export const BlockRunsInListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/BlockRunsIn' } },
+  },
+};
+
 export const PublishBlockBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -11910,6 +11974,72 @@ export const DeploymentContentsSchema: JsonSchema = {
     guardrails: { type: 'array', items: DeployedPrimitiveSchema },
     agents: { type: 'array', items: DeployedVersionSchema },
     flows: { type: 'array', items: DeployedVersionSchema },
+    blocks: {
+      type: 'array',
+      items: DeployedPrimitiveSchema,
+      description:
+        "The pack's data blocks, each `{ id, version }`. Absent on a deployment recorded before deployments listed them, and from a runtime that doesn't keep them.",
+    },
+  },
+};
+
+/** The fields of a deploy's `source` both its body and its record have. */
+const SOURCE_FIELDS: Record<string, JsonSchema> = {
+  repo: {
+    type: 'string',
+    pattern: '^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?:/[A-Za-z0-9_.-]+){2,}$',
+    maxLength: 1024,
+    description:
+      'The `origin` remote as `host/owner/name` (a group path may stand for the owner), with no scheme, user, password, token or `.git`. Absent when the work tree has no `origin`, or one that is not a host and a path.',
+  },
+  path: {
+    type: 'string',
+    minLength: 1,
+    maxLength: 1024,
+    description:
+      "The pack's folder relative to the repository's root, `/`-separated: `.` when it is the root. Never an absolute path.",
+  },
+  commit: {
+    type: 'string',
+    pattern: '^(?:[0-9a-f]{40}|[0-9a-f]{64})$',
+    description: 'The commit checked out (`HEAD`), its full hex id.',
+  },
+  branch: {
+    type: 'string',
+    minLength: 1,
+    maxLength: 255,
+    description: 'The branch checked out. Absent on a detached `HEAD`.',
+  },
+  dirty: {
+    type: 'boolean',
+    description: "The pack's folder had changes the commit doesn't hold, untracked files included.",
+  },
+};
+
+/** Where a deployment's pack lives in git, as `kindgi deploy` sends it from a work tree. */
+export const DeploymentSourceBodySchema: JsonSchema = {
+  type: 'object',
+  description:
+    "Where the pack lives in git, when the deploy runs inside a work tree. The deployment keeps it with each block's file from the image's index. A field it doesn't know is ignored. Not covered by the signature.",
+  required: ['path', 'commit', 'dirty'],
+  properties: SOURCE_FIELDS,
+};
+
+/** Where a deployment's pack lives in git: what the deploy said, and each block's file. */
+export const DeploymentSourceSchema: JsonSchema = {
+  type: 'object',
+  description:
+    "Where a deployment's pack lives in git, as `kindgi deploy` read it from the work tree it ran in. Absent for a deploy made outside git, one made before deploys said, and from a runtime that doesn't keep it.",
+  additionalProperties: false,
+  required: ['path', 'commit', 'dirty', 'blockFiles'],
+  properties: {
+    ...SOURCE_FIELDS,
+    blockFiles: {
+      type: 'object',
+      additionalProperties: { type: 'string' },
+      description:
+        "Each of the pack's blocks by id: its file, relative to the pack's folder, as the image's index names it.",
+    },
   },
 };
 
@@ -11997,6 +12127,7 @@ export const DeploymentRecordSchema: JsonSchema = {
     endpoint: { $ref: '#/components/schemas/DeploymentEndpoint' },
     primitives: { $ref: '#/components/schemas/DeploymentPrimitiveCounts' },
     contents: { $ref: '#/components/schemas/DeploymentContents' },
+    source: { $ref: '#/components/schemas/DeploymentSource' },
   },
 };
 
@@ -12398,6 +12529,7 @@ export const DeploymentRegistrationBodySchema: JsonSchema = {
       description:
         "The project to deploy into, one per client: its agents, flows, tools and guardrails are registered there, and its secret sync writes there. It takes admin on that project (a key limited to another project is refused). Absent: a tenant-wide deploy, into the tenant's Default project. An id that already lives in another project is `409` (`tool-project-mismatch` and the like): each client gets its own pack, whose ids carry its own pack id. Not covered by the signature, which attests the image.",
     },
+    source: { $ref: '#/components/schemas/DeploymentSourceBody' },
   },
 };
 
@@ -12885,6 +13017,11 @@ export const ProjectSchema: JsonSchema = {
       description:
         "When the project was put in production; absent while it isn't. A run in a project in production is a production run, and a run anywhere else is staging.",
     },
+    repoConnectionId: {
+      type: 'string',
+      description:
+        "The company-wide GitHub connection the project opens its block changes' pull requests through; absent while none is set. A connection removed since reads as none.",
+    },
     createdAt: { type: 'string' },
     updatedAt: { type: 'string' },
   },
@@ -12912,6 +13049,32 @@ export const ProjectProductionSchema: JsonSchema = {
       type: ['string', 'null'],
       format: 'date-time',
       description: "When the project went into production; `null` while it isn't in production.",
+    },
+  },
+};
+
+export const ProjectRepoConnectionBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['connectionId'],
+  properties: {
+    connectionId: {
+      type: 'string',
+      minLength: 1,
+      description: "A company-wide GitHub connection's id (`GET /v1/connections`).",
+    },
+  },
+};
+
+export const ProjectRepoConnectionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'repoConnectionId'],
+  properties: {
+    projectId: { type: 'string' },
+    repoConnectionId: {
+      type: ['string', 'null'],
+      description: 'The connection now set; `null` once cleared.',
     },
   },
 };
@@ -16868,6 +17031,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['Block', BlockSchema],
   ['BlockVersionSource', BlockVersionSourceSchema],
   ['BlockCollectionPage', BlockCollectionPageSchema],
+  ['BlockRunsIn', BlockRunsInSchema],
+  ['BlockRunsInList', BlockRunsInListSchema],
   ['PublishBlockBody', PublishBlockBodySchema],
   ['PublishBlockResult', PublishBlockResultSchema],
   ['UnregisterBlockResult', UnregisterBlockResultSchema],
@@ -16976,6 +17141,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RevokeSessionsResult', RevokeSessionsResultSchema],
   ['DeploymentPrimitiveCounts', DeploymentPrimitiveCountsSchema],
   ['DeploymentContents', DeploymentContentsSchema],
+  ['DeploymentSourceBody', DeploymentSourceBodySchema],
+  ['DeploymentSource', DeploymentSourceSchema],
   ['DeploymentEndpointProblem', DeploymentEndpointProblemSchema],
   ['DeploymentEndpoint', DeploymentEndpointSchema],
   ['DeploymentRecord', DeploymentRecordSchema],
@@ -17043,6 +17210,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['Project', ProjectSchema],
   ['ProjectProductionBody', ProjectProductionBodySchema],
   ['ProjectProduction', ProjectProductionSchema],
+  ['ProjectRepoConnectionBody', ProjectRepoConnectionBodySchema],
+  ['ProjectRepoConnection', ProjectRepoConnectionSchema],
   ['ProjectSpec', ProjectSpecSchema],
   ['ProjectPatch', ProjectPatchSchema],
   ['ProjectCollectionPage', ProjectCollectionPageSchema],

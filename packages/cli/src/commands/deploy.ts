@@ -411,9 +411,14 @@ async function deployWith(
   // An unsigned envelope comes this far only under --dry-run (step 4). It
   // has no POST body: the dry run shows the body less the signature's
   // fields, and no derived Idempotency-Key, which hashes the signed body.
-  const projectField = project.id !== undefined ? { projectId: project.id } : {};
+  // Where the pack lives in git, inside a work tree (`deploy/source.ts`).
+  const source = await runners.readSource?.(args.packDir);
+  const bodyFields = {
+    ...(project.id !== undefined && { projectId: project.id }),
+    ...(source !== undefined && { source }),
+  };
   const postBody: PostDeploymentBody | undefined = isEnvelopeSigned(envelope)
-    ? { ...buildPostBody(envelope), ...projectField }
+    ? { ...buildPostBody(envelope), ...bodyFields }
     : undefined;
   const idempotencyKey =
     args.idempotencyKeyOverride ??
@@ -446,7 +451,7 @@ async function deployWith(
 
   // ---- 8. Dry-run ------------------------------------------------------
   if (args.dryRun) {
-    const shown = postBody ?? { ...unsignedPostBody(envelope), ...projectField };
+    const shown = postBody ?? { ...unsignedPostBody(envelope), ...bodyFields };
     return dryRunResult(ctx, args, line, shown, idempotencyKey);
   }
   // Step 4 refused an unsigned envelope without --dry-run; this tells the types.

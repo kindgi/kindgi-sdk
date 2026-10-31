@@ -979,6 +979,9 @@ export const CLI_DEFAULTS = {
   'blocks reinstate': {
     'block-version': 'required',
   },
+  'blocks pull': {
+    path: 'the current directory',
+  },
   'release-gates list': {
     agent: 'none',
     cursor: 'none',
@@ -2189,6 +2192,16 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Reinstate an unregistered block version.',
       line: 'kindgi blocks reinstate acme.reply-style --block-version=1.0.0',
+    },
+  ],
+  'blocks pull': [
+    {
+      purpose: "Write the newest running version of each of the pack's blocks into its file.",
+      line: 'kindgi blocks pull',
+    },
+    {
+      purpose: 'Pull one block, in a pack in another directory.',
+      line: 'kindgi blocks pull acme.reply-style --path=./support-pack',
     },
   ],
   'release-gates list': [

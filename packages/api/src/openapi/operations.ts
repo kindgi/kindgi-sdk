@@ -6995,6 +6995,28 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/blocks/:blockId/runs-in',
+    openapiPath: '/v1/blocks/{blockId}/runs-in',
+    operationId: 'blocks.runsIn',
+    summary: "List where a data block's versions run",
+    description:
+      "Where the block's versions run now: one row for each project, and each segment pin inside one, whose running version of an agent pins a version of the block (as a prompt, a settings block or its model settings). Each agent's projects are the ones `agents.projects` lists, and what runs in each is what it says: a pin that covers the project, else its Latest. Only the projects the caller can read are named, and an agent version the caller can't see is left out. A block no running version pins answers an empty list. Without the agents' pins and Latest in this runtime, `501 runs-in-unsupported`.",
+    tags: ['blocks'],
+    security: 'bearer',
+    parameters: [BlockIdPathParam],
+    responses: {
+      '200': { description: 'Where it runs.', schema: ref('BlockRunsInList') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        "`block-not-found`: no such block, or one in a project the caller can't read.",
+      ),
+      '501': ErrorResponse(
+        "`runs-in-unsupported`: this runtime doesn't read the agents' pins and Latest.",
+      ),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/blocks',
     openapiPath: '/v1/blocks',
@@ -9743,6 +9765,55 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No project with that id under this tenant (`project-not-found`).'),
       '501': ErrorResponse(
         "The runtime's projects can't be put in production (`production-unsupported`).",
+      ),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/projects/:projectId/repo-connection',
+    openapiPath: '/v1/projects/{projectId}/repo-connection',
+    operationId: 'projects.repoConnection.set',
+    summary: "Set a project's repo connection",
+    description:
+      "The company-wide GitHub connection the project opens its block changes' pull requests through. For the project's admins (`admin` on it). It replaces any connection set before; setting the one already set answers 200 unchanged. The connection must be the tenant's, made through the GitHub app entry, and owned by the company: 404 `connection-not-found` for one that isn't there or was removed, and 400 `repo-connection-not-company-github` for any other. The project keeps only the id: a connection removed later reads as none. 501 `repo-connection-unsupported` from a runtime that can't keep one, or has no connections.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('ProjectRepoConnectionBody') },
+    responses: {
+      '200': { description: 'The connection is set.', schema: ref('ProjectRepoConnection') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "Malformed request body (`bad-input`), or the connection isn't a company-wide GitHub connection (`repo-connection-not-company-github`, `details.connectionId`, `details.app`, `details.owner`).",
+      ),
+      '404': ErrorResponse(
+        'No project with that id under this tenant (`project-not-found`), or no connection with that id (`connection-not-found`).',
+      ),
+      '501': ErrorResponse(
+        "The runtime can't connect a project to a repo (`repo-connection-unsupported`).",
+      ),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/projects/:projectId/repo-connection',
+    openapiPath: '/v1/projects/{projectId}/repo-connection',
+    operationId: 'projects.repoConnection.clear',
+    summary: "Clear a project's repo connection",
+    description:
+      "After this, a block change pinned in the project, or added as its latest version, opens no pull request. For the project's admins (`admin` on it). Clearing a project with none answers 200 unchanged. 501 `repo-connection-unsupported` from a runtime that can't keep one.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': {
+        description: 'The project has no repo connection.',
+        schema: ref('ProjectRepoConnection'),
+      },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No project with that id under this tenant (`project-not-found`).'),
+      '501': ErrorResponse(
+        "The runtime can't connect a project to a repo (`repo-connection-unsupported`).",
       ),
     },
   },
