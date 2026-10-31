@@ -1222,7 +1222,7 @@ assert_out "none: 0.2.0.1 is a server fix for 0.2.0."
 assert_out "0.3.0 (this module's changes only; the runtime goes to 0.2.0.1):"
 assert_out "0.3.1 (this module's changes only; the runtime goes to 0.2.0.1):"
 assert_out "the module here is this copy's, as of 0.3.1: the plan also makes its changes for the releases after 0.2.0"
-assert_out "To keep the module at 0.2.0, upgrade by hand: this script first came with 0.3.0."
+assert_out "To keep the module at 0.2.0, upgrade by hand: this script first came with 0.4.0."
 if grep -q "now comes from registry.kindgi.com" "$OUT"; then fail "0.2.0's steps shown for 0.2.0 -> 0.2.0.1"; else pass; fi
 assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.2.0.1 " "the server fix's own tag is read"
 assert_file_has "$STUB_DOCKER_LOG" "--tag $REPO/runtime:0.2.0.1 registry.kindgi.com/kindgi/runtime:0.2.0.1@$NEW_DIGEST" "the copy tags it 0.2.0.1"

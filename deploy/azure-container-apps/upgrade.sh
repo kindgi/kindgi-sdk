@@ -111,7 +111,7 @@
 #                      @kindgi/sdk@<version>-rc.N tag.
 #                      Below 0.3.1, the plan still makes this module's
 #                      changes up to 0.3.1, with the older runtime. This
-#                      script first came with 0.3.0, so to keep the module at
+#                      script first came with 0.4.0, so to keep the module at
 #                      an earlier release, upgrade by hand.
 #   --from             Assert the current version (0.1.10, say, or 0.2.0.1)
 #                      when it can't be read from the deployment (no version
@@ -159,7 +159,7 @@ readonly POLL_TRIES=60
 # <<<
 # The first release with this script. A run to an earlier one plans this
 # copy's module, and no earlier tag has a script to keep the module there.
-readonly FIRST_RELEASE="0.3.0"
+readonly FIRST_RELEASE="0.4.0"
 
 # How long a check job's run may take: the job's replica timeout, plus the
 # start (an image pulled, a replica placed). The run stops at the sum.
