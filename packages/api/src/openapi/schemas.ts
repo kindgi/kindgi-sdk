@@ -7362,17 +7362,17 @@ export const ImproveRunCheckSchema: JsonSchema = {
       additionalProperties: false,
       required: ['maxCostUsd', 'basis'],
       description:
-        "What it's estimated to cost: the budget cap it's clamped to, and, when the version has cost history, the estimate itself.",
+        "What it's estimated to cost: the budget, which caps its search, and, when the version has cost history, the estimate itself.",
       properties: {
         costUsd: {
           type: 'string',
           description:
-            "The estimate (US dollars): `basis.replays` times `basis.meanRunCostUsd`, or `maxCostUsd` when that's smaller. Absent when the version has no cost history.",
+            "The estimate (US dollars): the search's replays (`basis.replays` less `basis.proofReplays`) times `basis.meanRunCostUsd`, at most `maxCostUsd`, plus the proof's replays times the same mean, which the budget doesn't cap. Without `basis.proofReplays`, every replay counts as the search's. Absent when the version has no cost history.",
         },
         maxCostUsd: {
           type: 'string',
           description:
-            'The budget cap the estimate is clamped to (`budget.maxCostUsd`, US dollars).',
+            "The budget (`budget.maxCostUsd`, US dollars): it caps the search's share of the estimate, and the proof's comes on top.",
         },
         basis: {
           type: 'object',
@@ -7383,7 +7383,14 @@ export const ImproveRunCheckSchema: JsonSchema = {
             replays: {
               type: 'integer',
               minimum: 0,
-              description: "How many replay runs the Improve run's comparisons would make.",
+              description:
+                "How many replay runs the Improve run's comparisons would make, its search's and its proof's.",
+            },
+            proofReplays: {
+              type: 'integer',
+              minimum: 0,
+              description:
+                "Of `replays`, the proof's: the best change on every test case, and the version it starts from on the set-aside ones. The budget caps the search, not the proof. Absent when the runtime doesn't count them apart.",
             },
             meanRunCostUsd: {
               type: 'string',
@@ -14350,7 +14357,7 @@ export const ImproveScheduleInputSchema: JsonSchema = {
       maximum: 1000,
       default: 20,
       description:
-        "The most the agent and project's Improve runs (by hand or by the schedule) may cost in a calendar month (UTC), in US dollars. At the cap, the schedule waits for the next month (`pausedUntil`).",
+        "The cap on what the agent and project's Improve runs (by hand or by the schedule) cost in a calendar month (UTC), in US dollars. It holds their searches, not their proofs, so a proof can take the month past it. At the cap, the schedule waits for the next month (`pausedUntil`).",
     },
     tiers: {
       type: 'array',

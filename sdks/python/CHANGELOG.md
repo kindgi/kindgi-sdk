@@ -26,6 +26,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   (each an `ImproveReadinessItem`, a missing one with its `fix`), `estimate`
   and `month`; its `estimated_cost_usd`, `max_cost_usd` and `basis` are
   `estimate.cost_usd`, `estimate.max_cost_usd` and `estimate.basis`.
+  `estimate.basis` gains `proof_replays`, the proof's share of `replays`, and
+  `estimate.cost_usd` caps only the search's share at `max_cost_usd`.
   `improve_runs.list` takes `project_id` and `status`. An `ImproveRun`'s
   `candidates_evaluated` is `tried`, and it gains `project_id`, `starts_from`
   (an `ImproveRunStart`), `test_set_version`, `set_aside` and `takes`; its

@@ -3802,13 +3802,29 @@ describe('POST /v1/improve-runs/check', () => {
     expect(improveRuns.started).toEqual([]);
   });
 
-  test('clamps the estimate to the budget cap: it never exceeds maxCostUsd', async () => {
+  test("caps the search's share of the estimate at the budget: the proof's replays come on top", async () => {
+    const improveRuns = inMemoryImproveRuns({
+      basis: { replays: 1000, proofReplays: 100, meanRunCostUsd: '1' },
+    });
+    const h = await harness({ improveRuns: improveRuns.binding });
+    const res = await h.call('POST', CHECK, { ...IMPROVE, budget: { maxCostUsd: 20 } });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    // The search's 900 × $1, clamped to the $20 cap, and the proof's 100 × $1.
+    expect(res.body.estimate).toEqual({
+      costUsd: '120',
+      maxCostUsd: '20',
+      basis: { replays: 1000, proofReplays: 100, meanRunCostUsd: '1' },
+    });
+  });
+
+  test("clamps the whole estimate to the budget when the runtime doesn't count the proof's replays apart", async () => {
     const improveRuns = inMemoryImproveRuns({ basis: { replays: 1000, meanRunCostUsd: '1' } });
     const h = await harness({ improveRuns: improveRuns.binding });
     const res = await h.call('POST', CHECK, { ...IMPROVE, budget: { maxCostUsd: 20 } });
     expect(res.status, JSON.stringify(res.body)).toBe(200);
     // 1000 × $1 = $1000, clamped to the $20 cap.
     expect(res.body.estimate).toMatchObject({ costUsd: '20', maxCostUsd: '20' });
+    expect('proofReplays' in res.body.estimate.basis).toBe(false);
   });
 
   test('leaves costUsd out when the version has no cost history, and month out without an Improve schedule', async () => {

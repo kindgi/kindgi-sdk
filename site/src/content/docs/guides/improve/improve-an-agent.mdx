@@ -126,7 +126,7 @@ project          ok
 
 Ready: yes
 Starts from: 1.0.0 (pinned in the project)
-Estimate: $0.84, at most $5.00 (200 replays)
+Estimate: $0.84, its search stops at $5.00 (200 replays, 60 of them the proof's)
 This month: $3.10 of the Improve schedule's $20.00
 ```
 
@@ -143,17 +143,19 @@ This month: $3.10 of the Improve schedule's $20.00
 - **Starts from:** the version the project runs, pinned there or the agent's
   latest.
 - **The estimate:** the replays the Improve run would make, times the
-  version's mean cost over its recent completed runs, at most `--max-cost`.
-  None when the version has no cost history. Here, of 25 cases it sets 5
+  version's mean cost over its recent completed runs. The search's share is
+  at most `--max-cost`, and the proof's comes on top, as
+  [the budget](#start-an-improve-run) says. None when the version has no
+  cost history. Here, of 25 cases it sets 5
   aside and searches on 20. The settings marked in
   [the example above](#mark-what-improve-may-change), at `maxSentences` 3 and
   `tone` `friendly`, give 5 candidates to try first (`maxSentences` at 1, 2, 4
   and 6, and `tone` at `formal`). The search replays the 20 cases twice for
   the version it starts from and once for each candidate: 20 × (2 + 5) = 140.
   The proof replays every case twice for the best change, and the 5 set aside
-  twice for the version it starts from: (25 + 5) × 2 = 60. That's 200
-  replays; at a mean of $0.0042 a run, $0.84. When it tries new wording
-  too, each draft is a candidate.
+  twice for the version it starts from: (25 + 5) × 2 = 60, the answer's
+  `basis.proofReplays`. That's 200 replays; at a mean of $0.0042 a run,
+  $0.84. When it tries new wording too, each draft is a candidate.
 - **Treat it as an approximation:** a candidate can cost more or less per run
   than that mean, drafting new wording costs more, and a second round of
   settings or a retried draft adds replays the estimate can't know of, so an

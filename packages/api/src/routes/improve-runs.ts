@@ -178,10 +178,13 @@ function mountStartRoutes(
     if (asked instanceof Response) return asked;
     const { parsed, check, readiness } = asked;
     const { basis } = check;
+    // The budget caps the search; the proof runs after it, uncapped.
+    const proof = basis.proofReplays ?? 0;
+    const mean = basis.meanRunCostUsd === undefined ? undefined : Number(basis.meanRunCostUsd);
     const costUsd =
-      basis.meanRunCostUsd === undefined
+      mean === undefined
         ? undefined
-        : usd(Math.min(parsed.budget.maxCostUsd, basis.replays * Number(basis.meanRunCostUsd)));
+        : usd(Math.min(parsed.budget.maxCostUsd, (basis.replays - proof) * mean) + proof * mean);
     return c.json({
       ready: readiness.ready,
       ...(check.startsFrom !== undefined && { startsFrom: check.startsFrom }),
@@ -191,6 +194,7 @@ function mountStartRoutes(
         maxCostUsd: usd(parsed.budget.maxCostUsd),
         basis: {
           replays: basis.replays,
+          ...(basis.proofReplays !== undefined && { proofReplays: basis.proofReplays }),
           ...(basis.meanRunCostUsd !== undefined && { meanRunCostUsd: basis.meanRunCostUsd }),
         },
       },

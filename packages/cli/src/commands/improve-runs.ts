@@ -177,7 +177,11 @@ function checkTable(check: ImproveRunCheck): Rendered {
       estimate.costUsd !== undefined
         ? costCell(estimate.costUsd)
         : 'none (the version has no cost history)'
-    }, at most ${costCell(estimate.maxCostUsd)} (${estimate.basis.replays} replays)`,
+    }, its search stops at ${costCell(estimate.maxCostUsd)} (${estimate.basis.replays} replays${
+      estimate.basis.proofReplays !== undefined
+        ? `, ${estimate.basis.proofReplays} of them the proof's`
+        : ''
+    })`,
     ...(month !== undefined
       ? [
           `This month: ${costCell(month.spentUsd)} of the Improve schedule's ${costCell(month.capUsd)}`,

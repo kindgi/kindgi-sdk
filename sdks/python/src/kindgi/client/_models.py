@@ -5132,7 +5132,11 @@ class Basis(BaseModel):
     )
     replays: Annotated[int, Field(ge=0)]
     """
-    How many replay runs the Improve run's comparisons would make.
+    How many replay runs the Improve run's comparisons would make, its search's and its proof's.
+    """
+    proof_replays: Annotated[int | None, Field(alias="proofReplays", ge=0)] = None
+    """
+    Of `replays`, the proof's: the best change on every test case, and the version it starts from on the set-aside ones. The budget caps the search, not the proof. Absent when the runtime doesn't count them apart.
     """
     mean_run_cost_usd: Annotated[str | None, Field(alias="meanRunCostUsd")] = None
     """
@@ -5142,7 +5146,7 @@ class Basis(BaseModel):
 
 class Estimate(BaseModel):
     """
-    What it's estimated to cost: the budget cap it's clamped to, and, when the version has cost history, the estimate itself.
+    What it's estimated to cost: the budget, which caps its search, and, when the version has cost history, the estimate itself.
     """
 
     model_config = ConfigDict(
@@ -5151,11 +5155,11 @@ class Estimate(BaseModel):
     )
     cost_usd: Annotated[str | None, Field(alias="costUsd")] = None
     """
-    The estimate (US dollars): `basis.replays` times `basis.meanRunCostUsd`, or `maxCostUsd` when that's smaller. Absent when the version has no cost history.
+    The estimate (US dollars): the search's replays (`basis.replays` less `basis.proofReplays`) times `basis.meanRunCostUsd`, at most `maxCostUsd`, plus the proof's replays times the same mean, which the budget doesn't cap. Without `basis.proofReplays`, every replay counts as the search's. Absent when the version has no cost history.
     """
     max_cost_usd: Annotated[str, Field(alias="maxCostUsd")]
     """
-    The budget cap the estimate is clamped to (`budget.maxCostUsd`, US dollars).
+    The budget (`budget.maxCostUsd`, US dollars): it caps the search's share of the estimate, and the proof's comes on top.
     """
     basis: Basis
     """
@@ -5193,7 +5197,7 @@ class ImproveRunCheck(BaseModel):
     """
     estimate: Estimate
     """
-    What it's estimated to cost: the budget cap it's clamped to, and, when the version has cost history, the estimate itself.
+    What it's estimated to cost: the budget, which caps its search, and, when the version has cost history, the estimate itself.
     """
     month: Month | None = None
     """
@@ -17529,7 +17533,7 @@ class ImproveScheduleInput(BaseModel):
     """
     month_cap_usd: Annotated[float | None, Field(alias="monthCapUsd", gt=0.0, le=1000.0)] = 20
     """
-    The most the agent and project's Improve runs (by hand or by the schedule) may cost in a calendar month (UTC), in US dollars. At the cap, the schedule waits for the next month (`pausedUntil`).
+    The cap on what the agent and project's Improve runs (by hand or by the schedule) cost in a calendar month (UTC), in US dollars. It holds their searches, not their proofs, so a proof can take the month past it. At the cap, the schedule waits for the next month (`pausedUntil`).
     """
     tiers: Annotated[
         list[Literal["settings", "prompt"]] | None, Field(max_length=2, min_length=1)

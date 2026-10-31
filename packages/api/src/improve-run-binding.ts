@@ -162,8 +162,14 @@ export interface ImproveRunStart {
 
 /** What the route turns into a cost estimate. */
 export interface ImproveRunCheckBasis {
-  /** How many replay runs the Improve run's comparisons would make (from the comparison code). */
+  /** How many replay runs the Improve run's comparisons would make (from the comparison code), its search's and its proof's. */
   readonly replays: number;
+  /**
+   * Of `replays`, the proof's: the best change on every test case, and the
+   * version it starts from on the set-aside ones. The budget caps the search,
+   * not the proof. Absent when the runtime doesn't count them apart.
+   */
+  readonly proofReplays?: number;
   /**
    * The version's mean cost over its recent completed runs (US dollars, a
    * decimal string); absent when the version has no cost history.
@@ -187,9 +193,10 @@ export interface ImproveScheduleInput {
   /** The most one run may cost, in US dollars; never more than what's left of the month's cap. */
   readonly runCapUsd: number;
   /**
-   * The most the agent and project's Improve runs may cost in a calendar
-   * month (UTC), in US dollars. At the cap, the schedule waits for the next
-   * month.
+   * The cap on what the agent and project's Improve runs cost in a calendar
+   * month (UTC), in US dollars. It holds their searches, not their proofs, so
+   * a proof can take the month past it. At the cap, the schedule waits for
+   * the next month.
    */
   readonly monthCapUsd: number;
   /** What each run tries; absent: every tier that's ready. */

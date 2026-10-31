@@ -462,7 +462,11 @@ const CHECK = {
     { key: 'one-at-a-time', missing: false },
     { key: 'project', missing: false },
   ],
-  estimate: { costUsd: '1.90', maxCostUsd: '3', basis: { replays: 22, meanRunCostUsd: '0.086' } },
+  estimate: {
+    costUsd: '1.90',
+    maxCostUsd: '3',
+    basis: { replays: 22, proofReplays: 6, meanRunCostUsd: '0.086' },
+  },
   month: { spentUsd: '12', capUsd: '50' },
 };
 
@@ -545,7 +549,9 @@ describe('kindgi improve runs start', () => {
     expect(out.stdout).toMatch(/test-cases \(9\)\s+ok/);
     expect(out.stdout).toContain('Ready: no');
     expect(out.stdout).toContain('Starts from: 13 (pinned in the project)');
-    expect(out.stdout).toContain('Estimate: $1.90, at most $3.00 (22 replays)');
+    expect(out.stdout).toContain(
+      "Estimate: $1.90, its search stops at $3.00 (22 replays, 6 of them the proof's)",
+    );
     expect(out.stdout).toContain("This month: $12.00 of the Improve schedule's $50.00");
   });
 

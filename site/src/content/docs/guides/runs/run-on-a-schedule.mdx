@@ -505,9 +505,11 @@ Its input, `--input`, takes:
 - **`runCapUsd`:** the most one Improve run's search may cost, in US
   dollars, 5 by default and at most 100. It's never more than what's left of
   the month's cap.
-- **`monthCapUsd`:** the most the agent and project's Improve runs may cost in
-  a calendar month (UTC), by hand or by the schedule, in US dollars: 20 by
-  default and at most 1000.
+- **`monthCapUsd`:** the cap on what the agent and project's Improve runs
+  cost in a calendar month (UTC), by hand or by the schedule, in US dollars:
+  20 by default and at most 1000. It holds their searches, not their
+  proofs, so a proof can take the month past it, as the month's cap below
+  says.
 - **`tiers`** and **`model`:** what each Improve run tries, and the model
   that drafts new wording, as `--tier`, `--provider` and `--model` do for a
   start. Left out, every tier that's ready, and the provider and model the

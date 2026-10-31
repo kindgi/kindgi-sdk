@@ -39,11 +39,13 @@ export interface ImproveRunsClient {
    * Whether an Improve run {@link ImproveRunsClient.start} with this input would
    * start is ready, and what it's estimated to cost, before you start it.
    * `items` lists everything an Improve run needs, missing or not, each
-   * missing one with its fix; `estimate.costUsd` is `min(budget.maxCostUsd,
-   * the replay count times the version's mean cost over its recent completed
-   * runs)`, absent when the version has no cost history; `month` is this UTC
-   * month's spend against the agent and project's Improve schedule's cap,
-   * when there's one. It starts nothing and takes no idempotency key.
+   * missing one with its fix; `estimate.costUsd` prices each replay at the
+   * version's mean cost over its recent completed runs, the search's at most
+   * `budget.maxCostUsd` and the proof's (`estimate.basis.proofReplays`) on
+   * top, uncapped, and it's absent when the version has no cost history;
+   * `month` is this UTC month's spend against the agent and project's
+   * Improve schedule's cap, when there's one. It starts nothing and takes no
+   * idempotency key.
    *
    * @wire `POST /v1/improve-runs/check`
    */
