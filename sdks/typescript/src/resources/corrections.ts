@@ -3,10 +3,11 @@
 
 import type { Cursor } from '@kindgi/types';
 
+import { KindgiApiError, fromWire } from '../errors.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { ScopeRef } from '../scope-wire.js';
 import { scopeToQuery } from '../scope-wire.js';
-import type { Transport } from '../transport.js';
+import { type QueryValue, type Transport, buildUrl, unwrapErrorEnvelope } from '../transport.js';
 import type {
   ChangeCorrectionInput,
   Correction,
@@ -39,11 +40,35 @@ export interface CorrectionsClient {
   ): Promise<Correction>;
 
   /**
+   * An end user's thumbs up or down on a run's answer, from your app's
+   * server: a correction with `answer: 'right'` or `'wrong'`, made for them
+   * (`participantId`). A thumbs down needs `why`, their words: a bare
+   * "wrong" can't be checked, and the API refuses it with a 400. Your page
+   * posts the thumbs to your server, which calls this; a Kindgi token never
+   * goes to a browser.
+   *
+   * @wire `POST /v1/corrections` — see `@kindgi/api/openapi.json#/paths/~1v1~1corrections/post`.
+   */
+  thumbs(input: ThumbsInput, options?: { readonly idempotencyKey?: string }): Promise<Correction>;
+
+  /**
    * Corrections, newest first: removed ones only when `status` asks for `removed`.
    *
    * @wire `GET /v1/corrections` — see `@kindgi/api/openapi.json#/paths/~1v1~1corrections/get`.
    */
   list(filter?: CorrectionFilter): Promise<ListPage<Correction>>;
+
+  /**
+   * Every correction of an agent the filters match, streamed as CSV (the
+   * default: a header row, then one correction per line) or JSON lines (one
+   * correction per line, as `list` returns it). Each comes only when you may
+   * read its project, and the server records the export. The run's own text
+   * isn't in it, only the run's id.
+   *
+   * @wire `GET /v1/corrections/export` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1corrections~1export/get`.
+   */
+  export(filter: CorrectionExportFilter): Promise<ReadableStream<Uint8Array>>;
 
   /**
    * One correction with the stored copies of what was corrected.
@@ -86,6 +111,17 @@ export interface CorrectionsClient {
   }): Promise<CorrectionCounts>;
 }
 
+/** An end user's thumbs on a run's answer. */
+export interface ThumbsInput {
+  readonly runId: string;
+  /** Your opaque id for the end user. */
+  readonly participantId: string;
+  /** `true` for a thumbs up (`answer: 'right'`), `false` for a thumbs down (`'wrong'`). */
+  readonly up: boolean;
+  /** Their words. A thumbs down needs it. */
+  readonly why?: string;
+}
+
 export interface CorrectionFilter {
   readonly limit?: number;
   readonly cursor?: Cursor;
@@ -112,6 +148,15 @@ export interface CorrectionFilter {
   readonly scope?: ScopeRef;
 }
 
+/** What `export` takes: the list's filters, with the agent, and no page. */
+export interface CorrectionExportFilter
+  extends Omit<CorrectionFilter, 'limit' | 'cursor' | 'agentId'> {
+  /** The agent whose corrections are exported. */
+  readonly agentId: string;
+  /** `csv` (the default) or `jsonl`. */
+  readonly format?: 'csv' | 'jsonl';
+}
+
 export function makeCorrectionsClient(transport: Transport): CorrectionsClient {
   return {
     async create(input, options) {
@@ -123,6 +168,21 @@ export function makeCorrectionsClient(transport: Transport): CorrectionsClient {
       });
     },
 
+    async thumbs(input, options) {
+      const body: CreateCorrectionInput = {
+        runId: input.runId,
+        participantId: input.participantId,
+        answer: input.up ? 'right' : 'wrong',
+        ...(input.why !== undefined && { why: input.why }),
+      };
+      return transport.request<Correction>({
+        method: 'POST',
+        path: '/v1/corrections',
+        body,
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+
     async list(filter) {
       const page = await transport.request<WirePage<Correction>>({
         method: 'GET',
@@ -130,24 +190,30 @@ export function makeCorrectionsClient(transport: Transport): CorrectionsClient {
         query: {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
-          ...(filter?.runId !== undefined && { runId: filter.runId }),
-          ...(filter?.agentId !== undefined && { agentId: filter.agentId }),
-          ...(filter?.agentVersion !== undefined && { agentVersion: filter.agentVersion }),
-          ...(filter?.flowId !== undefined && { flowId: filter.flowId }),
-          ...(filter?.status !== undefined && { status: many(filter.status) }),
-          ...(filter?.sortedTo !== undefined && { sortedTo: many(filter.sortedTo) }),
-          ...(filter?.from !== undefined && { from: filter.from }),
-          ...(filter?.madeBy !== undefined && { madeBy: filter.madeBy }),
-          ...(filter?.since !== undefined && { since: filter.since }),
-          ...(filter?.until !== undefined && { until: filter.until }),
-          ...(filter?.correctorGroupId !== undefined && {
-            correctorGroupId: filter.correctorGroupId,
-          }),
-          ...(filter?.participantId !== undefined && { participantId: filter.participantId }),
-          ...(filter?.scope !== undefined && scopeToQuery(filter.scope)),
+          ...filterQuery(filter ?? {}),
         },
       });
       return listPage(page);
+    },
+
+    async export(filter) {
+      // The body is handed on as it arrives, so this isn't the JSON transport.
+      const url = buildUrl(transport.apiUrl, '/v1/corrections/export', {
+        ...filterQuery(filter),
+        ...(filter.format !== undefined && { format: filter.format }),
+      });
+      const res = await transport.fetchImpl(url, {
+        method: 'GET',
+        headers: {
+          ...transport.authHeaders(),
+          Accept: filter.format === 'jsonl' ? 'application/jsonl' : 'text/csv',
+        },
+      });
+      if (!res.ok) {
+        const body: unknown = await res.json().catch(() => null);
+        throw new KindgiApiError(fromWire(unwrapErrorEnvelope(body, res.status), res.status));
+      }
+      return res.body ?? new ReadableStream<Uint8Array>({ start: (c) => c.close() });
     },
 
     async get(correctionId) {
@@ -190,3 +256,24 @@ export function makeCorrectionsClient(transport: Transport): CorrectionsClient {
 }
 
 const many = <T extends string>(v: T | readonly T[]): T[] => (typeof v === 'string' ? [v] : [...v]);
+
+/** The list's filters as query parameters, for `list` and `export`. */
+function filterQuery(
+  filter: Omit<CorrectionFilter, 'limit' | 'cursor'>,
+): Record<string, QueryValue> {
+  return {
+    ...(filter.runId !== undefined && { runId: filter.runId }),
+    ...(filter.agentId !== undefined && { agentId: filter.agentId }),
+    ...(filter.agentVersion !== undefined && { agentVersion: filter.agentVersion }),
+    ...(filter.flowId !== undefined && { flowId: filter.flowId }),
+    ...(filter.status !== undefined && { status: many(filter.status) }),
+    ...(filter.sortedTo !== undefined && { sortedTo: many(filter.sortedTo) }),
+    ...(filter.from !== undefined && { from: filter.from }),
+    ...(filter.madeBy !== undefined && { madeBy: filter.madeBy }),
+    ...(filter.since !== undefined && { since: filter.since }),
+    ...(filter.until !== undefined && { until: filter.until }),
+    ...(filter.correctorGroupId !== undefined && { correctorGroupId: filter.correctorGroupId }),
+    ...(filter.participantId !== undefined && { participantId: filter.participantId }),
+    ...(filter.scope !== undefined && scopeToQuery(filter.scope)),
+  };
+}

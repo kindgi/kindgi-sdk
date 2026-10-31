@@ -248,10 +248,6 @@ function harness(opts: { served?: boolean } = {}) {
     ...createStubAppBindings(),
     ...registries,
     agentPins: pinsFake(changed),
-    // Mounts the test-set build; without `listCorrectedRuns` it answers 501
-    // once its checks pass.
-    correctionRegistry: {},
-    evalCaseStore: {},
     resolveToken,
     authz: authz.authz,
     ...(opts.served !== false && { itemProjects: items }),
@@ -466,53 +462,6 @@ describe('unregistering a guardrail an order carries', () => {
       'POST',
       `/v1/guardrails/${SOLO}/unregister`,
     );
-    expect(a.text).toBe(b.text);
-    expect(a.asked).toEqual(b.asked);
-  });
-});
-
-describe('building a test set from corrections under a test set an order carries', () => {
-  const path = (testSetId: string) => `/v1/test-sets/${testSetId}/versions/from-corrections`;
-  const body = (projectId: ProjectId) => ({
-    version: '2.0.0',
-    projectId,
-    agentId: 'acme.matcher',
-  });
-  /** Past every check: the build itself, which this deployment can't do. */
-  const BUILT = 501;
-
-  test('admin in the project whose corrected runs it takes, and nowhere else', async () => {
-    const { call } = harness();
-    const prod = await call('prod-admin', 'POST', path(SERVED), body(PROD));
-    expect(prod.status, prod.text).toBe(BUILT);
-    expect(prod.asked).toEqual([
-      `prod-admin admin project:${PROD}`,
-      `prod-admin admin project:${PROD}`,
-    ]);
-    const staging = await call('staging-admin', 'POST', path(SERVED), body(STAGING));
-    expect(staging.status, staging.text).toBe(BUILT);
-    expect(staging.asked).toEqual([
-      `staging-admin admin project:${STAGING}`,
-      `staging-admin admin project:${STAGING}`,
-    ]);
-  });
-
-  test("another project's admin is refused, naming the project", async () => {
-    const no = await harness().call('prod-admin', 'POST', path(SERVED), body(STAGING));
-    expect(no.status, no.text).toBe(403);
-    expect(no.body.error.message).toContain(`refused on project ${STAGING}`);
-  });
-
-  test("a project the test set isn't in: admin on every project of the test set", async () => {
-    const no = await harness().call('prod-admin', 'POST', path(SERVED), body(OTHER));
-    expect(no.status, no.text).toBe(403);
-    expect(no.body.error.message).toContain(`refused on project ${STAGING}`);
-  });
-
-  test('a test set with one project: the same answers and checks as without an order', async () => {
-    const a = await harness().call('solo', 'POST', path(SOLO), body(OTHER));
-    const b = await harness({ served: false }).call('solo', 'POST', path(SOLO), body(OTHER));
-    expect(a.status, a.text).toBe(BUILT);
     expect(a.text).toBe(b.text);
     expect(a.asked).toEqual(b.asked);
   });

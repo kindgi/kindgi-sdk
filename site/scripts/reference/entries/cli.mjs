@@ -77,7 +77,10 @@ export const CLI_DEFAULTS = {
     path: 'the current directory',
     project: "none: a tenant-wide deploy, into the tenant's Default project",
     'published-at': 'for an inline build: the build time',
+    reason: 'none; required with `--replace`, and only with it',
     'registry-push-creds': 'none',
+    replace:
+      'none: a block the deploy would put back to an older version than runs now stops it (repeatable; needs `--reason`)',
     'signer-key-id': "for an inline build: the env block's `signerKeyId`, else the key file's name",
     'signing-key': "for an inline build: the env block's `signingKey`",
     target: "for an inline build: the env block's `buildTarget`, else the env name",
@@ -145,7 +148,9 @@ export const CLI_DEFAULTS = {
     from: 'required',
     to: 'required',
     deployment: 'none (the one deployment serving in `--from`; in a pack, of this pack)',
-    reason: 'none',
+    reason: 'none; required with `--replace`',
+    replace:
+      'none: a block the pins would put back to an older version than runs in `--to` stops the promote (with `--pin` only, repeatable; needs `--reason`)',
     path: 'the current directory',
     wait: 'off; a bare `--wait` waits at most `1h`',
   },
@@ -474,26 +479,24 @@ export const CLI_DEFAULTS = {
   'improve runs start': {
     agent: 'required',
     'group-weights':
-      "none (counts everyone until the test cases' project, its tenant, or the agent improved there has an expert group, then only those)",
+      'none (counts everyone until the project, its tenant, or the agent in the project has an expert group, then only those)',
     drafts: '`3` (`1` to `5`; with `--tier=prompt` only)',
-    'from-version': 'the version serving the scope',
     'idempotency-key': 'none',
     'max-candidates': '`30`',
     'max-cost': '`5` (US dollars)',
-    model: 'none (needed with `--tier=prompt`, with `--provider`)',
+    model:
+      "none (the model the version's model-settings block names drafts the wording; with `--provider`, for `--tier=prompt`)",
     objective: '`passRate`',
-    org: 'none',
-    'run-project': "the scope's project, else the agent version's",
-    project: 'none',
-    provider: 'none (needed with `--tier=prompt`, with `--model`)',
-    segment: 'none',
-    'test-set': 'required',
-    tier: '`settings`',
+    project: 'required',
+    provider: 'none (with `--model`, for `--tier=prompt`)',
+    tier: "every tier that's ready",
   },
   'improve runs list': {
     agent: 'none',
     cursor: 'none',
     limit: '`25` (at most `100`)',
+    project: 'none',
+    status: 'none',
   },
   'improve runs cancel': {
     'idempotency-key': 'none',
@@ -568,9 +571,8 @@ export const CLI_DEFAULTS = {
     input: '`{}`',
     label: 'none',
     overlap: '`skip`',
-    project: "the tenant's Default project",
+    project: "the tenant's Default project; required with `--improve`, the project it improves",
     'run-as': 'none (you own the schedule)',
-    segment: 'none',
     'starting-deadline': '`600` (seconds)',
     timezone: '`UTC`',
   },
@@ -590,8 +592,7 @@ export const CLI_DEFAULTS = {
     input: 'unchanged',
     label: 'unchanged',
     overlap: 'unchanged',
-    project: 'unchanged',
-    segment: 'none',
+    project: 'none (with `--improve` only, which needs it)',
     'starting-deadline': 'unchanged',
     timezone: 'unchanged',
   },
@@ -809,6 +810,17 @@ export const CLI_DEFAULTS = {
     'sorted-to': 'none (at least one of `--status` or `--sorted-to` is required)',
     status: 'none (at least one of `--status` or `--sorted-to` is required)',
   },
+  'corrections export': {
+    agent: 'required',
+    format: '`csv`',
+    from: '`all`',
+    out: 'none (the export is printed)',
+    project: 'none',
+    since: 'none',
+    'sorted-to': 'none',
+    status: 'none (every status but `removed`)',
+    until: 'none',
+  },
   'corrector-groups list': {
     agent: 'none',
     cursor: 'none',
@@ -946,19 +958,6 @@ export const CLI_DEFAULTS = {
   'test-sets show': {
     'test-set-version': 'the latest version',
   },
-  'test-sets from-corrections': {
-    agent: 'required: one of `--agent`, `--flow`',
-    'agent-version': 'none',
-    group: 'none',
-    description: 'none',
-    flow: 'required: one of `--agent`, `--flow`',
-    'min-corrections': '`1`',
-    project: 'required',
-    segment: 'none',
-    since: 'none',
-    'test-set-version': 'required',
-    until: 'none',
-  },
   'test-sets cases': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
@@ -991,6 +990,9 @@ export const CLI_DEFAULTS = {
   },
   'blocks reinstate': {
     'block-version': 'required',
+  },
+  'blocks pull': {
+    path: 'the current directory',
   },
   'release-gates list': {
     agent: 'none',
@@ -2134,8 +2136,8 @@ export const CLI_EXAMPLES = {
   ],
   'test-sets list': [
     {
-      purpose: 'List the corrections test sets of a project.',
-      line: 'kindgi test-sets list --project=<project-id> --kind=corrections',
+      purpose: 'List the accuracy test sets of a project.',
+      line: 'kindgi test-sets list --project=<project-id> --kind=accuracy',
     },
     {
       purpose: 'List test sets including retired ones.',
@@ -2202,6 +2204,16 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Reinstate an unregistered block version.',
       line: 'kindgi blocks reinstate acme.reply-style --block-version=1.0.0',
+    },
+  ],
+  'blocks pull': [
+    {
+      purpose: "Write the newest running version of each of the pack's blocks into its file.",
+      line: 'kindgi blocks pull',
+    },
+    {
+      purpose: 'Pull one block, in a pack in another directory.',
+      line: 'kindgi blocks pull acme.reply-style --path=./support-pack',
     },
   ],
   'release-gates list': [
@@ -2556,6 +2568,7 @@ export const CLI_GROUP_SEE_ALSO = {
   'mcp-launch': ['guides/tools/mcp-servers'],
   deployments: ['hosted/deploy-your-agent', 'guides/secrets/pack-env'],
   projects: ['guides/projects/organize-by-org-and-project'],
+  'test-sets': ['guides/improve/build-a-test-set', 'guides/improve/compare-an-agent-version'],
   connections: ['deploy/people-and-keys'],
   'connection-apps': ['guides/secrets/store-a-secret', 'deploy/people-and-keys'],
   tenant: ['guides/projects/organize-by-org-and-project'],

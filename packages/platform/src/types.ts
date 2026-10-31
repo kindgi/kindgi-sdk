@@ -137,6 +137,13 @@ export interface Project {
    * `ProjectBinding.setProduction`.
    */
   readonly productionSince?: Timestamp;
+  /**
+   * The company-wide GitHub connection the project opens its block
+   * changes' pull requests through; absent while none is set. Set and
+   * cleared by `ProjectBinding.setRepoConnection`. The connection may be
+   * gone since: a reader treats that as none.
+   */
+  readonly repoConnectionId?: string;
   readonly createdAt: Timestamp;
   readonly updatedAt: Timestamp;
 }

@@ -324,6 +324,33 @@ describe('API — test-sets list', () => {
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe('bad-input');
   });
+
+  test('a test set built from corrections is listed only when asked by kind, and read by id', async () => {
+    const { app, binding } = makeApp();
+    await seed(binding, testSetSpec({ id: 'a.accuracy', kind: 'accuracy' }));
+    await seed(
+      binding,
+      testSetSpec({ id: 'b.corrected', kind: 'corrections', spec: { source: 'corrections' } }),
+    );
+    const listed = await app.request('/v1/test-sets', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(listed.status).toBe(200);
+    const body = (await listed.json()) as { data: Array<{ id: string }> };
+    expect(body.data.map((s) => s.id)).toEqual(['a.accuracy']);
+
+    const byKind = await app.request('/v1/test-sets?kind=corrections', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(byKind.status).toBe(200);
+    const corrections = (await byKind.json()) as { data: Array<{ id: string }> };
+    expect(corrections.data.map((s) => s.id)).toEqual(['b.corrected']);
+
+    const byId = await app.request('/v1/test-sets/b.corrected', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(byId.status).toBe(200);
+  });
 });
 
 describe('API — test-sets publish + get', () => {

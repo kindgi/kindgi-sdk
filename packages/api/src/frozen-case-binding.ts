@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Cursor, TenantId } from '@kindgi/types';
+import type { Cursor, ScopeSegment, TenantId } from '@kindgi/types';
 
 import type { CorrectedItem, CorrectedRunContext, CorrectedSubject } from './correction-binding.js';
 import type { ExpectedDecisions } from './expected-decisions.js';
+import type { TestCaseExpect } from './test-case-binding.js';
 
 /**
  * Caller-plugged storage for the cases of a test-set version, kept
@@ -17,11 +18,11 @@ import type { ExpectedDecisions } from './expected-decisions.js';
  * Cases are written once, when the version is published, and removed
  * with it.
  */
-export interface EvalCaseStoreBinding {
+export interface FrozenCaseStoreBinding {
   /** Store a version's cases. Called once, right after the version is published. */
-  putCases(input: EvalCasePutInput): Promise<void>;
+  putCases(input: FrozenCasePutInput): Promise<void>;
   /** A version's cases, in the order they were stored, cursor-paginated. */
-  listCases(input: EvalCaseListInput): Promise<EvalCasePage>;
+  listCases(input: FrozenCaseListInput): Promise<FrozenCasePage>;
 }
 
 /** The corrections of one item of a case's output, summed up. */
@@ -81,6 +82,8 @@ export interface CorrectedTestCase {
    * `corrections` test set built before 0.4.0 used the corrected run's id.
    */
   readonly caseId: string;
+  /** The run the case was copied from. */
+  readonly runId: string;
   /** What ran: the agent or flow at a version (the baseline when comparing to the recording). */
   readonly subject: CorrectedSubject;
   readonly input: unknown;
@@ -88,6 +91,11 @@ export interface CorrectedTestCase {
   readonly context?: CorrectedRunContext;
   /** The output that was corrected. */
   readonly output: unknown;
+  /**
+   * The segment path its run was started with, coarse to fine (empty:
+   * none). Set on a frozen case when its run's copy has it.
+   */
+  readonly segments?: readonly ScopeSegment[];
   readonly items: readonly CorrectedItemSummary[];
   /**
    * Experts' expected decisions carried onto this case, each graded on the
@@ -96,21 +104,35 @@ export interface CorrectedTestCase {
    */
   readonly corrections?: readonly TestCaseExpectedDecisions[];
   /**
+   * What the case expects of a run, as the agent's test set lists it: set
+   * on a frozen case of an agent's test set, from its own correction or
+   * hand case, which also fill `items` and `corrections`. A grader reads it
+   * when it's present, and `items` and `corrections` otherwise.
+   */
+  readonly expect?: TestCaseExpect;
+  /**
+   * Set on a frozen case whose test case is an expert's
+   * (`TestCase.expert`): `experts-only` grades its `expect`, and drops the
+   * `expect` of every other case.
+   */
+  readonly expert?: true;
+  /**
    * An erasure cleared this case (a person's words were erased): its
-   * `input`, `output` and `context` are gone, its items empty and its
-   * corrections dropped. Test runs leave it out and count it (`erased`).
+   * `input`, `output` and `context` are gone, its items empty, and its
+   * corrections, `expect` and `segments` dropped. Test runs leave it out
+   * and count it (`erased`).
    */
   readonly erased?: true;
 }
 
-export interface EvalCasePutInput {
+export interface FrozenCasePutInput {
   readonly tenantId: TenantId;
   readonly testSetId: string;
   readonly version: string;
   readonly cases: readonly CorrectedTestCase[];
 }
 
-export interface EvalCaseListInput {
+export interface FrozenCaseListInput {
   readonly tenantId: TenantId;
   readonly testSetId: string;
   readonly version: string;
@@ -118,7 +140,7 @@ export interface EvalCaseListInput {
   readonly limit: number;
 }
 
-export interface EvalCasePage {
+export interface FrozenCasePage {
   readonly data: readonly CorrectedTestCase[];
   readonly hasMore: boolean;
   readonly nextCursor?: Cursor;

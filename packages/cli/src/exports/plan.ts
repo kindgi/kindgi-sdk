@@ -23,12 +23,18 @@ export type Paging =
   /** One answer, one record. */
   | 'one';
 
-/** Where a child kind's path parameters come from: each one, the field of the parent's record that fills it. */
+/**
+ * Where a child kind's path parameters come from: each one, the field of
+ * the parent's record that fills it. A parent that is itself a child kind
+ * lends its own parent's fields where its item has none.
+ */
 export interface ParentRef {
   /** The parent kind's name; it comes earlier in the plan. */
   readonly kind: string;
   /** Path parameter -> the parent record's field. */
   readonly params: Readonly<Record<string, string>>;
+  /** Query parameter -> the parent record's field, for a route that takes its parent's id there. */
+  readonly query?: Readonly<Record<string, string>>;
 }
 
 /** A kind of record, and how it's read. */
@@ -42,6 +48,11 @@ export interface ExportKind {
   readonly parent?: ParentRef;
   /** Query parameters sent on every read: what the route leaves out unless asked. */
   readonly query?: Readonly<Record<string, string>>;
+  /**
+   * More reads of a top-level kind into the same file, each with these
+   * added to `query`: what the route lists only when asked for by name.
+   */
+  readonly alsoAsk?: readonly Readonly<Record<string, string>>[];
   /**
    * Read once for each env name (`GET /v1/environments`) at each scope:
    * the tenant, each org, each project (with `inherit=false` in `query`,
@@ -238,6 +249,26 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     covers: ['/v1/agents/{agentId}/pin-history/{changeId}'],
   },
   {
+    name: 'agent-projects',
+    route: '/v1/agents/{agentId}/projects',
+    paging: whole,
+    parent: { kind: 'agents', params: { agentId: 'id' } },
+  },
+  {
+    // An agent's test set in each project it serves: the cases added by
+    // hand are stored only here; its corrections that are cases are in
+    // corrections too.
+    name: 'agent-test-set-cases',
+    route: '/v1/agents/{agentId}/test-set/cases',
+    paging: cursor,
+    parent: {
+      kind: 'agent-projects',
+      params: { agentId: 'agentId' },
+      query: { projectId: 'projectId' },
+    },
+    query: { include: 'retired' },
+  },
+  {
     name: 'release-gates',
     route: '/v1/release-gates',
     paging: cursor,
@@ -363,6 +394,8 @@ export const EXPORT_PLAN: readonly ExportKind[] = [
     route: '/v1/test-sets',
     paging: cursor,
     query: { includeRetired: 'true' },
+    // Agents' frozen test sets, and those built from corrections before, are listed by kind only.
+    alsoAsk: [{ kind: 'corrections' }],
     covers: ['/v1/test-sets/{testSetId}'],
   },
   {
@@ -628,13 +661,17 @@ export const EXCLUDED: Readonly<Record<string, string>> = {
     'computed from runs, approvals, cost-records and projects (the metering ledger counts them)',
   '/v1/agents/{agentId}/pinned': 'computed from agent-pinned-versions',
   '/v1/agents/{agentId}/release-gate': 'computed from release-gates',
-  '/v1/agents/{agentId}/projects': 'computed from agent-versions and deployments',
+  '/v1/agents/{agentId}/test-set':
+    'computed from corrections, agent-test-set-cases and test-set-versions',
   '/v1/flows/{flowId}/pinned': 'computed from flow-pinned-versions and flow-versions',
   '/v1/tools/{toolId}/pinned': 'computed from tool-pinned-versions and tool-versions',
+  '/v1/blocks/{blockId}/runs-in':
+    'computed from agent-versions, agent-pinned-versions and deployments',
   '/v1/guardrails/{guardrailId}/outcomes': 'computed from runs',
   '/v1/projects/{projectId}/queue-rules/preview': 'computed from queue-rules and runs',
   '/v1/projects/{projectId}/queue-rules/{ruleId}/results': 'computed from corrections',
   '/v1/corrections/counts': 'computed from corrections',
+  '/v1/corrections/export': 'the same records as corrections',
   '/v1/projects/{projectId}/access':
     'computed from project-memberships, team-project-grants, orgs and users',
   '/v1/projects/default': 'one of projects',

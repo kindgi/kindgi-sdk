@@ -93,8 +93,8 @@ A person does these, with a key of their own:
   Without one, prod's runs take each agent's
   [Latest](../../guides/improve/pinned-versions-reference/#latest) in prod: the
   version the newest build promoted there shipped.
-- **Build the test cases** that prod's test run uses, in prod's project
-  ([Build test cases from corrections](../../guides/improve/build-a-test-set/)).
+- **Correct runs in prod's project:** the agent's test set there is what
+  prod's test run uses ([An agent's test set](../../guides/improve/build-a-test-set/)).
 - **Create the triggers:** schedules, webhooks and mail triggers. A
   trigger's `toolsAllowedUnattended` is checked against what runs in its
   project, so in prod, create one that lists an agent's tools once the first
@@ -251,10 +251,11 @@ stops on it, and 1 when it couldn't ask:
 
 | Command | 0 | 3 | 1 |
 |---|---|---|---|
+| `kindgi deploy`, and with `--dry-run` | it deployed, or would | never | it would put back an older block than runs now, so nothing was deployed ([Changes made on the runtime](#changes-made-on-the-runtime)), or an error |
 | `kindgi promote --from --to`, and with `--check` | it moved, or would | never | a value the build needs isn't set in the target, or an error |
 | `kindgi test-runs start --wait` | the run completed | it failed or was cancelled | it's still running after 30 minutes, or an error |
 | `kindgi agents pin --wait` | the version is Pinned | the release gate refused it, its approval was rejected or expired, the request was superseded, or the wait ran out | an error, or 3 reads of the pin in a row failed |
-| `kindgi promote --pin --wait` | every version it carries is Pinned | one isn't | an error, or 3 reads of a promotion in a row failed |
+| `kindgi promote --pin`, and with `--wait` | every version it carries is Pinned | one isn't | a newer version of one of the build's blocks runs in the target, so nothing moved ([Changes made on the runtime](#changes-made-on-the-runtime)), an error, or 3 reads of a promotion in a row failed |
 
 A usage error exits 2.
 
@@ -381,6 +382,11 @@ The last three steps of `promote-prod` do it for one agent:
   test run, `kindgi promote --from=staging --to=prod --pin --wait` does
   the whole step for every agent the build carries. `--pin` can't name
   a test run, so a release gate that needs one holds every version it carries.
+- **`--pin` takes prod off Latest.** A project in prod that ran its
+  [Latest](../../guides/improve/pinned-versions-reference/#latest) runs the
+  version `--pin` pins from then on, as with any pin. `--pin` is the ask, so
+  nothing more is confirmed. A later build's version reaches its runs when a
+  pin moves to it, or an unpin puts the project back on Latest.
 
 [Gate a pin](../../guides/improve/release-an-agent-version/#gate-a-pin)
 has what a release gate checks, and how a reviewer approves.
@@ -412,8 +418,69 @@ has what a release gate checks, and how a reviewer approves.
 Improve, suggested changes and edits in the console change the runtime, not git, so
 the next deploy from git doesn't have them. Bring each one back as a pull
 request: copy the change into the pack's files, and open the pull request.
-[Improve an agent](../../guides/improve/improve-an-agent/) has what Improve
-changes.
+For blocks, `kindgi blocks pull` writes the newest version running anywhere
+into each block's file. [Improve an agent](../../guides/improve/improve-an-agent/)
+has what Improve changes.
+
+`kindgi deploy` run in a git work tree, as CI's is, also says where the pack
+lives: the `origin` remote with no user or token in it, the pack's folder in
+the repository, the commit and branch, and whether the pack's folder had
+changes the commit doesn't hold. Each deployment keeps that as `source`,
+with each block's file, and lists the block versions it shipped in
+`contents.blocks` (`GET /v1/deployments/:deploymentId`). A deploy from
+outside git keeps no `source`.
+
+A deploy doesn't undo one without saying so. Before an image is built,
+`kindgi deploy` compares each block in the pack's files with the newest
+version of it that runs now, in any project of the pack's agents: pinned,
+for a segment too, or Latest. When the files' version is older, the deploy
+stops, deploys nothing, and exits 1:
+
+```text
+  Checking returns-helper against what runs…
+✗ Stopped: this deploy would put back older blocks than run now.
+
+  Block                 In your files   Runs now
+  returns-helper.tone   3.0.0           4.0.0  latest in Support sandbox (Ana, 11-05)
+
+  Nothing was deployed.
+  To keep the newer versions:  merge https://github.com/acme/returns/pull/214, or run `kindgi blocks pull`, then deploy again.
+  To drop them on purpose:  kindgi deploy --env=prod --replace=returns-helper.tone --reason=<why>
+```
+
+- **Every project counts, whoever deploys.** For a project the deploy key
+  can't read, the row names the version only: "in a project you can't
+  read".
+- **The same version passes,** and so do a newer one in the files and a
+  block that runs nowhere. Code isn't compared.
+- **To drop a newer version on purpose,** name its block with `--replace`
+  (repeatable), and say why with `--reason`, in 1 to 500 characters. The
+  deployment keeps each block it put back (`replaced`: the version that
+  ran, the files' one, the reason and who deployed), and the audit log keeps
+  one `deployment-replaced-block` event for each. A `--replace` that nothing
+  newer runs for says "nothing newer runs; --replace not needed".
+- **`--dry-run` checks too,** and a stop exits 1 there as well, so a job can
+  check before it deploys.
+- **The runtime holds the same rule.** A deploy that calls
+  `POST /v1/deployments` itself stops with
+  `409 deploy-would-put-back-older-blocks`, each block in `details.blocks`,
+  unless its body names the block in `replace`.
+  `POST /v1/deployments/check` gives the same answer without deploying. A
+  runtime that doesn't read pins and Latest answers it with
+  `501 runs-in-unsupported`, and doesn't check deploys either: there,
+  `kindgi deploy` deploys as before, and says so in one line. A key the
+  check refuses (`403`) goes on without it too, and says so: the deploy
+  asks the same right as the check, so a runtime with the check refuses
+  the deploy the same way.
+- **A promotion that pins is checked too,** against what runs in the target
+  environment only: `kindgi promote --pin` puts the build's blocks there.
+  A stop prints the same table ("Nothing was promoted.") and exits 1, with
+  nothing moved. `--replace` and `--reason` go with `--pin` there as well.
+  The deployment the promotion makes keeps the blocks its pins put back
+  (`replaced`, with who promoted), never the ones the build put back where
+  it was deployed. The audit log keeps one `deployment-replaced-block`
+  event for each block. A build deployed before deployments kept
+  `contents.blocks` isn't compared, and `kindgi promote` says so.
 
 ## Separate runtimes
 

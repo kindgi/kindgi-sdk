@@ -446,7 +446,6 @@ def test_every_response_enum_in_the_api_is_read_open() -> None:
     # The enums of one value: each open, but where a union picks its member by it.
     assert {
         "ApprovalCollectionPage.decidedBy",
-        "BuildCorrectedTestSetResult.kind",
         "ConversationCollectionPage.openedBy",
         "TestRunComparison.baseline",
         "Fact.review",
@@ -530,6 +529,11 @@ PIN_CHANGE = {
 ROTATION = {"rotationId": PIN_CHANGE["id"], "statusUrl": "/s", "eventsUrl": "/e"}
 
 
+def unpinned(change: dict[str, object]) -> dict[str, object]:
+    """The unpin's answer: the unpin change under `pin`, as a pin answers."""
+    return {"pin": change, "testRuns": [], "fixed": [], "reopened": []}
+
+
 def test_system_keys_with_a_scope_this_client_doesnt_know() -> None:
     # 0.1.8 failed these with `invalid-response`, the revoke after the key was revoked.
     api, _ = client({"data": [{**KEY, "scopes": ["system:tenants", "system:kindgi-test"]}]})
@@ -546,8 +550,8 @@ def test_sign_ins_with_a_kind_this_client_doesnt_know() -> None:
 
 def test_a_union_member_this_client_doesnt_know_and_cant_send_back() -> None:
     galaxy = {"kind": "galaxy", "galaxyId": "milky-way"}
-    api, seen = client({**PIN_CHANGE, "scope": galaxy})
-    pin = api.agents.pinned.unpin("acme.triage", scope={"kind": "tenant"})
+    api, seen = client(unpinned({**PIN_CHANGE, "scope": galaxy}))
+    pin = api.agents.pinned.unpin("acme.triage", scope={"kind": "tenant"}).pin
     assert isinstance(pin.scope, models.AgentPinScopeUnrecognized)
     assert pin.scope.model_extra == {"galaxyId": "milky-way"}
     assert len(seen) == 1
@@ -639,7 +643,7 @@ def test_each_shared_case_is_refused_before_sending(case: dict[str, Any]) -> Non
 
 
 def test_a_known_value_is_sent_as_before() -> None:
-    api, seen = client(PIN_CHANGE)
+    api, seen = client(unpinned(PIN_CHANGE))
     api.agents.pinned.unpin("acme.triage", scope=models.PinScopeTenant(kind="tenant"))
     api.agents.pinned.unpin("acme.triage", {"scope": {"kind": "tenant"}})
     assert [json.loads(r.content) for r in seen] == [{"scope": {"kind": "tenant"}}] * 2

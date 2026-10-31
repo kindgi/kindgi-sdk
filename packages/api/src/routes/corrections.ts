@@ -4,7 +4,9 @@
 import { type Context, Hono } from 'hono';
 
 import type { AgentId, ConversationBinding } from '@kindgi/agents';
+import type { AuditEventBinding } from '@kindgi/audit-events';
 import { REVIEWER_ROLE_RANK, type ReviewerRole, ref } from '@kindgi/authz';
+import type { Logger } from '@kindgi/log';
 import type { RunBinding } from '@kindgi/runtime';
 import {
   CORRECTION_ITEM,
@@ -47,6 +49,14 @@ import {
   planChange,
   sortAtSave,
 } from '../correction-sorting.js';
+import {
+  CORRECTIONS_EXPORT_FORMATS,
+  type CorrectionsExportFilters,
+  type CorrectionsExportFormat,
+  type CorrectionsExportInput,
+  correctionsExportStream,
+  startCorrectionsExport,
+} from '../corrections-export.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { ExpectedCall } from '../expected-decisions.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
@@ -54,6 +64,7 @@ import { type ItemRights, forbidden } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
+import { exportActor } from '../signed-export.js';
 import type { AppEnv } from '../types.js';
 import { captureTurnContext } from './correction-context.js';
 import { captureFlowContext } from './correction-flow-context.js';
@@ -71,6 +82,8 @@ import { parseListScope } from './scope-params.js';
  *   flow, status, sorting, who made them, when, group, participant or
  *   project scope.
  * - `GET /v1/corrections/counts`: how many are in each status, in a project.
+ * - `GET /v1/corrections/export`: every correction an agent's filters match,
+ *   as CSV or JSON lines, recorded in the audit log.
  * - `GET /v1/corrections/:id`: one correction with the stored copies.
  * - `PATCH /v1/corrections/:id`: re-sort it or change its status.
  * - `POST /v1/corrections/:id/remove`: remove a correction; it can't come back.
@@ -93,6 +106,8 @@ export function correctionsRouter(
   agents?: AgentRegistryBinding,
   /** For an agent or flow more than one project serves, a change takes write on the correction's project. */
   itemRights?: ItemRights,
+  /** Records each export (`corrections-export-started`, `corrections-exported`); without it, exports aren't recorded. */
+  auditEvents?: AuditEventBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -174,38 +189,12 @@ export function correctionsRouter(
       return v !== undefined && v.length > 0 ? v : undefined;
     };
 
-    const scope = parseListScope(c.req.query(), { tenantId });
-    if (scope.kind === 'err') return fail('scope-invalid', scope.message);
-    if (q('verdict') !== undefined) {
-      return fail('bad-input', 'verdict is gone: filter by status, sortedTo or from.');
-    }
-    if (q('agentVersion') !== undefined && q('agentId') === undefined) {
-      return fail('bad-input', 'agentVersion needs agentId.');
-    }
-    const filters = parseListFilters(c);
-    if (typeof filters === 'string') return fail('bad-input', filters);
-    // `me` is the caller as the server stamps an author, so a client needn't know how.
-    const madeBy = q('madeBy');
-    if (madeBy !== undefined && madeBy !== 'me') {
-      return fail('bad-input', 'madeBy takes only me: the caller.');
-    }
-    const me = madeBy === undefined ? undefined : madeByOf(c.get('principal'));
-    if (madeBy !== undefined && me === undefined) {
-      return fail('bad-input', 'madeBy=me needs a signed-in caller.');
-    }
-
+    const query = parseListQuery(c, tenantId);
+    if (query.kind === 'err') return fail(query.code, query.message);
     const page = await binding.list({
+      ...query.filters,
       tenantId,
       limit: clampLimit(c.req.query('limit')),
-      ...(scope.scope !== undefined && { scope: scope.scope }),
-      ...optional('runId', q('runId')),
-      ...optional('agentId', q('agentId')),
-      ...optional('agentVersion', q('agentVersion')),
-      ...optional('flowId', q('flowId')),
-      ...filters,
-      ...(me !== undefined && { madeBy: me }),
-      ...optional('correctorGroupId', q('correctorGroupId')),
-      ...optional('participantId', q('participantId')),
       ...(q('cursor') !== undefined && { cursor: q('cursor') as Cursor }),
     });
     const visible =
@@ -245,6 +234,64 @@ export function correctionsRouter(
       ...(agentId !== undefined && agentId.length > 0 && { agentId }),
     });
     return c.json(counts);
+  });
+
+  // Every correction an agent's filters match, as CSV or JSON lines (14.1).
+  r.get('/export', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const fail = (code: string, message: string) => {
+      c.status(statusFor(code) as never);
+      return c.json(toWireError({ code, message }, requestId));
+    };
+    const query = parseExportQuery(c, tenantId);
+    if (query.kind === 'err') return fail(query.code, query.message);
+    const { filters, format } = query;
+    const projectId = filters.scope?.kind === 'project' ? filters.scope.projectId : undefined;
+    if (
+      projectId !== undefined &&
+      authorizer !== undefined &&
+      !(await authorizer.can(c, 'read', ref('project', projectId as unknown as string)))
+    ) {
+      return fail('permission-denied', `Not allowed to read project "${projectId}".`);
+    }
+    const log = c.get('log') as Logger | undefined;
+    const input: CorrectionsExportInput = {
+      binding,
+      tenantId,
+      filters,
+      format,
+      visible: async (rows) =>
+        authorizer === undefined
+          ? rows
+          : authorizer.filterByCan(c, 'read', rows, (j) => ref('project', j.projectId)),
+      serialize: serializeCorrection,
+      ...(auditEvents !== undefined && {
+        audit: {
+          auditEvents,
+          actor: exportActor(c),
+          ...(projectId !== undefined && { projectId }),
+        },
+      }),
+      ...(log !== undefined && { log }),
+      requestId,
+    };
+    const started = await startCorrectionsExport(input);
+    if (started.kind === 'err') {
+      return fail(
+        'persistence-error',
+        `The export couldn't be recorded, so nothing was sent: ${started.message}. Try again.`,
+      );
+    }
+    return c.body(correctionsExportStream(input, started.exportId), 200, {
+      'Content-Type':
+        format === 'csv'
+          ? 'text/csv; charset=utf-8; header=present'
+          : 'application/jsonl; charset=utf-8',
+      'Content-Disposition': `attachment; filename="corrections.${format}"`,
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    });
   });
 
   r.get('/:correctionId', async (c) => {
@@ -434,6 +481,87 @@ function parseListFilters(
     ...(from !== undefined && from !== 'all' && { from }),
     ...times,
   };
+}
+
+/**
+ * The list's query (2.6), as the list and the export read it: the scope,
+ * the run, agent (and version) or flow, the filters, `madeBy=me`, the
+ * group and the participant.
+ */
+function parseListQuery(
+  c: Context<AppEnv>,
+  tenantId: TenantId,
+):
+  | { readonly kind: 'ok'; readonly filters: CorrectionsExportFilters }
+  | {
+      readonly kind: 'err';
+      readonly code: 'scope-invalid' | 'bad-input';
+      readonly message: string;
+    } {
+  const q = (name: string) => {
+    const v = c.req.query(name);
+    return v !== undefined && v.length > 0 ? v : undefined;
+  };
+  const bad = (message: string) => ({ kind: 'err', code: 'bad-input', message }) as const;
+  const scope = parseListScope(c.req.query(), { tenantId });
+  if (scope.kind === 'err') return { kind: 'err', code: 'scope-invalid', message: scope.message };
+  if (q('verdict') !== undefined)
+    return bad('verdict is gone: filter by status, sortedTo or from.');
+  if (q('agentVersion') !== undefined && q('agentId') === undefined) {
+    return bad('agentVersion needs agentId.');
+  }
+  const filters = parseListFilters(c);
+  if (typeof filters === 'string') return bad(filters);
+  // `me` is the caller as the server stamps an author, so a client needn't know how.
+  const madeBy = q('madeBy');
+  if (madeBy !== undefined && madeBy !== 'me') return bad('madeBy takes only me: the caller.');
+  const me = madeBy === undefined ? undefined : madeByOf(c.get('principal'));
+  if (madeBy !== undefined && me === undefined) return bad('madeBy=me needs a signed-in caller.');
+  return {
+    kind: 'ok',
+    filters: {
+      ...(scope.scope !== undefined && { scope: scope.scope }),
+      ...optional('runId', q('runId')),
+      ...optional('agentId', q('agentId')),
+      ...optional('agentVersion', q('agentVersion')),
+      ...optional('flowId', q('flowId')),
+      ...filters,
+      ...(me !== undefined && { madeBy: me }),
+      ...optional('correctorGroupId', q('correctorGroupId')),
+      ...optional('participantId', q('participantId')),
+    },
+  };
+}
+
+/** The export's query: the list's, with `agentId` required, no page, and `format`. */
+function parseExportQuery(
+  c: Context<AppEnv>,
+  tenantId: TenantId,
+):
+  | {
+      readonly kind: 'ok';
+      readonly filters: CorrectionsExportFilters;
+      readonly format: CorrectionsExportFormat;
+    }
+  | {
+      readonly kind: 'err';
+      readonly code: 'scope-invalid' | 'bad-input';
+      readonly message: string;
+    } {
+  const bad = (message: string) => ({ kind: 'err', code: 'bad-input', message }) as const;
+  const query = parseListQuery(c, tenantId);
+  if (query.kind === 'err') return query;
+  if (query.filters.agentId === undefined) {
+    return bad('export needs agentId: the agent whose corrections it exports.');
+  }
+  if (c.req.query('limit') !== undefined || c.req.query('cursor') !== undefined) {
+    return bad('export takes no limit or cursor: it sends every page.');
+  }
+  const format = c.req.query('format') ?? 'csv';
+  if (!(CORRECTIONS_EXPORT_FORMATS as readonly string[]).includes(format)) {
+    return bad(`format must be one of: ${CORRECTIONS_EXPORT_FORMATS.join(', ')}.`);
+  }
+  return { kind: 'ok', filters: query.filters, format: format as CorrectionsExportFormat };
 }
 
 /** A PATCH body: `{ sortedTo?, status?, link?, reason? }`, at least one of the first two. */
@@ -719,19 +847,8 @@ async function prepareCorrection(
   ) {
     return err('permission-denied', `Not allowed to correct run "${body.runId}".`);
   }
-  // An erasure cleared its content: there's nothing to correct (T273 M-5).
-  if (run.contentErasedAt !== undefined) {
-    return err(
-      'run-erased',
-      `Run "${body.runId}" was erased (a person's words were removed): there's nothing to correct.`,
-    );
-  }
-  if (run.status !== 'completed' || run.output === undefined || run.output === null) {
-    return err(
-      'run-not-finished',
-      `Run "${body.runId}" has no output to correct yet (status ${run.status}).`,
-    );
-  }
+  const unfinished = unfinishedRun(run, body.runId);
+  if (unfinished !== undefined) return err(unfinished.code, unfinished.message);
   const subject = subjectOf(run);
   const projectId = run.projectId as unknown as ProjectId;
   let expert = false;
@@ -775,16 +892,48 @@ async function prepareCorrection(
     ...(expert && { expert: true as const }),
     ...(run.replayOf != null && { replayOf: run.replayOf as unknown as string }),
   };
-  const missing = (body.items ?? []).find(
-    (item) => item.pointer !== undefined && !resolvePointer(run.output, item.pointer).found,
-  );
-  if (missing?.pointer !== undefined) {
-    return err(
-      'item-not-found',
-      `Nothing at "${missing.pointer}" in run "${body.runId}"'s output.`,
-    );
-  }
+  const missing = missingItem(run.output, body.runId, body.items);
+  if (missing !== undefined) return err(missing.code, missing.message);
   return { kind: 'ok', run: copy, subject, projectId, ...extra };
+}
+
+type CorrectedRun = NonNullable<Awaited<ReturnType<RunBinding['getRun']>>>;
+
+/** Why a run can't be corrected, or made a test case: an erasure cleared it, or it has no output yet. */
+export function unfinishedRun(
+  run: CorrectedRun,
+  runId: string,
+): { readonly code: string; readonly message: string } | undefined {
+  // An erasure cleared its content: there's nothing to correct (T273 M-5).
+  if (run.contentErasedAt !== undefined) {
+    return {
+      code: 'run-erased',
+      message: `Run "${runId}" was erased (a person's words were removed): there's nothing to correct.`,
+    };
+  }
+  if (run.status !== 'completed' || run.output === undefined || run.output === null) {
+    return {
+      code: 'run-not-finished',
+      message: `Run "${runId}" has no output to correct yet (status ${run.status}).`,
+    };
+  }
+  return undefined;
+}
+
+/** The first item whose pointer finds nothing in the run's output, as its refusal. */
+export function missingItem(
+  output: unknown,
+  runId: string,
+  items: readonly CorrectedAnswerItem[] | undefined,
+): { readonly code: string; readonly message: string } | undefined {
+  const missing = (items ?? []).find(
+    (item) => item.pointer !== undefined && !resolvePointer(output, item.pointer).found,
+  );
+  if (missing?.pointer === undefined) return undefined;
+  return {
+    code: 'item-not-found',
+    message: `Nothing at "${missing.pointer}" in run "${runId}"'s output.`,
+  };
 }
 
 /**
@@ -792,7 +941,7 @@ async function prepareCorrection(
  * turn's history and retrieved context; a flow run's tool calls with
  * their results.
  */
-function captureContext(input: {
+export function captureContext(input: {
   readonly tenantId: TenantId;
   readonly runId: string;
   readonly subject: CorrectedSubject;
@@ -821,7 +970,7 @@ function captureContext(input: {
 }
 
 /** Whether the run has no live correction yet (its copy is stored with the first). */
-async function isFirstCorrection(
+export async function isFirstCorrection(
   binding: CorrectionRegistryBinding,
   tenantId: TenantId,
   runId: string,
@@ -845,7 +994,7 @@ async function applicableGroup(
 
 // ---------- request parsing ----------
 
-interface CorrectionBody {
+export interface CorrectionBody {
   readonly runId: string;
   readonly decisions?: Verdict;
   readonly shouldCall?: readonly ExpectedCall[];
@@ -858,7 +1007,7 @@ interface CorrectionBody {
   readonly participantId?: string;
 }
 
-type Parsed<T> =
+export type Parsed<T> =
   | { readonly kind: 'ok'; readonly body: T }
   | { readonly kind: 'err'; readonly message: string };
 
@@ -880,7 +1029,7 @@ const OLD_FIELDS: Readonly<Record<string, string>> = {
   correction: 'shouldCall and mustNotCall',
 };
 
-function parseCorrectionBody(raw: unknown): Parsed<CorrectionBody> {
+export function parseCorrectionBody(raw: unknown): Parsed<CorrectionBody> {
   const err = (message: string): Parsed<CorrectionBody> => ({ kind: 'err', message });
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     return err('Send a JSON object.');
@@ -1207,7 +1356,7 @@ function groupNotFound(c: Context<AppEnv>, id: string): Response {
 }
 
 /** The caller as a correction records it, from the request's principal. */
-function madeByOf(
+export function madeByOf(
   principal: AppEnv['Variables']['principal'] | undefined,
 ): CorrectionMadeBy | undefined {
   if (principal === undefined) return undefined;
@@ -1222,7 +1371,7 @@ function madeByOf(
  * single tool list) and when the version cannot be resolved — a correction
  * outlives its version — so it never blocks an otherwise valid correction.
  */
-async function unknownCorrectionTool(
+export async function unknownCorrectionTool(
   tenantId: TenantId,
   subject: CorrectedSubject,
   body: Pick<CorrectionBody, 'shouldCall' | 'mustNotCall'>,
@@ -1241,7 +1390,7 @@ async function unknownCorrectionTool(
 }
 
 /** What a run ran: its agent at a version (agent turns), else its flow. */
-function subjectOf(run: {
+export function subjectOf(run: {
   readonly flowId: string;
   readonly flowVersion: string;
   readonly agent?: { readonly id: string; readonly version: string };
@@ -1303,6 +1452,7 @@ function serializeCorrection(j: Correction): Record<string, unknown> {
     ...(j.sorted !== undefined && { sorted: j.sorted }),
     ...(j.link !== undefined && { link: j.link }),
     ...(j.fixedIn !== undefined && { fixedIn: j.fixedIn }),
+    ...(j.reopenedIn !== undefined && { reopenedIn: j.reopenedIn }),
     ...(j.statusNote !== undefined && { statusNote: j.statusNote }),
     createdAt: j.createdAt,
     updatedAt: j.updatedAt,

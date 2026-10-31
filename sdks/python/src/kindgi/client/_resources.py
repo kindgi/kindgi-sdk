@@ -11,6 +11,7 @@ from uuid import UUID
 
 from . import _models
 from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments
+from ._thumbs import AsyncThumbs, Thumbs
 
 __all__ = ["OPERATIONS", "AsyncResources", "Resources"]
 
@@ -221,6 +222,22 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "agents.setOwner": Operation(
         "agents.setOwner", "PUT", "/v1/agents/{agentId}/owner", "json", False
+    ),
+    "agents.testSet.get": Operation(
+        "agents.testSet.get", "GET", "/v1/agents/{agentId}/test-set", "json", False
+    ),
+    "agents.testSet.listCases": Operation(
+        "agents.testSet.listCases", "GET", "/v1/agents/{agentId}/test-set/cases", "json", False
+    ),
+    "agents.testSet.addCase": Operation(
+        "agents.testSet.addCase", "POST", "/v1/agents/{agentId}/test-set/cases", "json", True
+    ),
+    "agents.testSet.retireCase": Operation(
+        "agents.testSet.retireCase",
+        "POST",
+        "/v1/agents/{agentId}/test-set/cases/{caseId}/retire",
+        "json",
+        True,
     ),
     "agents.unregister": Operation(
         "agents.unregister",
@@ -526,6 +543,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "corrections.list": Operation("corrections.list", "GET", "/v1/corrections", "json", False),
     "corrections.create": Operation("corrections.create", "POST", "/v1/corrections", "json", True),
+    "corrections.export": Operation(
+        "corrections.export", "GET", "/v1/corrections/export", "byte-stream", False
+    ),
     "corrections.get": Operation(
         "corrections.get", "GET", "/v1/corrections/{correctionId}", "json", False
     ),
@@ -653,13 +673,6 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         False,
     ),
-    "testSets.buildFromCorrections": Operation(
-        "testSets.buildFromCorrections",
-        "POST",
-        "/v1/test-sets/{testSetId}/versions/from-corrections",
-        "json",
-        True,
-    ),
     "testSets.listCases": Operation(
         "testSets.listCases",
         "GET",
@@ -689,6 +702,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "blocks.versions.get": Operation(
         "blocks.versions.get", "GET", "/v1/blocks/{blockId}/versions/{version}", "json", False
+    ),
+    "blocks.runsIn": Operation(
+        "blocks.runsIn", "GET", "/v1/blocks/{blockId}/runs-in", "json", False
     ),
     "blocks.versions.unregister": Operation(
         "blocks.versions.unregister",
@@ -834,6 +850,9 @@ OPERATIONS: dict[str, Operation] = {
     "deployments.list": Operation("deployments.list", "GET", "/v1/deployments", "json", False),
     "deployments.register": Operation(
         "deployments.register", "POST", "/v1/deployments", "json", True
+    ),
+    "deployments.check": Operation(
+        "deployments.check", "POST", "/v1/deployments/check", "json", False
     ),
     "deployments.get": Operation(
         "deployments.get", "GET", "/v1/deployments/{deploymentId}", "json", False
@@ -1002,6 +1021,20 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "projects.production.set": Operation(
         "projects.production.set", "PUT", "/v1/projects/{projectId}/production", "json", True
+    ),
+    "projects.repoConnection.set": Operation(
+        "projects.repoConnection.set",
+        "PUT",
+        "/v1/projects/{projectId}/repo-connection",
+        "json",
+        True,
+    ),
+    "projects.repoConnection.clear": Operation(
+        "projects.repoConnection.clear",
+        "DELETE",
+        "/v1/projects/{projectId}/repo-connection",
+        "json",
+        True,
     ),
     "projects.teamGrants.list": Operation(
         "projects.teamGrants.list", "GET", "/v1/projects/{projectId}/team-grants", "json", False
@@ -2899,6 +2932,109 @@ class ApprovalsResource:
         )
 
 
+class AgentsTestSetResource:
+    """`client.agents.test_set` — the `agents.testSet` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def get(
+        self, agent_id: str | UUID, /, *, project_id: str | UUID, timeout: float | None = None
+    ) -> _models.AgentTestSet:
+        """A project's test set of an agent. `GET /v1/agents/{agentId}/test-set`
+
+        How many cases the agent's test set has in the project. Its cases are the agent's corrections there, except Won't fix and Removed ones (Fixed and With the owner included), and cases added by hand. It's computed when it's read. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.testSet.get"],
+            path={"agentId": agent_id},
+            query={"projectId": project_id},
+            headers={},
+            response=_models.AgentTestSet,
+            timeout=timeout,
+        )
+
+    def list_cases(
+        self,
+        agent_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID,
+        include: Literal["retired"] | None = None,
+        kind: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TestCaseCollectionPage:
+        """List a project's cases of an agent's test set. `GET /v1/agents/{agentId}/test-set/cases`
+
+        Cursor-paginated, newest added first. A retired case comes back only with `include=retired`. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.testSet.listCases"],
+            path={"agentId": agent_id},
+            query={
+                "projectId": project_id,
+                "include": include,
+                "kind": kind,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.TestCaseCollectionPage,
+            timeout=timeout,
+        )
+
+    def add_case(
+        self,
+        agent_id: str | UUID,
+        body: _models.AddTestCaseBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TestCase:
+        """Add a case to an agent's test set. `POST /v1/agents/{agentId}/test-set/cases`
+
+        A case by hand, from a correction's body on one of the agent's finished runs. It has no status, isn't sorted, and nothing that counts corrections counts it (Improve's trigger, the expert queue's progress, a rule's yes-rate). The run's first correction or case stores a copy of its input and output. A comparison's replay can't be a case. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.testSet.addCase"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AddTestCaseBody, body, fields),
+            response=_models.TestCase,
+            timeout=timeout,
+        )
+
+    def retire_case(
+        self,
+        agent_id: str | UUID,
+        case_id: str | UUID,
+        body: _models.RetireTestCaseBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TestCase:
+        """Retire a case of an agent's test set. `POST /v1/agents/{agentId}/test-set/cases/{caseId}/retire`
+
+        A retired case stays listed, and no test run checks it again. There's no un-retire, and retiring a correction's case doesn't change the correction's status. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.testSet.retireCase"],
+            path={"agentId": agent_id, "caseId": case_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RetireTestCaseBody, body, fields),
+            response=_models.TestCase,
+            timeout=timeout,
+        )
+
+
 class AgentsPinnedResource:
     """`client.agents.pinned` — the `agents.pinned` operations."""
 
@@ -2952,7 +3088,7 @@ class AgentsPinnedResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Pin:
+    ) -> _models.PinAnswer:
         """Pin a version for a scope. `POST /v1/agents/{agentId}/pinned/pin`
 
         Pins `version` for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every pin is recorded, with who asked and why. Needs `pin` on the agent.
@@ -2963,7 +3099,7 @@ class AgentsPinnedResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.AgentPinBody, body, fields),
-            response=_models.Pin,
+            response=_models.PinAnswer,
             timeout=timeout,
         )
 
@@ -3043,7 +3179,7 @@ class AgentsPinnedResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Pin:
+    ) -> _models.PinAnswer:
         """Remove a scope's pinned version. `POST /v1/agents/{agentId}/pinned/unpin`
 
         Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a pin. Needs `pin` on the agent.
@@ -3054,7 +3190,7 @@ class AgentsPinnedResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.AgentUnpinBody, body, fields),
-            response=_models.Pin,
+            response=_models.PinAnswer,
             timeout=timeout,
         )
 
@@ -3094,6 +3230,7 @@ class AgentsResource:
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
+        self.test_set = AgentsTestSetResource(client)
         self.pinned = AgentsPinnedResource(client)
         self.release_gate = AgentsReleaseGateResource(client)
 
@@ -4682,24 +4819,24 @@ class SuggestedChangesResource:
     def pin(
         self,
         suggested_change_id: str | UUID,
-        body: _models.SuggestedChangeReasonBody | Mapping[str, Any] | None = None,
+        body: _models.SuggestedChangePinBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.SuggestedChange:
+    ) -> _models.SuggestedChangePinAnswer:
         """Pin a suggested change's version for its project. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
 
-        A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `pin` on the agent. Allowed from `ready`.
+        A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. A project on Latest takes the change as its Latest (`add-as-latest`); a pin there is refused with `409 pin-stops-latest`, before any rebuild, unless the body has `stopFollowingLatest: true`, which takes the project off Latest. Needs `pin` on the agent. Allowed from `ready`.
         """
         return self._client._request(
             _OPERATIONS["suggestedChanges.pin"],
             path={"suggestedChangeId": suggested_change_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.SuggestedChangeReasonBody, body, fields),
-            response=_models.SuggestedChange,
+            body=_body(_models.SuggestedChangePinBody, body, fields),
+            response=_models.SuggestedChangePinAnswer,
             timeout=timeout,
         )
 
@@ -4765,16 +4902,24 @@ class ImproveRunsResource:
         limit: int | None = None,
         cursor: str | None = None,
         agent_id: str | UUID | None = None,
+        project_id: str | UUID | None = None,
+        status: Literal["running", "completed", "failed", "cancelled"] | None = None,
         timeout: float | None = None,
     ) -> _models.ImproveRunCollectionPage:
         """List Improve runs. `GET /v1/improve-runs`
 
-        Newest first, only the Improve runs of agents the caller can read. `?agentId=` narrows them.
+        Newest first, only the Improve runs of agents the caller can read. `?agentId=`, `?projectId=` and `?status=` narrow them.
         """
         return self._client._request(
             _OPERATIONS["improveRuns.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "agentId": agent_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "agentId": agent_id,
+                "projectId": project_id,
+                "status": status,
+            },
             headers={},
             response=_models.ImproveRunCollectionPage,
             timeout=timeout,
@@ -4791,7 +4936,7 @@ class ImproveRunsResource:
     ) -> _models.ImproveRun:
         """Start an Improve run. `POST /v1/improve-runs`
 
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the Improve run, `running`. The Improve run works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the Improve run's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the Improve run to work on (`400 validation-failed`, with `details.reason`): for a settings Improve run, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt Improve run, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions an Improve run makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a pinned version for the whole tenant (`409 suggested-change-needs-pin`). No Improve run starts in a suspended project (`409 project-suspended`), and an Improve run going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.
+        Starts an Improve run for an agent in a project. From the version the project runs (pinned there, else its Latest), it looks for better wording (the prompt tier) or settings values (the settings tier) on the project's test set, learning from the project's open corrections sorted to improve, within the budget. Its best change is proven on every case of the test set, at the reference's repetitions: when it passes more cases than that version and fails none that passed, it becomes a suggested change for a reviewer. It answers at once with the Improve run, `running`. The readiness check (`POST /v1/improve-runs/check`) runs first: when something the Improve run needs is missing, it's refused with `409 improve-not-ready`, listing every missing item at once (`details.items`, each with its fix); while the agent has a running Improve run in the project, with `409 improve-run-running` (`details.improveRunId`). An Improve run going when its project is suspended ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.
         """
         return self._client._request(
             _OPERATIONS["improveRuns.start"],
@@ -4813,7 +4958,7 @@ class ImproveRunsResource:
     ) -> _models.ImproveRunCheck:
         """Check an Improve run. `POST /v1/improve-runs/check`
 
-        What an Improve run this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/improve-runs`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the Improve run's project doesn't reach answers `400 reference-out-of-scope`, exactly as starting one would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count times the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt Improve run's one-off drafting of its templates — an Improve run can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the Improve run is expected to spend its whole budget; the Improve run checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no Improve run starts) and takes no Idempotency-Key. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.
+        Whether the Improve run this input would start is ready, and what it's estimated to cost, before you start it. The body is the start body of `POST /v1/improve-runs`. `items` lists everything an Improve run needs, in a fixed order, missing or not; each missing one says where it's fixed (`repo`: in the agent's code, then a deploy; `kindgi`: in Kindgi) and how. `estimate.costUsd` prices each replay at the version's mean cost over its recent completed runs: the search's replays at most `budget.maxCostUsd`, plus the proof's (`estimate.basis.proofReplays`), which the budget doesn't cap. It's absent when the version has no cost history; `estimate.basis` gives the inputs. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and it leaves out a prompt Improve run's one-off drafting of its templates: an Improve run can cost more than the estimate. The Improve run checks its cost before each comparison, so the one already running can take it a little over, and its search starts no more once the cost reaches `budget.maxCostUsd`. It proves its best change after that, uncapped. With an Improve schedule on the agent and project, `month` is this UTC month's spend on their Improve runs against the schedule's monthly cap; only the schedule stops at the cap. It changes nothing (no Improve run starts) and takes no Idempotency-Key. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.
         """
         return self._client._request(
             _OPERATIONS["improveRuns.check"],
@@ -5336,7 +5481,7 @@ class ProvidersResource:
         )
 
 
-class CorrectionsResource:
+class CorrectionsResource(Thumbs):
     """`client.corrections` — the `corrections` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
@@ -5424,6 +5569,65 @@ class CorrectionsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.CreateCorrectionBody, body, fields),
             response=_models.Correction,
+            timeout=timeout,
+        )
+
+    def export(
+        self,
+        /,
+        *,
+        format: Literal["csv", "jsonl"] | None = None,
+        run_id: str | UUID | None = None,
+        agent_id: str | UUID,
+        agent_version: str | None = None,
+        flow_id: str | UUID | None = None,
+        status: Literal[
+            "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+        ]
+        | list[
+            Literal[
+                "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+            ]
+        ]
+        | None = None,
+        sorted_to: Literal["none", "improve", "developer", "owner"]
+        | list[Literal["none", "improve", "developer", "owner"]]
+        | None = None,
+        from_: Literal["experts", "end-users", "all"] | None = None,
+        made_by: Literal["me"] | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        corrector_group_id: str | UUID | None = None,
+        participant_id: str | UUID | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> Iterator[bytes]:
+        """Export corrections. `GET /v1/corrections/export`
+
+        Every correction of an agent the list's filters match, streamed as CSV (`format=csv`, the default: RFC 4180, UTF-8, a header row) or JSON lines (`format=jsonl`: one correction per line, as the list sends it). Each comes only when the caller may read its project, and a project scope the caller can't read is a 403 before anything is sent. The run's own text isn't exported, only its id. A CSV field that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, so a spreadsheet doesn't run it. Recorded in the audit log: `corrections-export-started` before the first row (when it can't be written, a 500 and nothing is sent), and `corrections-exported` when the stream ends, with the rows sent and `succeeded` or `failed`.
+        """
+        return self._client._stream_bytes(
+            _OPERATIONS["corrections.export"],
+            path={},
+            query={
+                "format": format,
+                "runId": run_id,
+                "agentId": agent_id,
+                "agentVersion": agent_version,
+                "flowId": flow_id,
+                "status": status,
+                "sortedTo": sorted_to,
+                "from": from_,
+                "madeBy": made_by,
+                "since": since,
+                "until": until,
+                "correctorGroupId": corrector_group_id,
+                "participantId": participant_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+            },
+            headers={},
             timeout=timeout,
         )
 
@@ -6436,7 +6640,7 @@ class TestSetsResource:
     ) -> _models.TestSetCollectionPage:
         """List tenant test sets. `GET /v1/test-sets`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated. A `corrections` test set (an agent's frozen versions, and those built from corrections before) is listed only with `?kind=corrections`: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).
         """
         return self._client._request(
             _OPERATIONS["testSets.list"],
@@ -6497,30 +6701,6 @@ class TestSetsResource:
             query={"projectId": project_id},
             headers={},
             response=_models.TestSet,
-            timeout=timeout,
-        )
-
-    def build_from_corrections(
-        self,
-        test_set_id: str | UUID,
-        body: _models.BuildCorrectedTestSetBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.BuildCorrectedTestSetResult:
-        """Build a test set from corrections. `POST /v1/test-sets/{testSetId}/versions/from-corrections`
-
-        Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project. A `testSetId` that starts with `agent.` is refused with `400 bad-input`: those are agents' own test sets, whose versions only a check or a test run makes.
-        """
-        return self._client._request(
-            _OPERATIONS["testSets.buildFromCorrections"],
-            path={"testSetId": test_set_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.BuildCorrectedTestSetBody, body, fields),
-            response=_models.BuildCorrectedTestSetResult,
             timeout=timeout,
         )
 
@@ -6762,6 +6942,22 @@ class BlocksResource:
             timeout=timeout,
         )
 
+    def runs_in(
+        self, block_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.BlockRunsInList:
+        """List where a data block's versions run. `GET /v1/blocks/{blockId}/runs-in`
+
+        Where the block's versions run now: one row for each project, and each segment pin inside one, whose running version of an agent pins a version of the block (as a prompt, a settings block or its model settings). Each agent's projects are the ones `agents.projects` lists, and what runs in each is what it says: a pin that covers the project, else its Latest. Only the projects the caller can read are named, and an agent version the caller can't see is left out. A block no running version pins answers an empty list. Without the agents' pins and Latest in this runtime, `501 runs-in-unsupported`.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.runsIn"],
+            path={"blockId": block_id},
+            query={},
+            headers={},
+            response=_models.BlockRunsInList,
+            timeout=timeout,
+        )
+
 
 class TestRunsResource:
     """`client.test_runs` — the `testRuns` operations."""
@@ -6781,7 +6977,7 @@ class TestRunsResource:
     ) -> _models.StartTestRunResult:
         """Start a test run against a test set. `POST /v1/test-sets/{testSetId}/runs`
 
-        Dispatches a test run against the latest version of the test set. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
+        Dispatches a test run against the latest version of the test set. An agent's own test set (`agent.<agentId>.<projectId>`, read at `GET /v1/agents/{agentId}/test-set`) is frozen first, as a suggested change's check freezes it, and the run records the frozen version as `testSetVersion`; a dry run freezes it too; it runs only its agent, in its project. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
         """
         return self._client._request(
             _OPERATIONS["testRuns.start"],
@@ -7692,6 +7888,28 @@ class DeploymentsResource:
             timeout=timeout,
         )
 
+    def check(
+        self,
+        body: _models.DeployCheckBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeployCheckResult:
+        """Check a deploy's blocks against what runs. `POST /v1/deployments/check`
+
+        What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. It takes the deploy's own right: admin on `projectId`, else on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["deployments.check"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.DeployCheckBody, body, fields),
+            response=_models.DeployCheckResult,
+            timeout=timeout,
+        )
+
     def get(
         self, deployment_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.DeploymentRecord:
@@ -7756,7 +7974,7 @@ class DeploymentsResource:
     ) -> _models.DeploymentPromotion:
         """Promote a deployment to the next environment. `POST /v1/deployments/{deploymentId}/promotions`
 
-        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `pin`, the move commits first; then each carried agent is pinned through its target scope's release gate, and each carried flow is pinned. A release gate that refuses or holds an agent isn't an error: its `pinned` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.pinned` and `details.pinnedFlows`.
+        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `pin`, the build's blocks (`contents.blocks`) are checked first against what runs in the target, as a deploy's are against what runs: a newer version of one running there stops the promotion with nothing written, unless `replace` names the block, and `blockCheck` answers what the check found. Then the move commits; then each carried agent is pinned through its target scope's release gate, and each carried flow is pinned. `pin` is the ask to take a target project that follows Latest off it: such a pin gets no `409 pin-stops-latest`, and records `stoppedFollowingLatest`. A release gate that refuses or holds an agent isn't an error: its `pinned` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.pinned` and `details.pinnedFlows`.
         """
         return self._client._request(
             _OPERATIONS["deployments.promote"],
@@ -8801,6 +9019,58 @@ class ProjectsProductionResource:
         )
 
 
+class ProjectsRepoConnectionResource:
+    """`client.projects.repo_connection` — the `projects.repoConnection` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def set(
+        self,
+        project_id: str | UUID,
+        body: _models.ProjectRepoConnectionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ProjectRepoConnection:
+        """Set a project's repo connection. `PUT /v1/projects/{projectId}/repo-connection`
+
+        The company-wide GitHub connection the project opens its block changes' pull requests through. For the project's admins (`admin` on it). It replaces any connection set before; setting the one already set answers 200 unchanged. The connection must be the tenant's, made through the GitHub app entry, and owned by the company: 404 `connection-not-found` for one that isn't there or was removed, and 400 `repo-connection-not-company-github` for any other. The project keeps only the id: a connection removed later reads as none. 501 `repo-connection-unsupported` from a runtime that can't keep one, or has no connections.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.repoConnection.set"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProjectRepoConnectionBody, body, fields),
+            response=_models.ProjectRepoConnection,
+            timeout=timeout,
+        )
+
+    def clear(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ProjectRepoConnection:
+        """Clear a project's repo connection. `DELETE /v1/projects/{projectId}/repo-connection`
+
+        After this, a block change pinned in the project, or added as its latest version, opens no pull request. For the project's admins (`admin` on it). Clearing a project with none answers 200 unchanged. 501 `repo-connection-unsupported` from a runtime that can't keep one.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.repoConnection.clear"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ProjectRepoConnection,
+            timeout=timeout,
+        )
+
+
 class ProjectsTeamGrantsResource:
     """`client.projects.team_grants` — the `projects.teamGrants` operations."""
 
@@ -9133,6 +9403,7 @@ class ProjectsResource:
         self.access = ProjectsAccessResource(client)
         self.pinned_versions = ProjectsPinnedVersionsResource(client)
         self.production = ProjectsProductionResource(client)
+        self.repo_connection = ProjectsRepoConnectionResource(client)
         self.team_grants = ProjectsTeamGrantsResource(client)
         self.sites = ProjectsSitesResource(client)
 
@@ -9892,7 +10163,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Register a cron schedule. `POST /v1/schedules`
 
-        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. An `improve` schedule is in the project it improves, one per agent and project (a second is `409 schedule-exists`), and needs `publish` on the agent as well as `write` on the project. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return self._client._request(
             _OPERATIONS["schedules.register"],
@@ -9956,7 +10227,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Pause a cron schedule. `POST /v1/schedules/{triggerId}/pause`
 
-        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner or a project admin pauses it; a shared one, any writer of its project.
+        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner or a project admin pauses it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may pause it without `publish`.
         """
         return self._client._request(
             _OPERATIONS["schedules.pause"],
@@ -9977,7 +10248,7 @@ class SchedulesResource:
     ) -> _models.ScheduleRecord:
         """Resume a cron schedule. `POST /v1/schedules/{triggerId}/resume`
 
-        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner or a project admin resumes it; a shared one, any writer of its project.
+        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner or a project admin resumes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent.
         """
         return self._client._request(
             _OPERATIONS["schedules.resume"],
@@ -9998,7 +10269,7 @@ class SchedulesResource:
     ) -> _models.ScheduleUnregisterResult:
         """Soft-delete a cron schedule (tombstone). `POST /v1/schedules/{triggerId}/unregister`
 
-        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project.
+        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
         """
         return self._client._request(
             _OPERATIONS["schedules.unregister"],
@@ -12631,6 +12902,109 @@ class AsyncApprovalsResource:
         )
 
 
+class AsyncAgentsTestSetResource:
+    """`client.agents.test_set` — the `agents.testSet` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def get(
+        self, agent_id: str | UUID, /, *, project_id: str | UUID, timeout: float | None = None
+    ) -> _models.AgentTestSet:
+        """A project's test set of an agent. `GET /v1/agents/{agentId}/test-set`
+
+        How many cases the agent's test set has in the project. Its cases are the agent's corrections there, except Won't fix and Removed ones (Fixed and With the owner included), and cases added by hand. It's computed when it's read. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.testSet.get"],
+            path={"agentId": agent_id},
+            query={"projectId": project_id},
+            headers={},
+            response=_models.AgentTestSet,
+            timeout=timeout,
+        )
+
+    async def list_cases(
+        self,
+        agent_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID,
+        include: Literal["retired"] | None = None,
+        kind: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TestCaseCollectionPage:
+        """List a project's cases of an agent's test set. `GET /v1/agents/{agentId}/test-set/cases`
+
+        Cursor-paginated, newest added first. A retired case comes back only with `include=retired`. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.testSet.listCases"],
+            path={"agentId": agent_id},
+            query={
+                "projectId": project_id,
+                "include": include,
+                "kind": kind,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.TestCaseCollectionPage,
+            timeout=timeout,
+        )
+
+    async def add_case(
+        self,
+        agent_id: str | UUID,
+        body: _models.AddTestCaseBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TestCase:
+        """Add a case to an agent's test set. `POST /v1/agents/{agentId}/test-set/cases`
+
+        A case by hand, from a correction's body on one of the agent's finished runs. It has no status, isn't sorted, and nothing that counts corrections counts it (Improve's trigger, the expert queue's progress, a rule's yes-rate). The run's first correction or case stores a copy of its input and output. A comparison's replay can't be a case. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.testSet.addCase"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AddTestCaseBody, body, fields),
+            response=_models.TestCase,
+            timeout=timeout,
+        )
+
+    async def retire_case(
+        self,
+        agent_id: str | UUID,
+        case_id: str | UUID,
+        body: _models.RetireTestCaseBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TestCase:
+        """Retire a case of an agent's test set. `POST /v1/agents/{agentId}/test-set/cases/{caseId}/retire`
+
+        A retired case stays listed, and no test run checks it again. There's no un-retire, and retiring a correction's case doesn't change the correction's status. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.testSet.retireCase"],
+            path={"agentId": agent_id, "caseId": case_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RetireTestCaseBody, body, fields),
+            response=_models.TestCase,
+            timeout=timeout,
+        )
+
+
 class AsyncAgentsPinnedResource:
     """`client.agents.pinned` — the `agents.pinned` operations."""
 
@@ -12684,7 +13058,7 @@ class AsyncAgentsPinnedResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Pin:
+    ) -> _models.PinAnswer:
         """Pin a version for a scope. `POST /v1/agents/{agentId}/pinned/pin`
 
         Pins `version` for `scope`: runs in that scope that don't name a version use it, from the next run. Open conversations keep their version. The version must be registered and active. Every pin is recorded, with who asked and why. Needs `pin` on the agent.
@@ -12695,7 +13069,7 @@ class AsyncAgentsPinnedResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.AgentPinBody, body, fields),
-            response=_models.Pin,
+            response=_models.PinAnswer,
             timeout=timeout,
         )
 
@@ -12775,7 +13149,7 @@ class AsyncAgentsPinnedResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.Pin:
+    ) -> _models.PinAnswer:
         """Remove a scope's pinned version. `POST /v1/agents/{agentId}/pinned/unpin`
 
         Removes the scope's own pin: its runs use the next scope up (and the latest when nothing is pinned). Recorded like a pin. Needs `pin` on the agent.
@@ -12786,7 +13160,7 @@ class AsyncAgentsPinnedResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.AgentUnpinBody, body, fields),
-            response=_models.Pin,
+            response=_models.PinAnswer,
             timeout=timeout,
         )
 
@@ -12826,6 +13200,7 @@ class AsyncAgentsResource:
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
+        self.test_set = AsyncAgentsTestSetResource(client)
         self.pinned = AsyncAgentsPinnedResource(client)
         self.release_gate = AsyncAgentsReleaseGateResource(client)
 
@@ -14416,24 +14791,24 @@ class AsyncSuggestedChangesResource:
     async def pin(
         self,
         suggested_change_id: str | UUID,
-        body: _models.SuggestedChangeReasonBody | Mapping[str, Any] | None = None,
+        body: _models.SuggestedChangePinBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
-    ) -> _models.SuggestedChange:
+    ) -> _models.SuggestedChangePinAnswer:
         """Pin a suggested change's version for its project. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
 
-        A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `pin` on the agent. Allowed from `ready`.
+        A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. A project on Latest takes the change as its Latest (`add-as-latest`); a pin there is refused with `409 pin-stops-latest`, before any rebuild, unless the body has `stopFollowingLatest: true`, which takes the project off Latest. Needs `pin` on the agent. Allowed from `ready`.
         """
         return await self._client._request(
             _OPERATIONS["suggestedChanges.pin"],
             path={"suggestedChangeId": suggested_change_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.SuggestedChangeReasonBody, body, fields),
-            response=_models.SuggestedChange,
+            body=_body(_models.SuggestedChangePinBody, body, fields),
+            response=_models.SuggestedChangePinAnswer,
             timeout=timeout,
         )
 
@@ -14499,16 +14874,24 @@ class AsyncImproveRunsResource:
         limit: int | None = None,
         cursor: str | None = None,
         agent_id: str | UUID | None = None,
+        project_id: str | UUID | None = None,
+        status: Literal["running", "completed", "failed", "cancelled"] | None = None,
         timeout: float | None = None,
     ) -> _models.ImproveRunCollectionPage:
         """List Improve runs. `GET /v1/improve-runs`
 
-        Newest first, only the Improve runs of agents the caller can read. `?agentId=` narrows them.
+        Newest first, only the Improve runs of agents the caller can read. `?agentId=`, `?projectId=` and `?status=` narrow them.
         """
         return await self._client._request(
             _OPERATIONS["improveRuns.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "agentId": agent_id},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "agentId": agent_id,
+                "projectId": project_id,
+                "status": status,
+            },
             headers={},
             response=_models.ImproveRunCollectionPage,
             timeout=timeout,
@@ -14525,7 +14908,7 @@ class AsyncImproveRunsResource:
     ) -> _models.ImproveRun:
         """Start an Improve run. `POST /v1/improve-runs`
 
-        The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as a suggested change, which waits for a reviewer when requested. It answers at once with the Improve run, `running`. The Improve run works in one project, as an improve schedule does: `projectId`, else the scope's project, else (a tenant or org scope) the agent version's. The test set must be one that project reaches, and the Improve run's test runs run there; its suggested change's version is made where the agent's versions are. Checked first: the version is active and has something for the Improve run to work on (`400 validation-failed`, with `details.reason`): for a settings Improve run, a settings block with tunable keys (else `no-tunable-keys`), and for a prompt Improve run, instructions from a pinned prompt block (else `no-pinned-prompt-block`); the agent registry takes the versions an Improve run makes (`409 registry-read-only`; under `kindgi dev`, only for the whole tenant, since the pack's files serve every scope), and the agent has a pinned version for the whole tenant (`409 suggested-change-needs-pin`). No Improve run starts in a suspended project (`409 project-suspended`), and an Improve run going when it is ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.
+        Starts an Improve run for an agent in a project. From the version the project runs (pinned there, else its Latest), it looks for better wording (the prompt tier) or settings values (the settings tier) on the project's test set, learning from the project's open corrections sorted to improve, within the budget. Its best change is proven on every case of the test set, at the reference's repetitions: when it passes more cases than that version and fails none that passed, it becomes a suggested change for a reviewer. It answers at once with the Improve run, `running`. The readiness check (`POST /v1/improve-runs/check`) runs first: when something the Improve run needs is missing, it's refused with `409 improve-not-ready`, listing every missing item at once (`details.items`, each with its fix); while the agent has a running Improve run in the project, with `409 improve-run-running` (`details.improveRunId`). An Improve run going when its project is suspended ends `cancelled`, with the reason in `cancelReason`. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.
         """
         return await self._client._request(
             _OPERATIONS["improveRuns.start"],
@@ -14547,7 +14930,7 @@ class AsyncImproveRunsResource:
     ) -> _models.ImproveRunCheck:
         """Check an Improve run. `POST /v1/improve-runs/check`
 
-        What an Improve run this input would start is estimated to cost, before you start it. The body is the start body of `POST /v1/improve-runs`, resolved and reach-checked the same way: an unknown or inactive `fromVersion` (or the version serving the scope) answers `404 agent-version-not-found`, and a test set or scope the Improve run's project doesn't reach answers `400 reference-out-of-scope`, exactly as starting one would. `estimatedCostUsd` is `min(budget.maxCostUsd, the replay count times the version's mean cost over its recent completed runs)` — clamped to the budget cap — and is absent when the version has no cost history; `basis` gives the unclamped inputs: the replay count, and that mean when there is one. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and the estimate leaves out a prompt Improve run's one-off drafting of its templates — an Improve run can cost more than the estimate. Because `estimatedCostUsd` is clamped to `budget.maxCostUsd`, an estimate at the cap means the Improve run is expected to spend its whole budget; the Improve run checks its cost before each comparison, so the one already running can take it a little over, and it starts no more once the cost reaches `budget.maxCostUsd`. It changes nothing (no Improve run starts) and takes no Idempotency-Key. Needs `publish` on the agent, and `write` on the Improve run's project when it isn't the version's. Without Improve runs in this runtime, `501 improve-unsupported`.
+        Whether the Improve run this input would start is ready, and what it's estimated to cost, before you start it. The body is the start body of `POST /v1/improve-runs`. `items` lists everything an Improve run needs, in a fixed order, missing or not; each missing one says where it's fixed (`repo`: in the agent's code, then a deploy; `kindgi`: in Kindgi) and how. `estimate.costUsd` prices each replay at the version's mean cost over its recent completed runs: the search's replays at most `budget.maxCostUsd`, plus the proof's (`estimate.basis.proofReplays`), which the budget doesn't cap. It's absent when the version has no cost history; `estimate.basis` gives the inputs. The estimate prices every replay at that one mean, so a candidate whose prompt or settings cost more or less per run isn't captured, and it leaves out a prompt Improve run's one-off drafting of its templates: an Improve run can cost more than the estimate. The Improve run checks its cost before each comparison, so the one already running can take it a little over, and its search starts no more once the cost reaches `budget.maxCostUsd`. It proves its best change after that, uncapped. With an Improve schedule on the agent and project, `month` is this UTC month's spend on their Improve runs against the schedule's monthly cap; only the schedule stops at the cap. It changes nothing (no Improve run starts) and takes no Idempotency-Key. Needs `publish` on the agent; for an agent more than one project serves, `write` where its versions are made. Without Improve runs in this runtime, `501 improve-unsupported`.
         """
         return await self._client._request(
             _OPERATIONS["improveRuns.check"],
@@ -15070,7 +15453,7 @@ class AsyncProvidersResource:
         )
 
 
-class AsyncCorrectionsResource:
+class AsyncCorrectionsResource(AsyncThumbs):
     """`client.corrections` — the `corrections` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
@@ -15158,6 +15541,65 @@ class AsyncCorrectionsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.CreateCorrectionBody, body, fields),
             response=_models.Correction,
+            timeout=timeout,
+        )
+
+    def export(
+        self,
+        /,
+        *,
+        format: Literal["csv", "jsonl"] | None = None,
+        run_id: str | UUID | None = None,
+        agent_id: str | UUID,
+        agent_version: str | None = None,
+        flow_id: str | UUID | None = None,
+        status: Literal[
+            "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+        ]
+        | list[
+            Literal[
+                "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+            ]
+        ]
+        | None = None,
+        sorted_to: Literal["none", "improve", "developer", "owner"]
+        | list[Literal["none", "improve", "developer", "owner"]]
+        | None = None,
+        from_: Literal["experts", "end-users", "all"] | None = None,
+        made_by: Literal["me"] | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        corrector_group_id: str | UUID | None = None,
+        participant_id: str | UUID | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> AsyncIterator[bytes]:
+        """Export corrections. `GET /v1/corrections/export`
+
+        Every correction of an agent the list's filters match, streamed as CSV (`format=csv`, the default: RFC 4180, UTF-8, a header row) or JSON lines (`format=jsonl`: one correction per line, as the list sends it). Each comes only when the caller may read its project, and a project scope the caller can't read is a 403 before anything is sent. The run's own text isn't exported, only its id. A CSV field that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, so a spreadsheet doesn't run it. Recorded in the audit log: `corrections-export-started` before the first row (when it can't be written, a 500 and nothing is sent), and `corrections-exported` when the stream ends, with the rows sent and `succeeded` or `failed`.
+        """
+        return self._client._stream_bytes(
+            _OPERATIONS["corrections.export"],
+            path={},
+            query={
+                "format": format,
+                "runId": run_id,
+                "agentId": agent_id,
+                "agentVersion": agent_version,
+                "flowId": flow_id,
+                "status": status,
+                "sortedTo": sorted_to,
+                "from": from_,
+                "madeBy": made_by,
+                "since": since,
+                "until": until,
+                "correctorGroupId": corrector_group_id,
+                "participantId": participant_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+            },
+            headers={},
             timeout=timeout,
         )
 
@@ -16174,7 +16616,7 @@ class AsyncTestSetsResource:
     ) -> _models.TestSetCollectionPage:
         """List tenant test sets. `GET /v1/test-sets`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated. A `corrections` test set (an agent's frozen versions, and those built from corrections before) is listed only with `?kind=corrections`: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).
         """
         return await self._client._request(
             _OPERATIONS["testSets.list"],
@@ -16235,30 +16677,6 @@ class AsyncTestSetsResource:
             query={"projectId": project_id},
             headers={},
             response=_models.TestSet,
-            timeout=timeout,
-        )
-
-    async def build_from_corrections(
-        self,
-        test_set_id: str | UUID,
-        body: _models.BuildCorrectedTestSetBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.BuildCorrectedTestSetResult:
-        """Build a test set from corrections. `POST /v1/test-sets/{testSetId}/versions/from-corrections`
-
-        Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project. A `testSetId` that starts with `agent.` is refused with `400 bad-input`: those are agents' own test sets, whose versions only a check or a test run makes.
-        """
-        return await self._client._request(
-            _OPERATIONS["testSets.buildFromCorrections"],
-            path={"testSetId": test_set_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.BuildCorrectedTestSetBody, body, fields),
-            response=_models.BuildCorrectedTestSetResult,
             timeout=timeout,
         )
 
@@ -16500,6 +16918,22 @@ class AsyncBlocksResource:
             timeout=timeout,
         )
 
+    async def runs_in(
+        self, block_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.BlockRunsInList:
+        """List where a data block's versions run. `GET /v1/blocks/{blockId}/runs-in`
+
+        Where the block's versions run now: one row for each project, and each segment pin inside one, whose running version of an agent pins a version of the block (as a prompt, a settings block or its model settings). Each agent's projects are the ones `agents.projects` lists, and what runs in each is what it says: a pin that covers the project, else its Latest. Only the projects the caller can read are named, and an agent version the caller can't see is left out. A block no running version pins answers an empty list. Without the agents' pins and Latest in this runtime, `501 runs-in-unsupported`.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.runsIn"],
+            path={"blockId": block_id},
+            query={},
+            headers={},
+            response=_models.BlockRunsInList,
+            timeout=timeout,
+        )
+
 
 class AsyncTestRunsResource:
     """`client.test_runs` — the `testRuns` operations."""
@@ -16519,7 +16953,7 @@ class AsyncTestRunsResource:
     ) -> _models.StartTestRunResult:
         """Start a test run against a test set. `POST /v1/test-sets/{testSetId}/runs`
 
-        Dispatches a test run against the latest version of the test set. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
+        Dispatches a test run against the latest version of the test set. An agent's own test set (`agent.<agentId>.<projectId>`, read at `GET /v1/agents/{agentId}/test-set`) is frozen first, as a suggested change's check freezes it, and the run records the frozen version as `testSetVersion`; a dry run freezes it too; it runs only its agent, in its project. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
         """
         return await self._client._request(
             _OPERATIONS["testRuns.start"],
@@ -17436,6 +17870,28 @@ class AsyncDeploymentsResource:
             timeout=timeout,
         )
 
+    async def check(
+        self,
+        body: _models.DeployCheckBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeployCheckResult:
+        """Check a deploy's blocks against what runs. `POST /v1/deployments/check`
+
+        What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. It takes the deploy's own right: admin on `projectId`, else on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["deployments.check"],
+            path={},
+            query={},
+            headers={},
+            body=_body(_models.DeployCheckBody, body, fields),
+            response=_models.DeployCheckResult,
+            timeout=timeout,
+        )
+
     async def get(
         self, deployment_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.DeploymentRecord:
@@ -17500,7 +17956,7 @@ class AsyncDeploymentsResource:
     ) -> _models.DeploymentPromotion:
         """Promote a deployment to the next environment. `POST /v1/deployments/{deploymentId}/promotions`
 
-        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `pin`, the move commits first; then each carried agent is pinned through its target scope's release gate, and each carried flow is pinned. A release gate that refuses or holds an agent isn't an error: its `pinned` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.pinned` and `details.pinnedFlows`.
+        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `pin`, the build's blocks (`contents.blocks`) are checked first against what runs in the target, as a deploy's are against what runs: a newer version of one running there stops the promotion with nothing written, unless `replace` names the block, and `blockCheck` answers what the check found. Then the move commits; then each carried agent is pinned through its target scope's release gate, and each carried flow is pinned. `pin` is the ask to take a target project that follows Latest off it: such a pin gets no `409 pin-stops-latest`, and records `stoppedFollowingLatest`. A release gate that refuses or holds an agent isn't an error: its `pinned` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.pinned` and `details.pinnedFlows`.
         """
         return await self._client._request(
             _OPERATIONS["deployments.promote"],
@@ -18545,6 +19001,58 @@ class AsyncProjectsProductionResource:
         )
 
 
+class AsyncProjectsRepoConnectionResource:
+    """`client.projects.repo_connection` — the `projects.repoConnection` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def set(
+        self,
+        project_id: str | UUID,
+        body: _models.ProjectRepoConnectionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ProjectRepoConnection:
+        """Set a project's repo connection. `PUT /v1/projects/{projectId}/repo-connection`
+
+        The company-wide GitHub connection the project opens its block changes' pull requests through. For the project's admins (`admin` on it). It replaces any connection set before; setting the one already set answers 200 unchanged. The connection must be the tenant's, made through the GitHub app entry, and owned by the company: 404 `connection-not-found` for one that isn't there or was removed, and 400 `repo-connection-not-company-github` for any other. The project keeps only the id: a connection removed later reads as none. 501 `repo-connection-unsupported` from a runtime that can't keep one, or has no connections.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.repoConnection.set"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProjectRepoConnectionBody, body, fields),
+            response=_models.ProjectRepoConnection,
+            timeout=timeout,
+        )
+
+    async def clear(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ProjectRepoConnection:
+        """Clear a project's repo connection. `DELETE /v1/projects/{projectId}/repo-connection`
+
+        After this, a block change pinned in the project, or added as its latest version, opens no pull request. For the project's admins (`admin` on it). Clearing a project with none answers 200 unchanged. 501 `repo-connection-unsupported` from a runtime that can't keep one.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.repoConnection.clear"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ProjectRepoConnection,
+            timeout=timeout,
+        )
+
+
 class AsyncProjectsTeamGrantsResource:
     """`client.projects.team_grants` — the `projects.teamGrants` operations."""
 
@@ -18877,6 +19385,7 @@ class AsyncProjectsResource:
         self.access = AsyncProjectsAccessResource(client)
         self.pinned_versions = AsyncProjectsPinnedVersionsResource(client)
         self.production = AsyncProjectsProductionResource(client)
+        self.repo_connection = AsyncProjectsRepoConnectionResource(client)
         self.team_grants = AsyncProjectsTeamGrantsResource(client)
         self.sites = AsyncProjectsSitesResource(client)
 
@@ -19638,7 +20147,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Register a cron schedule. `POST /v1/schedules`
 
-        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        Registers a `kind=cron` trigger. `nextFireAt` is precomputed from the cron expression at register time; the cron scheduler in the runtime fires due triggers. Malformed cron expressions return 400 `trigger-invalid-config` without registering. An `improve` schedule is in the project it improves, one per agent and project (a second is `409 schedule-exists`), and needs `publish` on the agent as well as `write` on the project. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the schedule's project, each id must be a tool what it runs calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return await self._client._request(
             _OPERATIONS["schedules.register"],
@@ -19702,7 +20211,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Pause a cron schedule. `POST /v1/schedules/{triggerId}/pause`
 
-        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner or a project admin pauses it; a shared one, any writer of its project.
+        Idempotent-per-state: pausing an already-paused row returns 409 `trigger-already-in-state`. A personal schedule's owner or a project admin pauses it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may pause it without `publish`.
         """
         return await self._client._request(
             _OPERATIONS["schedules.pause"],
@@ -19723,7 +20232,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleRecord:
         """Resume a cron schedule. `POST /v1/schedules/{triggerId}/resume`
 
-        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner or a project admin resumes it; a shared one, any writer of its project.
+        Recomputes `nextFireAt` so the scheduler picks up the resumed row on its next tick. A personal schedule's owner or a project admin resumes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent.
         """
         return await self._client._request(
             _OPERATIONS["schedules.resume"],
@@ -19744,7 +20253,7 @@ class AsyncSchedulesResource:
     ) -> _models.ScheduleUnregisterResult:
         """Soft-delete a cron schedule (tombstone). `POST /v1/schedules/{triggerId}/unregister`
 
-        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project.
+        Tombstones the schedule; the cron scheduler ignores tombstoned triggers. Retention may hard-remove tombstoned triggers after the tombstone window. A personal schedule's owner or a project admin deletes it; a shared one, any writer of its project. An Improve schedule also takes `publish` on its agent; an admin of its project may delete it without `publish`.
         """
         return await self._client._request(
             _OPERATIONS["schedules.unregister"],

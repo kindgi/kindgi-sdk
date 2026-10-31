@@ -798,7 +798,7 @@ describe('schedules of what an order carries', () => {
 
   test('an improve schedule in prod is write where the agent gets its new versions', async () => {
     const { call } = harness();
-    const improve = { improve: { agentId: SERVED, scope: { kind: 'project', projectId: PROD } } };
+    const improve = { improve: { agentId: SERVED, projectId: PROD } };
     const prod = await call('prod-ops', 'POST', '/v1/schedules', schedule(improve));
     expect(prod.status, prod.text).toBe(403);
     expect(prod.body.error.message).toContain(

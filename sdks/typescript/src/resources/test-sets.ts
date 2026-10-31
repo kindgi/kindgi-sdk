@@ -14,8 +14,6 @@
 
 import { type InvalidRequestError, KindgiApiError } from '../errors.js';
 import type {
-  BuildCorrectedTestSetBody,
-  BuildCorrectedTestSetResult,
   CorrectedTestCase,
   CorrectedTestCaseCollectionPage,
   PublishTestSetBody,
@@ -46,9 +44,6 @@ export type UnregisterTestSetVersionResult = UnregisterTestSetResult;
 // Note: the wire type is called `UnregisterTestSetResult`
 // (test-set-scoped, though the route path is versioned).
 
-/** Body of `POST /v1/test-sets/{testSetId}/versions/from-corrections`. */
-export type BuildFromCorrectionsInput = BuildCorrectedTestSetBody;
-export type BuildFromCorrectionsResult = BuildCorrectedTestSetResult;
 /** One case of a `corrections` test set: a copy of a corrected run with its items' corrections summed up. */
 export type TestSetCase = CorrectedTestCase;
 export type TestSetCasePage = CorrectedTestCaseCollectionPage;
@@ -67,6 +62,11 @@ export interface PublishTestSetOptions {
 export interface ListTestSetsFilter {
   readonly limit?: number;
   readonly cursor?: string;
+  /**
+   * One kind only. `corrections` is listed only when asked for here: an
+   * agent's corrections are its test set (`agents.testSet`), and its frozen
+   * versions are `corrections` test sets.
+   */
   readonly kind?: TestSetKind;
   readonly name?: string;
   readonly scopeKind?: ScopeKind;
@@ -107,19 +107,6 @@ export interface TestSetsClient {
   list(filter?: ListTestSetsFilter): Promise<TestSetPage>;
   /** @wire GET /v1/test-sets/:testSetId — latest active version (`GetLatestOptions`) */
   get(testSetId: string, options?: GetLatestOptions): Promise<TestSet>;
-  /**
-   * Publish a `corrections` test set version whose cases are copies of corrected runs
-   * of an agent or flow, with each item's corrections summed up. Needs
-   * `admin` on `input.projectId`. A `testSetId` starting `agent.` is
-   * refused here with `invalid-request`, as `publish` refuses it.
-   *
-   * @wire POST /v1/test-sets/:testSetId/versions/from-corrections
-   */
-  buildFromCorrections(
-    testSetId: string,
-    input: BuildFromCorrectionsInput,
-    options?: { readonly idempotencyKey?: string },
-  ): Promise<BuildFromCorrectionsResult>;
   /**
    * The cases of a `corrections` test set version, in stored order.
    *
@@ -199,15 +186,6 @@ export function makeTestSetsClient(transport: Transport): TestSetsClient {
         method: 'GET',
         path: `/v1/test-sets/${seg(testSetId)}`,
         query: { ...(options?.projectId !== undefined && { projectId: options.projectId }) },
-      });
-    },
-    async buildFromCorrections(testSetId, input, options) {
-      refuseAgentTestSetId(testSetId, '/testSetId');
-      return transport.request<BuildFromCorrectionsResult>({
-        method: 'POST',
-        path: `/v1/test-sets/${seg(testSetId)}/versions/from-corrections`,
-        body: input,
-        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },
     async listCases(testSetId, version, query) {

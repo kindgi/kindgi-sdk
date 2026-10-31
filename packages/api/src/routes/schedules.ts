@@ -33,7 +33,6 @@ import {
   type UpdateCronTriggerInput,
 } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
-import { agentPinScopeToWire, parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
 import { parseImproveScheduleInput } from './improve-runs.js';
 import { clampLimit } from './pagination.js';
 import {
@@ -102,6 +101,18 @@ import { UUID_RE } from './uuid-param.js';
  * What it runs, when more than one project serves it (`item-rights.ts`):
  * from a schedule in one of them, that project's right, as a run naming
  * it; an Improve run, `write` where the agent's versions are made.
+ *
+ * An Improve schedule (`improve: { agentId, projectId }`) is in the project
+ * it improves, and an agent and project have one at most: a second is
+ * `409 schedule-exists`. Registering or changing one takes `write` on the
+ * project, as any schedule does, and `publish` on the agent, as starting an
+ * Improve run does; so do resuming and firing it, and the owner rule above
+ * holds. Pausing or deleting one takes the same, or its project's admin
+ * without `publish`, as its runs count toward the project's month cap.
+ * Retargeting one to an agent or a flow takes what registering that takes.
+ * Reading one takes `read` on its project or on its agent, as an Improve
+ * run's read does. Its read says when its month's cap has paused it
+ * (`pausedUntil`, `pausedReason`).
  */
 export function schedulesRouter(
   binding: TriggerRegistryBinding,
@@ -186,10 +197,14 @@ export function schedulesRouter(
     return denied(c, ...targetAccess(target));
   }
 
-  /** The schedule, if it is one (another kind's id is not found here), and the caller may `action` it. */
+  /**
+   * The schedule, if it is one (another kind's id is not found here), and the
+   * caller may `action` it. `stop` is pausing or unregistering it: `write`,
+   * and for an Improve schedule, its project's admin as well.
+   */
   async function scheduleFor(
     c: Context<AppEnv>,
-    action: Action,
+    action: Action | 'stop',
   ): Promise<{ kind: 'ok'; value: CronTriggerRecord } | { kind: 'err'; response: Response }> {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -198,9 +213,129 @@ export function schedulesRouter(
     if (rec === null || rec.kind !== 'cron') {
       return { kind: 'err', response: notFound(c, requestId, triggerId) };
     }
-    const refused = await denied(c, action, ref('project', rec.projectId as unknown as string));
-    if (refused !== undefined) return { kind: 'err', response: refused };
+    const projectId = rec.projectId as unknown as string;
+    const improve = rec.target.kind === 'improve' ? rec.target : undefined;
+    const asked: Action = action === 'stop' ? 'write' : action;
+    // Changing an Improve schedule also takes `publish` on its agent, as registering it does.
+    const refused =
+      (await denied(c, asked, ref('project', projectId))) ??
+      (asked === 'write' && improve !== undefined
+        ? await targetRefused(c, improve, projectId)
+        : undefined);
+    if (refused !== undefined && !(await improveAlsoAllows(c, action, improve, projectId))) {
+      return { kind: 'err', response: refused };
+    }
     return { kind: 'ok', value: rec };
+  }
+
+  /**
+   * What else lets the caller `action` an Improve schedule {@link scheduleFor}
+   * refused: reading one, `read` on its agent; stopping one, its project's
+   * admin, as its runs count toward the project's month cap.
+   */
+  async function improveAlsoAllows(
+    c: Context<AppEnv>,
+    action: Action | 'stop',
+    improve: TriggerTarget | undefined,
+    projectId: string,
+  ): Promise<boolean> {
+    if (improve?.kind !== 'improve') return false;
+    if (action === 'read') return readsAgent(c, improve.agentId);
+    return action === 'stop' && (await denied(c, 'admin', ref('project', projectId))) === undefined;
+  }
+
+  /** Whether the caller reads the agent: `read` on it, or for one more than one project serves, on any of them. */
+  async function readsAgent(c: Context<AppEnv>, agentId: string): Promise<boolean> {
+    if (authorizer === undefined) return true;
+    const projects = await itemRights?.multi(c, 'agent', agentId);
+    return itemRights !== undefined && projects !== undefined
+      ? (await itemRights.read(c, 'agent', agentId, projects)) === undefined
+      : authorizer.can(c, 'read', ref('agent', agentId));
+  }
+
+  /**
+   * What registering `target` in `project` takes: `write` on the project
+   * (a tenant admin when there's none), and what firing the target takes
+   * ({@link targetRefused}), for an Improve schedule `publish` on its agent.
+   * A retarget asks the same of its new target.
+   */
+  async function registerRefusal(
+    c: Context<AppEnv>,
+    target: TriggerTarget,
+    project: string | undefined,
+  ): Promise<Response | undefined> {
+    const tenantId = c.get('tenantId') as TenantId;
+    const projectRefused =
+      project === undefined
+        ? await denied(c, 'admin', ref('tenant', tenantId as unknown as string))
+        : await denied(c, 'write', ref('project', project));
+    return projectRefused ?? (await targetRefused(c, target, project));
+  }
+
+  /**
+   * The agent and project's Improve schedule, other than `except`: through
+   * the binding's lookup, else by paging the project's schedules.
+   */
+  async function improveScheduleOf(
+    tenantId: TenantId,
+    target: { readonly agentId: string; readonly projectId: ProjectId },
+    except?: TriggerId,
+  ): Promise<CronTriggerRecord | undefined> {
+    const { agentId, projectId } = target;
+    const same = (row: CronTriggerRecord) =>
+      row.kind === 'cron' &&
+      row.target.kind === 'improve' &&
+      row.target.agentId === agentId &&
+      row.projectId === projectId &&
+      row.triggerId !== except;
+    if (binding.findImproveSchedule !== undefined) {
+      const found = await binding.findImproveSchedule({ tenantId, agentId, projectId });
+      return found !== null && same(found) ? found : undefined;
+    }
+    let cursor: Cursor | undefined;
+    do {
+      const page = await binding.list({
+        tenantId,
+        kind: 'cron',
+        projectId,
+        limit: 100,
+        ...(cursor !== undefined && { cursor }),
+      });
+      const found = (page.data as CronTriggerRecord[]).find(same);
+      if (found !== undefined) return found;
+      cursor = page.nextCursor;
+    } while (cursor !== undefined);
+    return undefined;
+  }
+
+  /** `409 schedule-exists`, when the agent and project have an Improve schedule already. */
+  async function improveScheduleExists(
+    c: Context<AppEnv>,
+    target: TriggerTarget,
+    except?: TriggerId,
+  ): Promise<Response | undefined> {
+    // One that names no project (registered for a tenant or an org) clashes with none.
+    if (target.kind !== 'improve' || target.projectId === undefined) return undefined;
+    const tenantId = c.get('tenantId') as TenantId;
+    const existing = await improveScheduleOf(
+      tenantId,
+      { agentId: target.agentId, projectId: target.projectId },
+      except,
+    );
+    if (existing === undefined) return undefined;
+    const triggerId = existing.triggerId as unknown as string;
+    c.status(statusFor('schedule-exists') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'schedule-exists',
+          message: `Agent "${target.agentId}" has an Improve schedule in this project already (${triggerId}): change that one instead`,
+          scheduleId: triggerId,
+          triggerId,
+        },
+        c.get('requestId'),
+      ),
+    );
   }
 
   // ---------- POST / (register) ----------
@@ -228,22 +363,24 @@ export function schedulesRouter(
     const input = targetInput(target.value, rawConfig.input);
     if (input.kind === 'err') return bad(c, requestId, input.message);
 
-    // A schedule that names no project goes in its improve scope's
-    // project, else the tenant's Default project: checked and stored as
-    // that project. With no Default to find, the registry picks it, and
-    // only a tenant admin may.
+    // An Improve schedule is in the project it improves. Any other that
+    // names no project goes in the tenant's Default project: checked and
+    // stored as that project. With no Default to find, the registry picks
+    // it, and only a tenant admin may.
+    const improves = target.value.kind === 'improve' ? target.value.projectId : undefined;
+    if (improves !== undefined && projectId !== undefined && projectId !== improves) {
+      return bad(c, requestId, IN_ITS_PROJECT);
+    }
     const project =
       (projectId as string | undefined) ??
-      scopeProjectOf(target.value) ??
+      (improves as string | undefined) ??
       ((await projects?.getDefault(tenantId))?.id as string | undefined);
-    const scopeProblem = improveScopeProblem(target.value, project);
-    if (scopeProblem !== undefined) return bad(c, requestId, scopeProblem);
-    const refused =
-      (project === undefined
-        ? await denied(c, 'admin', ref('tenant', tenantId as unknown as string))
-        : await denied(c, 'write', ref('project', project))) ??
-      (await targetRefused(c, target.value, project));
+    // `write` on the project, then what firing it takes: for an Improve
+    // schedule, `publish` on the agent, as starting an Improve run does.
+    const refused = await registerRefusal(c, target.value, project);
     if (refused !== undefined) return refused;
+    const exists = await improveScheduleExists(c, target.value);
+    if (exists !== undefined) return exists;
     // What it runs must be its project's to reach (`reference-scope.ts`).
     if (project !== undefined) {
       const outOfScope = await referencesOutOfScope(
@@ -446,17 +583,16 @@ export function schedulesRouter(
     );
     if (notOwners !== undefined) return notOwners;
     if (target !== undefined) {
-      const scopeProblem = improveScopeProblem(
-        target.value,
-        found.value.projectId as unknown as string,
-      );
-      if (scopeProblem !== undefined) return bad(c, requestId, scopeProblem);
-      const refused = await targetRefused(
-        c,
-        target.value,
-        found.value.projectId as unknown as string,
-      );
+      if (target.value.kind === 'improve' && target.value.projectId !== found.value.projectId) {
+        return bad(c, requestId, IN_ITS_PROJECT);
+      }
+      // A new target takes what registering it takes. Loading the schedule
+      // asked `write` on the project.
+      const project = found.value.projectId as unknown as string;
+      const refused = await targetRefused(c, target.value, project);
       if (refused !== undefined) return refused;
+      const exists = await improveScheduleExists(c, target.value, found.value.triggerId);
+      if (exists !== undefined) return exists;
       // A new target must be the schedule's project's to reach, as at registration.
       if (found.value.projectId !== undefined) {
         const outOfScope = await referencesOutOfScope(
@@ -597,7 +733,7 @@ export function schedulesRouter(
   for (const verb of ['pause', 'resume'] as const) {
     r.post(`/:triggerId/${verb}`, async (c) => {
       const requestId = c.get('requestId');
-      const found = await scheduleFor(c, 'write');
+      const found = await scheduleFor(c, verb === 'pause' ? 'stop' : 'write');
       if (found.kind === 'err') return found.response;
       const notOwners = await personalTriggerRefusal(
         c,
@@ -623,7 +759,7 @@ export function schedulesRouter(
 
   // ---------- POST /:triggerId/unregister (soft delete) ----------
   r.post('/:triggerId/unregister', async (c) => {
-    const found = await scheduleFor(c, 'write');
+    const found = await scheduleFor(c, 'stop');
     if (found.kind === 'err') return found.response;
     const notOwners = await personalTriggerRefusal(
       c,
@@ -856,7 +992,12 @@ function targetFields(target: TriggerTarget): Record<string, unknown> {
         ...(target.agentVersion !== undefined && { agentVersion: target.agentVersion }),
       };
     case 'improve':
-      return { improve: { agentId: target.agentId, scope: agentPinScopeToWire(target.scope) } };
+      return {
+        improve: {
+          agentId: target.agentId,
+          ...(target.projectId !== undefined && { projectId: target.projectId }),
+        },
+      };
   }
 }
 
@@ -879,6 +1020,8 @@ function serializeSchedule(
     label: r.label,
     status: r.status,
     ...(r.statusReason !== undefined && { statusReason: r.statusReason }),
+    ...(r.pausedUntil !== undefined && { pausedUntil: r.pausedUntil }),
+    ...(r.pausedReason !== undefined && { pausedReason: r.pausedReason }),
     ...(r.version !== undefined && { version: r.version }),
     nextFireAt: r.nextFireAt,
     ...(r.upcoming !== undefined && { upcoming: r.upcoming }),
@@ -949,7 +1092,7 @@ function parseTarget(
     return {
       kind: 'err',
       message:
-        'Name what the schedule runs: `flowId` (with `flowVersion`), `agentId`, or `improve` ({ agentId, scope }), one of them',
+        'Name what the schedule runs: `flowId` (with `flowVersion`), `agentId`, or `improve` ({ agentId, projectId }), one of them',
     };
   }
   if (improve !== undefined) return parseImproveTarget(improve, flowVersion, agentVersion);
@@ -980,44 +1123,13 @@ function parseTarget(
   };
 }
 
-/** An improve scope's project, when it names one. */
-function scopeProjectOf(target: TriggerTarget): string | undefined {
-  if (target.kind !== 'improve') return undefined;
-  const { scope } = target;
-  return scope.kind === 'project' || scope.kind === 'segment'
-    ? (scope.projectId as unknown as string)
-    : undefined;
-}
-
-/**
- * An Improve run's evidence must cover the scope it changes: an improve schedule
- * learns from its project's runs (for a segment scope, that segment's),
- * so its scope is the schedule's own project or a segment of it. The
- * tenant and an org span projects: going wider stays a promotion by hand,
- * through that scope's gate.
- */
-function improveScopeProblem(
-  target: TriggerTarget,
-  project: string | undefined,
-): string | undefined {
-  if (target.kind !== 'improve') return undefined;
-  if (target.scope.kind === 'tenant' || target.scope.kind === 'org') {
-    return `An improve schedule's scope is a project or a segment of it, not the ${target.scope.kind === 'org' ? 'org' : 'tenant'}: an Improve run's evidence must cover the scope it changes, and it learns from one project's runs. Use the project (or a segment) scope; promote to the ${target.scope.kind === 'org' ? 'org' : 'tenant'} by hand after review.`;
-  }
-  const own = scopeProjectOf(target);
-  if (own !== undefined && project !== undefined && own !== project) {
-    return "An improve schedule's scope must be in the schedule's project (`projectId`): it learns from that project's runs";
-  }
-  return undefined;
-}
-
 function parseImproveTarget(
   improve: unknown,
   flowVersion: unknown,
   agentVersion: unknown,
 ): { kind: 'ok'; value: TriggerTarget } | { kind: 'err'; message: string } {
   const shape =
-    'An improve schedule names `improve: { agentId, scope }`: the agent its Improve runs work on, and the pinned scope they suggest changes for';
+    'An improve schedule names `improve: { agentId, projectId }`: the agent its Improve runs work on, and the project they work in (a UUID)';
   if (flowVersion !== undefined || agentVersion !== undefined) {
     return {
       kind: 'err',
@@ -1030,16 +1142,23 @@ function parseImproveTarget(
       : undefined;
   if (
     o === undefined ||
-    Object.keys(o).some((k) => k !== 'agentId' && k !== 'scope') ||
+    Object.keys(o).some((k) => k !== 'agentId' && k !== 'projectId') ||
     typeof o.agentId !== 'string' ||
-    o.agentId.length === 0
+    o.agentId.length === 0 ||
+    typeof o.projectId !== 'string' ||
+    !UUID_RE.test(o.projectId)
   ) {
     return { kind: 'err', message: shape };
   }
-  const scope = parseAgentPinScopeBody(o.scope);
-  if (scope.kind === 'err') return { kind: 'err', message: `\`improve.scope\`: ${scope.message}` };
-  return { kind: 'ok', value: { kind: 'improve', agentId: o.agentId, scope: scope.scope } };
+  return {
+    kind: 'ok',
+    value: { kind: 'improve', agentId: o.agentId, projectId: o.projectId as ProjectId },
+  };
 }
+
+/** Why an Improve schedule's project and the project it improves must be one. */
+const IN_ITS_PROJECT =
+  "An improve schedule is in the project it improves: the schedule's `projectId` and `improve.projectId` must be the same";
 
 /**
  * The input a target's fires get, or why it can't be: an agent's run takes

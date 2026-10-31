@@ -99,7 +99,7 @@ const app = createApp({
   memoryErasures: unreachable,
   correctionRegistry: unreachable,
   testSetRegistry: unreachable,
-  evalCaseStore: unreachable,
+  frozenCaseStore: unreachable,
   deploymentRegistry: unreachable,
   signingKeyRegistry: unreachable,
   imageRegistry: unreachable,
@@ -137,15 +137,6 @@ const INPUTS: ReadonlyArray<
     'deployments `publishedAt`',
     'publishedAt',
     (v) => ['POST', '/v1/deployments', { publishedAt: v }],
-  ],
-  [
-    'test sets from corrections `since`',
-    'since',
-    (v) => [
-      'POST',
-      '/v1/test-sets/s-1/versions/from-corrections',
-      { version: '1.0.0', projectId: randomUUID(), agentId: 'acme.desk-agent', since: v },
-    ],
   ],
   [
     'memory erasures replay `createdAt`',

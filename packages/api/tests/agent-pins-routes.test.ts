@@ -317,15 +317,20 @@ describe('POST /v1/agents/:agentId/pinned/pin', () => {
     );
     expect(res.status).toBe(201);
     expect(await res.json()).toEqual({
-      id: made.id,
-      agentId: AGENT,
-      scope: { kind: 'org', orgId: ORG },
-      action: 'pin',
-      fromVersion: null,
-      toVersion: '1.1.0',
-      requestedBy: { kind: 'user', id: userId },
-      reason: 'eval passed',
-      createdAt: '2026-10-05T12:00:00.000Z',
+      pin: {
+        id: made.id,
+        agentId: AGENT,
+        scope: { kind: 'org', orgId: ORG },
+        action: 'pin',
+        fromVersion: null,
+        toVersion: '1.1.0',
+        requestedBy: { kind: 'user', id: userId },
+        reason: 'eval passed',
+        createdAt: '2026-10-05T12:00:00.000Z',
+      },
+      testRuns: [],
+      fixed: [],
+      reopened: [],
     });
     expect(calls).toEqual([
       {
@@ -479,6 +484,37 @@ describe('GET /v1/agents/:agentId/pin-history/:changeId', () => {
 });
 
 describe('POST /v1/agents/:agentId/pinned/unpin', () => {
+  test('unpin → 201: the unpin change under pin, as a pin answers', async () => {
+    const { app, state } = makeApp();
+    const made = pin({
+      action: 'unpin',
+      scope: { kind: 'org', orgId: ORG as never },
+      fromVersion: '1.1.0' as Semver,
+      toVersion: null,
+    });
+    state.outcome = { kind: 'ok', value: made };
+    const res = await app.request(
+      `/v1/agents/${AGENT}/pinned/unpin`,
+      post({ scope: { kind: 'org', orgId: ORG } }),
+    );
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({
+      pin: {
+        id: made.id,
+        agentId: AGENT,
+        scope: { kind: 'org', orgId: ORG },
+        action: 'unpin',
+        fromVersion: '1.1.0',
+        toVersion: null,
+        requestedBy: { kind: 'user', id: userId },
+        createdAt: '2026-10-05T12:00:00.000Z',
+      },
+      testRuns: [],
+      fixed: [],
+      reopened: [],
+    });
+  });
+
   test('unpin a scope with no pin of its own → 409', async () => {
     const { app, calls, state } = makeApp();
     state.outcome = { kind: 'err', error: { code: 'not-pinned', message: 'no pin' } };

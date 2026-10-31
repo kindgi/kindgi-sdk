@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { createClient } from '../../src/index.js';
-import { errorFetch, jsonFetch } from '../support/recording-fetch.js';
+import { errorFetch, jsonFetch, recordingFetch } from '../support/recording-fetch.js';
 
 const AUTH = { kind: 'apiToken' as const, token: 't' };
 
@@ -76,6 +76,67 @@ describe('corrections.create', () => {
       clientFor(stub).corrections.create({ runId: 'run-1', answer: 'right' }),
     ).rejects.toMatchObject({
       error: { code: 'conflict', reason: 'run-not-finished', serverCode: 'run-not-finished' },
+    });
+  });
+});
+
+describe('corrections.thumbs', () => {
+  it('POSTs a thumbs up as a right answer, for the end user', async () => {
+    const stub = jsonFetch({ ...CORRECTION, answer: 'right', why: undefined }, { status: 201 });
+    const result = await clientFor(stub).corrections.thumbs(
+      { runId: 'run-1', participantId: 'end-user-1', up: true },
+      { idempotencyKey: 'idem-t' },
+    );
+    expect(result.answer).toBe('right');
+    const req = stub.calls[0]!;
+    expect(req.method).toBe('POST');
+    expect(req.url).toBe('https://api.example.com/v1/corrections');
+    expect(req.headers['idempotency-key']).toBe('idem-t');
+    expect(JSON.parse(req.body!)).toEqual({
+      runId: 'run-1',
+      participantId: 'end-user-1',
+      answer: 'right',
+    });
+  });
+
+  it('POSTs a thumbs down as a wrong answer, with their words as why', async () => {
+    const stub = jsonFetch(CORRECTION, { status: 201 });
+    await clientFor(stub).corrections.thumbs({
+      runId: 'run-1',
+      participantId: 'end-user-1',
+      up: false,
+      why: 'The match is the wrong company.',
+    });
+    expect(JSON.parse(stub.calls[0]!.body!)).toEqual({
+      runId: 'run-1',
+      participantId: 'end-user-1',
+      answer: 'wrong',
+      why: 'The match is the wrong company.',
+    });
+  });
+
+  it("surfaces the API's refusal of a thumbs down without why", async () => {
+    const stub = errorFetch(400, {
+      code: 'bad-input',
+      message: 'answer: "wrong" needs shouldSay or why.',
+    });
+    await expect(
+      clientFor(stub).corrections.thumbs({
+        runId: 'run-1',
+        participantId: 'end-user-1',
+        up: false,
+      }),
+    ).rejects.toMatchObject({
+      error: {
+        code: 'invalid-request',
+        serverCode: 'bad-input',
+        message: 'answer: "wrong" needs shouldSay or why.',
+      },
+    });
+    expect(JSON.parse(stub.calls[0]!.body!)).toEqual({
+      runId: 'run-1',
+      participantId: 'end-user-1',
+      answer: 'wrong',
     });
   });
 });
@@ -152,6 +213,71 @@ describe('corrections.change', () => {
       clientFor(stub).corrections.change('j-1', { status: 'open' }),
     ).rejects.toMatchObject({
       error: { code: 'conflict', serverCode: 'correction-status-change-not-allowed' },
+    });
+  });
+});
+
+describe('corrections.export', () => {
+  it('GETs /v1/corrections/export with the agent and the filters, and hands the body on as it is', async () => {
+    const csv = 'id,projectId\r\nj-1,proj-1\r\n';
+    const stub = recordingFetch([
+      { status: 200, body: csv, headers: { 'content-type': 'text/csv; charset=utf-8' } },
+    ]);
+    const body = await clientFor(stub).corrections.export({
+      agentId: 'acme.matcher',
+      status: ['open', 'with-owner'],
+      from: 'end-users',
+      until: '2026-11-01T00:00:00.000Z',
+      scope: { kind: 'project', projectId: 'proj-1' },
+    });
+    expect(body).toBeInstanceOf(ReadableStream);
+    expect(await new Response(body).text()).toBe(csv);
+    const call = stub.calls[0];
+    const url = new URL(call?.url ?? '');
+    expect(url.pathname).toBe('/v1/corrections/export');
+    expect(url.searchParams.getAll('status')).toEqual(['open', 'with-owner']);
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      agentId: 'acme.matcher',
+      status: 'with-owner',
+      from: 'end-users',
+      until: '2026-11-01T00:00:00.000Z',
+      scopeKind: 'project',
+      scopeId: 'proj-1',
+    });
+    expect(call?.method).toBe('GET');
+    expect(call?.headers.authorization).toBe('Bearer t');
+    expect(call?.headers.accept).toBe('text/csv');
+  });
+
+  it('asks for JSON lines with format jsonl', async () => {
+    const lines = '{"id":"j-1"}\n';
+    const stub = recordingFetch([{ status: 200, body: lines }]);
+    const body = await clientFor(stub).corrections.export({
+      agentId: 'acme.matcher',
+      format: 'jsonl',
+    });
+    expect(await new Response(body).text()).toBe(lines);
+    const call = stub.calls[0];
+    expect(new URL(call?.url ?? '').searchParams.get('format')).toBe('jsonl');
+    expect(call?.headers.accept).toBe('application/jsonl');
+  });
+
+  it('throws the wire error on a refusal', async () => {
+    const stub = errorFetch(403, {
+      code: 'permission-denied',
+      message: 'Not allowed to read project "proj-1".',
+    });
+    await expect(
+      clientFor(stub).corrections.export({
+        agentId: 'acme.matcher',
+        scope: { kind: 'project', projectId: 'proj-1' },
+      }),
+    ).rejects.toMatchObject({
+      error: {
+        code: 'auth',
+        reason: 'forbidden',
+        message: 'Not allowed to read project "proj-1".',
+      },
     });
   });
 });
