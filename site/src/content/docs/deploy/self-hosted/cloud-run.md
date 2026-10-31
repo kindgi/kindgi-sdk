@@ -1098,6 +1098,11 @@ repository from
      gcloud sql export sql <instance> gs://<bucket>/<file>.sql.gz --database=<database_name>
      ```
 
+     A new grant can take a few minutes to take effect. Until it does, the
+     export is refused with HTTP 412 and "the required permissions for the
+     bucket", or with HTTP 403 and "failed to initiate resumable upload":
+     wait a minute and run the export again.
+
    Writes made after the backup aren't in it.
 5. **Set the new image:** `server_image` in `prod.tfvars`, to
    `$REPO/runtime@sha256:<new digest>`. If the release notes say to rebuild
