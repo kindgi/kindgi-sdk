@@ -62584,7 +62584,7 @@
             }
           },
           "503": {
-            "description": "`tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was read. `Retry-After` says when to read the file again.",
+            "description": "`tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was read. `database-busy`: the database was too busy to answer in time. `Retry-After` says when to read the file again.",
             "content": {
               "application/json": {
                 "schema": {

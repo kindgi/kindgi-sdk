@@ -10990,7 +10990,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         '`rate-limit-exceeded`: too many requests from this client in a minute, counted before the token is looked up, so nothing was read. `Retry-After` says when to read the file again.',
       ),
       '503': ErrorResponse(
-        "`tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was read. `Retry-After` says when to read the file again.",
+        "`tool-files-busy`: the runtime's memory for files had no room for the bytes in time, so nothing was read. `database-busy`: the database was too busy to answer in time. `Retry-After` says when to read the file again.",
       ),
     },
   },
