@@ -15,16 +15,16 @@ import { type Flow, type FlowNode, isFanoutNode, isLoopNode } from './types.js';
  * none. When a version of the flow is published, the runtime pins each
  * tool to its version pinned where the flow version is made (the
  * project, then its org, then the tenant), else its latest version
- * then, and each agent that names no version to its version live for
+ * then, and each agent that names no version to its version pinned for
  * that project, else its latest. Every run of that flow version uses
  * those versions, so a new tool or agent version reaches the flow only
  * through a new flow version. The one exception: an agent step in a run
- * whose segment path one of that agent's gate policies set on a segment
- * covers runs the agent's version live for that segment.
+ * whose segment path one of that agent's release gates set on a segment
+ * covers runs the agent's version pinned for that segment.
  *
  * Set by the runtime at publish, never authored. A flow version
  * published before pins existed has none: each run of it binds each
- * tool's latest version, and each agent's version live for the run,
+ * tool's latest version, and each agent's version pinned for the run,
  * else its latest.
  */
 export interface FlowPins {

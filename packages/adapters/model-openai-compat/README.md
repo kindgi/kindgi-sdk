@@ -22,7 +22,7 @@ A call's `thinking` goes as the reasoning effort: `reasoning_effort` on Chat Com
 ### Chat Completions
 
 - Messages map role for role. Assistant `toolCalls` become `tool_calls` with JSON-encoded arguments; `tool` messages carry `tool_call_id`.
-- `tools` become `function` tools; `structuredOutput` becomes `response_format: { type: 'json_schema', json_schema: { name, schema, strict: true } }`; `temperature` and `maxOutputTokens` (as `max_tokens`) are sent only when set.
+- `tools` become `function` tools; `structuredOutput` becomes `response_format: { type: 'json_schema', json_schema: { name, schema, strict: true } }`; `temperature` is sent only when set; `maxOutputTokens` (as `max_tokens`) is the call's, else the model's registered one, else none.
 - Chat Completions endpoints reject `.` in function names, so tool names are encoded `.` → `__` on send and decoded on receive (`acme.orders.lookup` ↔ `acme__orders__lookup`). Tool ids must not contain a literal `__`. Tool-call arguments that are not valid JSON decode to `{}`.
 - `finish_reason` maps `tool_calls` / `function_call` → `tool-use`, `content_filter` → `content-filter`, `length` → `length`, anything else → `stop`.
 - `costUsd` is computed from the matching `ModelInfo.cost` (`computeCost`), on both APIs. The wire format carries no pricing, so rates come from the caller (`OpenAICompatCostRates`, the names the Gemini and Anthropic adapters price with):
@@ -36,7 +36,7 @@ A call's `thinking` goes as the reasoning effort: `reasoning_effort` on Chat Com
 
 - **Stateless:** every call sends the whole conversation with `store: false`, so OpenAI keeps no conversation state for it (no `previous_response_id`).
 - **Input items:** `system` messages go as `developer` messages, `user` and `assistant` as messages, assistant `toolCalls` as `function_call` items, and `tool` messages as `function_call_output` items.
-- **Tools and typed output:** `tools` become flat `function` tools (`strict: false`, the same `.` → `__` name encoding); `structuredOutput` becomes `text.format: { type: 'json_schema', name, schema, strict: true }`; `temperature` and `maxOutputTokens` (as `max_output_tokens`) are sent only when set.
+- **Tools and typed output:** `tools` become flat `function` tools (`strict: false`, the same `.` → `__` name encoding); `structuredOutput` becomes `text.format: { type: 'json_schema', name, schema, strict: true }`; `temperature` is sent only when set; `maxOutputTokens` (as `max_output_tokens`) is the call's, else the model's registered one, else none.
 - **The answer:** its `output_text` (its refusal when it has no text) and its `function_call` items. `incomplete` maps `max_output_tokens` → `length` and `content_filter` → `content-filter`; a `failed` response throws, naming OpenAI's error code and message.
 - **Reasoning between tool calls:** a reasoning model's reasoning items (encrypted by OpenAI), with the item ids and `phase` that tie them to the message and calls after them, are carried in the first tool call's `ModelToolCall.signature` (opaque, versioned `oair1.`). When the conversation continues with the same model, they go back in their original order; for any other model, or a signature that isn't this adapter's, the turn goes back without them. A final answer's `phase` isn't carried (`ModelMessage` has no signature).
 - **Usage:** `input_tokens` / `output_tokens`, with the cached, cache-write and reasoning parts reported apart when given.

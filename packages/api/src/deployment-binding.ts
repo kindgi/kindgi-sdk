@@ -444,6 +444,13 @@ export interface DeploymentPrimitiveCounts {
  * binding does not re-verify the signature (that's the route's job).
  */
 export interface DeploymentRegisterInput {
+  /**
+   * The id to register it under, a UUID the route mints before the
+   * pack's blocks are published, so each block version names the deploy
+   * it came from. Absent: the binding allocates one. Unused when the
+   * digest is already registered (that row keeps its id).
+   */
+  readonly deploymentId?: string;
   readonly tenantId: TenantId;
   readonly imageRef: string;
   readonly imageDigest: string;

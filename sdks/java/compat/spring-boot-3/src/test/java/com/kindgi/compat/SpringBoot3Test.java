@@ -6,8 +6,8 @@ package com.kindgi.compat;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.kindgi.client.models.LiveScope;
-import com.kindgi.client.models.LiveScopeTenant;
+import com.kindgi.client.models.AgentPinScope;
+import com.kindgi.client.models.PinScopeTenant;
 import com.kindgi.client.models.PatchScheduleBody;
 import com.kindgi.client.models.PromptRef;
 import com.kindgi.client.models.StartRunBody;
@@ -42,7 +42,7 @@ class SpringBoot3Test {
     assertThat(bootMapper.writeValueAsString(PatchScheduleBody.builder().label(null).build())).isEqualTo("{\"label\":null}");
     assertThat(bootMapper.readValue("{\"prompt\":\"acme.tone\",\"version\":\"^1.0.0\"}", PromptRef.class))
         .isEqualTo(new PromptRef("acme.tone", "^1.0.0"));
-    assertThat(bootMapper.readValue("{\"kind\":\"tenant\"}", LiveScope.class)).isInstanceOf(LiveScopeTenant.class);
+    assertThat(bootMapper.readValue("{\"kind\":\"tenant\"}", AgentPinScope.class)).isInstanceOf(PinScopeTenant.class);
     System.out.println("[compat] Boot " + org.springframework.boot.SpringBootVersion.getVersion() + ": " + Compat.versions());
   }
 }

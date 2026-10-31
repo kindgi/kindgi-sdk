@@ -36,11 +36,11 @@ const KINDS = [
   { kind: 'flow', path: '/v1/flows', registry: 'flowRegistry', idKey: 'flowId', type: 'flow' },
   { kind: 'tool', path: '/v1/tools', registry: 'toolRegistry', idKey: 'toolId', type: 'tool' },
   {
-    kind: 'eval_suite',
-    path: '/v1/eval-suites',
-    registry: 'evalSuiteRegistry',
-    idKey: 'suiteId',
-    type: 'eval_suite',
+    kind: 'test_set',
+    path: '/v1/test-sets',
+    registry: 'testSetRegistry',
+    idKey: 'testSetId',
+    type: 'test_set',
   },
   {
     kind: 'block',
@@ -203,7 +203,10 @@ function harness(
       rec(SOLO, '1.0.0', at(OTHER)),
       rec(SOLO, '2.0.0', at(OTHER)),
       ...(prefix === 'agent' ? [rec(ADOPTED, '1.0.0', at(DEFAULT))] : []),
-    ].filter((r) => opts.soloOnly !== true || r.id === SOLO);
+    ]
+      .filter((r) => opts.soloOnly !== true || r.id === SOLO)
+      // A test set's kind is an eval kind, and the list holds those it lists.
+      .map((r) => (prefix === 'test_set' ? { ...r, kind: 'custom' } : r));
   const registries = Object.fromEntries(
     KINDS.map((k) => [k.registry, registry(k.idKey, records(k.kind))]),
   ) as unknown as Partial<CreateAppInput>;

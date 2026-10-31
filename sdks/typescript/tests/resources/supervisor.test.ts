@@ -7,8 +7,6 @@ import { createClient } from '../../src/index.js';
 import { recordingFetch } from '../support/recording-fetch.js';
 
 const AUTH = { kind: 'apiToken' as const, token: 't' };
-const SUPERVISOR_ID = 'sup-citation' as never;
-const PROPOSAL_ID = '11111111-1111-4111-8111-111111111111' as never;
 
 function client() {
   const stub = recordingFetch([]);
@@ -44,35 +42,4 @@ describe('supervisor not-yet-wired surface', () => {
     });
     expect(stub.calls.length).toBe(0);
   });
-});
-
-describe('supervisor.proposals — removed in 0.1.5', () => {
-  it.each([
-    ['draft', 'create'],
-    ['list', 'list'],
-    ['get', 'get'],
-    ['dryRun', 'evaluate'],
-    ['submitForReview', 'request'],
-    ['reflectReview', 'request'],
-    ['apply', 'request'],
-    ['rollback', 'rollback'],
-    ['withdraw', 'withdraw'],
-  ] as const)(
-    '%s throws, naming client.proposals.%s, and sends nothing',
-    async (method, replacement) => {
-      const { client: c, stub } = client();
-      const call = c.supervisor.proposals[method] as (...args: unknown[]) => Promise<never>;
-      await expect(call(SUPERVISOR_ID, PROPOSAL_ID, { reason: 'x' })).rejects.toMatchObject({
-        error: {
-          code: 'not-yet-wired',
-          method: `supervisor.proposals.${method}`,
-          reason: expect.stringContaining('removed in 0.1.5'),
-        },
-      });
-      await expect(call(SUPERVISOR_ID, PROPOSAL_ID, {})).rejects.toMatchObject({
-        error: { reason: expect.stringContaining(`client.proposals.${replacement}`) },
-      });
-      expect(stub.calls.length).toBe(0);
-    },
-  );
 });

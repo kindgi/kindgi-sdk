@@ -33,7 +33,7 @@ import type { TurnEvent } from '../src/streaming.js';
 import type { Agent, ConversationId, RetrievedFact } from '../src/types.js';
 import { testNodeContext } from './node-context.js';
 
-const REPLAY = { of: 'run-past' as RunId, evalRunId: 'eval-1' };
+const REPLAY = { of: 'run-past' as RunId, testRunId: 'eval-1' };
 
 function lookupTool(declared: {
   mutating?: boolean;
@@ -694,6 +694,6 @@ describe('the retrievals of a replay', () => {
   });
 });
 
-test("a replay's usage records carry the past run and the eval run", () => {
-  expect(replayTag(REPLAY)).toEqual({ of: 'run-past', evalRunId: 'eval-1' });
+test("a replay's usage records carry the past run and the test run", () => {
+  expect(replayTag(REPLAY)).toEqual({ of: 'run-past', testRunId: 'eval-1' });
 });

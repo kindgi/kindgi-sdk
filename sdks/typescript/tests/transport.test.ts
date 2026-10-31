@@ -46,7 +46,7 @@ describe('createTransport', () => {
     });
     await transport.request({
       method: 'GET',
-      path: '/v1/agents/a/live',
+      path: '/v1/agents/a/pinned',
       query: { segment: ['company:acme', 'role:counsel'], empty: [] },
     });
     const url = new URL(stub.calls[0]?.url);

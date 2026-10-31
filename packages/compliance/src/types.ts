@@ -33,7 +33,7 @@ export const EVIDENCE_KINDS = [
   'secret-rotation',
   'incident-event',
   'guardrail-violation',
-  'eval-run',
+  'test-run',
   'approval-completed',
   'data-retention-action',
   'authn-event',
@@ -67,15 +67,14 @@ export const EVIDENCE_KINDS = [
   // carries the answer's size and SHA-256, never the answer.
   'wait-token-completed',
   'wait-token-discarded',
-  // Which agent version is live for a scope: a promotion, a rollback, or
-  // an unpin (the scope falls back to the one above).
-  'agent-promotion',
-  // A promotion its gate policy refused (evals step 4b): the checks that failed.
-  'agent-promotion-refused',
-  'agent-rollback',
-  'agent-live-unpinned',
-  // A live pin whose version was unregistered: runs use the scope above.
-  'agent-live-pin-inactive',
+  // Which agent version is pinned for a scope: a pin, or an unpin (the scope
+  // falls back to the one above).
+  'agent-pinned',
+  // A pin its release gate refused: the checks that failed.
+  'agent-pin-refused',
+  'agent-unpinned',
+  // A pin whose version was unregistered: runs use the scope above.
+  'agent-pin-inactive',
   // Which flow or tool version is pinned for a scope: a pin (set or moved)
   // or an unpin (the scope falls back to the one above), and a pin whose
   // version was unregistered, passed over for the scope above.
@@ -125,6 +124,31 @@ export const EVIDENCE_KINDS = [
   // names both deployments, both projects, the image digest and the
   // versions carried — never anything a project holds.
   'deployment-promoted',
+  // A prompt or settings block version was published. The payload names
+  // the block, its version and kind, and where it came from (`source`:
+  // the API, a deploy or a suggested change, with its id) — never its
+  // content.
+  'block-version-published',
+  // A block version was unregistered, or reinstated. The payload names the
+  // block and the version.
+  'block-version-unregistered',
+  'block-version-reinstated',
+  // A model provider was registered, or unregistered. The payload names
+  // the provider and its kind — never its key or the secret it reads.
+  'provider-registered',
+  'provider-unregistered',
+  // A suggested change was made, pinned, added as its project's Latest, or
+  // withdrawn, through the API. The payload names the suggested change,
+  // its agent, project, block and versions, and who or what made it
+  // (`madeBy`, its kind) — never its content, its why or its check's
+  // answers. A pin names its promotion and whether it's pinned or waits
+  // for a second person; the second person's decision is the approval's
+  // own event. A withdrawal or an added Latest keeps its reason off the
+  // event: it's on the suggested change.
+  'suggested-change-created',
+  'suggested-change-pinned',
+  'suggested-change-added-as-latest',
+  'suggested-change-withdrawn',
 ] as const;
 
 /**

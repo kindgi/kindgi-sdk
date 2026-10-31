@@ -33,8 +33,8 @@ import {
   type UpdateCronTriggerInput,
 } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
-import { parseImproveScheduleInput } from './improvement-passes.js';
-import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
+import { agentPinScopeToWire, parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
+import { parseImproveScheduleInput } from './improve-runs.js';
 import { clampLimit } from './pagination.js';
 import {
   type OwnedTrigger,
@@ -63,6 +63,7 @@ import {
   retargets,
   sameToolList,
   toolsAllowedUnattendedProblem,
+  triggerScope,
 } from './trigger-tools.js';
 import { versionField, versionFields, versionOne, versionsPage } from './trigger-versions.js';
 import { UUID_RE } from './uuid-param.js';
@@ -100,7 +101,7 @@ import { UUID_RE } from './uuid-param.js';
  *
  * What it runs, when more than one project serves it (`item-rights.ts`):
  * from a schedule in one of them, that project's right, as a run naming
- * it; an improvement pass, `write` where the agent's versions are made.
+ * it; an Improve run, `write` where the agent's versions are made.
  */
 export function schedulesRouter(
   binding: TriggerRegistryBinding,
@@ -260,7 +261,7 @@ export function schedulesRouter(
       if (notAdmin !== undefined) return notAdmin;
       const problem = await toolsAllowedUnattendedProblem(
         targetTools,
-        tenantId,
+        triggerScope(tenantId, project),
         target.value,
         tools.value,
       );
@@ -491,7 +492,7 @@ export function schedulesRouter(
       if (notAdmin !== undefined) return notAdmin;
       const problem = await toolsAllowedUnattendedProblem(
         targetTools,
-        tenantId,
+        triggerScope(tenantId, found.value.projectId),
         nextTarget,
         tools.value,
       );
@@ -855,7 +856,7 @@ function targetFields(target: TriggerTarget): Record<string, unknown> {
         ...(target.agentVersion !== undefined && { agentVersion: target.agentVersion }),
       };
     case 'improve':
-      return { improve: { agentId: target.agentId, scope: liveScopeToWire(target.scope) } };
+      return { improve: { agentId: target.agentId, scope: agentPinScopeToWire(target.scope) } };
   }
 }
 
@@ -901,7 +902,7 @@ function serializeFire(f: TriggerFire): Record<string, unknown> {
     outcome: f.outcome,
     ...(f.runId !== undefined && { runId: f.runId }),
     ...(f.version !== undefined && { version: f.version }),
-    ...(f.passId !== undefined && { passId: f.passId }),
+    ...(f.improveRunId !== undefined && { improveRunId: f.improveRunId }),
     ...(f.detail !== undefined && { detail: f.detail }),
     ...(f.countsTowardPause !== undefined && { countsTowardPause: f.countsTowardPause }),
     ...(f.missedCount !== undefined && { missedCount: f.missedCount }),
@@ -989,7 +990,7 @@ function scopeProjectOf(target: TriggerTarget): string | undefined {
 }
 
 /**
- * A pass's evidence must cover the scope it changes: an improve schedule
+ * An Improve run's evidence must cover the scope it changes: an improve schedule
  * learns from its project's runs (for a segment scope, that segment's),
  * so its scope is the schedule's own project or a segment of it. The
  * tenant and an org span projects: going wider stays a promotion by hand,
@@ -1001,7 +1002,7 @@ function improveScopeProblem(
 ): string | undefined {
   if (target.kind !== 'improve') return undefined;
   if (target.scope.kind === 'tenant' || target.scope.kind === 'org') {
-    return `An improve schedule's scope is a project or a segment of it, not the ${target.scope.kind === 'org' ? 'org' : 'tenant'}: a pass's evidence must cover the scope it changes, and it learns from one project's runs. Use the project (or a segment) scope; promote to the ${target.scope.kind === 'org' ? 'org' : 'tenant'} by hand after review.`;
+    return `An improve schedule's scope is a project or a segment of it, not the ${target.scope.kind === 'org' ? 'org' : 'tenant'}: an Improve run's evidence must cover the scope it changes, and it learns from one project's runs. Use the project (or a segment) scope; promote to the ${target.scope.kind === 'org' ? 'org' : 'tenant'} by hand after review.`;
   }
   const own = scopeProjectOf(target);
   if (own !== undefined && project !== undefined && own !== project) {
@@ -1016,7 +1017,7 @@ function parseImproveTarget(
   agentVersion: unknown,
 ): { kind: 'ok'; value: TriggerTarget } | { kind: 'err'; message: string } {
   const shape =
-    'An improve schedule names `improve: { agentId, scope }`: the agent its passes work on, and the live scope they propose for';
+    'An improve schedule names `improve: { agentId, scope }`: the agent its Improve runs work on, and the pinned scope they suggest changes for';
   if (flowVersion !== undefined || agentVersion !== undefined) {
     return {
       kind: 'err',
@@ -1035,7 +1036,7 @@ function parseImproveTarget(
   ) {
     return { kind: 'err', message: shape };
   }
-  const scope = parseLiveScopeBody(o.scope);
+  const scope = parseAgentPinScopeBody(o.scope);
   if (scope.kind === 'err') return { kind: 'err', message: `\`improve.scope\`: ${scope.message}` };
   return { kind: 'ok', value: { kind: 'improve', agentId: o.agentId, scope: scope.scope } };
 }
@@ -1044,7 +1045,7 @@ function parseImproveTarget(
  * The input a target's fires get, or why it can't be: an agent's run takes
  * the agent payload, so an agent schedule's input must carry the message
  * each run sends (without it every fire would be refused); an improve
- * schedule's input is its pass options, kept with the defaults applied; a
+ * schedule's input is its Improve run options, kept with the defaults applied; a
  * flow's input is the flow's own.
  */
 function targetInput(

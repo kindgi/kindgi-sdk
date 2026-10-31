@@ -93,19 +93,19 @@ describe('the values the published types export', () => {
   it('a generated schema is a type: using it as a value does not compile', () => {
     const from = JSON.stringify(join(DIST, 'index.js'));
     expect(
-      compile(`import type { LivePin } from ${from};
-export const pin: LivePin | null = null;`),
+      compile(`import type { AgentPinnedVersion } from ${from};
+export const pin: AgentPinnedVersion | null = null;`),
     ).toEqual([]);
-    const asValue = compile(`import { LivePin } from ${from};
-LivePin.parse({});`);
-    expect(asValue.join('\n')).toContain("'LivePin' only refers to a type");
+    const asValue = compile(`import { AgentPinnedVersion } from ${from};
+AgentPinnedVersion.parse({});`);
+    expect(asValue.join('\n')).toContain("'AgentPinnedVersion' only refers to a type");
   });
 });
 
 describe('unexportPhantomValues', () => {
   const bundled = [
-    'export declare const LivePin: z.ZodObject<{}>;',
-    'export type LivePin = Schemas.LivePin;',
+    'export declare const AgentPinnedVersion: z.ZodObject<{}>;',
+    'export type AgentPinnedVersion = Schemas.AgentPinnedVersion;',
     'export declare function createClient(options: unknown): unknown;',
     'export declare function createClient(): unknown;',
     'export declare class KindgiApiError extends Error {\n}',
@@ -113,11 +113,11 @@ describe('unexportPhantomValues', () => {
   ].join('\n');
 
   it('unexports a value the runtime module lacks, and keeps it declared', () => {
-    expect(valueExports(bundled)).toEqual(['LivePin', 'createClient', 'KindgiApiError']);
+    expect(valueExports(bundled)).toEqual(['AgentPinnedVersion', 'createClient', 'KindgiApiError']);
     const out = unexportPhantomValues(bundled, ['createClient', 'KindgiApiError']);
     expect(valueExports(out)).toEqual(['createClient', 'KindgiApiError']);
-    expect(out.split('\n')).toContain('declare const LivePin: z.ZodObject<{}>;');
-    expect(out).toContain('export type LivePin = Schemas.LivePin;');
+    expect(out.split('\n')).toContain('declare const AgentPinnedVersion: z.ZodObject<{}>;');
+    expect(out).toContain('export type AgentPinnedVersion = Schemas.AgentPinnedVersion;');
     expect(out).toContain('export interface Fact {');
   });
 });

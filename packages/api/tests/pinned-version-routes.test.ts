@@ -470,20 +470,30 @@ describe('POST /:id/pinned/pin', () => {
     expect(b.status).toBe(200);
   });
 
-  test('a tenant or org pin of an item in an order is `pin-scope-spans-environments`', async () => {
-    const itemRights = fakeRights({ inOrder: true });
-    const { app, calls } = mounted('flow', fakeItem('flow'), { itemRights });
-    for (const scope of [{ kind: 'tenant' }, { kind: 'org', orgId: ORG }]) {
-      const res = await app.request(`/${ITEM}/pinned/pin`, post({ version: '1.0.0', scope }));
-      expect([res.status, await errorCode(res)]).toEqual([409, 'pin-scope-spans-environments']);
-    }
-    expect(calls.pin).toEqual([]);
-    const project = await app.request(
-      `/${ITEM}/pinned/pin`,
-      post({ version: '1.0.0', scope: projectScope }),
-    );
-    expect(project.status).toBe(200);
-  });
+  test.each(['flow', 'tool'] as const)(
+    'a tenant or org pin of a %s in an order is `pin-scope-spans-environments`',
+    async (kind) => {
+      const itemRights = fakeRights({ inOrder: true });
+      const { app, calls } = mounted(kind, fakeItem(kind), { itemRights });
+      for (const scope of [{ kind: 'tenant' }, { kind: 'org', orgId: ORG }]) {
+        const res = await app.request(`/${ITEM}/pinned/pin`, post({ version: '1.0.0', scope }));
+        const { error } = (await res.json()) as { error: { code: string; message: string } };
+        expect([res.status, error.code]).toEqual([409, 'pin-scope-spans-environments']);
+        // The body 0.3.0 shipped: the scope, the item and the order, then what to do.
+        expect(error.message).toMatch(
+          new RegExp(
+            `^An? (tenant|org)-wide pin.* of ${kind} "${ITEM}" would act across every environment of .+ at once\\. .+ Nothing was pinned\\.$`,
+          ),
+        );
+      }
+      expect(calls.pin).toEqual([]);
+      const project = await app.request(
+        `/${ITEM}/pinned/pin`,
+        post({ version: '1.0.0', scope: projectScope }),
+      );
+      expect(project.status).toBe(200);
+    },
+  );
 });
 
 describe('POST /:id/pinned/unpin', () => {

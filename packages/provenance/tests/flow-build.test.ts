@@ -431,15 +431,15 @@ describe('a flow run', () => {
     expect(attrs(record, 'step:a')).not.toHaveProperty('endedAt');
   });
 
-  test('a replay names the run it replays and its eval run', () => {
+  test('a replay names the run it replays and its test run', () => {
     const j = new Journal();
     j.edge('e1');
     j.step('fetch');
     const record = build(
-      runOf(flow, { replayOf: 'run-0' as RunId, evalRunId: 'eval-7', hasOutput: false }),
+      runOf(flow, { replayOf: 'run-0' as RunId, testRunId: 'eval-7', hasOutput: false }),
       j.entries,
     );
-    expect(attrs(record, 'input')).toEqual({ replayOf: 'run-0', evalRunId: 'eval-7' });
+    expect(attrs(record, 'input')).toEqual({ replayOf: 'run-0', testRunId: 'eval-7' });
   });
 
   test("a tool step's wait and resume are nodes of their own", () => {

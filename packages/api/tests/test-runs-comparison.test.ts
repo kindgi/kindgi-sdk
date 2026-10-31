@@ -1,0 +1,578 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+/** `POST /v1/test-sets/{testSetId}/runs` for a test set: a comparison test run. */
+
+import { randomUUID } from 'node:crypto';
+
+import { describe, expect, test } from 'vitest';
+
+import type { RunId, TenantId } from '@kindgi/types';
+
+import { createStubAppBindings } from '../src/testing/index.js';
+
+import type {
+  AgentRegistryBinding,
+  CorrectedComparisonSummary,
+  FlowRegistryBinding,
+  RunHandlerBinding,
+  TestRun,
+  TestRunBinding,
+  TestSet,
+  TestSetRegistryBinding,
+  TokenResolver,
+  ToolRegistryBinding,
+} from '../src/index.js';
+import {
+  createApp,
+  createCorrectedDispatcher,
+  createInProcessTestRunBinding,
+} from '../src/index.js';
+import { inMemoryCaseStore } from './support/in-memory-cases.js';
+import { inMemoryCorrections } from './support/in-memory-corrections.js';
+
+const tenantId = randomUUID() as TenantId;
+const TOKEN = 'eval-comparison-token';
+const resolveToken: TokenResolver = async (token) => (token === TOKEN ? { tenantId } : null);
+const unused = async () => ({
+  kind: 'err' as const,
+  error: { code: 'bad-input', message: 'unused' },
+});
+const runHandler = {
+  invokeAgent: unused,
+  invokeFlow: unused,
+  resumeRun: unused,
+} as unknown as RunHandlerBinding;
+
+const testSet: TestSet = {
+  id: 'acme.set',
+  tenantId,
+  version: '1.0.0',
+  kind: 'corrections',
+  spec: { source: 'corrections', caseCount: 1 },
+};
+
+async function setup() {
+  const cases = inMemoryCaseStore();
+  await cases.putCases({
+    tenantId,
+    testSetId: testSet.id,
+    version: testSet.version,
+    cases: [
+      {
+        caseId: 'case-1',
+        runId: 'case-1',
+        subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
+        input: 'hello',
+        output: { appended: [{ role: 'agent', content: 'Hi.' }] },
+        items: [
+          {
+            key: 'answer',
+            pointer: '/appended/0/content',
+            yes: 1,
+            no: 0,
+            yesWeight: 1,
+            totalWeight: 1,
+            reasons: [],
+          },
+        ],
+      },
+    ],
+  });
+  const registry = {
+    get: async ({ testSetId }: { testSetId: string }) =>
+      testSetId === testSet.id ? testSet : null,
+  } as unknown as TestSetRegistryBinding;
+  const binding = createInProcessTestRunBinding({
+    testSetRegistry: registry,
+    subject: {
+      invoke: async () => ({
+        output: { appended: [{ role: 'agent', content: 'Hi.' }] },
+        runId: 'replay-1' as RunId,
+      }),
+    },
+    dispatchers: { corrections: createCorrectedDispatcher({ cases }) },
+  });
+  const app = createApp({
+    ...createStubAppBindings(),
+    resolveToken,
+    runHandler,
+    testSetRegistry: registry,
+    testRunBinding: binding,
+  });
+  const start = (body: Record<string, unknown>) =>
+    app.request(`/v1/test-sets/${testSet.id}/runs`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: randomUUID(),
+        agentRef: { agentId: 'acme.agent', version: '2.0.0' },
+        ...body,
+      }),
+    });
+  return { app, binding, start };
+}
+
+async function settled(binding: TestRunBinding, testRunId: string): Promise<TestRun> {
+  for (let i = 0; i < 200; i++) {
+    const run = await binding.get({ tenantId, testRunId: testRunId as RunId });
+    if (run !== null && run.status !== 'running') return run;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error('the run did not settle');
+}
+
+describe('a comparison test run over the API', () => {
+  test('starts with its settings, keeps them on the run, and ends with the summary', async () => {
+    const { app, binding, start } = await setup();
+    const res = await start({
+      reads: 'live',
+      repetitions: 2,
+      k: 5,
+      groupWeights: 'experts-only',
+    });
+    expect(res.status).toBe(201);
+    const { testRunId } = (await res.json()) as { testRunId: string };
+    const run = await settled(binding, testRunId);
+    expect(run.status).toBe('completed');
+    const summary = (run.result as { summary: CorrectedComparisonSummary }).summary;
+    expect(summary).toMatchObject({
+      status: 'completed',
+      cases: 1,
+      repetitions: 2,
+      reads: 'live',
+      groupWeights: 'experts-only',
+    });
+
+    const got = await app.request(`/v1/test-runs/${testRunId}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(((await got.json()) as Record<string, unknown>).comparison).toEqual({
+      baseline: 'recorded',
+      reads: 'live',
+      repetitions: 2,
+      k: 5,
+      groupWeights: 'experts-only',
+    });
+  });
+
+  test('without settings, the defaults run and nothing is recorded on the run', async () => {
+    const { binding, start } = await setup();
+    const { testRunId } = (await (await start({})).json()) as { testRunId: string };
+    const run = await settled(binding, testRunId);
+    expect(run.comparison).toBeUndefined();
+    expect((run.result as { summary: CorrectedComparisonSummary }).summary).toMatchObject({
+      reads: 'recorded',
+      repetitions: 1,
+      groupWeights: 'as-recorded',
+    });
+  });
+
+  test.each([
+    [{ reads: 'sometimes' }, "`reads` must be 'recorded' or 'live'"],
+    [{ repetitions: 0 }, '`repetitions` must be an integer from 1 to 10'],
+    [{ repetitions: 11 }, '`repetitions` must be an integer from 1 to 10'],
+    [{ k: 1.5 }, '`k` must be an integer from 1 to 100'],
+    [{ groupWeights: 'some' }, "`groupWeights` must be 'as-recorded'"],
+    [{ baseline: 'yesterday' }, '`baseline` must be'],
+    [{ baseline: { agentId: 'acme.agent' } }, 'needs `agentId` and `version`'],
+    [
+      { baseline: { pinned: { projectId: 'p-1', segments: { tier: 'gold' } } } },
+      '`baseline.pinned.segments` must be an array of {key, value}, coarse to fine',
+    ],
+    [
+      { baseline: { pinned: { projectId: 'p-1', segments: [{ key: 'tier', value: 1 }] } } },
+      '`baseline.pinned.segments`: each segment is {key: string, value: string}',
+    ],
+    [
+      {
+        baseline: {
+          pinned: {
+            projectId: 'p-1',
+            segments: [
+              { key: 'tier', value: 'gold' },
+              { key: 'tier', value: 'silver' },
+            ],
+          },
+        },
+      },
+      '`baseline.pinned.segments`: the key',
+    ],
+    [
+      { baseline: { pinned: { segments: [{ key: 'tier', value: 'gold' }] } } },
+      'it needs `baseline.pinned.projectId`',
+    ],
+  ])('%j → 400', async (body, message) => {
+    const { start } = await setup();
+    const res = await start(body);
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(await res.json())).toContain(message);
+  });
+
+  test('a baseline that is not the recording is refused when the run starts', async () => {
+    const { start } = await setup();
+    for (const baseline of [
+      { agentId: 'acme.agent', version: '1.0.0' },
+      { pinned: { projectId: 'p-1', segments: [{ key: 'tier', value: 'gold' }] } },
+    ]) {
+      const res = await start({ baseline });
+      expect(res.status).toBe(400);
+      expect(JSON.stringify(await res.json())).toContain("Only `baseline: 'recorded'` runs today");
+    }
+  });
+
+  test('a candidate without a version is refused', async () => {
+    const { start } = await setup();
+    const res = await start({ agentRef: { agentId: 'acme.agent' } });
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(await res.json())).toContain('`agentRef.version` is required');
+  });
+});
+
+describe('a flow candidate with some of its agents or tools at other versions', () => {
+  const flowTestSet: TestSet = { ...testSet, id: 'acme.flow-set' };
+  const flow = {
+    id: 'acme.flow',
+    version: '1.0.0',
+    nodes: [
+      { id: 'look', kind: 'tool', ref: 'acme.lookup' },
+      { id: 'draft', kind: 'agent', ref: 'acme.drafter' },
+      { id: 'check', kind: 'agent', ref: 'acme.checker', config: { version: '0.1.0' } },
+    ],
+    edges: [],
+  };
+  const agentVersions: Record<string, { unregisteredAt?: string }> = {
+    'acme.drafter@0.2.0': {},
+    'acme.checker@0.3.0': {},
+    'acme.drafter@0.0.1': { unregisteredAt: '2026-10-01T00:00:00.000Z' },
+  };
+
+  async function setupFlow() {
+    const cases = inMemoryCaseStore();
+    await cases.putCases({
+      tenantId,
+      testSetId: flowTestSet.id,
+      version: flowTestSet.version,
+      cases: [
+        {
+          caseId: 'case-f',
+          runId: 'case-f',
+          subject: { kind: 'flow', id: 'acme.flow', version: '1.0.0' },
+          input: { name: 'Sam' },
+          output: { reply: 'Hi.' },
+          items: [
+            {
+              key: 'output',
+              pointer: '',
+              yes: 1,
+              no: 0,
+              yesWeight: 1,
+              totalWeight: 1,
+              reasons: [],
+            },
+          ],
+        },
+      ],
+    });
+    const registry = {
+      get: async ({ testSetId }: { testSetId: string }) =>
+        testSetId === flowTestSet.id ? flowTestSet : null,
+    } as unknown as TestSetRegistryBinding;
+    const invoked: Record<string, unknown>[] = [];
+    const binding = createInProcessTestRunBinding({
+      testSetRegistry: registry,
+      subject: {
+        invoke: async (input) => {
+          invoked.push(input as unknown as Record<string, unknown>);
+          return { output: { reply: 'Hi.' }, runId: 'replay-f' as RunId };
+        },
+      },
+      dispatchers: { corrections: createCorrectedDispatcher({ cases }) },
+    });
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      testSetRegistry: registry,
+      testRunBinding: binding,
+      flowRegistry: {
+        getVersion: async ({ flowId, version }: { flowId: string; version: string }) =>
+          flowId === flow.id && version === flow.version ? flow : null,
+      } as unknown as FlowRegistryBinding,
+      agentRegistry: {
+        getVersion: async ({ agentId, version }: { agentId: string; version: string }) => {
+          const found = agentVersions[`${agentId}@${version}`];
+          return found === undefined ? null : { id: agentId, version, ...found };
+        },
+      } as unknown as AgentRegistryBinding,
+      toolRegistry: {
+        getVersion: async ({ toolId, version }: { toolId: string; version: string }) =>
+          toolId === 'acme.lookup' && version === '2.0.0' ? { id: toolId, version } : null,
+      } as unknown as ToolRegistryBinding,
+    });
+    const start = (body: Record<string, unknown>) =>
+      app.request(`/v1/test-sets/${flowTestSet.id}/runs`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          projectId: randomUUID(),
+          flowRef: { flowId: 'acme.flow', version: '1.0.0' },
+          ...body,
+        }),
+      });
+    return { binding, start, invoked };
+  }
+
+  test('replays the flow with them, keeps them on the run, and names them on the candidate', async () => {
+    const { binding, start, invoked } = await setupFlow();
+    const versions = {
+      agents: { 'acme.drafter': '0.2.0', 'acme.checker': '0.3.0' },
+      tools: { 'acme.lookup': '2.0.0' },
+    };
+    const res = await start({ versions });
+    expect(res.status, JSON.stringify(await res.clone().json())).toBe(201);
+    const { testRunId } = (await res.json()) as { testRunId: string };
+    const run = await settled(binding, testRunId);
+    expect(run.comparison?.versions).toEqual(versions);
+    expect(invoked[0]?.versions).toEqual(versions);
+    const summary = (run.result as { summary: CorrectedComparisonSummary }).summary;
+    expect(summary.candidate).toEqual({
+      kind: 'flow',
+      flowId: 'acme.flow',
+      version: '1.0.0',
+      versions,
+    });
+  });
+
+  test('without them, a flow replay is the flow version as published', async () => {
+    const { binding, start, invoked } = await setupFlow();
+    const { testRunId } = (await (await start({})).json()) as { testRunId: string };
+    const run = await settled(binding, testRunId);
+    expect(invoked[0]?.versions).toBeUndefined();
+    expect((run.result as { summary: CorrectedComparisonSummary }).summary.candidate).toEqual({
+      kind: 'flow',
+      flowId: 'acme.flow',
+      version: '1.0.0',
+    });
+  });
+
+  test('an id the flow does not use, or a version that is not published, is refused, each named', async () => {
+    const { start } = await setupFlow();
+    const res = await start({
+      versions: {
+        agents: { 'acme.x': '1.0.0', 'acme.drafter': '9.9.9', 'acme.checker': '0.3.0' },
+        tools: { 'acme.lookup': '0.0.9', 'acme.y': '1.0.0' },
+      },
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details: { issues: unknown[] } };
+    };
+    expect(body.error.code).toBe('validation-failed');
+    expect(body.error.message).toBe("The versions don't fit flow acme.flow 1.0.0 (4 issues)");
+    expect(body.error.details.issues).toEqual([
+      { path: '/versions/agents/acme.x', message: "flow acme.flow 1.0.0 doesn't use agent acme.x" },
+      { path: '/versions/agents/acme.drafter', message: 'agent acme.drafter has no version 9.9.9' },
+      { path: '/versions/tools/acme.lookup', message: 'tool acme.lookup has no version 0.0.9' },
+      { path: '/versions/tools/acme.y', message: "flow acme.flow 1.0.0 doesn't use tool acme.y" },
+    ]);
+  });
+
+  test('an unregistered agent version is refused', async () => {
+    const { start } = await setupFlow();
+    const res = await start({ versions: { agents: { 'acme.drafter': '0.0.1' } } });
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(await res.json())).toContain('agent acme.drafter 0.0.1 is unregistered');
+  });
+
+  test('a flow version that is not registered is refused', async () => {
+    const { start } = await setupFlow();
+    const res = await start({
+      flowRef: { flowId: 'acme.flow', version: '3.0.0' },
+      versions: { agents: { 'acme.drafter': '0.2.0' } },
+    });
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(await res.json())).toContain("flow acme.flow 3.0.0 isn't registered");
+  });
+
+  test.each([
+    [{ versions: 'acme.drafter@0.2.0' }, '`versions` must be an object: { agents?, tools? }'],
+    [{ versions: { agents: { 'acme.drafter': 2 } } }, '`versions.agents` must be an object of'],
+    [{ versions: { tools: { '': '1.0.0' } } }, '`versions.tools` must be an object of'],
+    [{ versions: { models: {} } }, '`versions` takes `agents` and `tools`, not `models`'],
+    [
+      {
+        flowRef: undefined,
+        agentRef: { agentId: 'acme.agent', version: '1.0.0' },
+        versions: { agents: { a: '1.0.0' } },
+      },
+      '`versions` runs a flow with some of its agents or tools at other versions: it needs `flowRef`.',
+    ],
+  ])('%j → 400', async (body, message) => {
+    const { start } = await setupFlow();
+    const res = await start(body);
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(await res.json())).toContain(message);
+  });
+
+  test('versions naming nothing are no versions', async () => {
+    const { binding, start } = await setupFlow();
+    const { testRunId } = (await (await start({ versions: { agents: {} } })).json()) as {
+      testRunId: string;
+    };
+    const run = await settled(binding, testRunId);
+    expect(run.comparison).toBeUndefined();
+  });
+});
+
+describe('rescoring a comparison over the API: correct the new answers, then rescore', () => {
+  const changed = { appended: [{ role: 'agent', content: 'Hello there.' }] };
+
+  /** A comparison whose replay changed the answer; `rescorable` wires what a rescore reads. */
+  async function rescoreSetup(rescorable = true) {
+    const cases = inMemoryCaseStore();
+    await cases.putCases({
+      tenantId,
+      testSetId: testSet.id,
+      version: testSet.version,
+      cases: [
+        {
+          caseId: 'case-1',
+          runId: 'case-1',
+          subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
+          input: 'hello',
+          output: { appended: [{ role: 'agent', content: 'Hi.' }] },
+          items: [
+            {
+              key: 'answer',
+              pointer: '/appended/0/content',
+              yes: 0,
+              no: 1,
+              yesWeight: 0,
+              totalWeight: 1,
+              reasons: [],
+            },
+          ],
+        },
+      ],
+    });
+    const registry = {
+      get: async ({ testSetId }: { testSetId: string }) =>
+        testSetId === testSet.id ? testSet : null,
+      getVersion: async ({ testSetId, version }: { testSetId: string; version: string }) =>
+        testSetId === testSet.id && version === testSet.version ? testSet : null,
+    } as unknown as TestSetRegistryBinding;
+    const corrections = inMemoryCorrections();
+    let invoked = 0;
+    const ref: { binding?: TestRunBinding } = {};
+    const binding = createInProcessTestRunBinding({
+      testSetRegistry: registry,
+      subject: {
+        invoke: async () => {
+          invoked += 1;
+          return { output: changed, runId: 'replay-1' as RunId };
+        },
+      },
+      dispatchers: {
+        corrections: createCorrectedDispatcher({
+          cases,
+          ...(rescorable && {
+            corrections,
+            runs: {
+              getRun: async (_t, runId) =>
+                (runId as unknown as string) === 'replay-1' ? { output: changed } : null,
+            },
+            testRuns: { get: (input) => (ref.binding as TestRunBinding).get(input) },
+          }),
+        }),
+      },
+    });
+    ref.binding = binding;
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      testSetRegistry: registry,
+      testRunBinding: binding,
+    });
+    const post = (path: string, body: unknown = {}) =>
+      app.request(path, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const started = await post(`/v1/test-sets/${testSet.id}/runs`, {
+      projectId: randomUUID(),
+      agentRef: { agentId: 'acme.agent', version: '2.0.0' },
+    });
+    const first = await settled(
+      binding,
+      ((await started.json()) as { testRunId: string }).testRunId,
+    );
+    return { post, binding, corrections, first, invoked: () => invoked };
+  }
+
+  test('the changed answer, corrected on its replay, scores in the rescore; nothing replays again', async () => {
+    const h = await rescoreSetup();
+    const before = (h.first.result as { summary: CorrectedComparisonSummary }).summary;
+    expect(before.metrics.passRate).toMatchObject({ baseline: 0, candidate: null });
+    // A lead reads the new answer on the replay and corrects it there.
+    await h.corrections.record({
+      tenantId,
+      projectId: randomUUID() as never,
+      runId: 'replay-1',
+      run: {
+        subject: { kind: 'agent', id: 'acme.agent', version: '2.0.0' },
+        input: 'hello',
+        output: changed,
+      },
+      answer: 'right',
+      madeBy: { kind: 'user', id: 'lead' },
+      status: 'fixed',
+      fixedIn: {
+        how: 'recorded-right',
+        by: { kind: 'user', id: 'lead' },
+        at: '2026-10-01T00:00:00.000Z',
+      },
+    });
+    const res = await h.post(`/v1/test-runs/${h.first.testRunId}/rescore`);
+    expect(res.status).toBe(201);
+    const second = await settled(
+      h.binding,
+      ((await res.json()) as { testRunId: string }).testRunId,
+    );
+    expect(second.status).toBe('completed');
+    expect(second.comparison?.rescoreOf).toBe(h.first.testRunId);
+    const after = (second.result as { summary: CorrectedComparisonSummary }).summary;
+    expect(after.rescoreOf).toBe(h.first.testRunId);
+    expect(after.metrics.passRate).toMatchObject({
+      baseline: 0,
+      candidate: 1,
+      delta: 1,
+      freshWeight: 1,
+    });
+    expect(h.invoked()).toBe(1);
+    // The run rescored is as it was.
+    const firstAgain = await h.binding.get({ tenantId, testRunId: h.first.testRunId });
+    expect(firstAgain?.result).toEqual(h.first.result);
+  });
+
+  test('only a completed comparison can be rescored; an unknown run is 404', async () => {
+    const h = await rescoreSetup();
+    const second = await h.post(`/v1/test-runs/${h.first.testRunId}/rescore`);
+    const id = ((await second.json()) as { testRunId: string }).testRunId;
+    await settled(h.binding, id);
+    expect((await h.post(`/v1/test-runs/${randomUUID()}/rescore`)).status).toBe(404);
+    // A rescore of a rescore is fine (it's a completed comparison too).
+    expect((await h.post(`/v1/test-runs/${id}/rescore`)).status).toBe(201);
+  });
+
+  test("a runtime that can't read replays and their corrections again refuses it (400 dispatcher-input-invalid)", async () => {
+    const h = await rescoreSetup(false);
+    const res = await h.post(`/v1/test-runs/${h.first.testRunId}/rescore`);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('dispatcher-input-invalid');
+    expect(body.error.message).toContain("can't rescore");
+  });
+});

@@ -22,7 +22,7 @@ import type { Semver, TenantId } from '@kindgi/types';
 
 import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
-import type { EvalOverrides } from '../eval-run-binding.js';
+import type { TestRunOverrides } from '../test-run-binding.js';
 
 /** Where the check reads the agent version and its blocks. */
 export interface SettingsOverridesCheck {
@@ -67,7 +67,7 @@ export async function checkSettingsOverrides(
   check: SettingsOverridesCheck,
   tenantId: TenantId,
   candidate: { readonly agentId: string; readonly version: string },
-  overrides: EvalOverrides,
+  overrides: TestRunOverrides,
 ): Promise<OverridesIssue[]> {
   const settings = overrides.settings ?? {};
   const label = `${candidate.agentId} ${candidate.version}`;

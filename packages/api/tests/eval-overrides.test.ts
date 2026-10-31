@@ -2,10 +2,10 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * An improvement pass's comparisons: settings `overrides` (unpublished
+ * An Improve run's comparisons: settings `overrides` (unpublished
  * values for blocks the candidate pins, checked when the run starts) and
  * a `sample` of the test set (a deterministic search / hold-out split).
- * Neither may gate a promotion except a hold-out sample.
+ * Neither may gate a pin except a hold-out sample.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -19,20 +19,20 @@ import { sampleCases } from '../src/eval-sample.js';
 import type {
   AgentRegistryBinding,
   AgentVersionRecord,
-  EvalRun,
-  EvalRunBinding,
-  EvalSuite,
-  EvalSuiteRegistryBinding,
-  GatePolicySpec,
-  JudgedComparisonSummary,
-  JudgedEvalCase,
+  CorrectedComparisonSummary,
+  CorrectedTestCase,
+  ReleaseGateSpec,
   RunHandlerBinding,
+  TestRun,
+  TestRunBinding,
+  TestSet,
+  TestSetRegistryBinding,
   TokenResolver,
 } from '../src/index.js';
 import {
   createApp,
-  createInProcessEvalRunBinding,
-  createJudgedDispatcher,
+  createCorrectedDispatcher,
+  createInProcessTestRunBinding,
   evaluateGate,
 } from '../src/index.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
@@ -49,17 +49,18 @@ const runHandler = {
   resumeRun: unused,
 } as unknown as RunHandlerBinding;
 const CASES = Array.from({ length: 40 }, (_, i) => `case-${i}`);
-const suite: EvalSuite = {
+const testSet: TestSet = {
   id: 'acme.set',
   tenantId,
   version: '1.0.0',
-  kind: 'judged',
-  spec: { source: 'judgments', caseCount: CASES.length },
+  kind: 'corrections',
+  spec: { source: 'corrections', caseCount: CASES.length },
 };
 
-function judgedCase(caseId: string, no = false): JudgedEvalCase {
+function correctedCase(caseId: string, no = false): CorrectedTestCase {
   return {
     caseId,
+    runId: caseId,
     subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
     input: caseId,
     output: { appended: [{ role: 'agent', content: 'Hi.' }] },
@@ -74,19 +75,19 @@ function judgedCase(caseId: string, no = false): JudgedEvalCase {
         reasons: [],
       },
     ],
-  } as JudgedEvalCase;
+  } as CorrectedTestCase;
 }
 
 describe('sampleCases', () => {
   const sample: { seed: string; holdOutShare: number } = { seed: 'pass-1', holdOutShare: 0.3 };
   const cases = [
-    ...Array.from({ length: 10 }, (_, i) => judgedCase(`no-${i}`, true)),
-    ...Array.from({ length: 30 }, (_, i) => judgedCase(`yes-${i}`)),
+    ...Array.from({ length: 10 }, (_, i) => correctedCase(`no-${i}`, true)),
+    ...Array.from({ length: 30 }, (_, i) => correctedCase(`yes-${i}`)),
   ];
   const ids = (part: 'search' | 'hold-out', seed = sample.seed) =>
     sampleCases(cases, { ...sample, seed, part }).map((c) => c.caseId);
 
-  test('splits by judgment: about the share of the "no" cases and of the others, every case once', () => {
+  test('splits by correction: about the share of the "no" cases and of the others, every case once', () => {
     const holdOut = ids('hold-out');
     const search = ids('search');
     expect(holdOut.length + search.length).toBe(cases.length);
@@ -101,9 +102,9 @@ describe('sampleCases', () => {
   });
 
   test('cases that carry a correction split on their own: two put one in each part, whatever the seed', () => {
-    const corrected = (caseId: string, no = false): JudgedEvalCase => ({
-      ...judgedCase(caseId, no),
-      corrections: [{ judgmentId: `j-${caseId}`, calls: [] } as never],
+    const corrected = (caseId: string, no = false): CorrectedTestCase => ({
+      ...correctedCase(caseId, no),
+      corrections: [{ correctionId: `j-${caseId}`, calls: [] } as never],
     });
     const withTwo = [corrected('fix-1'), corrected('fix-2', true), ...cases];
     for (const seed of ['pass-1', 'pass-2', 'pass-3', 'pass-4', 'pass-5', 'pass-6']) {
@@ -114,7 +115,7 @@ describe('sampleCases', () => {
         holdOut.filter((id) => id.startsWith('fix-')),
         seed,
       ).toHaveLength(1);
-      // The others still split by judgment, as without them.
+      // The others still split by correction, as without them.
       expect(
         holdOut.filter((id) => id.startsWith('no-')),
         seed,
@@ -123,7 +124,7 @@ describe('sampleCases', () => {
   });
 
   test('a stratum of two puts one in each part; a stratum of one stays in the search part', () => {
-    const two = [judgedCase('a', true), judgedCase('b', true), judgedCase('c')];
+    const two = [correctedCase('a', true), correctedCase('b', true), correctedCase('c')];
     const holdOut = sampleCases(two, { ...sample, part: 'hold-out' }).map((c) => c.caseId);
     expect(holdOut.filter((id) => id !== 'c')).toHaveLength(1);
     expect(holdOut).not.toContain('c');
@@ -134,10 +135,11 @@ async function setup() {
   const cases = inMemoryCaseStore();
   await cases.putCases({
     tenantId,
-    suiteId: suite.id,
-    version: suite.version,
+    testSetId: testSet.id,
+    version: testSet.version,
     cases: CASES.map((caseId) => ({
       caseId,
+      runId: caseId,
       subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
       input: caseId,
       output: { appended: [{ role: 'agent', content: 'Hi.' }] },
@@ -156,6 +158,8 @@ async function setup() {
   });
   const blocks = inMemoryBlocks([projectId]);
   await blocks.publish({
+    publishedBy: { kind: 'user', id: 'user-1' },
+    source: { kind: 'api' },
     tenantId,
     projectId,
     block: {
@@ -173,6 +177,8 @@ async function setup() {
     },
   });
   await blocks.publish({
+    publishedBy: { kind: 'user', id: 'user-1' },
+    source: { kind: 'api' },
     tenantId,
     projectId,
     block: {
@@ -183,6 +189,8 @@ async function setup() {
     },
   });
   await blocks.publish({
+    publishedBy: { kind: 'user', id: 'user-1' },
+    source: { kind: 'api' },
     tenantId,
     projectId,
     block: {
@@ -215,10 +223,11 @@ async function setup() {
   } as unknown as AgentRegistryBinding;
   const invoked: string[] = [];
   const registry = {
-    get: async ({ suiteId }: { suiteId: string }) => (suiteId === suite.id ? suite : null),
-  } as unknown as EvalSuiteRegistryBinding;
-  const binding = createInProcessEvalRunBinding({
-    suiteRegistry: registry,
+    get: async ({ testSetId }: { testSetId: string }) =>
+      testSetId === testSet.id ? testSet : null,
+  } as unknown as TestSetRegistryBinding;
+  const binding = createInProcessTestRunBinding({
+    testSetRegistry: registry,
     subject: {
       invoke: async (input) => {
         invoked.push(input.replay?.of as unknown as string);
@@ -228,19 +237,19 @@ async function setup() {
         };
       },
     },
-    dispatchers: { judged: createJudgedDispatcher({ cases, agents }) },
+    dispatchers: { corrections: createCorrectedDispatcher({ cases, agents }) },
   });
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
     runHandler,
-    evalSuiteRegistry: registry,
-    evalRunBinding: binding,
+    testSetRegistry: registry,
+    testRunBinding: binding,
     agentRegistry: agents,
     blockRegistry: blocks,
   });
   const start = async (body: Record<string, unknown>) => {
-    const res = await app.request(`/v1/eval-suites/${suite.id}/runs`, {
+    const res = await app.request(`/v1/test-sets/${testSet.id}/runs`, {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({
@@ -254,9 +263,9 @@ async function setup() {
   return { binding, start, invoked };
 }
 
-async function settled(binding: EvalRunBinding, runId: string): Promise<EvalRun> {
+async function settled(binding: TestRunBinding, runId: string): Promise<TestRun> {
   for (let i = 0; i < 400; i++) {
-    const run = await binding.get({ tenantId, runId: runId as RunId });
+    const run = await binding.get({ tenantId, testRunId: runId as RunId });
     if (run !== null && run.status !== 'running' && run.status !== 'pending') return run;
     await new Promise((r) => setTimeout(r, 5));
   }
@@ -268,9 +277,9 @@ describe('settings overrides', () => {
     const { binding, start } = await setup();
     const res = await start({ overrides: { settings: { 'acme.weights': { recency: 0.9 } } } });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
-    const run = await settled(binding, res.body.runId);
+    const run = await settled(binding, res.body.testRunId);
     expect(run.comparison?.overrides).toEqual({ settings: { 'acme.weights': { recency: 0.9 } } });
-    const summary = (run.result?.summary ?? {}) as JudgedComparisonSummary;
+    const summary = (run.result?.summary ?? {}) as CorrectedComparisonSummary;
     expect(summary.candidate).toMatchObject({
       kind: 'agent',
       pinsDigest: 'sha-2',
@@ -320,8 +329,8 @@ describe('settings overrides', () => {
       },
     });
     expect(ok.status, JSON.stringify(ok.body)).toBe(201);
-    const run = await settled(binding, ok.body.runId);
-    expect((run.result?.summary as JudgedComparisonSummary).candidate).toMatchObject({
+    const run = await settled(binding, ok.body.testRunId);
+    expect((run.result?.summary as CorrectedComparisonSummary).candidate).toMatchObject({
       overrides: { prompts: ['acme.prompt'] },
     });
     const bad = await start({
@@ -354,13 +363,13 @@ describe('a sample of the test set', () => {
     const sample = { part: 'hold-out', seed: 'pass-1', holdOutShare: 0.3 };
     const res = await start({ sample });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
-    const run = await settled(binding, res.body.runId);
+    const run = await settled(binding, res.body.testRunId);
     const expected = sampleCases(
-      CASES.map((id) => judgedCase(id)),
+      CASES.map((id) => correctedCase(id)),
       sample as Parameters<typeof sampleCases>[1],
     ).map((c) => c.caseId);
     expect([...invoked].sort()).toEqual([...expected].sort());
-    const summary = run.result?.summary as JudgedComparisonSummary;
+    const summary = run.result?.summary as CorrectedComparisonSummary;
     expect(summary.cases).toBe(expected.length);
     expect(summary.sample).toEqual(sample);
   });
@@ -376,7 +385,7 @@ describe('a sample of the test set', () => {
 });
 
 describe('the gate', () => {
-  const spec: GatePolicySpec = { metrics: [{ name: 'weightedYesShare', minCandidate: 0.5 }] };
+  const spec: ReleaseGateSpec = { metrics: [{ name: 'passRate', minCandidate: 0.5 }] };
   const m = {
     baseline: 0.5,
     candidate: 0.8,
@@ -387,11 +396,11 @@ describe('the gate', () => {
     baselineWeight: 10,
     direction: 'higher' as const,
   };
-  const summary = (extra: Partial<JudgedComparisonSummary>): JudgedComparisonSummary => ({
-    evalRunId: 'er',
+  const summary = (extra: Partial<CorrectedComparisonSummary>): CorrectedComparisonSummary => ({
+    testRunId: 'er',
     status: 'completed',
     completedAt: new Date().toISOString(),
-    suite: { id: suite.id, version: '1.0.0' },
+    testSet: { id: testSet.id, version: '1.0.0' },
     candidate: { kind: 'agent', agentId: 'acme.agent', version: '2.0.0', pinsDigest: 'sha-2' },
     baseline: {
       kind: 'recorded',
@@ -406,13 +415,13 @@ describe('the gate', () => {
     reads: 'recorded',
     sampling: { models: [] },
     repetitions: 1,
-    metrics: { weightedYesShare: m, judgedCoverage: m, weightedPrecisionAtK: { ...m, k: 10 } },
+    metrics: { passRate: m, caseCoverage: m, weightedPrecisionAtK: { ...m, k: 10 } },
     ...extra,
   });
-  const gate = (s: JudgedComparisonSummary) =>
+  const gate = (s: CorrectedComparisonSummary) =>
     evaluateGate({
       spec,
-      promotion: {
+      pin: {
         agentId: 'acme.agent',
         version: '2.0.0',
         pinsDigest: 'sha-2',
@@ -422,7 +431,7 @@ describe('the gate', () => {
       servingVersion: '1.0.0',
       now: new Date(),
     });
-  const check = (s: JudgedComparisonSummary, name: string) =>
+  const check = (s: CorrectedComparisonSummary, name: string) =>
     gate(s).checks.find((c) => c.name === name);
 
   test('a test run with overrides fails sameContents: try the published version', () => {

@@ -154,7 +154,7 @@ describe('a turn loads the blocks it references', () => {
       const ctx = turn(agent(), reader());
       return {
         ...ctx,
-        input: { ...ctx.input, replay: { of: 'run-past', evalRunId: 'eval-1' } },
+        input: { ...ctx.input, replay: { of: 'run-past', testRunId: 'eval-1' } },
         bindings: {
           ...ctx.bindings,
           replay: {
@@ -173,7 +173,7 @@ describe('a turn loads the blocks it references', () => {
     expect(blocks?.settings).toEqual({ 'acme.weights': { recency: 0.9 } });
     expect(blocks?.modelSettings).toEqual({ temperature: 0.5 });
     expect(blocks?.versions.settings).toEqual({ 'acme.weights': '1.2.0', 'acme.model': '1.0.0' });
-    expect(asked).toEqual([{ tenantId, replay: { of: 'run-past', evalRunId: 'eval-1' } }]);
+    expect(asked).toEqual([{ tenantId, replay: { of: 'run-past', testRunId: 'eval-1' } }]);
 
     const plain = await resolveTurnBlocks(replayTurn(undefined));
     expect(plain?.settings).toEqual({ 'acme.weights': { recency: 0.7 } });
@@ -186,7 +186,7 @@ describe('a turn loads the blocks it references', () => {
     const ctx = turn(agent(), reader());
     const blocks = await resolveTurnBlocks({
       ...ctx,
-      input: { ...ctx.input, replay: { of: 'run-past', evalRunId: 'eval-1' } },
+      input: { ...ctx.input, replay: { of: 'run-past', testRunId: 'eval-1' } },
       bindings: {
         ...ctx.bindings,
         replay: {
