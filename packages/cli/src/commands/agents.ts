@@ -33,6 +33,7 @@ import {
 import {
   ANSWER_NO_EXIT_CODE,
   type TableSpec,
+  givenFlag,
   integerFlag,
   listFlag,
   projectIdFlag,
@@ -234,6 +235,31 @@ const unregister: LeafCommand = {
       const agentId = requiredPositional(ctx, 0, 'agent-id') as never;
       const version = requiredPositional(ctx, 1, 'version');
       return await ctx.client().agents.versions.unregister(agentId, version as never);
+    }),
+};
+
+const owner: LeafCommand = {
+  kind: 'leaf',
+  name: 'owner',
+  description:
+    "Show the agent's owner, or set it: the person its corrections go to when they need the owner.",
+  usage: 'kindgi agents owner <agent-id> [--set=<user-id>]',
+  optionSpec: {
+    set: {
+      type: 'string',
+      description:
+        'Make this person the owner, replacing the one before. Needs admin on the agent.',
+    },
+  },
+  run: (ctx) =>
+    runSdk(ctx, 'agents owner', async () => {
+      const agentId = requiredPositional(ctx, 0, 'agent-id');
+      // `--set=$U` with U unset is a usage error, never a read of the owner.
+      const userId = givenFlag(ctx, 'set');
+      const agents = ctx.client().agents;
+      if (userId !== undefined) return await agents.setOwner(agentId, userId);
+      const agent = await agents.get(agentId as AgentId);
+      return { agentId, ...(agent.owner !== undefined && { owner: agent.owner }) };
     }),
 };
 
@@ -599,6 +625,7 @@ export const agentsCommand: Command = {
     publish,
     derive,
     unregister,
+    owner,
     versions,
     pinned,
     pinnedVersions,
