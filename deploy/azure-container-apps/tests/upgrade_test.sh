@@ -28,6 +28,9 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT="$HERE/../upgrade.sh"
 [[ -f $SCRIPT ]] || { echo "can't find $SCRIPT" >&2; exit 1; }
+# The module's declarations, which the terraform stub's console checks the
+# var files against.
+export STUB_MODULE_DIR="$HERE/.."
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -181,9 +184,34 @@ STUB
 cat >"$BIN/terraform" <<'STUB'
 #!/usr/bin/env bash
 printf 'terraform %s\n' "$*" >>"${STUB_CALLS_LOG:-/dev/null}"
+# Real terraform console prints a warning on stdout, ahead of the value, for
+# each variable a var file sets that its config ($2) doesn't declare. Each is
+# logged to STUB_WARNED as "<$1> <name>".
+warn_undeclared() {
+  local read="$1" decl="$2" f n names; shift 2
+  for f in "$@"; do
+    if [[ $f == *.json ]]; then names="$(jq -r 'keys[]' "$f")"
+    else names="$(sed -nE 's/^([A-Za-z_][A-Za-z0-9_-]*)[[:space:]]*=.*/\1/p' "$f")"; fi
+    for n in $names; do
+      if grep -qE "^variable \"$n\" " "$decl"/*.tf; then continue; fi
+      printf '%s %s\n' "$read" "$n" >>"${STUB_WARNED:-/dev/null}"
+      printf '\nWarning: Value for undeclared variable\n\nThe root module does not declare a variable named "%s" but a value was\nfound in file "%s". If you meant to use this value, add a "variable" block\nto the configuration.\n\nTo silence these warnings, use TF_VAR_... environment variables to provide\ncertain "global" settings to all configurations in your organization. To\nreduce the verbosity of these warnings, use the -compact-warnings option.\n' "$n" "$f"
+    done
+  done
+}
 case "${1:-}" in
   output) printf '%s' "${STUB_TF_OUTPUTS:-}"; exit 0 ;;
-  console) cat >/dev/null; printf '%s\n' "${STUB_TF_VARS_RAW:-}"; exit 0 ;;
+  console)
+    # From the module's directory: the files Terraform loads on its own, then
+    # each -var-file.
+    shift; cat >/dev/null
+    files=()
+    for f in terraform.tfvars terraform.tfvars.json *.auto.tfvars *.auto.tfvars.json; do
+      if [[ -f $f ]]; then files+=("$f"); fi
+    done
+    for a in "$@"; do files+=("${a#-var-file=}"); done
+    warn_undeclared console "$STUB_MODULE_DIR" ${files[@]+"${files[@]}"}
+    printf '%s\n' "${STUB_TF_VARS_RAW:-}"; exit 0 ;;
   plan)
     # The plan file is the plan as `terraform show -json` gives it: the server
     # and the pack at the images the var files set, a later file over an
@@ -359,6 +387,7 @@ reset_env() {
   export STUB_BACKUP_LOG="$CASE_DIR/backup.log"
   export STUB_EXEC_POLLS="$CASE_DIR/exec-polls"
   export STUB_CALLS_LOG="$CASE_DIR/calls.log"
+  export STUB_WARNED="$CASE_DIR/warned"
   export STUB_UNKNOWN_LOG="$CASE_DIR/unknown.log"
   export AZURE_CONFIG_DIR="$CASE_DIR/azure"
   export DOCKER_CONFIG="$CASE_DIR/docker"
@@ -462,7 +491,7 @@ assert_out "0.1.8 -> 0.2.0 applied"
 assert_file_has "$VAR_FILE" "server_image = \"$NEW_IMAGE\"  # copied 0.1.8" "var-file pins the new image, comment kept"
 assert_file_has "$STUB_PLAN_SAW" "$NEW_IMAGE" "the plan read the new image from the var-file"
 if grep -q "plan got -var" "$STUB_PLAN_SAW"; then fail "plan was given -var"; else pass; fi
-assert_out "plan check: it changes the image(s), and only what the releases crossed change in place."
+assert_out "plan check: it changes the image(s), and only what the releases crossed change."
 # The plan applied is kept next to the var-file's copy, readable by its owner
 # alone, and the run says where; the apply is given that file.
 kept="$(ls "$CASE_DIR"/dev.tfvars.upgrade-*.tfplan 2>/dev/null)"
@@ -1004,13 +1033,13 @@ assert_rc 0 "json var-file runs"
 if [[ "$(jq -r .server_image "$VAR_FILE")" == "$NEW_IMAGE" ]]; then pass; else fail "json var-file not rewritten"; fi
 
 # 22. Past the newest release this script knows: refused before anything is
-# read, copied or run, though 0.1.9 to 0.3.1 lie on the way.
+# read, copied or run, though 0.1.9 to 0.4.0 lie on the way.
 case_start "target past the newest known release"
 reset_env; export STUB_TAGS="0.1.8"
-run "yes" --to 0.4.0
+run "yes" --to 0.5.0
 assert_rc 1 "a later target refused"
-assert_out "knows the steps up to 0.3.1"
-assert_out "as of the @kindgi/sdk@0.4.0 tag"
+assert_out "knows the steps up to 0.4.0"
+assert_out "as of the @kindgi/sdk@0.5.0 tag"
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_COPY" "copy"
 assert_varfile_unchanged
@@ -1018,10 +1047,10 @@ assert_varfile_unchanged
 # 23. An rc of a later release counts as that release.
 case_start "rc of a later release"
 reset_env; export STUB_TAGS="0.1.9"
-run "yes" --to 0.4.0-rc.1
+run "yes" --to 0.5.0-rc.1
 assert_rc 1 "a later rc refused"
-assert_out "knows the steps up to 0.3.1"
-assert_out "as of the @kindgi/sdk@0.4.0 tag or, before that release is out, its newest @kindgi/sdk@0.4.0-rc.N tag."
+assert_out "knows the steps up to 0.4.0"
+assert_out "as of the @kindgi/sdk@0.5.0 tag or, before that release is out, its newest @kindgi/sdk@0.5.0-rc.N tag."
 assert_absent "$STUB_MARKER_COPY" "copy"
 
 # 24. 0.1.10 -> 0.2.0: crosses 0.2.0 alone, copies it from registry.kindgi.com.
@@ -1221,7 +1250,8 @@ assert_out "upgrading 0.2.0 -> 0.2.0.1, a server fix for 0.2.0: no release cross
 assert_out "none: 0.2.0.1 is a server fix for 0.2.0."
 assert_out "0.3.0 (this module's changes only; the runtime goes to 0.2.0.1):"
 assert_out "0.3.1 (this module's changes only; the runtime goes to 0.2.0.1):"
-assert_out "the module here is this copy's, as of 0.3.1: the plan also makes its changes for the releases after 0.2.0"
+assert_out "0.4.0 (this module's changes only; the runtime goes to 0.2.0.1):"
+assert_out "the module here is this copy's, as of 0.4.0: the plan also makes its changes for the releases after 0.2.0"
 assert_out "To keep the module at 0.2.0, upgrade by hand: this script first came with 0.4.0."
 if grep -q "now comes from registry.kindgi.com" "$OUT"; then fail "0.2.0's steps shown for 0.2.0 -> 0.2.0.1"; else pass; fi
 assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.2.0.1 " "the server fix's own tag is read"
@@ -1279,10 +1309,10 @@ assert_varfile_unchanged
 # names its release's SDK tag, since a server-only release has none.
 case_start "server fix past the newest known release"
 reset_env; export STUB_TAGS="0.2.0"
-run "yes" --to 0.4.0.1
+run "yes" --to 0.5.0.1
 assert_rc 1 "a later server fix refused"
-assert_out "knows the steps up to 0.3.1. 0.4.0.1 is a server fix for 0.4.0, which comes out after its final: use this script as of the @kindgi/sdk@0.4.0 tag."
-if grep -q "@kindgi/sdk@0.4.0.1" "$OUT"; then fail "the refusal names an SDK tag a server-only release doesn't have"; else pass; fi
+assert_out "knows the steps up to 0.4.0. 0.5.0.1 is a server fix for 0.5.0, which comes out after its final: use this script as of the @kindgi/sdk@0.5.0 tag."
+if grep -q "@kindgi/sdk@0.5.0.1" "$OUT"; then fail "the refusal names an SDK tag a server-only release doesn't have"; else pass; fi
 assert_absent "$STUB_DOCKER_LOG" "a registry read"
 assert_absent "$STUB_MARKER_COPY" "copy"
 assert_varfile_unchanged
@@ -1381,27 +1411,34 @@ assert_out "If a release crossed needs the pack rebuilt (its steps to confirm by
 if grep -q "If 0.1.10 needs" "$OUT"; then fail "the warning names a release"; else pass; fi
 assert_out "0.1.10 -> 0.2.0 applied"
 
-# 47. With no --to, the target is the newest release the script knows, 0.3.1,
+# 47. With no --to, the target is the newest release the script knows, 0.4.0,
 # and the module here is that release's: no note that it goes ahead. From
-# 0.2.0 it crosses 0.3.0 and 0.3.1, and both their steps print.
-case_start "the default target, 0.3.1"
+# 0.2.0 it crosses 0.3.0, 0.3.1 and 0.4.0, and all their steps print.
+case_start "the default target, 0.4.0"
 reset_env; export STUB_TAGS="0.2.0"
 ARGS=(--var-file "$VAR_FILE" --runtime-digest "$NEW_DIGEST")
 run "yes"
-assert_rc 0 "0.2.0 -> 0.3.1 runs"
-assert_out "crossing: 0.3.0 0.3.1$"
+assert_rc 0 "0.2.0 -> 0.4.0 runs"
+assert_out "crossing: 0.3.0 0.3.1 0.4.0$"
 assert_out "First start runs six additive migrations"
 assert_out "If seed_user_id has an upper-case letter, 0.3.0 and later read it in"
 assert_out "kindgi-runtime tenants repair --tenant <id in lower case>"
 assert_out "run this once, with the new runtime's kindgi-runtime:"
-if grep -q "0.3.0's kindgi-runtime" "$OUT"; then fail "a run to 0.3.1 named 0.3.0's runtime"; else pass; fi
+if grep -q "0.3.0's kindgi-runtime" "$OUT"; then fail "a run to 0.4.0 named 0.3.0's runtime"; else pass; fi
 assert_out "First start runs no migrations. The steps are the packs'"
 assert_out "kindgi guardrails unregister <id>"
 assert_out "0.3.1 doesn't change the module."
+assert_out "STEPS-PENDING: this copy's 0.4.0 runtime steps below aren't final yet."
+assert_out "First start runs sixteen migrations: one new table, new columns that"
+assert_out "FROM judgments; and the same FROM"
+assert_out "grant roles/storage.legacyBucketReader on the bucket,"
+assert_out "kindgi mail-triggers update <trigger-id> --mailbox=google"
+assert_out "change judging=<level> to"
+assert_out "0.4.0's plan changes nothing in the module by itself"
 if grep -q "the module here is this copy's" "$OUT"; then fail "the newest release's run says the module goes ahead"; else pass; fi
-assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.3.1 " "0.3.1's tag is read"
+assert_file_has "$STUB_DOCKER_LOG" "buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.4.0 " "0.4.0's tag is read"
 assert_out "plan check: it changes the image(s)"
-assert_out "0.2.0 -> 0.3.1 applied"
+assert_out "0.2.0 -> 0.4.0 applied"
 
 # 47b. 0.3.0 -> 0.3.1's candidate: it crosses 0.3.1 alone, an rc counting as
 # its release, and the plan changes only the image.
@@ -1416,6 +1453,24 @@ if grep -q "six additive migrations" "$OUT"; then fail "0.3.0's steps printed fo
 assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.3.1-rc.0@$NEW_DIGEST" "the rc is copied from registry.kindgi.com"
 assert_out "plan check: it changes the image(s)"
 assert_out "0.3.0 -> 0.3.1-rc.0 applied"
+
+# 47c. 0.3.1 -> 0.4.0's candidate: it crosses 0.4.0 alone, whose module
+# changes nothing by itself, so the plan changes only the image. Until 0.4.0's
+# runtime steps are final, they start with the STEPS-PENDING line, which the
+# rc's cut stops on.
+case_start "0.3.1 to 0.4.0-rc.0"
+reset_env; export STUB_TAGS="0.3.1"
+run "yes" --to 0.4.0-rc.0
+assert_rc 0 "0.3.1 -> 0.4.0-rc.0 runs"
+assert_out "crossing: 0.4.0$"
+assert_out "STEPS-PENDING: this copy's 0.4.0 runtime steps below aren't final yet."
+assert_out "First start runs sixteen migrations"
+assert_out "0.4.0's plan changes nothing in the module by itself"
+if grep -q "First start runs no migrations. The steps are the packs'" "$OUT"; then fail "0.3.1's steps printed for a run from 0.3.1"; else pass; fi
+if grep -q "the module here is this copy's" "$OUT"; then fail "a run to the newest release's rc says the module goes ahead"; else pass; fi
+assert_file_has "$STUB_DOCKER_LOG" "registry.kindgi.com/kindgi/runtime:0.4.0-rc.0@$NEW_DIGEST" "the rc is copied from registry.kindgi.com"
+assert_out "plan check: it changes the image(s)"
+assert_out "0.3.1 -> 0.4.0-rc.0 applied"
 
 # 48. The license renewal job runs the server's image: its image changes
 # with the server's, and passes the check; anything else of it doesn't.
@@ -1691,6 +1746,29 @@ run "yes"
 unset TF_VAR_pack_image
 assert_rc 0 "without a rebuild it runs"
 assert_out "also set       TF_VAR_pack_image (in the environment)"
+
+# 65. Each variable the script reads with terraform console is one the module
+# declares: the real console refuses an undeclared one, and the stub doesn't.
+case_start "VARS_EXPR reads only variables the module declares"
+expr="$(sed -n "s/^VARS_EXPR='\(.*\)'\$/\1/p" "$HERE/../upgrade.sh")"
+names="$(grep -oE 'var\.[a-z_][a-z0-9_]*' <<<"$expr" | sed 's/^var\.//' | sort -u)"
+if grep -qx "subscription_id" <<<"$names" && grep -qx "resource_group_name" <<<"$names"; then pass; else fail "VARS_EXPR wasn't read: $expr"; fi
+for n in $names; do
+  if grep -qE "^variable \"$n\" " "$HERE"/../*.tf; then pass; else fail "VARS_EXPR reads var.$n, which the module doesn't declare"; fi
+done
+
+# 66. Real terraform console prints a warning on stdout, ahead of the value,
+# for each variable a var file sets that the module doesn't declare. The value
+# is console's last line, so the run goes on.
+case_start "a var file that sets a variable the module doesn't declare"
+reset_env; export STUB_TAGS="0.1.10"
+printf 'acme_note    = "kept from an older copy"\n' >>"$VAR_FILE"
+cp "$VAR_FILE" "$CASE_DIR/original.tfvars"
+run "yes"
+assert_rc 0 "it runs"
+assert_file_has "$STUB_WARNED" "console acme_note" "console warned"
+if grep -q "^console server_image" "$STUB_WARNED"; then fail "console warned for a declared variable"; else pass; fi
+assert_out "crossing: 0.2.0$"
 
 # --- summary ----------------------------------------------------------------
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

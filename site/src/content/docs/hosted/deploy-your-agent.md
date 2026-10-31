@@ -149,7 +149,14 @@ pnpm exec kindgi deploy --hosted --env=prod
 The deploy prints what it registered, with each agent's version, then
 `Deploy complete.` and which image new runs use. Then it waits:
 `Waiting for the pack service`, a `… <state>` line for each state it
-waits in, and `✓ ready`.
+waits in, and `✓ ready`. Last, it says how many builds keep a pack
+service: `Builds kept in this project: N`. With no `--project`, it's
+`Builds kept in this workspace: N`, the total over the projects you can
+read. The builds of a deploy that names no project count in the Default's,
+and the deploy's answer doesn't name that project.
+[Old versions keep their pack service](#old-versions-keep-their-pack-service)
+says what keeps one. With `--json`, the count is `keptBuilds`; a count that
+couldn't be read is `keptBuildsError`, and the deploy still succeeds.
 A pack with no tools and no guardrail checks of its own, such as one of
 agents and flows whose guardrails use only built-in checks, has no pack
 service. Its deploy doesn't wait for one, and prints no `Waiting for the pack
@@ -237,6 +244,32 @@ its version, before you pin it.
 Several new versions can wait at once. Each deploy that changes the code
 registers a version, and you can run any of them by its number. You make
 one of them; the others stay, and you can still run them.
+
+### Old versions keep their pack service
+
+Each build has its own pack service, and a version stays callable by its
+number until you unregister it. So a build keeps its pack service while
+it's the newest in its project to serve something a call can still ask
+for:
+
+- a tool, agent or flow version that's registered, or that a pin or an
+  unfinished run uses;
+- a pack check that a registered guardrail runs;
+- a tool deployed without a version, until a newer build ships it.
+
+`kindgi deployments get <deployment-id>` lists what keeps it, under
+`Kept for:`. To let an old build go, unregister the versions nothing calls:
+
+```sh
+pnpm exec kindgi agents unregister acme-desk.reply-drafter <old version>
+pnpm exec kindgi tools unregister <tool-id> <old version>
+```
+
+Once nothing keeps a build, its pack service goes. Registering one of its
+versions again brings it back. A version that a pin uses keeps its build
+until the pin's own version is unregistered, and one an unfinished run uses
+keeps it until the run finishes. The API says the same: each deployment's
+`endpoint.keptFor`, and `keptBuilds` on `GET /v1/deployments`.
 
 [Release an agent version](../../guides/improve/release-an-agent-version/)
 shows each step, a release for some runs only, and a release gate

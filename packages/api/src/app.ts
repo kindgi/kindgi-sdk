@@ -37,7 +37,7 @@ import type { CostBinding } from './cost-binding.js';
 import type { CursorSealer } from './cursor-seal.js';
 import type { DeploymentBinding } from './deployment-binding.js';
 import type { DeploymentValuesDeps } from './deployment-values.js';
-import type { EnvBinding } from './env-binding.js';
+import type { EnvBinding, EnvCloudSecretBinding } from './env-binding.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import type { WireErrorBody } from './errors.js';
 import type { EventBusBinding } from './event-bus-binding.js';
@@ -200,6 +200,7 @@ import {
   type SystemDeploymentsOptions,
   systemDeploymentsRouter,
 } from './routes/system-deployments.js';
+import { systemEnvRouter } from './routes/system-env.js';
 import { type SystemKeysBinding, systemKeysRouter } from './routes/system-keys.js';
 import {
   type SystemTenantSettingsBinding,
@@ -218,6 +219,7 @@ import { testRunsRouters } from './routes/test-runs.js';
 import { testSetsRouter } from './routes/test-sets.js';
 import { tokenSignInRouter } from './routes/token-sign-in.js';
 import { tokensRouter } from './routes/tokens.js';
+import { toolFilesRouter } from './routes/tool-files.js';
 import { toolsRouter } from './routes/tools.js';
 import type { TriggerOwnerNotices } from './routes/trigger-owners.js';
 import { usageRouter } from './routes/usage.js';
@@ -240,6 +242,7 @@ import type { TestRunBinding } from './test-run-binding.js';
 import type { TestSetFreezeBinding, TestSetRegistryBinding } from './test-set-binding.js';
 import type { TokenAdmin } from './token-admin.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
+import type { ToolFilesBinding } from './tool-files-binding.js';
 import { TRIGGER_KINDS, type TriggerKind, type TriggerRegistryBinding } from './trigger-binding.js';
 import type { AppEnv } from './types.js';
 import type { UsageBinding } from './usage.js';
@@ -483,6 +486,16 @@ export interface CreateAppInput {
    * `webhookReceiver` says (its defaults when it's absent).
    */
   readonly waitTokens?: WaitTokenBinding;
+  /**
+   * Files a pack tool that declares `storesFiles` stores for its call
+   * (`POST /v1/tool-files`), and one that declares `readsFiles` reads
+   * (`GET /v1/tool-files/{artifactId}`), with the call's token as the
+   * bearer (no API key). Absent: both answer `404 tool-file-token-not-found`.
+   * The Kindgi runtime supplies one. The route limits requests per client,
+   * telling clients apart and counting where `webhookReceiver` says (its
+   * defaults when it's absent).
+   */
+  readonly toolFiles?: ToolFilesBinding;
   /**
    * Optional. When present, mounts the reviewer roster sub-resource
    * at `/v1/approvals/reviewers` — list / get / register / unregister.
@@ -1292,6 +1305,16 @@ export interface CreateAppInput {
    */
   readonly envBinding?: EnvBinding;
   /**
+   * Optional. The env names the operator set to a cloud secret
+   * (`projects/<project>/secrets/<secret>/versions/<number>`), which a
+   * pack service is given by that name for its cloud to read. A system key
+   * with `system:env-refs` sets them (`/v1/system/tenants/{tenantId}/env`);
+   * a tenant lists their names (`GET /v1/env/cloud-secrets`), and the
+   * pack-env checks count each as set. Absent: those routes answer `501
+   * cloud-secrets-unsupported`, and nothing is set by reference.
+   */
+  readonly envCloudSecrets?: EnvCloudSecretBinding;
+  /**
    * What a deployment's values check reads that only the runtime knows
    * (`deployment-values.ts`): where a model provider's key is for a run in
    * a project, and the pack service's own env. The check reads env values
@@ -2026,6 +2049,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             stores: {
               env: input.envBinding,
               ...(secretsBinding !== undefined && { secrets: secretsBinding }),
+              ...(input.envCloudSecrets !== undefined && { cloudSecrets: input.envCloudSecrets }),
               ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
             },
             envName: servedEnv,
@@ -2065,6 +2089,20 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         settings: input.systemTenantSettings,
         directory: input.systemTenantDirectory,
         ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
+  if (input.systemTenantDirectory !== undefined) {
+    // The operator's cloud secrets. Mounted with no store too, so a runtime
+    // that keeps none (hosted, for one) answers `501`, not `404`.
+    v1.route(
+      '/system/tenants',
+      systemEnvRouter({
+        cloudSecrets: input.envCloudSecrets,
+        directory: input.systemTenantDirectory,
+        ...(authorizer !== undefined && { authorizer }),
+        ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+        ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
       }),
     );
   }
@@ -2509,7 +2547,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // store — an in-memory reference is used when the caller doesn't
   // plug in a durable one.
   if (input.envBinding !== undefined) {
-    v1.route('/env', envRouter(input.envBinding, authorizer, input.auditEvents, servedEnvRule));
+    v1.route(
+      '/env',
+      envRouter(
+        input.envBinding,
+        authorizer,
+        input.auditEvents,
+        servedEnvRule,
+        input.envCloudSecrets,
+      ),
+    );
   }
   // Audit query surface. Admin-only PEP applied inside the router
   // (self-contained; no plumbing here).
@@ -2649,6 +2696,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           // env its pack declares, from the env store.
           ...(input.systemDeployments !== undefined && { packEnvServed: true }),
           ...(input.envBinding !== undefined && { envBinding: input.envBinding }),
+          ...(input.envCloudSecrets !== undefined && { cloudSecrets: input.envCloudSecrets }),
           ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
           // A deploy registers tools and guardrails: the same cache hooks
           // `POST /v1/tools` / `POST /v1/guardrails` call.
@@ -2804,6 +2852,22 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     waitTokensRouter({
       ...(input.waitTokens !== undefined && { binding: input.waitTokens }),
       runHandler: input.runHandler,
+      ...(input.webhookReceiver?.clientAddress !== undefined && {
+        clientAddress: input.webhookReceiver.clientAddress,
+      }),
+      ...(input.webhookReceiver?.rateLimitStore !== undefined && {
+        rateLimitStore: input.webhookReceiver.rateLimitStore,
+      }),
+    }),
+  );
+  // A pack service stores and reads files for a tool's call: outside the
+  // bearer chain (mounted ahead of `/v1`), since its bearer is the call's
+  // token, not an API key. Always mounted, so a runtime that stores no
+  // files answers a clear 404.
+  app.route(
+    '/v1/tool-files',
+    toolFilesRouter({
+      ...(input.toolFiles !== undefined && { binding: input.toolFiles }),
       ...(input.webhookReceiver?.clientAddress !== undefined && {
         clientAddress: input.webhookReceiver.clientAddress,
       }),

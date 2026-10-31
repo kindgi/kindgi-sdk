@@ -21,12 +21,13 @@ import type {
   ModelProvider,
   ProviderMetadata,
 } from '@kindgi/capabilities';
-import { adapterConfigError, samplingFor, thinkingFor } from '@kindgi/capabilities';
+import { adapterConfigError, fileParts, samplingFor, thinkingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 import { createClientsByKey } from '@kindgi/capabilities/clients-by-key';
 import { headerValueProblem } from '@kindgi/types';
 
 import { type GeminiModelInfo, computeCostUsd, toFrameworkUsage } from './cost.js';
+import { typedFailure } from './errors.js';
 import { fromGeminiResponse, toGeminiFunctions, toGeminiRequest } from './translate.js';
 
 /** The adapter id servers register `geminiAdapterFactory` under. */
@@ -220,7 +221,15 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
         );
       }
       const startedAt = Date.now();
-      const { systemInstruction, contents } = toGeminiRequest(input.messages);
+      // Images and PDFs go to a model that declares `vision`; text files to any.
+      const vision = model.features.includes('vision');
+      const files = await fileParts(input.messages, {
+        readFile: input.readFile,
+        images: vision,
+        documents: vision,
+        contextWindow: model.contextWindow,
+      });
+      const { systemInstruction, contents } = toGeminiRequest(input.messages, files);
       const maxOutputTokens = input.maxOutputTokens ?? model.maxOutputTokens;
       const sampling = samplingFor(model, input);
       const thinking = thinkingLevelFor(input, model);
@@ -250,11 +259,15 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
 
       const client = await resolveClient();
       const counted = await attempts.count(() =>
-        client.models.generateContent({
-          model: input.model,
-          contents: [...contents],
-          config,
-        }),
+        client.models
+          .generateContent({
+            model: input.model,
+            contents: [...contents],
+            config,
+          })
+          .catch((error: unknown) => {
+            throw typedFailure(error);
+          }),
       );
       const response = counted.value;
 

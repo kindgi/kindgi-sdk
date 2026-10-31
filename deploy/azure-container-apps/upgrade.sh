@@ -76,7 +76,7 @@
 # Usage:
 #   ./upgrade.sh --var-file dev.tfvars [--var-file <another var file> ...] \
 #                --runtime-digest sha256:<64 hex> \
-#                [--to 0.3.1] [--from <version>] \
+#                [--to 0.4.0] [--from <version>] \
 #                [--pack-dir <path to the pack project>] \
 #                [--check-tenant <uuid>] [--dry-run]
 #
@@ -99,18 +99,18 @@
 #                      release's tag, then copied into the module's registry
 #                      by its whole index.
 #   --to               The target runtime version, 0.2.0 or later (default
-#                      0.3.1). An rc such as 0.3.1-rc.0 works too, and so does
+#                      0.4.0). An rc such as 0.4.0-rc.0 works too, and so does
 #                      a server-only release such as 0.2.0.1: a server fix for
 #                      0.2.0, with no SDK release of its own. Earlier
 #                      releases aren't on registry.kindgi.com: upgrade to
 #                      those by hand, as that release's README says. This
-#                      script knows the steps up to 0.3.1; for a later
+#                      script knows the steps up to 0.4.0; for a later
 #                      release, use this script as of that release's
 #                      @kindgi/sdk@<version> tag (for X.Y.Z.N, X.Y.Z's tag)
 #                      or, before that release is out, its newest
 #                      @kindgi/sdk@<version>-rc.N tag.
-#                      Below 0.3.1, the plan still makes this module's
-#                      changes up to 0.3.1, with the older runtime. This
+#                      Below 0.4.0, the plan still makes this module's
+#                      changes up to 0.4.0, with the older runtime. This
 #                      script first came with 0.4.0, so to keep the module at
 #                      an earlier release, upgrade by hand.
 #   --from             Assert the current version (0.1.10, say, or 0.2.0.1)
@@ -149,7 +149,7 @@ readonly RUNTIME_REPO="registry.kindgi.com/kindgi/runtime"
 readonly VERSION_FLOOR="0.1.8"         # upgrades from before this are refused
 readonly TARGET_FLOOR="0.2.0"          # the first release on registry.kindgi.com
 # Releases this script knows the upgrade steps for, oldest first.
-readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1")
+readonly KNOWN_RELEASES=("0.1.9" "0.1.10" "0.2.0" "0.3.0" "0.3.1" "0.4.0")
 # The newest of them.
 readonly DEFAULT_TARGET="${KNOWN_RELEASES[${#KNOWN_RELEASES[@]}-1]}"
 
@@ -564,11 +564,13 @@ KEY_VAULT="$(jq -r '.key_vault_name.value // empty' "$TF_OUT")"
 
 # One terraform console call returns the variables, and the ids the az
 # calls need, as a JSON object. console renders jsonencode()'s string with
-# HCL quoting, so `jq fromjson` unwraps it.
+# HCL quoting, so `jq fromjson` unwraps it. Its warnings, such as one for
+# each variable a var file sets that the module doesn't declare, come on
+# stdout ahead of the value, so the value is its last line.
 VARS_EXPR='jsonencode({subscription_id=var.subscription_id, resource_group_name=var.resource_group_name, name_prefix=var.name_prefix, database_name=var.database_name, database_url_version=var.database_url_version, server_image=var.server_image, pack_image=var.pack_image, vault_uri=azurerm_key_vault.kindgi.vault_uri, server_identity=azurerm_user_assigned_identity.server.id, environment_id=azurerm_container_app_environment.kindgi.id, workspace_id=azurerm_log_analytics_workspace.kindgi.workspace_id, database_subnet_id=local.database_subnet_id, database_dns_zone_id=local.database_dns_zone_id})'
 VARS_RAW="$(terraform console "${TF_VAR_FILE_ARGS[@]}" <<<"$VARS_EXPR" 2>"$WORK/console.err")" \
   || die "couldn't read the module's variables with 'terraform console'. $(cat "$WORK/console.err")"
-VARS="$(jq 'fromjson' <<<"$VARS_RAW")" \
+VARS="$(jq 'fromjson' <<<"${VARS_RAW##*$'\n'}")" \
   || die "couldn't parse the module's variables from terraform console."
 
 SUBSCRIPTION="$(jq -r '.subscription_id' <<<"$VARS")"
@@ -896,7 +898,7 @@ EOT
      signed in with an emailed link or an identity provider isn't one.
    - A pack built for 0.1.10 keeps working without a rebuild. To use 0.2.0's
      features in it (a tool that pauses, a connection, data blocks), move its
-     pins to 0.2.0 first: --pack-dir builds what they say. A Python pack made
+     pins to 0.2.0 first: its next build takes what they say. A Python pack made
      by a 0.1 CLI pins kindgi>=0.1,<0.2 and kindgi-cli>=0.1,<0.2:
        uv add "kindgi==0.2.0" && uv add --dev "kindgi-cli==0.2.0"
 EOT
@@ -958,6 +960,58 @@ EOT
      or sees changed while an earlier deploy kept the old ones.
 EOT
       ;;
+    0.4.0)
+      # STEPS-PENDING marks a release whose runtime steps here aren't final
+      # yet: they come from its release notes' Upgrade steps before its rc,
+      # and the rc's cut stops while either script has the marker.
+      cat <<'EOT'
+   - STEPS-PENDING: this copy's 0.4.0 runtime steps below aren't final yet.
+     Don't upgrade a deployment you keep with it: read the 0.4.0 release
+     notes' Upgrade steps.
+   - First start runs sixteen migrations: one new table, new columns that
+     are empty or have a fixed default, nothing rewritten, and the
+     supervisor_fix_proposals table dropped. They lock the tables they
+     change or point to: agent_registry, agent_registry_versions,
+     agent_promotions, block_registry_versions, deployments,
+     deployment_endpoints, eval_runs, eval_suite_cases,
+     improvement_proposals, judgments and projects. Seven of them hold the
+     lock while they read every row, to check a new rule or build an
+     index. One keeps judgments locked while it indexes every judgment, so
+     people's judgments and corrections wait, on the old revision too; one
+     indexes eval_runs, so starting or updating a test run waits. With many
+     of either (SELECT count(*) FROM judgments; and the same FROM
+     eval_runs) upgrade at a quiet time.
+     A long transaction holding one of those tables makes the new revision
+     fail after about a minute, naming the session that holds it (end it
+     with pg_terminate_backend, or let it finish). The old revision keeps
+     serving meanwhile.
+   - With KINDGI_ARTIFACTS set to a gcs: bucket in server_env, give the
+     identity the server reads it as storage.buckets.get on that bucket
+     first: the 0.4.0 runtime reads the bucket's settings at start, and
+     without it the runtime refuses to start. roles/storage.objectAdmin
+     doesn't grant it: grant roles/storage.legacyBucketReader on the bucket,
+     or add the permission to a custom role. A ledger or purge-record bucket
+     needs only storage.objects.create.
+   - A mail trigger on the company's mailbox now stores the connection it
+     reads with. At its next look at the mailbox, one whose project has a
+     single company connection at the app stores that one and reads on.
+     With several, it reads nothing and shows connection-not-chosen, naming
+     them, until a project admin points it at one:
+       kindgi mail-triggers update <trigger-id> --mailbox=google \
+         --as=company --connection=<name>
+     (or --mailbox=microsoft), with --folder again if it watches a folder
+     other than the inbox, and --allow-unattended if it lists tools allowed
+     unattended.
+   - Upgrading drops the old supervisor_fix_proposals table; at 0.3.x no
+     route or job wrote to it.
+   - Projects gain one column, sort_end_user_corrections, empty on existing
+     projects, and empty reads as no: their end users' corrections aren't
+     sorted until a project turns it on.
+   - In KINDGI_LOG_LEVELS (server_env), change judging=<level> to
+     expert-queue=<level>. The old name only warns at boot, and has no
+     effect.
+EOT
+      ;;
   esac
 }
 # <<<
@@ -980,6 +1034,12 @@ EOT
     0.3.1)
       cat <<'EOT'
    - 0.3.1 doesn't change the module.
+EOT
+      ;;
+    0.4.0)
+      cat <<'EOT'
+   - 0.4.0's plan changes nothing in the module by itself: its one new
+     variable, database_url_version, is empty unless a way back sets it.
 EOT
       ;;
   esac
@@ -1042,10 +1102,14 @@ plan_allowed_changes() {
 # Every change in a plan (terraform show -json) that $allowed doesn't name,
 # one line each: a create, delete, replace or forget by what it does; an
 # update by each attribute it changes, a value it knows or one known only
-# after the apply. Never a value: a plan holds the variables' values, secret
-# ones too. An env var or a database flag is keyed by its name, so one added
-# or dropped from a list says which, and moves no other; one known only after
-# the apply is named from the plan's after.
+# after the apply. $allowed names a resource by "<type>.<name>", which covers
+# each of its instances, or one instance by "<type>.<name>[<index>]" (a
+# string index in double quotes); a create or a delete by the path
+# "(created)" or "(deleted)". A replace or a forget is always listed. Never a
+# value: a plan holds the variables' values, secret ones too. An env var or
+# a database flag is keyed by its name, so one added or dropped from a list
+# says which, and moves no other; one known only after the apply is named
+# from the plan's after.
 readonly PLAN_CHANGES_JQ='
   def leaves(p):
     if type == "object" then to_entries[] | .key as $k | .value | leaves(p + [$k])
@@ -1077,14 +1141,20 @@ readonly PLAN_CHANGES_JQ='
     else join(", ") end;
   .resource_changes[]?
   | .address as $addr | "\(.type).\(.name)" as $key | .change as $c
+  | ($key + (if .index == null then "" elif (.index | type) == "string"
+      then "[\(.index | tojson)]" else "[\(.index)]" end)) as $inst
   | select($c.actions != ["no-op"] and $c.actions != ["read"])
-  | if $c.actions != ["update"] then "\($addr): \($c.actions | act)"
+  | if $c.actions != ["update"] then
+      ($c.actions | act) as $did
+      | select(($did == "created" or $did == "deleted")
+          and ($allowed | any(.[]; (.key == $key or .key == $inst) and .path == "(\($did))")) | not)
+      | "\($addr): \($did)"
     else
       ($c.before // {} | flat) as $b | ($c.after // {} | flat) as $a
       | ([$b, $a] | map(keys) | add | unique | map(. as $k | select($b[$k] != $a[$k])))
         + [$c.after_unknown // {} | paths(. == true) | named($c.after // {}) | tojson]
       | map(said) | unique | .[]
-      | select(. as $w | $allowed | any(.[]; .key == $key and (.path as $p | $w == $p or ($w | startswith($p + ".")))) | not)
+      | select(. as $w | $allowed | any(.[]; (.key == $key or .key == $inst) and (.path as $p | $w == $p or ($w | startswith($p + ".")))) | not)
       | "\($addr): changes \(.)"
     end'
 # <<<
@@ -1121,7 +1191,7 @@ check_plan() {
     ok=false
   fi
   if [[ $ok == true ]]; then
-    info "plan check: it changes the image(s), and only what the releases crossed change in place."
+    info "plan check: it changes the image(s), and only what the releases crossed change."
     return 0
   fi
   warn "Nothing above was applied. A var file left off the command (a pack's env, say) is what usually does this: give each file the deployment uses its own --var-file. If the changes are yours (a variable you changed, say), apply them on the release it runs now with a plan you review, then run this again."

@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   type OutlookSendInput,
+  outlookAttachmentGet,
   outlookMessageGet,
   outlookMessagesList,
   outlookSend,
@@ -387,7 +388,7 @@ describe('outlook.messages.get', () => {
     expect(queryOf(url)).toEqual({
       $select:
         'id,conversationId,subject,from,toRecipients,ccRecipients,replyTo,receivedDateTime,internetMessageHeaders,body',
-      $expand: 'attachments($select=name,contentType,size,isInline)',
+      $expand: 'attachments($select=id,name,contentType,size,isInline)',
     });
     expect(sent[0]?.headers.prefer).toBe('outlook.body-content-type="text", IdType="ImmutableId"');
   });
@@ -600,6 +601,7 @@ describe('Outlook tools for the company mailbox', () => {
     ['outlookSend', outlookSend, 'mail.send', "Sends mail as the company's mailbox."],
     ['outlookMessagesList', outlookMessagesList, 'mail.read', undefined],
     ['outlookMessageGet', outlookMessageGet, 'mail.read', undefined],
+    ['outlookAttachmentGet', outlookAttachmentGet, 'mail.read', undefined],
   ] as const)(
     "%s with as: 'company' needs the company's connection, and says whose",
     (_name, make, permission, notes) => {

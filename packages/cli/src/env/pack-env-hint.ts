@@ -18,7 +18,8 @@ export interface PackEnvScopeRecord {
 export interface PackEnvNameRecord {
   readonly name: string;
   readonly required: boolean;
-  readonly kind: 'env' | 'secret' | null;
+  /** A later runtime may add kinds. */
+  readonly kind: 'env' | 'secret' | 'cloud-secret' | (string & {}) | null;
   readonly scope: PackEnvScopeRecord | null;
   readonly missing: boolean;
   /**
@@ -27,8 +28,10 @@ export interface PackEnvNameRecord {
    * `kind: 'secret'` with no problem: the orchestrator gives it.
    */
   readonly problem?: string;
-  /** `ambiguous` only: the secret's scope. */
+  /** `ambiguous` only, when `kind` is `env`: the secret's scope. */
   readonly secretScope?: PackEnvScopeRecord;
+  /** `ambiguous` only: the cloud secret's scope, which the operator set. */
+  readonly cloudSecretScope?: PackEnvScopeRecord;
 }
 
 export interface PackEnvHintTarget {
@@ -67,7 +70,7 @@ export function packEnvHint(
  * What stands in the way of giving a deployment's pack service its env, a
  * sentence per reason: required names set nowhere (with `packEnvHint`),
  * names set only as secrets where an older runtime keeps secrets out of a
- * pack service's environment, names set both ways, and by its code a
+ * pack service's environment, names set two ways or more, and by its code a
  * reason a later runtime names. Empty when nothing does.
  */
 export function packEnvProblemLines(
@@ -84,11 +87,7 @@ export function packEnvProblemLines(
       `${listNames(secretOnly)} ${one ? 'is' : 'are'} set only as ${one ? 'a secret' : 'secrets'}, which this server keeps out of a pack service's environment: a tool reads ${one ? 'it' : 'them'} per call (\`ctx.secrets\`).`,
     );
   }
-  for (const n of names.filter((x) => x.problem === 'ambiguous')) {
-    lines.push(
-      `${n.name} is set both as a secret (${scopeText(n.secretScope)}) and as a plain value (${scopeText(n.scope)}): remove one, so it's clear which the pack service gets.`,
-    );
-  }
+  for (const n of names.filter((x) => x.problem === 'ambiguous')) lines.push(ambiguousLine(n));
   // A reason a later runtime names: said by its code.
   for (const n of names.filter((x) => x.problem !== undefined && !KNOWN.has(x.problem))) {
     lines.push(`${n.name} can't be given to the pack service yet (${n.problem}).`);
@@ -97,6 +96,27 @@ export function packEnvProblemLines(
 }
 
 const KNOWN: ReadonlySet<string> = new Set(['missing', 'secret-not-yet', 'ambiguous']);
+
+/** A name set more than one way: each way and where, and what to do. */
+function ambiguousLine(n: PackEnvNameRecord): string {
+  const ways = [
+    ...(n.kind === 'secret' ? [`a secret (${scopeText(n.scope)})`] : []),
+    ...(n.secretScope !== undefined ? [`a secret (${scopeText(n.secretScope)})`] : []),
+    ...(n.kind === 'env' ? [`a plain value (${scopeText(n.scope)})`] : []),
+    ...(n.cloudSecretScope !== undefined
+      ? [`a cloud secret (${scopeText(n.cloudSecretScope)})`]
+      : []),
+  ];
+  const operator =
+    n.cloudSecretScope !== undefined ? " A cloud secret is your operator's to remove." : '';
+  return `${n.name} is set ${waysText(ways)}: remove ${ways.length > 2 ? 'all but one' : 'one'}, so it's clear which the pack service gets.${operator}`;
+}
+
+function waysText(ways: readonly string[]): string {
+  if (ways.length < 2) return 'more than one way';
+  if (ways.length === 2) return `both as ${ways[0]} and as ${ways[1]}`;
+  return `${ways.length} ways: as ${ways.slice(0, -1).join(', as ')} and as ${ways.at(-1)}`;
+}
 
 function listNames(names: readonly string[]): string {
   if (names.length <= 1) return names.join('');
