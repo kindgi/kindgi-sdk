@@ -2305,6 +2305,14 @@ export interface Project {
    */
   readonly isDefault: boolean;
   readonly description?: string;
+  /**
+   * `true`: end users' corrections (an app's, with a `participantId`, and
+   * not an expert's) are sorted like the others, and a schedule counting
+   * everyone's counts them. `false`, or absent from an older server: they're
+   * listed and become test cases, but stay open and unsorted, and never
+   * start Improve.
+   */
+  readonly sortEndUserCorrections?: boolean;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt: import('@kindgi/types').Timestamp;
 }
@@ -2326,6 +2334,8 @@ export interface ProjectPatch {
   readonly slug?: string;
   readonly description?: string;
   readonly orgId?: import('@kindgi/types').OrgId | null;
+  /** `Project.sortEndUserCorrections`. Admin on the project. */
+  readonly sortEndUserCorrections?: boolean;
 }
 
 /**

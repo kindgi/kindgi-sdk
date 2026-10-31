@@ -138,6 +138,18 @@ export function runProjectBindingConformance(
       expect(got?.name).toBe('A-updated');
     });
 
+    it("sorts end users' corrections only once a patch turns it on, and keeps it through other patches", async () => {
+      const { projects } = makeBinding();
+      const id = await createProject(projects, T1, { name: 'A', slug: 'a' });
+      expect((await projects.get(T1, id))?.sortEndUserCorrections).toBeUndefined();
+      await projects.update(T1, id, { sortEndUserCorrections: true });
+      expect((await projects.get(T1, id))?.sortEndUserCorrections).toBe(true);
+      await projects.update(T1, id, { name: 'A-renamed' });
+      expect((await projects.get(T1, id))?.sortEndUserCorrections).toBe(true);
+      await projects.update(T1, id, { sortEndUserCorrections: false });
+      expect((await projects.get(T1, id))?.sortEndUserCorrections).toBeUndefined();
+    });
+
     it('deletes a project + cascades memberships + grants', async () => {
       const { projects, memberships, grants } = makeBinding();
       const id = await createProject(projects, T1, { name: 'A', slug: 'a' });

@@ -2365,6 +2365,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.agentRegistry,
         itemRights,
         input.auditEvents,
+        input.projectBinding,
       ),
     );
     v1.route('/corrector-groups', correctorGroupsRouter(input.correctionRegistry, authorizer));
