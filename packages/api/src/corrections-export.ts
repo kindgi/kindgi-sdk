@@ -187,7 +187,7 @@ export function correctionsExportStream(
     input.format === 'csv' ? csvRow(j) : `${JSON.stringify(input.serialize(j))}\n`;
 
   // A page can hold nothing the caller may read: read on until there's
-  // something to send after `text`, or nothing left.
+  // something to send after `text`, or nothing left, or the client left.
   const readOn = async (
     text: string,
   ): Promise<{ readonly text: string; readonly done: boolean }> => {
@@ -204,7 +204,7 @@ export function correctionsExportStream(
       rows += shown.length;
       cursor = page.nextCursor;
       const done = !page.hasMore || cursor === undefined;
-      if (done || out !== '') return { text: out, done };
+      if (done || out !== '' || ended) return { text: out, done };
     }
   };
 
@@ -215,12 +215,16 @@ export function correctionsExportStream(
         headerSent = true;
         try {
           const next = await readOn(header);
+          // The client left while a page was read: cancel() recorded it.
+          if (ended) return;
           if (next.text !== '') controller.enqueue(encoder.encode(next.text));
           if (next.done) {
             controller.close();
             await end('succeeded');
           }
         } catch (err) {
+          // As above: a read the client left isn't a failed one.
+          if (ended) return;
           input.log?.error('a corrections export broke off: a page read failed', {
             requestId: input.requestId,
             exportId,

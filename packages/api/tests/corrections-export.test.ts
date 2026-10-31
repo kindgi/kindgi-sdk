@@ -257,6 +257,39 @@ describe('correctionsExportStream', () => {
     expect((recorded[0]?.payload.doc as { rows: number }).rows).toBe(1);
   });
 
+  test('a client that leaves while a page is read is recorded failed, and nothing is logged', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const asked: CorrectionListInput[] = [];
+    const list = async (input: CorrectionListInput) => {
+      asked.push(input);
+      await gate;
+      // Nothing the caller may read: a loop that read on would ask again.
+      return { data: [], hasMore: true, nextCursor: String(asked.length) as unknown as Cursor };
+    };
+    const audit = createInMemoryAuditEventBinding();
+    const log = logger();
+    const input = exportInput({ list } as unknown as CorrectionRegistryBinding, {
+      audit: { auditEvents: audit, actor: 'user:user-1' },
+      log,
+    });
+    const reader = correctionsExportStream(input, 'export-1').getReader();
+    const pending = reader.read();
+    await vi.waitFor(() => expect(asked).toHaveLength(1));
+    await reader.cancel();
+    release();
+    expect(await pending).toEqual({ done: true, value: undefined });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const recorded = await events(audit);
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]?.outcome).toBe('failed');
+    expect(log.errors).toEqual([]);
+    // It stopped reading once the client left.
+    expect(asked).toHaveLength(1);
+  });
+
   test("a closing event that can't be written is logged with the request id, and the rows still go out", async () => {
     const { binding } = pagedRegistry([[correction('c1')]]);
     const auditEvents = {

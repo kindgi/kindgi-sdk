@@ -51,36 +51,28 @@ function generatedPaths(): readonly string[] {
 }
 
 /**
- * Extract every path literal referenced in a `transport.request(...)`
- * or similar call across all resource files. Grabs both plain-string
- * paths (`path: '/v1/foo'`) and template-literal paths
- * (`` path: `/v1/foo/${id}` ``).
+ * Every path a resource file calls: a `path: '/v1/foo'` or `path: "/v1/foo"`
+ * literal, a template `` path: `/v1/foo/${id}` ``, and the URLs streaming
+ * callers build, `` `${transport.apiUrl}/v1/test-runs/${seg(id)}/events` ``
+ * or `buildUrl(transport.apiUrl, '/v1/corrections/export', query)`.
  */
+function callerPaths(src: string): string[] {
+  const patterns = [
+    /path:\s*['"]([^'"]+)['"]/g,
+    /path:\s*`([^`]+)`/g,
+    /`\$\{transport\.apiUrl\}(\/v1\/[^`]+)`/g,
+    /buildUrl\(\s*transport\.apiUrl,\s*['"`]([^'"`]+)['"`]/g,
+  ];
+  return patterns.flatMap((re) => [...src.matchAll(re)].map((m) => m[1]!));
+}
+
+/** Every path the resource files call, normalized. */
 function resourcePathSet(): ReadonlySet<string> {
   const paths = new Set<string>();
   const files = readdirSync(RESOURCES_DIR).filter((f) => f.endsWith('.ts'));
   for (const f of files) {
     const src = readFileSync(join(RESOURCES_DIR, f), 'utf8');
-    // `path: '/v1/foo'` or `path: "/v1/foo"`
-    for (const m of src.matchAll(/path:\s*['"]([^'"]+)['"]/g)) {
-      paths.add(normalize(m[1]!));
-    }
-    // path: `/v1/foo/${id}` (backtick template literal)
-    for (const m of src.matchAll(/path:\s*`([^`]+)`/g)) {
-      paths.add(normalize(m[1]!));
-    }
-    // Streaming callers build URLs directly, e.g.
-    //   const url = `${transport.apiUrl}/v1/test-runs/${seg(id)}/events`;
-    // Match any backtick template that references `transport.apiUrl` and
-    // extract the path suffix.
-    for (const m of src.matchAll(/`\$\{transport\.apiUrl\}(\/v1\/[^`]+)`/g)) {
-      paths.add(normalize(m[1]!));
-    }
-    // Or with the transport's builder, for a query:
-    //   const url = buildUrl(transport.apiUrl, '/v1/corrections/export', query);
-    for (const m of src.matchAll(/buildUrl\(\s*transport\.apiUrl,\s*['"`]([^'"`]+)['"`]/g)) {
-      paths.add(normalize(m[1]!));
-    }
+    for (const p of callerPaths(src)) paths.add(normalize(p));
   }
   return paths;
 }
@@ -136,14 +128,7 @@ describe('SDK ↔ generated wire coverage — every endpoint has a resource wrap
     const files = readdirSync(RESOURCES_DIR).filter((f) => f.endsWith('.ts'));
     for (const f of files) {
       const src = readFileSync(join(RESOURCES_DIR, f), 'utf8');
-      const paths = new Set<string>();
-      for (const m of src.matchAll(/path:\s*['"]([^'"]+)['"]/g)) {
-        paths.add(m[1]!);
-      }
-      for (const m of src.matchAll(/path:\s*`([^`]+)`/g)) {
-        paths.add(m[1]!);
-      }
-      for (const p of paths) {
+      for (const p of new Set(callerPaths(src))) {
         if (!generated.has(normalize(p))) orphans.push(`${f}: ${p}`);
       }
     }

@@ -474,7 +474,7 @@ async function saveExport(
 /** An export the stop ended: no file written, and the exit code says so. */
 const STOPPED_EXPORT: CommandResult = {
   kind: 'error',
-  stderr: 'kindgi corrections export stopped: no file was written.\n',
+  stderr: 'kindgi corrections export stopped: nothing was written.\n',
   exitCode: 130,
 };
 
