@@ -9824,7 +9824,7 @@ const nullableNumber = { type: ['number', 'null'] } as const;
 
 export const ComparisonMetricSchema: JsonSchema = {
   description:
-    "One metric, the recorded runs beside the candidate. `null` where a side had no evidence from corrections; `n` / `weight` are the candidate's evidence (cases with corrected items, and the correction weight behind them), `baselineN` / `baselineWeight` the recorded side's.",
+    "One metric, the recorded runs beside the candidate. `null` where a side had no evidence from corrections; `n` / `weight` are the candidate's evidence (cases with corrected items, and the correction weight behind them; for `passRate`, also cases whose `expect` was graded, each one check of weight 1), `baselineN` / `baselineWeight` the recorded side's.",
   type: 'object',
   additionalProperties: false,
   required: [

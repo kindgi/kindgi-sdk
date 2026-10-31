@@ -250,8 +250,9 @@ export interface CorrectedCaseResult {
    *
    * A case that carries `expect` gives one entry instead, keyed by the
    * case's id: it passes a repetition when every part it expects passed
-   * on it. It gives none when it expects only items, or when a part
-   * couldn't be checked.
+   * on it, and it's one check in `passRate`, beside the case's items. It
+   * gives none when it expects only items, or when a part couldn't be
+   * checked.
    */
   readonly corrections?: readonly CorrectionGraded[];
   /**
@@ -1169,6 +1170,36 @@ function metric(
   };
 }
 
+/**
+ * The cases as `passRate` counts them: a case's graded `expect` (its one
+ * entry, under its id) is one check of weight 1, beside its items. The
+ * recorded run passes it when every part the case expects was `right`;
+ * each repetition that ran, when the case passed. A case with no entry
+ * (only `items`, or a part unchecked) adds none.
+ */
+function withExpectChecks(
+  cases: readonly CorrectedTestCase[],
+  results: readonly CorrectedCaseResult[],
+): readonly CorrectedCaseResult[] {
+  const expects = new Map(cases.map((c) => [c.caseId, c.expect]));
+  return results.map((r) => {
+    const expect = expects.get(r.caseId);
+    const graded =
+      expect === undefined ? undefined : r.corrections?.find((c) => c.correctionId === r.caseId);
+    if (expect === undefined || graded === undefined) return r;
+    const recorded = expect.decisions?.verdict !== 'wrong' && expect.answer?.verdict !== 'wrong';
+    return {
+      ...r,
+      baseline: withCheck(r.baseline, recorded),
+      candidate: r.candidate.map((s) => withCheck(s, graded.pass)),
+    };
+  });
+}
+
+function withCheck(s: OutputScore, pass: boolean): OutputScore {
+  return { ...s, yesWeight: s.yesWeight + (pass ? 1 : 0), totalWeight: s.totalWeight + 1 };
+}
+
 function summarize(
   ctx: DispatchContext,
   comparison: TestRunComparison,
@@ -1231,9 +1262,13 @@ function summarize(
     sampling: { models },
     repetitions: comparison.repetitions,
     metrics: {
-      passRate: metric(results, comparison.repetitions, yesShare, correctedWeight, {
-        fresh: true,
-      }),
+      passRate: metric(
+        withExpectChecks(cases, results),
+        comparison.repetitions,
+        yesShare,
+        correctedWeight,
+        { fresh: true },
+      ),
       caseCoverage: metric(results, comparison.repetitions, coverage, correctedWeight, {
         fresh: true,
       }),
