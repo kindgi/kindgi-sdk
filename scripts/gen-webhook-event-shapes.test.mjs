@@ -81,7 +81,7 @@ test('a field with no type is any JSON value; a keyword on it fails the generati
 
 test("AgentPinScope's variants are keyed by their kind, and a nullable type is kept nullable", () => {
   const shapes = shapesOf(openapi());
-  const scope = shapes['improve-run.finished'].required.data.required.improveRun.required.scope;
+  const scope = runFields(shapes).optional.agent.optional.pinnedScope;
   assert.equal(scope.kind, 'union');
   assert.deepEqual(Object.keys(scope.variants), ['tenant', 'org', 'project', 'segment']);
   assert.deepEqual(runFields(shapes).required.failureMessage, { kind: 'string', nullable: true });
