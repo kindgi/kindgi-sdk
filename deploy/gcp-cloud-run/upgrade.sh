@@ -340,6 +340,17 @@ check_job_name() {
   esac
   printf '%s-upgchk-%s-%s' "$prefix" "$2" "$suffix"
 }
+# Whether the export's error ($1, a file) is Cloud SQL refusing it only
+# because a new bucket grant hasn't taken effect yet. It says so in one of two
+# forms: HTTPError 412 with "the required permissions for the bucket", or a 403
+# on its upload to the bucket ("failed to initiate resumable upload", "Error
+# 403", and its service account "does not have storage.objects.create access").
+# Any other error, another 403 among them, isn't this.
+export_awaits_grant() {
+  { grep -q 'HTTPError 412' "$1" && grep -q 'permissions for the bucket' "$1"; } \
+    || { grep -q 'failed to initiate resumable upload' "$1" && grep -q 'Error 403' "$1" \
+      && grep -qF 'storage.objects.create' "$1"; }
+}
 # The export and the var-file's backup copy. $1 is the run's UTC stamp.
 export_uri() { printf '%s/%s-%s-%s-%s.sql.gz' "${BACKUP_BUCKET%/}" "$NAME_PREFIX" "$DATABASE_NAME" "$CURRENT" "$1"; }
 varfile_backup_name() { printf '%s.pre-upgrade-%s' "$VAR_FILE" "$1"; }
@@ -1224,13 +1235,13 @@ info "granted $SQL_SA roles/storage.objectAdmin on gs://${BUCKET_ONLY} (the gran
 
 warn "The export is a point in time. Writes after it are not in the backup and are lost if you roll back. On a busy deployment, stop traffic first."
 info "exporting to $EXPORT_URI (a large database can take several minutes; gcloud's output follows when it ends)"
-# Until the grant above takes effect, Cloud SQL refuses the export with
-# HTTPError 412 and "the required permissions for the bucket". Only that is
-# waited out, for up to GRANT_WAIT_SECONDS; any other failure stops at once.
+# Until the grant above takes effect, Cloud SQL refuses the export
+# (export_awaits_grant). Only that is waited out, for up to GRANT_WAIT_SECONDS;
+# any other failure stops at once.
 waited=0
 until gcloud sql export sql "$DB_INSTANCE" "$EXPORT_URI" \
     --project="$PROJECT" --database="$DATABASE_NAME" --quiet 2>"$WORK/export.err"; do
-  if ! grep -q 'HTTPError 412' "$WORK/export.err" || ! grep -q 'permissions for the bucket' "$WORK/export.err"; then
+  if ! export_awaits_grant "$WORK/export.err"; then
     cat "$WORK/export.err" >&2
     die "the export failed (above). Nothing has changed. Fix the cause and run again."
   fi
