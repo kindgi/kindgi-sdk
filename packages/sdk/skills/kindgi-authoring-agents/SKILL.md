@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.12"
+version: "0.4.13"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -101,6 +101,23 @@ export default defined.value;
   ids in its provider's form (`acme__verify-citation` for Anthropic and
   OpenAI-compatible models), and `acme.verify-citation` in the
   instructions can make it call a name it wasn't given.
+  - **From a prompt block:** `instructions: { prompt: 'acme.reply-prompt', version: '^1.0.0' }`
+    takes them from a block in the pack's `blocks/` folder
+    (`blocks/**/*.json`, deployed with the pack before its agents):
+    `{ "id": "acme.reply-prompt", "version": "1.0.0", "kind": "prompt", "content": { "template": "…" } }`,
+    or `"templateFile": "reply-prompt.liquid"` beside it for a long one.
+    The block brings its parameters, so the agent declares none.
+    People can then change the wording without a deploy, and Improve can
+    try rewrites: each is a suggested change a person checks and pins.
+    Rules that must always hold stay in code.
+- **`settings`** — settings blocks the instructions and tools read, by
+  range: `settings: [{ id: 'acme.reply-style', version: '^1.0.0' }]`.
+  A settings block's file holds `values` and a JSON `schema`; the
+  template reads `{{ settings["acme.reply-style"].maxSentences }}`. Mark
+  a key Improve may change with `"x-kindgi-tunable": true` in the
+  schema, on a number with `minimum` and `maximum` or an `enum` of two
+  or more values. Leave it off a key that guards a rule: a limit, a
+  window, a cap.
 - **`capabilities`** — declares the resource kinds the agent needs at
   runtime. `{feature: 'tool-use'}` is standard for tool-calling
   agents. The router picks the concrete LLM provider at turn time.
@@ -269,6 +286,10 @@ at start and pin resume-across-turn to that version. `kindgi deploy`
 publishes to a durable production registry that enforces the
 immutable `(id, version)` contract. Both surfaces are deploy-time
 concerns, not author-time.
+
+**After it ships**, people correct its runs, and every correction is a
+case in the agent's test set. `kindgi-fix-corrections` takes them to a
+fix: a setting or wording as a suggested change, a rule in code.
 
 ## Common mistakes
 

@@ -100,19 +100,23 @@ export const CLI_DEFAULTS = {
     reporter: "vitest's own reporter",
   },
   'env list': {
-    env: '`staging`',
+    env: '`staging`; required with `--cloud-secret`',
     path: 'the current directory',
-    scope: 'none (reads the local env files)',
+    scope: 'none (reads the local env files); required with `--cloud-secret`',
+    tenant: 'none: required with `--cloud-secret`',
   },
   'env set': {
-    env: '`staging`',
+    env: '`staging`; required with `--cloud-secret`',
     path: 'the current directory',
-    scope: 'none (writes `.env.<env>`)',
+    scope: 'none (writes `.env.<env>`); required with `--cloud-secret`',
+    'cloud-secret': 'none: sets a value',
+    tenant: 'none: required with `--cloud-secret`',
   },
   'env unset': {
-    env: '`staging`',
+    env: '`staging`; required with `--cloud-secret`',
     path: 'the current directory',
-    scope: 'none (edits `.env.<env>`)',
+    scope: 'none (edits `.env.<env>`); required with `--cloud-secret`',
+    tenant: 'none: required with `--cloud-secret`',
   },
   'env pull': {
     env: '`staging`',
@@ -395,6 +399,28 @@ export const CLI_DEFAULTS = {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
+  'tools pinned': {
+    org: 'none',
+    project: 'none',
+  },
+  'tools pin': {
+    tenant: 'required: one of `--tenant`, `--org`, `--project`',
+    org: 'required: one of `--tenant`, `--org`, `--project`',
+    project: 'required: one of `--tenant`, `--org`, `--project`',
+    reason: 'none',
+    'idempotency-key': 'none',
+  },
+  'tools unpin': {
+    tenant: 'required: one of `--tenant`, `--org`, `--project`',
+    org: 'required: one of `--tenant`, `--org`, `--project`',
+    project: 'required: one of `--tenant`, `--org`, `--project`',
+    reason: 'none',
+    'idempotency-key': 'none',
+  },
+  'tools pin-history list': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
   'guardrails list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
@@ -547,6 +573,28 @@ export const CLI_DEFAULTS = {
     spec: 'required',
   },
   'flows versions': {
+    cursor: 'none',
+    limit: '`25` (at most `100`)',
+  },
+  'flows pinned': {
+    org: 'none',
+    project: 'none',
+  },
+  'flows pin': {
+    tenant: 'required: one of `--tenant`, `--org`, `--project`',
+    org: 'required: one of `--tenant`, `--org`, `--project`',
+    project: 'required: one of `--tenant`, `--org`, `--project`',
+    reason: 'none',
+    'idempotency-key': 'none',
+  },
+  'flows unpin': {
+    tenant: 'required: one of `--tenant`, `--org`, `--project`',
+    org: 'required: one of `--tenant`, `--org`, `--project`',
+    project: 'required: one of `--tenant`, `--org`, `--project`',
+    reason: 'none',
+    'idempotency-key': 'none',
+  },
+  'flows pin-history list': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
   },
@@ -1604,6 +1652,37 @@ export const CLI_EXAMPLES = {
       line: 'kindgi tools reinstate acme.stock-level 0.1.0',
     },
   ],
+  'tools pinned': [
+    {
+      purpose:
+        'Show the version of the tool that the next flow version made in a project would lock, and why.',
+      line: 'kindgi tools pinned acme.stock-level --project=<project-id>',
+    },
+  ],
+  'tools pinned-versions': [
+    {
+      purpose: 'List every scope with a pinned version of the tool.',
+      line: 'kindgi tools pinned-versions acme.stock-level',
+    },
+  ],
+  'tools pin': [
+    {
+      purpose: 'Pin a version of the tool in a project, before publishing a new one to try.',
+      line: "kindgi tools pin acme.stock-level 0.1.0 --project=<project-id> --reason='Keep 0.1.0 while 0.2.0 is tried'",
+    },
+  ],
+  'tools unpin': [
+    {
+      purpose: "Remove a project's own pin of the tool.",
+      line: 'kindgi tools unpin acme.stock-level --project=<project-id>',
+    },
+  ],
+  'tools pin-history list': [
+    {
+      purpose: "List the tool's pins and unpins, newest first.",
+      line: 'kindgi tools pin-history list acme.stock-level --limit=10',
+    },
+  ],
   'guardrails list': [
     {
       purpose: 'List the guardrails whose id starts with a prefix.',
@@ -1680,6 +1759,36 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Bring back an unregistered flow version.',
       line: 'kindgi flows reinstate acme.nightly-digest 0.1.0',
+    },
+  ],
+  'flows pinned': [
+    {
+      purpose: 'Show the version of the flow that a run in a project would use, and why.',
+      line: 'kindgi flows pinned acme.nightly-digest --project=<project-id>',
+    },
+  ],
+  'flows pinned-versions': [
+    {
+      purpose: 'List every scope with a pinned version of the flow.',
+      line: 'kindgi flows pinned-versions acme.nightly-digest',
+    },
+  ],
+  'flows pin': [
+    {
+      purpose: 'Pin a version of the flow in a project, before publishing a new one to try.',
+      line: "kindgi flows pin acme.nightly-digest 0.1.0 --project=<project-id> --reason='Keep 0.1.0 while 0.2.0 is tried'",
+    },
+  ],
+  'flows unpin': [
+    {
+      purpose: "Remove a project's own pin of the flow.",
+      line: 'kindgi flows unpin acme.nightly-digest --project=<project-id>',
+    },
+  ],
+  'flows pin-history list': [
+    {
+      purpose: "List the flow's pins and unpins, newest first.",
+      line: 'kindgi flows pin-history list acme.nightly-digest --limit=10',
     },
   ],
   'schedules get': [

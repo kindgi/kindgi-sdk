@@ -79,6 +79,9 @@ first email goes at once, then a digest every five minutes at most.
     the `arguments`.
   - `agent-turn:session-hitl-gate` is a conversation that reached its turn
     limit. Its `subjectRef` has the `conversationId` and the `turnCount`.
+  - `fact` is a fact an agent wants to remember. Its `subjectRef` has the
+    `factId`, the `version` and the fact's `type`, and its `description` is
+    the agent's text.
 - **`requiredRole`** is the lowest role that may decide it.
 - **`provenanceRef.runId`** is the run that waits.
 - **`decision`** is there once someone decided it: the decision, the
@@ -92,6 +95,9 @@ first email goes at once, then a digest every five minutes at most.
   - **`sessionProvider`** is the provider of the session they decided with:
     `site:<id>` for a site's sign-in, or an identity provider's id. It's
     absent for an API key, and on an older runtime's decisions.
+  - **`factText`** is there when a reviewer approved a remembered fact
+    (`subjectKind: fact`) with their own text: the text the fact holds. The
+    agent's text stays the approval's `description`.
 
   ```json excerpt
   "decision": {
@@ -250,8 +256,9 @@ person's outcome, not an error:
 A run cancelled while it waits ends `cancelled`, with no failure code.
 
 **Each decision goes into the audit trail** as an `hitl-decision` event: who
-decided, how it ended and the rationale. It's kept for good, even when the
-runtime purges other audit events, as
+decided, how it ended and the rationale, and for a fact's approval whether
+the reviewer edited its text (`factEdited`; neither text goes in). It's kept
+for good, even when the runtime purges other audit events, as
 [Audit events](../../../deploy/retention/#audit-events) describes.
 
 ## Withdrawn by its run
@@ -417,6 +424,13 @@ version instead: "The version is pinned where it was asked for.", or "The
 request to pin it is dropped; nothing changes where it runs." Once a
 decision is recorded, the page says what it did, such as "The waiting run
 continues." or "The waiting run is told no.", with **Open the run**.
+
+An approval of a fact an agent wants to remember reads "A fact the agent
+wants to remember", with who it's for, the run it came from and the agent.
+On **Approve**, the fact's text is in a box to edit, "The fact, as the agent
+remembers it": the fact holds the text you approve, and the agent's own text
+stays on the approval. It shows **The agent's text** and, once approved with
+an edit, **Approved as**.
 
 - **Someone who can't decide it** reads why, in place of the choices: "You
   aren't on the reviewer roster, so you can't decide approvals. A tenant

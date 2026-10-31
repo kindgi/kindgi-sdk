@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 export type * from './agent-pin.js';
+export type * from './cloud-secret.js';
 export type * from './filter.js';
 export type * from './hash.js';
 export type * from './ids.js';
@@ -21,6 +22,10 @@ export { makeEnvName } from './ids.js';
 // Whether fetch can send a value in a header: a secret is checked by its
 // header's name before fetch, whose own error would quote it.
 export { bearerValueProblem, headerValueProblem } from './header-value.js';
+
+// A cloud secret's version, by its resource name: the API checks it on
+// every write, and the CLI before it sends one.
+export { CLOUD_SECRET_FORM, parseCloudSecretVersion } from './cloud-secret.js';
 
 // The fixed item a correction is recorded under, shared by the API, the CLI
 // and the console so "one correction per run per expert" holds everywhere.

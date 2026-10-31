@@ -64,7 +64,7 @@ pnpm exec kindgi runs start --flow=my-pack.echo-flow --input='{"name":"Ada"}' --
 ## `kindgi init`
 
 ```sh
-kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|follow-up|python|java|scala] [--path=<dir>]
+kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|follow-up|returns-helper|python|java|scala] [--path=<dir>]
             [--force] [--link-local] [--new-repo] [--pack-id=<id>]
 ```
 
@@ -116,7 +116,7 @@ devDependency) at the running CLI's own version, or linked from a checkout
 | Flag | Purpose |
 |---|---|
 | `<pack-name>` | The pack id: lowercase kebab-case, optionally dot-namespaced (`my-pack`, `acme.legal-basics`). |
-| `--template=<name>` | `minimal` (the default: the folders, no examples), `sample` (three tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store: typed store tools, approvals for large refunds and store changes, and a review of each new order), `drupal` (agents for a Drupal site through its MCP Server: house-style fixes as drafts, each change approved, and a review of each saved article), `follow-up` (an agent that writes a follow-up mail from your notes and sends it from your Gmail once you approve it; its send tool comes from `@kindgi/connections`, under the pack's id), `python` (the sample as a Python pack), `java` (a Java pack, built with Maven; preview) or `scala` (a Scala pack, built with sbt; preview). |
+| `--template=<name>` | `minimal` (the default: the folders, no examples), `sample` (three tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store: typed store tools, approvals for large refunds and store changes, and a review of each new order), `drupal` (agents for a Drupal site through its MCP Server: house-style fixes as drafts, each change approved, and a review of each saved article), `follow-up` (an agent that writes a follow-up mail from your notes and sends it from your Gmail once you approve it; its send tool comes from `@kindgi/connections`, under the pack's id), `returns-helper` (an agent that answers about returns and refunds sample orders, with its instructions, return window and model settings as blocks: to try correcting a run, fixing it and pinning the fix on `kindgi dev`), `python` (the sample as a Python pack), `java` (a Java pack, built with Maven; preview) or `scala` (a Scala pack, built with sbt; preview). |
 | `--path=<dir>` | Where to scaffold. Default: `<pack-name>` under the current directory (for a dot-namespaced id, its last segment). |
 | `--force` | Write into a non-empty directory. Default: refuse. |
 | `--link-local` | Link `@kindgi/*` from the checkout the CLI runs from. |
@@ -763,6 +763,9 @@ kindgi env unset <KEY> [--env <name>] [--path <dir>]
 kindgi env pull  [--env <name>] --scope=<kind>[:id] [--overwrite-existing] [--path <dir>]
 kindgi env init  [--secrets-backend=<none|postgres|secret-manager>] [--kms=<gcp|aws|libsodium|vault>] [--out=<path>]
 kindgi env plan  [--env <name>] [--format=terraform|gcloud] [--path <dir>]
+kindgi env set   <KEY> --cloud-secret <projects/<p>/secrets/<s>/versions/<n>> --tenant=<id> --scope=<kind>[:id] --env=<name> [--force]
+kindgi env unset <KEY> --cloud-secret --tenant=<id> --scope=<kind>[:id] --env=<name>
+kindgi env list  --cloud-secret --tenant=<id> --scope=<kind>[:id] --env=<name>
 ```
 
 Per-environment values for the pack, in env files next to
@@ -778,6 +781,12 @@ Per-environment values for the pack, in env files next to
 - **`list`** redacts values; `--reveal` prints them, but not to a pipe
   without `--force-reveal`.
 - **`pull`** fetches the env's values from the API into `.env.<envName>`.
+- **`--cloud-secret`** is the operator's, with a system key holding
+  `system:env-refs`: it sets KEY, for the tenant `--tenant` names, to a
+  numbered version of a secret the operator's cloud holds, which a pack
+  service reads from the cloud as its own account. Kindgi keeps the name,
+  never the value. The tenant's `kindgi env list --scope` shows each such
+  name as `NAME (cloud secret)`, without the path.
 - **`init`** writes a `.env.example` for a deployment target.
 - **Format:** dotenv, read the way `dotenv` (and Next.js) read it, with
   `${VAR}` expansion. `set` and `unset` touch one key and keep every other

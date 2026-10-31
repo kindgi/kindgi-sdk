@@ -2313,7 +2313,7 @@ export const ERROR_ENTRIES = {
   },
   'system-scope-missing': {
     description:
-      "The system key doesn't hold the scope this request takes, which `scope` names: the route's own, or more for what the request asks (creating a tenant without `firstAdmin`, for one). Every `/v1/system/keys` route takes the full system capability, which a scoped key doesn't hold. A deployment's secret values (`secrets=values` on its pack env) take a key holding `system:pack-env` itself: `kindgi:system` doesn't stand in for it. On a runtime serving one tenant, a system key reaches no `/v1/system/*` route, and `scope` is `kindgi:system`: the system keys take the deployment's own token there.",
+      "The system key doesn't hold the scope this request takes, which `scope` names: the route's own, or more for what the request asks (creating a tenant without `firstAdmin`, for one). Every `/v1/system/keys` route takes the full system capability, which a scoped key doesn't hold. A deployment's secret values (`secrets=values` on its pack env) take a key holding `system:pack-env` itself: `kindgi:system` doesn't stand in for it. On a runtime serving one tenant, a system key reaches no `/v1/system/*` route, and `scope` is `kindgi:system`: the system keys take the deployment's own token there. With a pack service per deployment (`KINDGI_PACK_ROUTING=per-deployment`), a key holding `system:deployments` or `system:pack-env` reaches the routes a pack service orchestrator calls there, and no other.",
     details: [
       {
         key: 'scope',
@@ -2335,7 +2335,7 @@ export const ERROR_ENTRIES = {
   },
   'system-key-scope-not-served': {
     description:
-      "The runtime serves one tenant, where a system key holds `system:license` alone, and this key holds anything else, which `scopes` names: it was minted while the runtime served many tenants, say. It's refused on every route. Mint one holding `system:license` with the deployment's own token, and revoke this one.",
+      "The runtime serves one tenant, where a system key holds `system:license`, or with a pack service per deployment also `system:deployments` and `system:pack-env`, and this key holds anything else, which `scopes` names (`served` lists what it may hold): it was minted while the runtime served many tenants, say. It's refused on every route. Mint one holding what it needs of `served` with the deployment's own token, and revoke this one.",
     details: [
       {
         key: 'scopes',
@@ -3233,6 +3233,24 @@ export const ERROR_ENTRIES = {
     details: [],
     seeAlso: ['PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint'],
   },
+  'orchestrator-round-held': {
+    description:
+      "Another orchestrator pass holds the round: its claim hasn't ended or lapsed. Only one pass runs at a time, so this pass has nothing to do. Exit, and let the next one claim the round.",
+    details: [],
+    seeAlso: ['POST /v1/system/deployments/round'],
+  },
+  'orchestrator-round-not-held': {
+    description:
+      "This pass's claim on the round lapsed before it ended it, and another pass holds the round now. Nothing changes. Give a pass a hold longer than it runs (`holdSeconds`, up to an hour).",
+    details: [],
+    seeAlso: ['POST /v1/system/deployments/round/end'],
+  },
+  'orchestrator-round-unsupported': {
+    description:
+      "This server keeps no orchestrator round, so it can't hold one pass at a time. Run one orchestrator pass at a time by other means, or upgrade the server.",
+    details: [],
+    seeAlso: ['POST /v1/system/deployments/round', 'POST /v1/system/deployments/round/end'],
+  },
   'endpoint-host-not-allowed': {
     description:
       "The pack service's host isn't on the operator's allowlist of pack hosts (`KINDGI_PACK_ENDPOINT_HOSTS`). Use a host the allowlist covers. The refusal is recorded as the deployment's `endpoint.problem`.",
@@ -3771,6 +3789,27 @@ export const ERROR_ENTRIES = {
       },
     ],
     seeAlso: ['PUT /v1/env/{name}'],
+  },
+  'cloud-secrets-unsupported': {
+    description:
+      "This runtime keeps no cloud secrets, so no env name is set to one: `KINDGI_ENV_CLOUD_SECRETS` is off, its default, as on Kindgi Cloud. The operator turns it on, with `KINDGI_PACK_ROUTING=per-deployment`, where the pack services' account can read the secrets it names. Answered on the system routes that set, list and remove them, on a tenant's list of them, and on a tenant's `PUT /v1/env/{name}` with a `cloudSecret`: there it comes before `cloud-secret-system-only`.",
+    details: [],
+    seeAlso: [
+      'PUT /v1/system/tenants/{tenantId}/env/{name}',
+      'deploy/self-hosted/serve-many-tenants',
+    ],
+  },
+  'cloud-secret-invalid': {
+    description:
+      "`cloudSecret` isn't a numbered version of a Google Cloud Secret Manager secret, `projects/<project>/secrets/<secret>/versions/<number>`: a version is a number, never `latest` or an alias, and a secret whose id starts with `kp-` is refused, since those are the pack services' own copies. The message says which part, and never repeats what was sent.",
+    details: [],
+    seeAlso: ['PUT /v1/system/tenants/{tenantId}/env/{name}'],
+  },
+  'cloud-secret-system-only': {
+    description:
+      "A tenant's own key tried to set an env name to a cloud secret, on a runtime that keeps them: only the operator does, with a system key holding `system:env-refs`. Set a value or a secret instead, or ask the operator. A runtime that keeps none answers `cloud-secrets-unsupported` instead.",
+    details: [],
+    seeAlso: ['PUT /v1/env/{name}', 'PUT /v1/system/tenants/{tenantId}/env/{name}'],
   },
   'secret-encryption-failed': {
     description:

@@ -781,6 +781,7 @@ export function fullAppInput(): CreateAppInput {
     systemDeployments: {
       binding: {
         listNeedingEndpoint: async () => ({ kind: 'ok', data: [] }),
+        listReady: async () => ({ kind: 'ok', data: [] }),
         listToRetire: async () => ({ kind: 'ok', data: [] }),
         setEndpoint: async () => {
           throw new Error('not used: no system principal in the sweeps');
@@ -788,8 +789,16 @@ export function fullAppInput(): CreateAppInput {
         clearEndpoint: async () => ({ kind: 'not-found' }),
         recordProblem: async () => ({ kind: 'not-found' }),
         setSuspended: async () => ({ kind: 'not-found' }),
+        claimRound: async () => ({ kind: 'held' }),
+        endRound: async () => ({ kind: 'not-held' }),
       },
       endpointHostAllowed: () => false,
+    },
+    // Required with systemDeployments: the orchestrator's requests are on record.
+    systemAccessAudit: {
+      record: async () => undefined,
+      begin: async () => 'attempt',
+      finish: async () => undefined,
     },
     systemTenantDirectory: { get: async () => null },
     systemTenants: {

@@ -2028,7 +2028,7 @@ export const SystemDeploymentEntrySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'A deployment as whatever runs its pack service needs it: ids and the image, nothing of the tenant beyond its id. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). In the `retire` list, `reason` says why the service should go.',
+    'A deployment as whatever runs its pack service needs it: ids and the image, nothing of the tenant beyond its id. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). In the `missing` and `ready` lists, `warm` says whether to keep an instance of its service running. In the `missing` list, `problem` is the last problem recorded for it (`PUT …/endpoint/problem`), absent until one is; its `since` is when that code was first recorded, as recording the same code again keeps it, so a pass can space its tries by it. In the `retire` list, `reason` says why the service should go.',
   required: [
     'tenantId',
     'deploymentId',
@@ -2040,6 +2040,12 @@ export const SystemDeploymentEntrySchema: JsonSchema = {
   ],
   properties: {
     ...SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES,
+    warm: {
+      type: 'boolean',
+      description:
+        "In the `missing` and `ready` lists. `true`: keep an instance of the deployment's pack service running, as calls route to it for something always on in its project: a tool version reached from a version a pin holds (an agent's, a flow's or a tool's) or from the Latest of each agent no pin covers there, or a pack check a registered guardrail runs there. `false`: its service can scale to zero. Absent from a runtime that doesn't say: not warm.",
+    },
+    problem: { $ref: '#/components/schemas/DeploymentEndpointProblem' },
     reason: {
       type: 'string',
       enum: [...SYSTEM_DEPLOYMENT_RETIRE_REASONS],
@@ -2136,31 +2142,33 @@ export const PackEnvNameStatusSchema: JsonSchema = {
   additionalProperties: false,
   required: ['name', 'required', 'kind', 'scope', 'missing'],
   description:
-    "One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (`secretScope`, for `ambiguous` only, names the secret's scope). Each name is looked for at the deployment's project, then its org, then the tenant (most specific wins); a tenant-wide deployment's, at the tenant's Default project. Never a value.",
+    "One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (for `ambiguous` only, `secretScope` names the secret's scope and `cloudSecretScope` the cloud secret's). Each name is looked for at the deployment's project, then its org, then the tenant (most specific wins); a tenant-wide deployment's, at the tenant's Default project. Never a value.",
   properties: {
     name: { type: 'string' },
     required: { type: 'boolean' },
     kind: {
-      oneOf: [{ type: 'string', enum: ['env', 'secret'] }, { type: 'null' }],
+      oneOf: [{ type: 'string', enum: ['env', 'secret', 'cloud-secret'] }, { type: 'null' }],
       description:
-        'What it is set as: a plain value (`env`) or a secret. `null` when it is set nowhere.',
+        "What it is set as: a plain value (`env`), a secret, or a cloud secret (`cloud-secret`: a version of a secret the operator's cloud holds, which the pack service's cloud reads; the operator sets one, with a system key). `null` when it is set nowhere. A later runtime may add kinds.",
     },
     scope: {
       oneOf: [{ $ref: '#/components/schemas/PackEnvScope' }, { type: 'null' }],
       description:
-        "Where it is set: the plain value's scope when `ambiguous`. `null` when it is set nowhere.",
+        'Where it is set: when `ambiguous`, the scope of the first of the plain value, the secret and the cloud secret. `null` when it is set nowhere.',
     },
     missing: {
       type: 'boolean',
-      description: 'Set nowhere, as a plain value or a secret (optional names too).',
+      description:
+        'Set nowhere, as a plain value, a secret or a cloud secret (optional names too).',
     },
     problem: {
       type: 'string',
       enum: ['ambiguous', 'secret-not-yet', 'missing', 'unreadable'],
       description:
-        "Why it can't be given to the pack service. `ambiguous`: set both as a secret and as a plain value (`secretScope` names the secret's scope). `secret-not-yet`: set only as a secret, and the orchestrator didn't ask for secret values (`secrets=values`); a tool reads it per call (`ctx.secrets`). `missing`: a required name set nowhere. `unreadable`: set as a secret, and it can't be read for a reason the platform fixes, not the owner. Absent when it can be given, and for an optional name set nowhere. The owner's check (`GET /v1/deployments/{deploymentId}/pack-env`) lists a name set only as a secret as `kind: 'secret'`, with no problem.",
+        "Why it can't be given to the pack service. `ambiguous`: set two ways, as two of a plain value, a secret and a cloud secret (`kind` and `scope` are the first of those; `secretScope` names the secret's scope when `kind` is `env`, and `cloudSecretScope` the cloud secret's). `secret-not-yet`: set only as a secret, and the orchestrator didn't ask for secret values (`secrets=values`); a tool reads it per call (`ctx.secrets`). `missing`: a required name set nowhere. `unreadable`: set as a secret, and it can't be read for a reason the platform fixes, not the owner. Absent when it can be given, and for an optional name set nowhere. The owner's check (`GET /v1/deployments/{deploymentId}/pack-env`) lists a name set only as a secret as `kind: 'secret'`, with no problem.",
     },
     secretScope: { $ref: '#/components/schemas/PackEnvScope' },
+    cloudSecretScope: { $ref: '#/components/schemas/PackEnvScope' },
   },
 };
 
@@ -2168,14 +2176,14 @@ export const PackEnvProblemCodeSchema: JsonSchema = {
   type: 'string',
   enum: [...PACK_ENV_PROBLEM_CODES],
   description:
-    "Why a deployment's pack service can't be given its declared environment, the first in this order: `pack-env-ambiguous` (a name is set both as a secret and as a plain value), `pack-env-secret-not-yet` (a name is set only as a secret, and its value wasn't asked for), `pack-env-missing` (a required name is set nowhere), `pack-env-secret-unreadable` (a name's secret is set, but it can't be read for a reason the platform fixes, not the owner; only a read with `secrets=values` finds it, and only when there's no other problem). A later runtime may add codes, so treat an unknown one as a reason not yet named.",
+    "Why a deployment's pack service can't be given its declared environment, the first in this order: `pack-env-ambiguous` (a name is set two ways: two of a plain value, a secret and a cloud secret), `pack-env-secret-not-yet` (a name is set only as a secret, and its value wasn't asked for), `pack-env-missing` (a required name is set nowhere), `pack-env-secret-unreadable` (a name's secret is set, but it can't be read for a reason the platform fixes, not the owner; only a read with `secrets=values` finds it, and only when there's no other problem). A later runtime may add codes, so treat an unknown one as a reason not yet named.",
 };
 
 export const PackEnvHeldCodeSchema: JsonSchema = {
   type: 'string',
   enum: [...PACK_ENV_HELD_CODES],
   description:
-    "Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it; `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. The orchestrator couldn't give it its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out, so it gives none; the platform fixes it), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-secret-redeploy` (a name is now set only as a secret, and this pack service was made where no secret can be given to it; a new deployment's can be, from a new build of the pack). A service held as `pack-env-secret-unreadable` or `pack-env-secrets-unaudited` is listed by `GET /v1/system/pack-env` every time, with its `held`, as the revision doesn't move when the platform fixes it. A later runtime may add codes, so treat an unknown one as a reason not yet named.",
+    "Why a `ready` pack service runs on the values it was last given: a `PackEnvProblemCode`, so the newest can't be given to it; `pack-env-update-failed`: they were given, and its new revision with them didn't start, so the last ready one serves. That revision is tried again for an hour after it's first recorded; setting the values again is a new revision, tried again too. The orchestrator couldn't give it its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out, so it gives none; the platform fixes it), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-name-too-long` (a name set as a secret is too long for the secret it's kept in, which is named after the pack service; shorten it in the pack), `pack-env-secret-redeploy` (a name is now set only as a secret, and this pack service was made where no secret can be given to it; a new deployment's can be, from a new build of the pack), `pack-env-cloud-secret-unsupported` (a name is set to a cloud secret, and this pack service's host mounts none; removing it, or setting a value instead, moves the revision). A service held as `pack-env-secret-unreadable` or `pack-env-secrets-unaudited` is listed by `GET /v1/system/pack-env` every time, with its `held`, as the revision doesn't move when the platform fixes it. A later runtime may add codes, so treat an unknown one as a reason not yet named.",
 };
 
 export const SystemPackEnvSchema: JsonSchema = {
@@ -2183,12 +2191,12 @@ export const SystemPackEnvSchema: JsonSchema = {
   additionalProperties: false,
   required: ['revision', 'names'],
   description:
-    "What the deployment's pack service is to be given: where each declared name is set, and the values when nothing stands in the way, plain ones in `env` and, when asked for (`secrets=values`), secrets in `secrets`. Each value given out is on the audit record: `env-resolved` as the deployment's system read, and `secret-resolved` (caller `pack-env`, with the request id as its `correlationId` and the system key's id), written before the answer.",
+    "What the deployment's pack service is to be given: where each declared name is set, and the values when nothing stands in the way, plain ones in `env` and, when asked for (`secrets=values`), secrets in `secrets`; and the names set to a cloud secret, with its path, in `cloudSecrets`. Each value given out is on the audit record: `env-resolved` as the deployment's system read, and `secret-resolved` (caller `pack-env`, with the request id as its `correlationId` and the system key's id), written before the answer.",
   properties: {
     revision: {
       type: 'string',
       description:
-        'Changes whenever what would be given changes: a value written or removed, a secret set or revoked. Made from scopes, row ids, revisions and update times, never from a value. Send it back with the endpoint (`packEnvRevision`) or `PUT …/pack-env`.',
+        'Changes whenever what would be given changes: a value written or removed, a secret set or revoked, a cloud secret set, changed or removed. Made from scopes, row ids, revisions and update times, never from a value. Send it back with the endpoint (`packEnvRevision`) or `PUT …/pack-env`.',
     },
     names: {
       type: 'array',
@@ -2207,6 +2215,12 @@ export const SystemPackEnvSchema: JsonSchema = {
       additionalProperties: { $ref: '#/components/schemas/PackEnvSecretValue' },
       description:
         "With `secrets=values` only: each declared name that is set only as a secret, by name (`{}` when there's none). Never put one into a plain env. Absent while there is a `problem`, and when it wasn't asked for.",
+    },
+    cloudSecrets: {
+      type: 'object',
+      additionalProperties: { type: 'string' },
+      description:
+        "Each declared name that is set to a cloud secret, by name: the version's resource name, `projects/<project>/secrets/<secret>/versions/<number>`. Give it to the pack service as a secret its host reads from its cloud, as the pack service's own account, never as a plain value; a host that can't holds the service (`pack-env-cloud-secret-unsupported`). Given with or without `secrets=values`: it's a name, not a value. Absent while there is a `problem`, and when no name is set to one.",
     },
   },
 };
@@ -2330,6 +2344,49 @@ export const RecordDeploymentProblemBodySchema: JsonSchema = {
         "Why the pack service couldn't be created, or was refused: one of `DEPLOYMENT_ENDPOINT_PROBLEM_CODES`. The tenant sees the code, never more.",
     },
   },
+};
+
+const ORCHESTRATOR_CLAIMANT: JsonSchema = {
+  type: 'string',
+  pattern: '^[\\x21-\\x7e]{1,128}$',
+  description: "The pass's own id: 1 to 128 printable characters, no spaces.",
+};
+
+export const ClaimOrchestratorRoundBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['claimant', 'holdSeconds'],
+  properties: {
+    claimant: ORCHESTRATOR_CLAIMANT,
+    holdSeconds: {
+      type: 'integer',
+      minimum: 30,
+      maximum: 3600,
+      description:
+        'How long the pass holds the round. A claim is never renewed: the pass ends within it, or its claim lapses and the next pass takes the round over.',
+    },
+  },
+};
+
+export const OrchestratorRoundSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['claimant', 'heldUntil'],
+  properties: {
+    claimant: ORCHESTRATOR_CLAIMANT,
+    heldUntil: {
+      type: 'string',
+      format: 'date-time',
+      description: "When the claim lapses, by the server's clock.",
+    },
+  },
+};
+
+export const EndOrchestratorRoundBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['claimant'],
+  properties: { claimant: ORCHESTRATOR_CLAIMANT },
 };
 
 export const SetPackSuspendedBodySchema: JsonSchema = {
@@ -2631,6 +2688,11 @@ export const ApprovalDecisionRecordSchema: JsonSchema = {
       description:
         "The reviewer's display name when they decided: a person renamed since still shows as they were. Absent on decisions an older runtime recorded.",
     },
+    factText: {
+      type: 'string',
+      description:
+        "The text a reviewer approved a remembered fact with, in place of the agent's (the approval's `description`), which the fact now holds. Absent when the fact was approved as the agent wrote it.",
+    },
   },
 };
 
@@ -2646,6 +2708,11 @@ export const ReviewDecisionSchema: JsonSchema = {
     rationale: { type: 'string' },
     reviewerRoleAtDecision: ReviewerRoleSchema,
     decidedAt: { type: 'string', format: 'date-time' },
+    factText: {
+      type: 'string',
+      description:
+        "The text a reviewer approved a remembered fact with, in place of the agent's (the approval's `description`), which the fact now holds. Absent when the fact was approved as the agent wrote it.",
+    },
   },
 };
 
@@ -2686,6 +2753,13 @@ export const CompleteApprovalBodySchema: JsonSchema = {
     value: {
       description:
         "Payload passed to the run waitpoint (`RunBinding.completeToken`) when the approval is linked to a suspended run and the decision is `approve` or `reject`. Refused (400 `bad-input`) for an agent's tool-call or session gate (`tool-call:pending`, `agent-turn:session-hitl-gate`): those resume on the decision alone.",
+    },
+    factText: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 2000,
+      description:
+        "Only with `decision: approve`, on the approval of a fact an agent wants to remember (`subjectKind: fact`): the text the fact holds once approved, in place of the agent's. The approval keeps the agent's text as its `description`, and its decision records this one. More than spaces, at most 2000 characters. Refused (400 `bad-input`) on any other decision or approval.",
     },
   },
 };
@@ -6545,7 +6619,7 @@ const ErasureStatusSchema: JsonSchema = {
   type: 'string',
   enum: ['pending', 'running', 'waiting-on-run', 'completed', 'failed'],
   description:
-    "`waiting-on-run`: a turn of the person's sits in a flow that serves other people; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.",
+    "`waiting-on-run`: a turn of the person's sits in a flow that serves other people, or a test run still going has a case from their runs; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.",
 };
 
 /** Erase one fact. */
@@ -6661,7 +6735,7 @@ export const MemoryErasureSchema: JsonSchema = {
         until: { type: 'string', format: 'date-time' },
       },
       description:
-        'The run it waits (or waited) for, and until when; kept as the record of the wait.',
+        'The run or test run it waits (or waited) for, and until when; kept as the record of the wait.',
     },
     forced: { type: 'boolean', const: true, description: 'A tenant admin said not to wait.' },
     settleRoundsCapped: {
@@ -6684,7 +6758,7 @@ export const ResumeMemoryErasureBodySchema: JsonSchema = {
     force: {
       type: 'boolean',
       description:
-        "Stop waiting for a run in a flow that serves other people: it's cancelled, and the erasure goes on.",
+        "Stop waiting for a run in a flow that serves other people, or a test run with a case from the person's runs: it's cancelled, and the erasure goes on.",
     },
   },
 };
@@ -12648,7 +12722,7 @@ export const DeploymentValueSchema: JsonSchema = {
     problem: {
       type: 'string',
       description:
-        "Why it isn't ready; absent when it is. One of a fixed list; a later runtime may add problems, so treat an unknown one as a reason not yet named. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set both as a secret and as a plain value. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one). `no-provider`: an agent that runs on any provider (it names none, or names one that isn't registered), with no provider registered in the tenant, so a run has none to call.",
+        "Why it isn't ready; absent when it is. One of a fixed list; a later runtime may add problems, so treat an unknown one as a reason not yet named. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set two ways, as two of a plain value, a secret and a cloud secret. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one). `no-provider`: an agent that runs on any provider (it names none, or names one that isn't registered), with no provider registered in the tenant, so a run has none to call.",
     },
   },
 };
@@ -12948,7 +13022,7 @@ export const DeploymentEndpointSchema: JsonSchema = {
     retired: {
       type: 'string',
       description:
-        '`cleared` only: why no pack service is wanted for it now. `superseded` is for good: newer deployments ship every tool version and check it does, so no new call reaches it; a tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.',
+        '`cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: each tool version, pack check, agent and flow version it serves is unregistered and not held (a check: no registered guardrail runs it), or a newer deployment into its project serves it. Registering one of its versions again makes it needed again (from Kindgi 0.4.0; before, it was for good: newer deployments shipped every tool version and check it does). A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.',
     },
     packEnvProblem: {
       type: 'object',
@@ -12960,6 +13034,50 @@ export const DeploymentEndpointSchema: JsonSchema = {
         code: { $ref: '#/components/schemas/PackEnvHeldCode' },
         since: { type: 'string', format: 'date-time', description: 'When it was recorded.' },
       },
+    },
+    keptFor: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/DeploymentKeptFor' },
+      description:
+        "What keeps this build's pack service, whatever its status, in kind, id, then version order. `[]` when nothing does: it's retired (`superseded`), or retired next. A suspended build has `retired` and still lists what keeps it, since its service comes back when the suspension lifts. On a list page, the first 20 entries, with `keptForTotal`; a get of one deployment gives them all. Absent when builds aren't counted (one service serves every build), and from a runtime before Kindgi 0.4.0.",
+    },
+    keptForTotal: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "On a list page, with `keptFor`: how many entries there are, of which `keptFor` holds the first 20. A get of one deployment doesn't send it.",
+    },
+  },
+};
+
+/** One thing a build's pack service is kept for. */
+export const DeploymentKeptForSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  description:
+    "One thing a build's pack service is kept for. To let the build go, unregister it: `kindgi tools|agents|flows unregister <id> <version>`, `kindgi guardrails unregister <id>`.",
+  properties: {
+    kind: {
+      type: 'string',
+      description:
+        '`tool`: a tool version this build is the newest into its project to route, still registered or held; a tool deployed without a version has no `version` and neither flag, and is kept until a newer deployment into the project ships the tool. `agent`, `flow`: a version this build is the newest into its project to ship or carry, still registered or held. `guardrail`: a registered guardrail that runs a pack check this build is the newest into its project to route; it has no `version`. A later runtime may add kinds, so treat an unknown one as a kind not yet named.',
+    },
+    id: { type: 'string', description: 'The tool, agent, flow or guardrail id.' },
+    version: {
+      type: 'string',
+      description: 'The version kept for. Absent for a guardrail, or a tool deployed without one.',
+    },
+    registered: {
+      type: 'boolean',
+      const: true,
+      description: 'The version (or guardrail) is registered.',
+    },
+    held: {
+      type: 'boolean',
+      const: true,
+      description:
+        "A pin or a run that hasn't finished uses the version. Unregistering it then lets the build go only once the pin's own version is unregistered or the run finishes. Sent beside `registered` when both are true.",
     },
   },
 };
@@ -12975,7 +13093,7 @@ export const DeploymentEndpointProblemSchema: JsonSchema = {
     code: {
       type: 'string',
       description:
-        "One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start). It can't be given its declared environment (`GET /v1/deployments/{deploymentId}/pack-env` names the names): `pack-env-ambiguous`, `pack-env-secret-not-yet`, `pack-env-missing`, `pack-env-secret-unreadable` (a name's secret can't be read for a reason the platform fixes, not the owner; it's tried again). It can't be given its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out; the platform fixes it, and it's tried again), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-secret-capacity` (a name is set only as a secret, and there's no room just now for a pack service that can be given one, apart from other projects'; it's tried again).",
+        "One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start). It can't be given its declared environment (`GET /v1/deployments/{deploymentId}/pack-env` names the names): `pack-env-ambiguous`, `pack-env-secret-not-yet`, `pack-env-missing`, `pack-env-secret-unreadable` (a name's secret can't be read for a reason the platform fixes, not the owner; it's tried again). It can't be given its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out; the platform fixes it, and it's tried again), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-name-too-long` (a name set as a secret is too long for the secret it's kept in, which is named after the pack service; shorten it in the pack), `pack-env-secret-capacity` (a name is set only as a secret, and there's no room just now for a pack service that can be given one, apart from other projects'; it's tried again).",
     },
     since: {
       type: 'string',
@@ -13073,6 +13191,12 @@ export const DeploymentCollectionPageSchema: JsonSchema = {
       type: 'string',
       description:
         "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `packId` and lists them all.",
+    },
+    keptBuilds: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "How many builds keep a pack service among the deployments the project filter selects, whatever the page and the other filters: those whose `endpoint.keptFor` isn't empty. With `?projectId=`, that project's (the Default's counts the deployments that name no project); without, the total over the tenant's projects the caller may read. Absent when builds aren't counted (one service serves every build), and from a runtime before Kindgi 0.4.0.",
     },
   },
 };
@@ -14551,6 +14675,80 @@ export const EnvDeleteResultSchema: JsonSchema = {
   required: ['deleted'],
   properties: {
     deleted: { type: 'boolean' },
+  },
+};
+
+const CLOUD_SECRET_DESCRIPTION =
+  "A version of a secret in the operator's cloud, by its resource name: `projects/<project>/secrets/<secret>/versions/<number>`, with a project id (6 to 30 lowercase letters, digits and hyphens) or number, a secret id of 1 to 255 letters, digits, `_` and `-`, and a version number (never `latest` or an alias). A secret whose id starts with `kp-` is never one: those are the pack services' own copies.";
+
+/** An env name set to a cloud secret, as the operator reads it. */
+export const EnvCloudSecretSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['scope', 'envName', 'name', 'cloudSecret', 'revision', 'createdAt', 'updatedAt'],
+  description:
+    "An env name, at a scope and env, given to a pack service as a version of a secret the operator's cloud holds. The pack service's cloud reads it, as the pack service's own account: the runtime keeps the name, never a value.",
+  properties: {
+    scope: { $ref: '#/components/schemas/Scope' },
+    envName: { $ref: '#/components/schemas/EnvName' },
+    name: { type: 'string' },
+    cloudSecret: { type: 'string', description: CLOUD_SECRET_DESCRIPTION },
+    revision: { type: 'integer', minimum: 0 },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const EnvCloudSecretPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/EnvCloudSecret' } },
+    hasMore: { type: 'boolean', description: "Whether there's another page." },
+    nextCursor: { type: 'string' },
+  },
+};
+
+/** An env name set to a cloud secret, as the tenant reads it: never the path. */
+export const EnvCloudSecretNameSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['scope', 'envName', 'name', 'revision', 'createdAt', 'updatedAt'],
+  description:
+    "An env name the operator set to a cloud secret, at a scope and env. Which secret is the operator's to know: it isn't given here.",
+  properties: {
+    scope: { $ref: '#/components/schemas/Scope' },
+    envName: { $ref: '#/components/schemas/EnvName' },
+    name: { type: 'string' },
+    revision: { type: 'integer', minimum: 0 },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const EnvCloudSecretNamePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/EnvCloudSecretName' } },
+    hasMore: { type: 'boolean', description: "Whether there's another page." },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const EnvCloudSecretSetRequestSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['cloudSecret'],
+  properties: {
+    cloudSecret: { type: 'string', description: CLOUD_SECRET_DESCRIPTION },
+    ifRevision: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Set only if the stored one is at this revision (`409 env-write-conflict`).',
+    },
   },
 };
 
@@ -17281,6 +17479,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RecordPackEnvBody', RecordPackEnvBodySchema],
   ['PackEnvNames', PackEnvNamesSchema],
   ['RecordDeploymentProblemBody', RecordDeploymentProblemBodySchema],
+  ['ClaimOrchestratorRoundBody', ClaimOrchestratorRoundBodySchema],
+  ['OrchestratorRound', OrchestratorRoundSchema],
+  ['EndOrchestratorRoundBody', EndOrchestratorRoundBodySchema],
   ['SetPackSuspendedBody', SetPackSuspendedBodySchema],
   ['PackSuspension', PackSuspensionSchema],
   ['SystemTenant', SystemTenantSchema],
@@ -17724,6 +17925,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['DeploymentSource', DeploymentSourceSchema],
   ['DeploymentEndpointProblem', DeploymentEndpointProblemSchema],
   ['DeploymentEndpoint', DeploymentEndpointSchema],
+  ['DeploymentKeptFor', DeploymentKeptForSchema],
   ['DeploymentRecord', DeploymentRecordSchema],
   ['DeploymentReplacedBlock', DeploymentReplacedBlockSchema],
   ['DeployReplaceBlock', DeployReplaceBlockSchema],
@@ -17846,6 +18048,11 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['EnvCollectionPage', EnvCollectionPageSchema],
   ['EnvSetRequest', EnvSetRequestSchema],
   ['EnvDeleteResult', EnvDeleteResultSchema],
+  ['EnvCloudSecret', EnvCloudSecretSchema],
+  ['EnvCloudSecretPage', EnvCloudSecretPageSchema],
+  ['EnvCloudSecretName', EnvCloudSecretNameSchema],
+  ['EnvCloudSecretNamePage', EnvCloudSecretNamePageSchema],
+  ['EnvCloudSecretSetRequest', EnvCloudSecretSetRequestSchema],
   ['SecretCollectionPage', SecretCollectionPageSchema],
   ['SecretVersionCollectionPage', SecretVersionCollectionPageSchema],
   ['SecretSetRequest', SecretSetRequestSchema],

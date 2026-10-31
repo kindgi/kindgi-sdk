@@ -37,7 +37,7 @@ import type { CostBinding } from './cost-binding.js';
 import type { CursorSealer } from './cursor-seal.js';
 import type { DeploymentBinding } from './deployment-binding.js';
 import type { DeploymentValuesDeps } from './deployment-values.js';
-import type { EnvBinding } from './env-binding.js';
+import type { EnvBinding, EnvCloudSecretBinding } from './env-binding.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import type { WireErrorBody } from './errors.js';
 import type { EventBusBinding } from './event-bus-binding.js';
@@ -200,6 +200,7 @@ import {
   type SystemDeploymentsOptions,
   systemDeploymentsRouter,
 } from './routes/system-deployments.js';
+import { systemEnvRouter } from './routes/system-env.js';
 import { type SystemKeysBinding, systemKeysRouter } from './routes/system-keys.js';
 import {
   type SystemTenantSettingsBinding,
@@ -234,7 +235,7 @@ import type { SigningKeyBinding as SigningKeyRegistryBinding } from './signing-k
 import type { SiteBinding } from './site-binding.js';
 import { createSuggestedChangeService } from './suggested-change-service.js';
 import type { SupervisorBinding } from './supervisor-binding.js';
-import { ONE_TENANT_SYSTEM_SCOPES } from './system.js';
+import { oneTenantSystemScopes } from './system.js';
 import type { TenantHostAccess } from './tenant-host-access.js';
 import type { TestRunBinding } from './test-run-binding.js';
 import type { TestSetFreezeBinding, TestSetRegistryBinding } from './test-set-binding.js';
@@ -647,12 +648,15 @@ export interface CreateAppInput {
   readonly systemKeys?: SystemKeysBinding;
   /**
    * Optional. Each deployment's own pack service (per-deployment routing):
-   * `GET /v1/system/deployments` for whatever runs those services, and,
-   * under each tenant, its deployments' endpoint, problem and pack
-   * suspension. Only a system principal reaches them, so on a runtime
-   * serving one tenant nothing does (its server refuses per-deployment
-   * routing there). Mounted only with `systemTenantDirectory` too;
-   * without them the routes aren't mounted (404).
+   * `GET /v1/system/deployments` and its round for whatever runs those
+   * services, and, under each tenant, its deployments' endpoint, problem,
+   * pack env and pack suspension. Only a system principal reaches them.
+   * Serving one tenant, that's a system key holding the orchestrator's
+   * scopes, which the deployment's own token mints then; the pack
+   * suspension takes `system:suspend`, which it never mints, and the fence
+   * lets no key reach it. The access record (`systemAccessAudit`) is
+   * required. Mounted only with `systemTenantDirectory` too; without them
+   * the routes aren't mounted (404).
    */
   readonly systemDeployments?: SystemDeploymentsOptions;
   /**
@@ -1289,6 +1293,16 @@ export interface CreateAppInput {
    */
   readonly envBinding?: EnvBinding;
   /**
+   * Optional. The env names the operator set to a cloud secret
+   * (`projects/<project>/secrets/<secret>/versions/<number>`), which a
+   * pack service is given by that name for its cloud to read. A system key
+   * with `system:env-refs` sets them (`/v1/system/tenants/{tenantId}/env`);
+   * a tenant lists their names (`GET /v1/env/cloud-secrets`), and the
+   * pack-env checks count each as set. Absent: those routes answer `501
+   * cloud-secrets-unsupported`, and nothing is set by reference.
+   */
+  readonly envCloudSecrets?: EnvCloudSecretBinding;
+  /**
    * What a deployment's values check reads that only the runtime knows
    * (`deployment-values.ts`): where a model provider's key is for a run in
    * a project, and the pack service's own env. The check reads env values
@@ -1474,6 +1488,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       "createApp: a runtime serving many tenants needs systemAccessAudit, the record of every request the operator's system keys make",
     );
   }
+  // Serving one tenant, the orchestrator's key records endpoints: on record too.
+  if (input.systemDeployments !== undefined && input.systemAccessAudit === undefined) {
+    throw new Error(
+      "createApp: systemDeployments needs systemAccessAudit, the record of every request the orchestrator's system key makes",
+    );
+  }
   // A limit that isn't one would refuse every policy, or none.
   for (const [domain, limit] of Object.entries(input.retentionLimits ?? {})) {
     if (domain === '*' || !(RETENTION_DOMAINS as readonly string[]).includes(domain)) {
@@ -1582,6 +1602,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
 
   // ---------- authenticated `/v1/*` routes ----------
   const v1 = new Hono<AppEnv>();
+  // Whether each deployment's pack service is run by an orchestrator through `/v1/system/*`.
+  const deploymentsMounted =
+    input.systemDeployments !== undefined && input.systemTenantDirectory !== undefined;
   const sessionCfg = input.session;
   const inactivityTimeoutMs = sessionCfg?.inactivityTimeout;
   v1.use(
@@ -1642,6 +1665,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.systemAccessAudit !== undefined && { audit: input.systemAccessAudit }),
       ...(authorizer !== undefined && { authorizer }),
       ...(input.tenancy !== undefined && { tenancy: input.tenancy }),
+      servesDeployments: deploymentsMounted,
     }),
   );
   // A closing or suspended tenant reads, exports and deletes; nothing else.
@@ -1995,8 +2019,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route(
       '/system/keys',
       systemKeysRouter(input.systemKeys, authorizer, {
-        // Serving one tenant, a system key is the license renewal's alone.
-        ...(input.tenancy !== 'multi' && { mintable: ONE_TENANT_SYSTEM_SCOPES }),
+        // Serving one tenant, a system key is the license renewal's, or,
+        // with a pack service per deployment, its orchestrator's.
+        ...(input.tenancy !== 'multi' && { mintable: oneTenantSystemScopes(deploymentsMounted) }),
       }),
     );
   }
@@ -2012,6 +2037,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             stores: {
               env: input.envBinding,
               ...(secretsBinding !== undefined && { secrets: secretsBinding }),
+              ...(input.envCloudSecrets !== undefined && { cloudSecrets: input.envCloudSecrets }),
               ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
             },
             envName: servedEnv,
@@ -2051,6 +2077,20 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         settings: input.systemTenantSettings,
         directory: input.systemTenantDirectory,
         ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
+  if (input.systemTenantDirectory !== undefined) {
+    // The operator's cloud secrets. Mounted with no store too, so a runtime
+    // that keeps none (hosted, for one) answers `501`, not `404`.
+    v1.route(
+      '/system/tenants',
+      systemEnvRouter({
+        cloudSecrets: input.envCloudSecrets,
+        directory: input.systemTenantDirectory,
+        ...(authorizer !== undefined && { authorizer }),
+        ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+        ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
       }),
     );
   }
@@ -2495,7 +2535,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // store — an in-memory reference is used when the caller doesn't
   // plug in a durable one.
   if (input.envBinding !== undefined) {
-    v1.route('/env', envRouter(input.envBinding, authorizer, input.auditEvents, servedEnvRule));
+    v1.route(
+      '/env',
+      envRouter(
+        input.envBinding,
+        authorizer,
+        input.auditEvents,
+        servedEnvRule,
+        input.envCloudSecrets,
+      ),
+    );
   }
   // Audit query surface. Admin-only PEP applied inside the router
   // (self-contained; no plumbing here).
@@ -2635,6 +2684,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           // env its pack declares, from the env store.
           ...(input.systemDeployments !== undefined && { packEnvServed: true }),
           ...(input.envBinding !== undefined && { envBinding: input.envBinding }),
+          ...(input.envCloudSecrets !== undefined && { cloudSecrets: input.envCloudSecrets }),
           ...(servedEnvRule !== undefined && { servedEnv: servedEnvRule }),
           // A deploy registers tools and guardrails: the same cache hooks
           // `POST /v1/tools` / `POST /v1/guardrails` call.

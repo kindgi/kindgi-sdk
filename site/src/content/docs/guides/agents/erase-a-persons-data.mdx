@@ -199,7 +199,7 @@ Once it completes, new turns for the person start again.
 ## What it clears
 
 - **Their facts,** every revision, and their vectors. A fact written from an
-  erased one goes to review: a `memory-fact` approval, reason
+  erased one goes to review: a `fact` approval, reason
   `derived-from-erased`.
 - **Their conversations,** with their messages and what recall indexed. The
   conversation then answers `404`.
@@ -207,7 +207,7 @@ Once it completes, new turns for the person start again.
   snapshots and waitpoints, and what it left in provenance. The run itself
   stays, with `contentErasedAt`. Correcting such a run is refused,
   `410 run-erased`. The provenance records of those runs, and of the
-  [flows they ran in](#shared-flows), are marked as erased, with the time:
+  [flows they ran in](#shared-flows-and-test-runs), are marked as erased, with the time:
   a flow's record too, though it holds no text to clear.
 - **The reasons in its ratings:** a correction of such a run keeps its
   verdict, who corrected it and when, and loses its reason,
@@ -224,7 +224,7 @@ Once it completes, new turns for the person start again.
     `erased: true`, and runs on the test cases leave it out and count it, in
     `summary.erased`. For a case from such a run, or a replay of one, a run
     on the test cases loses what could quote them: the case's `changes`,
-    `tools` and `error`, and what differed from what the run should have
+    `tools`, `stopped` and `error`, and what differed from what the run should have
     done. Its scores, its counts, and whether each correction passed stay,
     so its numbers do.
 
@@ -249,7 +249,7 @@ before it starts: `409 legal-hold`, with the held facts in `details.factIds`.
   paraphrase at most. The
   reviewer who approves a suggested change is the check.
 
-## Shared flows
+## Shared flows and test runs
 
 A person's turn can sit inside a flow that also serves other people.
 Cancelling it now could end their work too. So the erasure waits for that
@@ -257,6 +257,15 @@ run, with the status `waiting-on-run` and `waitingOn` naming it. It waits
 until a deadline, `KINDGI_ERASURE_SHARED_WAIT_MS`, 7 days by default. Then it
 cancels the run and goes on. Erasing a person also clears the records of
 flows they shared with others.
+
+A test run still going can have a case from the person's runs, and it can
+still write that case's results after the erasure has cleared them.
+Cancelling it now would end the whole test, its other cases with it. So the
+erasure waits for it the same way, with `waitingOn` naming the test run,
+until the same deadline. Then it cancels the test run and goes on. If the
+test run ends first, the erasure clears the person's cases from its
+results, as [What it clears](#what-it-clears) says. A test run with none of
+the person's cases isn't waited for.
 
 To act before the deadline, where `<erasure-id>` is the erasure's id:
 

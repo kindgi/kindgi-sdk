@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/specs/schemas/*.schema.json
 
 /**
  * Drift tests between `packages/api/src/openapi/schemas.ts` (wire shapes)

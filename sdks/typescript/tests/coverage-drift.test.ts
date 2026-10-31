@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
+// reads-source: packages/api/openapi.json sdks/typescript/scripts/gen-client.mjs sdks/typescript/src/resources/*.ts
 
 /**
  * SDK ↔ HTTP wire coverage drift.
