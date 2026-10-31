@@ -7,7 +7,7 @@ import { ref } from '@kindgi/authz';
 import type { Cursor, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
-import type { EvalCaseStoreBinding } from '../eval-case-binding.js';
+import type { FrozenCaseStoreBinding } from '../frozen-case-binding.js';
 import type { ItemRights } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
@@ -20,7 +20,7 @@ import { clampLimit } from './pagination.js';
  * (`agent-test-set.ts`); the ones built before are still read here.
  */
 export function correctedTestSetsRouter(
-  cases: EvalCaseStoreBinding,
+  cases: FrozenCaseStoreBinding,
   authorizer?: Authorizer,
   /** Rights on a test set more than one project serves (`item-rights.ts`); absent → the test set's own. */
   itemRights?: ItemRights,

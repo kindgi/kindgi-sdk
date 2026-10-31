@@ -65,7 +65,7 @@ async function harness({ grants }: { readonly grants?: readonly string[] } = {})
     testSetRegistry: {
       headExists: async () => true,
     } as unknown as TestSetRegistryBinding,
-    evalCaseStore: cases,
+    frozenCaseStore: cases,
     ...(grants !== undefined && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',

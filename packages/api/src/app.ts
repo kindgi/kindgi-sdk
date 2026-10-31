@@ -39,10 +39,10 @@ import type { DeploymentValuesDeps } from './deployment-values.js';
 import type { EnvBinding } from './env-binding.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
 import type { WireErrorBody } from './errors.js';
-import type { EvalCaseStoreBinding } from './eval-case-binding.js';
 import type { EventBusBinding } from './event-bus-binding.js';
 import type { ExpertQueueBinding } from './expert-queue-binding.js';
 import type { FlowRegistryBinding } from './flow-binding.js';
+import type { FrozenCaseStoreBinding } from './frozen-case-binding.js';
 import type { GuardrailRegistryBinding } from './guardrail-binding.js';
 import type { RunHandlerBinding } from './handler-binding.js';
 import type { HitlBinding } from './hitl-binding.js';
@@ -991,7 +991,7 @@ export interface CreateAppInput {
    * from corrections before an agent's corrections were its test set:
    * `GET /v1/test-sets/:testSetId/versions/:version/cases`.
    */
-  readonly evalCaseStore?: EvalCaseStoreBinding;
+  readonly frozenCaseStore?: FrozenCaseStoreBinding;
   /**
    * Optional. Pinned versions of agents per scope, each project's Latest
    * (`latest`), and their pin changes (`/v1/agents/{id}/pinned`,
@@ -2361,8 +2361,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       }),
     );
   }
-  if (input.testSetRegistry !== undefined && input.evalCaseStore !== undefined) {
-    v1.route('/test-sets', correctedTestSetsRouter(input.evalCaseStore, authorizer, itemRights));
+  if (input.testSetRegistry !== undefined && input.frozenCaseStore !== undefined) {
+    v1.route('/test-sets', correctedTestSetsRouter(input.frozenCaseStore, authorizer, itemRights));
   }
   // ---------- platform hierarchy ----------
   // Mounts are independent: `/v1/orgs`, `/v1/teams`, `/v1/projects`,
