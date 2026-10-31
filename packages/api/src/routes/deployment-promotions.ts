@@ -55,6 +55,7 @@ import {
   type CarriedVersion,
   type DeployedPrimitive,
   type Deployment,
+  type DeploymentKeptBuilds,
   type PromotedToolSecretScopes,
   type SystemDeploymentRetireReason,
   serializeDeployment,
@@ -183,6 +184,27 @@ export async function readableDeployments(
     ({ projectId }) => readRef(tenantId, projectId),
   );
   return readable.map(({ deployment }) => deployment);
+}
+
+/**
+ * The kept builds of the projects the caller reads ({@link readRef}), as
+ * one count, so a list that names no project counts no build of a project
+ * they can't read, as its page lists none. Without an authorizer, all of
+ * them.
+ */
+export async function readableKeptBuilds(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  kept: readonly DeploymentKeptBuilds[],
+): Promise<number> {
+  const tenantId = c.get('tenantId') as TenantId;
+  const readable =
+    authorizer === undefined
+      ? kept
+      : await authorizer.filterByCan(c, 'read', kept, ({ projectId }) =>
+          readRef(tenantId, projectId),
+        );
+  return readable.reduce((sum, { builds }) => sum + builds, 0);
 }
 
 /**

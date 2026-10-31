@@ -182,6 +182,39 @@ describe('kindgi deployments get', () => {
     expect(out.stderr).toBe('');
   });
 
+  test('what keeps the build: one a line, after its pack service; nothing, said so', async () => {
+    const keptFor = [
+      { kind: 'agent', id: 'acme.reply-drafter', version: '3', registered: true, held: true },
+      { kind: 'flow', id: 'acme.triage', version: '2', held: true },
+      { kind: 'guardrail', id: 'acme.no-pii', registered: true },
+      { kind: 'tool', id: 'acme.lookup' },
+      { kind: 'tool', id: 'acme.search', version: '1.2.0', registered: true },
+      { kind: 'workflow', id: 'acme.later' },
+    ];
+    const ready = '  Pack service: ready since 2026-10-18T09:13:05.000Z';
+    const kept = await run(['deployments', 'get', 'dep-acme-1'], {
+      get: async () => ({ ...DEPLOYMENT, endpoint: { ...DEPLOYMENT.endpoint, keptFor } }),
+    });
+    expect(kept.out.exitCode).toBe(0);
+    expect(kept.out.stdout).toBe(
+      lines(
+        ...HEAD,
+        ready,
+        '  Kept for:',
+        '    agent acme.reply-drafter 3: registered, held by a pin or a run',
+        '    flow acme.triage 2: held by a pin or a run',
+        '    guardrail acme.no-pii: registered',
+        '    tool acme.lookup: deployed without a version, until a newer build ships it',
+        '    tool acme.search 1.2.0: registered',
+        '    workflow acme.later',
+      ),
+    );
+    const none = await run(['deployments', 'get', 'dep-acme-1'], {
+      get: async () => ({ ...DEPLOYMENT, endpoint: { ...DEPLOYMENT.endpoint, keptFor: [] } }),
+    });
+    expect(none.out.stdout).toBe(lines(...HEAD, ready, '  Kept for: nothing'));
+  });
+
   test('an older server: no packEnvProblem, or no pack service at all: no held line, and no pack-env read', async () => {
     // A server from before the field, routing per deployment: the endpoint as it was.
     const before = {

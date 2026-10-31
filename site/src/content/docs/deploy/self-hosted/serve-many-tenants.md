@@ -350,8 +350,15 @@ service is, and checks it. It never creates or deletes one.
 6. **Retire what should go:** `GET /v1/system/deployments?endpoint=retire`
    lists deployments with an endpoint whose service should go, each with its
    `reason`. Clear the endpoint first, with `DELETE …/endpoint`, then delete
-   the service. A `superseded` deployment is one whose every tool version and
-   check newer deployments in its project ship.
+   the service. Nothing a call can still ask for needs a `superseded`
+   deployment. Each tool version, check, agent and flow version it serves is
+   unregistered and not used by a pin or an unfinished run (a check: no
+   registered guardrail runs it), or a newer deployment in its project
+   serves it (runtime 0.4.0 or later; before, `superseded` meant newer
+   deployments in its project shipped every tool version and check it
+   does). Registering one of its versions again lists it as needing a
+   service again. A tenant sees what keeps each one in its endpoint's
+   `keptFor`.
 
 A call to a deployment's tool never goes anywhere else. With no endpoint yet
 it fails with `pack-endpoint-pending`, and after a clear with
