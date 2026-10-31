@@ -1528,6 +1528,22 @@ describe('PATCH /v1/corrections/:id', () => {
     expect(reopened.body).not.toHaveProperty('link');
   });
 
+  test("a suggested change's link keeps its id alone; an id that isn't one: 400", async () => {
+    const run = row();
+    const h = harness([run]);
+    const id = await made(h, run, WRONG_ANSWER);
+    const changeId = '3bca94f1-61a4-4c2e-9d0b-7f5e2a8c1d36';
+    const fixing = await patch(h, id, { status: 'being-fixed', link: `sc-${changeId}` });
+    expect(fixing.status, JSON.stringify(fixing.body)).toBe(200);
+    expect(fixing.body.link).toEqual({ kind: 'suggested-change', id: changeId });
+    const res = await patch(h, id, { status: 'being-fixed', link: 'sc-41' });
+    expect([res.status, res.body.error.code, res.body.error.message]).toEqual([
+      400,
+      'bad-input',
+      'link must be a URL, an Improve run (ir-<its id>) or a suggested change (sc-<its id>).',
+    ]);
+  });
+
   test('wont-fix needs a reason, kept as the status note; reopening clears the note', async () => {
     const run = row();
     const h = harness([run]);
