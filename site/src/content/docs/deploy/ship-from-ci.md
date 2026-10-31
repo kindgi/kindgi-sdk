@@ -77,13 +77,28 @@ A person does these, with a key of their own:
   CI never holds a key that trusts signing keys.
 - **Register the providers** each environment's agents call
   ([`kindgi providers`](../../reference/cli/providers/)).
-- **In prod, pin a version of each agent, and publish its release gate**
+- **In prod, once the first build has reached it, pin a version of each
+  agent, and publish its release gate**
   ([Gate a pin](../../guides/improve/release-an-agent-version/#gate-a-pin)).
-  A scope with a release gate needs a Pinned version of its own.
-  Without one, prod's runs take each agent's latest version.
-- **Build the test cases** that prod's test run uses, in prod's project
-  ([Build test cases from corrections](../../guides/improve/build-a-test-set/)).
-- **Create the triggers:** schedules, webhooks and mail triggers.
+  Until `kindgi promote` has moved a build to prod, no version runs there, so
+  a pin is refused with `409 nothing-runs-in-scope`. After it, each agent's
+  Latest in prod is the version the build ships, so pinning that version is a
+  [pin in place](../../guides/improve/pinned-versions-reference/#a-scope-with-a-release-gate-needs-a-pinned-version-of-its-own):
+  no test run and no approval. A version the build only carries counts as
+  Latest there when it was published in full, made Latest in staging, or
+  published before the runtime recorded Latest. So an agent the build
+  carries only as a version derived in staging, and never made Latest, has
+  no Latest in prod until a build ships a version of it. A scope with a
+  release gate needs a pinned version of its own.
+  Without one, prod's runs take each agent's
+  [Latest](../../guides/improve/pinned-versions-reference/#latest) in prod: the
+  version the newest build promoted there shipped.
+- **Correct runs in prod's project:** the agent's test set there is what
+  prod's test run uses ([An agent's test set](../../guides/improve/build-a-test-set/)).
+- **Create the triggers:** schedules, webhooks and mail triggers. A
+  trigger's `toolsAllowedUnattended` is checked against what runs in its
+  project, so in prod, create one that lists an agent's tools once the first
+  build has reached it.
 
 Registering a provider again under its id, publishing a release gate's
 version again, or making a test set of test cases again under its id and
@@ -397,8 +412,17 @@ has what a release gate checks, and how a reviewer approves.
 Improve, suggested changes and edits in the console change the runtime, not git, so
 the next deploy from git doesn't have them. Bring each one back as a pull
 request: copy the change into the pack's files, and open the pull request.
-[Improve an agent](../../guides/improve/improve-an-agent/) has what Improve
-changes.
+For blocks, `kindgi blocks pull` writes the newest version running anywhere
+into each block's file. [Improve an agent](../../guides/improve/improve-an-agent/)
+has what Improve changes.
+
+`kindgi deploy` run in a git work tree, as CI's is, also says where the pack
+lives: the `origin` remote with no user or token in it, the pack's folder in
+the repository, the commit and branch, and whether the pack's folder had
+changes the commit doesn't hold. Each deployment keeps that as `source`,
+with each block's file, and lists the block versions it shipped in
+`contents.blocks` (`GET /v1/deployments/:deploymentId`). A deploy from
+outside git keeps no `source`.
 
 ## Separate runtimes
 

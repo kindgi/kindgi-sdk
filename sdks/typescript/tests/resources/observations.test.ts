@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { KindgiApiError, createClient } from '../../src/index.js';
+import { createClient } from '../../src/index.js';
 import { jsonFetch, recordingFetch } from '../support/recording-fetch.js';
 
 const AUTH = { kind: 'apiToken' as const, token: 'tk' };
@@ -65,7 +65,7 @@ describe('observations.query', () => {
     expect(page.nextCursor).toBe('cur-2');
   });
 
-  it('recordRun throws not-yet-wired without hitting fetch', async () => {
+  it('has query only, since the API routes nothing else', () => {
     const stub = recordingFetch([]);
     const client = createClient({
       apiUrl: 'https://api.example.com',
@@ -73,30 +73,7 @@ describe('observations.query', () => {
       fetch: stub.fetch,
     });
 
-    await expect(client.observations.recordRun('run-1' as never)).rejects.toMatchObject({
-      name: 'KindgiApiError',
-      error: { code: 'not-yet-wired', method: 'observations.recordRun' },
-    });
-    expect(stub.calls.length).toBe(0);
-  });
-
-  it('patterns throws not-yet-wired without hitting fetch', async () => {
-    const stub = recordingFetch([]);
-    const client = createClient({
-      apiUrl: 'https://api.example.com',
-      auth: AUTH,
-      fetch: stub.fetch,
-    });
-
-    try {
-      await client.observations.patterns({ supervisorId: 'sup-1' as never });
-    } catch (e) {
-      expect(e).toBeInstanceOf(KindgiApiError);
-      expect((e as KindgiApiError).error).toMatchObject({
-        code: 'not-yet-wired',
-        method: 'observations.patterns',
-      });
-    }
+    expect(Object.keys(client.observations)).toEqual(['query']);
     expect(stub.calls.length).toBe(0);
   });
 });

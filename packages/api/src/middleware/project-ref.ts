@@ -25,12 +25,10 @@ export const PROJECT_REF_ROUTES: readonly string[] = [
   '/runs',
   '/tokens',
   '/agents',
-  '/agents/:agentId/versions',
   '/flows',
   '/tools',
   '/guardrails',
   '/test-sets',
-  '/test-sets/:testSetId/versions/from-corrections',
   '/test-sets/:testSetId/runs',
   '/test-runs/:testRunId/rescore',
   '/improve-runs',
@@ -43,6 +41,7 @@ export const PROJECT_REF_ROUTES: readonly string[] = [
   '/service-accounts/:serviceAccountId/grant',
   '/service-accounts/:serviceAccountId/ungrant',
   '/connections',
+  '/suggested-changes',
 ];
 
 /**

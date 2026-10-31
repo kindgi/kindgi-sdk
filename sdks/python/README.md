@@ -210,7 +210,7 @@ bookkeeper = Agent(
     name="Bookkeeper",
     instructions="Record each expense the user describes with acme.ledger.record-expense.",
     capabilities=[{"needs": [{"feature": "tool-use"}]}],
-    tools=[record_expense],             # Tool objects, or {"id", "version"} refs
+    tools=[record_expense],  # Tool objects, or {"id", "version"} refs
     guardrails=[response_not_empty],
 )
 ```
@@ -298,7 +298,9 @@ from kindgi.client import GuardrailViolationError, Kindgi, paginate
 
 client = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN — or Kindgi(url, token=…)
 
-run = client.runs.start(flow="acme.ledger.record-flow", input={"vendor": "Acme", "amountCents": 1299})
+run = client.runs.start(
+    flow="acme.ledger.record-flow", input={"vendor": "Acme", "amountCents": 1299}
+)
 print(run.status, run.output)
 
 try:
@@ -306,7 +308,7 @@ try:
 except GuardrailViolationError as blocked:
     print(blocked.violations)
 
-for event in client.runs.follow(turn.id):             # SSE, to the run's end
+for event in client.runs.follow(turn.id):  # SSE, to the run's end
     print(event.kind)
 
 for agent in paginate(client.agents.list, limit=50):  # every page
@@ -371,6 +373,7 @@ from kindgi import webhooks
 
 app = FastAPI()
 
+
 @app.post("/hooks/kindgi")
 async def kindgi_hook(request: Request) -> Response:
     body = await request.body()  # the bytes as sent, never re-serialized JSON
@@ -401,6 +404,7 @@ A `Tool` and a `Guardrail` stay callable:
 
 ```python
 from kindgi import ToolContext
+
 
 def test_record_expense():
     out = record_expense(Expense(vendor="Acme", amountCents=100), ToolContext.for_test())

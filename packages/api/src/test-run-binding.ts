@@ -15,6 +15,7 @@ import type {
   Timestamp,
 } from '@kindgi/types';
 
+import type { TestRunJudging } from './answer-check-binding.js';
 import type { TestSetKind } from './test-set-binding.js';
 
 /**
@@ -248,6 +249,16 @@ export interface TestRunStartInput {
   readonly correlationId?: string;
   /** Set for a comparison test run (a `corrections` test set): its baseline, reads and repetitions. */
   readonly comparison?: TestRunComparison;
+  /**
+   * Whose model checks the answers a comparison test run grades (a case's
+   * `expect.answer`), named by the caller that holds two runs to each
+   * other so one model judges both: a suggested change's check names the
+   * version it's built on, and an Improve run the version it starts from
+   * or the model it names. Absent: the tested version's own model, the one
+   * its model-settings block names. Not on the wire: `POST /v1/test-runs`
+   * never reads it from a body.
+   */
+  readonly judging?: TestRunJudging;
 }
 
 /**

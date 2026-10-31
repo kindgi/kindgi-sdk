@@ -47,6 +47,7 @@ import type {
   SyncSecretsOptions,
   SyncSecretsResult,
 } from '../src/deploy/runners.js';
+import type { DeploySource } from '../src/deploy/source.js';
 import type { PackEnvNameRecord } from '../src/env/pack-env-hint.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
 import { CLI_VERSION } from '../src/version-info.js';
@@ -150,6 +151,8 @@ interface Fixtures {
     capturedFindSlug?: string;
     capturedBuild?: RunBuildOptions;
     capturedSync?: SyncSecretsOptions;
+    /** The folder `readSource` was asked about. */
+    sourceAsked?: string;
   };
 }
 
@@ -173,6 +176,8 @@ interface FixtureOptions {
   readonly failedList?: 'projects' | 'orders';
   /** What the runtime says it serves (whoami's `servedEnv`); absent: no lookup runner. */
   readonly servedEnv?: { readonly envName: string; readonly refusesOtherEnvs: boolean };
+  /** Where `readSource` says the pack lives in git, `null` for nowhere; absent: no such runner. */
+  readonly source?: DeploySource | null;
 }
 
 function makeFixtures(opts: FixtureOptions = {}): Fixtures {
@@ -206,6 +211,13 @@ function makeFixtures(opts: FixtureOptions = {}): Fixtures {
       };
     },
   };
+  if (opts.source !== undefined) {
+    const source = opts.source;
+    (runners as { readSource?: DeployRunners['readSource'] }).readSource = async (dir) => {
+      state.sourceAsked = dir;
+      return source ?? undefined;
+    };
+  }
   if (opts.servedEnv !== undefined) {
     const served = opts.servedEnv;
     (runners as { servedEnv?: DeployRunners['servedEnv'] }).servedEnv = async (o) => {
@@ -501,6 +513,35 @@ describe('kindgi deploy — POST body + Idempotency-Key', () => {
       argv: ['deploy', '--env=staging', `--path=${packDir}`],
     });
     expect(fixtures2.state.capturedPost?.idempotencyKey).toBe(key);
+  });
+
+  test('inside a git work tree, the body says where the pack lives, and the key covers it', async () => {
+    await writeAutoEnvelope();
+    const source: DeploySource = {
+      repo: 'github.com/acme/agents',
+      path: 'packs/support',
+      commit: 'a'.repeat(40),
+      branch: 'main',
+      dirty: false,
+    };
+    const inGit = makeFixtures({ source });
+    await runCli({
+      ...baseInputs(inGit),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+    });
+    expect(inGit.state.sourceAsked).toBe(packDir);
+    expect(inGit.state.capturedPost?.body.source).toEqual(source);
+
+    const outside = makeFixtures({ source: null });
+    await runCli({
+      ...baseInputs(outside),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+    });
+    expect(outside.state.sourceAsked).toBe(packDir);
+    expect(outside.state.capturedPost?.body).not.toHaveProperty('source');
+    expect(outside.state.capturedPost?.idempotencyKey).not.toBe(
+      inGit.state.capturedPost?.idempotencyKey,
+    );
   });
 
   test('--idempotency-key overrides the derived value', async () => {

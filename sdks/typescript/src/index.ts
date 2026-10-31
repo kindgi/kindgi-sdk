@@ -20,7 +20,6 @@ export type {
   AgentUnpinInput,
   AgentsClient,
   DefineAgentOptions,
-  DeriveAgentVersionInput,
   ListPinHistoryFilter,
   AgentPinnedWhere,
   AgentPinInput,
@@ -65,17 +64,12 @@ export type {
 } from './resources/improve-runs.js';
 export type {
   CreateSuggestedChangeInput,
-  EvaluateSuggestedChangeInput,
   SuggestedChangeReasonInput,
   SuggestedChangesClient,
   SuggestedChangesListInput,
   WithdrawInput,
 } from './resources/suggested-changes.js';
-export type {
-  ObservationFilter,
-  ObservationsClient,
-  PatternsInput,
-} from './resources/observations.js';
+export type { ObservationFilter, ObservationsClient } from './resources/observations.js';
 export type { Transport, TransportRequest } from './transport.js';
 export type {
   ApprovalFilter,
@@ -234,6 +228,7 @@ export type {
   ProjectTeamGrantsClient,
   ProjectPage,
   ProjectProductionShape,
+  ProjectRepoConnectionShape,
   ProjectRecordShape,
   ProjectRoleValue,
   TeamProjectGrantPage,
@@ -295,8 +290,11 @@ export type {
 export { followRun, subscribeToRun } from './run-follow.js';
 export { comparisonOf } from './resources/test-runs.js';
 export type {
+  AgentHighestVersion,
   AgentProject,
   AgentProjectList,
+  AgentProjectRuns,
+  AgentProjectSegmentPin,
   AgentPinnedVersion,
   AgentPinnedVersionList,
   AgentPinScope,
@@ -327,7 +325,12 @@ export type {
   ServiceAccountFilter,
   ServiceAccountsClient,
 } from './resources/service-accounts.js';
-export type { CorrectionFilter, CorrectionsClient, ThumbsInput } from './resources/corrections.js';
+export type {
+  CorrectionExportFilter,
+  CorrectionFilter,
+  CorrectionsClient,
+  ThumbsInput,
+} from './resources/corrections.js';
 export type {
   McpClient,
   McpEndpointFilter,
@@ -506,6 +509,7 @@ export type {
   DeploymentPromotion,
   DeploymentPromotionCheck,
   DeploymentsClient,
+  DeploymentSource,
   DeploymentValue,
   DeploymentValues,
   DeploymentValuesClient,
@@ -518,8 +522,6 @@ export type {
   SyncSecretsResult,
 } from './resources/deployments.js';
 export type {
-  BuildFromCorrectionsInput,
-  BuildFromCorrectionsResult,
   TestSetsClient,
   ListTestSetCasesQuery,
   TestSetCase,
@@ -539,6 +541,8 @@ export type {
   Block,
   BlockKind,
   BlockPage,
+  BlockRunsIn,
+  BlockRunsInList,
   BlocksClient,
   BlockVersionsClient,
   ListBlocksFilter,
@@ -695,7 +699,9 @@ export type {
   SuggestedChangeStatus,
   SuggestedChangeContent,
   SuggestedChangeObjective,
-  SuggestedChangeTier,
+  SuggestedChangeActor,
+  SuggestedChangeCheckSide,
+  SuggestedChangeMadeBy,
   Flow,
   FlowEdge,
   FlowId,
