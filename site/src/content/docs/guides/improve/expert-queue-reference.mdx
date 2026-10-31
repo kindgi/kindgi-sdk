@@ -110,7 +110,9 @@ Each correction moves on until it's fixed. Its `status` says where it is, and
 When a correction is saved, it's sorted by these rules, in order:
 
 1. **A user's correction** (one with `participantId`, not made as an expert
-   under a restricted group) is `open` and unsorted, until a person sorts it.
+   under a restricted group) is `open` and unsorted, until a person sorts it,
+   unless the project sorts its end users' corrections
+   (`sortEndUserCorrections`): then rules 2 to 4 sort it like the others.
 2. **Wrong decisions** go to the owner: `with-owner`, sorted to `owner`. A
    change to what the agent does may loosen a limit, and only the owner
    decides that. This holds when the answer is wrong too.
