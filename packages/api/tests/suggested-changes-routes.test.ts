@@ -49,7 +49,12 @@ import type {
 } from '../src/test-set-binding.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { agentTestSetId, createApp, createSuggestedChangeService } from '../src/index.js';
+import {
+  agentTestSetId,
+  createApp,
+  createSuggestedChangeService,
+  latestRunCorrelation,
+} from '../src/index.js';
 import type {
   AgentMarkLatestInput,
   AgentPinBindings,
@@ -1696,6 +1701,43 @@ describe('POST /v1/suggested-changes/:id/add-as-latest', () => {
     });
     expect(withdraw.status).toBe(409);
     expect(h.agents.marked).toHaveLength(1);
+  });
+
+  /** Latest in the card's project by project too, as `latest` answers it there. */
+  function latestByProject(h: Awaited<ReturnType<typeof readyOnLatest>>): void {
+    const { latest } = h.pinStore.bindings;
+    latest.byProject = async (q) => {
+      const answer = await latest.latest({ ...q, projectId });
+      return answer === null ? [] : [{ projectId, ...answer }];
+    };
+  }
+
+  test("it checks the new Latest in the card's project, with a latest: test run", async () => {
+    const h = await readyOnLatest();
+    latestByProject(h);
+    h.testRuns.started.length = 0;
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/add-as-latest`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(h.testRuns.started).toEqual([
+      expect.objectContaining({
+        projectId,
+        testSetId: FROZEN.testSetId,
+        testSetVersion: FROZEN.testSetVersion,
+        agentRef: { agentId: AGENT, version: h.version },
+        correlationId: latestRunCorrelation(AGENT, projectId),
+      }),
+    ]);
+  });
+
+  test('a Latest check that does not start leaves the add as it is', async () => {
+    const h = await readyOnLatest();
+    latestByProject(h);
+    h.testRuns.started.length = 0;
+    h.testRuns.fail.start = 1;
+    const res = await h.call('POST', `/v1/suggested-changes/${h.id}/add-as-latest`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.status).toBe('added-as-latest');
+    expect(h.testRuns.started).toHaveLength(1);
   });
 
   test('without a reason, none is kept', async () => {

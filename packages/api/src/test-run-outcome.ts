@@ -167,7 +167,7 @@ async function applyOne(
  * Apply the run that a pin names (`Pin.testRunId`: the body's on the agent
  * pin, the card's check on the card pin) as its change's own, in a project
  * that the change made run its version: reused, it changes the statuses
- * at pin time (DESIGN 10.1 step 1), as of when the change took effect.
+ * at pin time, as of when the change took effect.
  * Changes nothing, and answers `undefined`, unless the change took effect,
  * the run is reusable there at the project's current `testSetVersion`
  * (`isReusableTestRun`), the project is inside the change's scope, and it
@@ -203,9 +203,9 @@ export async function applyNamedTestRun(
 
 /**
  * Whether a run can stand for a pin's check of `version` in a project, so
- * none starts (DESIGN 10.1 step 1): completed, not a dry run, a
- * `corrections` run that tried the version as published, of the agent and
- * version, in the project, on its agent test set at `testSetVersion`.
+ * none starts: completed, not a dry run, a `corrections` run that tried the
+ * version as published, of the agent and version, in the project, on its
+ * agent test set at `testSetVersion`.
  */
 export function isReusableTestRun(
   run: TestRun,
@@ -455,7 +455,7 @@ async function startedThisRun(
   return inScope(projects, tenantId, change.scope, check.projectId);
 }
 
-/** Whether `projectId` is inside `scope`. A segment pin starts no run (DESIGN 10.1 step 4). */
+/** Whether `projectId` is inside `scope`. A segment pin starts no run. */
 export async function inScope(
   projects: Pick<ProjectBinding, 'get'>,
   tenantId: TenantId,

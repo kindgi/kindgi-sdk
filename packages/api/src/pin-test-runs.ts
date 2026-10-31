@@ -2,19 +2,19 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * The test runs a pin change starts (DESIGN 10.1 step 1, 10.3). A pin
- * checks the version it pins in each project whose running version it
- * changes and that has active cases: a project pin its project, a tenant
- * or org pin each such project the agent runs in, a segment pin none
- * (`projectsPinMoves`). An unpin checks the version each project it
- * covered runs after it, where that changed (10.5,
- * `startUnpinTestRuns`). The run the pin names (`Pin.testRunId`) is
- * reused where it can stand for the check (`isReusableTestRun`), and
- * applies at once when the pin took effect (`applyNamedTestRun`).
- * Elsewhere a run starts with correlation `pin:<changeId>`, and applies
- * at its end (`applyTestRunOutcome`). A pin that waits for approval
- * starts its runs at once, and changes nothing until the approval pins
- * it (`pinTookEffect`).
+ * The test runs a pin change starts, and what the pin answers with them.
+ * A pin checks the version it pins in each project whose running version
+ * it changes and that has active cases: a project pin its project, a
+ * tenant or org pin each such project the agent runs in, a segment pin
+ * none (`projectsPinMoves`). An unpin checks the version each project it
+ * covered runs after it, where that changed (`startUnpinTestRuns`). The
+ * run the pin names (`Pin.testRunId`) is reused where it can stand for
+ * the check (`isReusableTestRun`), and applies at once when the pin took
+ * effect (`applyNamedTestRun`). Elsewhere a run starts with correlation
+ * `pin:<changeId>`, and applies at its end (`applyTestRunOutcome`). A pin
+ * that waits for approval starts its runs at once, and changes nothing
+ * until the approval pins it (`pinTookEffect`). Latest moving checks the
+ * new Latest in each project that follows it (`latestMoved`).
  */
 
 import type { Logger } from '@kindgi/log';
@@ -28,6 +28,7 @@ import {
   type TestRunOutcomeDeps,
   applyNamedTestRun,
   isReusableTestRun,
+  latestRunCorrelation,
   pinRunCorrelation,
   reapplyTestRunOutcomes,
   tookEffect,
@@ -52,7 +53,7 @@ export interface PinTestRun {
   readonly testRunId: RunId;
 }
 
-/** A pin's test runs, and the corrections a reused run changed (the pin answer, DESIGN 10.3). */
+/** A pin's test runs, and the corrections a reused run changed (the pin answer). */
 export interface PinTestRuns extends TestRunOutcome {
   readonly testRuns: readonly PinTestRun[];
 }
@@ -105,7 +106,7 @@ export async function startPinTestRuns(
   if (!checksNow(change)) return NO_PIN_TEST_RUNS;
   const found = collect();
   for (const projectId of input.projects) {
-    await eachProject(input.log, change, projectId, async () => {
+    await eachProject(input.log, changeRuns(change), projectId, async () => {
       const frozen = await activeCases(deps, tenantId, change, projectId);
       if (frozen === undefined) return;
       if (await reuseNamed(deps, tenantId, change, projectId, frozen, found)) return;
@@ -116,14 +117,14 @@ export async function startPinTestRuns(
 }
 
 /**
- * After an approval pins a change that waited (DESIGN 10.3): in each
- * project the change now covers that has active cases, apply the run the
- * change names where it's reusable, and the change's own finished
- * `pin:<changeId>` runs, newest first. A project with neither, nor one of
- * its runs still going, gets one started; a run still going applies at
- * its own end. Applying again changes nothing, so the start-up reconcile
- * can retry it. A project whose step throws is logged, and the others
- * still go. Answers nothing for a change that didn't take effect.
+ * After an approval pins a change that waited: in each project the change now
+ * covers that has active cases, apply the run the change names where it's
+ * reusable, and the change's own finished `pin:<changeId>` runs, newest
+ * first. A project with neither, nor one of its runs still going, gets one
+ * started; a run still going applies at its own end. Applying again changes
+ * nothing, so the start-up reconcile can retry it. A project whose step
+ * throws is logged, and the others still go. Answers nothing for a change
+ * that didn't take effect.
  */
 export async function pinTookEffect(
   deps: PinTestRunDeps,
@@ -141,7 +142,7 @@ export async function pinTookEffect(
   const rows = await whatRunsByProject(deps.agentPins, { tenantId, agentId }, inside);
   const found = collect();
   for (const { projectId } of rows.filter((row) => row.pin?.changeId === change.id)) {
-    await eachProject(input.log, change, projectId, async () => {
+    await eachProject(input.log, changeRuns(change), projectId, async () => {
       const frozen = await activeCases(deps, tenantId, change, projectId);
       if (frozen === undefined) return;
       if (await reuseNamed(deps, tenantId, change, projectId, frozen, found)) return;
@@ -186,13 +187,12 @@ export async function projectsUnpinCovers(
 }
 
 /**
- * Check a recorded unpin (DESIGN 10.5) in each project it covered
- * (`projectsUnpinCovers`, read before it was recorded) that runs another
- * version now, the scope above's pin or Latest, and has active cases: a
- * run of that version, with correlation `pin:<changeId>` of the unpin.
- * An unpin names no run, so none is reused, and `fixed` and `reopened`
- * stay empty. Like a pin's, a step that throws or a start the binding
- * refuses leaves only its project out (logged).
+ * Check a recorded unpin in each project it covered (`projectsUnpinCovers`,
+ * read before it was recorded) that runs another version now, the scope
+ * above's pin or Latest, and has active cases: a run of that version, with
+ * correlation `pin:<changeId>` of the unpin. An unpin names no run, so none
+ * is reused, and `fixed` and `reopened` stay empty. Like a pin's, a step that
+ * throws or a start the binding refuses leaves only its project out (logged).
  */
 export async function startUnpinTestRuns(
   deps: PinTestRunDeps,
@@ -215,7 +215,7 @@ export async function startUnpinTestRuns(
   for (const { projectId, runs } of rows) {
     if (runs === null || runs.version === before.get(projectId)) continue;
     const { version } = runs;
-    await eachProject(input.log, change, projectId, async () => {
+    await eachProject(input.log, changeRuns(change), projectId, async () => {
       const frozen = await activeCases(deps, tenantId, change, projectId);
       if (frozen === undefined) return;
       await start(deps, tenantId, change, projectId, frozen, found, version);
@@ -225,12 +225,84 @@ export async function startUnpinTestRuns(
 }
 
 /**
+ * Latest moved for `agentId` in `projects`, by a ship, a carry, a full
+ * publish or an add: in each that follows Latest and has active cases, a run
+ * of its Latest now, with correlation `latest:<agentId>:<projectId>`, which
+ * applies at its end. There's no queue. A project whose newest such run is
+ * still going starts nothing, and nor does one whose newest such run tried
+ * the version it runs now. So call it again when a `latest:` run ends: a run
+ * that ended after Latest moved on changes nothing (`applyTestRunOutcome`),
+ * and this then checks the newest Latest. The newest such run is looked for
+ * among the newest `RUN_PAGE` runs on the project's agent test set; with none
+ * there, a run starts. A project whose step throws, or whose start the
+ * binding refuses, is left out and logged, and the others still go.
+ */
+export async function latestMoved(
+  deps: Pick<PinTestRunDeps, 'agentPins' | 'testRuns' | 'testSets'>,
+  input: {
+    readonly tenantId: TenantId;
+    readonly agentId: string;
+    readonly projects: readonly ProjectId[];
+    readonly log?: Pick<Logger, 'warn'>;
+  },
+): Promise<readonly PinTestRun[]> {
+  const { tenantId } = input;
+  const agentId = input.agentId as AgentId;
+  const rows = await whatRunsByProject(deps.agentPins, { tenantId, agentId }, input.projects);
+  const testRuns: PinTestRun[] = [];
+  for (const { projectId, runs } of rows) {
+    if (runs?.follows !== 'latest') continue;
+    const { version } = runs;
+    await eachProject(input.log, `agent ${agentId}'s Latest`, projectId, async () => {
+      const newest = await newestLatestRun(deps, tenantId, agentId, projectId);
+      if (newest !== undefined && (!ended(newest) || newest.agentRef?.version === version)) return;
+      const frozen = await deps.testSets.freezeTestSet({ tenantId, agentId, projectId });
+      if (frozen.cases.length === 0) return;
+      const started = await deps.testRuns.start({
+        tenantId,
+        projectId,
+        testSetId: frozen.testSetId,
+        testSetVersion: frozen.testSetVersion,
+        agentRef: { agentId, version },
+        correlationId: latestRunCorrelation(agentId, projectId),
+      });
+      if (started.kind !== 'ok') throw new Error(`starting it answered ${started.kind}`);
+      testRuns.push({ projectId, testRunId: started.testRunId });
+    });
+  }
+  return testRuns;
+}
+
+/** The project's newest `latest:` run of the agent, among its test set's newest `RUN_PAGE` runs. */
+async function newestLatestRun(
+  deps: Pick<PinTestRunDeps, 'testRuns'>,
+  tenantId: TenantId,
+  agentId: AgentId,
+  projectId: ProjectId,
+): Promise<TestRun | undefined> {
+  const correlationId = latestRunCorrelation(agentId, projectId);
+  const page = await deps.testRuns.list({
+    tenantId,
+    limit: RUN_PAGE,
+    filter: { testSetId: agentTestSetId(agentId, projectId), agentId },
+  });
+  return page.data.find(
+    (run) => run.correlationId === correlationId && run.projectId === projectId,
+  );
+}
+
+/** Whether a test run has ended: completed, failed or cancelled. */
+function ended(run: TestRun): boolean {
+  return run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled';
+}
+
+/**
  * One project's step of a recorded change's check. A throw there is
  * logged and leaves that project out, so the others still go.
  */
 async function eachProject(
   log: Pick<Logger, 'warn'> | undefined,
-  change: Pin,
+  whose: string,
   projectId: ProjectId,
   step: () => Promise<void>,
 ): Promise<void> {
@@ -238,9 +310,14 @@ async function eachProject(
     await step();
   } catch (e) {
     log?.warn(
-      `pin change ${change.id}'s test run in project ${projectId as unknown as string} didn't start or apply: ${e instanceof Error ? e.message : String(e)}`,
+      `${whose} test run in project ${projectId as unknown as string} didn't start or apply: ${e instanceof Error ? e.message : String(e)}`,
     );
   }
+}
+
+/** Whose test runs a change's are, in what `eachProject` logs. */
+function changeRuns(change: Pin): string {
+  return `pin change ${change.id}'s`;
 }
 
 /** A pin that checks its projects now: one that took effect, or one waiting for approval. */
@@ -255,8 +332,8 @@ function checksNow(change: Pin): boolean {
 /**
  * The projects inside a pin's scope that the agent can run in: a project
  * pin's own project; for a tenant pin each project the agent runs in
- * (`ItemProjectsBinding.projectsOf`), and for an org pin those in the
- * org; none for a segment pin (DESIGN 10.1 step 4), or without the binding.
+ * (`ItemProjectsBinding.projectsOf`), and for an org pin those in the org;
+ * none for a segment pin, which checks none, or without the binding.
  */
 async function projectsInside(
   deps: Pick<PinTestRunDeps, 'projects' | 'itemProjects'>,
@@ -354,7 +431,9 @@ async function start(
     agentRef: { agentId: change.agentId as AgentId, version },
     correlationId: pinRunCorrelation(change.id),
   });
-  if (started.kind === 'ok') found.run(projectId, started.testRunId);
+  // A start the binding refuses is logged as a throw is (`eachProject`).
+  if (started.kind !== 'ok') throw new Error(`starting it answered ${started.kind}`);
+  found.run(projectId, started.testRunId);
 }
 
 const RUN_PAGE = 100;

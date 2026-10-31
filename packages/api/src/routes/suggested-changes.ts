@@ -22,6 +22,7 @@ import {
 } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { publishCompilesMiddleware } from '../middleware/publish-compiles.js';
+import { latestMoved } from '../pin-test-runs.js';
 import {
   type SuggestedChangeCreator,
   type SuggestedChangeFacts,
@@ -446,6 +447,34 @@ export function suggestedChangesRouter(
     }
   }
 
+  /**
+   * An add moves Latest only in the card's project: check the new Latest
+   * there (`latestMoved`). Without a test set store nothing is checked.
+   * The add stands either way: a check that can't start is logged, and
+   * the next move checks again.
+   */
+  async function checkLatest(c: Ctx, suggestedChange: StoredSuggestedChange): Promise<void> {
+    const { scope } = suggestedChange;
+    const { testSets } = deps;
+    if (scope.kind !== 'project' || testSets === undefined) return;
+    const log = c.get('log');
+    try {
+      await latestMoved(
+        { agentPins: deps.agentPins, testRuns: deps.testRuns, testSets },
+        {
+          tenantId: c.get('tenantId') as TenantId,
+          agentId: suggestedChange.agentId as unknown as string,
+          projects: [scope.projectId],
+          log,
+        },
+      );
+    } catch (e) {
+      log.warn(
+        `checking Latest in project ${scope.projectId as unknown as string} failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
   // ---------- POST /:suggestedChangeId/add-as-latest ----------
   r.post('/:suggestedChangeId/add-as-latest', async (c) => {
     const ready = await prepare(c, 'pin');
@@ -467,6 +496,7 @@ export function suggestedChangesRouter(
     if (outcome.kind === 'err') return failWith(c, outcome.error);
     await audit(c, 'suggested-change-added-as-latest', outcome.value);
     await rebuildOthers(c, outcome.value);
+    await checkLatest(c, outcome.value);
     return answer(c, outcome.value);
   });
 

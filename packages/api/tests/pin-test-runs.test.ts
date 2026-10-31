@@ -22,6 +22,7 @@ import type {
 } from '../src/agent-pin-binding.js';
 import {
   type PinTestRunDeps,
+  latestMoved,
   pinTookEffect,
   projectsPinMoves,
   projectsUnpinCovers,
@@ -29,7 +30,11 @@ import {
   startUnpinTestRuns,
 } from '../src/pin-test-runs.js';
 import type { TestRun, TestRunStartInput } from '../src/test-run-binding.js';
-import { applyTestRunOutcome, pinRunCorrelation } from '../src/test-run-outcome.js';
+import {
+  applyTestRunOutcome,
+  latestRunCorrelation,
+  pinRunCorrelation,
+} from '../src/test-run-outcome.js';
 import { agentTestSetId } from '../src/test-set-binding.js';
 import { inMemoryCorrections } from './support/in-memory-corrections.js';
 
@@ -78,6 +83,7 @@ function harness() {
   const cases = new Map<ProjectId, string[]>();
   const testSetVersions = new Map<ProjectId, string>();
   const failing = new Set<ProjectId>();
+  const refusing = new Set<ProjectId>();
   const warned: string[] = [];
   const log = { warn: (message: string) => void warned.push(message) };
   let second = 0;
@@ -155,6 +161,9 @@ function harness() {
     testRuns: {
       get: async ({ testRunId }) => runs.get(testRunId) ?? null,
       start: async (input) => {
+        if (refusing.has(input.projectId)) {
+          return { kind: 'test-set-not-found', testSetId: input.testSetId };
+        }
         const testRunId = randomUUID() as RunId;
         started.push(input);
         runs.set(testRunId, {
@@ -192,6 +201,8 @@ function harness() {
     testSetVersions,
     /** Projects whose test set doesn't freeze: the store throws. */
     failing,
+    /** Projects whose test runs the binding refuses to start. */
+    refusing,
     /** What the pin flow logged. */
     warned,
     /** An open correction of the agent in `projectId`, a case on its test set. */
@@ -315,6 +326,8 @@ function harness() {
       });
     },
     apply: (testRunId: RunId) => applyTestRunOutcome(deps, { tenantId, testRunId }),
+    latestMoved: (projects: readonly ProjectId[]) =>
+      latestMoved(deps, { tenantId, agentId, projects, log }),
     tookEffect: (change: Pin) => pinTookEffect(deps, { tenantId, changeId: change.id, log }),
     get: (correctionId: string) => corrections.get({ tenantId, correctionId }),
   };
@@ -499,6 +512,20 @@ describe('a tenant or org pin', () => {
     ]);
   });
 
+  test('a project whose test run start the binding refuses is left out and logged', async () => {
+    const h = harness();
+    for (const p of [support, billing, returns]) {
+      h.onLatest(p, '12.0.0');
+      await h.corrected(p);
+    }
+    h.refusing.add(billing);
+    const pinned = await h.pin('13.0.0', { kind: 'tenant' });
+    expect(pinned.testRuns.map((r) => r.projectId)).toEqual([support, returns]);
+    expect(h.warned).toEqual([
+      `pin change ${pinned.change.id}'s test run in project ${billing as unknown as string} didn't start or apply: starting it answered test-set-not-found`,
+    ]);
+  });
+
   test('a run of a project the pin moved applies at its end', async () => {
     const h = harness();
     h.onLatest(returns, '12.0.0');
@@ -612,6 +639,75 @@ describe('an unpin', () => {
     };
     expect(await h.unpin(segment)).toMatchObject({ testRuns: [], fixed: [], reopened: [] });
     expect(h.started).toEqual([]);
+  });
+});
+
+describe('Latest moving', () => {
+  test('checks the new Latest in each project that follows it and has active cases; the run applies at its end', async () => {
+    const h = harness();
+    h.onLatest(support, '12.0.0');
+    const id = await h.corrected(support);
+    h.onLatest(billing, '12.0.0');
+    h.onLatest(returns, '12.0.0');
+    await h.corrected(returns);
+    await h.pin('12.0.0', project(returns));
+    h.started.length = 0;
+    for (const p of [support, billing, returns]) h.onLatest(p, '13.0.0');
+    const runs = await h.latestMoved([support, billing, returns]);
+    expect(h.started).toEqual([
+      {
+        tenantId,
+        projectId: support,
+        testSetId: agentTestSetId(agentId as AgentId, support),
+        testSetVersion: '1',
+        agentRef: { agentId, version: '13.0.0' },
+        correlationId: latestRunCorrelation(agentId, support),
+      },
+    ]);
+    const [run] = runs;
+    if (run === undefined) throw new Error('no run');
+    expect(run.projectId).toBe(support);
+    h.end(run.testRunId, { [id]: true });
+    expect(await h.apply(run.testRunId)).toEqual({ fixed: [id], reopened: [] });
+    expect(await h.get(id)).toMatchObject({
+      status: 'fixed',
+      fixedIn: { version: '13.0.0', how: 'latest' },
+    });
+  });
+
+  test('starts nothing while a check is going; when it ends after Latest moved on, the newest Latest is checked', async () => {
+    const h = harness();
+    h.onLatest(support, '12.0.0');
+    const id = await h.corrected(support);
+    h.onLatest(support, '13.0.0');
+    const [first] = await h.latestMoved([support]);
+    if (first === undefined) throw new Error('no run');
+    h.onLatest(support, '14.0.0');
+    expect(await h.latestMoved([support])).toEqual([]);
+    h.end(first.testRunId, { [id]: true });
+    await h.apply(first.testRunId);
+    expect(await h.get(id)).toMatchObject({ status: 'open' });
+    const [newest] = await h.latestMoved([support]);
+    expect(h.started.map((s) => s.agentRef?.version)).toEqual(['13.0.0', '14.0.0']);
+    if (newest === undefined) throw new Error('no run');
+    h.end(newest.testRunId, { [id]: true });
+    await h.apply(newest.testRunId);
+    expect(await h.latestMoved([support])).toEqual([]);
+    expect(h.started).toHaveLength(2);
+  });
+
+  test("a project whose check can't start is left out and logged; the others start", async () => {
+    const h = harness();
+    for (const p of [support, billing]) {
+      h.onLatest(p, '13.0.0');
+      await h.corrected(p);
+    }
+    h.refusing.add(billing);
+    const runs = await h.latestMoved([support, billing]);
+    expect(runs.map((r) => r.projectId)).toEqual([support]);
+    expect(h.warned).toEqual([
+      `agent ${agentId}'s Latest test run in project ${billing as unknown as string} didn't start or apply: starting it answered test-set-not-found`,
+    ]);
   });
 });
 

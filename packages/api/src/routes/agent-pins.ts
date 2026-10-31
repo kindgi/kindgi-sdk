@@ -367,7 +367,7 @@ export function mountAgentPinRoutes(
       requestedBy: actorOf(c),
       ...text.value,
     };
-    // An unpin answers as a pin does (DESIGN 10.3), with the test runs it started.
+    // An unpin answers as a pin does, with the test runs it started.
     const moves = await unpinMoves(agentPins, deps, input, c.get('log'));
     const outcome = await agentPins.changes.unpin(input);
     if (outcome.kind === 'err') return failed(c, requestId, outcome.error);
@@ -652,7 +652,7 @@ async function pinMoves(
 /**
  * The projects an unpin covers, with what each runs, read before it's
  * recorded (`projectsUnpinCovers`), and the check of the recorded unpin in
- * each that then runs another version (`startUnpinTestRuns`, DESIGN 10.5).
+ * each that then runs another version (`startUnpinTestRuns`).
  * With no test runs wired, it checks none.
  */
 async function unpinMoves(
@@ -758,7 +758,7 @@ export function pinResponse(
 }
 
 /**
- * A pin the gate let through, as both pin routes answer it (DESIGN 10.3):
+ * A pin the gate let through, as both pin routes answer it:
  * the pin, the test runs that check it, and the corrections a reused run
  * changed at pin time.
  */
