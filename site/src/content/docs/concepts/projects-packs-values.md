@@ -29,8 +29,8 @@ which gives every id the new pack's id.
 shows how.
 
 A copy runs on a runtime that runs each deployment as a service of its
-own (`KINDGI_PACK_ROUTING=per-deployment`, which only a runtime serving
-many tenants can set). Unset, a runtime runs one pack service for every
+own (`KINDGI_PACK_ROUTING=per-deployment`), whether it serves one tenant
+or many. Unset, a runtime runs one pack service for every
 deployment, whether it serves one tenant or many, and that service runs
 only the pack it was given, so a copy's code wouldn't run there. There, a
 second project gets the same items through an environment order, when

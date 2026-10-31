@@ -141,6 +141,12 @@ export const ENV_DEFAULTS = {
     '`1` when `KINDGI_TENANCY=multi`, else `0`: the template renders in the server process',
   KINDGI_TEMPLATE_RENDER_WORKER_HEAP_MIB: '`128`; at least `1`',
   KINDGI_ARTIFACT_MAX_BYTES: '`104857600` (100 MiB)',
+  KINDGI_S3_REGION:
+    'none: required with any `s3:` target, and with any other `KINDGI_S3_*` setting',
+  KINDGI_S3_ENDPOINT: 'none: AWS S3',
+  KINDGI_S3_PATH_STYLE: '`false`: the bucket is named in the host name',
+  KINDGI_S3_CREDENTIALS_PATH:
+    "none: S3 signs in as the server's AWS identity (`KINDGI_AWS_IDENTITY`)",
   KINDGI_LOG_LEVEL: '`info`',
   KINDGI_LOG_LEVELS: 'none: no per-subsystem levels; `KINDGI_LOG_LEVEL` applies everywhere',
   KINDGI_LOG_FORMAT:
@@ -184,6 +190,8 @@ export const ENV_DEFAULTS = {
   KINDGI_PACK_ROUTING: '`single`: one pack service, `KINDGI_PACK_SERVICE_URL`, for every call',
   KINDGI_PACK_ENDPOINT_HOSTS:
     'none: with `KINDGI_PACK_ROUTING=per-deployment`, the server refuses to start',
+  KINDGI_PACK_ENDPOINT_KMS_KEY:
+    "none: the secrets' own key, which `KINDGI_SECRETS_BACKEND=postgres` has; with any other backend, per-deployment routing refuses to start",
   KINDGI_IMAGE_REGISTRY_HOST: 'none: every registry is read anonymously',
   KINDGI_IMAGE_REGISTRY_USERNAME: 'none: no credentials (anonymous reads)',
   KINDGI_IMAGE_REGISTRY_PASSWORD: 'none: no credentials (anonymous reads)',
