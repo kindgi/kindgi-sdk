@@ -11,7 +11,10 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
+import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import { makeInMemoryProjectBinding } from '@kindgi/platform';
 import type { KernelRunRecord, RunAgentRef, RunBinding } from '@kindgi/runtime';
 import {
   CORRECTION_ITEM,
@@ -99,6 +102,8 @@ interface Harness {
     body?: unknown,
     token?: string,
   ) => Promise<{ readonly status: number; readonly body: Record<string, any> }>;
+  /** A GET whose answer is read as it comes, not as JSON. */
+  readonly get: (path: string, token?: string) => Promise<Response>;
   readonly binding: CorrectionRegistryBinding;
 }
 
@@ -142,6 +147,10 @@ function harness(
   agentRegistry?: AgentRegistryBinding,
   /** Which projects serve each item, for one more than one project serves. */
   served?: ReturnType<typeof itemProjects>,
+  /** Where exports are recorded. */
+  auditEvents?: AuditEventBinding,
+  /** The tenant's projects, with their settings. */
+  projects?: ReturnType<typeof makeInMemoryProjectBinding>,
 ): Harness & { readonly reads: number[] } {
   const binding = inMemoryCorrections();
   const stubs = createStubAppBindings();
@@ -171,6 +180,11 @@ function harness(
     correctionRegistry: binding,
     ...(agentRegistry !== undefined && { agentRegistry }),
     ...(served !== undefined && { itemProjects: served }),
+    ...(auditEvents !== undefined && { auditEvents }),
+    ...(projects !== undefined && {
+      projectBinding: projects.projects,
+      projectMembershipBinding: projects.memberships,
+    }),
     ...(authz !== undefined && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -200,7 +214,9 @@ function harness(
     });
     return { status: res.status, body: (await res.json()) as Record<string, any> };
   };
-  return { call, binding, reads: counts };
+  const get: Harness['get'] = async (path, token = USER_TOKEN) =>
+    app.request(path, { headers: { authorization: `Bearer ${token}` } });
+  return { call, get, binding, reads: counts };
 }
 
 async function tenantClass(h: Harness, name = 'expert', weight = 3): Promise<string> {
@@ -1489,6 +1505,38 @@ describe('sorted at save', () => {
     // Saved so, not only answered so.
     expect((await h.call('GET', `/v1/corrections/${res.body.id}`)).body).toMatchObject(expected);
   });
+
+  test("an end user's is sorted like the others once its project sorts end users' corrections", async () => {
+    const projects = makeInMemoryProjectBinding();
+    const created = await projects.projects.create(tenantId, { name: 'Acme', slug: 'acme' });
+    if (created.kind !== 'ok') throw new Error(created.kind);
+    const runs = [row({ projectId: created.projectId }), row({ projectId: created.projectId })];
+    const h = harness(runs, {}, undefined, undefined, undefined, undefined, projects);
+    const endUsers = (run: KernelRunRecord) =>
+      h.call('POST', '/v1/corrections', {
+        runId: run.runId,
+        ...WRONG_ANSWER,
+        participantId: 'end-user-1',
+      });
+
+    const before = await endUsers(runs[0] as KernelRunRecord);
+    expect(before.status, JSON.stringify(before.body)).toBe(201);
+    expect(before.body).toMatchObject({ status: 'open' });
+    expect(before.body.sortedTo).toBeUndefined();
+
+    // The PATCH route's own test (projects-routes) sets it over the wire.
+    expect(
+      await projects.projects.update(tenantId, created.projectId, { sortEndUserCorrections: true }),
+    ).toEqual({ kind: 'ok' });
+    const after = await endUsers(runs[1] as KernelRunRecord);
+    expect(after.status, JSON.stringify(after.body)).toBe(201);
+    const { status, sortedTo, sorted } = after.body;
+    expect({ status, sortedTo, sorted }).toEqual({
+      status: 'open',
+      sortedTo: 'improve',
+      sorted: BY_RULE,
+    });
+  });
 });
 
 describe('PATCH /v1/corrections/:id', () => {
@@ -1510,6 +1558,30 @@ describe('PATCH /v1/corrections/:id', () => {
     expect(reopened.body).not.toHaveProperty('fixedIn');
   });
 
+  test('a correction a test run reopened answers reopenedIn beside its fixedIn; a status set by hand clears both', async () => {
+    const run = row();
+    const h = harness([run]);
+    const id = await made(h, run, { answer: 'right' });
+    const fixed = (await h.call('GET', `/v1/corrections/${id}`)).body;
+    const reopenedIn = {
+      version: '1.3.0',
+      how: 'went-back',
+      by: { kind: 'user', id: 'user-2' },
+      at: '2026-11-06T10:00:00.000Z',
+    } as const;
+    await h.binding.applyRunOutcome({
+      tenantId,
+      endedAt: fixed.updatedAt as string,
+      changes: [{ correctionId: id, status: 'open', reopenedIn }],
+    });
+    const reopened = await h.call('GET', `/v1/corrections/${id}`);
+    expect(reopened.body).toMatchObject({ status: 'open', fixedIn: fixed.fixedIn, reopenedIn });
+    const wontFix = await patch(h, id, { status: 'wont-fix', reason: 'not ours to fix' });
+    expect(wontFix.status, JSON.stringify(wontFix.body)).toBe(200);
+    expect(wontFix.body).not.toHaveProperty('reopenedIn');
+    expect(wontFix.body).not.toHaveProperty('fixedIn');
+  });
+
   test('being-fixed takes a link; back to open clears it', async () => {
     const run = row();
     const h = harness([run]);
@@ -1526,6 +1598,22 @@ describe('PATCH /v1/corrections/:id', () => {
     expect(reopened.status).toBe(200);
     expect(reopened.body).toMatchObject({ status: 'open', sortedTo: 'improve' });
     expect(reopened.body).not.toHaveProperty('link');
+  });
+
+  test("a suggested change's link keeps its id alone; an id that isn't one: 400", async () => {
+    const run = row();
+    const h = harness([run]);
+    const id = await made(h, run, WRONG_ANSWER);
+    const changeId = '3bca94f1-61a4-4c2e-9d0b-7f5e2a8c1d36';
+    const fixing = await patch(h, id, { status: 'being-fixed', link: `sc-${changeId}` });
+    expect(fixing.status, JSON.stringify(fixing.body)).toBe(200);
+    expect(fixing.body.link).toEqual({ kind: 'suggested-change', id: changeId });
+    const res = await patch(h, id, { status: 'being-fixed', link: 'sc-41' });
+    expect([res.status, res.body.error.code, res.body.error.message]).toEqual([
+      400,
+      'bad-input',
+      'link must be a URL, an Improve run (ir-<its id>) or a suggested change (sc-<its id>).',
+    ]);
   });
 
   test('wont-fix needs a reason, kept as the status note; reopening clears the note', async () => {
@@ -1839,5 +1927,163 @@ describe('removing a correction and authorization', () => {
       [own, 'removed'],
     ]);
     expect(await listed(h, '')).toEqual([]);
+  });
+});
+
+describe('GET /v1/corrections/export', () => {
+  /** What an export recorded, found by kind: both events can share a millisecond. */
+  async function recorded(audit: AuditEventBinding) {
+    const page = await audit.query({ tenantId, limit: 100 });
+    if (page.kind !== 'ok') throw new Error('query failed');
+    const byKind = (kind: string): AuditEvent | undefined =>
+      page.value.data.find((e) => e.kind === kind);
+    return {
+      count: page.value.data.length,
+      started: byKind('corrections-export-started'),
+      ended: byKind('corrections-exported'),
+    };
+  }
+
+  /** Two corrections of the matcher in project A, one in project B, and one of another agent. */
+  async function exportable(authz?: Authz) {
+    const runs = {
+      wrong: row(),
+      right: row(),
+      projectB: row({ projectId: projectB }),
+      otherAgent: row({ agent: { ...agentRef('2.0.0'), id: 'acme.other' } }),
+    };
+    const audit = createInMemoryAuditEventBinding();
+    const h = harness(Object.values(runs), {}, authz, undefined, undefined, audit);
+    const ids = {
+      wrong: await made(h, runs.wrong, WRONG_ANSWER),
+      right: await made(h, runs.right, { answer: 'right' }),
+      projectB: await made(h, runs.projectB, WRONG_ANSWER),
+      otherAgent: await made(h, runs.otherAgent, WRONG_ANSWER),
+    };
+    return { h, audit, ids };
+  }
+
+  test("CSV is the default: a header, then the agent's corrections, with both audit events", async () => {
+    const { h, audit, ids } = await exportable();
+    const res = await h.get('/v1/corrections/export?agentId=acme.matcher');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('text/csv; charset=utf-8; header=present');
+    expect(res.headers.get('content-disposition')).toBe('attachment; filename="corrections.csv"');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    const lines = (await res.text()).split('\r\n');
+    expect(lines.at(-1)).toBe('');
+    expect(lines[0]).toBe(
+      'id,projectId,runId,agentVersion,madeBy,participantId,expert,decisions,shouldCall,mustNotCall,answer,shouldSay,why,sortedTo,status,fixedIn,reopenedIn,createdAt',
+    );
+    expect(lines.slice(1, -1).map((l) => l.split(',')[0])).toEqual([
+      ids.projectB,
+      ids.right,
+      ids.wrong,
+    ]);
+
+    const events = await recorded(audit);
+    expect(events.count).toBe(2);
+    expect(events.started?.actor).toBe('user:user-1');
+    expect(events.started?.payload).toMatchObject({
+      doc: { format: 'csv', filters: { agentId: 'acme.matcher' } },
+    });
+    expect(events.ended?.outcome).toBe('succeeded');
+    expect(events.ended?.payload).toMatchObject({ doc: { rows: 3 } });
+    expect((events.ended?.payload as any).doc.exportId).toBe(
+      (events.started?.payload as any).doc.exportId,
+    );
+  });
+
+  test('format=jsonl: one correction per line, as the list sends it', async () => {
+    const { h } = await exportable();
+    const res = await h.get('/v1/corrections/export?agentId=acme.matcher&format=jsonl');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/jsonl; charset=utf-8');
+    expect(res.headers.get('content-disposition')).toBe('attachment; filename="corrections.jsonl"');
+    const text = await res.text();
+    expect(text.endsWith('\n')).toBe(true);
+    const exported = text
+      .trimEnd()
+      .split('\n')
+      .map((l) => JSON.parse(l));
+    const list = await h.call('GET', '/v1/corrections?agentId=acme.matcher');
+    expect(exported).toEqual(list.body.data);
+  });
+
+  test("the list's filters apply: status, and a project scope", async () => {
+    const { h, ids } = await exportable();
+    const fixed = await h.get(
+      '/v1/corrections/export?agentId=acme.matcher&status=fixed&format=jsonl',
+    );
+    expect(
+      (await fixed.text())
+        .trimEnd()
+        .split('\n')
+        .map((l) => JSON.parse(l).id),
+    ).toEqual([ids.right]);
+    const inA = await h.get(
+      `/v1/corrections/export?agentId=acme.matcher&scopeKind=project&scopeId=${projectA}&format=jsonl`,
+    );
+    expect(
+      (await inA.text())
+        .trimEnd()
+        .split('\n')
+        .map((l) => JSON.parse(l).id),
+    ).toEqual([ids.right, ids.wrong]);
+  });
+
+  test("rows of a project the caller can't read are left out, and a scope it can't read is a 403", async () => {
+    const grants = ['*'];
+    const { h, audit, ids } = await exportable({ grants, checked: [] });
+    grants.splice(0, grants.length, `read project:${projectA}`);
+
+    const res = await h.get('/v1/corrections/export?agentId=acme.matcher&format=jsonl');
+    expect(res.status).toBe(200);
+    expect(
+      (await res.text())
+        .trimEnd()
+        .split('\n')
+        .map((l) => JSON.parse(l).id),
+    ).toEqual([ids.right, ids.wrong]);
+    expect((await recorded(audit)).ended?.payload).toMatchObject({ doc: { rows: 2 } });
+
+    const refused = await h.call(
+      'GET',
+      `/v1/corrections/export?agentId=acme.matcher&scopeKind=project&scopeId=${projectB}`,
+    );
+    expect(refused.status).toBe(403);
+    expect(refused.body.error.code).toBe('permission-denied');
+    expect((await recorded(audit)).count).toBe(2);
+  });
+
+  test.each([
+    ['', 'export needs agentId'],
+    ['agentId=acme.matcher&format=xml', 'format must be one of: csv, jsonl.'],
+    ['agentId=acme.matcher&limit=5', 'export takes no limit or cursor'],
+    ['agentId=acme.matcher&cursor=abc', 'export takes no limit or cursor'],
+    ['agentId=acme.matcher&status=nope', 'status must be one of'],
+    ['agentId=acme.matcher&verdict=wrong', 'verdict is gone'],
+  ])('?%s is a 400 that sends and records nothing', async (qs, message) => {
+    const { h, audit } = await exportable();
+    const res = await h.call('GET', `/v1/corrections/export?${qs}`);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('bad-input');
+    expect(res.body.error.message).toContain(message);
+    expect((await recorded(audit)).count).toBe(0);
+  });
+
+  test("a start event that can't be written is a 500, and nothing is sent", async () => {
+    const run = row();
+    const refusing = {
+      ...createInMemoryAuditEventBinding(),
+      append: async () => ({ kind: 'err', error: { message: 'audit store full' } }),
+    } as unknown as AuditEventBinding;
+    const h = harness([run], {}, undefined, undefined, undefined, refusing);
+    await made(h, run, WRONG_ANSWER);
+    const res = await h.call('GET', '/v1/corrections/export?agentId=acme.matcher');
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe('persistence-error');
+    expect(res.body.error.message).toContain('audit store full');
+    expect(res.body.data).toBeUndefined();
   });
 });

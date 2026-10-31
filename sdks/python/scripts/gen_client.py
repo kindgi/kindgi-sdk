@@ -108,7 +108,7 @@ class Operation:
     body: str | None  # model class name
     body_kind: str | None  # json | multipart
     response: str | None  # model class name
-    response_kind: str  # json | sse | binary | empty
+    response_kind: str  # json | sse | binary | byte-stream | empty
     status: int
     # When the 2xx answers carry different models: each status's model
     # class name (`secrets.rotate`: 201 sync, 202 async). Empty otherwise.
@@ -197,6 +197,14 @@ FOLLOW_DESCRIPTION = (
     "Ends after the terminal event."
 )
 
+# A generated resource's hand-written methods: a mixin class in its own
+# module (sync, and the same name after `Async`), calling only the
+# resource's generated methods. `client.corrections.thumbs` is an end user's
+# thumbs up or down, posted with `corrections.create`.
+MIXINS: dict[tuple[str, ...], tuple[str, str]] = {
+    ("corrections",): ("_thumbs", "Thumbs"),
+}
+
 
 def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]:
     doc = copy.deepcopy(source)
@@ -275,6 +283,9 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                     )
                 elif content:
                     response_kind = "binary"
+                    if op.get("x-kindgi-streamed"):
+                        # A body handed on as it arrives (`corrections.export`), not read whole.
+                        response_kind = "byte-stream"
                 break
             # The client picks the model by status when the 2xx answers differ,
             # as the Java client does; otherwise every 2xx is the first's model.
@@ -378,9 +389,12 @@ def signature(op: Operation, asynchronous: bool) -> str:
         else f"_models.{op.response}",
         "empty": "None",
         "binary": "bytes",
+        "byte-stream": f"{'AsyncIterator' if asynchronous else 'Iterator'}[bytes]",
         "sse": f"{'AsyncIterator' if asynchronous else 'Iterator'}[_models.{op.response}]",
     }[op.response_kind]
-    prefix = "async def" if asynchronous and op.response_kind != "sse" else "def"
+    prefix = (
+        "async def" if asynchronous and op.response_kind not in ("sse", "byte-stream") else "def"
+    )
     return f"    {prefix} {op.name}({', '.join(parts)}) -> {returns}:"
 
 
@@ -407,6 +421,8 @@ def call(op: Operation, asynchronous: bool) -> str:
         args.append(f"response=_models.{op.response}")
     args.append("timeout=timeout")
     inner = ", ".join(args)
+    if op.response_kind == "byte-stream":
+        return f"        return self._client._stream_bytes({inner})"
     if op.response_kind == "sse":
         return f"        return self._client._{'follow' if op.follow else 'stream'}({inner})"
     keyword_await = "await " if asynchronous else ""
@@ -420,10 +436,12 @@ def render_resource(node: Resource, asynchronous: bool) -> list[str]:
     for child in node.children.values():
         out += render_resource(child, asynchronous)
     title = ".".join(node.path)
+    mixin = MIXINS.get(node.path)
+    bases = f"({'Async' if asynchronous else ''}{mixin[1]})" if mixin is not None else ""
     out += [
         "",
         "",
-        f"class {name}:",
+        f"class {name}{bases}:",
         f'    """`client.{".".join(snake(p) for p in node.path)}` — the `{title}` operations."""',
         "",
         f"    def __init__(self, client: {client}) -> None:",
@@ -454,6 +472,10 @@ def render_resources(root: Resource, ops: list[Operation]) -> str:
         "",
         "from . import _models",
         "from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments",
+        *(
+            f"from .{module} import Async{mixin}, {mixin}"
+            for module, mixin in sorted(MIXINS.values())
+        ),
         "",
         '__all__ = ["OPERATIONS", "AsyncResources", "Resources"]',
         "",
@@ -818,7 +840,8 @@ def model_locations(
 ) -> dict[str, list[str]]:
     """Where each model sits. A component's own model sits at its name; any other at each chain
     of fields from one, a field by its wire name and, in a union, by its member
-    (`member_keys`): `CorrectedComparisonResult.cases.tool`, `CompleteApprovalResult.resume[kind=ok]`.
+    (`member_keys`): `CorrectedComparisonResult.cases.tool`,
+    `CompleteApprovalResult.resume[kind=ok]`.
     """
     models = model_fields(tree)
     components = doc["components"]["schemas"]

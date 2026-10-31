@@ -76,7 +76,7 @@ export const initCommand: LeafCommand = {
   description:
     'Scaffold a new Kindgi pack repo, or add Kindgi to an existing app: a Node.js, Python, Maven or sbt project, auto-detected from its `package.json`, `pyproject.toml`, `pom.xml` or `build.sbt` when no pack-name is given.',
   usage:
-    'kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|follow-up|python|java|scala] [--path=<dir>] [--force] [--link-local] [--new-repo]',
+    'kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|drupal|follow-up|returns-helper|python|java|scala] [--path=<dir>] [--force] [--link-local] [--new-repo]',
   optionSpec: {
     template: {
       type: 'string',
@@ -129,6 +129,7 @@ export const AVAILABLE_TEMPLATES = [
   'woocommerce',
   'drupal',
   'follow-up',
+  'returns-helper',
   'python',
   'java',
   'scala',
@@ -295,6 +296,13 @@ function augmentTemplate(
       kind: 'err',
       stderr:
         'The follow-up template makes a pack of its own (its send tool comes from @kindgi/connections, which this app does not depend on), so init does not add it to an existing app.\nFor a standalone follow-up pack here: kindgi init <pack-name> --template=follow-up --new-repo\n',
+    };
+  }
+  if (name === 'returns-helper') {
+    return {
+      kind: 'err',
+      stderr:
+        'The returns-helper template makes a pack of its own (its tools share sample orders in lib/, and its agent pins blocks/), so init does not add it to an existing app.\nFor a standalone returns-helper pack here: kindgi init <pack-name> --template=returns-helper --new-repo\n',
     };
   }
   if (name === 'python') {

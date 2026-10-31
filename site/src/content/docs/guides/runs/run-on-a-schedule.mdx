@@ -253,12 +253,13 @@ history is newest first, kept for 30 days. Each row has:
 - **`FOR`:** the time it was for, or `run-now` for one you started by hand.
 - **`OUTCOME`:** `started`, `skipped-overlap`, `skipped-erasure`, `skipped`,
   `refused`, `failed`, or `pending` while a fire is starting. A fire is
-  `skipped` when an improve schedule's threshold isn't met or its monthly cap
-  is reached, when its project is suspended, or when its tenant is suspended
+  `skipped` when an Improve schedule has too few new corrections since its
+  last Improve run or its month's cap is reached, when its project is
+  suspended, or when its tenant is suspended
   or starts closing before its run or Improve run has started. `NOTE` says
   which.
-- **`STARTED`:** a run's id, or `pass <id>` for an
-  [improve schedule](#improve-on-a-schedule).
+- **`STARTED`:** a run's id, or `Improve run <id>` for an
+  [Improve schedule](#improve-on-a-schedule).
 - **`NOTE`:** why it was skipped, refused or failed, or how many missed times
   it stood in for.
 
@@ -302,7 +303,7 @@ none.
   stays as it is ([Shared or personal](#shared-or-personal)).
   `--allow-unattended` replaces its tools allowed unattended, and a new
   `--agent` or `--flow` must name them again, or `none`. A new `--improve`
-  must name `none`.
+  must name `none`, and comes with its `--project`.
 - `kindgi schedules unregister <schedule-id>` removes it.
 
 ## Its versions
@@ -369,8 +370,7 @@ A project's **Schedules** page lists its schedules. Each row says:
 - whether it's **Active** or **Paused**;
 - what it runs, such as "the agent Dev-Echo Agent (its pinned version, or
   the latest)", "the flow Refunds 1.0.0" or, for a schedule that starts
-  Improve runs, "Improve runs on Acme Rank Scorer, when enough new answers
-  have been marked wrong";
+  Improve runs, the agent it improves;
 - when it next fires, such as "Next in 23h (25 Oct 2026, 10:00 PM EDT)", or
   that it's paused;
 - its last scheduled fire, and **Runs it started →**. A **Run now** fire is
@@ -455,17 +455,18 @@ filtered to that schedule.
 
 ## Improve on a schedule
 
-A schedule can start [Improve runs](../../improve/improve-an-agent/) instead
-of agent or flow runs, when enough new corrections have come in on an
-agent's runs, counted the way the Improve run will count them:
+A schedule can start [Improve runs](../../improve/improve-an-agent/) on an
+agent in a project, instead of agent or flow runs, when there are enough new
+corrections since the schedule's last Improve run:
 
 ```sh
-pnpm exec kindgi schedules create --cron="0 3 * * *" --improve=acme.rank.scorer --project=<project-id> --segment=company:acme \
-  --input='{"tiers": ["settings"], "threshold": {"corrections": 5, "runs": 3, "correctors": 2}, "monthlyCapUsd": 20}' --label="acme improve"
+pnpm exec kindgi schedules create --cron="0 3 * * *" --improve=acme.rank.scorer --project=<project-id> \
+  --input='{"corrections": 10, "monthCapUsd": 50}' --label="acme improve"
 ```
 
 - `--improve=acme.rank.scorer` is the agent to improve.
-- `--segment=company:acme` narrows its scope to a segment of the project.
+- `--project` is the project its Improve runs work in, the schedule's own. An
+  Improve schedule needs it.
 
 It prints the schedule, with the defaults applied to its input:
 
@@ -475,94 +476,116 @@ It prints the schedule, with the defaults applied to its input:
   "triggerId": "fa6356f8-3f9f-4ab3-b713-636424a43120",
   "improve": {
     "agentId": "acme.rank.scorer",
-    "scope": {
-      "kind": "segment",
-      "projectId": "eea49512-700f-4c59-9f66-05ca3b820a3b",
-      "path": [
-        {
-          "key": "company",
-          "value": "acme"
-        }
-      ]
-    }
+    "projectId": "eea49512-700f-4c59-9f66-05ca3b820a3b"
   },
   …
   "input": {
-    "tiers": [
-      "settings"
-    ],
-    "budget": {
-      "maxCostUsd": 5,
-      "maxCandidates": 30
-    },
-    "objective": "passRate",
-    "threshold": {
-      "runs": 3,
-      "correctors": 2,
-      "corrections": 5
-    },
-    "groupWeights": "experts-only",
-    "monthlyCapUsd": 20
+    "corrections": 10,
+    "from": "experts",
+    "runCapUsd": 5,
+    "monthCapUsd": 50
   },
   …
 }
 ```
 
-At each fire, it counts the corrections that marked the agent's runs wrong
-("no") in its scope since the agent's last Improve run there, the way the
-Improve run will count them:
-everyone's until the tenant, the project, or the agent being improved has an
-[expert group](../../improve/correct-a-runs-output/#restrict-who-may-correct-as-a-group),
-then only the ones recorded under one. With `groupWeights` in the schedule's
-input, it counts the way that value says. The last Improve run is one that
-didn't fail or get cancelled, whoever started it. With enough of them, across
-enough runs, from enough correctors, it starts an Improve run on fresh test cases
-of those runs, `improve.<improve-run-id>`. Otherwise the fire is `skipped`, and its note says which
-count was short.
+At each fire, it counts the project's open corrections sorted to Improve,
+from `from`, made or sorted since its last Improve run started. With
+`corrections` of them, and room left under the month's cap, it starts an
+Improve run that takes every open one, as one you start does. Otherwise the
+fire is `skipped`, and its note says which was short.
 
-That schedule's first fire, started with `run-now`, was skipped: one corrector
-short. Then the threshold was lowered to one corrector:
+Its input, `--input`, takes:
 
-```sh
-pnpm exec kindgi schedules update <schedule-id> --input='{"tiers": ["settings"], "threshold": {"corrections": 5, "runs": 3, "correctors": 1}, "monthlyCapUsd": 20}'
-```
+- **`corrections`:** how many new corrections since the schedule's last
+  Improve run start one, 5 by default (1 to 1000).
+- **`from`:** whose corrections count, `experts` (corrections from expert
+  groups, the default) or `everyone`. With no expert group, no correction
+  counts as an expert's, and every fire is `skipped`: use `everyone`.
+  With `everyone`, your users' corrections, made with a `participantId`,
+  count only while the project sorts them like the others
+  ([`sortEndUserCorrections`](../../improve/correct-a-runs-output/#where-a-correction-goes)).
+  An unsorted one never counts. Once the setting is off, none counts, not
+  even one sorted while it was on, by the project or by a person.
+- **`runCapUsd`:** the most one Improve run's search may cost, in US
+  dollars, 5 by default and at most 100. It's never more than what's left of
+  the month's cap.
+- **`monthCapUsd`:** the cap on what the agent and project's Improve runs
+  cost in a calendar month (UTC), by hand or by the schedule, in US dollars:
+  20 by default and at most 1000. It holds their searches, not their
+  proofs, so a proof can take the month past it, as the month's cap below
+  says.
+- **`tiers`** and **`model`:** what each Improve run tries, and the model
+  that drafts new wording, as `--tier`, `--provider` and `--model` do for a
+  start. Left out, every tier that's ready, and the provider and model the
+  version's model-settings block names; with neither, the prompt tier isn't
+  ready.
 
-It prints the schedule, with its new input. The next fire started an Improve
-run, and the third came while that Improve run was still running. Its history, newest first:
+A schedule's Improve runs rank candidates that pass as many cases by
+`passRate`, the default for one you start.
+
+It's kept with the defaults applied. An option it doesn't have is refused,
+naming it.
+
+Its first fire, started with `run-now`, started an Improve run, and the next
+came while that Improve run was still running. Its history, newest first:
 
 ```sh
 pnpm exec kindgi schedules fires <schedule-id> --table
 ```
 
 ```text
-FIRED                     FOR      OUTCOME          STARTED                                    NOTE
-────────────────────────  ───────  ───────────────  ─────────────────────────────────────────  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
-2026-10-09T13:25:40.917Z  run-now  skipped-overlap                                             Its previous Improve run 3599f4ab-8788-433f-af66-7990ddfa9f47 is still running.
-2026-10-09T13:25:40.341Z  run-now  started          pass 3599f4ab-8788-433f-af66-7990ddfa9f47
-2026-10-09T13:25:39.201Z  run-now  skipped                                                     Not enough new experts' corrections so far: 1 of 2 experts (enough: 10 answers experts marked wrong, 10 runs).
+FIRED                     FOR      OUTCOME          STARTED                                           NOTE
+────────────────────────  ───────  ───────────────  ────────────────────────────────────────────────  ──────────────────────────────────────────────────────────────────────────────────────────────
+2026-10-09T13:25:40.917Z  run-now  skipped-overlap                                                    Improve run 3599f4ab-8788-433f-af66-7990ddfa9f47 on the agent in the project is still running.
+2026-10-09T13:25:40.341Z  run-now  started          Improve run 3599f4ab-8788-433f-af66-7990ddfa9f47
 ```
 
-This project has an expert group, so the Improve run counts
-experts' corrections, and the skip note says "answers experts marked wrong"
-and "experts". Without one, it would count every answer marked wrong, and the
-note would say "answers marked wrong" and "people who corrected".
+- **One per agent and project.** A second Improve schedule for the same agent
+  and project is refused with `409 schedule-exists`, naming the first
+  (`details.scheduleId`): change that one instead.
+- **One Improve run at a time:** while the agent's previous Improve run in the
+  project is still going, a fire is `skipped-overlap`.
+- **The month's cap:** once the agent and project's Improve runs this month
+  have cost `monthCapUsd`, the schedule waits for the next month. It stays
+  `active`, its read says until when (`pausedUntil`, the 1st of next month,
+  UTC, with `pausedReason` `month-cap`), and its fires until then are
+  `skipped`, with a note that starts `month-cap:` and says when it runs
+  again. Only the schedule stops at the cap: an Improve run you start
+  still starts, and counts toward it. The cap holds each Improve run's
+  search, not its proof: an Improve run checks its cost before each run of
+  its search, and proves its best change after the search, uncapped. So a
+  month's Improve runs can go over the cap, by a run on the test cases or by
+  a proof.
+- **Its owner keeps `publish` on the agent.** If the owner loses it, the
+  schedule is paused at its next fire, with `statusReason`
+  `owner-lost-publish`. Saving it with a new owner
+  ([`take-ownership`](#shared-or-personal)) resumes it.
+- **At most once an hour.**
+- **Who may change it:** registering one takes `write` on the project, as
+  any schedule does, and `publish` on the agent, as starting an Improve run
+  does. So does changing, pausing, resuming, firing or unregistering one.
+  Anyone else's change to a personal one also takes a project admin, as
+  changing what a shared one runs (its agent, input or tools) does. Saving
+  one with an agent or a flow in place of the Improve target takes what
+  registering that takes.
+- **Who may stop it:** an admin of its project may also pause or unregister
+  one without `publish` on the agent, as its Improve runs count toward the
+  project's month. Changing, resuming or firing one still takes both.
+- **Who may read it:** reading one, or its fires, takes `read` on its
+  project or on the agent, as reading an Improve run does. The list shows a
+  schedule only to readers of its project: with `read` on the agent alone,
+  get it by its id.
 
-- **Its scope** is the schedule's project, `--project`, or a segment of it,
-  `--segment=<key:value>`, repeated for a path. It's never the tenant or an
-  org: an Improve run learns from one project's runs, so its evidence must
-  cover the scope it changes. Pin it more widely by hand after review.
-- **Its input,** `--input`, takes the Improve run's options, `threshold` and
-  `monthlyCapUsd`. It's kept with the defaults applied: the thresholds
-  default to 5 corrections (`corrections`), across 3 runs (`runs`), from 2
-  correctors (`correctors`), and the cap to 20 US dollars a month.
-- **A monthly cap:** once the schedule's Improve runs this month, in UTC,
-  have cost `monthlyCapUsd`, its fires are skipped until the next month. An
-  Improve run's budget is never more than what's left of it. Its cost counts
-  the runs on the test cases that prove its best candidate, which its budget
-  doesn't stop, so a month's Improve runs can cost more than the cap.
-- **One Improve run at a time:** while the schedule's previous Improve run
-  is still going, a fire is `skipped-overlap`.
-- **At most once an hour.** Registering needs `publish` on the agent.
+`list --table` shows each one's agent and project under `RUNS`, such as
+`improve acme.rank.scorer (project <project-id>)`, and under `STATUS` a
+schedule at its month's cap, such as
+`active, waits until 2026-11-01T00:00:00.000Z (month-cap)`, or one paused for
+its owner, `paused (owner-lost-publish)`. An Improve schedule made before
+Improve schedules worked in a project shows `(no project)`: its fires are
+refused until you save its target with the project,
+`kindgi schedules update <schedule-id> --improve=<agent-id> --project=<project-id>`.
+`--project` is the schedule's own project: an update with another is refused.
 
 A fire that started an Improve run names it, as `improveRunId`. The Improve run
 names the schedule and the fire, as `trigger`. When the Improve run suggests
@@ -573,35 +596,20 @@ reviewers' approvals.
 
 **Schedule Improve** makes the same schedule in the console: on the
 project's **Schedules** page, where it asks which agent, or on an agent's
-**Suggested changes** page, for that agent. It shows to someone who can
-change the project's schedules (`write` on the project) and start Improve
-runs (`publish` on the agent). It asks for what `--input` and the flags
-take, with the same defaults:
-
-- **What to improve:** **Settings values**, or **The agent's instructions**
-  with a **Drafting model** and how many **Drafts of the instructions**;
-- **Better means a higher:** share marked right, or weighted precision@k;
-- **Learn from experts' corrections only (recommended)**, ticked to start
-  with, for `groupWeights` `experts-only`; unticked, it's `as-recorded`;
-- its scope: the project, or a segment of it;
-- **When (cron)** and **Time zone**, an IANA name, UTC to start with. Under
-  them it puts the cron in words, and it holds back one that fires more than
-  once an hour: "At most once an hour: name one minute (0 * * * * is every
-  hour). Each fire may start an Improve run, which costs money."
-- **Starts an Improve run at:** **Corrections marking an answer wrong**, **On
-  runs** and **From judges**, 5, 3 and 2 to start with. "Runs and judges
-  can't be more than corrections: each correction is on one run, by one
-  judge."
-- **Each Improve run spends at most (US$)**, 5, and for settings values
-  **And tries at most**, 30; **Its Improve runs spend at most, a month
-  (US$)**, 20: "A calendar month, UTC. An Improve run never spends more than
-  what's left of it.";
-- **Label (optional)**.
+**Suggested changes** page, for that agent. It asks for what `--input` and
+the flags take, with the same defaults: what to improve (settings values, or
+the agent's instructions with the model that drafts them), how many new
+corrections start an Improve run and whose, what one Improve run and the month
+may spend, when (a cron, and a time zone, UTC to start with), and a label.
+Under the cron it puts the cron in words, and it holds back one that fires
+more than once an hour: "At most once an hour: name one minute (0 * * * * is
+every hour). Each fire may start an Improve run, which costs money."
 
 **Create** makes it, running as you, and opens its page. Under `kindgi dev`,
 Schedule Improve is off, and the page says why: a schedule's Improve runs
 are each for one project, and a change under `kindgi dev` is for every
-project. Start Improve from the agent's **Suggested changes** page instead.
+project. An Improve run is refused there, started by hand or by a schedule's
+fire, as a suggested change is: run Improve on a deployed runtime.
 
 ## Next
 

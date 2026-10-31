@@ -63,6 +63,15 @@ without a release gate (`409 project-suspended` when the project is
 suspended). Deploy or publish a version into the project first; into a
 later environment, promote a build that ships one.
 
+A pin that would take a project that follows Latest off it asks first. A
+project or segment pin of such a project, or a tenant or org pin over one, is
+refused with `409 pin-stops-latest`, whether or not the version changes, and
+nothing is recorded. `details.projects` lists each project with the version it
+runs now. Send `stopFollowingLatest: true` to pin anyway (`kindgi agents pin
+--stop-following-latest`): the pin goes on, and the change records
+`stoppedFollowingLatest: true`. A deployment promotion's
+`pin` is the ask itself, so its pins are never refused this way.
+
 `client.agents.projects(agentId)` (`GET /v1/agents/{agentId}/projects`) says
 what a run in each project gets and why: `follows` is `pin` with the pinned
 version that covers the project, or `latest` with its Latest, since when and
@@ -126,6 +135,12 @@ project's Latest when none is pinned. To go back to an earlier version, pin it
 again. On a self-hosted runtime with one pack service, that version runs only
 while your pack still has the tool versions it locked
 ([A self-hosted runtime runs what your pack has](../../agents/agent-and-tool-versions/#a-self-hosted-runtime-runs-what-your-pack-has)).
+
+An unpin answers as a pin does, `201` with `{ pin, testRuns, fixed, reopened }`,
+the unpin under `pin`. In each project whose version it changes and that has
+corrections on its test set, it starts a test run of the version the project
+runs now, listed in `testRuns`. The corrections change when that run ends.
+An unpin reuses no run, so `fixed` and `reopened` are empty.
 
 What a request to pin or unpin refuses:
 
@@ -232,20 +247,26 @@ version:
 | Part | A request must show |
 | --- | --- |
 | `comparison.maxAgeHours` | a run of the version on the test cases, finished at most this many hours ago |
-| `evidence.minCases` | each figure resting on at least this many corrected cases, for the version and for the pinned one |
+| `evidence.minCases` | each figure resting on at least this many corrected cases, for the version and for the pinned one: its `n`. For `passRate`, a case counts when it has corrected items or a graded [`expect`](../compare-an-agent-version/#what-a-case-expects) |
 | `metrics` | each named figure at least `minCandidate`, and lower than the pinned version's by at most `maxDrop`. The figures are `passRate`, `caseCoverage`, or `weightedPrecisionAtK` with its `k` |
 | `replay` | at most this many diverged cases, errors, refused tool calls and stopped cases: `maxDiverged`, `maxErrors`, `maxRefusedWrites`, `maxStopped`. `maxRefusedWrites` counts refused reads too, despite its name. Those left out are 0. A version with other settings runs read-only tools live, which [counts as diverged](../compare-an-agent-version/#what-a-replay-does), so `maxDiverged: 0` refuses it |
+| `cases.minPassing` | at least this many of the run's cases passing. Each correction the run checked is a case, and it passes when every repetition did |
+| `cases.noNewFailures: true` | no case that passed before failing: none of the run's corrections that are Fixed now fails it. One the run didn't grade isn't counted, and the check says how many of the cases Fixed now it graded |
 | `approvals` | then a reviewer with this role approves it, `senior` if left out. It's someone other than whoever asked, unless `separateApprover: false` lets the one who asked approve it |
 | `onlyExpertGroups: true` | a run on the test cases that [counted only experts' corrections](../compare-an-agent-version/#count-only-experts-corrections) |
 
 - **A request must name its run on the test cases** when the release gate has
-  `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`.
+  `comparison`, `evidence`, `metrics`, `replay`, `cases` or `onlyExpertGroups`.
   The run must be of the version you pin, with the same pins, and its
   recorded runs must be from the version pinned for the scope now.
 - **With `onlyExpertGroups`,** a run on the test cases that counted
   everyone's corrections is refused with
   `` The gate counts only experts' corrections; the test run counted everyone's. Re-run it with `groupWeights: 'experts-only'`. ``.
   So only expert groups can release a version.
+- **With `cases`,** a refusal's details add `passing` and `needs` for
+  `minPassing`, and `newlyFailing`, the ids of the cases that passed before
+  and fail now, for `noNewFailures`. The check's message names the first
+  five.
 - **To change a release gate,** publish a new version of it.
   `kindgi release-gates unregister acme.order-desk-release <version>` goes
   back to the one before.

@@ -130,6 +130,13 @@ export interface Pin {
   readonly fromVersion: Semver | null;
   /** The scope's own pin after; `null` after an unpin. */
   readonly toVersion: Semver | null;
+  /**
+   * A `pin`'s: what ran in the scope just before it (the gate's
+   * `servingVersion`), from a pin or from Latest. A pin of an earlier
+   * version than it is going back. Absent on an unpin, and on a pin
+   * recorded before it was kept.
+   */
+  readonly ranBefore?: Semver;
   readonly requestedBy: PinActor;
   readonly reason?: string;
   /** The comparison behind the change, when there was one. */
@@ -145,6 +152,12 @@ export interface Pin {
   readonly approvalId?: string;
   /** When a `pending-approval` pin reached its final state. */
   readonly resolvedAt?: Timestamp;
+  /**
+   * A `pin`'s: `true` when it took a project that followed Latest off
+   * it (`AgentPinInput.stoppedFollowingLatest`). Absent otherwise, and on
+   * a pin recorded before it was kept.
+   */
+  readonly stoppedFollowingLatest?: boolean;
 }
 
 export type PinErrorCode =
@@ -210,6 +223,12 @@ export interface AgentPinInput {
   readonly requestedBy: PinActor;
   readonly reason?: string;
   readonly testRunId?: string;
+  /**
+   * The pin takes a project that follows Latest off it, as the caller
+   * asked (`requestPin`'s `stopFollowingLatest`): kept on the change
+   * (`Pin.stoppedFollowingLatest`). Absent otherwise.
+   */
+  readonly stoppedFollowingLatest?: boolean;
 }
 
 /**

@@ -5,6 +5,7 @@ import type { Context, Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
 import type { ReviewerRole } from '@kindgi/authz';
+import type { Logger } from '@kindgi/log';
 import type {
   AgentPinScope,
   Cursor,
@@ -23,22 +24,46 @@ import type {
   AgentPinInput,
   AgentPinResolveInput,
   AgentPinnedVersion,
+  AgentUnpinInput,
   Pin,
   PinActor,
 } from '../agent-pin-binding.js';
 import type { CorrectedComparisonSummary } from '../corrected-dispatcher.js';
+import type { CorrectionRegistryBinding } from '../correction-binding.js';
 import { statusFor, toWireError } from '../errors.js';
-import { type GateApproval, type GateCheck, type GateResult, evaluateGate } from '../gate.js';
+import {
+  type GateApproval,
+  type GateCheck,
+  type GateResult,
+  casesDetails,
+  evaluateGate,
+} from '../gate.js';
+import type { ItemProjectsBinding } from '../item-projects-binding.js';
 import type { ItemRights } from '../item-rights.js';
+import {
+  NO_PIN_TEST_RUNS,
+  type PinTestRunDeps,
+  type PinTestRuns,
+  projectsPinMoves,
+  projectsUnpinCovers,
+  startPinTestRuns,
+  startUnpinTestRuns,
+} from '../pin-test-runs.js';
 import {
   type ReferenceScopeBinding,
   agentPinScopeOutOfScope,
   outOfScopeResponse,
 } from '../reference-scope.js';
-import type { ReleaseGate } from '../release-gate-binding.js';
+import type { ReleaseGate, ReleaseGateSpec } from '../release-gate-binding.js';
 import type { TestRun, TestRunBinding } from '../test-run-binding.js';
+import type { TestSetFreezeBinding } from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
-import { type WhatRuns, whatRuns } from '../what-runs.js';
+import {
+  type ProjectOnLatest,
+  type WhatRuns,
+  projectsPinTakesOffLatest,
+  whatRuns,
+} from '../what-runs.js';
 import { agentPinScopeToWire, parseAgentPinScopeBody } from './agent-pin-scope-wire.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
@@ -83,6 +108,15 @@ export interface AgentPinGateDeps {
    * runs says so, not that nothing runs. Absent: no check.
    */
   readonly projectSuspended?: (tenantId: TenantId, projectId: ProjectId) => Promise<boolean>;
+  /**
+   * What a pin's test runs need (`pin-test-runs.ts`), with `testRuns` and
+   * `projects`: the agent test sets to freeze, the corrections a reused
+   * run changes and the cases there are, and the projects an agent runs
+   * in, for a tenant or org pin. Absent: a pin starts no test run.
+   */
+  readonly testSets?: Pick<TestSetFreezeBinding, 'freezeTestSet'>;
+  readonly corrections?: Pick<CorrectionRegistryBinding, 'list' | 'applyRunOutcome' | 'listCases'>;
+  readonly itemProjects?: Pick<ItemProjectsBinding, 'projectsOf'>;
 }
 
 /**
@@ -209,15 +243,24 @@ export function mountAgentPinRoutes(
     const parsed = await readPinBody(c);
     if (parsed.kind === 'err') return badInput(c, requestId, parsed.message);
     const agentId = c.req.param('agentId');
-    const outcome = await requestPin(registry, agentPins, gateDeps, {
-      tenantId: c.get('tenantId') as TenantId,
-      agentId,
-      version: parsed.value.version,
-      scope: parsed.value.scope,
-      requestedBy: actorOf(c),
-      ...(parsed.value.reason !== undefined && { reason: parsed.value.reason }),
-      ...(parsed.value.testRunId !== undefined && { testRunId: parsed.value.testRunId }),
-    });
+    const outcome = await requestPin(
+      registry,
+      agentPins,
+      gateDeps,
+      {
+        tenantId: c.get('tenantId') as TenantId,
+        agentId,
+        version: parsed.value.version,
+        scope: parsed.value.scope,
+        requestedBy: actorOf(c),
+        ...(parsed.value.reason !== undefined && { reason: parsed.value.reason }),
+        ...(parsed.value.testRunId !== undefined && { testRunId: parsed.value.testRunId }),
+      },
+      {
+        log: c.get('log'),
+        ...(parsed.value.stopFollowingLatest === true && { stopFollowingLatest: true }),
+      },
+    );
     return pinResponse(c, outcome);
   });
 
@@ -323,15 +366,20 @@ export function mountAgentPinRoutes(
     if (scope.kind === 'err') return badInput(c, requestId, scope.message);
     const text = optionalText(body, ['reason']);
     if (text.kind === 'err') return badInput(c, requestId, text.message);
-    const outcome = await agentPins.changes.unpin({
+    const input = {
       tenantId: c.get('tenantId') as TenantId,
       agentId: c.req.param('agentId'),
       scope: scope.scope,
       requestedBy: actorOf(c),
       ...text.value,
-    });
+    };
+    // An unpin answers as a pin does, with the test runs it started.
+    const moves = await unpinMoves(agentPins, deps, input, c.get('log'));
+    const outcome = await agentPins.changes.unpin(input);
     if (outcome.kind === 'err') return failed(c, requestId, outcome.error);
-    return c.json(serializePin(outcome.value));
+    const runs = await moves.check(outcome.value);
+    c.status(201);
+    return c.json(pinAnswer({ kind: 'ok', pin: outcome.value, runs }));
   });
 }
 
@@ -408,15 +456,29 @@ export type PinRequestOutcome =
       readonly pin: Pin;
       /** The gate's checks as they ran (a binding may not echo them on the row). */
       readonly checks?: readonly GateCheck[];
+      /** The test runs it checks its projects with, and what a reused one changed. */
+      readonly runs: PinTestRuns;
     }
-  | { readonly kind: 'err'; readonly error: { code: string; message: string } }
+  | {
+      readonly kind: 'err';
+      readonly error: {
+        code: string;
+        message: string;
+        /** `pin-stops-latest`'s: the projects that follow Latest now, which the pin would take off it. */
+        readonly projects?: readonly ProjectOnLatest[];
+      };
+    }
   | { readonly kind: 'gate-unsupported'; readonly releaseGate: ReleaseGate };
 
 /**
  * Request that `version` be pinned for `scope`, through the scope's gate:
  * the binding records it as pinned, waiting for approval, or refused
  * (`pin.status`). Without gated requests in this deployment, an
- * ungated scope pins as before and a gated one is unsupported.
+ * ungated scope pins as before and a gated one is unsupported. A pin that
+ * would take a project off Latest (`projectsPinTakesOffLatest`) is refused
+ * with `pin-stops-latest` before its gate runs, unless the caller asks for
+ * that (`stopFollowingLatest`); then it's recorded with
+ * `stoppedFollowingLatest`.
  */
 export async function requestPin(
   registry: AgentRegistryBinding,
@@ -434,6 +496,14 @@ export async function requestPin(
      * gate's role rather than the drafter's own `standard`.
      */
     readonly draftedEligibleAtRole?: (role: ReviewerRole) => Promise<boolean>;
+    /** Where a project whose test run didn't start or apply is logged; the pin still answers. */
+    readonly log?: Pick<Logger, 'warn'>;
+    /**
+     * The caller asks to take projects that follow Latest off it: the
+     * body's `stopFollowingLatest: true`, or a promotion's pins, which
+     * `--pin` asks for.
+     */
+    readonly stopFollowingLatest?: boolean;
   } = {},
 ): Promise<PinRequestOutcome> {
   // Every way a pin is asked for comes through here (the route, a
@@ -445,6 +515,15 @@ export async function requestPin(
     input.scope,
   );
   if (outOfScope !== undefined) return { kind: 'err', error: outOfScope };
+  const asked = await offLatestAsked(
+    registry,
+    agentPins,
+    deps,
+    input,
+    options.stopFollowingLatest === true,
+  );
+  if (asked.kind === 'err') return asked;
+  const { pin } = asked;
   const releaseGate = await releaseGateFor(agentPins, input.tenantId, input.agentId, input.scope);
   if (agentPins.changes.request === undefined) {
     if (releaseGate !== null) return { kind: 'gate-unsupported', releaseGate };
@@ -459,16 +538,18 @@ export async function requestPin(
       };
     }
     // No gate, and a binding from before gates: pin as before.
-    const outcome = await agentPins.changes.pin(input);
+    const moves = await pinMoves(agentPins, deps, input, options.log);
+    const outcome = await agentPins.changes.pin(pin);
     return outcome.kind === 'err'
       ? { kind: 'err', error: outcome.error }
-      : { kind: 'ok', pin: outcome.value };
+      : { kind: 'ok', pin: outcome.value, runs: await moves.check(outcome.value) };
   }
   const gate = await runGate(registry, agentPins, deps, input, releaseGate);
   if (gate.kind === 'err') return gate;
   const approval = await resolveApproval(gate.result.approval, options);
+  const moves = await pinMoves(agentPins, deps, input, options.log);
   const outcome = await agentPins.changes.request({
-    ...input,
+    ...pin,
     gate: {
       releaseGate:
         releaseGate === null ? null : { id: releaseGate.id, version: releaseGate.version },
@@ -481,7 +562,150 @@ export async function requestPin(
   });
   return outcome.kind === 'err'
     ? { kind: 'err', error: outcome.error }
-    : { kind: 'ok', pin: outcome.value, checks: gate.result.checks };
+    : {
+        kind: 'ok',
+        pin: outcome.value,
+        checks: gate.result.checks,
+        runs: await moves.check(outcome.value),
+      };
+}
+
+/** `agent-version-not-found` when the pin's version isn't an active version of the agent. */
+async function versionMissing(
+  registry: AgentRegistryBinding,
+  input: AgentPinInput,
+): Promise<{ readonly code: string; readonly message: string } | undefined> {
+  const found = await registry.getVersion({
+    tenantId: input.tenantId,
+    agentId: input.agentId as AgentId,
+    version: input.version,
+  });
+  return found === null || found.unregisteredAt !== undefined
+    ? {
+        code: 'agent-version-not-found',
+        message: `${input.agentId} has no active version ${input.version}`,
+      }
+    : undefined;
+}
+
+/**
+ * The pin as it's recorded: with `stoppedFollowingLatest` when it takes a
+ * project that follows Latest off it (`projectsPinTakesOffLatest`), and
+ * the caller asked for that; refused with `pin-stops-latest` when it
+ * didn't, unless its version isn't there: that's the 404 the pin would
+ * get anyway, said first.
+ */
+async function offLatestAsked(
+  registry: AgentRegistryBinding,
+  agentPins: AgentPinBindings,
+  deps: Pick<AgentPinGateDeps, 'projects'>,
+  input: AgentPinInput,
+  asked: boolean,
+): Promise<
+  { readonly kind: 'ok'; readonly pin: AgentPinInput } | Extract<PinRequestOutcome, { kind: 'err' }>
+> {
+  const offLatest = await projectsPinTakesOffLatest(agentPins, deps.projects, input);
+  if (offLatest.length === 0) return { kind: 'ok', pin: input };
+  if (asked) return { kind: 'ok', pin: { ...input, stoppedFollowingLatest: true } };
+  const missing = await versionMissing(registry, input);
+  return { kind: 'err', error: missing ?? pinStopsLatest(offLatest) };
+}
+
+/** `pin-stops-latest`: the pin would take `projects` off Latest, and the caller didn't ask for that. */
+export function pinStopsLatest(projects: readonly ProjectOnLatest[]): {
+  code: string;
+  message: string;
+  projects: readonly ProjectOnLatest[];
+} {
+  const named = projects
+    .map((p) => `${p.projectId as unknown as string} (${p.version as unknown as string})`)
+    .join(', ');
+  const one = projects.length === 1;
+  return {
+    code: 'pin-stops-latest',
+    message: `${one ? 'Project' : 'Projects'} ${named} ${one ? 'follows' : 'follow'} Latest, and this pin would take ${one ? 'it' : 'them'} off it: ${one ? 'it' : 'they'} would run the pinned version and no longer take each new Latest. Send \`stopFollowingLatest: true\` to pin anyway.`,
+    projects,
+  };
+}
+
+/** What a pin change's test runs read and write; `undefined` when test runs aren't wired. */
+function pinRunDeps(
+  agentPins: AgentPinBindings,
+  deps: AgentPinGateDeps,
+): PinTestRunDeps | undefined {
+  const { testRuns, testSets, corrections, projects, itemProjects } = deps;
+  if (
+    testRuns === undefined ||
+    testSets === undefined ||
+    corrections === undefined ||
+    projects === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    testRuns,
+    testSets,
+    corrections,
+    projects,
+    agentPins,
+    ...(itemProjects !== undefined && { itemProjects }),
+  };
+}
+
+/** A change's check, with none when test runs aren't wired. */
+const NO_CHECK = { check: async (): Promise<PinTestRuns> => NO_PIN_TEST_RUNS };
+
+/**
+ * The projects a pin moves to its version, read before it's recorded
+ * (`projectsPinMoves`), and the check of the recorded change in them
+ * (`startPinTestRuns`). With no test runs wired, it checks none.
+ */
+async function pinMoves(
+  agentPins: AgentPinBindings,
+  deps: AgentPinGateDeps,
+  input: AgentPinInput,
+  log: Pick<Logger, 'warn'> | undefined,
+): Promise<{ check(change: Pin): Promise<PinTestRuns> }> {
+  const runDeps = pinRunDeps(agentPins, deps);
+  if (runDeps === undefined) return NO_CHECK;
+  const { tenantId } = input;
+  const moved = await projectsPinMoves(runDeps, input);
+  return {
+    check: (change) =>
+      startPinTestRuns(runDeps, {
+        tenantId,
+        change,
+        projects: moved,
+        ...(log !== undefined && { log }),
+      }),
+  };
+}
+
+/**
+ * The projects an unpin covers, with what each runs, read before it's
+ * recorded (`projectsUnpinCovers`), and the check of the recorded unpin in
+ * each that then runs another version (`startUnpinTestRuns`).
+ * With no test runs wired, it checks none.
+ */
+async function unpinMoves(
+  agentPins: AgentPinBindings,
+  deps: AgentPinGateDeps,
+  input: Pick<AgentUnpinInput, 'tenantId' | 'agentId' | 'scope'>,
+  log: Pick<Logger, 'warn'> | undefined,
+): Promise<{ check(change: Pin): Promise<PinTestRuns> }> {
+  const runDeps = pinRunDeps(agentPins, deps);
+  if (runDeps === undefined) return NO_CHECK;
+  const { tenantId } = input;
+  const covered = await projectsUnpinCovers(runDeps, input);
+  return {
+    check: (change) =>
+      startUnpinTestRuns(runDeps, {
+        tenantId,
+        change,
+        covered,
+        ...(log !== undefined && { log }),
+      }),
+  };
 }
 
 /**
@@ -555,6 +779,7 @@ export function pinResponse(
           changeId: pin.id,
           releaseGate: pin.releaseGate ?? null,
           checks,
+          ...casesDetails(checks),
           ...extra,
         },
         requestId,
@@ -562,7 +787,25 @@ export function pinResponse(
     );
   }
   c.status(pin.status === 'pending-approval' ? 202 : 201);
-  return c.json({ ...serializePin(pin), ...extra });
+  return c.json({ ...pinAnswer(outcome), ...extra });
+}
+
+/**
+ * A pin the gate let through, as both pin routes answer it:
+ * the pin, the test runs that check it, and the corrections a reused run
+ * changed at pin time.
+ */
+export function pinAnswer(outcome: Extract<PinRequestOutcome, { kind: 'ok' }>) {
+  const { testRuns, fixed, reopened } = outcome.runs;
+  return {
+    pin: serializePin(outcome.pin),
+    testRuns: testRuns.map((run) => ({
+      projectId: run.projectId as unknown as string,
+      testRunId: run.testRunId as unknown as string,
+    })),
+    fixed,
+    reopened,
+  };
 }
 
 async function readBody(c: Ctx): Promise<Record<string, unknown> | undefined> {
@@ -618,7 +861,13 @@ function optionalText(
 async function readPinBody(c: Ctx): Promise<
   | {
       kind: 'ok';
-      value: { version: Semver; scope: AgentPinScope; testRunId?: string; reason?: string };
+      value: {
+        version: Semver;
+        scope: AgentPinScope;
+        testRunId?: string;
+        reason?: string;
+        stopFollowingLatest?: boolean;
+      };
     }
   | { kind: 'err'; message: string }
 > {
@@ -631,9 +880,18 @@ async function readPinBody(c: Ctx): Promise<
   }
   const text = optionalText(body, ['reason', 'testRunId']);
   if (text.kind === 'err') return text;
+  const stop = body.stopFollowingLatest;
+  if (stop !== undefined && typeof stop !== 'boolean') {
+    return { kind: 'err', message: '`stopFollowingLatest` must be a boolean' };
+  }
   return {
     kind: 'ok',
-    value: { version: body.version as Semver, scope: scope.scope, ...text.value },
+    value: {
+      version: body.version as Semver,
+      scope: scope.scope,
+      ...text.value,
+      ...(stop !== undefined && { stopFollowingLatest: stop }),
+    },
   };
 }
 
@@ -798,6 +1056,7 @@ async function runGate(
     const project = await deps.projects.get(tenantId, correctedIn as ProjectId);
     summaryProjectOrgId = project?.orgId as unknown as string | undefined;
   }
+  const passedBefore = await passedBeforeFor(deps, releaseGate.spec, summary, tenantId, agentId);
   const result = evaluateGate({
     spec: releaseGate.spec,
     pin: {
@@ -809,9 +1068,60 @@ async function runGate(
     summary,
     servingVersion,
     ...(summaryProjectOrgId !== undefined && { summaryProjectOrgId }),
+    ...(passedBefore !== undefined && { passedBefore }),
     now: new Date(),
   });
   return { kind: 'ok', result, servingVersion };
+}
+
+/**
+ * The cases that passed before, for a gate with `cases.noNewFailures`
+ * and a named comparison. Absent otherwise, and without a correction
+ * registry, so the check says it couldn't tell.
+ */
+async function passedBeforeFor(
+  deps: AgentPinGateDeps,
+  spec: ReleaseGateSpec,
+  summary: CorrectedComparisonSummary | null,
+  tenantId: TenantId,
+  agentId: string,
+): Promise<readonly string[] | undefined> {
+  if (spec.cases?.noNewFailures !== true || summary === null || deps.corrections === undefined) {
+    return undefined;
+  }
+  return fixedCorrections(deps.corrections, tenantId, agentId, summary.scope.projectId);
+}
+
+/** Corrections of the agent read per page for the gate's `cases.noNewFailures`. */
+const FIXED_PAGE = 100;
+
+/**
+ * The agent's corrections that are `fixed` now, in the comparison's
+ * project when it has one: the cases that passed before.
+ */
+async function fixedCorrections(
+  corrections: Pick<CorrectionRegistryBinding, 'list'>,
+  tenantId: TenantId,
+  agentId: string,
+  projectId: string | undefined,
+): Promise<readonly string[]> {
+  const ids: string[] = [];
+  let cursor: Awaited<ReturnType<CorrectionRegistryBinding['list']>>['nextCursor'];
+  for (;;) {
+    const page = await corrections.list({
+      tenantId,
+      ...(projectId !== undefined && {
+        scope: { kind: 'project', projectId: projectId as ProjectId },
+      }),
+      agentId,
+      statuses: ['fixed'],
+      limit: FIXED_PAGE,
+      ...(cursor !== undefined && { cursor }),
+    });
+    ids.push(...page.data.map((c) => c.id));
+    if (!page.hasMore || page.nextCursor === undefined) return ids;
+    cursor = page.nextCursor;
+  }
 }
 
 /** Who asked, from the request's principal. */
@@ -870,5 +1180,8 @@ export function serializePin(p: Pin): Record<string, unknown> {
     ...(p.checks !== undefined && { checks: p.checks }),
     ...(p.approvalId !== undefined && { approvalId: p.approvalId }),
     ...(p.resolvedAt !== undefined && { resolvedAt: p.resolvedAt as unknown as string }),
+    ...(p.stoppedFollowingLatest !== undefined && {
+      stoppedFollowingLatest: p.stoppedFollowingLatest,
+    }),
   };
 }

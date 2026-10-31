@@ -23,6 +23,7 @@ import type {
   AgentPinnedVersion,
   AgentRegistryBinding,
   CorrectedComparisonSummary,
+  CorrectionListInput,
   LatestAnswer,
   Pin,
   PinError,
@@ -110,7 +111,13 @@ function releaseGate(
 const PASSING: ReleaseGateSpec = { metrics: [{ name: 'passRate', minCandidate: 0.75 }] };
 const FAILING: ReleaseGateSpec = { metrics: [{ name: 'passRate', minCandidate: 0.9 }] };
 
-function setup(opts: { request?: boolean; releaseGates?: boolean } = {}) {
+/**
+ * `fixed`: a correction registry whose `fixed` corrections of the agent are
+ * these. Absent: none is wired.
+ */
+function setup(
+  opts: { request?: boolean; releaseGates?: boolean; fixed?: readonly string[] } = {},
+) {
   const calls: { method: string; input: unknown }[] = [];
   const state: {
     resolved: AgentPinResolution | null;
@@ -149,6 +156,9 @@ function setup(opts: { request?: boolean; releaseGates?: boolean } = {}) {
     releaseGate: input.gate.releaseGate,
     checks: input.gate.checks,
     ...(input.gate.passed && input.gate.approval !== undefined && { approvalId: 'appr-1' }),
+    ...(input.stoppedFollowingLatest !== undefined && {
+      stoppedFollowingLatest: input.stoppedFollowingLatest,
+    }),
   });
   const pins: AgentPinBindings = {
     pinned: {
@@ -255,6 +265,18 @@ function setup(opts: { request?: boolean; releaseGates?: boolean } = {}) {
     agentRegistry: registry,
     agentPins: pins,
     testRunBinding: testRuns,
+    ...(opts.fixed !== undefined && {
+      correctionRegistry: {
+        list: async (input: CorrectionListInput) => {
+          record('corrections.list', input);
+          const fixed = input.statuses?.length === 1 && input.statuses[0] === 'fixed';
+          return {
+            data: fixed ? (opts.fixed ?? []).map((id) => ({ id, status: 'fixed' })) : [],
+            hasMore: false,
+          };
+        },
+      } as never,
+    }),
     projectSuspended: async (_t: TenantId, projectId: ProjectId) => {
       record('projectSuspended', projectId);
       return state.suspended;
@@ -281,8 +303,16 @@ const testRun = (s: CorrectedComparisonSummary | undefined, kind = 'corrections'
     ...(s !== undefined && { result: { summary: s, perCase: [] } }),
   }) as never;
 
+// The project follows Latest unless a test pins it (`state.resolved`): these
+// pins ask to take it off (`stopFollowingLatest`), so the gate is what decides.
 const pinBody = (body: Record<string, unknown> = {}) =>
-  post({ version: '1.2.0', scope: PROJECT_SCOPE, testRunId: 'eval-1', ...body });
+  post({
+    version: '1.2.0',
+    scope: PROJECT_SCOPE,
+    testRunId: 'eval-1',
+    stopFollowingLatest: true,
+    ...body,
+  });
 
 const methods = (calls: { method: string }[]) => calls.map((c) => c.method);
 
@@ -294,7 +324,13 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
       pinBody({ testRunId: undefined }),
     );
     expect(res.status).toBe(201);
-    expect(await res.json()).toMatchObject({ status: 'pinned', releaseGate: null, checks: [] });
+    // No test runs wired here: the pin, and no runs that check it.
+    expect(await res.json()).toEqual({
+      pin: expect.objectContaining({ status: 'pinned', releaseGate: null, checks: [] }),
+      testRuns: [],
+      fixed: [],
+      reopened: [],
+    });
     const request = calls.find((c) => c.method === 'request')?.input as PinRequestInput;
     expect(request.gate).toEqual({
       releaseGate: null,
@@ -311,7 +347,8 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
       pinBody({ testRunId: undefined }),
     );
     expect(res.status).toBe(201);
-    expect(methods(calls)).toEqual(['releaseGate.resolve', 'pin']);
+    // What runs in the project first (it follows Latest), then the gate's lookup.
+    expect(methods(calls)).toEqual(['resolve', 'releaseGate.resolve', 'pin']);
   });
 
   test("a release gate applies, and the binding can't record a gated pin → 501, nothing pinned", async () => {
@@ -331,7 +368,7 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
     state.testRun = testRun(summary());
     const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
     expect(res.status).toBe(201);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = ((await res.json()) as { pin: Record<string, unknown> }).pin;
     expect(body).toMatchObject({
       status: 'pinned',
       releaseGate: { id: 'acme.drafting-prod', version: '1.0.0' },
@@ -348,7 +385,9 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
     state.testRun = testRun(summary());
     const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
     expect(res.status).toBe(202);
-    expect(await res.json()).toMatchObject({ status: 'pending-approval', approvalId: 'appr-1' });
+    expect(await res.json()).toMatchObject({
+      pin: { status: 'pending-approval', approvalId: 'appr-1' },
+    });
     const request = calls.find((c) => c.method === 'request')?.input as PinRequestInput;
     expect(request.gate.approval).toEqual({ role: 'admin', count: 1, separateApprover: true });
   });
@@ -374,6 +413,50 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
       expect.objectContaining({ name: 'metric.passRate.minCandidate', passed: false }),
     );
     expect(methods(calls)).toContain('request');
+  });
+
+  test("the cases rule: the 422's details carry passing, needs, and the cases that passed before and fail now", async () => {
+    const { app, calls, state } = setup({ fixed: ['c-1', 'c-2'] });
+    state.releaseGate = releaseGate({ cases: { minPassing: 3, noNewFailures: true } });
+    state.testRun = testRun(
+      summary({
+        corrections: {
+          checked: 3,
+          passed: 1,
+          results: [
+            { correctionId: 'c-1', pass: true },
+            { correctionId: 'c-2', pass: false },
+            { correctionId: 'c-3', pass: false },
+          ],
+        },
+      }),
+    );
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
+    expect(res.status).toBe(422);
+    const { error } = (await res.json()) as {
+      error: { code: string; message: string; details: Record<string, unknown> };
+    };
+    expect(error.code).toBe('gate-failed');
+    expect(error.details).toMatchObject({ passing: 1, needs: 3, newlyFailing: ['c-2'] });
+    expect(error.message).toContain('1 case that passed before fails now: c-2.');
+    expect(calls.find((c) => c.method === 'corrections.list')?.input).toMatchObject({
+      tenantId,
+      scope: { kind: 'project', projectId: PROJECT },
+      agentId: AGENT,
+      statuses: ['fixed'],
+    });
+  });
+
+  test('without noNewFailures the gate reads no corrections, and the details have no newlyFailing', async () => {
+    const { app, calls, state } = setup({ fixed: ['c-1'] });
+    state.releaseGate = releaseGate({ cases: { minPassing: 1 } });
+    state.testRun = testRun(summary());
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
+    expect(res.status).toBe(422);
+    const { error } = (await res.json()) as { error: { details: Record<string, unknown> } };
+    expect(error.details).toMatchObject({ passing: 0, needs: 1 });
+    expect(error.details).not.toHaveProperty('newlyFailing');
+    expect(methods(calls)).not.toContain('corrections.list');
   });
 
   test("the serving version comes from the scope's coordinates", async () => {
@@ -451,6 +534,101 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
       'approvals-pending-limit',
     );
+  });
+});
+
+describe('a pin that would take a project off Latest (pin-stops-latest)', () => {
+  test('refused with 409 before any gate, naming what the project runs; nothing recorded', async () => {
+    const { app, calls, state } = setup();
+    state.releaseGate = releaseGate(FAILING);
+    const res = await app.request(
+      `/v1/agents/${AGENT}/pinned/pin`,
+      post({ version: '1.2.0', scope: PROJECT_SCOPE, testRunId: 'eval-1' }),
+    );
+    expect(res.status).toBe(409);
+    const { error } = (await res.json()) as {
+      error: { code: string; message: string; details: unknown };
+    };
+    expect(error.code).toBe('pin-stops-latest');
+    expect(error.details).toEqual({ projects: [{ projectId: PROJECT, version: '1.1.0' }] });
+    expect(error.message).toContain('stopFollowingLatest');
+    expect(methods(calls)).toEqual(['resolve']);
+  });
+
+  test.each([
+    ['not registered', '9.9.9'],
+    ['unregistered', '1.3.0'],
+  ])(
+    'a version that is %s is a 404 first, not the 409; nothing recorded',
+    async (_name, version) => {
+      const { app, calls } = setup();
+      const res = await app.request(
+        `/v1/agents/${AGENT}/pinned/pin`,
+        post({ version, scope: PROJECT_SCOPE }),
+      );
+      expect(res.status).toBe(404);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+        'agent-version-not-found',
+      );
+      // Only what the project runs is read: nothing is recorded.
+      expect(methods(calls)).toEqual(['resolve']);
+    },
+  );
+
+  test('pinning the version it runs already takes it off Latest too: the same 409', async () => {
+    const { app, calls } = setup();
+    const res = await app.request(
+      `/v1/agents/${AGENT}/pinned/pin`,
+      post({ version: '1.1.0', scope: PROJECT_SCOPE }),
+    );
+    expect(res.status).toBe(409);
+    expect(methods(calls)).not.toContain('request');
+  });
+
+  test('stopFollowingLatest: true pins it, and the change records stoppedFollowingLatest', async () => {
+    const { app, calls } = setup();
+    const res = await app.request(
+      `/v1/agents/${AGENT}/pinned/pin`,
+      pinBody({ testRunId: undefined }),
+    );
+    expect(res.status).toBe(201);
+    const requested = calls.find((c) => c.method === 'request')?.input as PinRequestInput;
+    expect(requested.stoppedFollowingLatest).toBe(true);
+    expect(((await res.json()) as { pin: Pin }).pin.stoppedFollowingLatest).toBe(true);
+  });
+
+  test('a project a pin covers already: no 409, and nothing recorded about Latest', async () => {
+    const { app, calls, state } = setup();
+    state.resolved = { version: '1.1.0' as Semver, scope: { kind: 'tenant' } };
+    const res = await app.request(
+      `/v1/agents/${AGENT}/pinned/pin`,
+      post({ version: '1.2.0', scope: PROJECT_SCOPE }),
+    );
+    expect(res.status).toBe(201);
+    const requested = calls.find((c) => c.method === 'request')?.input as PinRequestInput;
+    expect(requested).not.toHaveProperty('stoppedFollowingLatest');
+  });
+
+  test('a stopFollowingLatest that is not a boolean → 400, nothing recorded', async () => {
+    const { app, calls } = setup();
+    const res = await app.request(
+      `/v1/agents/${AGENT}/pinned/pin`,
+      pinBody({ stopFollowingLatest: 'yes' }),
+    );
+    expect(res.status).toBe(400);
+    expect(methods(calls)).toEqual([]);
+  });
+
+  test('a check ignores it: what the gate would say, with or without the flag', async () => {
+    const { app } = setup();
+    for (const stopFollowingLatest of [undefined, true]) {
+      const res = await app.request(
+        `/v1/agents/${AGENT}/pinned/check`,
+        post({ version: '1.2.0', scope: PROJECT_SCOPE, stopFollowingLatest }),
+      );
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { outcome: string }).outcome).toBe('would-pin');
+    }
   });
 });
 
@@ -532,7 +710,7 @@ describe('a pin in place (T288): the scope has no pin of its own and serves the 
     ...FAILING,
     approvals: { role: 'senior', separateApprover: true },
   };
-  const pinHere = post({ version: '1.1.0', scope: PROJECT_SCOPE });
+  const pinHere = post({ version: '1.1.0', scope: PROJECT_SCOPE, stopFollowingLatest: true });
 
   test("skips the gate's checks and approval: one passing pinInPlace check, the binding re-checks → 201", async () => {
     const { app, calls, state } = setup();
@@ -540,7 +718,7 @@ describe('a pin in place (T288): the scope has no pin of its own and serves the 
     // Nothing pinned: the scope serves the latest, 1.1.0.
     const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinHere);
     expect(res.status).toBe(201);
-    const body = (await res.json()) as Pin;
+    const body = ((await res.json()) as { pin: Pin }).pin;
     expect(body.status).toBe('pinned');
     expect(body.checks).toEqual([
       expect.objectContaining({
@@ -645,7 +823,7 @@ describe('what the scope runs: its Latest, not the highest version (1.1.0)', () 
     state.latest = LATEST;
     const here = await app.request(
       `/v1/agents/${AGENT}/pinned/pin`,
-      post({ version: '1.0.0', scope: PROJECT_SCOPE }),
+      post({ version: '1.0.0', scope: PROJECT_SCOPE, stopFollowingLatest: true }),
     );
     expect(here.status).toBe(201);
     const requested = calls.find((c) => c.method === 'request')?.input as PinRequestInput;
@@ -655,7 +833,7 @@ describe('what the scope runs: its Latest, not the highest version (1.1.0)', () 
     // The release gate wants a test run, and none was named.
     const highest = await app.request(
       `/v1/agents/${AGENT}/pinned/pin`,
-      post({ version: '1.1.0', scope: PROJECT_SCOPE }),
+      post({ version: '1.1.0', scope: PROJECT_SCOPE, stopFollowingLatest: true }),
     );
     expect(highest.status).toBe(422);
   });

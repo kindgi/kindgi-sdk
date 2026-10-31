@@ -43,6 +43,9 @@ class KnownValuesOnSendTest {
       "{\"id\":\"f531e37d-f29f-463c-81d2-ffad65e4d4e9\",\"agentId\":\"acme.triage\",\"scope\":%s,\"action\":\"unpin\","
           + "\"fromVersion\":\"1.0.0\",\"toVersion\":null,\"requestedBy\":{\"kind\":\"user\",\"id\":\"acme-admin\"},"
           + "\"createdAt\":\"2026-10-18T00:00:00Z\"}";
+  /** The unpin's answer: the unpin change under {@code pin}, as a pin answers. */
+  private static final String UNPIN_ANSWER =
+      "{\"pin\":" + PIN_CHANGE + ",\"testRuns\":[],\"fixed\":[],\"reopened\":[]}";
 
   private HttpServer server;
   /** The bodies the server got. */
@@ -119,8 +122,8 @@ class KnownValuesOnSendTest {
 
   @Test
   void aScopeReadFromANewerRuntimeIsKeptButNotSentBack() {
-    answer = String.format(PIN_CHANGE, "{\"kind\":\"galaxy\",\"galaxyId\":\"milky-way\"}");
-    Pin pin = client.agents().pinned().unpin("acme.triage", new AgentUnpinBody(KindgiJson.read("{\"kind\":\"tenant\"}", AgentPinScope.class), null));
+    answer = String.format(UNPIN_ANSWER, "{\"kind\":\"galaxy\",\"galaxyId\":\"milky-way\"}");
+    Pin pin = client.agents().pinned().unpin("acme.triage", new AgentUnpinBody(KindgiJson.read("{\"kind\":\"tenant\"}", AgentPinScope.class), null)).pin();
     assertThat(pin.scope()).isInstanceOf(AgentPinScope.Unrecognized.class);
     assertThatCode(() -> pin.toBuilder().build()).doesNotThrowAnyException();
     assertThatCode(() -> AgentUnpinBody.builder().scope(pin.scope()).build()).doesNotThrowAnyException();

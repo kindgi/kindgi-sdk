@@ -12,7 +12,10 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
+  CorrectionRegistryBinding,
   EvalGrader,
+  FreezeTestSetInput,
+  FrozenTestSet,
   ItemReference,
   ReferenceScopeBinding,
   RunHandlerBinding,
@@ -23,6 +26,7 @@ import type {
   TestRunSubjectInvokeOutcome,
   TestRunSubjectInvoker,
   TestSet,
+  TestSetFreezeBinding,
   TestSetKind,
   TestSetRegistryBinding,
   TokenResolver,
@@ -387,6 +391,192 @@ describe('API — test-runs start: who may start one', () => {
     });
     expect(res.status).toBe(403);
     expect(await res.text()).toContain('"action":"admin"');
+  });
+});
+
+describe("API — test-runs start: an agent's own test set is frozen first, and that version runs", () => {
+  const AGENT = 'acme.drafting';
+  const OWN = `agent.${AGENT}.${TEST_PROJECT_ID}`;
+
+  /**
+   * The app with a freeze that answers `cases` cases at 1.0.3 (`freeze:
+   * false`: none wired), and a run binding that records each start. A run
+   * of the agent's own set answers at once; another runs as today.
+   */
+  function ownSetApp(
+    options: {
+      cases?: number;
+      freeze?: false;
+      grants?: readonly string[];
+      correctionRegistry?: CorrectionRegistryBinding;
+    } = {},
+  ) {
+    const { registry, binding: inner } = makeApp();
+    const freezes: FreezeTestSetInput[] = [];
+    const starts: Parameters<TestRunBinding['start']>[0][] = [];
+    const testSetFreeze: TestSetFreezeBinding = {
+      async freezeTestSet(input): Promise<FrozenTestSet> {
+        freezes.push(input);
+        const n = options.cases ?? 2;
+        return {
+          testSetId: OWN,
+          testSetVersion: '1.0.3',
+          cases: Array.from({ length: n }, (_, i) => ({
+            caseId: `case-${i}`,
+            correctionId: `case-${i}`,
+          })),
+        } as FrozenTestSet;
+      },
+    };
+    const binding: TestRunBinding = {
+      ...inner,
+      async start(input) {
+        starts.push(input);
+        return input.testSetId === OWN
+          ? { kind: 'ok', testRunId: 'run-own' as never }
+          : inner.start(input);
+      },
+    };
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken: options.grants === undefined ? resolveToken : resolveUserToken,
+      runHandler,
+      testSetRegistry: registry,
+      testRunBinding: binding,
+      ...(options.freeze !== false && { testSetFreeze }),
+      ...(options.grants !== undefined && { authz: grantsAuthz(options.grants) }),
+      ...(options.correctionRegistry !== undefined && {
+        correctionRegistry: options.correctionRegistry,
+      }),
+    });
+    return { app, registry, freezes, starts };
+  }
+
+  const start = (
+    app: ReturnType<typeof createApp>,
+    testSetId: string,
+    body: Record<string, unknown> = {},
+  ) =>
+    app.request(`/v1/test-sets/${testSetId}/runs`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: TEST_PROJECT_ID,
+        agentRef: { agentId: AGENT, version: '1.0.0' },
+        ...body,
+      }),
+    });
+
+  test('it freezes the set as it is now, and runs that version, recorded as testSetVersion', async () => {
+    const { app, freezes, starts } = ownSetApp();
+    const res = await start(app, OWN);
+    expect(res.status, await res.text()).toBe(201);
+    expect(freezes).toEqual([{ tenantId, agentId: AGENT, projectId: TEST_PROJECT_ID }]);
+    expect(starts).toMatchObject([
+      {
+        testSetId: OWN,
+        testSetVersion: '1.0.3',
+        agentRef: { agentId: AGENT, version: '1.0.0' },
+      },
+    ]);
+  });
+
+  test("another agent's or project's own set, or a flow: 400 bad-input, and nothing is frozen", async () => {
+    const { app, freezes, starts } = ownSetApp();
+    const otherProject = `agent.${AGENT}.${randomUUID()}`;
+    const answers = [
+      await start(app, otherProject),
+      await start(app, `agent.acme.other.${TEST_PROJECT_ID}`),
+      await start(app, OWN, {
+        agentRef: undefined,
+        flowRef: { flowId: 'acme.flow', version: '1.0.0' },
+      }),
+    ];
+    const bodies = await Promise.all(
+      answers.map(async (r) => ({
+        status: r.status,
+        ...((await r.json()) as { error: { code: string; message: string } }).error,
+      })),
+    );
+    expect(bodies.map((b) => [b.status, b.code])).toEqual([
+      [400, 'bad-input'],
+      [400, 'bad-input'],
+      [400, 'bad-input'],
+    ]);
+    expect(bodies[0]?.message).toBe(
+      `"${otherProject}" is an agent's own test set, and this run's agent and project have "${OWN}"`,
+    );
+    expect(bodies[2]?.message).toBe(
+      `"${OWN}" is an agent's own test set: run it with \`agentRef\`, for its agent in its project`,
+    );
+    expect(freezes).toEqual([]);
+    expect(starts).toEqual([]);
+  });
+
+  test("a runtime that doesn't freeze: 501, as a suggested change's check answers", async () => {
+    const { app, starts } = ownSetApp({ freeze: false });
+    const res = await start(app, OWN);
+    expect(res.status).toBe(501);
+    const body = (await res.json()) as { error: { code: string } };
+    expect(body.error.code).toBe('suggested-change-check-unsupported');
+    expect(starts).toEqual([]);
+  });
+
+  test("nothing to freeze: 409 in the check's words, and no run", async () => {
+    const { app, starts } = ownSetApp({ cases: 0 });
+    const res = await start(app, OWN);
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error).toMatchObject({
+      code: 'suggested-change-nothing-to-check',
+      message: `Project ${TEST_PROJECT_ID} has no corrections of ${AGENT} to check a change on: correct some of its conversations first`,
+    });
+    expect(starts).toEqual([]);
+  });
+
+  test('with corrections, their cases are read first: none freezes nothing (409), and one freezes and runs', async () => {
+    const cases = { data: [] as { id: string }[] };
+    const correctionRegistry = {
+      listCases: async () => ({ data: cases.data, hasMore: false }),
+    } as unknown as CorrectionRegistryBinding;
+    const { app, freezes, starts } = ownSetApp({ correctionRegistry });
+    const none = await start(app, OWN);
+    expect(none.status).toBe(409);
+    const body = (await none.json()) as { error: { code: string } };
+    expect(body.error.code).toBe('suggested-change-nothing-to-check');
+    expect(freezes).toEqual([]);
+    expect(starts).toEqual([]);
+
+    cases.data = [{ id: 'case-0' }];
+    const one = await start(app, OWN);
+    expect(one.status, await one.text()).toBe(201);
+    expect(freezes).toHaveLength(1);
+    expect(starts).toHaveLength(1);
+  });
+
+  test('another test set runs its latest version, as today, with nothing frozen', async () => {
+    const { app, registry, freezes, starts } = ownSetApp();
+    await seedTestSet(registry, { id: 'acme.by-hand', kind: 'accuracy', spec: accuracySpec });
+    const res = await start(app, 'acme.by-hand');
+    expect(res.status, await res.text()).toBe(201);
+    expect(freezes).toEqual([]);
+    expect(starts).toHaveLength(1);
+    expect(starts[0]?.testSetVersion).toBeUndefined();
+  });
+
+  test('who may: write on the project and running the agent, with no right on the set before its first freeze', async () => {
+    const grants = [`read project:${TEST_PROJECT_ID}`, `write project:${TEST_PROJECT_ID}`];
+    const allowed = ownSetApp({ grants: [...grants, `execute agent:${AGENT}`] });
+    const ran = await start(allowed.app, OWN);
+    expect(ran.status, await ran.text()).toBe(201);
+    const refused = ownSetApp({ grants });
+    expect((await start(refused.app, OWN)).status).toBe(403);
+    expect(refused.freezes).toEqual([]);
+    const noWrite = ownSetApp({
+      grants: [`read project:${TEST_PROJECT_ID}`, `execute agent:${AGENT}`],
+    });
+    expect((await start(noWrite.app, OWN)).status).toBe(403);
+    expect(noWrite.freezes).toEqual([]);
   });
 });
 
@@ -825,6 +1015,26 @@ describe('API — test-runs start validation', () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe('bad-input');
+  });
+
+  test("a `correlationId` starting `pin:` or `latest:` → 400 bad-input: they're the runs Kindgi starts itself", async () => {
+    const { app, registry } = makeApp();
+    await seedTestSet(registry, { id: 'acme.acc', kind: 'accuracy', spec: accuracySpec });
+    for (const correlationId of ['pin:pc-1', 'latest:acme.desk:p-1']) {
+      const res = await app.request('/v1/test-sets/acme.acc/runs', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          projectId: TEST_PROJECT_ID,
+          agentRef: { agentId: 'a' },
+          correlationId,
+        }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { code: string; message: string } };
+      expect(body.error.code).toBe('bad-input');
+      expect(body.error.message).toContain('may not start with `pin:` or `latest:`');
+    }
   });
 
   test('malformed JSON body → 400 bad-input', async () => {

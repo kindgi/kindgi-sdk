@@ -8,8 +8,11 @@ import type {
   AgentPinnedVersion,
   AgentPinnedVersionList,
   Pin,
+  PinAnswer,
   PinPage,
 } from '@kindgi/client';
+
+import type { AgentId } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
@@ -31,6 +34,7 @@ import {
 import {
   ANSWER_NO_EXIT_CODE,
   type TableSpec,
+  givenFlag,
   integerFlag,
   projectIdFlag,
   readJsonInput,
@@ -161,6 +165,31 @@ const unregister: LeafCommand = {
       const agentId = requiredPositional(ctx, 0, 'agent-id') as never;
       const version = requiredPositional(ctx, 1, 'version');
       return await ctx.client().agents.versions.unregister(agentId, version as never);
+    }),
+};
+
+const owner: LeafCommand = {
+  kind: 'leaf',
+  name: 'owner',
+  description:
+    "Show the agent's owner, or set it: the person its corrections go to when they need the owner.",
+  usage: 'kindgi agents owner <agent-id> [--set=<user-id>]',
+  optionSpec: {
+    set: {
+      type: 'string',
+      description:
+        'Make this person the owner, replacing the one before. Needs admin on the agent.',
+    },
+  },
+  run: (ctx) =>
+    runSdk(ctx, 'agents owner', async () => {
+      const agentId = requiredPositional(ctx, 0, 'agent-id');
+      // `--set=$U` with U unset is a usage error, never a read of the owner.
+      const userId = givenFlag(ctx, 'set');
+      const agents = ctx.client().agents;
+      if (userId !== undefined) return await agents.setOwner(agentId, userId);
+      const agent = await agents.get(agentId as AgentId);
+      return { agentId, ...(agent.owner !== undefined && { owner: agent.owner }) };
     }),
 };
 
@@ -322,13 +351,18 @@ const pin: LeafCommand = {
   kind: 'leaf',
   name: 'pin',
   description:
-    "Pin a version for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version. With a release gate for the scope, the run on the test cases named by --test-run is checked first: the answer's `status` is `pinned`, or `pending-approval` (a reviewer approves it); a refusal lists every check. `--check` asks what would happen, changing nothing. Exits 3 when the answer is no: the gate refuses the version, or it waits for an approval (`--wait` waits for the decision).",
-  usage: `kindgi agents pin <agent-id> <version> ${SCOPE_USAGE} [--test-run=<test-run-id>] [--reason=<text>] [--check] [--wait[=<duration>]]`,
+    "Pin a version for a scope: its runs that don't name a version use it, from the next run. Open conversations keep their version. It prints the pin's answer: the pin under `pin`, the test runs that check it, and the corrections a reused run marked `fixed` or reopened. With a release gate for the scope, the run on the test cases named by --test-run is checked first: the pin's `status` is `pinned`, or `pending-approval` (a reviewer approves it); a refusal lists every check. A pin that would take a project that follows Latest off it is refused (`409 pin-stops-latest`) unless --stop-following-latest. `--check` asks what the release gate would say, changing nothing. Exits 3 when the answer is no: the gate refuses the version, or it waits for an approval (`--wait` waits for the decision).",
+  usage: `kindgi agents pin <agent-id> <version> ${SCOPE_USAGE} [--test-run=<test-run-id>] [--reason=<text>] [--stop-following-latest] [--check] [--wait[=<duration>]]`,
   optionSpec: {
     ...SCOPE_FLAGS,
     'test-run': {
       type: 'string',
       description: 'The run on the test cases the release gate checks, kept on the record.',
+    },
+    'stop-following-latest': {
+      type: 'boolean',
+      description:
+        'Pin even when it takes a project that follows Latest off it: that project then runs the pinned version, and no longer takes each new Latest. Without it, such a pin is refused (`409 pin-stops-latest`).',
     },
     check: {
       type: 'boolean',
@@ -358,6 +392,7 @@ async function pinAgent(ctx: CommandContext): Promise<Rendered & { readonly exit
     scope: scopeFrom(ctx, true),
     ...reasonFlag(ctx),
     ...(testRunId !== undefined && { testRunId }),
+    ...(ctx.options['stop-following-latest'] === true && { stopFollowingLatest: true }),
   };
   const format = ctx.globals.format;
   const pins = ctx.client().agents.pinned;
@@ -371,11 +406,12 @@ async function pinAgent(ctx: CommandContext): Promise<Rendered & { readonly exit
       ...(check.outcome !== 'would-pin' && { exitCode: ANSWER_NO_EXIT_CODE }),
     };
   }
-  const change = await pins.pin(agentId, input, idempotency(ctx));
-  if (change.status !== 'pending-approval') return renderJson(change, format);
+  const answer = await pins.pin(agentId, input, idempotency(ctx));
+  const change = answer.pin;
+  if (change.status !== 'pending-approval') return renderJson(answer, format);
   if (waitMs === undefined) {
     return {
-      stdout: renderJson(change, format).stdout,
+      stdout: renderJson(answer, format).stdout,
       stderr: successNote(format, `${stillOpenLine(change)} \`--wait\` waits for the decision.\n`),
       exitCode: ANSWER_NO_EXIT_CODE,
     };
@@ -388,17 +424,21 @@ async function pinAgent(ctx: CommandContext): Promise<Rendered & { readonly exit
     () => pins.getChange(agentId, change.id),
     waitDeadline(ctx, waitMs),
   );
-  return waitedAnswer(waited, waitMs, format, out);
+  return waitedAnswer(answer, waited, waitMs, format, out);
 }
 
-/** What `agents pin --wait` answers: the pin as the wait ended it, and how it ended. */
+/**
+ * What `agents pin --wait` answers: the pin's answer with the pin as the
+ * wait ended it, and how it ended. Its test runs started with the request.
+ */
 function waitedAnswer(
+  answer: PinAnswer,
   waited: ApprovalWaited,
   waitMs: number,
   format: OutputFormat,
   out: ProgressLines,
 ): Rendered & { readonly exitCode?: number } {
-  const stdout = renderJson(waited.pin, format).stdout;
+  const stdout = renderJson({ ...answer, pin: waited.pin }, format).stdout;
   switch (waited.kind) {
     case 'stopped':
       out.line(`Stopped waiting. ${stillOpenLine(waited.pin)}`);
@@ -525,6 +565,7 @@ export const agentsCommand: Command = {
     get,
     publish,
     unregister,
+    owner,
     versions,
     pinned,
     pinnedVersions,

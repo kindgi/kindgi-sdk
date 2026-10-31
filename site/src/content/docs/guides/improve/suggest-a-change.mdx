@@ -69,6 +69,8 @@ pnpm exec kindgi suggested-changes create --agent=acme.rank.scorer --project=<pr
 - **Why:** `--why` says what the change should fix, and why. Its first line
   starts the suggested change's `title`. Each `--fixes=<correction-id>`
   names a correction it fixes, kept in its `fixes`. Repeat it for several.
+  Each must be a correction in the project: an unknown id, or another
+  project's, is refused (`validation-failed`), and nothing is made.
 
 It publishes the block version, makes the agent version that pins it, and
 starts the check. It prints the suggested change, `checking`:
@@ -273,9 +275,11 @@ project's version or its release gate changed before the approval.
 again.
 
 - **A project that runs its [Latest](../pinned-versions-reference/#latest)**
-  takes no pin: the request is refused with
-  `409 suggested-change-project-on-latest`.
-  [Add it as Latest](#add-it-as-latest) instead.
+  takes no pin unless you ask to take it off Latest: the request is refused
+  with `409 pin-stops-latest`. [Add it as Latest](#add-it-as-latest) instead,
+  or send `stopFollowingLatest: true` to pin it (`kindgi suggested-changes pin
+  --stop-following-latest`), and the project runs the pinned version from
+  then on.
 - **A project that runs another version** than the one the suggested change
   is built on takes no pin of it either: it's
   [rebuilt](#if-the-project-moves-first) first.
@@ -425,7 +429,9 @@ version was made in, when that's known.
 
 Under `kindgi dev`, the pack's files are what runs, and they serve every
 project. A suggested change is for one project, so making one is refused
-with `409 registry-read-only`, before anything is made.
+with `409 registry-read-only`, before anything is made. So is an
+[Improve run](../improve-an-agent/), started or checked: it makes a suggested
+change.
 
 Change the block's file instead, as
 [Keep them in the pack](../change-a-prompt-or-setting/#keep-them-in-the-pack)

@@ -7,10 +7,6 @@
     "Java": 1,
     "Scala": 1
   },
-  "guides/improve/change-a-prompt-or-setting": {
-    "Java": 1,
-    "Scala": 1
-  },
   "guides/improve/release-an-agent-version": {
     "Java": 2,
     "Scala": 2

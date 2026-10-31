@@ -157,6 +157,19 @@ class RequestedBy(BaseModel):
     id: str
 
 
+class PinTestRun(BaseModel):
+    """
+    A test run a pin checks a project with: the one the pin named, reused, or one it started, with correlation id `pin:<changeId>`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    test_run_id: Annotated[str, Field(alias="testRunId")]
+
+
 class PinScopeTenant(BaseModel):
     """
     The whole tenant.
@@ -219,7 +232,7 @@ class GateCheck(BaseModel):
     )
     name: str
     """
-    Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsPinned`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a pin it supersedes, to say what changed since the check.
+    Stable: `comparison.required`, `comparison.status`, `comparison.freshness`, `comparison.testSet`, `sameContents`, `baselineIsPinned`, `scopeCovered`, `evidence.<metric>.minCases|minWeight|baselineMinCases|baselineMinWeight`, `metric.<metric>.k|minCandidate|maxDrop`, `replay.maxDiverged|maxErrors|maxRefusedWrites|maxStopped`, `cases.minPassing|noNewFailures`, `groupWeights.expertsOnly`, and `approval.recheck`, which an approval adds to a pin it supersedes, to say what changed since the check.
     """
     passed: bool
     message: str
@@ -228,6 +241,10 @@ class GateCheck(BaseModel):
     """
     value: float | str | None = None
     threshold: float | str | None = None
+    case_ids: Annotated[list[str] | None, Field(alias="caseIds")] = None
+    """
+    The cases it names: for `cases.noNewFailures`, the ones that passed before and fail now (empty when none does). Absent when it could not tell, and on other checks.
+    """
 
 
 class ReleaseGateRef(BaseModel):
@@ -302,6 +319,25 @@ class Replay(BaseModel):
     At most this many tool calls the replay refused (the comparison summary's `refusedWrites`). Reads count too, despite the name.
     """
     max_stopped: Annotated[int | None, Field(alias="maxStopped", ge=0)] = None
+
+
+class Cases(BaseModel):
+    """
+    The cases the comparison graded: each correction it checked is a case, and it passes when every repetition did.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    min_passing: Annotated[int | None, Field(alias="minPassing", ge=0)] = None
+    """
+    At least this many cases pass.
+    """
+    no_new_failures: Annotated[bool | None, Field(alias="noNewFailures")] = None
+    """
+    No case that passed before fails: none of the comparison's corrections that are `fixed` now fails it. One the comparison didn't grade isn't counted; the check's message says how many of the cases fixed now it graded.
+    """
 
 
 class Approvals(BaseModel):
@@ -2330,6 +2366,9 @@ class CorrectionLink1(BaseModel):
     )
     kind: Literal["improve-run", "suggested-change"]
     id: str
+    """
+    The Improve run's or suggested change's id, without its prefix.
+    """
 
 
 class CorrectionLink2(BaseModel):
@@ -2355,6 +2394,30 @@ class CorrectionFixedIn(BaseModel):
     `pin`: a pin fixed it. `latest`: a deploy or an add moved Latest in a project that follows it. `recorded-right`: it said nothing was wrong.
     """
     by: CorrectionMadeBy | None = None
+    at: AwareDatetime
+
+
+class CorrectionReopenedIn(BaseModel):
+    """
+    The version whose test run got a `fixed` correction wrong again. It holds no words: a client builds the sentence from the project's and the person's current names.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    """
+    The version that gets it wrong.
+    """
+    how: Annotated[Literal["pin", "went-back", "unpin", "latest"] | str, _open.OPEN]
+    """
+    How the project came to run it. `pin`: a pin. `went-back`: a pin of a version earlier than the one it ran just before. `unpin`: an unpin. `latest`: a deploy or an add moved Latest in a project that follows it.
+    """
+    by: CorrectionMadeBy | None = None
+    """
+    Who pinned, went back or unpinned. Absent when Latest moved.
+    """
     at: AwareDatetime
 
 
@@ -2389,7 +2452,7 @@ class ChangeCorrectionBody(BaseModel):
     """
     link: str | None = None
     """
-    With `status: "being-fixed"`: a pull request URL, an Improve run (`ir-…`) or a suggested change (`sc-…`).
+    With `status: "being-fixed"`: a pull request URL, an Improve run (`ir-<its id>`) or a suggested change (`sc-<its id>`).
     """
     reason: Annotated[str | None, Field(max_length=4000, min_length=1)] = None
     """
@@ -2496,6 +2559,208 @@ class RemoveCorrectionResult(BaseModel):
     )
     correction_id: Annotated[str, Field(alias="correctionId")]
     unregistered: Literal[True]
+
+
+class AddTestCaseBody(BaseModel):
+    """
+    A correction's body on one of the agent's runs. At least one of `decisions`, `answer` and `items`. `decisions: "wrong"` needs an entry in `shouldCall` or `mustNotCall`; `answer: "wrong"` needs `shouldSay` or `why`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run_id: Annotated[str, Field(alias="runId", min_length=1)]
+    decisions: Literal["right", "wrong"] | None = None
+    should_call: Annotated[
+        list[ShouldCallItem] | None, Field(alias="shouldCall", max_length=50)
+    ] = None
+    """
+    Only with `decisions: "wrong"`: the calls the agent should have made.
+    """
+    must_not_call: Annotated[
+        list[MustNotCallItem] | None, Field(alias="mustNotCall", max_length=50)
+    ] = None
+    """
+    Only with `decisions: "wrong"`: tools that shouldn't have been called. A tool can't be in both.
+    """
+    answer: Literal["right", "wrong"] | None = None
+    should_say: Annotated[str | None, Field(alias="shouldSay", max_length=4000)] = None
+    """
+    Only with `answer: "wrong"`: what it should have said.
+    """
+    why: Annotated[str | None, Field(max_length=4000)] = None
+    items: Annotated[list[CorrectedAnswerItemInput] | None, Field(max_length=100)] = None
+    """
+    For an answer that is a ranked list: each item, and whether it was right. Each key once.
+    """
+
+
+class RetireTestCaseBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    reason: Annotated[str, Field(max_length=4000, min_length=1)]
+    """
+    Why the case no longer applies.
+    """
+
+
+class TestCaseDecisions(BaseModel):
+    """
+    `right`: it calls the same tools the corrected run called, by name, in any order (args aren't compared). `wrong`: it calls every `shouldCall` tool (with its `args` where given) and none of `mustNotCall`, checked exactly, without a model.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    verdict: Annotated[Literal["right", "wrong"] | str, _open.OPEN]
+    should_call: Annotated[list[ExpectedCall] | None, Field(alias="shouldCall")] = None
+    must_not_call: Annotated[list[str] | None, Field(alias="mustNotCall")] = None
+
+
+class TestCaseAnswer(BaseModel):
+    """
+    A judging model checks it. `right`: it says what the corrected run's answer said. `wrong`: it does what `shouldSay` or `why` asks.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    verdict: Annotated[Literal["right", "wrong"] | str, _open.OPEN]
+    should_say: Annotated[str | None, Field(alias="shouldSay")] = None
+    why: str | None = None
+
+
+class TestCaseExpect(BaseModel):
+    """
+    One part for each part its correction gave a verdict on; at least one.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    decisions: TestCaseDecisions | None = None
+    answer: TestCaseAnswer | None = None
+    items: list[CorrectedAnswerItem] | None = None
+    """
+    A ranked answer's items, scored as `weightedPrecisionAtK`.
+    """
+
+
+class TestCaseRetired(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    reason: str
+    by: CorrectionMadeBy
+    at: AwareDatetime
+
+
+class TestCase(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    A correction's case has the correction's id; a hand case's starts `case-`.
+    """
+    kind: Annotated[Literal["correction", "hand"] | str, _open.OPEN]
+    """
+    `correction`: a correction of the run. `hand`: added by hand.
+    """
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    The run's project.
+    """
+    run_id: Annotated[str, Field(alias="runId")]
+    made_on: Annotated[str, Field(alias="madeOn")]
+    """
+    The agent version the run ran.
+    """
+    expect: TestCaseExpect
+    added_by: Annotated[CorrectionMadeBy, Field(alias="addedBy")]
+    """
+    Who made the correction, or added the case.
+    """
+    added_at: Annotated[AwareDatetime, Field(alias="addedAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    """
+    When the case last changed: its `addedAt` until it's retired.
+    """
+    retired: TestCaseRetired | None = None
+    """
+    Present on a retired case: it stays listed, and no test run checks it.
+    """
+    expert: Literal[True] | None = None
+    """
+    Present (true) on an expert's case: a correction's case when the correction was recorded while its group was restricted, and every hand case, since adding one needs publish on the agent, or write on its project when more than one project serves the agent. A test run weighted `experts-only` grades only these. Absent from older servers.
+    """
+
+
+class TestCaseCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[TestCase]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor. Treat as opaque on the client.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class TestSetCaseCounts(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    active: Annotated[int, Field(ge=0)]
+    """
+    The cases a test run checks.
+    """
+    retired: Annotated[int, Field(ge=0)]
+
+
+class TestSetFrozenVersion(BaseModel):
+    """
+    The newest version frozen of this project's test set, which a test run checks: its cases are at `GET /v1/test-sets/{testSetId}/versions/{version}/cases`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    test_set_id: Annotated[str, Field(alias="testSetId")]
+    """
+    `agent.<agentId>.<projectId>`.
+    """
+    version: str
+
+
+class AgentTestSet(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId")]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    cases: TestSetCaseCounts
+    last_added_at: Annotated[AwareDatetime | None, Field(alias="lastAddedAt")] = None
+    """
+    When the newest case was added. Absent while it has none.
+    """
+    frozen_version: Annotated[TestSetFrozenVersion | None, Field(alias="frozenVersion")] = None
+    """
+    Absent until a test run has frozen it, or when the server freezes none.
+    """
 
 
 class Expert(BaseModel):
@@ -2639,70 +2904,6 @@ class CorrectorGroupAssertableByView(BaseModel):
     principal_count: Annotated[int | None, Field(alias="principalCount", ge=1)] = None
     """
     How many principals the group is restricted to (`principalIds`), for every reader. Absent when it names none.
-    """
-
-
-class CorrectorGroupId(RootModel[str]):
-    root: Annotated[str, Field(min_length=1)]
-
-
-class BuildCorrectedTestSetBody(BaseModel):
-    """
-    Name the agent (`agentId`) or the flow (`flowId`) whose corrected runs to use.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    version: str
-    """
-    Semver version to publish, e.g. `1.0.0`.
-    """
-    project_id: Annotated[str, Field(alias="projectId", min_length=1)]
-    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
-    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
-    """
-    Needs `agentId`.
-    """
-    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
-    since: AwareDatetime | None = None
-    """
-    Runs first corrected at or after this time.
-    """
-    until: AwareDatetime | None = None
-    """
-    Runs first corrected before this time.
-    """
-    corrector_group_ids: Annotated[
-        list[CorrectorGroupId] | None, Field(alias="correctorGroupIds")
-    ] = None
-    """
-    Count only corrections recorded under these corrector groups.
-    """
-    min_corrections: Annotated[int | None, Field(alias="minCorrections", ge=1)] = None
-    """
-    Leave out runs with fewer counted corrections. Default 1.
-    """
-    segments: list[ScopeSegment] | None = None
-    """
-    Only runs started in this segment path or below it, coarse to fine (e.g. `company=acme`). A run corrected before its segments were recorded with its corrections is in no segment, so it's left out.
-    """
-    description: str | None = None
-
-
-class BuildCorrectedTestSetResult(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    test_set_id: Annotated[str, Field(alias="testSetId")]
-    version: str
-    kind: Annotated[Literal["corrections"] | str, _open.OPEN]
-    case_count: Annotated[int, Field(alias="caseCount", ge=0)]
-    truncated: bool
-    """
-    Whether more corrected runs matched than the 1000 cases a set holds.
     """
 
 
@@ -4785,7 +4986,24 @@ class ImprovementBudget(BaseModel):
     """
 
 
+class ImproveRunOutcomeSuggested(BaseModel):
+    """
+    A change passed more cases than the version the run started from, and failed none that passed: the run wrote it as a suggested change for a reviewer to decide.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["suggested"]
+    suggested_change_id: Annotated[UUID, Field(alias="suggestedChangeId")]
+
+
 class HoldOut(BaseModel):
+    """
+    The best change's proof numbers, when one got that far: on every case, or on the set-aside part for a run stored before that.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -4796,20 +5014,76 @@ class HoldOut(BaseModel):
     spread: float | None = None
 
 
-class ImproveRunOutcome(BaseModel):
+class ImproveRunOutcomeNothingBetter(BaseModel):
     """
-    What a finished Improve run found. `suggested`: its best candidate beat the current values on the test set's hold-out part, so it wrote a suggested change (`suggestedChangeId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.
+    No change the run tried did better: `reason` says why, and `holdOut` has the best change's numbers when one got that far.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    kind: Annotated[Literal["suggested", "nothing-found", "failed"] | str, _open.OPEN]
-    suggested_change_id: Annotated[UUID | None, Field(alias="suggestedChangeId")] = None
-    reason: str | None = None
+    kind: Literal["nothing-better"]
+    reason: str
     hold_out: Annotated[HoldOut | None, Field(alias="holdOut")] = None
-    message: str | None = None
+    """
+    The best change's proof numbers, when one got that far: on every case, or on the set-aside part for a run stored before that.
+    """
+
+
+class ImproveRunOutcomeCostCap(BaseModel):
+    """
+    The run reached its budget with nothing kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["cost-cap"]
+    spent_usd: Annotated[str, Field(alias="spentUsd")]
+    """
+    What it spent, in US dollars.
+    """
+
+
+class ImproveRunOutcomeFailed(BaseModel):
+    """
+    The run failed: `message` says why.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["failed"]
+    message: str
+
+
+class ImproveRunStart(BaseModel):
+    """
+    The version an Improve run starts from: the one the project runs, pinned there (`pin`) or the agent's latest (`latest`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    follows: Annotated[Literal["pin", "latest"] | str, _open.OPEN]
+
+
+class SetAside(BaseModel):
+    """
+    The test set's cases set aside for the proof: `cases` of `of`. None with fewer than five. Absent from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    cases: Annotated[int, Field(ge=0)]
+    of: Annotated[int, Field(ge=0)]
 
 
 class RefusedItem(BaseModel):
@@ -4828,7 +5102,7 @@ class Comparison1(BaseModel):
     )
     test_run_id: Annotated[UUID | None, Field(alias="testRunId")] = None
     role: Annotated[Literal["reference", "candidate", "proof"] | str, _open.OPEN]
-    part: Annotated[Literal["search", "hold-out"] | str, _open.OPEN]
+    part: Annotated[Literal["search", "hold-out", "all"] | str, _open.OPEN]
     block_id: Annotated[str | None, Field(alias="blockId")] = None
     changed: dict[str, Any] | None = None
     score: float | None = None
@@ -4869,6 +5143,48 @@ class Budget2(BaseModel):
     max_candidates: Annotated[int | None, Field(alias="maxCandidates", ge=1, le=200)] = None
 
 
+class Fix(BaseModel):
+    """
+    For a missing item: where it's fixed (`repo`: in the agent's code, then a deploy; `kindgi`: in Kindgi) and how, in plain words.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    where: Annotated[Literal["repo", "kindgi"] | str, _open.OPEN]
+    text: str
+
+
+class ImproveReadinessItem(BaseModel):
+    """
+    One thing an Improve run needs. In this order: `wording` (a prompt block to reword), `settings` (settings marked Improve may tune), `test-cases` (the project's active cases for the agent, `count`), `permission` (`publish` on the agent), `one-at-a-time` (no Improve run of the agent running in the project) and `project` (a version of the agent runs in the project, and it isn't suspended).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key: Annotated[
+        Literal["wording", "settings", "test-cases", "permission", "one-at-a-time", "project"]
+        | str,
+        _open.OPEN,
+    ]
+    missing: bool
+    count: Annotated[int | None, Field(ge=0)] = None
+    """
+    For `test-cases`: the project's active cases for the agent.
+    """
+    improve_run_id: Annotated[UUID | None, Field(alias="improveRunId")] = None
+    """
+    For a missing `one-at-a-time`: the running Improve run.
+    """
+    fix: Fix | None = None
+    """
+    For a missing item: where it's fixed (`repo`: in the agent's code, then a deploy; `kindgi`: in Kindgi) and how, in plain words.
+    """
+
+
 class Basis(BaseModel):
     """
     What the estimate is built from.
@@ -4880,7 +5196,11 @@ class Basis(BaseModel):
     )
     replays: Annotated[int, Field(ge=0)]
     """
-    How many replay runs the Improve run's comparisons would make.
+    How many replay runs the Improve run's comparisons would make, its search's and its proof's.
+    """
+    proof_replays: Annotated[int | None, Field(alias="proofReplays", ge=0)] = None
+    """
+    Of `replays`, the proof's: the best change on every test case, and the version it starts from on the set-aside ones. The budget caps the search, not the proof. Absent when the runtime doesn't count them apart.
     """
     mean_run_cost_usd: Annotated[str | None, Field(alias="meanRunCostUsd")] = None
     """
@@ -4888,26 +5208,64 @@ class Basis(BaseModel):
     """
 
 
-class ImproveRunCheck(BaseModel):
+class Estimate(BaseModel):
     """
-    What an Improve run this input would start is estimated to cost: the budget cap it's clamped to, and — when the version has cost history — the estimate itself.
+    What it's estimated to cost: the budget, which caps its search, and, when the version has cost history, the estimate itself.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    estimated_cost_usd: Annotated[str | None, Field(alias="estimatedCostUsd")] = None
+    cost_usd: Annotated[str | None, Field(alias="costUsd")] = None
     """
-    The estimate (US dollars): `basis.replays` times `basis.meanRunCostUsd`, or `maxCostUsd` when that's smaller. Absent when the version has no cost history.
+    The estimate (US dollars): the search's replays (`basis.replays` less `basis.proofReplays`) times `basis.meanRunCostUsd`, at most `maxCostUsd`, plus the proof's replays times the same mean, which the budget doesn't cap. Without `basis.proofReplays`, every replay counts as the search's. Absent when the version has no cost history.
     """
     max_cost_usd: Annotated[str, Field(alias="maxCostUsd")]
     """
-    The budget cap the estimate is clamped to (`budget.maxCostUsd`, US dollars).
+    The budget (`budget.maxCostUsd`, US dollars): it caps the search's share of the estimate, and the proof's comes on top.
     """
     basis: Basis
     """
     What the estimate is built from.
+    """
+
+
+class Month(BaseModel):
+    """
+    With an Improve schedule on the agent and project: this UTC month's spend on their Improve runs, started by hand or by the schedule, against the schedule's monthly cap (US dollars). Only the schedule stops at the cap; a run started by hand isn't refused.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    spent_usd: Annotated[str, Field(alias="spentUsd")]
+    cap_usd: Annotated[str, Field(alias="capUsd")]
+
+
+class ImproveRunCheck(BaseModel):
+    """
+    Whether the Improve run this input would start is ready, and what it's estimated to cost. It's ready when no item it needs is missing: with no `tiers` named, `wording` or `settings` is enough; a named tier needs its own.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    ready: bool
+    starts_from: Annotated[ImproveRunStart | None, Field(alias="startsFrom")] = None
+    items: list[ImproveReadinessItem]
+    """
+    Every item, missing or not, in its order.
+    """
+    estimate: Estimate
+    """
+    What it's estimated to cost: the budget, which caps its search, and, when the version has cost history, the estimate itself.
+    """
+    month: Month | None = None
+    """
+    With an Improve schedule on the agent and project: this UTC month's spend on their Improve runs, started by hand or by the schedule, against the schedule's monthly cap (US dollars). Only the schedule stops at the cap; a run started by hand isn't refused.
     """
 
 
@@ -4938,9 +5296,9 @@ class CreateSuggestedChangeBody(BaseModel):
     For a prompt block: its new template.
     """
     why: Annotated[str, Field(max_length=2000, min_length=1)]
-    fixes: list[str] | None = None
+    fixes: Annotated[list[str] | None, Field(max_length=100)] = None
     """
-    The corrections it fixes, by id.
+    The corrections it fixes, by id, at most 100. Each must be a correction in the suggested change's project: an unknown id, or another project's, is refused (`400 validation-failed`, the ids in `details.fixes`).
     """
 
 
@@ -4950,6 +5308,18 @@ class SuggestedChangeReasonBody(BaseModel):
         populate_by_name=True,
     )
     reason: Annotated[str | None, Field(max_length=2000, min_length=1)] = None
+
+
+class SuggestedChangePinBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    reason: Annotated[str | None, Field(max_length=2000, min_length=1)] = None
+    stop_following_latest: Annotated[bool | None, Field(alias="stopFollowingLatest")] = None
+    """
+    Pin even when its project follows Latest now: the project then runs the pinned version, not each new Latest. Without it, that pin is refused (`409 pin-stops-latest`).
+    """
 
 
 class WithdrawSuggestedChangeBody(BaseModel):
@@ -5579,7 +5949,7 @@ class ModelInfo(BaseModel):
     """
     max_output_tokens: Annotated[int | None, Field(alias="maxOutputTokens", ge=1)] = None
     """
-    Fallback cap on output tokens. Adapters that require `max_tokens` on every request (e.g. Anthropic) use this when `ModelCallInput.maxOutputTokens` is unset.
+    The default cap on a call's output tokens: what a call asks for when it sets none. A call's own `ModelCallInput.maxOutputTokens` (its agent's `maxOutputTokens`) replaces it. Not the model's own maximum, which its vendor sets.
     """
     sampling: bool | None = None
     """
@@ -6785,6 +7155,80 @@ class BlockVersionSource(BaseModel):
     """
 
 
+class Pr(BaseModel):
+    """
+    The newest pull request opened for this version in the project, a draft on the pack's repository. Absent when none was opened: no repo connected, a pin wider than the project, or a version that came from the files.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    number: Annotated[int, Field(ge=1)]
+    url: str
+    state: Annotated[Literal["open", "merged", "closed"] | str, _open.OPEN]
+    """
+    As the repository said, read at most a minute ago.
+    """
+
+
+class InYourFiles(BaseModel):
+    """
+    Whether the pack's files have `blockVersion`: `yes` when the newest deployment in the project that ships `agentId` (its pack's newest there, looked for among the project's 200 newest deployments) lists the block at that version or a newer one, or the pull request opened for it there was merged; `not-yet` otherwise. Absent from a runtime that can't say, and for a row whose pull request can't be read now.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    state: Annotated[Literal["yes", "not-yet"] | str, _open.OPEN]
+    pr: Pr | None = None
+    """
+    The newest pull request opened for this version in the project, a draft on the pack's repository. Absent when none was opened: no repo connected, a pin wider than the project, or a version that came from the files.
+    """
+
+
+class BlockRunsIn(BaseModel):
+    """
+    One place a version of the block runs: a project, or a segment pin inside one, whose running version of an agent pins it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str, Field(alias="projectId")]
+    agent_id: Annotated[str, Field(alias="agentId")]
+    agent_version: Annotated[str, Field(alias="agentVersion")]
+    """
+    The agent's version that runs there, as `agents.projects` gives it.
+    """
+    block_version: Annotated[str, Field(alias="blockVersion")]
+    """
+    The block version that agent version pins.
+    """
+    follows: Annotated[Literal["pin", "latest"] | str, _open.OPEN]
+    """
+    Why the agent version runs there: `pin`, a pin that covers the project or the segment; `latest`, no pin covers it, so it runs the project's Latest.
+    """
+    segment: list[ScopeSegment] | None = None
+    """
+    A segment pin's path inside the project, which runs `agentVersion` instead. Absent for the project's own row.
+    """
+    in_your_files: Annotated[InYourFiles | None, Field(alias="inYourFiles")] = None
+    """
+    Whether the pack's files have `blockVersion`: `yes` when the newest deployment in the project that ships `agentId` (its pack's newest there, looked for among the project's 200 newest deployments) lists the block at that version or a newer one, or the pull request opened for it there was merged; `not-yet` otherwise. Absent from a runtime that can't say, and for a row whose pull request can't be read now.
+    """
+
+
+class BlockRunsInList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[BlockRunsIn]
+
+
 class PublishBlockBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -6964,7 +7408,7 @@ class TestRunComparison(BaseModel):
 
 class ComparisonMetric(BaseModel):
     """
-    One metric, the recorded runs beside the candidate. `null` where a side had no evidence from corrections; `n` / `weight` are the candidate's evidence (cases with corrected items, and the correction weight behind them), `baselineN` / `baselineWeight` the recorded side's.
+    One metric, the recorded runs beside the candidate. `null` where a side had no evidence from corrections: no corrected items, and for `passRate` no graded `expect` either. `n` / `weight` are the candidate's evidence, the cases it rests on and the weight behind them. For `passRate`, those are the cases with corrected items or a graded `expect`, and each graded part of an `expect`, its decisions and its answer, is one check of weight 1 beside the items' correction weight. For `caseCoverage` and `weightedPrecisionAtK`, they're the cases with corrected items only. `baselineN` / `baselineWeight` are the recorded side's.
     """
 
     model_config = ConfigDict(
@@ -7223,6 +7667,9 @@ class TestRun(BaseModel):
     Why a `cancelled` run stopped when nobody cancelled it: its project or tenant took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.
     """
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
+    """
+    The id the run was started with. `pin:<change id>` is a test run Kindgi started for a pin change, and `latest:<agent id>:<project id>` one it started for Latest moving in a project; a caller can't start a run with either.
+    """
     comparison: TestRunComparison | None = None
 
 
@@ -7253,6 +7700,9 @@ class StartTestRunBody(BaseModel):
     flow_ref: Annotated[TestRunFlowRef | None, Field(alias="flowRef")] = None
     dry_run: Annotated[bool | None, Field(alias="dryRun")] = None
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
+    """
+    An id of your own, kept on the run. It may not start with `pin:` or `latest:` (`bad-input`): those are the test runs Kindgi starts itself, for a pin change or Latest moving.
+    """
     baseline: (
         Annotated[Literal["recorded"] | str, _open.OPEN]
         | TestRunBaseline1
@@ -8692,6 +9142,82 @@ class DeploymentPrimitiveCounts(BaseModel):
     flows: Annotated[int, Field(ge=0)]
 
 
+class DeploymentSourceBody(BaseModel):
+    """
+    Where the pack lives in git, when the deploy runs inside a work tree. The deployment keeps it with each block's file from the image's index. A field it doesn't know is ignored. Not covered by the signature.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    repo: Annotated[
+        str | None,
+        Field(
+            max_length=1024, pattern="^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?:/[A-Za-z0-9_.-]+){2,}$"
+        ),
+    ] = None
+    """
+    The `origin` remote as `host/owner/name` (a group path may stand for the owner), with no scheme, user, password, token or `.git`. Absent when the work tree has no `origin`, or one that is not a host and a path.
+    """
+    path: Annotated[str, Field(max_length=1024, min_length=1)]
+    """
+    The pack's folder relative to the repository's root, `/`-separated: `.` when it is the root. Never an absolute path.
+    """
+    commit: Annotated[str, Field(pattern="^(?:[0-9a-f]{40}|[0-9a-f]{64})$")]
+    """
+    The commit checked out (`HEAD`), its full hex id.
+    """
+    branch: Annotated[str | None, Field(max_length=255, min_length=1)] = None
+    """
+    The branch checked out. Absent on a detached `HEAD`.
+    """
+    dirty: bool
+    """
+    The pack's folder had changes the commit doesn't hold, untracked files included.
+    """
+
+
+class DeploymentSource(BaseModel):
+    """
+    Where a deployment's pack lives in git, as `kindgi deploy` read it from the work tree it ran in. Absent for a deploy made outside git, one made before deploys said, and from a runtime that doesn't keep it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    repo: Annotated[
+        str | None,
+        Field(
+            max_length=1024, pattern="^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?:/[A-Za-z0-9_.-]+){2,}$"
+        ),
+    ] = None
+    """
+    The `origin` remote as `host/owner/name` (a group path may stand for the owner), with no scheme, user, password, token or `.git`. Absent when the work tree has no `origin`, or one that is not a host and a path.
+    """
+    path: Annotated[str, Field(max_length=1024, min_length=1)]
+    """
+    The pack's folder relative to the repository's root, `/`-separated: `.` when it is the root. Never an absolute path.
+    """
+    commit: Annotated[str, Field(pattern="^(?:[0-9a-f]{40}|[0-9a-f]{64})$")]
+    """
+    The commit checked out (`HEAD`), its full hex id.
+    """
+    branch: Annotated[str | None, Field(max_length=255, min_length=1)] = None
+    """
+    The branch checked out. Absent on a detached `HEAD`.
+    """
+    dirty: bool
+    """
+    The pack's folder had changes the commit doesn't hold, untracked files included.
+    """
+    block_files: Annotated[dict[str, str], Field(alias="blockFiles")]
+    """
+    Each of the pack's blocks by id: its file, relative to the pack's folder, as the image's index names it.
+    """
+
+
 class DeploymentEndpointProblem(BaseModel):
     """
     While the deployment waits for a pack service (`pending`, or `cleared` and `waiting`): the last reason recorded while it waited. A `ready` endpoint has none, nor a `retired` one. A fixed code, never free text.
@@ -8772,6 +9298,149 @@ class DeploymentEndpoint(BaseModel):
     """
 
 
+class DeploymentReplacedBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    block_id: Annotated[str, Field(alias="blockId")]
+    from_: Annotated[str, Field(alias="from")]
+    """
+    The newest version that ran in a project of one of the pack's agents (a promotion: in its target).
+    """
+    to: str
+    """
+    The files' older version, which the deploy shipped (a promotion: the build's).
+    """
+    reason: str
+    """
+    Why, as the deploy or the promotion said.
+    """
+    by: PinActor
+
+
+class DeployReplaceBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    block_id: Annotated[str, Field(alias="blockId", min_length=1)]
+    reason: Annotated[str, Field(max_length=500, min_length=1)]
+    """
+    Why the older version goes back: 1 to 500 characters, no control characters.
+    """
+
+
+class DeployCheckAgentId(RootModel[str]):
+    root: Annotated[str, Field(min_length=1)]
+    """
+    An agent's id, as the image index names it.
+    """
+
+
+class ReplacedItem(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    block_id: Annotated[str, Field(alias="blockId")]
+    from_: Annotated[str, Field(alias="from")]
+    """
+    The newest version that runs now.
+    """
+    to: str
+    """
+    The files' version.
+    """
+
+
+class DeployCheckResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    replaced: list[ReplacedItem]
+    """
+    The blocks `replace` names that a newer version runs for: the deploy puts each back, and records it.
+    """
+    not_needed: Annotated[list[str], Field(alias="notNeeded")]
+    """
+    The blocks `replace` names that nothing newer runs for: nothing to replace.
+    """
+
+
+class By2(BaseModel):
+    """
+    Who pinned it, or who added it as Latest; a person with their name when the directory has one.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["user", "service"]
+    id: str
+    name: str | None = None
+
+
+class Runs(BaseModel):
+    """
+    Where the newest version runs: a project the caller reads, when there is one. In a project the caller can't read, the version only.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    version: str
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    follows: Literal["pin", "latest"] | None = None
+    segment: list[ScopeSegment] | None = None
+    """
+    The segment path, when a pin on a segment inside the project runs it.
+    """
+    by: By2 | None = None
+    """
+    Who pinned it, or who added it as Latest; a person with their name when the directory has one.
+    """
+    at: AwareDatetime | None = None
+    """
+    When it was pinned, or became Latest there.
+    """
+
+
+class Pr1(BaseModel):
+    """
+    The pull request opened for the newer version there, when one was.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    url: str
+
+
+class DeployCheckStop(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    block_id: Annotated[str, Field(alias="blockId")]
+    in_files: Annotated[str, Field(alias="inFiles")]
+    """
+    The version in the pack's files.
+    """
+    runs: Runs
+    """
+    Where the newest version runs: a project the caller reads, when there is one. In a project the caller can't read, the version only.
+    """
+    pr: Pr1 | None = None
+    """
+    The pull request opened for the newer version there, when one was.
+    """
+
+
 class DeploymentValueNeededBy(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -8839,6 +9508,10 @@ class DeploymentPromotionBody(BaseModel):
     pin: bool | None = None
     """
     Pin every agent version the promotion carries in the target project, each through its scope's release gate, and every flow version it carries (the project's pin), so a run there that names no version takes it. The answer's `pinned` reports each agent and `pinnedFlows` each flow. An error answered after some were already pinned lists those in `error.details.pinned` and `error.details.pinnedFlows`, in the answer's shapes.
+    """
+    replace: list[DeployReplaceBlock] | None = None
+    """
+    With `pin`: the blocks the pins put back to an older version than runs in the target now, on purpose, each with why; a block named once. Without it, a newer version of one of the build's blocks running in the target stops the promotion (`409 deploy-would-put-back-older-blocks`).
     """
 
 
@@ -8927,6 +9600,45 @@ class DeploymentPinnedFlow(BaseModel):
     version: str
 
 
+class ReplacedItem1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    block_id: Annotated[str, Field(alias="blockId")]
+    from_: Annotated[str, Field(alias="from")]
+    """
+    The newest version that ran in the target.
+    """
+    to: str
+    """
+    The build's version, which the pins put there.
+    """
+
+
+class PromotionBlockCheck(BaseModel):
+    """
+    The build's blocks against what runs in the target; present only when `pin` was asked of a runtime that checks them.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    checked: bool
+    """
+    `false` for a build deployed before deployments kept their blocks (`contents.blocks`): nothing was compared, and `replace` did nothing.
+    """
+    replaced: list[ReplacedItem1]
+    """
+    The blocks `replace` names that a newer version runs for in the target: the pins put each back, and the audit log records it.
+    """
+    not_needed: Annotated[list[str], Field(alias="notNeeded")]
+    """
+    The blocks `replace` names that nothing newer runs for in the target.
+    """
+
+
 class PromotionNextEnvironment(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -8972,6 +9684,11 @@ class DeploymentRegistrationBody(BaseModel):
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
     The project to deploy into, one per client: its agents, flows, tools and guardrails are registered there, and its secret sync writes there. It takes admin on that project (a key limited to another project is refused). Absent: a tenant-wide deploy, into the tenant's Default project. An id that already lives in another project is `409` (`tool-project-mismatch` and the like): each client gets its own pack, whose ids carry its own pack id. Not covered by the signature, which attests the image.
+    """
+    source: DeploymentSourceBody | None = None
+    replace: list[DeployReplaceBlock] | None = None
+    """
+    The blocks the deploy puts back to an older version than runs now, on purpose, each with why; a block named once. Without it, a newer version of one of the pack's blocks running in a project of one of its agents stops the deploy (`409 deploy-would-put-back-older-blocks`). The deployment records each one put back (`replaced`). Not covered by the signature.
     """
 
 
@@ -9092,6 +9809,7 @@ class EvidenceKind(RootModel[str]):
                 "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
+                "deployment-replaced-block",
                 "block-version-published",
                 "block-version-unregistered",
                 "block-version-reinstated",
@@ -9276,6 +9994,7 @@ class ComplianceEvidence(BaseModel):
                 "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
+                "deployment-replaced-block",
                 "block-version-published",
                 "block-version-unregistered",
                 "block-version-reinstated",
@@ -9388,6 +10107,7 @@ class ExportComplianceEvidenceFilter(BaseModel):
                 "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
+                "deployment-replaced-block",
                 "block-version-published",
                 "block-version-unregistered",
                 "block-version-reinstated",
@@ -9477,6 +10197,7 @@ class Filter(BaseModel):
                 "trigger-changed-for-owner",
                 "environment-order-set",
                 "deployment-promoted",
+                "deployment-replaced-block",
                 "block-version-published",
                 "block-version-unregistered",
                 "block-version-reinstated",
@@ -9882,6 +10603,14 @@ class Project(BaseModel):
     """
     When the project was put in production; absent while it isn't. A run in a project in production is a production run, and a run anywhere else is staging.
     """
+    sort_end_user_corrections: Annotated[bool | None, Field(alias="sortEndUserCorrections")] = None
+    """
+    `true`: end users' corrections (an app's, with a `participantId`, and not an expert's) are sorted like the others when they're saved, and a schedule counting everyone's corrections counts them. `false` (the default): they're listed and become test cases, but stay open and unsorted, and never start Improve.
+    """
+    repo_connection_id: Annotated[str | None, Field(alias="repoConnectionId")] = None
+    """
+    The company-wide GitHub connection the project opens its block changes' pull requests through; absent while none is set. A connection removed since reads as none.
+    """
     created_at: Annotated[str, Field(alias="createdAt")]
     updated_at: Annotated[str, Field(alias="updatedAt")]
 
@@ -9909,6 +10638,29 @@ class ProjectProduction(BaseModel):
     """
 
 
+class ProjectRepoConnectionBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    connection_id: Annotated[str, Field(alias="connectionId", min_length=1)]
+    """
+    A company-wide GitHub connection's id (`GET /v1/connections`).
+    """
+
+
+class ProjectRepoConnection(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str, Field(alias="projectId")]
+    repo_connection_id: Annotated[str | None, Field(alias="repoConnectionId")]
+    """
+    The connection now set; `null` once cleared.
+    """
+
+
 class ProjectSpec(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -9932,6 +10684,10 @@ class ProjectPatch(BaseModel):
     org_id: Annotated[str | None, Field(alias="orgId")] = None
     """
     `null` explicitly re-assigns the project out of any org (cross-org).
+    """
+    sort_end_user_corrections: Annotated[bool | None, Field(alias="sortEndUserCorrections")] = None
+    """
+    Whether end users' corrections are sorted like the others and count toward a schedule (the project's `sortEndUserCorrections`). Admin on the project.
     """
 
 
@@ -10345,7 +11101,7 @@ class ScheduleFire(BaseModel):
         _open.OPEN,
     ]
     """
-    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (its threshold, or its monthly cap); the target's project is suspended (`project-suspended`), so no run or Improve run started; its run or Improve run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.
+    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (enough new corrections since its last Improve run, or room under its month's cap); the target's project is suspended (`project-suspended`), so no run or Improve run started; its run or Improve run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.
     """
     run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
@@ -11557,31 +12313,36 @@ class ApprovalRequestedEvent(BaseModel):
     data: ApprovalRequestedEventData
 
 
-class Budget3(BaseModel):
+class ImproveScheduleTarget(BaseModel):
     """
-    Each Improve run's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    max_cost_usd: Annotated[float | None, Field(alias="maxCostUsd", gt=0.0, le=100.0)] = None
-    max_candidates: Annotated[int | None, Field(alias="maxCandidates", ge=1, le=200)] = None
-
-
-class Threshold(BaseModel):
-    """
-    Default 5 corrections, across 3 runs, from 2 correctors.
+    What an improve schedule works on: the agent, in the project its Improve runs work in (the schedule's own).
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    corrections: Annotated[int | None, Field(ge=1, le=1000)] = None
-    runs: Annotated[int | None, Field(ge=1, le=1000)] = None
-    correctors: Annotated[int | None, Field(ge=1, le=1000)] = None
+    agent_id: Annotated[str, Field(alias="agentId", min_length=1)]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The schedule's own project. Absent from older servers, and on a schedule registered for a tenant or an org before Improve schedules worked in a project: its fires are refused until its target is saved with the schedule's project.
+    """
+
+
+class ImproveScheduleTargetInput(BaseModel):
+    """
+    What an improve schedule works on, as registering or changing one names it: the agent, and the project its Improve runs work in (the schedule's own).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId", min_length=1)]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    The schedule's own project.
+    """
 
 
 class Data2(BaseModel):
@@ -12745,7 +13506,7 @@ class CorrectedTestCaseCorrection(BaseModel):
 
 class ImproveRunModel(BaseModel):
     """
-    For a prompt Improve run: the provider and model that drafts the templates.
+    For the prompt tier: the provider and model that drafts the templates.
     """
 
     model_config = ConfigDict(
@@ -12758,7 +13519,7 @@ class ImproveRunModel(BaseModel):
 
 class StartImproveRunBodyModel(BaseModel):
     """
-    For a prompt Improve run: the tenant's provider and model that drafts the templates.
+    For the prompt tier: the tenant's provider and model that drafts the templates. Omit it for the model of the version's own model-settings block.
     """
 
     model_config = ConfigDict(
@@ -12838,6 +13599,19 @@ class ComparisonCaseResultTool(BaseModel):
     reason: str | None = None
 
 
+class Parts(BaseModel):
+    """
+    A case's `expect` only: whether each part the case expects passed on every repetition. Each one is a check in `passRate`. Absent from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    decisions: bool | None = None
+    answer: bool | None = None
+
+
 class ComparisonCaseResultCorrection(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -12855,6 +13629,14 @@ class ComparisonCaseResultCorrection(BaseModel):
     repetitions: Annotated[int, Field(ge=1)]
     """
     The `n` of "k of n".
+    """
+    why: str | None = None
+    """
+    The judging model's reason, from the first repetition whose answer failed, when the model gave one. It can quote the answer, so an erasure clears it. Absent from older servers.
+    """
+    parts: Parts | None = None
+    """
+    A case's `expect` only: whether each part the case expects passed on every repetition. Each one is a check in `passRate`. Absent from older servers.
     """
 
 
@@ -12942,6 +13724,27 @@ class DeploymentContentsFlow(BaseModel):
     """
 
 
+class DeploymentContentsBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str | None = None
+    """
+    Absent for guardrails, which have no version.
+    """
+
+
+class DeployCheckBodyBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: Annotated[str, Field(min_length=1)]
+    version: str
+
+
 class PromotionMovesTool(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -13024,6 +13827,10 @@ class ConnectionEntrySignInTenant(BaseModel):
 
 
 class ImproveScheduleInputModel(BaseModel):
+    """
+    For the prompt tier: what drafts the templates. Absent: the version's own model.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -13198,6 +14005,21 @@ class HttpRequestBodySpecUnrecognized(BaseModel):
 
 
 class IdentityProviderConfigUnrecognized(BaseModel):
+    """
+    A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: str
+    """
+    The `kind` it came with.
+    """
+
+
+class ImproveRunOutcomeUnrecognized(BaseModel):
     """
     A `kind` this client doesn't know yet, from a newer runtime: the object as it came, every field kept.
     """
@@ -13621,6 +14443,10 @@ class Pin(BaseModel):
     """
     When a `pending-approval` pin reached its final state.
     """
+    stopped_following_latest: Annotated[bool | None, Field(alias="stoppedFollowingLatest")] = None
+    """
+    A `pin`'s: `true` when it took a project that followed Latest off it, as its request asked (`stopFollowingLatest`) or as a promotion's pin does. Absent otherwise.
+    """
 
 
 class PinPage(BaseModel):
@@ -13631,6 +14457,55 @@ class PinPage(BaseModel):
     data: list[Pin]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class PinAnswer(BaseModel):
+    """
+    A pin, and the test runs that check it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    pin: Pin
+    test_runs: Annotated[list[PinTestRun], Field(alias="testRuns")]
+    """
+    One per project whose running version the pin changes and that has active cases: a project pin has one, a tenant or org pin one per such project, a segment pin none. While the pin waits for approval, its runs are already started.
+    """
+    fixed: list[str]
+    """
+    The corrections a reused run made `fixed` at pin time. Empty when the runs were started: their outcome changes the statuses when each ends.
+    """
+    reopened: list[str]
+    """
+    The corrections a reused run reopened at pin time, as `fixed`'s.
+    """
+
+
+class SuggestedChangePinAnswer(BaseModel):
+    """
+    A suggested change's pin, as `PinAnswer`, and the suggested change it pinned.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    pin: Pin
+    test_runs: Annotated[list[PinTestRun], Field(alias="testRuns")]
+    """
+    One per project whose running version the pin changes and that has active cases: a project pin has one, a tenant or org pin one per such project, a segment pin none. While the pin waits for approval, its runs are already started.
+    """
+    fixed: list[str]
+    """
+    The corrections a reused run made `fixed` at pin time. Empty when the runs were started: their outcome changes the statuses when each ends.
+    """
+    reopened: list[str]
+    """
+    The corrections a reused run reopened at pin time, as `fixed`'s.
+    """
+    suggested_change: Annotated[SuggestedChange, Field(alias="suggestedChange")]
 
 
 class PinnedVersionResolution(BaseModel):
@@ -13780,7 +14655,7 @@ class Comparison(BaseModel):
 
 class ReleaseGateSpec(BaseModel):
     """
-    What a pin must show. Every part is optional; an empty spec checks nothing. A pin must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay` or `onlyExpertGroups`. Unknown keys are refused.
+    What a pin must show. Every part is optional; an empty spec checks nothing. A pin must name a comparison (`testRunId`) exactly when the spec has `comparison`, `evidence`, `metrics`, `replay`, `cases` or `onlyExpertGroups`. Unknown keys are refused.
     """
 
     model_config = ConfigDict(
@@ -13796,6 +14671,10 @@ class ReleaseGateSpec(BaseModel):
     replay: Replay | None = None
     """
     Each knob left out of the block is 0. No block: no replay checks.
+    """
+    cases: Cases | None = None
+    """
+    The cases the comparison graded: each correction it checked is a case, and it passes when every repetition did.
     """
     approvals: Approvals | None = None
     """
@@ -13903,6 +14782,10 @@ class AgentPinBody(BaseModel):
     test_run_id: Annotated[str | None, Field(alias="testRunId")] = None
     """
     The comparison behind this pin.
+    """
+    stop_following_latest: Annotated[bool | None, Field(alias="stopFollowingLatest")] = None
+    """
+    Pin even when it takes a project that follows Latest now off it: the project then runs the pinned version, not each new Latest. Without it, such a pin is refused (`409 pin-stops-latest`). `POST …/pinned/check` ignores it.
     """
 
 
@@ -14667,18 +15550,34 @@ class CorrectedTestCase(BaseModel):
     """
     The case's id. A frozen case of an agent's test set has its correction's id, or a `case-` id when it was added by hand. A `corrections` test set built before 0.4.0 used the corrected run's id.
     """
+    run_id: Annotated[str | None, Field(alias="runId")] = None
+    """
+    The run the case was copied from. Absent from older servers: there a case of a `corrections` test set built before 0.4.0 has the run's id as its `caseId`.
+    """
     subject: CorrectedSubject
     input: Any
     context: CorrectedRunContext | None = None
     output: Any
+    segments: list[ScopeSegment] | None = None
+    """
+    The segment path its run was started with, coarse to fine (empty: none). Set on a frozen case of an agent's test set when its run's copy has it.
+    """
     items: list[CorrectedItemSummary]
     corrections: list[CorrectedTestCaseCorrection] | None = None
     """
     Experts' expected decisions carried onto this case from its corrections, each graded on the replay. Empty or absent when none. `experts-only` keeps only the entries whose correction was restricted.
     """
+    expect: TestCaseExpect | None = None
+    """
+    What the case expects of a run, as the agent's test set lists it. Set on a frozen case of an agent's test set, from its own correction or hand case, which also fill `items` and `corrections`. A grader reads it when it's present, and `items` and `corrections` otherwise.
+    """
+    expert: Literal[True] | None = None
+    """
+    Present (true) on a frozen case whose test case is an expert's: a test run weighted `experts-only` grades its `expect`, and drops the `expect` of every other case. Absent from older servers.
+    """
     erased: Literal[True] | None = None
     """
-    An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections` empty, and test runs leave it out (counted as `erased`).
+    An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections`, `expect` and `segments` gone, and test runs leave it out (counted as `erased`).
     """
 
 
@@ -14921,7 +15820,7 @@ class RegisterToolBody(BaseModel):
 
 class ImproveRun(BaseModel):
     """
-    An Improve run: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes a suggested change.
+    An Improve run: the runtime looking for better wording or settings values for an agent in a project, on the project's test set, within a budget. A candidate that does better becomes a suggested change.
     """
 
     model_config = ConfigDict(
@@ -14930,58 +15829,78 @@ class ImproveRun(BaseModel):
     )
     id: UUID
     agent_id: Annotated[str, Field(alias="agentId")]
-    from_version: Annotated[str, Field(alias="fromVersion")]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
-    The version whose settings it tunes.
+    The project it works in. Absent from older servers, and on a run started for a tenant or an org before Improve runs worked in a project.
     """
-    scope: Annotated[
-        PinScopeTenant
-        | PinScopeOrg
-        | PinScopeProject
-        | PinScopeSegment
-        | AgentPinScopeUnrecognized,
-        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
-    ]
+    starts_from: Annotated[ImproveRunStart, Field(alias="startsFrom")]
+    test_set_version: Annotated[str | None, Field(alias="testSetVersion")] = None
     """
-    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    The version of the project's test set it searches and proves on; absent until it's frozen.
     """
-    test_set_id: Annotated[str, Field(alias="testSetId")]
+    set_aside: Annotated[SetAside | None, Field(alias="setAside")] = None
     """
-    The test set it searches and proves on.
+    The test set's cases set aside for the proof: `cases` of `of`. None with fewer than five. Absent from older servers.
     """
     tiers: list[Annotated[Literal["settings", "prompt"] | str, _open.OPEN]]
+    """
+    The tiers it tries, the prompt tier first.
+    """
     objective: Annotated[Literal["passRate", "weightedPrecisionAtK"] | str, _open.OPEN]
     group_weights: Annotated[
-        Annotated[Literal["as-recorded", "experts-only"] | str, _open.OPEN] | None,
+        Annotated[Literal["as-recorded", "experts-only"] | str, _open.OPEN],
         Field(alias="groupWeights"),
-    ] = None
+    ]
     """
-    Which corrections its comparisons count. Absent from older servers: `experts-only`.
+    Which corrections its comparisons count.
     """
     model: ImproveRunModel | None = None
     """
-    For a prompt Improve run: the provider and model that drafts the templates.
+    For the prompt tier: the provider and model that drafts the templates.
     """
     candidates: Annotated[int | None, Field(ge=1, le=5)] = None
     """
-    For a prompt Improve run: how many templates it drafts.
+    For the prompt tier: how many templates it drafts.
     """
     budget: ImprovementBudget
     requested_by: Annotated[str, Field(alias="requestedBy")]
+    """
+    `user:<id>` or `service:<id>`.
+    """
     status: Annotated[Literal["running", "completed", "failed", "cancelled"] | str, _open.OPEN]
-    candidates_evaluated: Annotated[int, Field(alias="candidatesEvaluated", ge=0)]
+    tried: Annotated[int, Field(ge=0)]
+    """
+    Candidates tried so far.
+    """
     cost_usd: Annotated[str, Field(alias="costUsd")]
     """
     What its comparisons have cost so far (US dollars).
     """
-    outcome: ImproveRunOutcome | None = None
+    outcome: (
+        Annotated[
+            ImproveRunOutcomeSuggested
+            | ImproveRunOutcomeNothingBetter
+            | ImproveRunOutcomeCostCap
+            | ImproveRunOutcomeFailed
+            | ImproveRunOutcomeUnrecognized,
+            _open.OpenUnion("kind", ImproveRunOutcomeUnrecognized),
+        ]
+        | None
+    ) = None
+    """
+    What a finished Improve run found, by `kind`. `suggested`: the best change, proven on every case of the test set at the reference's repetitions, passed more cases than the version it started from and failed none that passed, so it wrote a suggested change (`suggestedChangeId`) for a reviewer to decide. `nothing-better`: no change it tried did better (`reason`; `holdOut` has the best change's numbers when one got that far). `cost-cap`: it reached its budget with nothing kept (`spentUsd`, US dollars). `failed`: `message` says why.
+    """
+    takes: list[str] | None = None
+    """
+    The ids of the corrections it took when it started. Absent from older servers.
+    """
     cancel_reason: Annotated[str | None, Field(alias="cancelReason")] = None
     """
     Why a `cancelled` Improve run stopped when nobody cancelled it: a comparison's test run was cancelled for it (that run's `cancelReason`, e.g. `project-suspended`). It wrote no suggested change. Absent when it was cancelled.
     """
     comparisons: list[Comparison1] | None = None
     """
-    Its comparisons so far, each a test run to open: `reference` (the version as it is, on the search part; for a model-settings change also on the hold-out part, what its proof is held to), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the suggested change, on the hold-out part). Absent from older servers.
+    Its comparisons so far, each a test run to open: `reference` (the version as it is, on each part: what the proof is held to, case by case), each `candidate` (the block and the values it changed, on the search part: what picks the change to suggest), and the `proof` (the suggested change, on `all` the cases at the reference's repetitions: what keeps it or not; an Improve run from before 0.4 ran its proof on the hold-out part). Absent from older servers.
     """
     trigger: Trigger | None = None
     """
@@ -15004,7 +15923,7 @@ class ImproveRunCollectionPage(BaseModel):
 
 class StartImproveRunBody(BaseModel):
     """
-    Start an Improve run.
+    Start an Improve run for an agent in a project, or check one first. It starts from the version the project runs, learns from the project's corrections, and searches and proves on the project's test set. A field not listed here is refused (`400 bad-input`, naming it).
     """
 
     model_config = ConfigDict(
@@ -15012,48 +15931,29 @@ class StartImproveRunBody(BaseModel):
         populate_by_name=True,
     )
     agent_id: Annotated[str, Field(alias="agentId")]
-    from_version: Annotated[str | None, Field(alias="fromVersion")] = None
+    project_id: Annotated[UUID, Field(alias="projectId")]
     """
-    The version whose settings it tunes. Default: the one serving `scope`.
-    """
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    """
-    The project the Improve run works in: `testSetId` must be a test set it reaches, the version must reach it, and the Improve run's test runs run there. A `project` or `segment` scope must be in it. Default, as an improve schedule's: the scope's project, else (a `tenant` or `org` scope) the agent version's. A project other than the version's needs `write` there.
-    """
-    scope: Annotated[
-        PinScopeTenant
-        | PinScopeOrg
-        | PinScopeProject
-        | PinScopeSegment
-        | AgentPinScopeUnrecognized,
-        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
-    ]
-    """
-    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
-    """
-    test_set_id: Annotated[str, Field(alias="testSetId")]
-    """
-    The test set (a corrections test set). The Improve run splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.
+    The project the Improve run works in.
     """
     tiers: Annotated[
-        list[Literal["settings", "prompt"]] | None, Field(max_length=1, min_length=1)
-    ] = ["settings"]
+        list[Literal["settings", "prompt"]] | None, Field(max_length=2, min_length=1)
+    ] = None
     """
-    `['settings']`: values for the tunable settings keys. `['prompt']`: a model drafts templates for the prompt block (needs `model`); a template that reads or names anything the agent doesn't have is refused, and a drafted suggested change always waits for a reviewer.
+    What it tries: `prompt` (a model drafts new wording for the prompt block; a template that reads or names anything the agent doesn't have is refused, and a drafted suggested change always waits for a reviewer) and `settings` (values for the settings Improve may tune). Omit it for every tier that's ready.
     """
     model: StartImproveRunBodyModel | None = None
     """
-    For a prompt Improve run: the tenant's provider and model that drafts the templates.
+    For the prompt tier: the tenant's provider and model that drafts the templates. Omit it for the model of the version's own model-settings block.
     """
-    candidates: Annotated[int | None, Field(ge=1, le=5)] = 3
+    candidates: Annotated[int | None, Field(ge=1, le=5)] = None
     """
-    For a prompt Improve run: how many templates it drafts.
+    For the prompt tier: how many templates it drafts. Omit it for the runtime's default.
     """
     group_weights: Annotated[
         Literal["as-recorded", "experts-only"] | None, Field(alias="groupWeights")
     ] = None
     """
-    Which corrections the Improve run learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project the Improve run reads its corrections from (its test set's project, which can differ from where the agent is made), or the agent improved in that project has an expert group, then only corrections recorded under one (`experts-only`).
+    Which corrections the Improve run learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project, or the agent in the project has an expert group, then only corrections recorded under one (`experts-only`).
     """
     objective: Literal["passRate", "weightedPrecisionAtK"] | None = "passRate"
     budget: Budget2 | None = None
@@ -15496,7 +16396,7 @@ class ComparisonCaseResult(BaseModel):
     """
     corrections: list[ComparisonCaseResultCorrection] | None = None
     """
-    Each correction graded on this case: its verdict and how many repetitions passed. Shown, not enforced. Survives an erasure — the differences, which quote values, are in `correctionDifferences`.
+    Each correction graded on this case: its verdict and how many repetitions passed. Shown, not enforced. A case of an agent's test set that carries `expect` has one entry instead, keyed by the case's id: a repetition passes when every part the case expects passed on it, and each part (`parts`) is one check in `passRate`. It has none when the case expects only items, or when a part couldn't be checked. Survives an erasure, all but `why` — the differences, which quote values, are in `correctionDifferences`.
     """
     correction_differences: Annotated[
         list[CorrectionDifference] | None, Field(alias="correctionDifferences")
@@ -15506,7 +16406,7 @@ class ComparisonCaseResult(BaseModel):
     """
     cost_usd: Annotated[list[CostUsdItem] | None, Field(alias="costUsd")] = None
     """
-    What each repetition's replay cost in model calls, as the runtime reported it, in US dollars: one per repetition. Absent when a repetition reported none.
+    What each repetition's replay cost in model calls, as the runtime reported it, in US dollars: one per repetition, with what checking its answer cost. Absent when a repetition reported none.
     """
     diverged: bool
     refused_writes: Annotated[int, Field(alias="refusedWrites", ge=0)]
@@ -15743,6 +16643,10 @@ class DeploymentContents(BaseModel):
     guardrails: list[DeploymentContentsGuardrail]
     agents: list[DeploymentContentsAgent]
     flows: list[DeploymentContentsFlow]
+    blocks: list[DeploymentContentsBlock] | None = None
+    """
+    The pack's data blocks, each `{ id, version }`. Absent on a deployment recorded before deployments listed them, and from a runtime that doesn't keep them.
+    """
 
 
 class DeploymentRecord(BaseModel):
@@ -15803,6 +16707,34 @@ class DeploymentRecord(BaseModel):
     endpoint: DeploymentEndpoint | None = None
     primitives: DeploymentPrimitiveCounts
     contents: DeploymentContents
+    source: DeploymentSource | None = None
+    replaced: list[DeploymentReplacedBlock] | None = None
+    """
+    The blocks the deploy put back to an older version than ran, on purpose (the body's `replace`). A deployment a promotion made has its own: the blocks that promotion's pins put back in its project, never the source deployment's. Absent when it put back none, and from a runtime that doesn't keep them.
+    """
+
+
+class DeployCheckBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The project the deploy goes into: the check takes the deploy's own right, admin on it. Absent: the tenant's Default project, admin on the tenant. Every project of the pack's agents counts, whichever this is.
+    """
+    agents: Annotated[list[DeployCheckAgentId], Field(max_length=500)]
+    """
+    The pack's agents, by id: the image index's.
+    """
+    blocks: Annotated[list[DeployCheckBodyBlock], Field(max_length=500)]
+    """
+    The pack's blocks, each at its version in the files; a block named once.
+    """
+    replace: list[DeployReplaceBlock] | None = None
+    """
+    As the deploy's `replace`: a block named once.
+    """
 
 
 class PromotionMoves(BaseModel):
@@ -15841,6 +16773,7 @@ class DeploymentPromotion(BaseModel):
     """
     Each carried flow version pinned in the target (the project's pin); present only when `pin` was asked of a runtime that pins flows.
     """
+    block_check: Annotated[PromotionBlockCheck | None, Field(alias="blockCheck")] = None
 
 
 class DeploymentPromotionCheck(BaseModel):
@@ -16298,6 +17231,236 @@ class SecretRotateRequest(BaseModel):
     revoke_old_after_ms: Annotated[int | None, Field(alias="revokeOldAfterMs", ge=0)] = None
 
 
+class ScheduleRecord(BaseModel):
+    """
+    A schedule: what it runs (a flow at a version, or an agent), when (a cron expression in a timezone), as whom (its owner), and what it does after a gap or while a run is still going.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    schedule_id: Annotated[str, Field(alias="scheduleId")]
+    """
+    Domain-friendly alias for `triggerId` — the trigger id (a UUID). Use interchangeably in admin URLs.
+    """
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    A schedule that runs a flow: the flow, at `flowVersion`.
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    A schedule that runs an agent: the agent, at `agentVersion`, else its version pinned for the schedule's project (else the latest), as a run that names none.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    improve: ImproveScheduleTarget | None = None
+    """
+    A schedule that starts Improve runs: on this agent, in this project (the schedule's), when the project has enough new corrections sorted to improve since its last Improve run (`input`: how many, whose, and what a run and the month may cost). An agent and project have one at most.
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The schedule's project: its runs are this project's.
+    """
+    owner: TriggerOwner | None = None
+    """
+    Who its runs act as. A person: a personal trigger, which only they or a project admin change. A service account: a shared trigger. Only a take-over (`POST …/owner`) changes it. Checked again at every fire.
+    """
+    cron_expression: Annotated[str, Field(alias="cronExpression", min_length=1)]
+    """
+    5- or 6-field cron expression (croner-compatible). 6-field enables second precision.
+    """
+    timezone: str | None = None
+    """
+    IANA timezone (e.g. `UTC`, `America/New_York`). Absent → `UTC`.
+    """
+    input: Any | None = None
+    """
+    Static input handed to the run on every fire. Absent → `{}`.
+    """
+    catch_up: Annotated[
+        Annotated[Literal["latest", "skip"] | str, _open.OPEN] | None, Field(alias="catchUp")
+    ] = None
+    """
+    After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence. A tenant's suspension isn't caught up either way: once the tenant is restored, a schedule that's on fires next at its first occurrence after the restore.
+    """
+    overlap: Annotated[Literal["skip", "allow"] | str, _open.OPEN] | None = None
+    """
+    When an occurrence comes while the previous run of this schedule is still running: `skip` records the fire as skipped; `allow` starts another run.
+    """
+    starting_deadline_seconds: Annotated[
+        int | None, Field(alias="startingDeadlineSeconds", ge=1)
+    ] = None
+    """
+    How late a fire may start and still count as on time; past it, `catchUp` applies.
+    """
+    label: str | None
+    status: Annotated[Literal["active", "paused"] | str, _open.OPEN]
+    """
+    Lifecycle status. Only `active` triggers fire. Tombstoned rows are excluded from every read path.
+    """
+    status_reason: Annotated[str | None, Field(alias="statusReason")] = None
+    """
+    Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count. For an Improve schedule, `owner-lost-publish` pauses it at once: its owner no longer has `publish` on the agent. Saving it with a new owner resumes it.
+    """
+    paused_until: Annotated[AwareDatetime | None, Field(alias="pausedUntil")] = None
+    """
+    For an Improve schedule whose month's Improve runs have reached its monthly cap (`input.monthCapUsd`): when it starts again by itself, the 1st of next month (UTC). It stays `active`, and its fires until then are `skipped`. Absent otherwise.
+    """
+    paused_reason: Annotated[
+        Annotated[Literal["month-cap"] | str, _open.OPEN] | None, Field(alias="pausedReason")
+    ] = None
+    """
+    Why it waits until `pausedUntil`: its month's cap.
+    """
+    version: Annotated[int | None, Field(ge=1)] = None
+    """
+    The trigger's newest version (`GET …/versions`): one more for each change to what it runs, when, as whom or with what. Absent until its first version.
+    """
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+    next_fire_at: Annotated[AwareDatetime | None, Field(alias="nextFireAt")]
+    """
+    Wall-clock time of the next scheduled fire. `null` on paused rows if the cron scheduler never re-armed.
+    """
+    upcoming: list[AwareDatetime] | None = None
+    """
+    The next occurrences, when the request asked for them (`?upcoming=N`).
+    """
+    last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+
+
+class ScheduleCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ScheduleRecord]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class RegisterScheduleBody(BaseModel):
+    """
+    Name what it runs: `flowId` with `flowVersion`, `agentId` (with an optional `agentVersion`), or `improve` (Improve runs). Registering needs `write` on the project and `execute` on what it runs; an `improve` schedule needs `publish` on the agent for that, and is in the project it improves. Its runs act as the caller.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    improve: ImproveScheduleTargetInput | None = None
+    """
+    Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `write` on the project and `publish` on the agent. An agent and project have one improve schedule at most (`409 schedule-exists`).
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the tenant's default project.
+    """
+    run_as_service_account_id: Annotated[
+        str | None, Field(alias="runAsServiceAccountId", min_length=1)
+    ] = None
+    """
+    A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named, and again when the schedule's target changes: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.
+    """
+    run_as_project: Annotated[bool | None, Field(alias="runAsProject")] = None
+    """
+    `true`: the schedule's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named, and again when the schedule's target changes: if it can't run the target, the request is refused (`409 trigger-owner-cannot-run-target`). Takes `admin` on the schedule's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.
+    """
+    config: RegisterScheduleBodyConfig
+    catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
+    """
+    Default `latest`.
+    """
+    overlap: Literal["skip", "allow"] | None = None
+    """
+    Default `skip`.
+    """
+    starting_deadline_seconds: Annotated[
+        int | None, Field(alias="startingDeadlineSeconds", ge=1, le=86400)
+    ] = None
+    """
+    Default 600.
+    """
+    label: str | None = None
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this schedule's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the schedule's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+
+
+class PatchScheduleBody(BaseModel):
+    """
+    Change what it runs (the target fields, as at registration, which also needs what registering it needs on the new target; a new `improve` target stays in the schedule's project), when, or its policies.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    improve: ImproveScheduleTargetInput | None = None
+    """
+    Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `write` on the project and `publish` on the agent.
+    """
+    config: PatchScheduleBodyConfig | None = None
+    catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
+    """
+    Default `latest`.
+    """
+    overlap: Literal["skip", "allow"] | None = None
+    """
+    Default `skip`.
+    """
+    starting_deadline_seconds: Annotated[
+        int | None, Field(alias="startingDeadlineSeconds", ge=1, le=86400)
+    ] = None
+    """
+    Default 600.
+    """
+    label: str | None = None
+    """
+    `null` clears the label; omit to leave unchanged.
+    """
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    Replaces the schedule's list; `[]` clears it, and absent keeps it. Naming it takes `admin` on the schedule's project. A change of what it runs (another flow or agent) while the list isn't empty must name it again, as it is or `[]`; a new version alone keeps it. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+
+
 class WebhookTriggerRecord(BaseModel):
     """
     A webhook trigger: a signed request to its `receiveUrl` starts a run of its flow, as its owner. The signing secret is never on it, only its name.
@@ -16524,6 +17687,120 @@ class PatchWebhookTriggerBody(BaseModel):
     """
     Replaces the trigger's list; `[]` clears it, and absent keeps it (a new `flowVersion` too). Naming it takes `admin` on the trigger's project, and it's checked against the flow at the version the trigger will run. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
+
+
+class ScheduleDefinition(BaseModel):
+    """
+    What a schedule's version runs, when and as whom, as its record names them, and never its state (status, next or last fire). The versions keep every input the trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    A schedule that runs a flow: the flow, at `flowVersion`.
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    A schedule that runs an agent: the agent, at `agentVersion`, else its version pinned for the schedule's project (else the latest), as a run that names none.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    improve: ImproveScheduleTarget | None = None
+    """
+    A schedule that starts Improve runs: on this agent, in this project (the schedule's), when the project has enough new corrections sorted to improve since its last Improve run (`input`: how many, whose, and what a run and the month may cost). An agent and project have one at most.
+    """
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    The schedule's project: its runs are this project's.
+    """
+    owner: TriggerOwner
+    """
+    Who its runs act as. A person: a personal trigger, which only they or a project admin change. A service account: a shared trigger. Only a take-over (`POST …/owner`) changes it. Checked again at every fire.
+    """
+    cron_expression: Annotated[str, Field(alias="cronExpression", min_length=1)]
+    """
+    5- or 6-field cron expression (croner-compatible). 6-field enables second precision.
+    """
+    timezone: str | None = None
+    """
+    IANA timezone (e.g. `UTC`, `America/New_York`). Absent → `UTC`.
+    """
+    input: Any | None = None
+    """
+    Static input handed to the run on every fire. Absent → `{}`.
+    """
+    catch_up: Annotated[
+        Annotated[Literal["latest", "skip"] | str, _open.OPEN], Field(alias="catchUp")
+    ]
+    """
+    After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence. A tenant's suspension isn't caught up either way: once the tenant is restored, a schedule that's on fires next at its first occurrence after the restore.
+    """
+    overlap: Annotated[Literal["skip", "allow"] | str, _open.OPEN]
+    """
+    When an occurrence comes while the previous run of this schedule is still running: `skip` records the fire as skipped; `allow` starts another run.
+    """
+    starting_deadline_seconds: Annotated[int, Field(alias="startingDeadlineSeconds", ge=1)]
+    """
+    How late a fire may start and still count as on time; past it, `catchUp` applies.
+    """
+    label: str | None
+    tools_allowed_unattended: Annotated[
+        list[ToolsAllowedUnattendedItem] | None,
+        Field(alias="toolsAllowedUnattended", max_length=100),
+    ] = None
+    """
+    The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    """
+
+
+class ScheduleVersion(BaseModel):
+    """
+    One version of a schedule: what it was from `createdAt` until the next. A fire's run uses the newest when it starts, and keeps it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    schedule_id: Annotated[str, Field(alias="scheduleId")]
+    """
+    The same id as `triggerId`.
+    """
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    version: Annotated[int, Field(ge=1)]
+    """
+    Counts from 1, one more for each version.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    created_by: Annotated[str | None, Field(alias="createdBy")] = None
+    """
+    Who made the change, as audit records name an actor (`user:<id>`, `service_account:<id>`, …). Absent on a version the runtime made (`first-fire`, `unversioned-edit`, `pin`).
+    """
+    cause: Annotated[
+        Literal["register", "edit", "owner", "first-fire", "unversioned-edit", "pin"] | str,
+        _open.OPEN,
+    ]
+    """
+    What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over to another owner), `first-fire` (the runtime's, at the first fire of a trigger from before versions, or a mail trigger's first look at its mailbox), `unversioned-edit` (the runtime's, at a fire or a mail trigger's look at its mailbox, or just before an edit or take-over, when the trigger's definition isn't its newest version's, as when a release from before versions changed it during an upgrade) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use).
+    """
+    definition: ScheduleDefinition
+
+
+class ScheduleVersionPage(BaseModel):
+    """
+    Newest first.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ScheduleVersion]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
 class WebhookTriggerDefinition(BaseModel):
@@ -16851,56 +18128,40 @@ class ImproveRunFinishedEvent(BaseModel):
     data: Data1
 
 
-class ImproveScheduleTarget(BaseModel):
-    """
-    What an improve schedule works on: the agent, and the pinned scope its Improve runs suggest changes for and count corrections in.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    agent_id: Annotated[str, Field(alias="agentId", min_length=1)]
-    scope: Annotated[
-        PinScopeTenant
-        | PinScopeOrg
-        | PinScopeProject
-        | PinScopeSegment
-        | AgentPinScopeUnrecognized,
-        _open.OpenUnion("kind", AgentPinScopeUnrecognized),
-    ]
-    """
-    Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
-    """
-
-
 class ImproveScheduleInput(BaseModel):
     """
-    An improve schedule's `config.input`. Each fire counts the answers marked wrong on the agent's runs in the scope since its last Improve run, as `groupWeights` counts them: by default everyone's corrections until a restricted (experts') corrector group is named, then experts' only. When there are enough, across enough runs and correctors, it starts an Improve run on fresh test cases from those runs; otherwise the fire is `skipped`, saying which count was short. An Improve run that suggests a change asks for the review at once.
+    An improve schedule's `config.input`. Each fire counts the project's open corrections sorted to improve, from `from`, made or sorted since its last Improve run started. With `corrections` of them, and room under `monthCapUsd`, it starts an Improve run that takes every open one; otherwise the fire is `skipped`, saying which was short. An Improve run that suggests a change asks for the review at once.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    tiers: list[Literal["settings", "prompt"]] | None = None
-    objective: Literal["passRate", "weightedPrecisionAtK"] | None = None
-    group_weights: Annotated[
-        Literal["experts-only", "as-recorded"] | None, Field(alias="groupWeights")
+    corrections: Annotated[int | None, Field(ge=1, le=1000)] = 5
+    """
+    How many new corrections start a run.
+    """
+    from_: Annotated[Literal["experts", "everyone"] | None, Field(alias="from")] = "experts"
+    """
+    Whose corrections count: the project's experts', or everyone's.
+    """
+    run_cap_usd: Annotated[float | None, Field(alias="runCapUsd", gt=0.0, le=100.0)] = 5
+    """
+    The most one run's search may cost, in US dollars; never more than what's left of the month's cap. The run's proof comes after its search, on top.
+    """
+    month_cap_usd: Annotated[float | None, Field(alias="monthCapUsd", gt=0.0, le=1000.0)] = 20
+    """
+    The cap on what the agent and project's Improve runs (by hand or by the schedule) cost in a calendar month (UTC), in US dollars. It holds their searches, not their proofs, so a proof can take the month past it. At the cap, the schedule waits for the next month (`pausedUntil`).
+    """
+    tiers: Annotated[
+        list[Literal["settings", "prompt"]] | None, Field(max_length=2, min_length=1)
     ] = None
+    """
+    What each run tries. Absent: every tier that's ready.
+    """
     model: ImproveScheduleInputModel | None = None
-    candidates: Annotated[int | None, Field(ge=1, le=5)] = None
-    budget: Budget3 | None = None
     """
-    Each Improve run's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
-    """
-    threshold: Threshold | None = None
-    """
-    Default 5 corrections, across 3 runs, from 2 correctors.
-    """
-    monthly_cap_usd: Annotated[float | None, Field(alias="monthlyCapUsd", gt=0.0, le=1000.0)] = None
-    """
-    The most its Improve runs may cost in a calendar month (UTC). Default 20.
+    For the prompt tier: what drafts the templates. Absent: the version's own model.
     """
 
 
@@ -17348,7 +18609,11 @@ class Correction(BaseModel):
     """
     fixed_in: Annotated[CorrectionFixedIn | None, Field(alias="fixedIn")] = None
     """
-    Present while it is `fixed`.
+    Present while it's `fixed`, and beside `reopenedIn` after a test run reopened it.
+    """
+    reopened_in: Annotated[CorrectionReopenedIn | None, Field(alias="reopenedIn")] = None
+    """
+    Present after a test run got a `fixed` correction wrong again: it's `open`, or `with-owner` when it's sorted to the owner, with the `fixedIn` it had beside it. A status set by hand clears both, and a re-sort alone keeps them. A test run that gets it right again makes it `fixed` with a new `fixedIn`.
     """
     status_note: Annotated[CorrectionStatusNote | None, Field(alias="statusNote")] = None
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
@@ -17727,340 +18992,6 @@ class SecretSetOutcome(
         | SecretSetOutcomeVersionConflict
         | SecretSetOutcomeError
     )
-
-
-class ScheduleRecord(BaseModel):
-    """
-    A schedule: what it runs (a flow at a version, or an agent), when (a cron expression in a timezone), as whom (its owner), and what it does after a gap or while a run is still going.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    schedule_id: Annotated[str, Field(alias="scheduleId")]
-    """
-    Domain-friendly alias for `triggerId` — the trigger id (a UUID). Use interchangeably in admin URLs.
-    """
-    trigger_id: Annotated[str, Field(alias="triggerId")]
-    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
-    """
-    A schedule that runs a flow: the flow, at `flowVersion`.
-    """
-    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
-    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
-    """
-    A schedule that runs an agent: the agent, at `agentVersion`, else its version pinned for the schedule's project (else the latest), as a run that names none.
-    """
-    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
-    improve: ImproveScheduleTarget | None = None
-    """
-    A schedule that starts Improve runs: on this agent, for this scope, when enough answers have been marked wrong since its last Improve run (`input`: the threshold, the monthly cap and the Improve options).
-    """
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    """
-    The schedule's project: its runs are this project's.
-    """
-    owner: TriggerOwner | None = None
-    """
-    Who its runs act as. A person: a personal trigger, which only they or a project admin change. A service account: a shared trigger. Only a take-over (`POST …/owner`) changes it. Checked again at every fire.
-    """
-    cron_expression: Annotated[str, Field(alias="cronExpression", min_length=1)]
-    """
-    5- or 6-field cron expression (croner-compatible). 6-field enables second precision.
-    """
-    timezone: str | None = None
-    """
-    IANA timezone (e.g. `UTC`, `America/New_York`). Absent → `UTC`.
-    """
-    input: Any | None = None
-    """
-    Static input handed to the run on every fire. Absent → `{}`.
-    """
-    catch_up: Annotated[
-        Annotated[Literal["latest", "skip"] | str, _open.OPEN] | None, Field(alias="catchUp")
-    ] = None
-    """
-    After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence. A tenant's suspension isn't caught up either way: once the tenant is restored, a schedule that's on fires next at its first occurrence after the restore.
-    """
-    overlap: Annotated[Literal["skip", "allow"] | str, _open.OPEN] | None = None
-    """
-    When an occurrence comes while the previous run of this schedule is still running: `skip` records the fire as skipped; `allow` starts another run.
-    """
-    starting_deadline_seconds: Annotated[
-        int | None, Field(alias="startingDeadlineSeconds", ge=1)
-    ] = None
-    """
-    How late a fire may start and still count as on time; past it, `catchUp` applies.
-    """
-    label: str | None
-    status: Annotated[Literal["active", "paused"] | str, _open.OPEN]
-    """
-    Lifecycle status. Only `active` triggers fire. Tombstoned rows are excluded from every read path.
-    """
-    status_reason: Annotated[str | None, Field(alias="statusReason")] = None
-    """
-    Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count.
-    """
-    version: Annotated[int | None, Field(ge=1)] = None
-    """
-    The trigger's newest version (`GET …/versions`): one more for each change to what it runs, when, as whom or with what. Absent until its first version.
-    """
-    tools_allowed_unattended: Annotated[
-        list[ToolsAllowedUnattendedItem] | None,
-        Field(alias="toolsAllowedUnattended", max_length=100),
-    ] = None
-    """
-    The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
-    """
-    next_fire_at: Annotated[AwareDatetime | None, Field(alias="nextFireAt")]
-    """
-    Wall-clock time of the next scheduled fire. `null` on paused rows if the cron scheduler never re-armed.
-    """
-    upcoming: list[AwareDatetime] | None = None
-    """
-    The next occurrences, when the request asked for them (`?upcoming=N`).
-    """
-    last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-
-
-class ScheduleCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[ScheduleRecord]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    has_more: Annotated[bool, Field(alias="hasMore")]
-
-
-class RegisterScheduleBody(BaseModel):
-    """
-    Name what it runs: `flowId` with `flowVersion`, `agentId` (with an optional `agentVersion`), or `improve` (Improve runs). Registering needs `write` on the project and `execute` on what it runs (`publish` on the agent for `improve`); its runs act as the caller.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
-    """
-    Run a flow (with `flowVersion`).
-    """
-    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
-    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
-    """
-    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
-    """
-    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
-    improve: ImproveScheduleTarget | None = None
-    """
-    Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `publish` on the agent.
-    """
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    """
-    The schedule's project. Absent → the tenant's default project.
-    """
-    run_as_service_account_id: Annotated[
-        str | None, Field(alias="runAsServiceAccountId", min_length=1)
-    ] = None
-    """
-    A service account the schedule's runs act as (its owner), named by id, instead of the caller. Needs `act_as` on that account — a tenant admin holds it — and the account must itself hold the access the schedule's target needs. With an authorization store, that's checked when the account is named, and again when the schedule's target changes: an account that can't is refused (`409 trigger-owner-cannot-run-target`). Not a project's own account (409 `service-account-project-owned`: name it with `runAsProject`). Absent: the caller owns it.
-    """
-    run_as_project: Annotated[bool | None, Field(alias="runAsProject")] = None
-    """
-    `true`: the schedule's runs act as its project's own service account, made the first time with the `editor` role on the project, so it's shared. It runs only what the project's editors can. With an authorization store, that's checked when it's named, and again when the schedule's target changes: if it can't run the target, the request is refused (`409 trigger-owner-cannot-run-target`). Takes `admin` on the schedule's project (without an authorization store, a tenant-admin key), not `act_as`. Not with `runAsServiceAccountId`, and not without a project (400). A runtime that can't make the account answers 501 `trigger-operation-unsupported`. `false` or absent: as `runAsServiceAccountId` says.
-    """
-    config: RegisterScheduleBodyConfig
-    catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
-    """
-    Default `latest`.
-    """
-    overlap: Literal["skip", "allow"] | None = None
-    """
-    Default `skip`.
-    """
-    starting_deadline_seconds: Annotated[
-        int | None, Field(alias="startingDeadlineSeconds", ge=1, le=86400)
-    ] = None
-    """
-    Default 600.
-    """
-    label: str | None = None
-    tools_allowed_unattended: Annotated[
-        list[ToolsAllowedUnattendedItem] | None,
-        Field(alias="toolsAllowedUnattended", max_length=100),
-    ] = None
-    """
-    The tools whose calls in this schedule's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the schedule's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
-    """
-
-
-class PatchScheduleBody(BaseModel):
-    """
-    Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), when, or its policies.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
-    """
-    Run a flow (with `flowVersion`).
-    """
-    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
-    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
-    """
-    Run an agent (instead of a flow): at `agentVersion`, else its pinned version.
-    """
-    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
-    improve: ImproveScheduleTarget | None = None
-    """
-    Start an Improve run instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the Improve run options; registering needs `publish` on the agent.
-    """
-    config: PatchScheduleBodyConfig | None = None
-    catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
-    """
-    Default `latest`.
-    """
-    overlap: Literal["skip", "allow"] | None = None
-    """
-    Default `skip`.
-    """
-    starting_deadline_seconds: Annotated[
-        int | None, Field(alias="startingDeadlineSeconds", ge=1, le=86400)
-    ] = None
-    """
-    Default 600.
-    """
-    label: str | None = None
-    """
-    `null` clears the label; omit to leave unchanged.
-    """
-    tools_allowed_unattended: Annotated[
-        list[ToolsAllowedUnattendedItem] | None,
-        Field(alias="toolsAllowedUnattended", max_length=100),
-    ] = None
-    """
-    Replaces the schedule's list; `[]` clears it, and absent keeps it. Naming it takes `admin` on the schedule's project. A change of what it runs (another flow or agent) while the list isn't empty must name it again, as it is or `[]`; a new version alone keeps it. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
-    """
-
-
-class ScheduleDefinition(BaseModel):
-    """
-    What a schedule's version runs, when and as whom, as its record names them, and never its state (status, next or last fire). The versions keep every input the trigger has had, so a secret pasted into its input stays in an earlier version after you edit it out: rotate it.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
-    """
-    A schedule that runs a flow: the flow, at `flowVersion`.
-    """
-    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
-    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
-    """
-    A schedule that runs an agent: the agent, at `agentVersion`, else its version pinned for the schedule's project (else the latest), as a run that names none.
-    """
-    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
-    improve: ImproveScheduleTarget | None = None
-    """
-    A schedule that starts Improve runs: on this agent, for this scope, when enough answers have been marked wrong since its last Improve run (`input`: the threshold, the monthly cap and the Improve options).
-    """
-    project_id: Annotated[UUID, Field(alias="projectId")]
-    """
-    The schedule's project: its runs are this project's.
-    """
-    owner: TriggerOwner
-    """
-    Who its runs act as. A person: a personal trigger, which only they or a project admin change. A service account: a shared trigger. Only a take-over (`POST …/owner`) changes it. Checked again at every fire.
-    """
-    cron_expression: Annotated[str, Field(alias="cronExpression", min_length=1)]
-    """
-    5- or 6-field cron expression (croner-compatible). 6-field enables second precision.
-    """
-    timezone: str | None = None
-    """
-    IANA timezone (e.g. `UTC`, `America/New_York`). Absent → `UTC`.
-    """
-    input: Any | None = None
-    """
-    Static input handed to the run on every fire. Absent → `{}`.
-    """
-    catch_up: Annotated[
-        Annotated[Literal["latest", "skip"] | str, _open.OPEN], Field(alias="catchUp")
-    ]
-    """
-    After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence. A tenant's suspension isn't caught up either way: once the tenant is restored, a schedule that's on fires next at its first occurrence after the restore.
-    """
-    overlap: Annotated[Literal["skip", "allow"] | str, _open.OPEN]
-    """
-    When an occurrence comes while the previous run of this schedule is still running: `skip` records the fire as skipped; `allow` starts another run.
-    """
-    starting_deadline_seconds: Annotated[int, Field(alias="startingDeadlineSeconds", ge=1)]
-    """
-    How late a fire may start and still count as on time; past it, `catchUp` applies.
-    """
-    label: str | None
-    tools_allowed_unattended: Annotated[
-        list[ToolsAllowedUnattendedItem] | None,
-        Field(alias="toolsAllowedUnattended", max_length=100),
-    ] = None
-    """
-    The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
-    """
-
-
-class ScheduleVersion(BaseModel):
-    """
-    One version of a schedule: what it was from `createdAt` until the next. A fire's run uses the newest when it starts, and keeps it.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    schedule_id: Annotated[str, Field(alias="scheduleId")]
-    """
-    The same id as `triggerId`.
-    """
-    trigger_id: Annotated[str, Field(alias="triggerId")]
-    version: Annotated[int, Field(ge=1)]
-    """
-    Counts from 1, one more for each version.
-    """
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    created_by: Annotated[str | None, Field(alias="createdBy")] = None
-    """
-    Who made the change, as audit records name an actor (`user:<id>`, `service_account:<id>`, …). Absent on a version the runtime made (`first-fire`, `unversioned-edit`, `pin`).
-    """
-    cause: Annotated[
-        Literal["register", "edit", "owner", "first-fire", "unversioned-edit", "pin"] | str,
-        _open.OPEN,
-    ]
-    """
-    What made the version: `register` (the trigger's first), `edit` (a change to it), `owner` (a take-over to another owner), `first-fire` (the runtime's, at the first fire of a trigger from before versions, or a mail trigger's first look at its mailbox), `unversioned-edit` (the runtime's, at a fire or a mail trigger's look at its mailbox, or just before an edit or take-over, when the trigger's definition isn't its newest version's, as when a release from before versions changed it during an upgrade) or `pin` (the runtime's, when it fixed a mail trigger to the one connection it could use).
-    """
-    definition: ScheduleDefinition
-
-
-class ScheduleVersionPage(BaseModel):
-    """
-    Newest first.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[ScheduleVersion]
-    has_more: Annotated[bool, Field(alias="hasMore")]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
 class FinishedRun(BaseModel):

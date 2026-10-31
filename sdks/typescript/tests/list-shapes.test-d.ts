@@ -220,12 +220,6 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
   test('signingKeys.list', () => {
     expectTypeOf<Answer<KindgiClient['signingKeys']['list']>>().toMatchTypeOf<WirePage>();
   });
-  test('supervisor.list', () => {
-    expectTypeOf<Answer<KindgiClient['supervisor']['list']>>().toMatchTypeOf<WirePage>();
-  });
-  test('supervisor.versions', () => {
-    expectTypeOf<Answer<KindgiClient['supervisor']['versions']>>().toMatchTypeOf<WirePage>();
-  });
   test('improveRuns.list', () => {
     expectTypeOf<Answer<KindgiClient['improveRuns']['list']>>().toMatchTypeOf<WirePage>();
   });

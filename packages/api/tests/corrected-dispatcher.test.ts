@@ -7,12 +7,17 @@ import type { ReplayToolTrace } from '@kindgi/agents';
 import type { ProjectId, RunId, TenantId } from '@kindgi/types';
 
 import type {
+  AnswerCheck,
+  AnswerCheckBinding,
+  AnswerCheckInput,
   CorrectedCaseResult,
   CorrectedComparisonSummary,
   CorrectedDispatcherOptions,
   CorrectedTestCase,
   DispatchContext,
+  TestCaseExpect,
   TestRunComparison,
+  TestRunJudging,
   TestRunSubjectInvokeInput,
   TestRunSubjectInvokeOutcome,
   TestSet,
@@ -51,6 +56,7 @@ const item = (key: string, yesWeight: number, totalWeight: number, extra: object
 
 const caseA: CorrectedTestCase = {
   caseId: 'case-a',
+  runId: 'case-a',
   subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
   input: 'find acme',
   context: { history: [{ role: 'user', content: 'earlier' }] },
@@ -64,6 +70,7 @@ const caseA: CorrectedTestCase = {
 
 const caseB: CorrectedTestCase = {
   caseId: 'case-b',
+  runId: 'case-b',
   subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
   input: 'find b',
   output: turn('B.'),
@@ -101,6 +108,9 @@ async function compare(options: {
   readonly answer?: (input: TestRunSubjectInvokeInput, call: number) => TestRunSubjectInvokeOutcome;
   readonly dryRun?: boolean;
   readonly cases?: readonly CorrectedTestCase[];
+  readonly answers?: AnswerCheckBinding;
+  readonly judging?: TestRunJudging;
+  readonly abortSignal?: AbortSignal;
 }) {
   const cases = inMemoryCaseStore();
   await cases.putCases({
@@ -124,9 +134,10 @@ async function compare(options: {
     testSet,
     target: { agentId: 'acme.agent' as never, version: '2.0.0' as never },
     dryRun: options.dryRun === true,
-    abortSignal: new AbortController().signal,
+    abortSignal: options.abortSignal ?? new AbortController().signal,
     projectId: 'p-run' as ProjectId,
     ...(options.comparison !== undefined && { comparison: options.comparison }),
+    ...(options.judging !== undefined && { judging: options.judging }),
     subject: {
       invoke: async (input) => {
         invoked.push(input);
@@ -142,6 +153,7 @@ async function compare(options: {
   const out = await createCorrectedDispatcher({
     cases,
     ...(options.agents !== undefined && { agents: options.agents }),
+    ...(options.answers !== undefined && { answers: options.answers }),
   }).dispatch(ctx);
   const result = out.result as {
     summary: CorrectedComparisonSummary;
@@ -176,13 +188,23 @@ describe('a comparison test run', () => {
     expect(invoked.map((i) => [i.input, i.replay, i.history, i.projectId])).toEqual([
       [
         'find acme',
-        { of: 'case-a', testRunId: 'eval-1' },
+        { of: 'case-a', caseId: 'case-a', testRunId: 'eval-1' },
         [{ role: 'user', content: 'earlier' }],
         'p-run',
       ],
-      ['find b', { of: 'case-b', testRunId: 'eval-1' }, [], 'p-run'],
+      ['find b', { of: 'case-b', caseId: 'case-b', testRunId: 'eval-1' }, [], 'p-run'],
     ]);
     expect(invoked[0]?.target).toEqual({ agentId: 'acme.agent', version: '2.0.0' });
+  });
+
+  test("a case named for its correction replays the case's run, and names the case", async () => {
+    const { invoked } = await compare({
+      cases: [{ ...caseA, caseId: 'corr-1', runId: 'run-7' }],
+      answer: () => answers['case-a'] as TestRunSubjectInvokeOutcome,
+    });
+    expect(invoked.map((i) => i.replay)).toEqual([
+      { of: 'run-7', caseId: 'corr-1', testRunId: 'eval-1' },
+    ]);
   });
 
   test('the summary: baseline beside candidate, with the evidence behind each', async () => {
@@ -367,6 +389,7 @@ describe('a comparison test run', () => {
 describe('an erased case (T273 M-5)', () => {
   const erasedB: CorrectedTestCase = {
     caseId: 'case-b',
+    runId: 'case-b',
     subject: caseB.subject,
     input: null,
     output: null,
@@ -537,6 +560,7 @@ describe('a comparison of a flow version', () => {
   const flowOutput = (matches: unknown[]) => ({ matches });
   const flowCase = (caseId: string, matches: unknown[]): CorrectedTestCase => ({
     caseId,
+    runId: caseId,
     subject: { kind: 'flow', id: 'acme.intake', version: '1.0.0' },
     input: { ticket: caseId },
     output: flowOutput(matches),
@@ -1106,5 +1130,759 @@ describe('what the replays cost', () => {
     const none = await compare({});
     expect(none.summary.costUsd).toBeUndefined();
     expect(none.perCase.every((c) => c.costUsd === undefined)).toBe(true);
+  });
+});
+
+describe("a case's expect, graded", () => {
+  /** An agent turn that called `tools` (by id) before it answered. */
+  const calledTurn = (answer: string, tools: readonly string[]) => ({
+    appended: [
+      { role: 'user', content: 'q' },
+      {
+        role: 'agent',
+        content: {
+          text: '',
+          toolCalls: tools.map((name, i) => ({ id: `c${i}`, name, arguments: {} })),
+        },
+      },
+      { role: 'tool', content: {} },
+      { role: 'agent', content: answer },
+    ],
+    output: { matches: [] },
+  });
+
+  const call = (
+    toolId: string,
+    args: Record<string, unknown> = {},
+    source: ReplayToolTrace['source'] = 'recorded',
+  ): ReplayToolTrace => ({
+    step: 1,
+    callId: `c-${toolId}-${source}`,
+    toolId,
+    toolVersion: '1.0.0',
+    arguments: args,
+    source,
+  });
+
+  /** A replay of `caseId` that made `tools` and answered `answer`. */
+  const replayed = (
+    caseId: string,
+    tools: readonly ReplayToolTrace[],
+    answer = 'Refunded $25.',
+    extra: Partial<TestRunSubjectInvokeOutcome> = {},
+  ): TestRunSubjectInvokeOutcome => ({
+    output: calledTurn(
+      answer,
+      tools.map((t) => t.toolId),
+    ),
+    runId: `${caseId}-run` as RunId,
+    provider: { id: 'p', model: 'm' },
+    replay: { of: caseId as RunId, testRunId: 'eval-1', tools: [...tools] },
+    ...extra,
+  });
+
+  /** A frozen case of an agent's test set: its recorded run looked the order up, then refunded it. */
+  const expecting = (
+    expect: TestCaseExpect,
+    extra: Partial<CorrectedTestCase> = {},
+  ): CorrectedTestCase => ({
+    caseId: 'j-1',
+    runId: 'j-1-run',
+    subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
+    input: 'refund order 7',
+    output: calledTurn('Refunded $25.', ['acme.lookup', 'acme.refund']),
+    items: [],
+    expect,
+    ...extra,
+  });
+
+  const refundNoEmail: TestCaseExpect = {
+    decisions: {
+      verdict: 'wrong',
+      shouldCall: [{ tool: 'acme.refund', args: { amount: 25 } }],
+      mustNotCall: ['acme.email'],
+    },
+  };
+  const sayHowLong: TestCaseExpect = {
+    answer: { verdict: 'wrong', shouldSay: 'Say the refund takes five days.' },
+  };
+
+  /** A checker that answers each call in turn from `verdicts` (then passes), keeping what it was asked. */
+  const checker = (...verdicts: AnswerCheck[]) => {
+    const asked: AnswerCheckInput[] = [];
+    const binding: AnswerCheckBinding = {
+      check: async (input) => {
+        asked.push(input);
+        return verdicts[asked.length - 1] ?? { kind: 'checked', pass: true };
+      },
+    };
+    return { binding, asked };
+  };
+
+  const once = { ...DEFAULT_COMPARISON, repetitions: 1 };
+
+  test("decisions wrong: every shouldCall and no mustNotCall passes, as one entry under the case's id", async () => {
+    // The freezer fills `corrections` from the same correction: it isn't graded a second time.
+    const corrected = expecting(refundNoEmail, {
+      corrections: [
+        {
+          correctionId: 'j-1',
+          calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+          notCalled: ['acme.email'],
+        },
+      ],
+    });
+    const { summary, perCase } = await compare({
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 2 },
+      cases: [corrected],
+      answer: () => replayed('j-1', [call('acme.lookup'), call('acme.refund', { amount: 25 })]),
+    });
+    expect(perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: true,
+        repetitionsPassed: 2,
+        repetitions: 2,
+        parts: { decisions: true },
+      },
+    ]);
+    expect(perCase[0]?.correctionDifferences).toBeUndefined();
+    expect(summary.corrections).toEqual({
+      checked: 1,
+      passed: 1,
+      results: [{ correctionId: 'j-1', pass: true }],
+    });
+    expect(wireErrors({ summary, perCase })).toEqual([]);
+  });
+
+  test('decisions wrong: a call it must not make fails, with how the calls differed', async () => {
+    const { perCase } = await compare({
+      comparison: once,
+      cases: [expecting(refundNoEmail)],
+      answer: () =>
+        replayed('j-1', [call('acme.refund', { amount: 25 }), call('acme.email', { to: 'desk' })]),
+    });
+    expect(perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: false,
+        repetitionsPassed: 0,
+        repetitions: 1,
+        parts: { decisions: false },
+      },
+    ]);
+    expect(perCase[0]?.correctionDifferences).toEqual([
+      {
+        correctionId: 'j-1',
+        repetition: 1,
+        differences: [{ tool: 'acme.email', kind: 'must-not-call', actual: 1 }],
+      },
+    ]);
+  });
+
+  test("decisions right: the recorded run's tools in another order pass, a refused one counting; a missing one fails", async () => {
+    const right = expecting({ decisions: { verdict: 'right' } });
+    const reordered = await compare({
+      comparison: once,
+      cases: [right],
+      answer: () =>
+        replayed('j-1', [call('acme.refund', { amount: 25 }, 'refused'), call('acme.lookup')]),
+    });
+    expect(reordered.perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: true,
+        repetitionsPassed: 1,
+        repetitions: 1,
+        parts: { decisions: true },
+      },
+    ]);
+    const missing = await compare({
+      comparison: once,
+      cases: [right],
+      answer: () => replayed('j-1', [call('acme.lookup')]),
+    });
+    expect(missing.perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: false,
+        repetitionsPassed: 0,
+        repetitions: 1,
+        parts: { decisions: false },
+      },
+    ]);
+    const extra = await compare({
+      comparison: once,
+      cases: [right],
+      answer: () => replayed('j-1', [call('acme.lookup'), call('acme.refund'), call('acme.email')]),
+    });
+    expect(extra.perCase[0]?.corrections?.[0]?.pass).toBe(false);
+  });
+
+  test("decisions right: a recorded run whose calls can't be read leaves the case with no pass", async () => {
+    const { perCase } = await compare({
+      comparison: once,
+      // `turn` records its call without the tool's name.
+      cases: [expecting({ decisions: { verdict: 'right' } }, { output: turn('Refunded $25.') })],
+      answer: () => replayed('j-1', [call('acme.lookup')]),
+    });
+    expect(perCase[0]?.corrections).toBeUndefined();
+  });
+
+  test('answer wrong: the checker decides, and a failing answer says why', async () => {
+    const corrected = expecting(sayHowLong);
+    const passing = checker({ kind: 'checked', pass: true });
+    const passed = await compare({
+      comparison: once,
+      cases: [corrected],
+      answers: passing.binding,
+      answer: () => replayed('j-1', [], 'Refunded $25; it takes five days.'),
+    });
+    expect(passed.perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: true,
+        repetitionsPassed: 1,
+        repetitions: 1,
+        parts: { answer: true },
+      },
+    ]);
+    expect(passing.asked).toEqual([
+      {
+        tenantId,
+        projectId: 'p-run',
+        testRunId: 'eval-1',
+        caseId: 'j-1',
+        agentId: 'acme.agent',
+        judging: { version: '2.0.0' },
+        input: 'refund order 7',
+        recorded: corrected.output,
+        answer: calledTurn('Refunded $25; it takes five days.', []),
+        expect: { verdict: 'wrong', shouldSay: 'Say the refund takes five days.' },
+      },
+    ]);
+    const failing = checker({ kind: 'checked', pass: false, why: 'It never says how long.' });
+    const failed = await compare({
+      comparison: once,
+      cases: [corrected],
+      answers: failing.binding,
+      answer: () => replayed('j-1', []),
+    });
+    expect(failed.perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: false,
+        repetitionsPassed: 0,
+        repetitions: 1,
+        why: 'It never says how long.',
+        parts: { answer: false },
+      },
+    ]);
+    expect(wireErrors(failed)).toEqual([]);
+  });
+
+  test('answer right: the checker holds it to the recorded answer', async () => {
+    const corrected = expecting({ answer: { verdict: 'right' } });
+    const passing = checker({ kind: 'checked', pass: true });
+    const passed = await compare({
+      comparison: once,
+      cases: [corrected],
+      answers: passing.binding,
+      answer: () => replayed('j-1', []),
+    });
+    expect(passed.perCase[0]?.corrections?.[0]?.pass).toBe(true);
+    expect(passing.asked[0]).toMatchObject({
+      recorded: corrected.output,
+      expect: { verdict: 'right' },
+    });
+    const failed = await compare({
+      comparison: once,
+      cases: [corrected],
+      answers: checker({ kind: 'checked', pass: false, why: 'It refunds a different amount.' })
+        .binding,
+      answer: () => replayed('j-1', [], 'Refunded $80.'),
+    });
+    expect(failed.perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: false,
+        repetitionsPassed: 0,
+        repetitions: 1,
+        why: 'It refunds a different amount.',
+        parts: { answer: false },
+      },
+    ]);
+  });
+
+  test('decisions and answer: a repetition passes only when both do', async () => {
+    const corrected = expecting({ ...refundNoEmail, ...sayHowLong });
+    const good = [call('acme.refund', { amount: 25 })];
+    // Repetition 1: both pass. 2: its calls pass, its answer fails.
+    const answers = checker(
+      { kind: 'checked', pass: true },
+      { kind: 'checked', pass: false, why: 'It never says how long.' },
+    );
+    const { perCase } = await compare({
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 2 },
+      cases: [corrected],
+      answers: answers.binding,
+      answer: () => replayed('j-1', good),
+    });
+    expect(answers.asked).toHaveLength(2);
+    expect(perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: false,
+        repetitionsPassed: 1,
+        repetitions: 2,
+        why: 'It never says how long.',
+        parts: { decisions: true, answer: false },
+      },
+    ]);
+  });
+
+  test('a repetition whose decisions failed still has its answer checked: the answer is a check of its own', async () => {
+    const corrected = expecting({ ...refundNoEmail, ...sayHowLong });
+    const good = [call('acme.refund', { amount: 25 })];
+    // Repetition 1: both pass. 2: its calls fail, its answer passes. 3: both pass.
+    const answers = checker();
+    const { perCase, invoked } = await compare({
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 3 },
+      cases: [corrected],
+      answers: answers.binding,
+      answer: (_, n) => replayed('j-1', n === 2 ? [...good, call('acme.email')] : good),
+    });
+    expect(invoked).toHaveLength(3);
+    expect(answers.asked).toHaveLength(3);
+    expect(perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: false,
+        repetitionsPassed: 2,
+        repetitions: 3,
+        parts: { decisions: false, answer: true },
+      },
+    ]);
+    expect(perCase[0]?.correctionDifferences).toEqual([
+      expect.objectContaining({ correctionId: 'j-1', repetition: 2 }),
+    ]);
+  });
+
+  test('the checker stops at the first repetition whose answer fails', async () => {
+    const answers = checker(
+      { kind: 'checked', pass: true },
+      { kind: 'checked', pass: false, why: 'It never says how long.' },
+    );
+    const { perCase, invoked } = await compare({
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 3 },
+      cases: [expecting(sayHowLong)],
+      answers: answers.binding,
+      answer: (_, n) => replayed('j-1', [], `Answer ${n}.`),
+    });
+    // Every repetition ran; only the first two were checked.
+    expect(invoked).toHaveLength(3);
+    expect(answers.asked.map((a) => a.answer)).toEqual([
+      calledTurn('Answer 1.', []),
+      calledTurn('Answer 2.', []),
+    ]);
+    expect(perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: false,
+        repetitionsPassed: 1,
+        repetitions: 3,
+        why: 'It never says how long.',
+        parts: { answer: false },
+      },
+    ]);
+  });
+
+  test("an errored or stopped repetition fails, and its answer isn't checked, nor any after it", async () => {
+    const errored = checker();
+    const afterAnError = await compare({
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 3 },
+      cases: [expecting(sayHowLong)],
+      answers: errored.binding,
+      answer: (_, n) =>
+        n === 2 ? { error: 'no model', runId: 'j-1-run' as RunId } : replayed('j-1', []),
+    });
+    expect(errored.asked).toHaveLength(1);
+    expect(afterAnError.perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: false,
+        repetitionsPassed: 1,
+        repetitions: 3,
+        parts: { answer: false },
+      },
+    ]);
+    const stopped = checker();
+    const firstStopped = await compare({
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 2 },
+      cases: [expecting(sayHowLong)],
+      answers: stopped.binding,
+      answer: (_, n) =>
+        n === 1
+          ? replayed('j-1', [call('acme.email', {}, 'refused')], 'Refunded $25.', {
+              stopped: { toolId: 'acme.email', arguments: {}, reason: 'refused' },
+            })
+          : replayed('j-1', []),
+    });
+    expect(stopped.asked).toHaveLength(0);
+    expect(firstStopped.perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: false,
+        repetitionsPassed: 0,
+        repetitions: 2,
+        parts: { answer: false },
+      },
+    ]);
+  });
+
+  test('a test run stopped before its answers are checked leaves the case with no pass', async () => {
+    const stop = new AbortController();
+    const answers = checker();
+    const { perCase, error } = await compare({
+      comparison: once,
+      cases: [expecting(sayHowLong)],
+      answers: answers.binding,
+      abortSignal: stop.signal,
+      answer: () => {
+        stop.abort();
+        return replayed('j-1', []);
+      },
+    });
+    expect(error).toBe('cancelled');
+    expect(answers.asked).toHaveLength(0);
+    expect(perCase[0]?.corrections).toBeUndefined();
+  });
+
+  test('no checker: a case that expects an answer has no pass, even when its decisions pass', async () => {
+    const { perCase } = await compare({
+      comparison: once,
+      cases: [expecting({ ...refundNoEmail, ...sayHowLong })],
+      answer: () => replayed('j-1', [call('acme.refund', { amount: 25 })]),
+    });
+    expect(perCase[0]?.corrections).toBeUndefined();
+    expect(perCase[0]?.correctionDifferences).toBeUndefined();
+  });
+
+  test("a checker that can't check leaves the case with no pass", async () => {
+    const answers = checker({ kind: 'unchecked', reason: 'The version has no model settings.' });
+    const { perCase } = await compare({
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 2 },
+      cases: [expecting(sayHowLong)],
+      answers: answers.binding,
+      answer: () => replayed('j-1', []),
+    });
+    expect(answers.asked).toHaveLength(1);
+    expect(perCase[0]?.corrections).toBeUndefined();
+  });
+
+  test("a check whose reply couldn't be read leaves the case with no pass, and counts what its call cost", async () => {
+    const { perCase } = await compare({
+      comparison: once,
+      cases: [expecting(sayHowLong)],
+      answers: checker({
+        kind: 'unchecked',
+        reason: "The judging model's reply couldn't be read.",
+        costUsd: 0.01,
+      }).binding,
+      answer: () => replayed('j-1', [], 'Refunded $25.', { costUsd: 0.1 }),
+    });
+    expect(perCase[0]?.corrections).toBeUndefined();
+    expect(perCase[0]?.costUsd?.[0]).toBeCloseTo(0.11, 10);
+  });
+
+  test('a case that expects only items has no pass, and counts toward the metric as before', async () => {
+    const items = [item('answer', 1, 1, { pointer: '/appended/3/content' })];
+    const itemsOnly = expecting({ items: [{ key: 'answer', verdict: 'right' }] }, { items });
+    const { expect: _, ...plain } = itemsOnly;
+    const answers = checker();
+    const withExpect = await compare({
+      comparison: once,
+      cases: [itemsOnly],
+      answers: answers.binding,
+      answer: () => replayed('j-1', []),
+    });
+    const without = await compare({
+      comparison: once,
+      cases: [plain],
+      answer: () => replayed('j-1', []),
+    });
+    expect(answers.asked).toHaveLength(0);
+    expect(withExpect.perCase[0]?.corrections).toBeUndefined();
+    expect(withExpect.summary.metrics).toEqual(without.summary.metrics);
+  });
+
+  describe('in passRate', () => {
+    test("an answer-only case is one check: the recorded answer was wrong, the replay's passes", async () => {
+      const { summary } = await compare({
+        comparison: once,
+        cases: [expecting(sayHowLong)],
+        answers: checker().binding,
+        answer: () => replayed('j-1', []),
+      });
+      expect(summary.metrics.passRate).toMatchObject({
+        baseline: 0,
+        candidate: 1,
+        delta: 1,
+        n: 1,
+        weight: 1,
+        baselineN: 1,
+        baselineWeight: 1,
+      });
+      // It has no items: precision has nothing to rest on.
+      expect(summary.metrics.weightedPrecisionAtK).toMatchObject({ candidate: null, n: 0 });
+    });
+
+    test('a decisions-only case is one check; the recorded run passes one whose decisions were right', async () => {
+      const { summary } = await compare({
+        comparison: once,
+        cases: [
+          expecting(refundNoEmail),
+          expecting({ decisions: { verdict: 'right' } }, { caseId: 'j-2' }),
+        ],
+        answer: (input) =>
+          replayed(input.replay?.of as unknown as string, [
+            call('acme.lookup'),
+            call('acme.refund', { amount: 25 }),
+          ]),
+      });
+      expect(summary.metrics.passRate).toMatchObject({
+        baseline: 0.5,
+        candidate: 1,
+        n: 2,
+        weight: 2,
+        baselineN: 2,
+      });
+    });
+
+    test('a case that expects decisions and an answer is two checks, one for each', async () => {
+      // Recorded: its decisions marked wrong, its answer right. Replay: its calls still
+      // wrong, its answer passing.
+      const answers = checker();
+      const { summary, perCase } = await compare({
+        comparison: once,
+        cases: [expecting({ ...refundNoEmail, answer: { verdict: 'right' } })],
+        answers: answers.binding,
+        answer: () => replayed('j-1', [call('acme.refund', { amount: 25 }), call('acme.email')]),
+      });
+      expect(answers.asked).toHaveLength(1);
+      expect(perCase[0]?.corrections?.[0]).toMatchObject({
+        pass: false,
+        parts: { decisions: false, answer: true },
+      });
+      expect(summary.metrics.passRate).toMatchObject({
+        baseline: 0.5,
+        candidate: 0.5,
+        delta: 0,
+        n: 1,
+        weight: 2,
+        baselineN: 1,
+        baselineWeight: 2,
+      });
+    });
+
+    test('beside its items: the check weighs 1, and precision stays items only', async () => {
+      // A ranked answer: m1 marked right, m2 wrong, and an answer that should say more.
+      const ranked = expecting(
+        {
+          ...sayHowLong,
+          items: [
+            { key: 'm1', verdict: 'right' },
+            { key: 'm2', verdict: 'wrong' },
+          ],
+        },
+        {
+          output: turn('Found 2.', [{ id: 'm1' }, { id: 'm2' }]),
+          items: [
+            item('m1', 1, 1, { pointer: '/output/matches/0', rank: 0 }),
+            item('m2', 0, 1, { pointer: '/output/matches/1', rank: 1 }),
+          ],
+        },
+      );
+      const { summary } = await compare({
+        comparison: once,
+        cases: [ranked],
+        answers: checker().binding,
+        answer: () =>
+          replayed('j-1', [], 'Refunded $25.', { output: turn('Found 1.', [{ id: 'm1' }]) }),
+      });
+      // Recorded: m1 of m1 and m2, and its answer failed. Replay: m1 alone, and its answer passed.
+      expect(summary.metrics.passRate).toMatchObject({
+        baseline: 1 / 3,
+        candidate: 1,
+        n: 1,
+        weight: 2,
+        baselineWeight: 3,
+      });
+      expect(summary.metrics.weightedPrecisionAtK).toMatchObject({ baseline: 0.5, candidate: 1 });
+    });
+
+    test('a case that failed on one repetition fails its check on each one', async () => {
+      const answers = checker(
+        { kind: 'checked', pass: true },
+        { kind: 'checked', pass: false, why: 'It never says how long.' },
+      );
+      const items = [item('answer', 1, 1, { pointer: '/appended/3/content' })];
+      const { summary } = await compare({
+        comparison: { ...DEFAULT_COMPARISON, repetitions: 2 },
+        cases: [expecting({ answer: { verdict: 'right' } }, { items })],
+        answers: answers.binding,
+        answer: () => replayed('j-1', []),
+      });
+      // Each repetition: its unchanged answer marked right, and the case's failed check.
+      expect(summary.metrics.passRate).toMatchObject({ baseline: 1, candidate: 0.5, spread: 0 });
+    });
+
+    test('a case with no pass adds no check', async () => {
+      // No checker: the answer can't be checked, so the case has no entry.
+      const { summary } = await compare({
+        comparison: once,
+        cases: [expecting({ ...refundNoEmail, ...sayHowLong })],
+        answer: () => replayed('j-1', [call('acme.refund', { amount: 25 })]),
+      });
+      expect(summary.metrics.passRate).toMatchObject({
+        baseline: null,
+        candidate: null,
+        n: 0,
+        baselineN: 0,
+      });
+    });
+
+    test('a rescore counts each case as the run it rescores graded it, and checks no answer again', async () => {
+      const cases = [expecting({ ...refundNoEmail, ...sayHowLong })];
+      const answers = checker();
+      const first = await compare({
+        comparison: once,
+        cases,
+        answers: answers.binding,
+        answer: () => replayed('j-1', [call('acme.refund', { amount: 25 })]),
+      });
+      const store = inMemoryCaseStore();
+      await store.putCases({ tenantId, testSetId: 'acme.set', version: '1.0.0', cases });
+      const out = await createCorrectedDispatcher({
+        cases: store,
+        corrections: inMemoryCorrections(),
+        answers: answers.binding,
+        testRuns: {
+          get: async () => ({
+            testRunId: 'eval-1' as RunId,
+            tenantId,
+            testSetId: 'acme.set',
+            testSetVersion: '1.0.0',
+            kind: 'corrections',
+            status: 'completed',
+            dryRun: false,
+            startedAt: '2026-10-09T00:00:00.000Z' as never,
+            result: { summary: first.summary, perCase: first.perCase },
+          }),
+        },
+        runs: { getRun: async () => ({ output: replayed('j-1', []).output }) },
+      }).dispatch({
+        tenantId,
+        testRunId: 'eval-2' as RunId,
+        testSet: {
+          id: 'acme.set',
+          tenantId,
+          version: '1.0.0',
+          kind: 'corrections',
+          spec: { source: 'corrections', projectId: 'p-judged', caseCount: 1 },
+        },
+        target: { agentId: 'acme.agent' as never, version: '2.0.0' as never },
+        dryRun: false,
+        abortSignal: new AbortController().signal,
+        projectId: 'p-run' as ProjectId,
+        comparison: { ...once, rescoreOf: 'eval-1' },
+        subject: { invoke: async () => ({ error: 'a rescore never replays' }) },
+        onProgress: () => undefined,
+      });
+      const { summary } = out.result as { summary: CorrectedComparisonSummary };
+      expect(answers.asked).toHaveLength(1);
+      expect(summary.metrics.passRate).toEqual(first.summary.metrics.passRate);
+      // Both parts, marked wrong on the recorded run, passed on the replay.
+      expect(summary.metrics.passRate).toMatchObject({ baseline: 0, candidate: 1, weight: 2 });
+    });
+  });
+
+  test("what the checker's calls cost counts in their repetition's cost", async () => {
+    const { perCase } = await compare({
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 2 },
+      cases: [expecting(sayHowLong)],
+      answers: checker(
+        { kind: 'checked', pass: true, costUsd: 0.01 },
+        { kind: 'checked', pass: true, costUsd: 0.02 },
+      ).binding,
+      answer: () => replayed('j-1', [], 'Refunded $25.', { costUsd: 0.1 }),
+    });
+    const costs = perCase[0]?.costUsd ?? [];
+    expect(costs).toHaveLength(2);
+    expect(costs[0]).toBeCloseTo(0.11, 10);
+    expect(costs[1]).toBeCloseTo(0.12, 10);
+  });
+
+  test("the judging model is the test run's when it names one, else the tested version's", async () => {
+    const named = checker();
+    await compare({
+      comparison: once,
+      cases: [expecting(sayHowLong)],
+      answers: named.binding,
+      judging: { model: { providerId: 'acme-ai', model: 'acme-large' } },
+      answer: () => replayed('j-1', []),
+    });
+    expect(named.asked[0]?.judging).toEqual({
+      model: { providerId: 'acme-ai', model: 'acme-large' },
+    });
+    const builtOn = checker();
+    await compare({
+      comparison: once,
+      cases: [expecting(sayHowLong)],
+      answers: builtOn.binding,
+      judging: { version: '1.0.0' },
+      answer: () => replayed('j-1', []),
+    });
+    expect(builtOn.asked[0]?.judging).toEqual({ version: '1.0.0' });
+    const own = checker();
+    await compare({
+      comparison: once,
+      cases: [expecting(sayHowLong)],
+      answers: own.binding,
+      answer: () => replayed('j-1', []),
+    });
+    expect(own.asked[0]?.judging).toEqual({ version: '2.0.0' });
+  });
+
+  test("experts-only grades an expert's case and drops another's expect", async () => {
+    const { perCase } = await compare({
+      comparison: { ...DEFAULT_COMPARISON, repetitions: 1, groupWeights: 'experts-only' },
+      cases: [
+        expecting(refundNoEmail, { expert: true }),
+        expecting(refundNoEmail, {
+          caseId: 'j-2',
+          corrections: [
+            {
+              correctionId: 'j-2',
+              calls: [{ tool: 'acme.refund', args: { amount: 25 } }],
+              notCalled: ['acme.email'],
+            },
+          ],
+        }),
+      ],
+      answer: (input) =>
+        replayed(input.replay?.of as unknown as string, [call('acme.refund', { amount: 25 })]),
+    });
+    expect(perCase.find((c) => c.caseId === 'j-1')?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: true,
+        repetitionsPassed: 1,
+        repetitions: 1,
+        parts: { decisions: true },
+      },
+    ]);
+    // Its own correction wasn't an expert's either: nothing of it is graded.
+    expect(perCase.find((c) => c.caseId === 'j-2')?.corrections).toBeUndefined();
   });
 });

@@ -69,6 +69,12 @@ import {
   publishPackBlocks,
   withPackVersions,
 } from '../deploy-blocks.js';
+import {
+  type ReplaceBlock,
+  checkAgainstRuns,
+  parseCheckBody,
+  parseReplace,
+} from '../deploy-check.js';
 import { type PlannedTool, keepPublishedTool, planPackTools } from '../deploy-tools.js';
 import type { DeployedVersionOutcome } from '../deploy-versions.js';
 import {
@@ -78,6 +84,7 @@ import {
   type DeploymentBinding,
   type DeploymentPrimitiveCounts,
   type DeploymentRegisterOutcome,
+  type DeploymentSource,
   serializeDeployment,
 } from '../deployment-binding.js';
 import { canonicalizeEnvelope, normaliseSha256Hex } from '../deployment-envelope.js';
@@ -124,6 +131,11 @@ import type { ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { type AgentPinGateDeps, actorOf } from './agent-pins.js';
 import { capabilityRefusal, deniedBy } from './denied.js';
+import {
+  type DeployCheckBindings,
+  deployCheckDeps,
+  olderBlocksRefusal,
+} from './deploy-check-deps.js';
 import {
   carriedFor,
   isPromotionRoute,
@@ -349,6 +361,14 @@ export interface DeploymentsRouterBindings {
    * (`requestPin`). Absent: `pin` answers `501`.
    */
   readonly agentPins?: AgentPinBindings;
+  /**
+   * What a deploy's check against what runs reads besides `agentPins`
+   * (`deploy-check.ts`): a deploy that would put back an older version of
+   * a block than runs now in a project of one of its agents stops, unless
+   * it names the block in `replace`. Absent, or without `agentPins`:
+   * nothing is checked.
+   */
+  readonly deployCheck?: DeployCheckBindings;
   /** What a promotion's pin gate reads besides the pins (`requestPin`): comparisons, projects, the reference scope. */
   readonly agentPinGateDeps?: AgentPinGateDeps;
   /**
@@ -424,7 +444,9 @@ export function deploymentsRouter(
     if (isPromotionRoute(c.req.method, c.req.path)) return next();
     // A secrets sync asks admin where it writes them, as `/v1/secrets` does.
     if (c.req.method === 'POST' && SECRETS_PATH.test(c.req.path)) return next();
-    if (c.req.method !== 'POST' || !/\/deployments\/?$/.test(c.req.path)) {
+    // A deploy, and its check against what runs, need admin where it
+    // deploys: the body's project, else the tenant.
+    if (c.req.method !== 'POST' || !/\/deployments(?:\/check)?\/?$/.test(c.req.path)) {
       return tenantAccess(c, next);
     }
     return authorizer.authorize('admin', async (ctx) => {
@@ -656,6 +678,71 @@ export function deploymentsRouter(
       projectId,
     });
     return c.json({ data });
+  });
+
+  // ---------- POST /check (a deploy's check against what runs) ----------
+  //
+  // What `POST /` answers about the pack's blocks against what runs
+  // (`deploy-check.ts`), with nothing written: `kindgi deploy` asks it
+  // before it builds the image. Body `{ projectId?, agents: [agentId],
+  // blocks: [{ id, version }], replace? }`; it needs the deploy's own
+  // right. 200 `{ replaced, notNeeded }` when the deploy can go, `409
+  // deploy-would-put-back-older-blocks` when it would stop, and `501
+  // runs-in-unsupported` on a runtime that doesn't read pins and Latest.
+  r.post('/check', async (c) => {
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError({ code: 'bad-input', message: 'Request body must be valid JSON' }, requestId),
+      );
+    }
+    const issues: { path: string; message: string }[] = [];
+    const parsed = parseCheckBody(body, issues);
+    if (parsed?.projectId !== undefined && !UUID_RE.test(parsed.projectId)) {
+      issues.push({ path: 'projectId', message: 'projectId must be a project id (a UUID)' });
+    }
+    if (parsed === undefined || issues.length > 0) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message: issues[0]?.message ?? 'body validation failed',
+            issues: issues as unknown as Record<string, unknown>[],
+          },
+          requestId,
+        ),
+      );
+    }
+    const check = await checkAgainstRuns(deployCheckDeps(c, bindings, authorizer), {
+      tenantId,
+      agents: parsed.agents,
+      blocks: parsed.blocks,
+      ...(parsed.replace !== undefined && { replace: parsed.replace }),
+    });
+    if (check.kind === 'skipped') {
+      c.status(statusFor('runs-in-unsupported') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'runs-in-unsupported',
+            message:
+              "This runtime can't check a deploy against what runs: it doesn't read pins and Latest",
+          },
+          requestId,
+        ),
+      );
+    }
+    if (check.stops.length > 0) return olderBlocksRefusal(c, check.stops, 'deploy');
+    return c.json({
+      replaced: check.replaced.map(({ blockId, from, to }) => ({ blockId, from, to })),
+      notNeeded: check.notNeeded,
+    });
   });
 
   // ---------- POST / (register a signed deployment) ----------
@@ -1117,6 +1204,21 @@ export function deploymentsRouter(
       packBlocks = plan.planned;
       blockReads = withPackVersions(bindings.blockRegistry, targetProjectId, packBlocks);
     }
+    // A newer version of one of the pack's blocks than its files' that runs
+    // now in a project of one of its agents stops the deploy, before
+    // anything is published, unless the body names the block in `replace`
+    // (`deploy-check.ts`).
+    const check = await checkAgainstRuns(deployCheckDeps(c, bindings, authorizer), {
+      tenantId,
+      agents: validated.agents.map((a) => a.id as unknown as string),
+      blocks: validated.blocks.map(({ id, version }) => ({ id, version })),
+      ...(wire.replace !== undefined && { replace: wire.replace }),
+    });
+    if (check.kind === 'checked' && check.stops.length > 0) {
+      return olderBlocksRefusal(c, check.stops, 'deploy');
+    }
+    const replaced =
+      check.kind === 'checked' ? check.replaced.map((b) => ({ ...b, by: actorOf(c) })) : [];
     // The pack's tools are checked against the registry here too: a
     // version it holds in this project is kept only with the pack's
     // definition, and refused with another (`deploy-tools.ts`).
@@ -1399,7 +1501,15 @@ export function deploymentsRouter(
           guardrails: validated.guardrails.map((g) => ({ id: g.id as unknown as string })),
           agents: deployedAgents,
           flows: deployedFlows,
+          blocks: validated.blocks.map((b) => ({
+            id: b.id as unknown as string,
+            version: b.version as unknown as string,
+          })),
         },
+        ...(wire.source !== undefined && {
+          source: { ...wire.source, blockFiles: Object.fromEntries(validated.blockFiles) },
+        }),
+        ...(replaced.length > 0 && { replaced }),
       });
     } catch (cause) {
       await rollback(rolled, c.get('log'));
@@ -1440,6 +1550,25 @@ export function deploymentsRouter(
           version: block.version,
           kind: block.kind,
           source: { kind: 'deploy', id: outcome.deployment.deploymentId },
+        },
+        log: c.get('log').child({ subsystem: 'audit' }),
+      });
+    }
+    for (const block of replaced) {
+      await emitAuditEvent({
+        auditEvents: bindings.auditEvents,
+        tenantId,
+        ...(targetProjectId !== undefined && { projectId: targetProjectId }),
+        kind: 'deployment-replaced-block',
+        actor: callerIdentity(c),
+        outcome: 'succeeded',
+        correlationId: requestId,
+        doc: {
+          deploymentId: outcome.deployment.deploymentId,
+          blockId: block.blockId,
+          from: block.from,
+          to: block.to,
+          reason: block.reason,
         },
         log: c.get('log').child({ subsystem: 'audit' }),
       });
@@ -1756,7 +1885,17 @@ interface WireBody {
   readonly publishedAt: string;
   /** The project to deploy into; absent: the tenant's Default project. */
   readonly projectId?: ProjectId;
+  /** Where the pack lives in git, when the client said. */
+  readonly source?: WireSource;
+  /** The blocks the deploy puts back on purpose, each with why (`deploy-check.ts`). */
+  readonly replace?: readonly ReplaceBlock[];
 }
+
+/**
+ * `source` as the client sends it: `DeploymentSource` less its block
+ * files, which the image's index says (each block's `modulePath`).
+ */
+type WireSource = Omit<DeploymentSource, 'blockFiles'>;
 
 interface Issue {
   readonly path: string;
@@ -1827,6 +1966,8 @@ function parseWireBody(body: unknown): ParseResult {
   if (projectId !== undefined && (typeof projectId !== 'string' || !UUID_RE.test(projectId))) {
     issues.push({ path: 'projectId', message: 'projectId must be a project id (a UUID)' });
   }
+  const source = parseSource(b.source, issues);
+  const replace = parseReplace(b.replace, issues);
 
   if (issues.length > 0) {
     return {
@@ -1846,8 +1987,105 @@ function parseWireBody(body: unknown): ParseResult {
       signature: signature as string,
       publishedAt: publishedAt as string,
       ...(typeof projectId === 'string' && { projectId: projectId as unknown as ProjectId }),
+      ...(source !== undefined && { source }),
+      ...(replace !== undefined && { replace }),
     },
   };
+}
+
+/** `host/owner/name`, a group path standing for the owner allowed: no scheme, user or token. */
+const REPO_RE = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?:\/[A-Za-z0-9_.-]+){2,}$/;
+const COMMIT_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+const SOURCE_TEXT_MAX = 1024;
+
+/**
+ * The body's `source`, or `undefined` when it has none or it's refused
+ * (each problem pushed onto `issues`). A field it doesn't know is
+ * ignored, as the body's are.
+ */
+function parseSource(raw: unknown, issues: Issue[]): WireSource | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    issues.push({ path: 'source', message: 'source must be an object' });
+    return undefined;
+  }
+  const { repo, path, commit, branch, dirty } = raw as Record<string, unknown>;
+  const before = issues.length;
+  if (
+    repo !== undefined &&
+    (typeof repo !== 'string' ||
+      repo.length > SOURCE_TEXT_MAX ||
+      !REPO_RE.test(repo) ||
+      repo.split('/').some((segment) => segment === '.' || segment === '..'))
+  ) {
+    issues.push({
+      path: 'source.repo',
+      message: 'source.repo must be host/owner/name, with no scheme, user or token',
+    });
+  }
+  if (typeof path !== 'string' || (path !== '.' && !isRelativeFile(path))) {
+    issues.push({
+      path: 'source.path',
+      message: "source.path must be the pack's folder relative to the repository's root, or .",
+    });
+  }
+  if (typeof commit !== 'string' || !COMMIT_RE.test(commit)) {
+    issues.push({
+      path: 'source.commit',
+      message: 'source.commit must be a full commit id, 40 or 64 lowercase hex',
+    });
+  }
+  if (branch !== undefined && (typeof branch !== 'string' || !isBranchName(branch))) {
+    issues.push({ path: 'source.branch', message: 'source.branch must be a branch name' });
+  }
+  if (typeof dirty !== 'boolean') {
+    issues.push({ path: 'source.dirty', message: 'source.dirty must be true or false' });
+  }
+  if (issues.length > before) return undefined;
+  return {
+    ...(repo !== undefined && { repo: repo as string }),
+    path: path as string,
+    commit: commit as string,
+    ...(branch !== undefined && { branch: branch as string }),
+    dirty: dirty as boolean,
+  };
+}
+
+/** A path relative to a folder, `/`-separated, that stays inside it. */
+function isRelativeFile(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= SOURCE_TEXT_MAX &&
+    !value.includes('\\') &&
+    !hasControlCharacter(value) &&
+    value.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..')
+  );
+}
+
+function hasControlCharacter(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
+/** A name `git check-ref-format --branch` takes, short of what only git knows. */
+function isBranchName(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= 255 &&
+    !/[ ~^:?*[\\]/.test(value) &&
+    !hasControlCharacter(value) &&
+    !value.includes('..') &&
+    !value.includes('@{') &&
+    !value.startsWith('-') &&
+    !value.startsWith('/') &&
+    !value.endsWith('/') &&
+    !value.endsWith('.') &&
+    !value.endsWith('.lock') &&
+    !value.includes('//')
+  );
 }
 
 /** `400 deployment-validation-failed`, naming each issue. */
@@ -2016,6 +2254,11 @@ interface ValidatedPrimitives {
   readonly flows: readonly import('@kindgi/flow').Flow[];
   /** The pack's data blocks (`blocks/`), each a valid block. */
   readonly blocks: readonly BlockDefinition[];
+  /**
+   * Each block's file in the pack by id: its `modulePath` in the index,
+   * where that's a path inside the pack. A deploy's `source` keeps them.
+   */
+  readonly blockFiles: ReadonlyMap<string, string>;
 }
 
 type ValidateResult =
@@ -2615,13 +2858,14 @@ function validatePrimitives(
   });
 
   const validatedBlocks: BlockDefinition[] = [];
+  const blockFiles = new Map<string, string>();
   blocks.forEach((raw, i) => {
     if (raw === null || typeof raw !== 'object') {
       details.push({ primitive: 'block', index: i, path: '', message: 'must be an object' });
       return;
     }
     // Its file in the pack (`modulePath`) is where the pack keeps it, not part of the block.
-    const { modulePath: _mp, ...definition } = raw as Record<string, unknown>;
+    const { modulePath, ...definition } = raw as Record<string, unknown>;
     const r = validateBlock(definition);
     if (r.kind === 'err') {
       const idBase: Partial<ValidationDetail> =
@@ -2640,6 +2884,9 @@ function validatePrimitives(
       return;
     }
     validatedBlocks.push(r.value);
+    if (typeof modulePath === 'string' && isRelativeFile(modulePath)) {
+      blockFiles.set(r.value.id as unknown as string, modulePath);
+    }
   });
 
   if (details.length > 0) {
@@ -2654,6 +2901,7 @@ function validatePrimitives(
       agents: validatedAgents,
       flows: validatedGraphs,
       blocks: validatedBlocks,
+      blockFiles,
     },
   };
 }

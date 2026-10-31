@@ -58,6 +58,7 @@ import {
   mountAgentPinRoutes,
   seenVersions,
 } from './agent-pins.js';
+import { isTestSetPath } from './agent-test-set.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
@@ -119,6 +120,8 @@ export function agentsRouter(
   // the definitions come from), and refuses an undo with its own reason.
   const refuseWrites = refuseWritesWhenReadOnly(() => binding.readOnly);
   r.use('*', async (c, next) => {
+    // An agent's test set is the corrections store's, not the registry's.
+    if (isTestSetPath(c.req.path)) return next();
     const candidates = binding.readOnly?.takesCandidates;
     if (candidates !== undefined) {
       const { method, path } = c.req;
@@ -203,13 +206,16 @@ export function agentsRouter(
         kind: 'agent',
         id: (c) => c.req.param('agentId') ?? '',
         // Unregister and reinstate are `admin`. A change to what's pinned is
-        // checked above.
+        // checked above, and the test set's routes check for themselves
+        // (`agent-test-set.ts`).
         today: (c) =>
-          c.req.method === 'GET' || isAgentPinCheck(c.req.method, c.req.path)
-            ? 'read'
-            : isAgentPinWrite(c.req.method, c.req.path)
-              ? undefined
-              : 'admin',
+          isTestSetPath(c.req.path)
+            ? undefined
+            : c.req.method === 'GET' || isAgentPinCheck(c.req.method, c.req.path)
+              ? 'read'
+              : isAgentPinWrite(c.req.method, c.req.path)
+                ? undefined
+                : 'admin',
         check: (c) => agentCheck(c),
         versionNotFound: agentVersionNotFound,
       }),
@@ -509,24 +515,8 @@ export function agentsRouter(
     };
   }
 
-  /**
-   * An agent's own project with no item-projects binding: every version
-   * reads the same one (`AgentVersionRecord.projectId`), a retired agent's
-   * too. `undefined`: no such agent; empty: the store records none.
-   */
-  async function ownProject(
-    tenantId: TenantId,
-    agentId: AgentId,
-  ): Promise<readonly ProjectId[] | undefined> {
-    if (!(await binding.headExists({ tenantId, agentId }))) return undefined;
-    const page = await binding.listVersions({
-      tenantId,
-      agentId,
-      limit: 1,
-      includeTombstoned: true,
-    });
-    const projectId = page.data[0]?.projectId;
-    return projectId !== undefined ? [projectId] : [];
+  function ownProject(tenantId: TenantId, agentId: AgentId) {
+    return agentOwnProject(binding, tenantId, agentId);
   }
 
   // ---------- GET /:agentId/versions (list versions) ----------
@@ -1097,6 +1087,27 @@ function semanticWarnings(agent: Agent): { readonly code: string; readonly messa
     }
     return [];
   });
+}
+
+/**
+ * An agent's own project with no item-projects binding: every version
+ * reads the same one (`AgentVersionRecord.projectId`), a retired agent's
+ * too. `undefined`: no such agent; empty: the store records none.
+ */
+export async function agentOwnProject(
+  binding: Pick<AgentRegistryBinding, 'headExists' | 'listVersions'>,
+  tenantId: TenantId,
+  agentId: AgentId,
+): Promise<readonly ProjectId[] | undefined> {
+  if (!(await binding.headExists({ tenantId, agentId }))) return undefined;
+  const page = await binding.listVersions({
+    tenantId,
+    agentId,
+    limit: 1,
+    includeTombstoned: true,
+  });
+  const projectId = page.data[0]?.projectId;
+  return projectId !== undefined ? [projectId] : [];
 }
 
 /**

@@ -12,7 +12,7 @@
   - `items` (`[{ key, pointer?, rank?, verdict }]`) is for an answer that is a ranked list. A wrong item needs nothing more.
   - `item`, `verdict`, `reason` and `correction` are gone, and sending one is a 400 that names its new field. A second correction by the same caller on the same run, for the same `participantId`, replaces the first.
 - **Sorted when it's saved.**
-  - A correction from an app's end user (`participantId`, not under a restricted group) stays `open` and unsorted.
+  - A correction from an app's end user (`participantId`, not under a restricted group) stays `open` and unsorted, unless the project sorts its end users' corrections (`sortEndUserCorrections`).
   - Wrong decisions go to the agent's owner (`with-owner`).
   - A wrong answer, or a wrong item of it, goes to Improve (`open`).
   - Nothing wrong is `fixed`, as `recorded-right`.
@@ -22,5 +22,5 @@
 - **Listing and counting.**
   - `GET /v1/corrections` filters by `status` (`not-fixed` is short for `open`, `being-fixed` and `with-owner`), `sortedTo` (`none` for unsorted), `from` (`experts`, `end-users` or `all`), `madeBy=me` (only the caller's own), `since` and `until`. `verdict` is gone.
   - `GET /v1/corrections/counts` (`client.corrections.counts`) counts a project's corrections, or one agent's, by status. It takes a project scope only.
-- **The CLI keeps its flags.** In `kindgi corrections add`, `--correction` is about the run's decisions, `--item=answer` (or `output` for a flow) is its answer, and any other `--item` is an item of a ranked list. Each call adds to your correction of the run, replacing what you said before about the same piece. `kindgi corrections list` loses `--verdict`.
+- **The CLI.** `kindgi corrections list` loses `--verdict`.
 - **For stores.** `CorrectionRegistryBinding` gains `update` (it applies only from the status and sorting it expects), `counts` and `correctionsByIds`. `unregister` sets the status to `removed`. `sortAtSave` and `planChange` are the rules, exported so every store and surface agrees on them.

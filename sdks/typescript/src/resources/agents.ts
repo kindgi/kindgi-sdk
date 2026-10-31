@@ -5,18 +5,23 @@ import type { DefineAgentSpec } from '@kindgi/agents';
 import type { AgentId, Semver } from '@kindgi/types';
 
 import type {
+  AddTestCaseBody,
   Agent,
   AgentCollectionPage,
   AgentPinScope,
   AgentPinnedVersionList,
   AgentPinnedVersionResolution,
   AgentProjectList,
+  AgentTestSet,
   Pin,
+  PinAnswer,
   PinCheck,
   PinPage,
   ReleaseGateResolution,
   ScopeSegment,
   SetAgentOwnerResult,
+  TestCase,
+  TestCaseCollectionPage,
   UnregisterAgentResult,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
@@ -92,6 +97,9 @@ export interface AgentsClient {
   /** The release gate a pin for a scope is checked against. */
   readonly releaseGate: AgentReleaseGateClient;
 
+  /** The cases a version of the agent is checked on: its corrections, and cases added by hand. */
+  readonly testSet: AgentTestSetClient;
+
   /**
    * Un-tombstone a specific previously-unregistered version.
    *
@@ -162,15 +170,29 @@ export interface AgentPinnedClient {
    * first; into a later environment, promote a build that ships one.
    *
    * With a release gate for the scope, the pin is checked first,
-   * against the comparison named by `testRunId`. The answer's `status`
-   * says what happened: `pinned`, or `pending-approval` (a reviewer
-   * must approve it; `approvalId`). A refusal throws a `KindgiApiError`
-   * whose `error.serverCode` is `gate-failed`, with `changeId`,
-   * `releaseGate` and every check in `error.fields`.
+   * against the comparison named by `testRunId`. The answer's
+   * `pin.status` says what happened: `pinned`, or `pending-approval` (a
+   * reviewer must approve it; `pin.approvalId`). A refusal throws a
+   * `KindgiApiError` whose `error.serverCode` is `gate-failed`, with
+   * `changeId`, `releaseGate` and every check in `error.fields`.
+   *
+   * `testRuns` are the test runs that check the version in each project
+   * whose running version it changes and that has active cases: the run
+   * `testRunId` names, reused, whose outcome is in `fixed` and
+   * `reopened`, or one started, whose outcome changes the corrections
+   * when it ends.
+   *
+   * A pin that would take a project that follows Latest now off it throws
+   * `pin-stops-latest` (409), with each such project in the details,
+   * unless `stopFollowingLatest` is set.
    *
    * @wire POST /v1/agents/:agentId/pinned/pin
    */
-  pin(agentId: AgentId | string, input: AgentPinInput, options?: MutationOptions): Promise<Pin>;
+  pin(
+    agentId: AgentId | string,
+    input: AgentPinInput,
+    options?: MutationOptions,
+  ): Promise<PinAnswer>;
   /**
    * What `pin` with the same input would do, recording nothing:
    * `would-pin`, `needs-approval` (with the approval it needs) or
@@ -181,11 +203,21 @@ export interface AgentPinnedClient {
   check(agentId: AgentId | string, input: AgentPinInput): Promise<PinCheck>;
   /**
    * Remove the scope's own pin: its runs use the next scope up.
-   * `409 not-pinned` when it has none.
+   * `409 not-pinned` when it has none. The answer's `pin` is the unpin
+   * change. An unpin never waits for an approval.
+   *
+   * `testRuns` are the test runs that check the version each project
+   * runs now, in each project whose running version the unpin changes
+   * and that has active cases. Their outcomes change the corrections
+   * when they end.
    *
    * @wire POST /v1/agents/:agentId/pinned/unpin
    */
-  unpin(agentId: AgentId | string, input: AgentUnpinInput, options?: MutationOptions): Promise<Pin>;
+  unpin(
+    agentId: AgentId | string,
+    input: AgentUnpinInput,
+    options?: MutationOptions,
+  ): Promise<PinAnswer>;
   /** @wire GET /v1/agents/:agentId/pin-history: newest first */
   history(agentId: AgentId | string, filter?: ListPinHistoryFilter): Promise<PinPage>;
   /** @wire GET /v1/agents/:agentId/pin-history/:changeId */
@@ -203,6 +235,58 @@ export interface AgentReleaseGateClient {
   resolve(agentId: AgentId | string, scope: AgentPinScope): Promise<ReleaseGateResolution>;
 }
 
+/**
+ * An agent's test set, read one project at a time. Its cases are the
+ * agent's corrections there, except Won't fix and Removed ones, and cases
+ * added by hand. It's computed when it's read.
+ */
+export interface AgentTestSetClient {
+  /**
+   * How many cases the project's test set of the agent has, active and
+   * retired, and when the newest was added. Needs `read` on the project.
+   *
+   * @wire GET /v1/agents/:agentId/test-set
+   */
+  get(agentId: AgentId | string, projectId: string): Promise<AgentTestSet>;
+  /**
+   * The project's cases, newest added first. A retired case comes back
+   * only with `includeRetired`.
+   *
+   * @wire GET /v1/agents/:agentId/test-set/cases
+   */
+  listCases(
+    agentId: AgentId | string,
+    filter: ListTestCasesFilter,
+  ): Promise<TestCaseCollectionPage>;
+  /**
+   * Add a case by hand, from a correction's body on one of the agent's
+   * finished runs. It has no status, isn't sorted, and nothing that counts
+   * corrections counts it. Needs `publish` on the agent, or `write` on the
+   * run's project for an agent in more than one project.
+   *
+   * @wire POST /v1/agents/:agentId/test-set/cases
+   */
+  addCase(
+    agentId: AgentId | string,
+    input: AddTestCaseBody,
+    options?: MutationOptions,
+  ): Promise<TestCase>;
+  /**
+   * Retire a case: it stays listed, and no test run checks it again.
+   * There's no un-retire, and retiring a correction's case doesn't change
+   * the correction's status. `409 test-case-retired` when it's retired
+   * already. Needs what `addCase` needs, on the case's project.
+   *
+   * @wire POST /v1/agents/:agentId/test-set/cases/:caseId/retire
+   */
+  retireCase(
+    agentId: AgentId | string,
+    caseId: string,
+    reason: string,
+    options?: MutationOptions,
+  ): Promise<TestCase>;
+}
+
 /** Where a run would happen: its project and segment path (coarse to fine). */
 export interface AgentPinnedWhere {
   readonly projectId?: string;
@@ -215,6 +299,13 @@ export interface AgentPinInput {
   readonly reason?: string;
   /** The test run behind the decision, kept on the record. */
   readonly testRunId?: string;
+  /**
+   * Pin even when it takes a project that follows Latest now off it: the
+   * project then runs the pinned version, not each new Latest, and the pin
+   * records `stoppedFollowingLatest`. Without it, such a pin throws
+   * `pin-stops-latest` (409). `check` ignores it.
+   */
+  readonly stopFollowingLatest?: boolean;
 }
 
 export interface AgentUnpinInput {
@@ -225,6 +316,16 @@ export interface AgentUnpinInput {
 export interface ListPinHistoryFilter {
   /** Only this scope's history. */
   readonly scope?: AgentPinScope;
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+export interface ListTestCasesFilter {
+  readonly projectId: string;
+  /** Retired cases too. Default: `false` (active ones only). */
+  readonly includeRetired?: boolean;
+  /** Only these kinds. Default: both. */
+  readonly kinds?: readonly TestCase['kind'][];
   readonly limit?: number;
   readonly cursor?: string;
 }
@@ -385,7 +486,7 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
         });
       },
       async pin(agentId, input, options) {
-        return transport.request<Pin>({
+        return transport.request<PinAnswer>({
           method: 'POST',
           path: `/v1/agents/${seg(agentId as string)}/pinned/pin`,
           body: input,
@@ -400,7 +501,7 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
         });
       },
       async unpin(agentId, input, options) {
-        return transport.request<Pin>({
+        return transport.request<PinAnswer>({
           method: 'POST',
           path: `/v1/agents/${seg(agentId as string)}/pinned/unpin`,
           body: input,
@@ -431,6 +532,45 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
           method: 'GET',
           path: `/v1/agents/${seg(agentId as string)}/release-gate`,
           query: scopeQuery(scope),
+        });
+      },
+    },
+    testSet: {
+      async get(agentId, projectId) {
+        return transport.request<AgentTestSet>({
+          method: 'GET',
+          path: `/v1/agents/${seg(agentId as string)}/test-set`,
+          query: { projectId },
+        });
+      },
+      async listCases(agentId, filter) {
+        return transport.request<TestCaseCollectionPage>({
+          method: 'GET',
+          path: `/v1/agents/${seg(agentId as string)}/test-set/cases`,
+          query: {
+            projectId: filter.projectId,
+            ...(filter.includeRetired === true && { include: 'retired' }),
+            ...(filter.kinds !== undefined &&
+              filter.kinds.length > 0 && { kind: filter.kinds.join(',') }),
+            ...(filter.limit !== undefined && { limit: filter.limit }),
+            ...(filter.cursor !== undefined && { cursor: filter.cursor }),
+          },
+        });
+      },
+      async addCase(agentId, input, options) {
+        return transport.request<TestCase>({
+          method: 'POST',
+          path: `/v1/agents/${seg(agentId as string)}/test-set/cases`,
+          body: input,
+          ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+        });
+      },
+      async retireCase(agentId, caseId, reason, options) {
+        return transport.request<TestCase>({
+          method: 'POST',
+          path: `/v1/agents/${seg(agentId as string)}/test-set/cases/${seg(caseId)}/retire`,
+          body: { reason },
+          ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
         });
       },
     },

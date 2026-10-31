@@ -70,7 +70,7 @@ describe('correctorGroups.list', () => {
       scope: { kind: 'agent', projectId: 'proj-1', agentId: 'acme.matcher' },
       limit: 5,
     });
-    expect(page.items[0]?.name).toBe('expert');
+    expect(page.data[0]?.name).toBe('expert');
     const url = new URL(stub.calls[0]?.url);
     expect(url.pathname).toBe('/v1/corrector-groups');
     expect(Object.fromEntries(url.searchParams)).toEqual({

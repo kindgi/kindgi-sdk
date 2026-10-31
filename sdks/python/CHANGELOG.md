@@ -13,6 +13,84 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **A project can sort its end users' corrections like the others.**
+  `Project` and `ProjectPatch` carry `sort_end_user_corrections`
+  (`sortEndUserCorrections`), off by default, and
+  `projects.update(project_id, sort_end_user_corrections=True)` turns it on (admin on
+  the project). While it's on, an end user's correction saved after that is sorted
+  like the others, and a schedule counting everyone's corrections
+  (`from_="everyone"`) counts the ones sorted to improve. Once it's off, none of
+  them counts, even one sorted while it was on or by a person.
+- `kindgi`: **`client.corrections.thumbs` records an end user's thumbs up or down from
+  your app's server.** `thumbs(run_id=..., participant_id=..., up=..., why=...)` posts a
+  correction of the run's answer, made for the end user: `answer="right"` for a thumbs
+  up, `"wrong"` for a thumbs down, with their words as `why`. A thumbs down needs `why`,
+  and without it the API answers 400 (`InvalidRequestError`). `AsyncKindgi` has it too.
+- `kindgi`: **a comparison's `pass_rate` counts what each case expects.**
+  Each part of a frozen case's graded `expect`, its decisions and its
+  answer, is one check of weight 1 in `pass_rate`, beside the case's items,
+  and its `n` counts the case. The case's entry in `corrections` has
+  `parts`, whether each part passed on every repetition. So a test set of
+  cases that expect only an answer has a `pass_rate` instead of `None`.
+  `case_coverage` and `weighted_precision_at_k` stay items only.
+- `kindgi`: **corrections export.** `kindgi.corrections.export(agent_id=...)`
+  yields an agent's corrections in chunks of bytes, as CSV, or as JSON lines
+  with `format="jsonl"`, taking the list's filters. Write the chunks to a file
+  as they come. A project you can't read raises `AuthError`, and a stream that
+  drops part way raises `NetworkError`.
+- `kindgi`: **An Improve run works in a project, checks it's ready first, and
+  keeps a change only when it passes more of the cases and fails none that
+  passed. An Improve schedule runs on new corrections, within a run cap and a
+  month cap.** This is a breaking change, and no old name is kept.
+  `StartImproveRunBody` needs `project_id`, and its `scope`, `test_set_id` and
+  `from_version` are gone. `improve_runs.start` refuses a start that isn't
+  ready with a `ConflictError` whose `server_code` is `improve-not-ready`
+  (`details["items"]`, the missing ones) or `improve-run-running`
+  (`details["improveRunId"]`). `improve_runs.check` answers an
+  `ImproveRunCheck` with `ready`, `starts_from` (an `ImproveRunStart`), `items`
+  (each an `ImproveReadinessItem`, a missing one with its `fix`), `estimate`
+  and `month`; its `estimated_cost_usd`, `max_cost_usd` and `basis` are
+  `estimate.cost_usd`, `estimate.max_cost_usd` and `estimate.basis`.
+  `estimate.basis` gains `proof_replays`, the proof's share of `replays`, and
+  `estimate.cost_usd` caps only the search's share at `max_cost_usd`.
+  `improve_runs.list` takes `project_id` and `status`. An `ImproveRun`'s
+  `candidates_evaluated` is `tried`, and it gains `project_id`, `starts_from`
+  (an `ImproveRunStart`), `test_set_version`, `set_aside` and `takes`; its
+  `from_version`, `scope` and `test_set_id` are gone, and its `group_weights`
+  is always set. Its `outcome` is a union
+  by `kind`: `ImproveRunOutcomeSuggested` (was `proposed`),
+  `ImproveRunOutcomeNothingBetter` (was `nothing-found`, with `reason` and
+  `hold_out`), `ImproveRunOutcomeCostCap` (`spent_usd`, new) and
+  `ImproveRunOutcomeFailed` (`message`), and `ImproveRunOutcomeUnrecognized`
+  for a kind a newer runtime adds; the `ImproveRunOutcome` model is gone. A
+  comparison's `part` can be `all`, for the proof. An improve schedule's
+  `ImproveScheduleTarget` has `project_id` in place of `scope` (registering
+  or changing one takes an `ImproveScheduleTargetInput`, where `agent_id` and
+  `project_id` are both required), one schedule per agent and project (a
+  `ConflictError` whose `server_code` is `schedule-exists`, with
+  `details["scheduleId"]` and `details["triggerId"]`).
+  Its input is `corrections` (how many new corrections start a run), `from_`
+  (`experts` or `everyone`), `run_cap_usd`, `month_cap_usd` (was
+  `monthly_cap_usd`), `tiers` and `model`. Its `threshold`, `budget`,
+  `objective`, `group_weights` and `candidates` are gone, and the models
+  `Threshold` and `Budget3` with them. A schedule at its month's cap says
+  until when (`paused_until`, with `paused_reason` `month-cap`), and one whose
+  owner lost `publish` on the agent is paused at its next fire, with
+  `status_reason` `owner-lost-publish`.
+- `kindgi`: **a deployment never puts back an older block without saying
+  so.** `deployments.register` raises `ConflictError` with `server_code`
+  `deploy-would-put-back-older-blocks` when one of the pack's blocks is older
+  in the files than the newest version that runs in a project of the pack's
+  agents; `details["blocks"]` says, for each one, both versions, where the
+  newer one runs, who made it run there and when. Its body's `replace` names
+  each block put back on purpose, with a reason, and the deployment answers
+  them as `replaced`. `deployments.check` answers the same, writing nothing:
+  `replaced`, and `not_needed` for a `replace` nothing newer runs for.
+  `deployments.promote` with `pin` runs it against what runs in the target
+  project only: its body takes `replace` too, and its answer's
+  `block_check` says what was put back, what `replace` didn't need, and
+  `checked=False` for a build deployed before deployments kept their blocks.
+  The deployment it makes keeps its own `replaced`, never the source's.
 - `kindgi`: **an `llm-judge` guardrail is judged.** `@guardrail(kind="llm-judge",
   judge_capabilities={"needs": [{"feature": "structured-output"}]})` names what the
   judge model is routed by, and the index carries it (`judgeCapabilities`); the decorator
@@ -106,6 +184,24 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
   `hypothesis` is `why`, and an Improve run's outcome `proposed` is
   `suggested`. The webhook event `improvement-pass.finished` is
   `improve-run.finished`, and its `data.pass_` is `data.improve_run`.
+- `kindgi`: **An agent's test set.** `client.agents.test_set` reads an agent's
+  test set one project at a time, sync and async: `get` (how many cases are
+  active and retired), `list_cases`, `add_case` (a case by hand, from a
+  correction's body on one of the agent's finished runs) and `retire_case`.
+  Its cases are the agent's corrections, except Won't fix and Removed ones,
+  and the cases added by hand. Once a test run has frozen the set, `get`
+  also answers `frozen_version`, the newest version frozen. The models are
+  `AgentTestSet`, `TestSetCaseCounts`, `TestSetFrozenVersion`, `TestCase*`
+  and `AddTestCaseBody`.
+- `kindgi`: **A frozen case says what it expects.** `CorrectedEvalCase` gains
+  `expect` (`TestCaseExpect`) and `segments` (its run's segment path), set on
+  a case of an agent's frozen test set.
+- `kindgi`: **Test sets built from corrections are gone.**
+  `client.test_sets.build_from_corrections` is removed, with
+  `BuildCorrectedTestSetBody`, `BuildCorrectedTestSetResult` and
+  `CorrectorGroupId`. A `corrections` test set built before is still read by
+  id, and `client.test_sets.list` lists it only with `kind="corrections"`,
+  as it does an agent's frozen versions.
 - `kindgi`: **A suggested change is made for one project, and checked on that
   project's test set.** This is a breaking change.
   - `client.suggested_changes.create` takes `agent_id`, `project_id`, `block`,
@@ -163,8 +259,8 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
       tenant, an org or a segment can only be withdrawn;
     - `suggested-change-nothing-to-check` (`ConflictError`): the project's
       test set has no cases;
-    - `suggested-change-project-on-latest` (`ConflictError`): a pin, for a
-      project that runs Latest;
+    - `pin-stops-latest` (`ConflictError`): a pin that would take a project
+      that follows Latest off it, without `stopFollowingLatest`;
     - `suggested-change-project-pinned` (`ConflictError`): an add as Latest,
       for a project that runs a pin;
     - `suggested-change-check-unsupported` (`ServerError`, a 501): the

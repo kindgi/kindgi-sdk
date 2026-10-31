@@ -35,9 +35,9 @@ import type {
   DeploymentBinding,
   EnvBinding,
   EnvironmentOrderBinding,
-  EvalCaseStoreBinding,
   ExpertQueueBinding,
   FlowRegistryBinding,
+  FrozenCaseStoreBinding,
   GuardrailRegistryBinding,
   HitlBinding,
   IdentityDirectoryBinding,
@@ -367,7 +367,7 @@ const noopBlockRegistry: BlockRegistryBinding = {
   reinstateVersion: async ({ blockId, version }) => ({ kind: 'not-found', blockId, version }),
 };
 
-const noopEvalCaseStore: EvalCaseStoreBinding = {
+const noopFrozenCaseStore: FrozenCaseStoreBinding = {
   putCases: async () => undefined,
   listCases: async () => ({ data: [], hasMore: false }),
 };
@@ -385,8 +385,17 @@ const noopCorrectionRegistry: CorrectionRegistryBinding = {
   get: async () => null,
   unregister: async () => ({ unregistered: false }),
   update: async () => ({ kind: 'not-found' }),
+  applyRunOutcome: async () => [],
   counts: async () => ({ open: 0, beingFixed: 0, withOwner: 0, fixed: 0, wontFix: 0, removed: 0 }),
   correctionsByIds: async () => [],
+  testSet: async () => ({ active: 0, retired: 0 }),
+  listCases: async () => ({ data: [], hasMore: false }),
+  getCase: async () => null,
+  runCopies: async () => [],
+  addCase: async () => {
+    throw new Error('noop');
+  },
+  retireCase: async () => ({ kind: 'not-found' }),
 };
 
 const noopExpertQueue: ExpertQueueBinding = {
@@ -713,7 +722,7 @@ export function fullAppInput(): CreateAppInput {
     testRunBinding: noopTestRunBinding,
     correctionRegistry: noopCorrectionRegistry,
     expertQueue: noopExpertQueue,
-    evalCaseStore: noopEvalCaseStore,
+    frozenCaseStore: noopFrozenCaseStore,
     sessionStore: noopSessionStore,
     session: { cookie: { allowedOrigins: ['https://console.example.com'] }, tokenSignIn: true },
     identityProvider: noopIdentityProvider,

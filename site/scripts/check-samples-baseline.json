@@ -195,7 +195,6 @@
   "reference/typescript/sdk/@kindgi/sdk/client/interfaces/SessionsClient": 3,
   "reference/typescript/sdk/@kindgi/sdk/client/interfaces/SseReadOptions": 1,
   "reference/typescript/sdk/@kindgi/sdk/client/interfaces/SubscriptionsClient": 3,
-  "reference/typescript/sdk/@kindgi/sdk/client/interfaces/SupervisorClient": 6,
   "reference/typescript/sdk/@kindgi/sdk/client/interfaces/TeamMembershipsClient": 4,
   "reference/typescript/sdk/@kindgi/sdk/client/interfaces/TeamsClient": 5,
   "reference/typescript/sdk/@kindgi/sdk/client/interfaces/TenantClient": 1,

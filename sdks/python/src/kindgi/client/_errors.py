@@ -150,7 +150,8 @@ _CONFLICT = {
     "idempotency-key-in-flight", "idempotency-key-replay-withheld",
     "hitl-required", "agent-already-registered", "tool-already-registered",
     "guardrail-already-registered", "flow-already-registered", "conversation-closed",
-    "provider-already-registered", "suggested-change-invalid-state-transition", "approval-not-decided",
+    "provider-already-registered", "suggested-change-invalid-state-transition",
+    "approval-not-decided",
     "slug-conflict", "project-default-already-exists", "registry-read-only",
     "policy-already-registered", "policy-scope-taken", "policy-scope-changed",
     "nothing-runs-in-scope", "not-pinned", "agent-version-pinned",
@@ -166,7 +167,7 @@ _INVALID = {
     "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",
     "unresolved-guardrail", "schema-validation-failed", "invalid-agent", "invalid-tool-definition",
     "invalid-schema", "unknown-effect", "invalid-guardrail", "invalid-provider",
-    "guardrail-config-invalid", "provider-config-invalid", "supervisor-header-missing",
+    "guardrail-config-invalid", "provider-config-invalid",
     "scope-invalid", "artifact-too-large", "provider-key-refused",
 }  # fmt: skip
 _AUTH: Mapping[str, Literal["unauthenticated", "forbidden", "token-expired"]] = {

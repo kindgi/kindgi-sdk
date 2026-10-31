@@ -5,6 +5,8 @@ import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
 import type { AgentId, Cursor, ProjectId, TenantId } from '@kindgi/types';
 
+import type { CorrectionRegistryBinding } from './correction-binding.js';
+
 /**
  * Caller-plugged surface for the evaluation-harness test set catalog —
  * part of the admin control plane. Registry-only: publish + read; run
@@ -108,10 +110,21 @@ export const TEST_SET_KINDS = [
   'human-review',
   'benchmark',
   'custom',
-  /** Built from corrections of past runs: cases are copies of corrected runs (`EvalCaseStoreBinding`). */
+  /** Built from corrections of past runs: cases are copies of corrected runs (`FrozenCaseStoreBinding`). */
   'corrections',
 ] as const;
 export type TestSetKind = (typeof TEST_SET_KINDS)[number];
+
+/**
+ * The kinds `GET /v1/test-sets` lists unless asked for one: all but
+ * `corrections`. An agent's corrections are its test set now
+ * (`/v1/agents/{agentId}/test-set`); a `corrections` test set, an agent's
+ * frozen versions and those built before, is listed with `kind=corrections`
+ * and read by id.
+ */
+export const LISTED_TEST_SET_KINDS: readonly TestSetKind[] = TEST_SET_KINDS.filter(
+  (kind) => kind !== 'corrections',
+);
 
 /**
  * Wire shape for a single test set. `spec` is a JSON object
@@ -348,6 +361,44 @@ export function isAgentTestSetId(testSetId: string): boolean {
  */
 export function agentTestSetId(agentId: AgentId, projectId: ProjectId): string {
   return `${AGENT_TEST_SET_ID_PREFIX}${agentId as unknown as string}.${projectId as unknown as string}`;
+}
+
+/**
+ * The refusal when a project's test set of an agent has no cases, so
+ * there's nothing to run: a suggested change's check and a test run of
+ * the agent's test set say the same.
+ */
+export function nothingToCheck(
+  agentId: AgentId,
+  projectId: ProjectId,
+): {
+  readonly code: 'suggested-change-nothing-to-check';
+  readonly message: string;
+  readonly projectId: string;
+} {
+  return {
+    code: 'suggested-change-nothing-to-check',
+    message: `Project ${projectId as unknown as string} has no corrections of ${agentId as unknown as string} to check a change on: correct some of its conversations first`,
+    projectId: projectId as unknown as string,
+  };
+}
+
+/**
+ * Whether a project has a case of the agent: one read of its cases
+ * (`listCases`, limit 1). Read before a freeze that only needs to know,
+ * since a freeze makes a version when the cases changed.
+ */
+export async function projectHasCases(
+  corrections: Pick<CorrectionRegistryBinding, 'listCases'>,
+  q: { readonly tenantId: TenantId; readonly agentId: AgentId; readonly projectId: ProjectId },
+): Promise<boolean> {
+  const some = await corrections.listCases({
+    tenantId: q.tenantId,
+    agentId: q.agentId as unknown as string,
+    projectId: q.projectId,
+    limit: 1,
+  });
+  return some.data.length > 0;
 }
 
 /** The answer when a caller publishes a test set under an agent's test set id. */

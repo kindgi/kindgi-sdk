@@ -147,6 +147,7 @@ export function createStubKernelBinding(): KernelBinding {
       listFires: true,
       fireNow: true,
       setOwner: true,
+      findImproveSchedule: true,
     }),
   };
 }

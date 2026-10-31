@@ -12,6 +12,7 @@ import {
   tuplesForCreate,
   userPrincipal,
 } from '@kindgi/authz';
+import type { Logger } from '@kindgi/log';
 import type { ProjectBinding } from '@kindgi/platform';
 import { canonicalize } from '@kindgi/schema';
 import type {
@@ -28,10 +29,12 @@ import type {
 
 import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.js';
 import type { AgentPinBindings, AgentPinnedVersion, Pin, PinActor } from './agent-pin-binding.js';
+import type { TestRunJudging } from './answer-check-binding.js';
 import { approvalResourceRef, projectOfScope } from './approval-resource.js';
 import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
 import { type BlockEdit, blockEditDefinition, publishBlockEdit } from './block-publish.js';
 import { sameUserId } from './caller.js';
+import type { CorrectionRegistryBinding } from './correction-binding.js';
 import { deriveAgentVersion } from './derive-agent-version.js';
 import {
   type LaterEnvironment,
@@ -39,7 +42,6 @@ import {
   laterEnvironment,
 } from './environment-entry.js';
 import type { EnvironmentOrderBinding } from './environment-orders-binding.js';
-import { rescoreRefusal, rescoreStart } from './eval-rescore.js';
 import type { GateApproval } from './gate.js';
 import {
   type ReferenceScopeBinding,
@@ -49,7 +51,12 @@ import {
 import { refusesCandidates, refusesScope } from './registry-read-only.js';
 import type { ReviewerRegistryBinding } from './reviewer-binding.js';
 import { agentPinScopeToWire } from './routes/agent-pin-scope-wire.js';
-import { type AgentPinGateDeps, type PinRequestOutcome, requestPin } from './routes/agent-pins.js';
+import {
+  type AgentPinGateDeps,
+  type PinRequestOutcome,
+  pinStopsLatest,
+  requestPin,
+} from './routes/agent-pins.js';
 import {
   SUGGESTED_CHANGE_ACTIONS,
   type SuggestedChangeAction,
@@ -84,8 +91,14 @@ import type {
   TestRunComparison,
   TestRunStartOutcome,
 } from './test-run-binding.js';
-import type { FrozenTestSet, TestSetFreezeBinding } from './test-set-binding.js';
-import { type WhatRuns, whatRuns } from './what-runs.js';
+import { rescoreRefusal, rescoreStart } from './test-run-rescore.js';
+import {
+  type FrozenTestSet,
+  type TestSetFreezeBinding,
+  nothingToCheck,
+  projectHasCases,
+} from './test-set-binding.js';
+import { type WhatRuns, projectsPinTakesOffLatest, whatRuns } from './what-runs.js';
 
 /**
  * The suggested-change lifecycle, from the bindings it runs on: what
@@ -138,6 +151,16 @@ export interface SuggestedChangeServiceDeps {
    * suggested change can't be made or checked (`create`, `check`).
    */
   readonly testSets?: TestSetFreezeBinding;
+  /**
+   * What a pin's test runs need besides the test sets (`AgentPinGateDeps`):
+   * the corrections the card's reused check changes, and the projects an
+   * agent runs in. Absent `corrections`: a pin starts no test run. `get`
+   * reads the corrections a new card says it fixes; absent, there are none
+   * to name, so a card naming any is refused.
+   */
+  readonly corrections?: AgentPinGateDeps['corrections'] &
+    Partial<Pick<CorrectionRegistryBinding, 'get'>>;
+  readonly itemProjects?: AgentPinGateDeps['itemProjects'];
 }
 
 /** An error with the code the API answers it with (`statusFor`), and its details. */
@@ -247,6 +270,13 @@ export interface EvaluateSuggestedChangeInput {
     readonly rule: SuggestedChangeRule;
     readonly reference: { readonly testRunId: string };
   };
+  /**
+   * Whose model checks the test run's answers (`TestRunStartInput.judging`).
+   * Improve names the model it was asked to judge with, else the version it
+   * starts from, and starts the `reference` run with the same, so one model
+   * judges both sides. Absent: the candidate version's own model.
+   */
+  readonly judging?: TestRunJudging;
   /** Who it's done for: what the derived version records as `by`. */
   readonly actor: PinActor;
 }
@@ -668,20 +698,35 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
     return narrower === undefined ? undefined : { code: 'registry-read-only', message: narrower };
   }
 
-  /** The project's test set, frozen for a check; the 409 when it has no cases. */
+  /** Whether the corrections say the project has no case of the agent; `false` without them. */
+  async function knownEmpty(
+    tenantId: TenantId,
+    agentId: AgentId,
+    projectId: ProjectId,
+  ): Promise<boolean> {
+    return (
+      deps.corrections !== undefined &&
+      !(await projectHasCases(deps.corrections, { tenantId, agentId, projectId }))
+    );
+  }
+
+  /**
+   * The project's test set, frozen for a check; the 409 when it has no
+   * cases. One read of its cases comes first, as a pin's test runs do, so a
+   * project with none freezes nothing: a freeze makes a version. Without
+   * the corrections, the freeze alone says.
+   */
   async function frozenSet(
     testSets: TestSetFreezeBinding,
     tenantId: TenantId,
     agentId: AgentId,
     projectId: ProjectId,
   ): Promise<SuggestedChangeOutcome<FrozenTestSet>> {
+    if (await knownEmpty(tenantId, agentId, projectId))
+      return err(nothingToCheck(agentId, projectId));
     const frozen = await testSets.freezeTestSet({ tenantId, agentId, projectId });
     if (frozen.cases.length > 0) return { kind: 'ok', value: frozen };
-    return err({
-      code: 'suggested-change-nothing-to-check',
-      message: `Project ${projectId as unknown as string} has no corrections of ${agentId as unknown as string} to check a change on: correct some of its conversations first`,
-      projectId: projectId as unknown as string,
-    });
+    return err(nothingToCheck(agentId, projectId));
   }
 
   /**
@@ -715,6 +760,8 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       });
     }
     const correlationId = `suggested-change:${suggestedChange.id as unknown as string}`;
+    // Both sides' answers are checked by the version it's built on, so one model judges both.
+    const judging = { version: builtOn(suggestedChange) };
     const start = (version: string) =>
       deps.testRuns.start({
         tenantId,
@@ -723,6 +770,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         testSetVersion: frozen.testSetVersion,
         agentRef: { agentId: suggestedChange.agentId, version: version as Semver },
         correlationId,
+        judging,
       });
     const withIt = await start(candidate.agentVersion);
     if (withIt.kind !== 'ok') return err(startError(withIt));
@@ -991,9 +1039,10 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       },
     });
     if (withVersion.kind === 'err' || deps.testSets === undefined) return withVersion;
-    const frozen = await deps.testSets.freezeTestSet({ tenantId, agentId, projectId });
-    if (frozen.cases.length === 0) return withVersion;
-    return checkOn(withVersion.value, input.by, projectId, frozen);
+    // With no case in the project, it's left unchecked, and nothing is frozen for it.
+    const frozen = await frozenSet(deps.testSets, tenantId, agentId, projectId);
+    if (frozen.kind === 'err') return withVersion;
+    return checkOn(withVersion.value, input.by, projectId, frozen.value);
   }
 
   /** Store a deploy card built on `fromVersion`, what its project runs; or find the same one open. */
@@ -1181,6 +1230,8 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       }
       const tier = tierFor(from, input.blockId, input.content);
       if (typeof tier !== 'string') return err(tier);
+      const notHere = await fixesNotInProject(deps.corrections, tenantId, projectId, input.fixes);
+      if (notHere !== undefined) return err(notHere);
       const frozen = await frozenSet(deps.testSets, tenantId, agentId, projectId);
       if (frozen.kind === 'err') return frozen;
       const drafted = await service.draft({
@@ -1241,7 +1292,8 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
     /**
      * Publish the suggested change's block version and derive its agent version
      * (once: an evaluation again reuses them), then start the comparison.
-     * Needs a writable agent registry and a tenant-wide pinned version.
+     * Needs a writable agent registry. The version it makes is made for its
+     * project, and is Latest nowhere until someone adds it.
      */
     async evaluate(
       input: EvaluateSuggestedChangeInput,
@@ -1253,14 +1305,6 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       if (refused !== undefined) return err(refused);
       const readOnly = readOnlyRefusal(suggestedChange.scope);
       if (readOnly !== undefined) return err(readOnly);
-      // A version pinned nowhere is still the agent's latest, and the
-      // latest serves every scope nothing is pinned for.
-      if ((await deps.agentPins.pinned.resolve({ tenantId, agentId })) === null) {
-        return err({
-          code: 'suggested-change-needs-pin',
-          message: `${agentId} has no pinned version for the whole tenant, so a new version of it would serve every scope nothing is pinned for. Pin its current version for the tenant first (scope { "kind": "tenant" }), then evaluate.`,
-        });
-      }
       if (suggestedChange.candidate === undefined) {
         const made = await makeCandidate(suggestedChange, input.actor);
         if (made.kind === 'err') return made;
@@ -1304,6 +1348,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
         agentRef: { agentId: suggestedChange.agentId, version: candidate.agentVersion as Semver },
         correlationId: `suggested-change:${suggestedChange.id as unknown as string}`,
         ...(input.comparison !== undefined && { comparison: input.comparison }),
+        ...(input.judging !== undefined && { judging: input.judging }),
       });
       if (started.kind !== 'ok') return err(startError(started));
       return record(suggestedChange, {
@@ -1384,6 +1429,10 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       readonly suggestedChange: StoredSuggestedChange;
       readonly actor: PinActor;
       readonly reason?: string;
+      /** Where a project whose test run didn't start or apply is logged. */
+      readonly log?: Pick<Logger, 'warn'>;
+      /** The caller asks to take a project that follows Latest off it (`requestPin`). */
+      readonly stopFollowingLatest?: boolean;
     }): Promise<
       SuggestedChangeOutcome<{
         suggestedChange: StoredSuggestedChange;
@@ -1395,19 +1444,27 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       if (refused !== undefined) return err(refused);
       const projectId = projectOfCard(suggestedChange);
       if (projectId === undefined) return err(notForAProject(suggestedChange, 'pin'));
-      // A project on Latest takes a change as its Latest (`add-as-latest`).
+      // A project on Latest is pinned only when the caller asks to take it
+      // off Latest; else it takes the change as its Latest (`add-as-latest`).
+      // Asked before a rebuild, so a refused pin changes nothing.
+      if (input.stopFollowingLatest !== true) {
+        const offLatest = await projectsPinTakesOffLatest(deps.agentPins, deps.projects, {
+          tenantId,
+          agentId: suggestedChange.agentId as unknown as string,
+          scope: suggestedChange.scope,
+        });
+        if (offLatest.length > 0) {
+          return err({
+            ...pinStopsLatest(offLatest),
+            suggestedChangeId: suggestedChange.id as unknown as string,
+          });
+        }
+      }
       const runs = await whatRuns(deps.agentPins, {
         tenantId,
         agentId: suggestedChange.agentId as unknown as string,
         projectId,
       });
-      if (runs?.follows !== 'pin') {
-        return err({
-          code: 'suggested-change-project-on-latest',
-          message: `Project ${projectId as unknown as string} runs ${suggestedChange.agentId as unknown as string}'s Latest, not a pin: add the change as its Latest instead`,
-          suggestedChangeId: suggestedChange.id as unknown as string,
-        });
-      }
       const moved = await refuseMoved(suggestedChange, input.actor, projectId, runs);
       if (moved !== undefined) return err(moved);
       const { candidate, evaluation } = suggestedChange;
@@ -1435,6 +1492,9 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
           ...(deps.projects !== undefined && { projects: deps.projects }),
           ...(deps.referenceScope !== undefined && { referenceScope: deps.referenceScope }),
           ...(deps.projectSuspended !== undefined && { projectSuspended: deps.projectSuspended }),
+          ...(deps.testSets !== undefined && { testSets: deps.testSets }),
+          ...(deps.corrections !== undefined && { corrections: deps.corrections }),
+          ...(deps.itemProjects !== undefined && { itemProjects: deps.itemProjects }),
         },
         {
           tenantId,
@@ -1445,7 +1505,11 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
           reason: input.reason ?? `Suggested change ${suggestedChange.id as unknown as string}`,
           testRunId: evaluation.testRunId,
         },
-        drafterApproval,
+        {
+          ...drafterApproval,
+          ...(input.log !== undefined && { log: input.log }),
+          ...(input.stopFollowingLatest === true && { stopFollowingLatest: true }),
+        },
       );
       if (outcome.kind !== 'ok') return { kind: 'ok', value: { suggestedChange, pin: outcome } };
       const recorded = await record(suggestedChange, {
@@ -1785,6 +1849,47 @@ function validationFailed(
     code: 'validation-failed',
     message,
     issues: issues as unknown as Record<string, unknown>[],
+  };
+}
+
+/**
+ * The refusal when a new card names, in `fixes`, an id that's no correction
+ * in its own project: unknown, or another project's or tenant's. A card
+ * says which of its project's corrections it fixes, so each must be one
+ * of them. `fixes` in the details lists the bad ids, and `issues` each
+ * one's place. `undefined` when every id is one, or it names none.
+ */
+async function fixesNotInProject(
+  corrections: Partial<Pick<CorrectionRegistryBinding, 'get'>> | undefined,
+  tenantId: TenantId,
+  projectId: ProjectId,
+  fixes: readonly string[] | undefined,
+): Promise<SuggestedChangeServiceError | undefined> {
+  if (fixes === undefined) return undefined;
+  const ids = [...new Set(fixes)];
+  const found = await Promise.all(
+    ids.map((correctionId) =>
+      corrections?.get === undefined
+        ? Promise.resolve(null)
+        : corrections.get({ tenantId, correctionId }),
+    ),
+  );
+  // The tenant too: the id is the caller's, and a store keyed by id alone mustn't let another tenant's through.
+  const bad = ids.filter(
+    (_, i) => found[i]?.tenantId !== tenantId || found[i]?.projectId !== projectId,
+  );
+  if (bad.length === 0) return undefined;
+  const project = projectId as unknown as string;
+  return {
+    ...validationFailed(
+      `\`fixes\` names ${bad.length === 1 ? 'an id that is' : 'ids that are'} no correction in project ${project}: ${bad.join(', ')}`,
+      fixes.flatMap((id, i) =>
+        bad.includes(id)
+          ? [{ path: `fixes[${i}]`, message: `No correction ${id} in project ${project}` }]
+          : [],
+      ),
+    ),
+    fixes: bad,
   };
 }
 

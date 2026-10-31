@@ -362,7 +362,7 @@ export interface TurnDetailEvent {
 }
 
 // ============================================================
-// Supervisor + suggested change shapes.
+// Suggested change shapes.
 // ============================================================
 
 // (These are re-exported at the top of the file already; imported here
@@ -375,44 +375,6 @@ import type {
   SuggestedChangeId,
   SupervisorId,
 } from '@kindgi/types';
-
-/**
- * @unwired SDK-defined supervisor shape; the API has no supervisor
- * definition routes (only `/v1/suggested-changes` and `/v1/observations`). A
- * supervisor is an agent with suggested-change tools; it observes guardrail
- * violations + structured failure patterns on a subscribed set of
- * agents.
- *
- * A supervisor's own guardrails + eval criteria cannot be modified
- * after it is defined, so an update is a define-with-new-version
- * operation, not a mutation.
- */
-export interface SupervisorSpec {
-  readonly id: string;
-  readonly version: string;
-  readonly name: string;
-  readonly description?: string;
-  /** Agent-ids this supervisor observes. Empty = observes all agents in tenant. */
-  readonly subscribedAgents?: readonly string[];
-  /** Which guardrails trigger suggested-change drafting. */
-  readonly triggerGuardrails: readonly string[];
-  /** Proposer tiers enabled (`prompt` | `retrieval` | `tool-config`). */
-  readonly proposerTiers: readonly ('prompt' | 'retrieval' | 'tool-config')[];
-  /** Dry-run eval criterion applied to every suggested change. */
-  readonly defaultCriterion?: DryRunCriterion;
-}
-
-export interface Supervisor {
-  readonly id: SupervisorId;
-  readonly version: string;
-  readonly name: string;
-  readonly description?: string;
-  readonly subscribedAgents: readonly string[];
-  readonly triggerGuardrails: readonly string[];
-  readonly proposerTiers: readonly ('prompt' | 'retrieval' | 'tool-config')[];
-  readonly createdAt: import('@kindgi/types').Timestamp;
-  readonly deprecatedAt?: import('@kindgi/types').Timestamp;
-}
 
 /**
  * Where a suggested change stands — `@kindgi/api/openapi.json#SuggestedChangeStatus`.
@@ -554,15 +516,6 @@ export interface SuggestedChange {
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt: import('@kindgi/types').Timestamp;
 }
-
-/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (suggested changes now change data blocks: `client.suggestedChanges`); removed at 0.2. */
-export type DryRunCriterion =
-  | { readonly kind: 'min-pass-rate'; readonly minPassRate: number }
-  | {
-      readonly kind: 'strict-improvement';
-      readonly baselinePassRate: number;
-      readonly minDelta: number;
-    };
 
 // ============================================================
 // Observation shapes.
@@ -2305,6 +2258,14 @@ export interface Project {
    */
   readonly isDefault: boolean;
   readonly description?: string;
+  /**
+   * `true`: end users' corrections (an app's, with a `participantId`, and
+   * not an expert's) are sorted like the others, and a schedule counting
+   * everyone's counts them. `false`, or absent from an older server: they're
+   * listed and become test cases, but stay open and unsorted, and never
+   * start Improve.
+   */
+  readonly sortEndUserCorrections?: boolean;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt: import('@kindgi/types').Timestamp;
 }
@@ -2326,6 +2287,8 @@ export interface ProjectPatch {
   readonly slug?: string;
   readonly description?: string;
   readonly orgId?: import('@kindgi/types').OrgId | null;
+  /** `Project.sortEndUserCorrections`. Admin on the project. */
+  readonly sortEndUserCorrections?: boolean;
 }
 
 /**
@@ -3030,7 +2993,10 @@ export interface CorrectionSorted {
   readonly at: import('@kindgi/types').Timestamp;
 }
 
-/** The work fixing a correction, while it's `being-fixed`. */
+/**
+ * The work fixing a correction, while it's `being-fixed`. An Improve run or
+ * a suggested change is named by its id, without its prefix.
+ */
 export type CorrectionLink =
   | { readonly kind: 'improve-run'; readonly id: string }
   | { readonly kind: 'suggested-change'; readonly id: string }
@@ -3041,6 +3007,21 @@ export interface CorrectionFixedIn {
   readonly version?: string;
   /** `pin`, `latest` (Latest moved in a project that follows it), or `recorded-right` (nothing was wrong). */
   readonly how: 'pin' | 'latest' | 'recorded-right';
+  readonly by?: CorrectionMadeBy;
+  readonly at: import('@kindgi/types').Timestamp;
+}
+
+/**
+ * The version whose test run got a `fixed` correction wrong again. It holds
+ * no words: build the sentence from the project's and the person's current
+ * names.
+ */
+export interface CorrectionReopenedIn {
+  /** The version that gets it wrong. */
+  readonly version: string;
+  /** How the project came to run it: a pin, going back to an earlier version, an unpin, or Latest moving. */
+  readonly how: 'pin' | 'went-back' | 'unpin' | 'latest';
+  /** Who pinned, went back or unpinned; absent when Latest moved. */
   readonly by?: CorrectionMadeBy;
   readonly at: import('@kindgi/types').Timestamp;
 }
@@ -3200,8 +3181,14 @@ export interface Correction {
   readonly sorted?: CorrectionSorted;
   /** Present while it's `being-fixed`. */
   readonly link?: CorrectionLink;
-  /** Present while it's `fixed`. */
+  /** Present while it's `fixed`, and beside `reopenedIn` after a test run reopened it. */
   readonly fixedIn?: CorrectionFixedIn;
+  /**
+   * Present after a test run got a `fixed` correction wrong again: it's
+   * `open` (or `with-owner`), with the `fixedIn` it had beside it. A status
+   * set by hand clears both; a re-sort alone keeps them.
+   */
+  readonly reopenedIn?: CorrectionReopenedIn;
   readonly statusNote?: CorrectionStatusNote;
   /** Absent when the correction is unclassified (it counts with weight 1). */
   readonly correctorGroupId?: string;
@@ -3285,7 +3272,7 @@ export interface CreateCorrectionInput {
 export interface ChangeCorrectionInput {
   readonly sortedTo?: CorrectionSortedTo;
   readonly status?: 'open' | 'being-fixed' | 'wont-fix';
-  /** With `status: 'being-fixed'`: a pull request URL, an Improve run (`ir-…`) or a suggested change (`sc-…`). */
+  /** With `status: 'being-fixed'`: a pull request URL, an Improve run (`ir-<its id>`) or a suggested change (`sc-<its id>`). */
   readonly link?: string;
   /** Required for `wont-fix`; with `open`, why it went back. Otherwise the re-sort's reason. */
   readonly reason?: string;
