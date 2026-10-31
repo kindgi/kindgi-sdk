@@ -419,6 +419,27 @@ describe("an answer-only correction, graded by the host's answer checker", () =>
     expect(left).toMatchObject({ status: 'open' });
     expect(left?.fixedIn).toBeUndefined();
   });
+
+  test("an answer the checker couldn't check never reopens a fixed one", async () => {
+    const h = harness();
+    const id = await h.corrected();
+    const v13 = h.project.pin('13.0.0', ana);
+    const passed = await dispatched(id, '13.0.0', { kind: 'checked', pass: true });
+    await h.apply(h.ran('13.0.0', pinRunCorrelation(v13.id), {}, 'completed', { result: passed }));
+    const v14 = h.project.pin('14.0.0', ben);
+    const unchecked = await dispatched(id, '14.0.0', {
+      kind: 'unchecked',
+      reason: 'The version has no model settings.',
+    });
+    const run = h.ran('14.0.0', pinRunCorrelation(v14.id), {}, 'completed', { result: unchecked });
+    expect(await h.apply(run)).toEqual({ fixed: [], reopened: [] });
+    const kept = await h.get(id);
+    expect(kept).toMatchObject({
+      status: 'fixed',
+      fixedIn: { version: '13.0.0', how: 'pin', by: ana },
+    });
+    expect(kept?.reopenedIn).toBeUndefined();
+  });
 });
 
 describe('going back', () => {
