@@ -534,12 +534,13 @@ with the API token in `KINDGI_API_TOKEN`
 A revision whose account can't read a secret it's given (say it was set
 before its grant) doesn't start, and the last ready one keeps serving.
 `kindgi deployments get <deployment-id>` shows the service held as
-`pack-env-secret-unreadable`. The orchestrator starts that revision again 5,
-10 and 20 minutes after each start that didn't take, so four starts at most,
-then leaves it held. Grant the read (list the secret in
-`pack_secret_readers` and apply), and the next start clears the hold. After
-the fourth, set the name again with `--force`: that's a new revision, with
-four starts of its own.
+`pack-env-secret-unreadable`. The orchestrator tries the same values again,
+each time as a new revision, 5, 10 and 20 minutes after each start that
+didn't take, so four starts at most, then leaves them held. Grant the read
+(list the secret in `pack_secret_readers` and apply), and the next start
+clears the hold. After the fourth, set the name again with `--force` (the
+same cloud secret: without `--force`, that's no change). That counts as new
+values, with four starts of their own.
 
 Secret Manager logs a read of a secret's value only with its Data Access
 audit logs on. To record each read of a pack's secrets, turn on `DATA_READ`
