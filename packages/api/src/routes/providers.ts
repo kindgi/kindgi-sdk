@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
+import type { AuditEventBinding } from '@kindgi/audit-events';
 import {
   type AdapterConfig,
   type AdapterConfigProblem,
@@ -15,8 +16,10 @@ import {
   modelThinkingProblem,
   validateProviderLabels,
 } from '@kindgi/capabilities';
+import { emitAuditEvent } from '@kindgi/compliance';
 import type { Cursor, TenantId } from '@kindgi/types';
 
+import { callerIdentity } from '../caller.js';
 import type { CapabilityDescriptor } from '../capability-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -79,9 +82,32 @@ export function providersRouter(
      * (`refuseUnservedReference`). Absent: any env.
      */
     readonly servedEnv?: ServedEnvRule;
+    /**
+     * Where registering and unregistering a provider are recorded, with the
+     * caller as their actor. Absent: neither is.
+     */
+    readonly auditEvents?: AuditEventBinding;
   } = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+
+  /** An audit event for a provider change: its id and adapter, never its key or secret. */
+  async function audit(
+    c: Context<AppEnv>,
+    kind: 'provider-registered' | 'provider-unregistered',
+    doc: Readonly<Record<string, unknown>>,
+  ): Promise<void> {
+    await emitAuditEvent({
+      auditEvents: options.auditEvents,
+      tenantId: c.get('tenantId') as TenantId,
+      kind,
+      actor: callerIdentity(c),
+      outcome: 'succeeded',
+      correlationId: c.get('requestId'),
+      doc,
+      log: c.get('log').child({ subsystem: 'audit' }),
+    });
+  }
   r.use('*', tenantResourceAccess(authorizer));
 
   // ---------- GET / (list, cursor-paginated) ----------
@@ -349,6 +375,10 @@ export function providersRouter(
         ),
       );
     }
+    await audit(c, 'provider-registered', {
+      providerId: outcome.providerId,
+      adapterId: bodyObj.adapter_id,
+    });
     if (onWrite !== undefined) {
       try {
         await onWrite({ tenantId, providerId: outcome.providerId, kind: 'register' });
@@ -416,6 +446,7 @@ export function providersRouter(
         ),
       );
     }
+    await audit(c, 'provider-unregistered', { providerId });
     if (onWrite !== undefined) {
       try {
         await onWrite({ tenantId, providerId, kind: 'unregister' });

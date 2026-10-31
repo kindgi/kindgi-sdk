@@ -23,6 +23,8 @@ import {
   type TestSetKind,
   type TestSetRecord,
   type TestSetRegistryBinding,
+  agentTestSetIdReserved,
+  isAgentTestSetId,
 } from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
@@ -413,6 +415,16 @@ export function testSetsRouter(
             message: validation.error.message,
             issues: validation.error.issues as unknown as Record<string, unknown>[],
           },
+          requestId,
+        ),
+      );
+    }
+
+    if (isAgentTestSetId(validation.value.id)) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: agentTestSetIdReserved(validation.value.id) },
           requestId,
         ),
       );

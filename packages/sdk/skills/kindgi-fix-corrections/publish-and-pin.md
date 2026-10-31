@@ -1,32 +1,29 @@
 # Step 4 — Publish, and ask to pin it
 
-For a **setting** change, publish the block, then derive a new agent version
-that pins it — no code change:
+For a **setting** change, suggest a change for the project the corrections
+came from — no code change:
 
 ```sh
-kindgi blocks publish acme.store-policy \
-  --block-version=1.0.1 --project=<project-id> \
-  --settings=@store-policy.json --schema=@store-policy.schema.json
-kindgi agents derive acme-store.refunds \
-  --from=1.0.3 --setting=acme.store-policy=1.0.1 --label="return window 14 days"
+kindgi suggested-changes create --agent=acme-store.refunds --project=<project-id> \
+  --block=acme.store-policy --values=@store-policy.json \
+  --why="Our return window is 14 days" --fixes=<correction-id>
 ```
 
-- `blocks publish` takes `--block-version` (a semver, not `--version`) and a
-  required `--project`. `--settings` is the block's values; `--schema`
-  constrains them. (`--prompt` publishes a prompt block instead; the two are
-  mutually exclusive.)
-- `agents derive --setting=<block-id>=<version>` re-pins a block the version
-  *already* references to its new version (repeat `--setting`/`--prompt` for
-  several). It makes the first free patch after the agent's highest version and
-  prints it — read that version from its output rather than assuming one. If it
-  answers `reused`, an identical version already exists: use that, don't derive
-  again.
+- `--block` names a block the version the project runs *already* pins.
+  `--values` is a settings block's new values, checked against its schema;
+  `--template` is a prompt block's new instructions instead. Either takes a
+  file as `@<file>`.
+- `--why` says what it fixes, and each `--fixes` names a correction it fixes.
+- It publishes the block version, makes the agent version that pins it, and
+  tries both versions on the project's test cases. Read the new version from
+  its output's `version` rather than assuming one. The same change again
+  answers the suggested change made before: don't make another.
 
 For a **code** change, `kindgi deploy` publishes the new version with the
 changed tool.
 
-Deriving needs `publish` on the agent, `blocks publish` needs `write` on the
-project, and pinning needs `pin` — the permission that pins a version, which an agent's admins hold.
+A suggested change needs `publish` on the agent, and pinning needs `pin` — the
+permission that pins a version, which an agent's admins hold.
 
 If the person keeps test cases built from the corrected runs, try the new
 version on them first:

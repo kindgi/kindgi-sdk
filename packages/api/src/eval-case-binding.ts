@@ -75,7 +75,11 @@ export interface TestCaseExpectedDecisions extends ExpectedDecisions {
 
 /** One case of a `corrections` test set: a copy of a corrected run and what people said about it. */
 export interface CorrectedTestCase {
-  /** The corrected run's id. */
+  /**
+   * The case's id. A frozen case of an agent's test set has its
+   * correction's id, or a `case-` id when it was added by hand. A
+   * `corrections` test set built before 0.4.0 used the corrected run's id.
+   */
   readonly caseId: string;
   /** What ran: the agent or flow at a version (the baseline when comparing to the recording). */
   readonly subject: CorrectedSubject;

@@ -77,9 +77,11 @@ async function harness(grants: readonly string[], { authzOn = true } = {}) {
       input: { query: 'acme' },
       output: { matches: [{ id: 'c1' }] },
     },
-    item: { key: 'c1', rank: 0 },
-    verdict: 'no',
-    assertedBy: { kind: 'user', id: 'u1' },
+    items: [{ key: 'c1', rank: 0, verdict: 'wrong' }],
+    madeBy: { kind: 'user', id: 'u1' },
+    status: 'open',
+    sortedTo: 'improve',
+    sorted: { by: { kind: 'rule' }, at: '2026-10-01T00:00:00.000Z' },
   });
   const registry = testSets();
   const app = createApp({

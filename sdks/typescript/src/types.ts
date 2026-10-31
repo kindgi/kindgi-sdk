@@ -416,25 +416,18 @@ export interface Supervisor {
 
 /**
  * Where a suggested change stands — `@kindgi/api/openapi.json#SuggestedChangeStatus`.
- * Derived by the server from the suggested change's comparison and pin.
+ * Derived by the server from its check, its pin and its own steps. A pin
+ * the gate refused, a second person rejected, or whose approval expired
+ * leaves it `ready`, with a `note`.
  */
 export type SuggestedChangeStatus =
-  | 'draft'
-  | 'evaluating'
-  | 'evaluated'
-  | 'not-better'
-  | 'evaluation-failed'
-  | 'in-review'
+  | 'checking'
+  | 'check-failed'
+  | 'ready'
+  | 'waiting-for-second-person'
   | 'pinned'
-  | 'refused'
-  | 'rejected'
-  | 'expired'
-  | 'superseded'
-  | 'rolled-back'
+  | 'added-as-latest'
   | 'withdrawn';
-
-/** What a suggested change changes: a settings block (new values) or a prompt block (a new template). */
-export type SuggestedChangeTier = 'settings-block' | 'prompt-block';
 
 /** New content for a block: `{ values }` (settings) or `{ template }` (prompt). */
 export type SuggestedChangeContent =
@@ -444,108 +437,119 @@ export type SuggestedChangeContent =
 /** The metric that says whether a candidate is better. */
 export type SuggestedChangeObjective = 'passRate' | 'weightedPrecisionAtK';
 
+/** A user, or a service token. */
+export interface SuggestedChangeActor {
+  readonly kind: 'user' | 'service';
+  readonly id: string;
+}
+
+/** Who or what made a suggested change — `@kindgi/api/openapi.json#SuggestedChangeMadeBy`. */
+export type SuggestedChangeMadeBy =
+  | { readonly kind: 'improve-run'; readonly improveRunId: string; readonly scheduleId?: string }
+  | { readonly kind: 'person'; readonly userId: string }
+  | { readonly kind: 'service'; readonly id: string }
+  | { readonly kind: 'deploy'; readonly deploymentId: string; readonly by: SuggestedChangeActor }
+  | { readonly kind: 'offer'; readonly fromProjectId: string; readonly pinChangeId: string };
+
+/** How one version did on a check's cases. */
+export interface SuggestedChangeCheckSide {
+  readonly testRunId: string;
+  /** Once its run finished: the corrections it passed, of those it was checked on. */
+  readonly passing?: number;
+  readonly of?: number;
+  /** What its replays cost in model calls per case, in US dollars, as a decimal string. */
+  readonly costPerConversation?: string;
+}
+
 /**
- * A suggested change — `@kindgi/api/openapi.json#SuggestedChange`: a
- * change to one data block an agent version pins, for one pinned scope,
- * taken through the same comparison, gate and pin as any version.
+ * A suggested change — `@kindgi/api/openapi.json#SuggestedChange`: one
+ * block changed in what a project runs, checked on the project's test set,
+ * then pinned for the project or added as its Latest.
  */
 export interface SuggestedChange {
   readonly id: SuggestedChangeId;
   readonly agentId: import('@kindgi/types').AgentId;
-  /** The agent version the change applies to. */
-  readonly fromVersion: string;
-  /** The pinned scope it's for. */
-  readonly scope: import('./generated/api.js').AgentPinScope;
-  readonly tier: SuggestedChangeTier;
-  readonly change: {
-    readonly blockId: string;
-    /** The block version `fromVersion` pins. */
-    readonly fromVersion: string;
-    readonly content: SuggestedChangeContent;
+  /** The project it's for. */
+  readonly projectId?: string;
+  /** The first line of `why`, then the change: `tone v2 → v3`. */
+  readonly title: string;
+  readonly madeBy: SuggestedChangeMadeBy;
+  /** The agent version it's built on, and when it was last rebuilt on a new one. */
+  readonly builtOn: {
+    readonly version: string;
+    readonly rebuiltAt?: import('@kindgi/types').Timestamp;
   };
-  /** What the change should improve, and why. */
-  readonly why: string;
+  /** Its agent version. It serves nothing until it's pinned or added as Latest. */
+  readonly version?: string;
   /**
-   * What it rests on: `fixes` names the corrections it fixes, and
-   * `correctionCount` is how many there are when `fixes` names only the first
-   * of them (an Improve run names at most 100).
+   * Its changes: a block's, with `before` and `after` on `get`; or, for a
+   * deploy's, its new version's code, whole.
    */
-  readonly evidence?: {
-    readonly fixes?: readonly string[];
-    readonly correctionCount?: number;
-  };
-  readonly madeBy:
-    | { readonly kind: 'person'; readonly by: string }
+  readonly changes: readonly (
     | {
-        readonly kind: 'settings-optimizer' | 'prompt-drafter';
-        readonly version: string;
-        readonly model?: { readonly providerId: string; readonly model: string };
-      };
+        readonly kind: 'block';
+        readonly blockId: string;
+        readonly from: string;
+        readonly to?: string;
+        readonly before?: SuggestedChangeContent;
+        readonly after?: SuggestedChangeContent;
+      }
+    | {
+        readonly kind: 'code';
+        readonly deploymentId: string;
+        /** The deploy's image, when it named one by digest. */
+        readonly imageDigest?: string;
+      }
+  )[];
+  /** What the change should fix, and why. */
+  readonly why: string;
+  /** The corrections it fixes, by id. */
+  readonly fixes: readonly string[];
+  /**
+   * Its check: its version (`with`) and the version it's built on (`now`)
+   * on the same cases of its project's test set.
+   */
+  readonly check: {
+    readonly status: 'not-started' | 'running' | 'done' | 'failed';
+    readonly testSetId?: string;
+    readonly testSetVersion?: string;
+    readonly now?: SuggestedChangeCheckSide;
+    readonly with?: SuggestedChangeCheckSide;
+    /** The corrections `now` passes and `with` fails, by id. */
+    readonly newlyFailing?: readonly string[];
+    readonly startedAt?: import('@kindgi/types').Timestamp;
+  };
   readonly status: SuggestedChangeStatus;
-  /** The versions evaluating it published; they serve no scope until pinned. */
-  readonly candidate?: {
-    readonly agentVersion: string;
-    readonly blockVersion: string;
-    readonly pinsDigest: string;
-  };
-  /** Its comparison, and what it found on the objective metric. */
-  readonly evaluation?: {
-    readonly testRunId: string;
-    readonly testSetId: string;
-    readonly objective: SuggestedChangeObjective;
-    readonly startedAt: import('@kindgi/types').Timestamp;
-    readonly runStatus?: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-    readonly baseline?: number | null;
-    readonly candidate?: number | null;
-    readonly delta?: number | null;
-    readonly spread?: number;
-    readonly cases?: number;
-    readonly better?: boolean;
-    /**
-     * How the candidate is kept: `better` (it beats the recorded outputs) or
-     * `cheaper` (no worse than the current version on the same cases, and
-     * costing less). A suggested change kept as `cheaper` is `evaluated` with
-     * `better` false. Absent: `better`.
-     */
-    readonly rule?: 'better' | 'cheaper';
-    /** What the replays cost in model calls, in US dollars: the current version's and the candidate's. */
-    readonly costUsd?: { readonly current: number; readonly candidate: number };
-    /**
-     * The corrections the current version was checked on, against the
-     * candidate's: both passed (`held`), only the current version did
-     * (`broken`), or neither (`stillWrong`); the rest the candidate fixed.
-     */
-    readonly decisions?: {
-      readonly checked: number;
-      readonly held: number;
-      readonly broken: number;
-      readonly stillWrong: number;
-    };
-  };
-  /** The pin it made. */
-  readonly pin?: {
-    readonly id: string;
-    readonly status:
-      | 'pinned'
-      | 'pending-approval'
-      | 'refused'
-      | 'superseded'
-      | 'rejected'
-      | 'expired';
-    readonly approvalId?: string;
-    /** For a pinned suggested change: whether its version still serves the scope. */
-    readonly pinnedNow?: boolean;
-  };
-  readonly rolledBack?: {
+  /**
+   * Why a `ready` one's pin didn't go through. Or, on a deploy's,
+   * `not-running`: the version its project runs (`version`) wasn't running
+   * to be checked against, so its check has no `now`.
+   */
+  readonly note?:
+    | {
+        readonly kind: 'gate-refused' | 'rejected' | 'expired' | 'superseded';
+        /** That pin's change in the agent's pin history. */
+        readonly pinChangeId: string;
+      }
+    | { readonly kind: 'not-running'; readonly version: string };
+  readonly pinned?: {
+    readonly version: string;
+    readonly by: SuggestedChangeActor;
     readonly at: import('@kindgi/types').Timestamp;
-    readonly changeId: string;
-    readonly by: string;
+  };
+  /** While `waiting-for-second-person`: the approval the pin waits on. */
+  readonly approvalId?: string;
+  /** Once `added-as-latest`: its version, who added it as its project's Latest, when, and why. */
+  readonly addedAsLatest?: {
+    readonly version: string;
+    readonly by: SuggestedChangeActor;
+    readonly at: import('@kindgi/types').Timestamp;
     readonly reason?: string;
   };
   readonly withdrawn?: {
-    readonly at: import('@kindgi/types').Timestamp;
-    readonly by: string;
+    readonly by: SuggestedChangeActor;
     readonly reason: string;
+    readonly at: import('@kindgi/types').Timestamp;
   };
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt: import('@kindgi/types').Timestamp;
@@ -2994,12 +2998,59 @@ export interface ClientOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Corrections: yes or no, with an optional reason, about one item of a run's
-// output, optionally recorded under a weighted corrector group.
+// Corrections: whether a run's decisions and answer were right, and what was
+// right instead, optionally recorded under a weighted corrector group.
 // ---------------------------------------------------------------------------
 
-/** The verdict of a correction. */
-export type Verdict = 'yes' | 'no';
+/** Whether a run's decisions, its answer, or an item of it, were right. */
+export type Verdict = 'right' | 'wrong';
+
+/**
+ * Where a correction is: `open` (waiting to be fixed), `being-fixed`,
+ * `with-owner` (the agent's owner decides), `fixed`, `wont-fix` or `removed`.
+ */
+export type CorrectionStatus =
+  | 'open'
+  | 'being-fixed'
+  | 'with-owner'
+  | 'fixed'
+  | 'wont-fix'
+  | 'removed';
+
+/** Who fixes a correction: Improve, a developer, or the agent's owner. */
+export type CorrectionSortedTo = 'improve' | 'developer' | 'owner';
+
+/** How a correction was sorted: by a fix job, by the rule at save, or by the caller who re-sorted it. */
+export interface CorrectionSorted {
+  readonly by:
+    | { readonly kind: 'fix-job' }
+    | { readonly kind: 'rule' }
+    | { readonly kind: 'user' | 'service'; readonly id: string };
+  readonly reason?: string;
+  readonly at: import('@kindgi/types').Timestamp;
+}
+
+/** The work fixing a correction, while it's `being-fixed`. */
+export type CorrectionLink =
+  | { readonly kind: 'improve-run'; readonly id: string }
+  | { readonly kind: 'suggested-change'; readonly id: string }
+  | { readonly kind: 'pull-request'; readonly url: string };
+
+/** What fixed a correction, while it's `fixed`. */
+export interface CorrectionFixedIn {
+  readonly version?: string;
+  /** `pin`, `latest` (Latest moved in a project that follows it), or `recorded-right` (nothing was wrong). */
+  readonly how: 'pin' | 'latest' | 'recorded-right';
+  readonly by?: CorrectionMadeBy;
+  readonly at: import('@kindgi/types').Timestamp;
+}
+
+/** Why a correction is `wont-fix`, or went back to `open`. */
+export interface CorrectionStatusNote {
+  readonly text: string;
+  readonly by: CorrectionMadeBy;
+  readonly at: import('@kindgi/types').Timestamp;
+}
 
 /**
  * Where a corrector group applies: the whole tenant, one project, or one
@@ -3085,8 +3136,13 @@ export interface CorrectedItem {
   readonly rank?: number;
 }
 
+/** An item of an answer that is a ranked list, and whether it was right. */
+export interface CorrectedAnswerItem extends CorrectedItem {
+  readonly verdict: Verdict;
+}
+
 /** Who asserted a correction: the authenticated caller, never a typed name. */
-export interface CorrectionAssertedBy {
+export interface CorrectionMadeBy {
   readonly kind: 'user' | 'service';
   readonly id: string;
 }
@@ -3124,11 +3180,29 @@ export interface Correction {
   readonly projectId: string;
   readonly runId: string;
   readonly subject: CorrectedSubject;
-  readonly item: CorrectedItem;
-  readonly verdict: Verdict;
-  readonly reason?: string;
-  /** What the agent should have done, graded on a replay. Cleared by an erasure. */
-  readonly correction?: ExpectedDecisions;
+  /** Whether the run's decisions were right. */
+  readonly decisions?: Verdict;
+  /** The calls the agent should have made. Cleared by an erasure. */
+  readonly shouldCall?: readonly ExpectedCall[];
+  /** Tools that shouldn't have been called. Cleared by an erasure. */
+  readonly mustNotCall?: readonly string[];
+  /** Whether the run's answer was right. */
+  readonly answer?: Verdict;
+  /** What it should have said. Cleared by an erasure. */
+  readonly shouldSay?: string;
+  /** Cleared by an erasure. */
+  readonly why?: string;
+  /** For an answer that is a ranked list: each item, and whether it was right. */
+  readonly items?: readonly CorrectedAnswerItem[];
+  readonly status: CorrectionStatus;
+  /** Absent while it's unsorted. */
+  readonly sortedTo?: CorrectionSortedTo;
+  readonly sorted?: CorrectionSorted;
+  /** Present while it's `being-fixed`. */
+  readonly link?: CorrectionLink;
+  /** Present while it's `fixed`. */
+  readonly fixedIn?: CorrectionFixedIn;
+  readonly statusNote?: CorrectionStatusNote;
   /** Absent when the correction is unclassified (it counts with weight 1). */
   readonly correctorGroupId?: string;
   /**
@@ -3136,10 +3210,12 @@ export interface Correction {
    * was recorded, so whoever made it was checked against it.
    */
   readonly expert?: true;
-  readonly assertedBy: CorrectionAssertedBy;
+  readonly madeBy: CorrectionMadeBy;
   /** An app's opaque id for its end user who made the correction, when the app made it on their behalf. */
   readonly participantId?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
+  /** The last change's time, or `createdAt` for one never changed. */
+  readonly updatedAt: import('@kindgi/types').Timestamp;
   /** Set when the correction was removed or superseded. */
   readonly unregisteredAt?: import('@kindgi/types').Timestamp;
   /** The correction that replaced this one. */
@@ -3174,20 +3250,53 @@ export interface CorrectedRunCopy {
 export interface CorrectionWithCopies extends Correction {
   /** The run's input and output as they were when it was first corrected. */
   readonly run: CorrectedRunCopy;
-  /** The corrected item's value, when the correction pointed at it. */
-  readonly itemValue?: unknown;
 }
 
-/** Input for `POST /v1/corrections` per `#CreateCorrectionBody`. */
+/**
+ * Input for `POST /v1/corrections` per `#CreateCorrectionBody`. At least one
+ * of `decisions`, `answer` and `items`; `decisions: 'wrong'` needs an entry in
+ * `shouldCall` or `mustNotCall`, and `answer: 'wrong'` needs `shouldSay` or `why`.
+ */
 export interface CreateCorrectionInput {
   readonly runId: string;
-  readonly item: CorrectedItem;
-  readonly verdict: Verdict;
-  readonly reason?: string;
-  /** What the agent should have done: the calls it should have made and the tools it should not have. */
-  readonly correction?: ExpectedDecisions;
+  readonly decisions?: Verdict;
+  /** Only with `decisions: 'wrong'`. Give `args` only when the inputs matter. */
+  readonly shouldCall?: readonly {
+    readonly tool: string;
+    readonly args?: Readonly<Record<string, unknown>>;
+  }[];
+  /** Only with `decisions: 'wrong'`. */
+  readonly mustNotCall?: readonly string[];
+  readonly answer?: Verdict;
+  /** Only with `answer: 'wrong'`. */
+  readonly shouldSay?: string;
+  readonly why?: string;
+  readonly items?: readonly CorrectedAnswerItem[];
   /** Optional. When given it must exist and apply to the run. */
   readonly correctorGroupId?: string;
   /** Your opaque id for the end user who made the correction, when you make it on their behalf. */
   readonly participantId?: string;
+}
+
+/**
+ * Input for `PATCH /v1/corrections/{correctionId}` per `#ChangeCorrectionBody`:
+ * a re-sort, a status, or both (the re-sort first).
+ */
+export interface ChangeCorrectionInput {
+  readonly sortedTo?: CorrectionSortedTo;
+  readonly status?: 'open' | 'being-fixed' | 'wont-fix';
+  /** With `status: 'being-fixed'`: a pull request URL, an Improve run (`ir-…`) or a suggested change (`sc-…`). */
+  readonly link?: string;
+  /** Required for `wont-fix`; with `open`, why it went back. Otherwise the re-sort's reason. */
+  readonly reason?: string;
+}
+
+/** Matches `@kindgi/api/openapi.json#CorrectionCounts`. */
+export interface CorrectionCounts {
+  readonly open: number;
+  readonly beingFixed: number;
+  readonly withOwner: number;
+  readonly fixed: number;
+  readonly wontFix: number;
+  readonly removed: number;
 }

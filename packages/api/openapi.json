@@ -120,7 +120,7 @@
     },
     {
       "name": "corrections",
-      "description": "Corrections: yes or no, with an optional reason, about one item of a finished run's output, optionally recorded under a corrector group (list, get, create, unregister). Each correction keeps copies of what was judged (the run's input and output, and the item) so they outlive the run's own retention. Who judged comes from the authenticated caller, never the body; an app correcting for one of its users passes that user's opaque id as `participantId`. One live correction per run, item key, caller and participant: correcting again supersedes the earlier one, which stays as history. Caller-plugged via `CorrectionRegistryBinding`."
+      "description": "Corrections: whether a finished run's decisions, answer and items were right, what it should have called or said, and why, with where each correction stands and who it's sorted to (create, list, get, change, remove, counts). Each correction keeps copies of the run's input and output so they outlive the run's own retention, and may be recorded under a corrector group. Who corrected comes from the authenticated caller, never the body; an app correcting for one of its users passes that user's opaque id as `participantId`. One live correction per run, caller and participant: correcting again replaces the earlier one, which stays as history. Caller-plugged via `CorrectionRegistryBinding`."
     },
     {
       "name": "corrector-groups",
@@ -357,6 +357,12 @@
           "suggested-change-not-found": 404,
           "suggested-change-invalid-state-transition": 409,
           "suggested-change-needs-pin": 409,
+          "suggested-change-not-for-a-project": 409,
+          "suggested-change-check-unsupported": 501,
+          "suggested-change-nothing-to-check": 409,
+          "suggested-change-project-on-latest": 409,
+          "suggested-change-project-pinned": 409,
+          "suggested-change-out-of-date": 409,
           "improve-unsupported": 501,
           "improve-run-not-found": 404,
           "improve-run-finished": 409,
@@ -387,6 +393,7 @@
           "test-run-not-found": 404,
           "test-run-not-rescorable": 409,
           "correction-not-found": 404,
+          "correction-status-change-not-allowed": 409,
           "corrector-group-not-found": 404,
           "queue-rule-not-found": 404,
           "expert-queue-item-not-found": 404,
@@ -396,6 +403,7 @@
           "corrector-group-not-allowed": 403,
           "agent-version-not-found": 404,
           "pin-not-found": 404,
+          "nothing-runs-in-scope": 409,
           "not-pinned": 409,
           "gate-failed": 422,
           "pin-superseded": 409,
@@ -462,6 +470,7 @@
           "identity-user-unregistered": 409,
           "identity-user-not-invited": 409,
           "person-grants-unsupported": 501,
+          "agent-owner-unsupported": 501,
           "permissions-unsupported": 501,
           "agent-version-pinned": 409,
           "flow-version-pinned": 409,
@@ -1051,7 +1060,7 @@
               "pinned",
               "latest"
             ],
-            "description": "A pin chose it, or nothing is pinned on the way up and it is the latest."
+            "description": "A pin chose it, or nothing is pinned on the way up and it is the project's Latest."
           },
           "pinnedScope": {
             "$ref": "#/components/schemas/AgentPinScope"
@@ -1136,6 +1145,90 @@
           "projectId": {
             "type": "string",
             "format": "uuid"
+          },
+          "follows": {
+            "type": "string",
+            "enum": [
+              "pin",
+              "latest"
+            ],
+            "description": "Why `runs` runs there: `pin`, a pin that covers the project (its own, its org's or the tenant's); `latest`, no pin covers it, so it runs its Latest. Absent when neither has a version the caller can see, or when the server doesn't pin versions."
+          },
+          "runs": {
+            "$ref": "#/components/schemas/AgentProjectRuns"
+          },
+          "segments": {
+            "type": "array",
+            "description": "The pins on segments inside the project, which those segment paths run instead.",
+            "items": {
+              "$ref": "#/components/schemas/AgentProjectSegmentPin"
+            }
+          }
+        }
+      },
+      "AgentProjectRuns": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version"
+        ],
+        "description": "The version a run in the project that names none gets (and isn't a follow-up turn of a conversation).",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it began to run there: when the pin was set; or, for Latest, the deployment into the project that shipped it, or when a person published it or added it as the latest version. Absent when nothing records a time, as for a pack's version under `kindgi dev`."
+          },
+          "by": {
+            "$ref": "#/components/schemas/PinActor",
+            "description": "Who: the requester of the promotion that set the pin, or the person who published it or added it as the latest version. Absent when a deployment made it Latest."
+          },
+          "deploymentId": {
+            "type": "string",
+            "description": "With `follows: latest`: the deployment into the project that made it Latest, when one did."
+          },
+          "pinnedScope": {
+            "$ref": "#/components/schemas/AgentPinScope",
+            "description": "With `follows: pin`: the pin that covers the project."
+          },
+          "pinChangeId": {
+            "type": "string",
+            "description": "With `follows: pin`: the pin change that set the pin, in the agent's pin history."
+          }
+        }
+      },
+      "AgentProjectSegmentPin": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "version"
+        ],
+        "properties": {
+          "path": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopeSegment"
+            }
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentHighestVersion": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version"
+        ],
+        "description": "The agent's highest active version, which numbers the next one. It isn't what a project runs: that's each project's `runs`. Absent when the caller can't see it, or when the server doesn't pin versions.",
+        "properties": {
+          "version": {
+            "type": "string"
           }
         }
       },
@@ -1152,6 +1245,9 @@
             "items": {
               "$ref": "#/components/schemas/AgentProject"
             }
+          },
+          "highest": {
+            "$ref": "#/components/schemas/AgentHighestVersion"
           }
         }
       },
@@ -6118,7 +6214,7 @@
           "key": {
             "type": "string",
             "minLength": 1,
-            "description": "The caller's stable id for the item. `kindgi:correction` is reserved: a correction on it is accepted only when it carries expected decisions (`correction`) at pointer `\"\"`."
+            "description": "The caller's stable id for the item, such as a matched case's id, never the item's own text. `kindgi:correction` is reserved for Kindgi."
           },
           "pointer": {
             "type": "string",
@@ -6180,7 +6276,7 @@
           }
         }
       },
-      "CorrectionAssertedBy": {
+      "CorrectionMadeBy": {
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -6205,16 +6301,17 @@
       "Correction": {
         "type": "object",
         "additionalProperties": false,
+        "description": "A person's correction of one run: whether its decisions (the tool calls) and its answer were right, and what was right instead. It says at least one of `decisions`, `answer` and `items`.",
         "required": [
           "id",
           "tenantId",
           "projectId",
           "runId",
           "subject",
-          "item",
-          "verdict",
-          "assertedBy",
-          "createdAt"
+          "madeBy",
+          "status",
+          "createdAt",
+          "updatedAt"
         ],
         "properties": {
           "id": {
@@ -6232,22 +6329,49 @@
           "subject": {
             "$ref": "#/components/schemas/CorrectedSubject"
           },
-          "item": {
-            "$ref": "#/components/schemas/CorrectedItem"
-          },
-          "verdict": {
+          "decisions": {
             "type": "string",
             "enum": [
-              "yes",
-              "no"
-            ]
+              "right",
+              "wrong"
+            ],
+            "description": "Whether the run's decisions were right. Absent when it says nothing about them."
           },
-          "reason": {
+          "shouldCall": {
+            "type": "array",
+            "description": "With `decisions: \"wrong\"`: the calls the agent should have made.",
+            "items": {
+              "$ref": "#/components/schemas/ExpectedCall"
+            }
+          },
+          "mustNotCall": {
+            "type": "array",
+            "description": "With `decisions: \"wrong\"`: the tools that should not have been called.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "answer": {
+            "type": "string",
+            "enum": [
+              "right",
+              "wrong"
+            ],
+            "description": "Whether the run's answer was right. Absent when it says nothing about it."
+          },
+          "shouldSay": {
+            "type": "string",
+            "description": "With `answer: \"wrong\"`: what it should have said."
+          },
+          "why": {
             "type": "string"
           },
-          "correction": {
-            "$ref": "#/components/schemas/ExpectedDecisions",
-            "description": "The expert's correction of the run's decisions, when they gave one."
+          "items": {
+            "type": "array",
+            "description": "For an answer that is a ranked list: each item, and whether it was right there.",
+            "items": {
+              "$ref": "#/components/schemas/CorrectedAnswerItem"
+            }
           },
           "correctorGroupId": {
             "type": "string",
@@ -6260,16 +6384,56 @@
             ],
             "description": "Present (true) when the corrector group was restricted (`assertableBy`) when the correction was recorded, so whoever recorded it was checked against it. A restriction added or lifted later doesn't change it."
           },
-          "assertedBy": {
-            "$ref": "#/components/schemas/CorrectionAssertedBy"
+          "madeBy": {
+            "$ref": "#/components/schemas/CorrectionMadeBy"
           },
           "participantId": {
             "type": "string",
             "description": "The app's opaque id for its end user who corrected it, when an app corrected it on their behalf."
           },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "being-fixed",
+              "with-owner",
+              "fixed",
+              "wont-fix",
+              "removed"
+            ],
+            "description": "Where it is in being fixed. `with-owner` while the agent's owner decides; `fixed` only when a pin or a deploy fixed it, or it said nothing was wrong; `removed` can't come back."
+          },
+          "sortedTo": {
+            "type": "string",
+            "enum": [
+              "improve",
+              "developer",
+              "owner"
+            ],
+            "description": "Who works on it: Improve, a developer, or the agent's owner. Absent while unsorted."
+          },
+          "sorted": {
+            "$ref": "#/components/schemas/CorrectionSorted"
+          },
+          "link": {
+            "$ref": "#/components/schemas/CorrectionLink",
+            "description": "The work fixing it. Present while it is `being-fixed`."
+          },
+          "fixedIn": {
+            "$ref": "#/components/schemas/CorrectionFixedIn",
+            "description": "Present while it is `fixed`."
+          },
+          "statusNote": {
+            "$ref": "#/components/schemas/CorrectionStatusNote"
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it last changed: `createdAt` until something changes it."
           },
           "unregisteredAt": {
             "type": "string",
@@ -6279,6 +6443,298 @@
           "supersededBy": {
             "type": "string",
             "description": "The correction that replaced this one."
+          }
+        }
+      },
+      "CorrectedAnswerItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "verdict"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The caller's stable id for the item, such as a matched case's id, never the item's own text."
+          },
+          "pointer": {
+            "type": "string",
+            "description": "Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`."
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The item's position in the ranked list (0 = first)."
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "right",
+              "wrong"
+            ]
+          }
+        }
+      },
+      "CorrectedAnswerItemInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "verdict"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The caller's stable id for the item, such as a matched case's id, never the item's own text."
+          },
+          "pointer": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Where the item is in the run's output, as a JSON Pointer (RFC 6901), e.g. `/matches/2`."
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The item's position in the ranked list (0 = first)."
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "right",
+              "wrong"
+            ]
+          }
+        }
+      },
+      "CorrectionSorted": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "by",
+          "at"
+        ],
+        "properties": {
+          "by": {
+            "description": "The fix job, the rule at save, or the caller who re-sorted it: a user or a service, with its id.",
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "fix-job",
+                      "rule"
+                    ]
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "user",
+                      "service"
+                    ]
+                  },
+                  "id": {
+                    "type": "string"
+                  }
+                }
+              }
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CorrectionLink": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "improve-run",
+                  "suggested-change"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "url"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "pull-request"
+                ]
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        ]
+      },
+      "CorrectionFixedIn": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "how",
+          "at"
+        ],
+        "properties": {
+          "version": {
+            "type": "string",
+            "description": "The version that fixed it. Absent for `recorded-right`, which nothing had to fix."
+          },
+          "how": {
+            "type": "string",
+            "enum": [
+              "pin",
+              "latest",
+              "recorded-right"
+            ],
+            "description": "`pin`: a pin fixed it. `latest`: a deploy or an add moved Latest in a project that follows it. `recorded-right`: it said nothing was wrong."
+          },
+          "by": {
+            "$ref": "#/components/schemas/CorrectionMadeBy"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CorrectionStatusNote": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "text",
+          "by",
+          "at"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "by": {
+            "$ref": "#/components/schemas/CorrectionMadeBy"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ChangeCorrectionBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "description": "A re-sort, a status, or both (the re-sort first). `fixed` is set only by a pin or a deploy, and `removed` by `POST /v1/corrections/{correctionId}/remove`.",
+        "properties": {
+          "sortedTo": {
+            "type": "string",
+            "enum": [
+              "improve",
+              "developer",
+              "owner"
+            ],
+            "description": "From `open`, `being-fixed` or `with-owner`. To `owner` sets `with-owner`; away from `owner`, `open`."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "being-fixed",
+              "wont-fix"
+            ],
+            "description": "`being-fixed` from `open` or `with-owner`, with `link`. `open` from `being-fixed` or `wont-fix`. `wont-fix` from anything but `removed`, with `reason`."
+          },
+          "link": {
+            "type": "string",
+            "description": "With `status: \"being-fixed\"`: a pull request URL, an Improve run (`ir-…`) or a suggested change (`sc-…`)."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "description": "Required for `wont-fix`; with `open`, why it went back. Otherwise the re-sort's reason."
+          }
+        }
+      },
+      "CorrectionCounts": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "open",
+          "beingFixed",
+          "withOwner",
+          "fixed",
+          "wontFix",
+          "removed"
+        ],
+        "description": "How many of a project's (or an agent's) live corrections are in each status.",
+        "properties": {
+          "open": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "beingFixed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "withOwner": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "fixed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "wontFix": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "removed": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },
@@ -6470,9 +6926,6 @@
             "properties": {
               "run": {
                 "$ref": "#/components/schemas/CorrectedRunCopy"
-              },
-              "itemValue": {
-                "description": "The corrected item's value, when the correction pointed at it."
               }
             }
           }
@@ -6505,28 +6958,78 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "runId",
-          "item",
-          "verdict"
+          "runId"
         ],
+        "description": "At least one of `decisions`, `answer` and `items`. `decisions: \"wrong\"` needs an entry in `shouldCall` or `mustNotCall`; `answer: \"wrong\"` needs `shouldSay` or `why`.",
         "properties": {
           "runId": {
             "type": "string",
             "minLength": 1
           },
-          "item": {
-            "$ref": "#/components/schemas/CorrectedItem"
-          },
-          "verdict": {
+          "decisions": {
             "type": "string",
             "enum": [
-              "yes",
-              "no"
+              "right",
+              "wrong"
             ]
           },
-          "reason": {
+          "shouldCall": {
+            "type": "array",
+            "maxItems": 50,
+            "description": "Only with `decisions: \"wrong\"`: the calls the agent should have made.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "tool"
+              ],
+              "properties": {
+                "tool": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "args": {
+                  "type": "object",
+                  "maxProperties": 100,
+                  "description": "Only when the inputs matter: the top-level argument fields to compare, by value. Left out, only the call is checked. At most 4000 characters in canonical JSON."
+                }
+              }
+            }
+          },
+          "mustNotCall": {
+            "type": "array",
+            "maxItems": 50,
+            "description": "Only with `decisions: \"wrong\"`: tools that shouldn't have been called. A tool can't be in both.",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          },
+          "answer": {
+            "type": "string",
+            "enum": [
+              "right",
+              "wrong"
+            ]
+          },
+          "shouldSay": {
+            "type": "string",
+            "maxLength": 4000,
+            "description": "Only with `answer: \"wrong\"`: what it should have said."
+          },
+          "why": {
             "type": "string",
             "maxLength": 4000
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "description": "For an answer that is a ranked list: each item, and whether it was right. Each key once.",
+            "items": {
+              "$ref": "#/components/schemas/CorrectedAnswerItemInput"
+            }
           },
           "correctorGroupId": {
             "type": "string",
@@ -6537,10 +7040,6 @@
             "type": "string",
             "minLength": 1,
             "description": "An app's opaque id for its end user, when correcting on their behalf."
-          },
-          "correction": {
-            "$ref": "#/components/schemas/ExpectedDecisions",
-            "description": "Optional. The tool calls the agent should have made, graded on a replay. Expected decisions cover the run's whole output, so they are recorded under one reserved item (`item.key` `\"kindgi:correction\"`, `item.pointer` `\"\"`): expected decisions on any other item are a 400, and a second set from the same expert on the run replaces the first, so it counts once."
           }
         }
       },
@@ -6767,7 +7266,7 @@
         "properties": {
           "caseId": {
             "type": "string",
-            "description": "The corrected run's id."
+            "description": "The case's id. A frozen case of an agent's test set has its correction's id, or a `case-` id when it was added by hand. A `corrections` test set built before 0.4.0 used the corrected run's id."
           },
           "subject": {
             "$ref": "#/components/schemas/CorrectedSubject"
@@ -7343,6 +7842,10 @@
             "type": "string",
             "pattern": "^sha256:[0-9a-f]{64}$",
             "description": "Set by the runtime with `pins`: `sha256:<hex>` of the pins' canonical JSON (sorted keys, no whitespace). Two agent versions with the same digest run the same blocks."
+          },
+          "owner": {
+            "$ref": "#/components/schemas/AgentOwner",
+            "description": "`GET /v1/agents/{agentId}` only: the agent's owner, absent until one is set (`PUT /v1/agents/{agentId}/owner`)."
           }
         }
       },
@@ -7469,7 +7972,7 @@
               "version-taken",
               "edited"
             ],
-            "description": "`pins-changed`: a block it uses has a new version; `unpinned`: the definition's version was published before pins existed; `version-taken`: the definition's version holds another definition; `edited`: derived from `version` with some data-block pins swapped (`POST /v1/agents/{agentId}/versions`)."
+            "description": "`pins-changed`: a block it uses has a new version; `unpinned`: the definition's version was published before pins existed; `version-taken`: the definition's version holds another definition; `edited`: derived from `version` with some data-block pins swapped: a suggested change's version (`suggestedChangeId`), or an earlier hand edit's (`label`, `by`)."
           },
           "label": {
             "type": "string",
@@ -7482,54 +7985,6 @@
           "suggestedChangeId": {
             "type": "string",
             "description": "For `edited`: the suggested change it was derived for. Such a version serves no scope until a pin makes it serve."
-          }
-        }
-      },
-      "DeriveAgentVersionBody": {
-        "description": "Derive a new agent version from a pinned one with some data-block pins swapped: an expert's edit reaching an agent with no code change.",
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "from",
-          "pins"
-        ],
-        "properties": {
-          "from": {
-            "type": "string",
-            "description": "The version to derive from (it must be pinned)."
-          },
-          "pins": {
-            "$ref": "#/components/schemas/AgentPinSwaps"
-          },
-          "label": {
-            "type": "string",
-            "description": "A short label for the new version."
-          },
-          "projectId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "The agent's project, when the runtime doesn't record it on the version."
-          }
-        }
-      },
-      "AgentPinSwaps": {
-        "description": "The data-block pins to swap, by block id → exact version. Only blocks the version already references; tool pins come from code.",
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "prompts": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "description": "Prompt block id → exact version."
-          },
-          "settings": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "description": "Settings block id → exact version."
           }
         }
       },
@@ -7735,6 +8190,54 @@
                 }
               }
             }
+          }
+        }
+      },
+      "AgentOwner": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "userId"
+        ],
+        "description": "The person the agent's corrections go to when they need its owner. Until one is set, those go to everyone who may publish the agent.",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "description": "The person's display name, when the runtime's directory has one."
+          }
+        }
+      },
+      "SetAgentOwnerBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "userId"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The new owner's user id."
+          }
+        }
+      },
+      "SetAgentOwnerResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agentId",
+          "owner"
+        ],
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/AgentOwner"
           }
         }
       },
@@ -10701,65 +11204,18 @@
           }
         }
       },
-      "SuggestedChangeTier": {
-        "type": "string",
-        "enum": [
-          "settings-block",
-          "prompt-block"
-        ],
-        "description": "What a suggested change changes: a settings block (new values) or a prompt block (a new template) the agent version pins."
-      },
       "SuggestedChangeStatus": {
         "type": "string",
         "enum": [
-          "draft",
-          "evaluating",
-          "evaluated",
-          "not-better",
-          "evaluation-failed",
-          "in-review",
+          "checking",
+          "check-failed",
+          "ready",
+          "waiting-for-second-person",
           "pinned",
-          "refused",
-          "rejected",
-          "expired",
-          "superseded",
-          "rolled-back",
+          "added-as-latest",
           "withdrawn"
         ],
-        "description": "Where a suggested change stands, from its comparison and its pin (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). Under `evaluation.rule: 'cheaper'` it means instead: no worse than the current version on the same cases and costing less, so `evaluated` doesn't always mean better. With `evaluation.decisions` (a model-settings change), it also means no correction the current version passes failed. `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `pinned`: pinned for the scope (`pin.pinnedNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's pinned version or policy changed. `rolled-back`: only on an older suggested change rolled back by its own `rollback`, which is removed; going back is a pin of an earlier version, through the agent's pin routes, and leaves it `pinned`. `withdrawn`: withdrawn."
-      },
-      "SuggestedChangeBlockEdit": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "blockId",
-          "fromVersion",
-          "content"
-        ],
-        "properties": {
-          "blockId": {
-            "type": "string",
-            "description": "The data block the change is to."
-          },
-          "fromVersion": {
-            "type": "string",
-            "description": "The block version the agent version pins: what's being changed."
-          },
-          "content": {
-            "type": "object",
-            "description": "The new content: `{ values }` for a settings block (its schema carries over), `{ template }` for a prompt block (its parameters carry over).",
-            "additionalProperties": false,
-            "properties": {
-              "values": {
-                "type": "object",
-                "additionalProperties": true
-              },
-              "template": {
-                "type": "string"
-              }
-            }
-          }
-        }
+        "description": "Where a suggested change stands, from its check, its pin and its own steps (never stored). `checking`: its check's test runs are queued or running. `check-failed`: its check failed or was cancelled, or never ran (`check.status: not-started`). `ready`: its check finished; `check` says how it did. A pin the gate refused, a second person rejected, or whose approval expired leaves it `ready`, with a `note`. `waiting-for-second-person`: pinned, and the approval (`approvalId`) is open. `pinned`: its version was pinned for its project. `added-as-latest`: its version was added as its project's Latest. `withdrawn`: withdrawn."
       },
       "SuggestedChangeMadeBy": {
         "type": "object",
@@ -10767,274 +11223,206 @@
         "required": [
           "kind"
         ],
-        "description": "Who wrote the suggested change: a person, or one of the runtime's drafters.",
+        "description": "Who or what made the suggested change. `improve-run`: an Improve run (`improveRunId`, and `scheduleId` when a schedule started it). `person`: a person (`userId`). `service`: a service account (`id`). `deploy`: a deploy, for a project its new version reaches (`deploymentId`, and who deployed, `by`). `offer`: a change pinned in another project, offered to this one (`fromProjectId`, `pinChangeId`). One made before this was recorded reads it from its drafter.",
         "properties": {
           "kind": {
             "type": "string",
             "enum": [
+              "improve-run",
               "person",
-              "settings-optimizer",
-              "prompt-drafter"
+              "service",
+              "deploy",
+              "offer"
             ]
           },
-          "by": {
-            "type": "string",
-            "description": "For a person: `user:<id>` (or `service:<id>`)."
-          },
-          "version": {
-            "type": "string",
-            "description": "For a drafter: the drafter's version."
-          },
-          "model": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "providerId",
-              "model"
-            ],
-            "description": "For a drafter that used a model: which.",
-            "properties": {
-              "providerId": {
-                "type": "string"
-              },
-              "model": {
-                "type": "string"
-              }
-            }
-          },
           "improveRunId": {
-            "type": "string",
-            "description": "For a drafter: the Improve run that drafted it (`GET /v1/improve-runs/{improveRunId}`)."
-          }
-        }
-      },
-      "SuggestedChangeEvidence": {
-        "type": "object",
-        "additionalProperties": false,
-        "description": "What a suggested change rests on.",
-        "properties": {
-          "fixes": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "The corrections it fixes, by id. An Improve run's suggested change names the corrections it learned from on the cases it searched, never the hold-out: those its comparisons counted and, for a prompt Improve run, those its drafter was shown. At most 100: first those its drafter was shown, then those behind items corrected as wrong, then the rest."
+            "type": "string"
           },
-          "correctionCount": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "How many corrections it rests on, when `fixes` names only the first of them. Absent when `fixes` names them all."
-          }
-        }
-      },
-      "SuggestedChangeCandidate": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "agentVersion",
-          "blockVersion",
-          "pinsDigest"
-        ],
-        "description": "The versions evaluating the suggested change published. They serve no scope until a pin makes the agent version serve.",
-        "properties": {
-          "agentVersion": {
-            "type": "string",
-            "description": "The derived agent version (its `derivedFrom.suggestedChangeId` names the suggested change)."
+          "scheduleId": {
+            "type": "string"
           },
-          "blockVersion": {
-            "type": "string",
-            "description": "The block version published from the suggested change's content."
+          "userId": {
+            "type": "string"
           },
-          "pinsDigest": {
+          "id": {
+            "type": "string"
+          },
+          "deploymentId": {
+            "type": "string"
+          },
+          "by": {
+            "$ref": "#/components/schemas/PinActor"
+          },
+          "fromProjectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pinChangeId": {
             "type": "string"
           }
         }
       },
-      "SuggestedChangeEvaluation": {
+      "SuggestedChangeBlockContent": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "`{ values }` for a settings block, `{ template }` for a prompt block.",
+        "properties": {
+          "values": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "template": {
+            "type": "string"
+          }
+        }
+      },
+      "SuggestedChangeChange": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "testRunId",
-          "testSetId",
-          "objective",
-          "startedAt"
+          "kind"
         ],
-        "description": "The comparison the suggested change was evaluated with, and what it found on the objective metric (the full summary is the test run's).",
+        "description": "One change the suggested change makes. `block`: a new version of a block its project's version pins (`blockId`). `from` is the block version what it's built on pins, and `to` the one it published (absent until it made one). `GET /v1/suggested-changes/{suggestedChangeId}` adds `from`'s content (`before`) and the new content (`after`). `code`: a deploy's new agent version, whole (`deploymentId`, and `imageDigest` when the deploy named its image by digest), with no content before and after.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "block",
+              "code"
+            ]
+          },
+          "blockId": {
+            "type": "string"
+          },
+          "deploymentId": {
+            "type": "string"
+          },
+          "imageDigest": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "before": {
+            "$ref": "#/components/schemas/SuggestedChangeBlockContent"
+          },
+          "after": {
+            "$ref": "#/components/schemas/SuggestedChangeBlockContent"
+          }
+        }
+      },
+      "SuggestedChangeCheckSide": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "testRunId"
+        ],
+        "description": "How one version did on the check's cases: its test run, and once that finished, the corrections it passed (every repetition did) of those it was checked on.",
         "properties": {
           "testRunId": {
             "type": "string",
             "format": "uuid"
           },
-          "testSetId": {
-            "type": "string",
-            "description": "The test set (a corrections test set)."
+          "passing": {
+            "type": "integer",
+            "minimum": 0
           },
-          "objective": {
+          "of": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "costPerConversation": {
+            "type": "string",
+            "description": "What its replays cost in model calls per case, in US dollars, as a decimal string. Absent when the runtime reported no cost."
+          }
+        }
+      },
+      "SuggestedChangeCheck": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "description": "The suggested change's check: its version (`with`) and the version it's built on (`now`) run the same cases of its project's test set, frozen when the check started. `status`: `not-started` (it never ran), `running`, `done` or `failed`. A check from before suggested changes were for a project compared its version with the recorded outputs only, so it has no `now`.",
+        "properties": {
+          "status": {
             "type": "string",
             "enum": [
-              "passRate",
-              "weightedPrecisionAtK"
+              "not-started",
+              "running",
+              "done",
+              "failed"
             ]
+          },
+          "testSetId": {
+            "type": "string"
+          },
+          "testSetVersion": {
+            "type": "string",
+            "description": "The test set version its runs ran. Absent until its version ran."
+          },
+          "now": {
+            "$ref": "#/components/schemas/SuggestedChangeCheckSide"
+          },
+          "with": {
+            "$ref": "#/components/schemas/SuggestedChangeCheckSide"
+          },
+          "newlyFailing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Once both runs finished: the corrections `now` passes and `with` fails, by id."
           },
           "startedAt": {
             "type": "string",
             "format": "date-time"
-          },
-          "runStatus": {
+          }
+        }
+      },
+      "SuggestedChangeNote": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "description": "Why a `ready` suggested change's pin didn't go through: `gate-refused`, `rejected` (a second person), `expired` (the approval), or `superseded` (its project's version or release gate changed before the approval). `pinChangeId` is that pin's change in the pin history. Or, on a deploy's suggested change, `not-running`: the version its project runs (`version`) isn't running to be checked against, and has no finished run on the same cases, so its check has no `now`.",
+        "properties": {
+          "kind": {
             "type": "string",
             "enum": [
-              "pending",
-              "running",
-              "completed",
-              "failed",
-              "cancelled"
-            ],
-            "description": "The test run's status. Absent when the run can't be read."
-          },
-          "baseline": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "description": "The recorded outputs' score; `null` without evidence from corrections."
-          },
-          "candidate": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "description": "The candidate's score."
-          },
-          "delta": {
-            "type": [
-              "number",
-              "null"
+              "gate-refused",
+              "rejected",
+              "expired",
+              "superseded",
+              "not-running"
             ]
           },
-          "spread": {
-            "type": "number",
-            "description": "With more than one repetition: the candidate's max − min, the noise a delta must beat."
-          },
-          "cases": {
-            "type": "integer"
-          },
-          "better": {
-            "type": "boolean",
-            "description": "Set once the comparison finished."
-          },
-          "rule": {
-            "type": "string",
-            "enum": [
-              "better",
-              "cheaper"
-            ],
-            "description": "How the candidate is kept. `better`: it beats the recorded outputs by more than the noise. `cheaper`: it's no worse than the current version replayed on the same cases (beyond that run's spread) and costs less (beyond the cost's own spread), with no errored case; `better` may then be false while the status is `evaluated`. Absent: `better`."
-          },
-          "costUsd": {
-            "$ref": "#/components/schemas/SuggestedChangeCost"
-          },
-          "decisions": {
-            "$ref": "#/components/schemas/SuggestedChangeDecisions"
-          }
-        }
-      },
-      "SuggestedChangeCost": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "current",
-          "candidate"
-        ],
-        "description": "What the replays cost in model calls on the same cases, in US dollars, averaged over the repetitions: the current version's and the candidate's. Set for a change held to the current version once both comparisons finished, when both reported a cost.",
-        "properties": {
-          "current": {
-            "type": "number",
-            "minimum": 0
-          },
-          "candidate": {
-            "type": "number",
-            "minimum": 0
-          }
-        }
-      },
-      "SuggestedChangeDecisions": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "checked",
-          "held",
-          "broken",
-          "stillWrong"
-        ],
-        "description": "The corrections the current version was checked on, replayed on the same cases, against the candidate's. A model-settings change is kept only with at least one checked and none broken. Set once both comparisons finished.",
-        "properties": {
-          "checked": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "held": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "The current version passed them, and so did the candidate."
-          },
-          "broken": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "The current version passed them; the candidate didn't."
-          },
-          "stillWrong": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Neither passed them. The rest of `checked` the candidate fixed."
-          }
-        }
-      },
-      "SuggestedChangePin": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "id",
-          "status"
-        ],
-        "description": "The pin the suggested change's request made.",
-        "properties": {
-          "id": {
+          "pinChangeId": {
             "type": "string"
           },
-          "status": {
-            "type": "string",
-            "enum": [
-              "pinned",
-              "pending-approval",
-              "refused",
-              "superseded",
-              "rejected",
-              "expired"
-            ]
-          },
-          "approvalId": {
-            "type": "string",
-            "description": "The approval a request in review waits on."
-          },
-          "pinnedNow": {
-            "type": "boolean",
-            "description": "For a pinned suggested change: whether its version still serves the scope."
+          "version": {
+            "type": "string"
           }
         }
       },
       "SuggestedChange": {
         "type": "object",
         "additionalProperties": false,
-        "description": "A suggested change: a change to one data block an agent version pins, for one pin scope, taken through the same comparison, gate and pin as any other version.",
+        "description": "A suggested change: one block changed in what a project runs, checked on the project's test set, then pinned for the project or added as its Latest.",
         "required": [
           "id",
           "agentId",
-          "fromVersion",
-          "scope",
-          "tier",
-          "change",
-          "why",
+          "title",
           "madeBy",
+          "builtOn",
+          "changes",
+          "why",
+          "fixes",
+          "check",
           "status",
           "createdAt",
           "updatedAt"
@@ -11047,60 +11435,110 @@
           "agentId": {
             "type": "string"
           },
-          "fromVersion": {
+          "projectId": {
             "type": "string",
-            "description": "The agent version the change applies to."
+            "format": "uuid",
+            "description": "The project it's for. On one made before suggested changes were for a project, its agent version's project, when known: such a one can only be withdrawn (`409 suggested-change-not-for-a-project`)."
           },
-          "scope": {
-            "$ref": "#/components/schemas/AgentPinScope"
-          },
-          "tier": {
-            "$ref": "#/components/schemas/SuggestedChangeTier"
-          },
-          "change": {
-            "$ref": "#/components/schemas/SuggestedChangeBlockEdit"
-          },
-          "why": {
+          "title": {
             "type": "string",
-            "description": "What the change should improve, and why."
-          },
-          "evidence": {
-            "$ref": "#/components/schemas/SuggestedChangeEvidence"
+            "description": "The first line of `why`, cut at 60 characters, then the change: `tone v2 → v3`."
           },
           "madeBy": {
             "$ref": "#/components/schemas/SuggestedChangeMadeBy"
           },
-          "status": {
-            "$ref": "#/components/schemas/SuggestedChangeStatus"
-          },
-          "candidate": {
-            "$ref": "#/components/schemas/SuggestedChangeCandidate"
-          },
-          "evaluation": {
-            "$ref": "#/components/schemas/SuggestedChangeEvaluation"
-          },
-          "pin": {
-            "$ref": "#/components/schemas/SuggestedChangePin"
-          },
-          "rolledBack": {
+          "builtOn": {
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "at",
-              "changeId",
-              "by"
+              "version"
             ],
+            "description": "The agent version it's built on: what its project ran when it was made, or when it was last rebuilt (`rebuiltAt`).",
             "properties": {
+              "version": {
+                "type": "string"
+              },
+              "rebuiltAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          },
+          "version": {
+            "type": "string",
+            "description": "Its agent version: what it is built on, with its changes. Absent until it made one. It serves nothing until it is pinned or added as Latest."
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SuggestedChangeChange"
+            }
+          },
+          "why": {
+            "type": "string",
+            "description": "What the change should fix, and why."
+          },
+          "fixes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The corrections it fixes, by id."
+          },
+          "check": {
+            "$ref": "#/components/schemas/SuggestedChangeCheck"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SuggestedChangeStatus"
+          },
+          "note": {
+            "$ref": "#/components/schemas/SuggestedChangeNote"
+          },
+          "pinned": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "version",
+              "by",
+              "at"
+            ],
+            "description": "Once `pinned`: its version, who pinned it, and when.",
+            "properties": {
+              "version": {
+                "type": "string"
+              },
+              "by": {
+                "$ref": "#/components/schemas/PinActor"
+              },
               "at": {
                 "type": "string",
                 "format": "date-time"
-              },
-              "changeId": {
-                "type": "string",
-                "description": "The rollback's own pin change row."
+              }
+            }
+          },
+          "approvalId": {
+            "type": "string",
+            "description": "While `waiting-for-second-person`: the approval the pin waits on."
+          },
+          "addedAsLatest": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "version",
+              "by",
+              "at"
+            ],
+            "description": "Once `added-as-latest`: its version, who added it as its project's Latest, when, and why when given.",
+            "properties": {
+              "version": {
+                "type": "string"
               },
               "by": {
-                "type": "string"
+                "$ref": "#/components/schemas/PinActor"
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time"
               },
               "reason": {
                 "type": "string"
@@ -11111,20 +11549,20 @@
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "at",
               "by",
-              "reason"
+              "reason",
+              "at"
             ],
             "properties": {
-              "at": {
-                "type": "string",
-                "format": "date-time"
-              },
               "by": {
-                "type": "string"
+                "$ref": "#/components/schemas/PinActor"
               },
               "reason": {
                 "type": "string"
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time"
               }
             }
           },
@@ -11628,125 +12066,48 @@
         }
       },
       "CreateSuggestedChangeBody": {
-        "description": "A hand-written suggested change: new content for a data block that `fromVersion` pins, for a pin scope. The same change from the same version for the same scope is one suggested change (answered with `X-Suggested-Change-Deduped: true`).",
+        "description": "A suggested change by hand: new settings values (`values`) or a new prompt template (`template`) for one block, in what the project runs (its pin, or Latest). The same change on the same version for the same project is one suggested change (answered with `X-Suggested-Change-Deduped: true`).",
         "type": "object",
         "additionalProperties": false,
         "required": [
           "agentId",
-          "fromVersion",
-          "scope",
-          "tier",
-          "change",
+          "projectId",
+          "block",
           "why"
         ],
         "properties": {
           "agentId": {
             "type": "string"
           },
-          "fromVersion": {
+          "projectId": {
             "type": "string",
-            "description": "The agent version the change applies to."
+            "format": "uuid",
+            "description": "The project it's for."
           },
-          "scope": {
-            "$ref": "#/components/schemas/AgentPinScope"
+          "block": {
+            "type": "string",
+            "description": "The block it changes: one the project's version of the agent pins."
           },
-          "tier": {
-            "$ref": "#/components/schemas/SuggestedChangeTier"
-          },
-          "change": {
+          "values": {
             "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "blockId",
-              "content"
-            ],
-            "properties": {
-              "blockId": {
-                "type": "string",
-                "description": "A block `fromVersion` pins, of the tier's kind."
-              },
-              "content": {
-                "type": "object",
-                "description": "`{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.",
-                "additionalProperties": false,
-                "properties": {
-                  "values": {
-                    "type": "object",
-                    "additionalProperties": true
-                  },
-                  "template": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
+            "additionalProperties": true,
+            "description": "For a settings block: its new values. They must satisfy the block's schema, and for the version's model-settings block, be model settings."
+          },
+          "template": {
+            "type": "string",
+            "description": "For a prompt block: its new template."
           },
           "why": {
             "type": "string",
             "minLength": 1,
             "maxLength": 2000
           },
-          "evidence": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "fixes": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      },
-      "EvaluateSuggestedChangeBody": {
-        "description": "Compare the suggested change's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until pinned).",
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "testSetId"
-        ],
-        "properties": {
-          "testSetId": {
-            "type": "string",
-            "description": "The test set: a corrections test set."
-          },
-          "objective": {
-            "type": "string",
-            "enum": [
-              "passRate",
-              "weightedPrecisionAtK"
-            ],
-            "default": "passRate",
-            "description": "The metric that says whether the candidate is better."
-          },
-          "reads": {
-            "type": "string",
-            "enum": [
-              "recorded",
-              "live"
-            ]
-          },
-          "repetitions": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 10
-          },
-          "k": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 100
-          },
-          "groupWeights": {
-            "type": "string",
-            "enum": [
-              "as-recorded",
-              "experts-only"
-            ]
-          },
-          "sample": {
-            "$ref": "#/components/schemas/TestRunSample"
+          "fixes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The corrections it fixes, by id."
           }
         }
       },
@@ -15107,6 +15468,52 @@
             "type": "string",
             "format": "date-time",
             "description": "Present only on an unregistered version; agent versions that pin it still read it."
+          },
+          "publishedBy": {
+            "type": "object",
+            "description": "Who published the version: a user, or a service token. Absent on a version published before it was recorded.",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "service"
+                ]
+              },
+              "id": {
+                "type": "string"
+              }
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/BlockVersionSource"
+          }
+        }
+      },
+      "BlockVersionSource": {
+        "description": "Where a block version came from: `api` (`POST /v1/blocks`), `deploy` (a deploy's pack; `id` is the deployment's) or `suggested-change` (`id` is the suggested change's). Absent on a version published before it was recorded.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "api",
+              "deploy",
+              "suggested-change"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "description": "Present for `deploy` and `suggested-change`."
           }
         }
       },
@@ -20486,7 +20893,16 @@
           "trigger-tools-allowed-unattended-set",
           "trigger-changed-for-owner",
           "environment-order-set",
-          "deployment-promoted"
+          "deployment-promoted",
+          "block-version-published",
+          "block-version-unregistered",
+          "block-version-reinstated",
+          "provider-registered",
+          "provider-unregistered",
+          "suggested-change-created",
+          "suggested-change-pinned",
+          "suggested-change-added-as-latest",
+          "suggested-change-withdrawn"
         ]
       },
       "EvidenceActor": {
@@ -20659,7 +21075,16 @@
               "trigger-tools-allowed-unattended-set",
               "trigger-changed-for-owner",
               "environment-order-set",
-              "deployment-promoted"
+              "deployment-promoted",
+              "block-version-published",
+              "block-version-unregistered",
+              "block-version-reinstated",
+              "provider-registered",
+              "provider-unregistered",
+              "suggested-change-created",
+              "suggested-change-pinned",
+              "suggested-change-added-as-latest",
+              "suggested-change-withdrawn"
             ]
           },
           "timestamp": {
@@ -20855,7 +21280,16 @@
               "trigger-tools-allowed-unattended-set",
               "trigger-changed-for-owner",
               "environment-order-set",
-              "deployment-promoted"
+              "deployment-promoted",
+              "block-version-published",
+              "block-version-unregistered",
+              "block-version-reinstated",
+              "provider-registered",
+              "provider-unregistered",
+              "suggested-change-created",
+              "suggested-change-pinned",
+              "suggested-change-added-as-latest",
+              "suggested-change-withdrawn"
             ]
           },
           "from": {
@@ -20949,7 +21383,16 @@
                   "trigger-tools-allowed-unattended-set",
                   "trigger-changed-for-owner",
                   "environment-order-set",
-                  "deployment-promoted"
+                  "deployment-promoted",
+                  "block-version-published",
+                  "block-version-unregistered",
+                  "block-version-reinstated",
+                  "provider-registered",
+                  "provider-unregistered",
+                  "suggested-change-created",
+                  "suggested-change-pinned",
+                  "suggested-change-added-as-latest",
+                  "suggested-change-withdrawn"
                 ]
               },
               "from": {
@@ -34868,7 +35311,7 @@
     "/v1/agents/{agentId}": {
       "get": {
         "operationId": "agents.get",
-        "summary": "Fetch the latest version of an agent",
+        "summary": "Fetch the highest version of an agent",
         "tags": [
           "agents"
         ],
@@ -34924,7 +35367,7 @@
             }
           }
         },
-        "description": "An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.",
+        "description": "An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version. For an agent, that is its highest version, which numbers the next one. It is not always what a project runs: `agents.projects` says what runs in each project.",
         "parameters": [
           {
             "name": "agentId",
@@ -34956,7 +35399,7 @@
     "/v1/agents/{agentId}/projects": {
       "get": {
         "operationId": "agents.projects",
-        "summary": "List the projects an agent runs in",
+        "summary": "List the projects an agent runs in, and what runs in each",
         "tags": [
           "agents"
         ],
@@ -35002,7 +35445,7 @@
             }
           }
         },
-        "description": "The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty.",
+        "description": "The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty. Each project says what a run there that names no version gets (`runs`) and why (`follows`): a pin that covers the project, else its Latest. Latest moves only when a deployment into the project ships a version, or when a person publishes a full version or adds one as the latest version; a pin never moves it. `segments` lists the pins on segments inside the project. `highest` is the agent's highest version, which numbers the next one. A version the caller can't see is left out.",
         "parameters": [
           {
             "name": "agentId",
@@ -35128,152 +35571,6 @@
             "bearerAuth": []
           }
         ]
-      },
-      "post": {
-        "operationId": "agents.deriveVersion",
-        "summary": "Derive an agent version with data-block pins swapped",
-        "tags": [
-          "agents"
-        ],
-        "responses": {
-          "200": {
-            "description": "An active version already holds this definition and these pins (the same swap derived before, or a deploy that registered it): that version, unchanged.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Agent"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "The derived agent version.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Agent"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "`validation-failed`: `from` has no pins, a swap names a block it doesn't reference, or a version that isn't published, active or the right kind (see `details.issues`); or `projectId` isn't a project id (a UUID).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "`agent-not-found`: no agent at `from`; or `projectId` names no project of this tenant (`project-not-found`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `agent-project-mismatch`: the agent belongs to another project than the body's `projectId` (agents never move; the message doesn't name the project). Or `environment-takes-promotions`: the body's `projectId` is a later environment of an environment order, where no new version is made; leave it out, or name the order's first environment (`details.firstProjectId`, when you can read that project; `details.position`, the project's place from 0). Nothing is written. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi Cloud): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (unmapped domain code or framework crash).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent. In a tenant with environment orders, the new version is made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted; the agent's project doesn't change.",
-        "parameters": [
-          {
-            "name": "agentId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "AgentId — dotted namespace (`acme.drafting`)."
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DeriveAgentVersionBody"
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
       }
     },
     "/v1/agents/{agentId}/versions/{version}": {
@@ -35345,6 +35642,124 @@
             "description": "Semver of the agent version."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/agents/{agentId}/owner": {
+      "put": {
+        "operationId": "agents.setOwner",
+        "summary": "Set an agent's owner",
+        "tags": [
+          "agents"
+        ],
+        "responses": {
+          "200": {
+            "description": "The owner is set.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetAgentOwnerResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not `{ \"userId\": \"…\" }`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No agent with that id under this tenant (`agent-not-found`), or no person with that id in it (`identity-user-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The runtime's agent store doesn't keep an owner (`agent-owner-unsupported`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "One owner per agent: the person its corrections go to when they need the owner. Setting it again replaces the one before. Needs `admin` on the agent (an admin of its project). With a directory of people, the owner must be one of the tenant's.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "AgentId — dotted namespace (`acme.drafting`)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAgentOwnerBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []
@@ -35547,7 +35962,7 @@
             }
           }
         },
-        "description": "Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).",
+        "description": "Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the highest active version, which numbers the next one. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).",
         "parameters": [
           {
             "name": "agentId",
@@ -35624,7 +36039,7 @@
             }
           },
           "404": {
-            "description": "No agent with that id.",
+            "description": "No version of the agent runs in this scope: none is pinned there, and none is its Latest.",
             "content": {
               "application/json": {
                 "schema": {
@@ -35644,7 +36059,7 @@
             }
           }
         },
-        "description": "Resolves the version a run of this agent would use for a project and segment path: the most specific pinned version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.",
+        "description": "Resolves the version a run of this agent would use for a project and segment path: the most specific pinned version (segment path, project, org, tenant), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.",
         "parameters": [
           {
             "name": "agentId",
@@ -35803,7 +36218,7 @@
             }
           },
           "409": {
-            "description": "`pin-superseded`: the scope's pinned version changed while the gate ran; check again. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `pin-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `pin-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
+            "description": "`nothing-runs-in-scope`: no version of the agent runs in the scope yet (no pin covers it, and it has no Latest), so there's nothing to measure the version against; deploy or publish a version into the project first (into a later environment, promote a build that ships one). `project-suspended`: nothing runs there because the scope's project is suspended. `pin-superseded`: the scope's pinned version changed while the gate ran; check again. `release-gate-descendant-unpinned`: the change would also move a narrower scope a release gate applies to, which has no pinned version of its own and so follows this scope, without its gate; the message names each one: pin it at its current version first. `pin-scope-spans-environments`: the agent has a project in an environment order, and a tenant- or org-wide pin would act in every environment of the order at once; pin a project (or a segment of it) instead. Under `kindgi dev`, `pin-superseded` also when a pack file the version's data blocks go into changed since the version was made, or the block left the pack; the message names the file. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
             "content": {
               "application/json": {
                 "schema": {
@@ -35952,6 +36367,16 @@
           },
           "404": {
             "description": "The version, the agent or the test run is not found.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`nothing-runs-in-scope` or `project-suspended`, as `POST …/promotions` answers: no version of the agent runs in the scope yet.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42436,7 +42861,7 @@
             }
           }
         },
-        "description": "Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the pin scope a suggested change is for (`scopeKind`, `scopeId`, `segment`, exactly as the pin history takes it).",
+        "description": "Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?projectId=` (the project a suggested change is for), `?status=` and `?madeBy=` (a kind of maker). Statuses and makers are derived, so a page filtered by either can hold fewer rows than `limit`.",
         "parameters": [
           {
             "name": "limit",
@@ -42477,51 +42902,30 @@
             "required": false
           },
           {
-            "name": "tier",
+            "name": "projectId",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/SuggestedChangeTier"
+              "type": "string",
+              "format": "uuid"
             },
             "required": false,
-            "description": "Only suggested changes of this tier."
+            "description": "Only suggested changes for this project."
           },
           {
-            "name": "scopeKind",
+            "name": "madeBy",
             "in": "query",
             "schema": {
               "type": "string",
               "enum": [
-                "tenant",
-                "org",
-                "project",
-                "segment"
+                "improve-run",
+                "person",
+                "service",
+                "deploy",
+                "offer"
               ]
             },
             "required": false,
-            "description": "Only one scope: `tenant`, `org` or `project` (with `scopeId`), or `segment` (with `scopeId` and `segment`)."
-          },
-          {
-            "name": "scopeId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
-          },
-          {
-            "name": "segment",
-            "in": "query",
-            "schema": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "required": false,
-            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine.",
-            "x-kindgi-segment-path": true
+            "description": "Only suggested changes made by this kind of maker (`madeBy.kind`)."
           }
         ],
         "security": [
@@ -42532,7 +42936,7 @@
       },
       "post": {
         "operationId": "suggestedChanges.create",
-        "summary": "Suggest new content for a data block",
+        "summary": "Suggest a change to a block, for a project",
         "tags": [
           "suggested-changes"
         ],
@@ -42548,7 +42952,7 @@
             }
           },
           "201": {
-            "description": "The suggested change, a `draft`.",
+            "description": "The suggested change, `checking`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42558,7 +42962,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body, or the change fails validation. Or `reference-out-of-scope`: a project or segment scope whose project doesn't reach the agent, or a block the agent's project doesn't reach (`details.issues`).",
+            "description": "Malformed request body, or the change fails validation: a block the project's version doesn't pin, `values` for a prompt block or `template` for a settings block (`details.issues`). Or `reference-out-of-scope`: the project doesn't reach the agent, or the agent's project doesn't reach the block (`details.issues`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -42578,7 +42982,7 @@
             }
           },
           "404": {
-            "description": "`fromVersion` isn't an active version of the agent (`agent-version-not-found`).",
+            "description": "The version the project runs isn't active (`agent-version-not-found`), the body's `projectId` names no project of this tenant (`project-not-found`), or a check's test run couldn't start (`test-set-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -42588,7 +42992,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `registry-read-only`: under `kindgi dev`, a scope narrower than the whole tenant, since the pack's files serve every scope.",
+            "description": "`nothing-runs-in-scope`: the project runs no version of the agent. `suggested-change-nothing-to-check`: the project's test set has no cases for the agent. `environment-takes-promotions`: the project is a later environment of its order, where new versions arrive only by promotion (`details.position`, and `details.firstProjectId` when you can read it). `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes. Or Idempotency-Key was reused with a different body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42607,8 +43011,28 @@
               }
             }
           },
+          "429": {
+            "description": "`rate-limit-exceeded` with `details.limit: \"schema-compile-time\"`, on a server with a compile budget (Kindgi Cloud): this tenant's schemas spent `details.budgetMs` compiling in the last 60 seconds. Nothing was stored; `Retry-After` says when to send it again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`suggested-change-check-unsupported`: this runtime doesn't freeze a project's test set, so it can't check a suggested change.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42628,7 +43052,7 @@
             }
           }
         },
-        "description": "A hand-written suggested change: new settings values or a new prompt template for a block `fromVersion` pins, for a pin scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`. Needs `publish` on the agent.",
+        "description": "New settings values or a new prompt template for one block, in what the project runs: its pin, or Latest. Checked as publishing that block version would be (its schema carries over; for the version's model-settings block, as model settings), and refused when it equals the content the version pins. Then the block version is published, an agent version is derived from what the project runs with that one block changed (it serves nothing until it's pinned or added as Latest), and the check starts on the project's test set, frozen now: the new version and what the project runs replay the same cases. The same change on the same version for the same project is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`, unchecked again. Needs `publish` on the agent.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -43009,7 +43433,7 @@
             }
           }
         },
-        "description": "Needs `read` on its agent.",
+        "description": "With its block's content before and after (`changes[].before`, `changes[].after`). Needs `read` on its agent.",
         "parameters": [
           {
             "name": "suggestedChangeId",
@@ -43029,16 +43453,16 @@
         ]
       }
     },
-    "/v1/suggested-changes/{suggestedChangeId}/evaluate": {
+    "/v1/suggested-changes/{suggestedChangeId}/check": {
       "post": {
-        "operationId": "suggestedChanges.evaluate",
-        "summary": "Compare a suggested change on a test set",
+        "operationId": "suggestedChanges.check",
+        "summary": "Check a suggested change again",
         "tags": [
           "suggested-changes"
         ],
         "responses": {
           "202": {
-            "description": "The suggested change, `evaluating`.",
+            "description": "The suggested change, `checking`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43048,7 +43472,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body. Or `reference-out-of-scope`: the test set isn't registered in the agent's project, its org or the tenant (`details.issues`).",
+            "description": "A body with fields: a check takes none.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43068,7 +43492,7 @@
             }
           },
           "404": {
-            "description": "No such suggested change, or no such test set.",
+            "description": "No such suggested change, or its version is unregistered (`agent-version-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -43078,17 +43502,7 @@
             }
           },
           "409": {
-            "description": "`suggested-change-needs-pin`: the agent has no pinned version for the whole tenant. `suggested-change-invalid-state-transition`: the suggested change's status doesn't allow it. `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes; or, under `kindgi dev`, the suggested change's scope is narrower than the whole tenant, since the pack's files serve every scope.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "description": "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-nothing-to-check`: the project's test set has no cases for the agent. `suggested-change-out-of-date`: its project runs another version, which it can't be rebuilt on. `registry-read-only`: the agent registry takes no writes, not even the version a suggested change makes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43117,117 +43531,8 @@
               }
             }
           },
-          "503": {
-            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a pin makes them serve. Then a comparison test run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a pinned version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would serve there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.",
-        "parameters": [
-          {
-            "name": "suggestedChangeId",
-            "in": "path",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "description": "The suggested change id (a UUID)."
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EvaluateSuggestedChangeBody"
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/suggested-changes/{suggestedChangeId}/rescore": {
-      "post": {
-        "operationId": "suggestedChanges.rescore",
-        "summary": "Rescore a suggested change's latest evaluation",
-        "tags": [
-          "suggested-changes"
-        ],
-        "responses": {
-          "202": {
-            "description": "The suggested change, `evaluating`.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SuggestedChange"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed request body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such suggested change, or its candidate version is unregistered (`agent-version-not-found`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "`suggested-change-invalid-state-transition`: the suggested change's status doesn't allow it. `test-run-not-rescorable`: the latest evaluation isn't a completed comparison.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (unmapped domain code or framework crash).",
+          "501": {
+            "description": "`suggested-change-check-unsupported`: this runtime doesn't freeze a project's test set.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43247,7 +43552,7 @@
             }
           }
         },
-        "description": "After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison test run scores the same replays again, counting those corrections, as `POST /v1/test-runs/{testRunId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.",
+        "description": "Checks it again on its project's test set, frozen now: its version and the version it's built on replay the same cases, so new corrections count. Its version is made first if it has none. When its project runs another version than the one it's built on, it's rebuilt there first: its block change on that version, as a new version, and `builtOn.rebuiltAt` says when. Takes no body fields. Needs `publish` on the agent. Allowed from `check-failed` and `ready`.",
         "parameters": [
           {
             "name": "suggestedChangeId",
@@ -43280,7 +43585,7 @@
     "/v1/suggested-changes/{suggestedChangeId}/pin": {
       "post": {
         "operationId": "suggestedChanges.pin",
-        "summary": "Pin a suggested change's version for its scope",
+        "summary": "Pin a suggested change's version for its project",
         "tags": [
           "suggested-changes"
         ],
@@ -43296,7 +43601,7 @@
             }
           },
           "202": {
-            "description": "The gate passed and an approval is open: the suggested change, `in-review`.",
+            "description": "The gate passed and an approval is open: the suggested change, `waiting-for-second-person`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43306,7 +43611,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body. Or `reference-out-of-scope`: the suggested change's project or segment scope no longer reaches the agent (`details.issues`).",
+            "description": "Malformed request body. Or `reference-out-of-scope`: the suggested change's project no longer reaches the agent (`details.issues`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -43336,7 +43641,7 @@
             }
           },
           "409": {
-            "description": "The suggested change's status doesn't allow it. Or `pin-scope-spans-environments`: the agent has a project in an environment order, and the suggested change's tenant- or org-wide scope would act in every environment of the order at once; a suggested change for a project (or a segment of it) can be pinned.",
+            "description": "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-project-on-latest`: its project runs Latest, not a pin. `suggested-change-out-of-date`: its project now runs another version than the one it's built on, so it's being rebuilt there and checked again (`details.rebuilding`), or it can't be.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43356,7 +43661,7 @@
             }
           },
           "422": {
-            "description": "`gate-failed`: the gate refused it (the error carries the checks and `suggestedChangeId`).",
+            "description": "`gate-failed`: the gate refused it (the error carries the checks and `suggestedChangeId`). The suggested change stays `ready`, with a `note`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -43386,7 +43691,136 @@
             }
           }
         },
-        "description": "A pin of the candidate for the suggested change's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. Needs `pin` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.",
+        "description": "A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `pin` on the agent. Allowed from `ready`.",
+        "parameters": [
+          {
+            "name": "suggestedChangeId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The suggested change id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuggestedChangeReasonBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/suggested-changes/{suggestedChangeId}/add-as-latest": {
+      "post": {
+        "operationId": "suggestedChanges.addAsLatest",
+        "summary": "Add a suggested change's version as its project's Latest",
+        "tags": [
+          "suggested-changes"
+        ],
+        "responses": {
+          "200": {
+            "description": "The suggested change, `added-as-latest`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestedChange"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such suggested change. Or `agent-version-not-found`: its version was unregistered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`suggested-change-invalid-state-transition`: its status doesn't allow it. `suggested-change-not-for-a-project`: it was made before suggested changes were for a project, so it can only be withdrawn. `suggested-change-project-pinned`: its project runs a pin, not Latest. `suggested-change-out-of-date`: its project now runs another version than the one it's built on, so it's being rebuilt there and checked again (`details.rebuilding`), or it can't be. `registry-read-only`: the agent registry takes no writes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Makes its version Latest in its project, now, so the project runs it. Only for a project on Latest, which takes each new Latest without a gate; a pinned project takes a pin of the change instead. `reason` is kept on its `addedAsLatest`. Needs `pin` on the agent. Allowed from `ready`.",
         "parameters": [
           {
             "name": "suggestedChangeId",
@@ -43515,7 +43949,7 @@
             }
           }
         },
-        "description": "Closes it. Not while it's in review (decide its approval instead), nor once pinned, rejected or rolled back. Needs `publish` on the agent.",
+        "description": "Closes it. Allowed from `checking`, `check-failed` and `ready`: not while it waits for a second person (they reject it instead), nor once pinned or added as Latest. Needs `publish` on the agent.",
         "parameters": [
           {
             "name": "suggestedChangeId",
@@ -45693,7 +46127,7 @@
     "/v1/corrections": {
       "post": {
         "operationId": "corrections.create",
-        "summary": "Correct an item of a run's output",
+        "summary": "Correct a run",
         "tags": [
           "corrections"
         ],
@@ -45709,7 +46143,7 @@
             }
           },
           "400": {
-            "description": "Malformed body, or `item-not-found` (the pointer resolves to nothing in the output), or `corrector-group-not-applicable`.",
+            "description": "Malformed body, or `item-not-found` (an item's pointer resolves to nothing in the output), or `corrector-group-not-applicable`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -45799,7 +46233,7 @@
             }
           }
         },
-        "description": "Records yes or no, with an optional reason, about one item of a finished run's output, optionally under a corrector group that applies to the run's project or agent (unclassified corrections count with weight 1). `item.pointer` (a JSON Pointer) must resolve in the run's output; its value is kept as `itemValue`. The first correction of a run also stores a copy of the run's input and output. `assertedBy` is the authenticated caller, never the body. A second correction by the same caller for the same run, item key and `participantId` supersedes the earlier one. Needs `write` on the run's project.",
+        "description": "Records whether a finished run's decisions and answer were right, and what was right instead, optionally under a corrector group that applies to the run's project or agent (unclassified corrections count with weight 1). Each item's `pointer` (a JSON Pointer) must resolve in the run's output. It's sorted at save: an end user's correction stays open and unsorted; `decisions: \"wrong\"` goes to the agent's owner (`with-owner`); a wrong answer goes to Improve (`open`); nothing wrong is `fixed` as `recorded-right`. The first correction of a run also stores a copy of the run's input and output. `madeBy` is the authenticated caller, never the body. A second correction by the same caller for the same run and `participantId` supersedes the earlier one. Needs `write` on the run's project.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -45876,7 +46310,7 @@
             }
           }
         },
-        "description": "Live corrections (not removed or superseded), newest first, cursor-paginated. Filter by run, agent (and version), flow, verdict, corrector group or participant; `?scopeKind + ?scopeId` narrow to a project.",
+        "description": "Corrections (not superseded, and not removed unless `status` asks for `removed`), newest first, cursor-paginated. Filter by run, agent (and version), flow, status, sorting, who made them, when, corrector group or participant; `?scopeKind + ?scopeId` narrow to a project. Each one comes back only when the caller may read its project.",
         "parameters": [
           {
             "name": "limit",
@@ -45940,17 +46374,89 @@
             "description": "Only corrections of runs of this flow."
           },
           {
-            "name": "verdict",
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "not-fixed",
+                  "open",
+                  "being-fixed",
+                  "with-owner",
+                  "fixed",
+                  "wont-fix",
+                  "removed"
+                ]
+              }
+            },
+            "required": false,
+            "description": "Only corrections in these statuses: one, or several, repeated or comma-separated. `not-fixed` is short for `open`, `being-fixed` and `with-owner`. Removed corrections come back only when `removed` is asked for."
+          },
+          {
+            "name": "sortedTo",
+            "in": "query",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "improve",
+                  "developer",
+                  "owner"
+                ]
+              }
+            },
+            "required": false,
+            "description": "Only corrections sorted to these (repeated or comma-separated), with `none` for unsorted ones."
+          },
+          {
+            "name": "from",
             "in": "query",
             "schema": {
               "type": "string",
               "enum": [
-                "yes",
-                "no"
+                "experts",
+                "end-users",
+                "all"
               ]
             },
             "required": false,
-            "description": "Only corrections with this verdict."
+            "description": "`experts`: corrections under a restricted corrector group. `end-users`: an app's end users' (`participantId`), not experts'. `all` (the default): every one."
+          },
+          {
+            "name": "madeBy",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "me"
+              ]
+            },
+            "required": false,
+            "description": "`me`: only the caller's own corrections."
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Only corrections made at or after this time."
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Only corrections made before this time."
           },
           {
             "name": "correctorGroupId",
@@ -46048,7 +46554,7 @@
             }
           }
         },
-        "description": "Returns the correction (live or not) with the stored copy of the run's input and output and, when the correction pointed at an item, its value.",
+        "description": "Returns the correction (live or not) with the stored copy of the run's input and output.",
         "parameters": [
           {
             "name": "correctionId",
@@ -46061,6 +46567,143 @@
             "description": "Correction id."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "corrections.change",
+        "summary": "Re-sort a correction or change its status",
+        "tags": [
+          "corrections"
+        ],
+        "responses": {
+          "200": {
+            "description": "The changed correction.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Correction"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed body: a link without `being-fixed`, `being-fixed` without a link, or `wont-fix` without a reason.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "`permission-denied`: this needs publish on the agent, or write on the correction's project for an agent more than one project serves.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No live correction with that id under this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`correction-status-change-not-allowed`: the change table does not allow it from its status, or it changed twice while the change was made: read it and try again (`details: { from, to }`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`), so nothing was changed; `Retry-After` (whole seconds) says when to try again with the same key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A re-sort, a status, or both (the re-sort first), by the change table: re-sorting from `open`, `being-fixed` or `with-owner` (to `owner` sets `with-owner`; away from `owner`, `open`); `being-fixed` from `open` or `with-owner`, with `link`; `open` from `being-fixed` or `wont-fix` (`with-owner` for one sorted to the owner); `wont-fix` from anything but `removed`, with `reason`, and it drops `fixedIn`. `fixed` is set only by a pin or a deploy. Anything else is `409 correction-status-change-not-allowed`. Needs `publish` on the correction's agent (or flow), or, for one more than one project serves, `write` on the correction's project.",
+        "parameters": [
+          {
+            "name": "correctionId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "Correction id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeCorrectionBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []
@@ -46157,7 +46800,7 @@
             }
           }
         },
-        "description": "Soft delete: the correction stops listing; retention policy decides when it is purged.",
+        "description": "Its status becomes `removed`, and it can't come back. It lists only when `status=removed` is asked for; retention policy decides when it is purged. Needs to be its author, or `admin` on its project.",
         "parameters": [
           {
             "name": "correctionId",
@@ -46178,6 +46821,97 @@
             },
             "required": false,
             "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/corrections/counts": {
+      "get": {
+        "operationId": "corrections.counts",
+        "summary": "Count corrections by status",
+        "tags": [
+          "corrections"
+        ],
+        "responses": {
+          "200": {
+            "description": "Counts by status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CorrectionCounts"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed query parameter, or no project scope.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database was too busy to answer in time (`database-busy`); `Retry-After` (whole seconds) says when to try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "How many of a project's corrections (or one agent's in it) are in each status. Needs `?scopeKind=project&scopeId=<project>` and `read` on the project. Only a project scope is taken: the list filters each row by what the caller reads, and a count can't.",
+        "parameters": [
+          {
+            "name": "agentId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only corrections of runs of this agent."
+          },
+          {
+            "name": "scopeKind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "project"
+              ]
+            },
+            "required": true,
+            "description": "`project`, the only scope a count is taken in."
+          },
+          {
+            "name": "scopeId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "The project whose corrections are counted."
           }
         ],
         "security": [
@@ -49737,7 +50471,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
+            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID); or the id starts with `agent.` (`bad-input`), an agent's own test set.",
             "content": {
               "application/json": {
                 "schema": {
@@ -49807,7 +50541,7 @@
             }
           }
         },
-        "description": "Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).",
+        "description": "Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201). An id that starts with `agent.` is refused with `400 bad-input`: those are agents' own test sets, whose versions only a check or a test run makes.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -50133,7 +50867,7 @@
             }
           },
           "400": {
-            "description": "Malformed body; or `projectId` isn't a project id (a UUID).",
+            "description": "Malformed body; or `projectId` isn't a project id (a UUID); or the `testSetId` starts with `agent.` (`bad-input`), an agent's own test set.",
             "content": {
               "application/json": {
                 "schema": {
@@ -50223,7 +50957,7 @@
             }
           }
         },
-        "description": "Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.",
+        "description": "Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project. A `testSetId` that starts with `agent.` is refused with `400 bad-input`: those are agents' own test sets, whose versions only a check or a test run makes.",
         "parameters": [
           {
             "name": "testSetId",
@@ -50734,7 +51468,7 @@
             }
           },
           "400": {
-            "description": "`validation-failed` (see `details.issues`), or an unknown `projectId`; or `projectId` isn't a project id (a UUID).",
+            "description": "`validation-failed` (see `details.issues`; for an agent version's model settings, each issue names the agent and its version), or an unknown `projectId`; or `projectId` isn't a project id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -50824,7 +51558,7 @@
             }
           }
         },
-        "description": "Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.",
+        "description": "Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A settings block an agent version uses as its model settings takes only model settings, which never name the model that agent version names too. The version records the caller as `publishedBy`, and `source: { kind: \"api\" }`. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -55835,7 +56569,7 @@
             }
           },
           "403": {
-            "description": "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the tenant's trust list (`details.signerKeyId`).",
+            "description": "No `admin` on the target project. Or `key-project-mismatch`: the API key or session is limited to a project, and a promotion reads one project and writes another (`details.keyProjectId`, `details.projectId`). Or `signer-not-trusted`: the key that signed the build is no longer on the tenant's trust list (`details.signerKeyId`). With `pin`, after the move: no right to pin a carried agent or a carried flow in the target; nothing is pinned.",
             "content": {
               "application/json": {
                 "schema": {
@@ -55855,7 +56589,7 @@
             }
           },
           "409": {
-            "description": "`promotion-not-next-environment`: the target isn't the next environment of the deployment's order, or the deployment's environment is last or in no order (`details.position`, the next environment's place; `details.nextProjectId`, when you can read it). `promotion-values-not-ready`: values the build needs aren't ready in the target, each in `details.values` (`DeploymentValue`). `deployment-superseded`: the deployment no longer serves its environment, or the target's copy no longer serves there: newer deployments serve every tool version it ships (`details.environment`, `source` or `target`; `details.newerDeploymentId`). `project-suspended`, `pack-suspended`, `tenant-suspended` or `tenant-closing`: a suspension of the source or the target (`details.environment`). Nothing is written.",
+            "description": "`promotion-not-next-environment`: the target isn't the next environment of the deployment's order, or the deployment's environment is last or in no order (`details.position`, the next environment's place; `details.nextProjectId`, when you can read it). `promotion-values-not-ready`: values the build needs aren't ready in the target, each in `details.values` (`DeploymentValue`). `deployment-superseded`: the deployment no longer serves its environment, or the target's copy no longer serves there: newer deployments serve every tool version it ships (`details.environment`, `source` or `target`; `details.newerDeploymentId`). `project-suspended`, `pack-suspended`, `tenant-suspended` or `tenant-closing`: a suspension of the source or the target (`details.environment`). Nothing is written for any of these. With `pin`, after the move has committed: `nothing-runs-in-scope`, a carried agent has no version running in the target yet (the message names it); or `pin-superseded` or `release-gate-descendant-unpinned`, as `POST /v1/agents/{agentId}/pinned/pin` answers them. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
             "content": {
               "application/json": {
                 "schema": {
@@ -55866,6 +56600,16 @@
           },
           "413": {
             "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`approvals-pending-limit`, with `pin`, after the move has committed: a carried agent's release gate wants an approval, and the tenant's approvals waiting for a decision are at its limit. The carried agents pinned before it are in `details.pinned`; it, the ones after it and the carried flows aren't pinned.",
             "content": {
               "application/json": {
                 "schema": {
@@ -55885,7 +56629,7 @@
             }
           },
           "501": {
-            "description": "`promotions-unsupported`: this runtime's deployment ledger can't promote.",
+            "description": "`promotions-unsupported`: this runtime's deployment ledger can't promote. With `pin`, after the move: `promotions-unsupported` when this runtime can't pin versions, or `pin-gate-unsupported` when a release gate applies to a carried agent's scope and the runtime can't record a gated pin; nothing is pinned.",
             "content": {
               "application/json": {
                 "schema": {
@@ -55895,7 +56639,7 @@
             }
           }
         },
-        "description": "Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since.",
+        "description": "Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `pin`, the move commits first; then each carried agent is pinned through its target scope's release gate, and each carried flow is pinned. A release gate that refuses or holds an agent isn't an error: its `pinned` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.pinned` and `details.pinnedFlows`.",
         "parameters": [
           {
             "name": "deploymentId",

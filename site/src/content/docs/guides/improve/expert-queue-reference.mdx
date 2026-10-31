@@ -1,67 +1,184 @@
 ---
 title: Corrections reference
-description: Corrections and their items, corrector groups and restrictions, queue rules, the answers waiting for a correction, rule results, and the console's Quality section.
+description: Corrections and what they say, their status and sorting, corrector groups and restrictions, queue rules, the answers waiting for a correction, rule results, and the console's Quality section.
 sidebar:
   order: 1.5
 ---
 
 This page lists everything about correcting runs: what a correction holds,
-how corrector groups weigh it, what queue rules match, what the answers
+where it goes until it's fixed, how corrector groups weigh it, what queue rules match, what the answers
 waiting for a correction hold, how a rule's results count, and what the
 console's Quality section shows. To correct a run, follow
 [Correct a run's output](../correct-a-runs-output/).
 
 ## Corrections
 
-- **`item.key`** is your stable id for the item: `answer` for the whole
-  answer, or, for a list, the id of the element, such as a matched case's id.
-- **`item.pointer`** (optional) is where the item is in the run's output, as
-  a JSON Pointer such as `/matches/2`. Its value is kept with the correction.
-- **`item.rank`** (optional) is its place in a ranked list, 0 first.
-- **Who corrected it** comes from the token, as `assertedBy`. An app that
+A correction is one person's word on one run. It says at least one of these,
+each `right` or `wrong`:
+
+- **`decisions`** says whether the tools the run called were right. When
+  it's `wrong`, it says what the run should have done, in `shouldCall` and
+  `mustNotCall`, with at least one entry between them.
+- **`answer`** says whether the run's answer was right. When it's `wrong`,
+  it needs `shouldSay`, what the answer should have said, or `why`.
+- **`items`** correct an answer that is a ranked list, one entry for each
+  element: `{ key, pointer?, rank?, verdict }`.
+  - **`key`** is your stable id for the element, such as a matched case's
+    id, never the element's own text. It's at most 200 characters, each key
+    appears once, and `kindgi:correction` is reserved.
+  - **`pointer`** (optional) is where the element is in the run's output, as
+    a JSON Pointer such as `/matches/2`, at most 500 characters.
+  - **`rank`** (optional) is its place in the list, 0 first.
+  - **`verdict`** is `right` or `wrong`. A wrong item needs nothing more.
+
+And around them:
+
+- **`why`** (optional) says why, for the whole correction.
+- **Who corrected it** comes from the token, as `madeBy`. An app that
   records corrections for its own users adds `participantId`, its own opaque
   id for the user.
-- **Correcting the same item again,** as the same caller and participant,
-  under any group or none, replaces the earlier correction. The earlier one
-  stays in the history. So each person has one verdict per item, and its
-  group only says how much it counts.
+- **Each person has one correction per run.** Correcting the run again, as
+  the same caller and participant, under any group or none, replaces the
+  earlier correction. The earlier one stays in the history, and its group
+  only says how much the correction counts.
 - **A correction keeps copies** of the run's input and output, so it outlives
   the run's own retention.
 - **Correcting a run takes write access** to its project, as cancelling it does.
-- **What it should have done** (runtime 0.2.0 or later): a correction of
-  an agent's run can say it, in `correction: { calls, notCalled }`. Each of
-  `calls` is `{ tool, args }`, and each of `notCalled` is a tool id. Both
-  lists are required, and one of them can be empty. It's about the whole
-  run, so it's recorded under the item `kindgi:correction`, with `pointer`
-  `""` or none. Its verdict says whether the run's decisions were right,
-  `yes` or `no`, and its reason is optional, as for any correction.
+- **What it should have done** (runtime 0.2.0 or later): a correction of an
+  agent's run can say it, with `decisions: "wrong"`. Each of `shouldCall` is
+  `{ tool, args? }`, and each of `mustNotCall` is a tool id. `args` holds
+  only the arguments that matter; leaving it out, or `{}`, asks only that the
+  tool was called. Both lists go with `decisions: "wrong"` only.
 - **How it's checked,** on a replay: only the tools it names are compared.
-  Each tool in `calls` must be called as many times as it's listed, each
+  Each tool in `shouldCall` must be called as many times as it's listed, each
   call matching one listed call, in any order. A listed call's `args` match
   when each field given equals the call's top-level argument of that name,
-  compared whole, and `{}` matches any arguments. A tool in `notCalled`
+  compared whole, and `{}` matches any arguments. A tool in `mustNotCall`
   must not be called. A call the replay refused still counts as called.
-- **Its limits:** up to 50 `calls` and 50 `notCalled`, tool ids up to 200
-  characters, and each `args` up to 100 fields and 4,000 characters of JSON.
+- **Its limits:** up to 50 `shouldCall` and 50 `mustNotCall`, tool ids up to
+  200 characters, each `args` up to 100 fields and 4,000 characters of JSON,
+  `shouldSay` and `why` up to 4,000 characters each, and up to 100 `items`.
 
-Only a finished run can be corrected, and the pointer must find something:
+Only a finished run can be corrected, and each item's pointer must find
+something:
 
 ```text
 Run "fc26b436-611b-4962-9913-2f2669ade7e1" has no output to correct yet (status suspended).
 Nothing at "/no/such" in run "bc6d1b53-3562-48c9-9f29-719779e3d110"'s output.
 ```
 
-When what it should have done breaks a rule, the correction is refused with
-`400 bad-input`, such as:
+A correction that breaks a rule is refused with `400 bad-input`, such as:
 
 ```text
-correction needs at least one of calls or notCalled.
-each correction call needs an args object ({} asks only that the tool was called).
-"acme-store.refund" can't be in both correction.calls and correction.notCalled.
-a correction is recorded under the item "kindgi:correction", not "answer".
-the item "kindgi:correction" is reserved for expected decisions; correct an item of the output instead.
+A correction says at least one of decisions, answer and items (right or wrong).
+decisions: "wrong" needs at least one entry in shouldCall or mustNotCall.
+"acme-store.refund" can't be in both shouldCall and mustNotCall.
+shouldCall and mustNotCall go with decisions: "wrong".
+answer: "wrong" needs shouldSay or why.
+shouldSay goes with answer: "wrong".
+the item key "kb-101" is in items twice.
+an item's key is at most 200 characters: its id, not its text.
+an item's pointer is at most 500 characters.
+verdict is gone: a correction says decisions and answer.
 The corrected version has no tool "acme-store.refunds".
 ```
+
+The fields `item`, `verdict`, `reason` and `correction` are gone, and each is
+refused as `verdict` is above.
+
+### Status and sorting
+
+Each correction moves on until it's fixed. Its `status` says where it is, and
+`sortedTo` says who fixes it:
+
+- **`status`**: `open`, `being-fixed`, `with-owner` (the agent's owner
+  decides), `fixed`, `wont-fix` or `removed`.
+- **`sortedTo`**: `improve` (the instructions, through an Improve run),
+  `developer` (a change in code), or `owner`. It's absent while the
+  correction is unsorted.
+- **`sorted`** says how it was sorted, with `by` (`{ "kind": "rule" }` when
+  it's saved, `{ "kind": "fix-job" }`, or `{ "kind": "user", "id": … }`),
+  an optional `reason`, and `at`.
+- **`link`**, while it's `being-fixed`, is the work fixing it: an Improve
+  run, a suggested change, or a pull request's URL.
+- **`fixedIn`**, while it's `fixed`, says how: `how` and `at`, with `by` and
+  `version` when they apply. A correction that found nothing wrong is fixed
+  as `recorded-right`.
+- **`statusNote`** is why it's `wont-fix`, or why it went back to `open`,
+  with `text`, `by` and `at`.
+
+When a correction is saved, it's sorted by these rules, in order:
+
+1. **A user's correction** (one with `participantId`, not made as an expert
+   under a restricted group) is `open` and unsorted, until a person sorts it.
+2. **Wrong decisions** go to the owner: `with-owner`, sorted to `owner`. A
+   change to what the agent does may loosen a limit, and only the owner
+   decides that. This holds when the answer is wrong too.
+3. **A wrong answer, or a wrong item,** is `open`, sorted to `improve`.
+4. **Nothing wrong:** it's `fixed`, as `recorded-right`.
+
+### Change a correction
+
+`PATCH /v1/corrections/{id}`, or `corrections.change` in the clients, takes
+`sortedTo`, `status`, or both, with a `link` or a `reason`. It needs
+`publish` on the correction's agent or flow, or, for one that more than one
+project serves, `write` on the correction's project.
+
+- **Re-sort** with `sortedTo`, from `open`, `being-fixed` or `with-owner`.
+  Sorted to `owner`, it becomes `with-owner`; sorted away from `owner`, it
+  becomes `open`. It's recorded as sorted by you. A `being-fixed`
+  correction keeps its `link`, unless the re-sort moves it to or away from
+  the owner.
+- **`being-fixed`**, from `open` or `with-owner`, needs a `link`: a URL, an
+  Improve run (`ir-…`) or a suggested change (`sc-…`).
+- **`open`**, from `being-fixed` or `wont-fix`, takes an optional `reason`.
+  One sorted to the owner becomes `with-owner`.
+- **`wont-fix`**, from anything but `removed`, needs a `reason`. A `fixed`
+  correction loses its `fixedIn`.
+- **`fixed`** can't be set by hand.
+
+Any other change is refused with `409 correction-status-change-not-allowed`,
+with the two statuses in `details` as `from` and `to`:
+
+```text
+A correction that's fixed can't become being-fixed.
+```
+
+A change that's missing something is refused with `400 bad-input`:
+
+```text
+status: "being-fixed" needs a link: a URL, ir-… or sc-….
+status: "wont-fix" needs a reason.
+link goes with status: "being-fixed".
+A change sets sortedTo, status, or both.
+```
+
+**Removing a correction** is for its author, or an admin of its project. It
+becomes `removed`, and it can't come back.
+
+### List and count
+
+`GET /v1/corrections`, or `corrections.list` in the clients, lists newest
+first. Besides the run, agent, agent version, flow, group and participant, it
+filters by:
+
+- **`status`**, repeated or comma-separated. `not-fixed` means `open`,
+  `being-fixed` and `with-owner`. Removed corrections are listed only when
+  `status` asks for `removed`.
+- **`sortedTo`**: `improve`, `developer`, `owner`, or `none` for the
+  unsorted ones, repeated or comma-separated too.
+- **`from`**: `experts` (made under a restricted group), `end-users` (with
+  `participantId`, and not made as experts), or `all`.
+- **`madeBy=me`**: your own corrections.
+- **`since`** and **`until`**: made at or after `since`, and before
+  `until`, in ISO 8601.
+
+`GET /v1/corrections/counts?scopeKind=project&scopeId=<project-id>`, with an
+optional `agentId`, counts a project's corrections by status: `open`,
+`beingFixed`, `withOwner`, `fixed`, `wontFix` and `removed`. In the
+TypeScript client it's `corrections.counts({ projectId, agentId })`, and in
+Python `corrections.counts(scope_kind="project", scope_id=..., agent_id=...)`.
+It counts in a project only, and takes read access to it.
 
 ## Corrector groups
 
@@ -208,7 +325,7 @@ agent version:
 
 Here a rule that wants an expert's correction queued four runs. An expert,
 with weight 3, and a peer corrected the first. A peer marked the second
-`no`, and it's still open. A peer corrected the third, which was then
+wrong, and it's still open. A peer corrected the third, which was then
 dismissed. The fourth was never corrected. So `corrections` is 4,
 `runsWithCorrections` 3, and `yesShare` 0.83: 5 of 6 weighted verdicts.
 
@@ -264,7 +381,7 @@ Each row is a run in the queue:
 
 - **What ran:** the agent or flow and its version, and when it finished. It
   links the run's **Corrections** tab, where you correct it, as
-  [Correct an item](../correct-a-runs-output/#correct-an-item) shows.
+  [Correct a run's answer](../correct-a-runs-output/#correct-a-runs-answer) shows.
 - **Why it's here:** the rules that queued it.
 - **Where it stands:** what it still needs, such as "Needs an expert
   correction (1 so far, unclassified)", or how a closed one ended.

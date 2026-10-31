@@ -318,13 +318,6 @@ export const CLI_DEFAULTS = {
     project: "the tenant's Default project",
     spec: 'required',
   },
-  'agents derive': {
-    from: 'required',
-    label: 'none',
-    project: 'none',
-    prompt: 'none (at least one `--prompt` or `--setting` is required)',
-    setting: 'none (at least one `--prompt` or `--setting` is required)',
-  },
   'agents versions': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
@@ -447,35 +440,27 @@ export const CLI_DEFAULTS = {
     agent: 'none',
     cursor: 'none',
     limit: '`25` (at most `100`)',
-    org: 'none',
     project: 'none',
-    segment: 'none',
     status: 'none',
-    tier: 'none',
   },
-  'suggested-changes draft': {
+  'suggested-changes create': {
     agent: 'required',
     block: 'required',
-    correction: 'none',
-    'from-version': 'required',
+    fixes: 'none',
+    project: 'required',
     why: 'required',
     'idempotency-key': 'none',
-    org: 'none',
-    project: 'none',
-    segment: 'none',
     template: 'none',
     values: 'none',
   },
-  'suggested-changes evaluate': {
-    'group-weights': '`as-recorded`',
+  'suggested-changes check': {
     'idempotency-key': 'none',
-    k: '`10`',
-    objective: '`passRate`',
-    reads: '`recorded`',
-    repetitions: '`1`',
-    'test-set': 'required',
   },
-  'suggested-changes request': {
+  'suggested-changes pin': {
+    'idempotency-key': 'none',
+    reason: 'none',
+  },
+  'suggested-changes add-as-latest': {
     'idempotency-key': 'none',
     reason: 'none',
   },
@@ -806,7 +791,6 @@ export const CLI_DEFAULTS = {
     participant: 'none',
     project: 'none',
     run: 'none',
-    verdict: 'none',
   },
   'corrector-groups list': {
     agent: 'none',
@@ -2077,6 +2061,12 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'List failed runs of an agent, ten at a time.',
       line: 'kindgi test-runs list --agent=acme-ops.article-picker --status=failed --limit=10',
+    },
+  ],
+  'test-runs show': [
+    {
+      purpose: "Show a test run's status and, once it's done, its summary.",
+      line: 'kindgi test-runs show <test-run-id>',
     },
   ],
   'test-runs cancel': [

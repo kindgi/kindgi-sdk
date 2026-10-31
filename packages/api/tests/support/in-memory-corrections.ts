@@ -14,13 +14,15 @@ import {
   segmentsStartWith,
 } from '../../src/index.js';
 
-/** In-memory `CorrectionRegistryBinding` honouring supersede and one run copy per run. */
+/**
+ * In-memory `CorrectionRegistryBinding` honouring supersede, one run copy per
+ * run, and a change that applies only from the status and sorting it expects.
+ */
 export function inMemoryCorrections(): CorrectionRegistryBinding {
   const groups: CorrectorGroup[] = [];
   const corrections: Correction[] = [];
   const copies = new Map<string, CorrectedRunCopy>();
   const copyProjects = new Map<string, ProjectId>();
-  const itemValues = new Map<string, unknown>();
   let seq = 0;
   const now = () => new Date(Date.UTC(2026, 9, 1, 0, 0, seq++)).toISOString();
   const sameScope = (a: CorrectorGroup['scope'], b: CorrectorGroup['scope']) =>
@@ -121,37 +123,48 @@ export function inMemoryCorrections(): CorrectionRegistryBinding {
         if (
           j.unregisteredAt === undefined &&
           j.runId === input.runId &&
-          j.item.key === input.item.key &&
-          j.assertedBy.kind === input.assertedBy.kind &&
-          j.assertedBy.id === input.assertedBy.id &&
+          j.madeBy.kind === input.madeBy.kind &&
+          j.madeBy.id === input.madeBy.id &&
           j.participantId === input.participantId
         ) {
           corrections[i] = { ...j, unregisteredAt: now(), supersededBy: id };
         }
       }
+      const { run: _run, ...fields } = input;
+      const at = now();
       const correction: Correction = {
         id,
-        tenantId: input.tenantId,
-        projectId: input.projectId,
-        runId: input.runId,
+        ...fields,
         subject: input.run.subject,
-        item: input.item,
-        verdict: input.verdict,
-        ...(input.reason !== undefined && { reason: input.reason }),
-        ...(input.correction !== undefined && { correction: input.correction }),
-        ...(input.correctorGroupId !== undefined && { correctorGroupId: input.correctorGroupId }),
-        ...(input.expert === true && { expert: true }),
-        assertedBy: input.assertedBy,
-        ...(input.participantId !== undefined && { participantId: input.participantId }),
-        createdAt: now(),
+        createdAt: at,
+        updatedAt: at,
       };
       corrections.push(correction);
-      if (input.itemValue !== undefined) itemValues.set(id, input.itemValue);
       return correction;
     },
     async list(input) {
       const rows = corrections
-        .filter((j) => j.unregisteredAt === undefined)
+        .filter((j) => j.supersededBy === undefined)
+        .filter((j) =>
+          input.statuses === undefined ? j.status !== 'removed' : input.statuses.includes(j.status),
+        )
+        .filter(
+          (j) => input.sortedTo === undefined || input.sortedTo.includes(j.sortedTo ?? 'none'),
+        )
+        .filter(
+          (j) =>
+            input.from === undefined ||
+            (input.from === 'experts'
+              ? j.expert === true
+              : j.participantId !== undefined && j.expert !== true),
+        )
+        .filter(
+          (j) =>
+            input.madeBy === undefined ||
+            (j.madeBy.kind === input.madeBy.kind && j.madeBy.id === input.madeBy.id),
+        )
+        .filter((j) => input.since === undefined || j.createdAt >= input.since)
+        .filter((j) => input.until === undefined || j.createdAt < input.until)
         .filter((j) => input.runId === undefined || j.runId === input.runId)
         .filter(
           (j) =>
@@ -164,7 +177,6 @@ export function inMemoryCorrections(): CorrectionRegistryBinding {
             input.flowId === undefined ||
             (j.subject.kind === 'flow' && j.subject.id === input.flowId),
         )
-        .filter((j) => input.verdict === undefined || j.verdict === input.verdict)
         .filter(
           (j) =>
             input.correctorGroupId === undefined || j.correctorGroupId === input.correctorGroupId,
@@ -222,11 +234,7 @@ export function inMemoryCorrections(): CorrectionRegistryBinding {
       const j = corrections.find((x) => x.id === input.correctionId);
       if (j === undefined) return null;
       const run = copies.get(j.runId) as CorrectedRunCopy;
-      return {
-        ...j,
-        run,
-        ...(itemValues.has(j.id) && { itemValue: itemValues.get(j.id) }),
-      };
+      return { ...j, run };
     },
     async unregister(input) {
       const i = corrections.findIndex(
@@ -234,8 +242,77 @@ export function inMemoryCorrections(): CorrectionRegistryBinding {
       );
       const current = corrections[i];
       if (current === undefined) return { unregistered: false };
-      corrections[i] = { ...current, unregisteredAt: now() };
+      const at = now();
+      corrections[i] = { ...current, status: 'removed', unregisteredAt: at, updatedAt: at };
       return { unregistered: true };
+    },
+    async update(input) {
+      const i = corrections.findIndex(
+        (x) =>
+          x.id === input.correctionId &&
+          x.tenantId === input.tenantId &&
+          x.unregisteredAt === undefined,
+      );
+      const current = corrections[i];
+      if (current === undefined) return { kind: 'not-found' };
+      if (
+        current.status !== input.expected.status ||
+        (current.sortedTo ?? null) !== input.expected.sortedTo
+      ) {
+        return { kind: 'changed', correction: current };
+      }
+      const { sortedTo, link, statusNote, fixedIn, ...rest } = current;
+      const pick = <T>(given: T | null | undefined, was: T | undefined) =>
+        given === undefined ? was : (given ?? undefined);
+      const next = {
+        ...rest,
+        ...(input.status !== undefined && { status: input.status }),
+        ...(input.sorted !== undefined && { sorted: input.sorted }),
+        sortedTo: pick(input.sortedTo, sortedTo),
+        link: pick(input.link, link),
+        statusNote: pick(input.statusNote, statusNote),
+        fixedIn: input.fixedIn === null ? undefined : fixedIn,
+        updatedAt: now(),
+      };
+      // Absent, not `undefined`, as a store answers it.
+      const correction = Object.fromEntries(
+        Object.entries(next).filter(([, v]) => v !== undefined),
+      ) as unknown as Correction;
+      corrections[i] = correction;
+      return { kind: 'updated', correction };
+    },
+    async counts(input) {
+      const counts = { open: 0, beingFixed: 0, withOwner: 0, fixed: 0, wontFix: 0, removed: 0 };
+      const key = {
+        open: 'open',
+        'being-fixed': 'beingFixed',
+        'with-owner': 'withOwner',
+        fixed: 'fixed',
+        'wont-fix': 'wontFix',
+        removed: 'removed',
+      } as const;
+      for (const j of corrections) {
+        if (j.tenantId !== input.tenantId || j.supersededBy !== undefined) continue;
+        if (input.scope?.kind === 'project' && j.projectId !== input.scope.projectId) continue;
+        if (
+          input.agentId !== undefined &&
+          !(j.subject.kind === 'agent' && j.subject.id === input.agentId)
+        ) {
+          continue;
+        }
+        counts[key[j.status]] += 1;
+      }
+      return counts;
+    },
+    async correctionsByIds(input) {
+      return corrections
+        .filter(
+          (j) =>
+            j.tenantId === input.tenantId &&
+            j.supersededBy === undefined &&
+            input.ids.includes(j.id),
+        )
+        .map((j) => ({ id: j.id, status: j.status, sortedTo: j.sortedTo ?? null }));
     },
   };
 }

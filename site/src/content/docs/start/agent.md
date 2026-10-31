@@ -419,8 +419,9 @@ Tell the person, in your own words:
 >
 > 1. **Give it a tool:** ask me "add a tool that looks up an order, and let
 >    the agent call it".
-> 2. **Correct a few answers:** say yes or no to what it answered, so later
->    versions can be checked against your corrections
+> 2. **Correct a few runs:** say whether what it did and answered was right,
+>    and what was right instead, so later versions can be checked against
+>    your corrections
 >    ([Correct a run's output](https://docs.kindgi.com/guides/improve/correct-a-runs-output/)).
 > 3. **Compare two versions:** change its instructions and see whether people's
 >    corrections rate the new version higher

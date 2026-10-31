@@ -48,32 +48,32 @@ a new version returns `kb-101`, at any place in its list.
 <TabItem label="TypeScript">
 
 ```sh
-pnpm exec kindgi corrections add --run=<run-id> --item=kb-101 --pointer=/output/articles/0 --rank=0 --yes --reason="Resets the password"
-pnpm exec kindgi corrections add --run=<run-id> --item=kb-102 --pointer=/output/articles/1 --rank=1 --no --reason="Not about signing in"
+pnpm exec kindgi corrections add --run=<run-id> --item=kb-101 --pointer=/output/articles/0 --rank=0 --yes
+pnpm exec kindgi corrections add --run=<run-id> --item=kb-102 --pointer=/output/articles/1 --rank=1 --no
 ```
 
 </TabItem>
 <TabItem label="Python">
 
 ```sh
-uv run kindgi corrections add --run=<run-id> --item=kb-101 --pointer=/output/articles/0 --rank=0 --yes --reason="Resets the password"
-uv run kindgi corrections add --run=<run-id> --item=kb-102 --pointer=/output/articles/1 --rank=1 --no --reason="Not about signing in"
+uv run kindgi corrections add --run=<run-id> --item=kb-101 --pointer=/output/articles/0 --rank=0 --yes
+uv run kindgi corrections add --run=<run-id> --item=kb-102 --pointer=/output/articles/1 --rank=1 --no
 ```
 
 </TabItem>
 <TabItem label="Java">
 
 ```sh
-./kindgiw corrections add --run=<run-id> --item=kb-101 --pointer=/output/articles/0 --rank=0 --yes --reason="Resets the password"
-./kindgiw corrections add --run=<run-id> --item=kb-102 --pointer=/output/articles/1 --rank=1 --no --reason="Not about signing in"
+./kindgiw corrections add --run=<run-id> --item=kb-101 --pointer=/output/articles/0 --rank=0 --yes
+./kindgiw corrections add --run=<run-id> --item=kb-102 --pointer=/output/articles/1 --rank=1 --no
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
 ```sh
-./kindgiw corrections add --run=<run-id> --item=kb-101 --pointer=/output/articles/0 --rank=0 --yes --reason="Resets the password"
-./kindgiw corrections add --run=<run-id> --item=kb-102 --pointer=/output/articles/1 --rank=1 --no --reason="Not about signing in"
+./kindgiw corrections add --run=<run-id> --item=kb-101 --pointer=/output/articles/0 --rank=0 --yes
+./kindgiw corrections add --run=<run-id> --item=kb-102 --pointer=/output/articles/1 --rank=1 --no
 ```
 
 </TabItem>
@@ -82,9 +82,14 @@ uv run kindgi corrections add --run=<run-id> --item=kb-102 --pointer=/output/art
 - `<run-id>` is the run's id.
 - `--item` is the article's id, and `--pointer` where it is in the output.
 - `--rank` is its place in the list, 0 first.
+- `--yes` says the article was right there, and `--no` that it wasn't. A
+  wrong item needs nothing more.
 
-Each prints its correction, as
-[Correct an item](../correct-a-runs-output/#correct-an-item) shows.
+Each call adds the article to your one correction of the run, as one of its
+`items`, and prints your correction so far, as
+[Correct a run's answer](../correct-a-runs-output/#correct-a-runs-answer) shows.
+The clients' `corrections.create` takes the whole list at once:
+`items: [{ key: 'kb-101', pointer: '/output/articles/0', rank: 0, verdict: 'right' }, …]`.
 
 In the console, a finished run's **Correct this run** opens its Corrections
 tab. It lists the answer, and each element of a list in the output, each with
@@ -128,7 +133,10 @@ uv run kindgi test-sets from-corrections acme.article-picks --test-set-version=1
 </Tabs>
 
 - `acme.article-picks` is the test cases' id, and `--test-set-version` their
-  version.
+  version. Ids that start with `agent.` are reserved for agents' own test
+  sets: the API answers `400 bad-input` to publishing one, or building a
+  version of it from corrections, and the TypeScript client and the CLI
+  refuse it before sending.
 - `--project=<project-id>` is the project the runs are in, where
   `<project-id>` is its id.
 - `--agent` is the agent whose corrected runs it takes.
@@ -350,7 +358,7 @@ One of them:
       "totalWeight": 1,
       "expert": { "yesWeight": 0, "totalWeight": 0, "correctionIds": [] },
       "correctionIds": ["8f2c4e1a-6b0d-4c3e-9a57-2d1f0b7e4c93"],
-      "reasons": [{ "verdict": "yes", "reason": "Resets the password" }]
+      "reasons": []
     },
     …
   ],
@@ -361,7 +369,8 @@ One of them:
 
 - **`caseId`** is the id of the corrected run.
 - **`items`** has each corrected item: its yes and no counts, the same weighted
-  by corrector group, and the reasons people gave. The weighted counts are
+  by corrector group, and the reasons people gave, from each correction's `why`
+  about the answer. The weighted counts are
   `yesWeight` of `totalWeight`, and a correction with no group weighs 1.
   `expert` has the weights of the
   [expert group](../correct-a-runs-output/#restrict-who-may-correct-as-a-group)
@@ -371,9 +380,9 @@ One of them:
   built before these ids have neither.
 - **`corrections`** (runtime 0.2.0 or later) has the run's corrections
   that say [what it should have done](../correct-a-runs-output/#say-what-it-should-have-done),
-  whatever their verdict: each one's `calls` and `notCalled`, its
-  `correctionId`, its `correctorGroupId` when it had a group, and
-  `expert: true` when that group was restricted. A case without them
+  with `decisions: "wrong"`: each one's `shouldCall` and `mustNotCall`, as
+  `calls` and `notCalled`, its `correctionId`, its `correctorGroupId` when it
+  had a group, and `expert: true` when that group was restricted. A case without them
   has no `corrections`.
 - **`output`** is the run's output, as it was when people corrected it.
 - **`context`**, for an agent turn, is what the turn had before it answered:

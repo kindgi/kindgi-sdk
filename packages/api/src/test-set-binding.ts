@@ -3,7 +3,7 @@
 
 import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
-import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
+import type { AgentId, Cursor, ProjectId, TenantId } from '@kindgi/types';
 
 /**
  * Caller-plugged surface for the evaluation-harness test set catalog —
@@ -315,3 +315,61 @@ export type TestSetReinstateVersionOutcome =
       readonly testSetId: string;
       readonly version: string;
     };
+
+/**
+ * A project's test set for an agent, frozen as a version: what a
+ * suggested change is checked on. The runtime keeps one test set per agent
+ * and project, made of the corrections that are cases there and the
+ * cases added by hand, and freezes a new version only when they changed
+ * since the newest (else that one is answered again).
+ */
+export interface TestSetFreezeBinding {
+  freezeTestSet(input: FreezeTestSetInput): Promise<FrozenTestSet>;
+}
+
+/**
+ * How every agent's test set id starts (`agentTestSetId`). It's reserved:
+ * only a freeze makes their versions, through the binding, and the routes
+ * refuse to publish a test set whose id starts with it.
+ */
+export const AGENT_TEST_SET_ID_PREFIX = 'agent.';
+
+/** Whether `testSetId` is reserved for an agent's test set (`AGENT_TEST_SET_ID_PREFIX`). */
+export function isAgentTestSetId(testSetId: string): boolean {
+  return testSetId.startsWith(AGENT_TEST_SET_ID_PREFIX);
+}
+
+/**
+ * The id of an agent's test set in one project: `agent.<agentId>.<projectId>`.
+ * A freeze publishes its versions under it, so a reader finds the newest
+ * frozen version with `TestSetRegistryBinding.get` and its cases under
+ * `/v1/test-sets/{testSetId}/versions/{version}/cases`. No `:`: an
+ * authorization object's id can't hold one.
+ */
+export function agentTestSetId(agentId: AgentId, projectId: ProjectId): string {
+  return `${AGENT_TEST_SET_ID_PREFIX}${agentId as unknown as string}.${projectId as unknown as string}`;
+}
+
+/** The answer when a caller publishes a test set under an agent's test set id. */
+export function agentTestSetIdReserved(testSetId: string): string {
+  return `Test set ids starting \`${AGENT_TEST_SET_ID_PREFIX}\` are agents' own test sets, and only a test run or a suggested change's check makes their versions. Publish "${testSetId}" under another id.`;
+}
+
+export interface FreezeTestSetInput {
+  readonly tenantId: TenantId;
+  readonly agentId: AgentId;
+  readonly projectId: ProjectId;
+}
+
+export interface FrozenTestSet {
+  readonly testSetId: string;
+  readonly testSetVersion: string;
+  /**
+   * Its cases. A correction's case has the correction's id as its own;
+   * a case added by hand names no correction, and still counts.
+   */
+  readonly cases: readonly {
+    readonly caseId: string;
+    readonly correctionId: string | null;
+  }[];
+}

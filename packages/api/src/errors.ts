@@ -213,6 +213,16 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'suggested-change-invalid-state-transition': 409,
   // Evaluating would make a version that serves every unpinned scope.
   'suggested-change-needs-pin': 409,
+  // Made before suggested changes were for one project: withdraw only.
+  'suggested-change-not-for-a-project': 409,
+  // The runtime freezes no test set, so nothing can be checked.
+  'suggested-change-check-unsupported': 501,
+  'suggested-change-nothing-to-check': 409,
+  // A pin for a project that runs Latest.
+  'suggested-change-project-on-latest': 409,
+  // An add as Latest for a project that runs a pin.
+  'suggested-change-project-pinned': 409,
+  'suggested-change-out-of-date': 409,
   // Improve runs.
   'improve-unsupported': 501,
   'improve-run-not-found': 404,
@@ -251,8 +261,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // Admin plane — test-run dispatch.
   'test-run-not-found': 404,
   'test-run-not-rescorable': 409,
-  // Corrections (yes/no on a run's output items) and corrector groups.
+  // Corrections (whether a run's decisions, answer and items were right) and corrector groups.
   'correction-not-found': 404,
+  'correction-status-change-not-allowed': 409,
   'corrector-group-not-found': 404,
   /** A queue rule that isn't in the project (`/v1/projects/:projectId/queue-rules/:ruleId`). */
   'queue-rule-not-found': 404,
@@ -267,6 +278,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // Pinned versions of agents and their pin history.
   'agent-version-not-found': 404,
   'pin-not-found': 404,
+  /** A pin into a scope where no version of the agent runs yet: no pin, and no Latest. */
+  'nothing-runs-in-scope': 409,
   'not-pinned': 409,
   // The release gate.
   'gate-failed': 422,
@@ -401,6 +414,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'identity-user-not-invited': 409,
   /** A person's grants on a runtime without an authorization store. */
   'person-grants-unsupported': 501,
+  /** Setting an agent's owner on a runtime whose agent store doesn't keep one. */
+  'agent-owner-unsupported': 501,
   /** A caller's permissions on a runtime without an authorization store (`GET /v1/identity/me/permissions`). */
   'permissions-unsupported': 501,
   /** Unregister: the version is pinned in a scope; move or remove that pin first. */

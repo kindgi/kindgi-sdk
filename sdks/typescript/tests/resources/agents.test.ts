@@ -111,43 +111,6 @@ describe('agents.define — projectId (POST /v1/agents requires it)', () => {
   });
 });
 
-describe('agents.versions.derive', () => {
-  it('POSTs /v1/agents/{agentId}/versions with the source version and the pin swaps', async () => {
-    const derived = {
-      ...SPEC,
-      version: '1.0.1',
-      derivedFrom: { version: '1.0.0', reason: 'edited' },
-    };
-    const stub = jsonFetch(derived, { status: 201 });
-    const client = createClient({
-      apiUrl: 'https://api.example.com',
-      auth: AUTH,
-      fetch: stub.fetch,
-    });
-
-    const agent = await client.agents.versions.derive(
-      'acme.drafter' as never,
-      {
-        from: '1.0.0',
-        pins: { prompts: { 'acme.drafter-prompt': '1.1.0' } },
-        label: 'tighter tone',
-      },
-      { idempotencyKey: 'idem-d' },
-    );
-
-    expect(agent.version).toBe('1.0.1');
-    const req = stub.calls[0]!;
-    expect(req.method).toBe('POST');
-    expect(req.url).toBe('https://api.example.com/v1/agents/acme.drafter/versions');
-    expect(req.headers['idempotency-key']).toBe('idem-d');
-    expect(JSON.parse(req.body ?? '{}')).toEqual({
-      from: '1.0.0',
-      pins: { prompts: { 'acme.drafter-prompt': '1.1.0' } },
-      label: 'tighter tone',
-    });
-  });
-});
-
 describe('agents.pinned', () => {
   const PROJECT_ID = '0b9f4c1e-1111-4a2b-8c3d-000000000001';
   const pin = {
@@ -192,6 +155,16 @@ describe('agents.pinned', () => {
     expect(stub.calls[0]!.url).toBe('https://api.example.com/v1/agents/acme.drafter/projects');
     expect(stub.calls[0]!.method).toBe('GET');
     expect(got).toEqual({ data: [{ projectId: PROJECT_ID }] });
+  });
+
+  it('setOwner PUTs the person to /owner and returns the answer as sent', async () => {
+    const answer = { agentId: 'acme.drafter', owner: { userId: 'u-1', name: 'Ana Ortiz' } };
+    const stub = jsonFetch(answer);
+    const got = await client(stub).agents.setOwner('acme.drafter', 'u-1');
+    expect(stub.calls[0]!.url).toBe('https://api.example.com/v1/agents/acme.drafter/owner');
+    expect(stub.calls[0]!.method).toBe('PUT');
+    expect(JSON.parse(stub.calls[0]!.body as string)).toEqual({ userId: 'u-1' });
+    expect(got).toEqual(answer);
   });
 
   it('pinned.pin POSTs the version and scope, with an idempotency key', async () => {

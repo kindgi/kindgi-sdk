@@ -11,12 +11,12 @@ import type {
   AgentPinnedVersionList,
   AgentPinnedVersionResolution,
   AgentProjectList,
-  DeriveAgentVersionBody,
   Pin,
   PinCheck,
   PinPage,
   ReleaseGateResolution,
   ScopeSegment,
+  SetAgentOwnerResult,
   UnregisterAgentResult,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
@@ -51,7 +51,12 @@ export interface AgentsClient {
   /** @wire GET /v1/agents */
   list(filter?: ListAgentsFilter): Promise<AgentCollectionPage>;
 
-  /** @wire GET /v1/agents/:agentId — latest active version (`GetLatestOptions`) */
+  /**
+   * The highest active version (`GetLatestOptions`), which numbers the
+   * next one. What a project runs is `projects`.
+   *
+   * @wire GET /v1/agents/:agentId
+   */
   get(agentId: AgentId, options?: GetLatestOptions): Promise<Agent>;
 
   /**
@@ -59,9 +64,25 @@ export interface AgentsClient {
    * project a deployment that isn't retired shipped a version of it into,
    * among those the caller can read. A retired agent still answers.
    *
+   * Each project says what a run there that names no version gets
+   * (`runs`) and why (`follows`): a pin that covers the project, else its
+   * Latest. Latest moves only when a deployment into the project ships a
+   * version, or when a person publishes a full version or adds one as the
+   * latest version. `segments` lists the pins on segments inside the
+   * project, and `highest` is the agent's highest version.
+   *
    * @wire GET /v1/agents/:agentId/projects
    */
   projects(agentId: AgentId | string): Promise<AgentProjectList>;
+
+  /**
+   * Set the agent's owner: the person its corrections go to when they need
+   * the owner. Setting it again replaces the one before. Needs `admin` on
+   * the agent. `get` answers it as `owner`.
+   *
+   * @wire PUT /v1/agents/:agentId/owner
+   */
+  setOwner(agentId: AgentId | string, userId: string): Promise<SetAgentOwnerResult>;
 
   readonly versions: AgentVersionsClient;
 
@@ -112,22 +133,7 @@ export interface AgentVersionsClient {
     version: Semver,
     options?: MutationOptions,
   ): Promise<ReinstateAgentVersionResult>;
-  /**
-   * Derive a new version from a pinned one with some data-block pins
-   * swapped (an expert's edit, no code change). Numbered the next free
-   * patch after the agent's highest version. Needs `publish` on the agent.
-   *
-   * @wire POST /v1/agents/:agentId/versions
-   */
-  derive(
-    agentId: AgentId,
-    input: DeriveAgentVersionInput,
-    options?: MutationOptions,
-  ): Promise<Agent>;
 }
-
-/** Body of `POST /v1/agents/{agentId}/versions`. */
-export type DeriveAgentVersionInput = DeriveAgentVersionBody;
 
 /**
  * Pinned versions. A run that doesn't name its version uses the pinned
@@ -150,7 +156,10 @@ export interface AgentPinnedClient {
   /**
    * Pin `version` for `scope`, from the next run. Open
    * conversations keep their version. `404 agent-version-not-found`
-   * when the version isn't registered and active.
+   * when the version isn't registered and active. `409
+   * nothing-runs-in-scope` when no version of the agent runs in the scope
+   * yet (no pin, and no Latest): deploy or publish one into the project
+   * first; into a later environment, promote a build that ships one.
    *
    * With a release gate for the scope, the pin is checked first,
    * against the comparison named by `testRunId`. The answer's `status`
@@ -297,16 +306,6 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
         }),
       });
     },
-    async derive(agentId, input, options) {
-      return transport.request<Agent>({
-        method: 'POST',
-        path: `/v1/agents/${seg(agentId as unknown as string)}/versions`,
-        body: input,
-        ...(options?.idempotencyKey !== undefined && {
-          idempotencyKey: options.idempotencyKey,
-        }),
-      });
-    },
     async reinstate(agentId, version, options) {
       const wire = await transport.request<ReinstateAgentVersionWire>({
         method: 'POST',
@@ -357,6 +356,13 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
       return transport.request<AgentProjectList>({
         method: 'GET',
         path: `/v1/agents/${seg(agentId as string)}/projects`,
+      });
+    },
+    async setOwner(agentId, userId) {
+      return transport.request<SetAgentOwnerResult>({
+        method: 'PUT',
+        path: `/v1/agents/${seg(agentId as string)}/owner`,
+        body: { userId },
       });
     },
     versions,

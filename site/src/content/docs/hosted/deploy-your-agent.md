@@ -175,9 +175,10 @@ pnpm exec kindgi runs start --agent=acme-desk.reply-drafter --input='{"userMessa
 Going live takes two steps, in this order.
 
 **1. Pin the agent's version.** Until an agent has a pinned version,
-each run gets its latest version, so every deploy changes what runs at
-once. Pin the version you tried in the project. Then later deploys
-change nothing until you pin a version again.
+each run gets its project's Latest, the version the newest deploy shipped,
+so every deploy changes what runs at once. Pin the version you tried in
+the project. Then later deploys change nothing until you pin a version
+again.
 
 Ask your coding agent: "Pin the version of `acme-desk.reply-drafter` that I
 tried in the Default project." For reference:
