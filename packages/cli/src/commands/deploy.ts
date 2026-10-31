@@ -532,11 +532,21 @@ async function deployWith(
     packService = waited.endpoint;
   }
 
+  // ---- 13. Hosted: the builds the project keeps -------------------------
+  //
+  // Each kept build has its own pack service, and a version stays callable
+  // by its number until someone unregisters it, so say how many there are
+  // and how to let old ones go. Only when the runtime counts them.
+  const kept =
+    packService !== undefined ? await sayKeptBuilds(ctx, args, runners, line, project.id) : {};
+
   const jsonOut = renderJson(
     {
       ...rendered.summary,
       ...(args.syncSecrets && { syncSecrets: syncSummary }),
       ...(packService !== undefined && { packService }),
+      ...(kept.keptBuilds !== undefined && { keptBuilds: kept.keptBuilds }),
+      ...(kept.error !== undefined && { keptBuildsError: kept.error }),
     },
     ctx.globals.format,
   );
@@ -1035,6 +1045,54 @@ async function readPackService(
     ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
   });
   return got.kind === 'ok' ? { kind: 'ok', endpoint: got.record.endpoint } : got;
+}
+
+/**
+ * How many builds keep a pack service where the deploy went, said with how
+ * to let old ones go: in the project it named, or the tenant's when it
+ * named none (the deploy answer doesn't name the Default it went into). A
+ * read that fails is said, with why, and given back as `error`, so the
+ * JSON tells it from a runtime that doesn't count them; one the stop cut
+ * short says nothing.
+ */
+async function sayKeptBuilds(
+  ctx: CommandContext,
+  args: ResolvedDeployArgs,
+  runners: DeployRunners,
+  line: (s: string) => void,
+  projectId: string | undefined,
+): Promise<{ readonly keptBuilds?: number; readonly error?: string }> {
+  const count = runners.countKeptBuilds;
+  if (count === undefined) return {};
+  const got = await count({
+    endpoint: args.endpoint,
+    token: args.token,
+    ...(projectId !== undefined && { projectId }),
+    fetchImpl: ctx.fetch,
+    ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+  });
+  if (ctx.stopSignal?.aborted === true) return {};
+  if (got.kind === 'error') {
+    line(`  Couldn't count the builds kept: ${got.message}`);
+    line('');
+    return { error: got.message };
+  }
+  if (got.keptBuilds === undefined) return {};
+  for (const l of keptBuildsLines(got.keptBuilds, projectId !== undefined)) line(l);
+  return { keptBuilds: got.keptBuilds };
+}
+
+export function keptBuildsLines(keptBuilds: number, inProject: boolean): string[] {
+  return [
+    `  Builds kept in this ${inProject ? 'project' : 'workspace'}: ${keptBuilds}`,
+    '    Each keeps its pack service while something it serves is registered, pinned or',
+    '    running, or until a newer build ships it. To let old ones go, unregister what',
+    '    nothing calls:',
+    '      kindgi tools|agents|flows unregister <id> <version>',
+    '      kindgi guardrails unregister <guardrail-id>',
+    '    `kindgi deployments get <deployment-id>` says what keeps each one.',
+    '',
+  ];
 }
 
 /** The wait stopped, with the deployment in place: why, and how to wait again. */

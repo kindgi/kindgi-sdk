@@ -187,6 +187,7 @@
   "DeploymentContentsTool": ["DeploymentContentsTool"],
   "DeploymentEndpoint": ["DeploymentEndpoint"],
   "DeploymentEndpointProblem": ["DeploymentEndpointProblem"],
+  "DeploymentKeptFor": ["DeploymentKeptFor"],
   "DeploymentLivePin": ["DeploymentLivePin"],
   "DeploymentLivePinGate": ["DeploymentLivePinGate"],
   "DeploymentPinnedFlow": ["DeploymentPinnedFlow"],

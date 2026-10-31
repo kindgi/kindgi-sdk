@@ -125,6 +125,7 @@ import {
   mountDeploymentPromotions,
   readableDeployment,
   readableDeployments,
+  readableKeptBuilds,
   valuesDepsFor,
 } from './deployment-promotions.js';
 import { requireEnvName } from './env.js';
@@ -451,6 +452,10 @@ export function deploymentsRouter(
       ...(packIdRaw !== undefined && packIdRaw.length > 0 && { packId: packIdRaw }),
     });
     const readable = await readableDeployments(c, bindings, authorizer, page.data);
+    const keptBuilds =
+      page.keptBuilds === undefined
+        ? undefined
+        : await readableKeptBuilds(c, authorizer, page.keptBuilds);
     return c.json({
       data: readable.map(serializeDeployment),
       hasMore: page.nextCursor !== undefined,
@@ -460,6 +465,7 @@ export function deploymentsRouter(
       // The filters it applied, so a client can tell a runtime that ignored them.
       ...(oneProject && { projectId: projectIdRaw }),
       ...(packIdRaw !== undefined && packIdRaw.length > 0 && { packId: packIdRaw }),
+      ...(keptBuilds !== undefined && { keptBuilds }),
     });
   });
 

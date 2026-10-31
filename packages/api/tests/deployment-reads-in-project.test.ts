@@ -21,6 +21,7 @@ import { createApp } from '../src/index.js';
 import type {
   Deployment,
   DeploymentBinding,
+  DeploymentKeptBuilds,
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
@@ -115,8 +116,19 @@ const ROWS = [
   deployment('d-default', DEFAULT),
 ];
 
-/** `ignoresProject`: a binding that lists every row whatever `projectId` it's given. */
-function registry(ignoresProject = false): DeploymentBinding {
+/** The kept builds a runtime that runs a pack service per build counts, per project. */
+const KEPT: readonly DeploymentKeptBuilds[] = [
+  { projectId: A, builds: 2 },
+  { projectId: B, builds: 3 },
+  { projectId: DEFAULT, builds: 5 },
+];
+
+/**
+ * `ignoresProject`: a binding that lists every row whatever `projectId` it's
+ * given. `counted`: it counts kept builds, the filter's project alone, or
+ * every project without one.
+ */
+function registry(ignoresProject = false, counted = false): DeploymentBinding {
   const notAsked = async (): Promise<never> => {
     throw new Error('not asked in these tests');
   };
@@ -136,6 +148,9 @@ function registry(ignoresProject = false): DeploymentBinding {
       return {
         data: listed.slice(from, from + limit),
         ...(from + limit < listed.length && { nextCursor: String(from + limit) as Cursor }),
+        ...(counted && {
+          keptBuilds: KEPT.filter((k) => projectId === undefined || k.projectId === projectId),
+        }),
       };
     },
   } as DeploymentBinding;
@@ -146,6 +161,7 @@ function harness(
     readonly authorizer?: false;
     readonly packEnvServed?: false;
     readonly ignoresProject?: true;
+    readonly counted?: true;
   } = {},
 ) {
   const asked: string[] = [];
@@ -160,7 +176,7 @@ function harness(
     resolveToken,
     runHandler: {} as RunHandlerBinding,
     envName: 'prod' as never,
-    deploymentRegistry: registry(opts.ignoresProject === true),
+    deploymentRegistry: registry(opts.ignoresProject === true, opts.counted === true),
     signingKeyRegistry: {} as never,
     imageRegistry: {} as never,
     projectBinding: {
@@ -283,6 +299,39 @@ describe('GET /v1/deployments: the rows whose project the caller reads', () => {
       'd-default',
       'd-none',
     ]);
+  });
+});
+
+describe('GET /v1/deployments: `keptBuilds` counts only the projects the caller reads', () => {
+  const kept = async (h: ReturnType<typeof harness>, caller: string, query = '') => {
+    const out = await h.call(caller, `/v1/deployments${query}`);
+    expect(out.status, out.text).toBe(200);
+    return out.body.keptBuilds;
+  };
+
+  test('with no `projectId`, the projects each caller reads, as the page lists their builds alone', async () => {
+    const h = harness({ counted: true });
+    expect(await kept(h, 'admin')).toBe(10);
+    expect(await kept(h, 'viewerA')).toBe(2);
+    expect(await kept(h, 'adminB')).toBe(3);
+    expect(await kept(h, 'viewerDefault')).toBe(5);
+    expect(await kept(h, 'nobody')).toBe(0);
+  });
+
+  test('with `projectId`, that project’s', async () => {
+    const h = harness({ counted: true });
+    expect(await kept(h, 'viewerA', `?projectId=${A}`)).toBe(2);
+    expect(await kept(h, 'viewerDefault', `?projectId=${DEFAULT}`)).toBe(5);
+    expect(await kept(h, 'admin', `?projectId=${B}&limit=1`)).toBe(3);
+  });
+
+  test('without an authorizer, every project’s', async () => {
+    expect(await kept(harness({ counted: true, authorizer: false }), 'nobody')).toBe(10);
+  });
+
+  test('a binding that counts none sends no field', async () => {
+    const out = await harness().call('admin', '/v1/deployments');
+    expect('keptBuilds' in out.body).toBe(false);
   });
 });
 

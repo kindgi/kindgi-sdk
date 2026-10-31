@@ -15,6 +15,7 @@
 
 import { loadEnvelopeReal } from './envelope-loader.js';
 import {
+  countKeptBuildsReal,
   findProjectsReal,
   getDeploymentReal,
   getPackEnvReal,
@@ -53,6 +54,7 @@ export const REAL_DEPLOY_RUNNERS: DeployRunners = {
   // `--hosted` only: the wait for the deployment's pack service.
   getDeployment: getDeploymentReal,
   getPackEnv: getPackEnvReal,
+  countKeptBuilds: countKeptBuildsReal,
   // runBuild deliberately omitted — the command composes it from
   // `ctx.buildRunners` + the exported `runBuild` from
   // `commands/build.ts`.
