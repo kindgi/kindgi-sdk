@@ -826,6 +826,43 @@ describe("an improve schedule's owner, its readers, and a retarget to another ki
       expect((await call('GET', '/fires')).status, JSON.stringify(granted)).toBe(status);
     }
   });
+
+  test.each([
+    ['a personal one', OWNER],
+    ['a shared one', undefined],
+  ])(
+    "%s: its project's admin, without publish on the agent, pauses and unregisters it, and changes nothing else",
+    async (_name, registrant) => {
+      const admin = await asked({
+        ...(registrant !== undefined && { registrant }),
+        caller: OTHER,
+        granted: [ADMIN],
+      });
+      const before = (await admin.stored())?.config;
+      expect((await admin.call('PATCH', '', { label: 'renamed' })).status).toBe(403);
+      expect(
+        (await admin.call('PATCH', '', { config: { input: { monthCapUsd: 100 } } })).status,
+      ).toBe(403);
+      expect((await admin.call('POST', '/run-now')).status).toBe(403);
+      expect((await admin.stored())?.config).toEqual(before);
+      expect((await admin.stored())?.label ?? undefined).toBeUndefined();
+
+      expect((await admin.call('POST', '/pause')).status).toBe(200);
+      expect((await admin.stored())?.status).toBe('paused');
+      // Resuming it is a change: `publish` on the agent.
+      expect((await admin.call('POST', '/resume')).status).toBe(403);
+      expect((await admin.stored())?.status).toBe('paused');
+      expect((await admin.call('POST', '/unregister')).status).toBe(200);
+    },
+  );
+
+  test("write on the project doesn't stop one: pausing it takes publish on the agent or the project's admin", async () => {
+    const writer = await asked({ registrant: OWNER, caller: OTHER, granted: [WRITE] });
+    expect((await writer.call('POST', '/pause')).status).toBe(403);
+    expect(writer.checked).toEqual([SCORER, ADMIN]);
+    expect((await writer.call('POST', '/unregister')).status).toBe(403);
+    expect((await writer.stored())?.status).toBe('active');
+  });
 });
 
 describe('the list holds only schedules whose project the caller may read', () => {

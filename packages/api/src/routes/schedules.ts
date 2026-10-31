@@ -197,10 +197,14 @@ export function schedulesRouter(
     return denied(c, ...targetAccess(target));
   }
 
-  /** The schedule, if it is one (another kind's id is not found here), and the caller may `action` it. */
+  /**
+   * The schedule, if it is one (another kind's id is not found here), and the
+   * caller may `action` it. `stop` is pausing or unregistering it: `write`,
+   * and for an Improve schedule, its project's admin as well.
+   */
   async function scheduleFor(
     c: Context<AppEnv>,
-    action: Action,
+    action: Action | 'stop',
   ): Promise<{ kind: 'ok'; value: CronTriggerRecord } | { kind: 'err'; response: Response }> {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -211,18 +215,32 @@ export function schedulesRouter(
     }
     const projectId = rec.projectId as unknown as string;
     const improve = rec.target.kind === 'improve' ? rec.target : undefined;
+    const asked: Action = action === 'stop' ? 'write' : action;
     // Changing an Improve schedule takes `publish` on its agent, as registering it does.
     const refused =
-      action === 'write' && improve !== undefined
+      asked === 'write' && improve !== undefined
         ? await targetRefused(c, improve, projectId)
-        : await denied(c, action, ref('project', projectId));
-    if (refused !== undefined) {
-      // Reading one, `read` on its project or on its agent.
-      const readsIt =
-        action === 'read' && improve !== undefined && (await readsAgent(c, improve.agentId));
-      if (!readsIt) return { kind: 'err', response: refused };
+        : await denied(c, asked, ref('project', projectId));
+    if (refused !== undefined && !(await improveAlsoAllows(c, action, improve, projectId))) {
+      return { kind: 'err', response: refused };
     }
     return { kind: 'ok', value: rec };
+  }
+
+  /**
+   * What else lets the caller `action` an Improve schedule {@link scheduleFor}
+   * refused: reading one, `read` on its agent; stopping one, its project's
+   * admin, as its runs count toward the project's month cap.
+   */
+  async function improveAlsoAllows(
+    c: Context<AppEnv>,
+    action: Action | 'stop',
+    improve: TriggerTarget | undefined,
+    projectId: string,
+  ): Promise<boolean> {
+    if (improve?.kind !== 'improve') return false;
+    if (action === 'read') return readsAgent(c, improve.agentId);
+    return action === 'stop' && (await denied(c, 'admin', ref('project', projectId))) === undefined;
   }
 
   /** Whether the caller reads the agent: `read` on it, or for one more than one project serves, on any of them. */
@@ -726,7 +744,7 @@ export function schedulesRouter(
   for (const verb of ['pause', 'resume'] as const) {
     r.post(`/:triggerId/${verb}`, async (c) => {
       const requestId = c.get('requestId');
-      const found = await scheduleFor(c, 'write');
+      const found = await scheduleFor(c, verb === 'pause' ? 'stop' : 'write');
       if (found.kind === 'err') return found.response;
       const notOwners = await notOwnersRefusal(c, found.value);
       if (notOwners !== undefined) return notOwners;
@@ -746,7 +764,7 @@ export function schedulesRouter(
 
   // ---------- POST /:triggerId/unregister (soft delete) ----------
   r.post('/:triggerId/unregister', async (c) => {
-    const found = await scheduleFor(c, 'write');
+    const found = await scheduleFor(c, 'stop');
     if (found.kind === 'err') return found.response;
     const notOwners = await notOwnersRefusal(c, found.value);
     if (notOwners !== undefined) return notOwners;

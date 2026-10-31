@@ -564,6 +564,9 @@ FIRED                     FOR      OUTCOME          STARTED                     
   project admin, as changing what a shared one runs (its agent, input or
   tools) does. Saving one with an agent or a flow in place of the Improve
   target takes what registering that takes.
+- **Who may stop it:** an admin of its project may also pause or unregister
+  one without `publish` on the agent, as its Improve runs count toward the
+  project's month. Changing, resuming or firing one still takes `publish`.
 - **Who may read it:** reading one, or its fires, takes `read` on its
   project or on the agent, as reading an Improve run does.
 
