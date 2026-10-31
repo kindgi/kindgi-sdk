@@ -227,6 +227,14 @@ verdict on:
 - **`madeOn`** is the agent version the corrected run ran.
 - A correction whose words an [erasure](../../agents/erase-a-persons-data/) cleared
   leaves nothing to check, so it isn't a case.
+- A [test run](../compare-an-agent-version/#what-a-case-expects) checks
+  each part on every repetition. A judging model checks answers, and its
+  calls cost money. A case that expects only `items` has no pass: its items
+  count toward the metrics.
+- **`expert: true`** marks an expert's case: a correction's case when the
+  correction was made under a restricted expert group, and every case added
+  by hand. A test run that counts only experts' corrections grades only
+  these.
 
 ## Add a case by hand
 
@@ -251,6 +259,8 @@ with the same body.
 - Adding a case takes `publish` on the agent and `read` on the run's
   project. For an agent more than one project serves, it takes `write` on
   the run's project instead.
+- A case added by hand is an expert's (`expert: true`), since adding one
+  takes these rights.
 
 ## Retire a case
 

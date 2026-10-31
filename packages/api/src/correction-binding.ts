@@ -78,6 +78,13 @@ export interface CorrectionRegistryBinding {
   unregister(input: CorrectionGetInput): Promise<{ readonly unregistered: boolean }>;
   /** Change a live correction's status or sorting (see `CorrectionUpdateInput`). */
   update(input: CorrectionUpdateInput): Promise<CorrectionUpdateOutcome>;
+  /**
+   * Apply a test run's outcome (`planRunOutcome`): each change lands only
+   * while its correction is live and unchanged since the run ended, so
+   * applying the same outcome again changes nothing. Returns the ids of
+   * the corrections it changed.
+   */
+  applyRunOutcome(input: CorrectionRunOutcomeInput): Promise<readonly string[]>;
   /** How many corrections are in each status. */
   counts(input: CorrectionCountsInput): Promise<CorrectionCounts>;
   /**
@@ -310,6 +317,27 @@ export interface CorrectionFixedIn {
   readonly at: string;
 }
 
+/**
+ * How a `fixed` correction went back to `open`: the project started running
+ * a version that gets it wrong, by a pin, going back to an earlier version,
+ * an unpin, or Latest moving.
+ */
+export const CORRECTION_REOPENED_HOW = ['pin', 'went-back', 'unpin', 'latest'] as const;
+export type CorrectionReopenedHow = (typeof CORRECTION_REOPENED_HOW)[number];
+
+/**
+ * The version whose test run got a `fixed` correction wrong again. It holds
+ * no words: the console and the CLI build the sentence from the project's
+ * and the person's current names when they show it.
+ */
+export interface CorrectionReopenedIn {
+  readonly version: string;
+  readonly how: CorrectionReopenedHow;
+  /** Who pinned, went back or unpinned; absent when Latest moved. */
+  readonly by?: CorrectionMadeBy;
+  readonly at: string;
+}
+
 /** A person's note on a status: why Won't fix, or why it went back to Open. */
 export interface CorrectionStatusNote {
   readonly text: string;
@@ -376,8 +404,13 @@ export interface Correction {
   readonly sorted?: CorrectionSorted;
   /** Present while it's `being-fixed`. */
   readonly link?: CorrectionLink;
-  /** Present while it's `fixed`. */
+  /** Present while it's `fixed`, and beside `reopenedIn` after a test run reopened it. */
   readonly fixedIn?: CorrectionFixedIn;
+  /**
+   * Present after a test run got a `fixed` correction wrong again, until a
+   * person sets its status or a test run fixes it.
+   */
+  readonly reopenedIn?: CorrectionReopenedIn;
   readonly statusNote?: CorrectionStatusNote;
   /** The corrector's group; absent for an unclassified correction (weight 1). */
   readonly correctorGroupId?: string;
@@ -615,10 +648,12 @@ export interface CorrectionUpdateInput {
   /** `null` clears it. */
   readonly statusNote?: CorrectionStatusNote | null;
   /**
-   * `null` clears it, when the status leaves `fixed` (`fixedIn` is there only
-   * while it's fixed).
+   * `null` clears it, when the status leaves `fixed` or a reopening ends
+   * (`fixedIn` is there only while it's fixed, or beside `reopenedIn`).
    */
   readonly fixedIn?: null;
+  /** `null` clears it: a status set by hand ends a test run's reopening. */
+  readonly reopenedIn?: null;
 }
 
 export type CorrectionUpdateOutcome =
@@ -626,6 +661,36 @@ export type CorrectionUpdateOutcome =
   | { readonly kind: 'not-found' }
   /** It changed since the route read it: `correction` is what it is now. */
   | { readonly kind: 'changed'; readonly correction: Correction };
+
+/**
+ * A test run's outcome for the corrections whose cases it checked. A change
+ * lands only while its correction's `updatedAt` is no later than `endedAt`:
+ * one a person changed since, or this outcome changed already, keeps what
+ * it is.
+ */
+export interface CorrectionRunOutcomeInput {
+  readonly tenantId: TenantId;
+  /** When the run ended, ISO-8601. */
+  readonly endedAt: string;
+  readonly changes: readonly CorrectionOutcomeChange[];
+}
+
+/** What a test run's outcome writes to one correction: `null` clears a field. */
+export interface CorrectionOutcomeChange {
+  readonly correctionId: string;
+  readonly status: CorrectionStatus;
+  /**
+   * Set when it becomes `fixed`. Absent, it's kept: a reopened correction
+   * keeps the version it was fixed in, beside `reopenedIn`.
+   */
+  readonly fixedIn?: CorrectionFixedIn;
+  /** `null` when it becomes `fixed`, which ends a reopening before. */
+  readonly reopenedIn: CorrectionReopenedIn | null;
+  /** Cleared when it stops being fixed elsewhere. */
+  readonly link?: null;
+  /** Cleared: the note was a person's, on the status before. */
+  readonly statusNote?: null;
+}
 
 /** Live corrections by status (`removed`: the removed ones), for an agent or a project. */
 export interface CorrectionCountsInput {

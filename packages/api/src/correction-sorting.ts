@@ -9,9 +9,13 @@
 
 import type {
   CorrectedAnswerItem,
+  Correction,
   CorrectionFixedIn,
   CorrectionLink,
   CorrectionMadeBy,
+  CorrectionOutcomeChange,
+  CorrectionReopenedHow,
+  CorrectionReopenedIn,
   CorrectionSorted,
   CorrectionSortedTo,
   CorrectionStatus,
@@ -87,6 +91,8 @@ export interface PlannedChange {
   readonly statusNote?: CorrectionStatusNote | null;
   /** `null` when the status leaves `fixed`: `fixedIn` is there only while it's fixed. */
   readonly fixedIn?: null;
+  /** `null` when a person changes the status of one a test run reopened: the reopening is over. */
+  readonly reopenedIn?: null;
 }
 
 export type PlannedChangeOutcome =
@@ -112,10 +118,16 @@ const SET_FROM: Readonly<Record<StatusSetByHand, readonly CorrectionStatus[]>> =
  *   sorted to the owner, as re-sorting to the owner is;
  * - `wont-fix` from anything but `removed`, with a reason, which clears
  *   `fixedIn` when it was `fixed`.
+ * A status set by hand clears `reopenedIn` and the `fixedIn` kept beside it;
+ * a re-sort alone keeps both.
  * Anything else is `not-allowed`.
  */
 export function planChange(
-  current: { readonly status: CorrectionStatus; readonly sortedTo?: CorrectionSortedTo },
+  current: {
+    readonly status: CorrectionStatus;
+    readonly sortedTo?: CorrectionSortedTo;
+    readonly reopenedIn?: CorrectionReopenedIn;
+  },
   change: CorrectionChange,
   by: CorrectionMadeBy,
   at: string,
@@ -144,6 +156,7 @@ export function planChange(
   }
   if (change.status === undefined) return { kind: 'ok', change: planned };
   const to = change.status;
+  const reopenedIn = endsReopening(current);
   const from = (SET_FROM as Readonly<Record<string, readonly CorrectionStatus[]>>)[to];
   if (from === undefined || !from.includes(status)) {
     return { kind: 'not-allowed', from: current.status, to };
@@ -155,7 +168,7 @@ export function planChange(
         message: 'status: "being-fixed" needs a link: a URL, ir-<its id> or sc-<its id>.',
       };
     }
-    return { kind: 'ok', change: { ...planned, status: to, link: change.link } };
+    return { kind: 'ok', change: { ...planned, status: to, link: change.link, ...reopenedIn } };
   }
   if (to === 'wont-fix' && change.reason === undefined) {
     return { kind: 'bad-input', message: 'status: "wont-fix" needs a reason.' };
@@ -174,7 +187,108 @@ export function planChange(
       link: null,
       statusNote: note,
       ...(status === 'fixed' && { fixedIn: null }),
+      ...reopenedIn,
     },
+  };
+}
+
+/**
+ * A status set by hand ends a test run's reopening, when it has one:
+ * `reopenedIn` goes, and so does the `fixedIn` kept beside it.
+ */
+function endsReopening(current: { readonly reopenedIn?: CorrectionReopenedIn }): {
+  readonly reopenedIn?: null;
+  readonly fixedIn?: null;
+} {
+  return current.reopenedIn === undefined ? {} : { reopenedIn: null, fixedIn: null };
+}
+
+/** A project starting to run another version, and what a test run of that version found. */
+export interface RunOutcomeInput {
+  /** The version the run checked: the one the project now runs. */
+  readonly version: string;
+  /** How the project came to run it: its newest pin change, or Latest moving (`reopenedIn.how`). */
+  readonly how: CorrectionReopenedHow;
+  /**
+   * What the project follows now: a pin, or Latest (`fixedIn.how`). After an
+   * unpin, it's `pin` under a wider pin and `latest` when it follows Latest.
+   */
+  readonly follows: 'pin' | 'latest';
+  /** Who made the newest pin change; absent when Latest moved. */
+  readonly by?: CorrectionMadeBy;
+  /** When the project started running it, ISO-8601. */
+  readonly at: string;
+  /** The project's corrections whose cases the run checked, as they are now. */
+  readonly corrections: readonly Pick<
+    Correction,
+    'id' | 'status' | 'sortedTo' | 'link' | 'statusNote'
+  >[];
+  /** Whether the run passed each correction's case, by correction id. */
+  readonly passed: ReadonlyMap<string, boolean>;
+}
+
+export interface RunOutcomePlan {
+  /** The corrections it makes `fixed`. */
+  readonly fixed: readonly string[];
+  /** The `fixed` corrections it reopens. */
+  readonly reopened: readonly string[];
+  readonly changes: readonly CorrectionOutcomeChange[];
+}
+
+/** Statuses a passing case makes `fixed`. */
+const FIXED_BY_A_PASS: readonly CorrectionStatus[] = ['open', 'being-fixed', 'with-owner'];
+
+/**
+ * What a test run of the version a project now runs does to the project's
+ * corrections (each with an active case the run checked):
+ * - a pass makes an `open`, `being-fixed` or `with-owner` one `fixed`, with
+ *   `fixedIn` naming the version and what the project follows (`follows`),
+ *   and ends a reopening before. A `fixed` one keeps its first `fixedIn`.
+ * - a fail reopens a `fixed` one, with `reopenedIn` beside its `fixedIn`:
+ *   `open`, or `with-owner` for one sorted to the owner, as a person
+ *   reopening it would.
+ * Either way the status's link and a person's note go with the status
+ * before. Anything else is unchanged, and so is a correction the run
+ * didn't check.
+ */
+export function planRunOutcome(input: RunOutcomeInput): RunOutcomePlan {
+  const { version, how, by, at } = input;
+  const fixedIn: CorrectionFixedIn = {
+    version,
+    how: input.follows,
+    ...(by !== undefined && { by }),
+    at,
+  };
+  const reopenedIn: CorrectionReopenedIn = { version, how, ...(by !== undefined && { by }), at };
+  const fixed: string[] = [];
+  const reopened: string[] = [];
+  const changes: CorrectionOutcomeChange[] = [];
+  for (const c of input.corrections) {
+    const change = outcomeChange(c, input.passed.get(c.id), fixedIn, reopenedIn);
+    if (change === undefined) continue;
+    (change.status === 'fixed' ? fixed : reopened).push(c.id);
+    changes.push(change);
+  }
+  return { fixed, reopened, changes };
+}
+
+/** One correction's change from a pass or a fail; `undefined` when it stays as it is. */
+function outcomeChange(
+  c: RunOutcomeInput['corrections'][number],
+  passed: boolean | undefined,
+  fixedIn: CorrectionFixedIn,
+  reopenedIn: CorrectionReopenedIn,
+): CorrectionOutcomeChange | undefined {
+  const fixes = passed === true && FIXED_BY_A_PASS.includes(c.status);
+  if (!fixes && !(passed === false && c.status === 'fixed')) return undefined;
+  const status: CorrectionStatus = fixes ? 'fixed' : c.sortedTo === 'owner' ? 'with-owner' : 'open';
+  return {
+    correctionId: c.id,
+    status,
+    ...(fixes && { fixedIn }),
+    reopenedIn: fixes ? null : reopenedIn,
+    ...(c.link !== undefined && { link: null }),
+    ...(c.statusNote !== undefined && { statusNote: null }),
   };
 }
 

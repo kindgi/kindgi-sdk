@@ -551,6 +551,17 @@ export {
   whatRuns,
   whatRunsByProject,
 } from './what-runs.js';
+// A test run a pin, an unpin or Latest moving started, and what its end does to the project's corrections.
+export {
+  type TestRunOutcome,
+  type TestRunOutcomeDeps,
+  type TestRunReason,
+  applyTestRunOutcome,
+  latestRunCorrelation,
+  pinRunCorrelation,
+  reapplyTestRunOutcomes,
+  testRunReason,
+} from './test-run-outcome.js';
 export type { RegistryReadOnly } from './registry-read-only.js';
 // A pack agent's block pins where the pack's own versions are the only ones (`kindgi dev`).
 export { type BlockPins, type BlockVersionReads, resolveBlockPins } from './block-pins.js';
@@ -687,6 +698,7 @@ export type {
 } from '@kindgi/policy-contract';
 export {
   CORRECTION_FIXED_HOW,
+  CORRECTION_REOPENED_HOW,
   CORRECTION_SORTED_TO,
   CORRECTION_STATUSES,
   CORRECTOR_GROUP_SCOPE_KINDS,
@@ -701,12 +713,15 @@ export {
   STATUSES_SET_BY_HAND,
   parseCorrectionLink,
   planChange,
+  planRunOutcome,
   sortAtSave,
 } from './correction-sorting.js';
 export type {
   CorrectionChange,
   PlannedChange,
   PlannedChangeOutcome,
+  RunOutcomeInput,
+  RunOutcomePlan,
   SortedAtSave,
   StatusSetByHand,
 } from './correction-sorting.js';
@@ -744,6 +759,7 @@ export type {
   CorrectedAnswerItem,
   Correction,
   CorrectionMadeBy,
+  CorrectionOutcomeChange,
   CorrectionCounts,
   CorrectionCountsInput,
   CorrectionFixedHow,
@@ -753,7 +769,10 @@ export type {
   CorrectionListInput,
   CorrectionPage,
   CorrectionRecordInput,
+  CorrectionRunOutcomeInput,
   CorrectionRegistryBinding,
+  CorrectionReopenedHow,
+  CorrectionReopenedIn,
   CorrectionSorted,
   CorrectionSortedBy,
   CorrectionSortedTo,
@@ -784,6 +803,12 @@ export type {
   TestSetCounts,
   TestSetOfInput,
 } from './test-case-binding.js';
+export type {
+  AnswerCheck,
+  AnswerCheckBinding,
+  AnswerCheckInput,
+  TestRunJudging,
+} from './answer-check-binding.js';
 export { resolvePointer } from './routes/corrections.js';
 export type {
   BlockGetInput,
@@ -802,6 +827,11 @@ export type {
   BlockVersionInput,
   BlockVersionSource,
 } from './block-binding.js';
+export type {
+  BlockVersionPullRequest,
+  BlockVersionPullRequestBinding,
+  BlockVersionPullRequestInput,
+} from './block-version-pr-binding.js';
 export type {
   AgentPinBindings,
   AgentPinInput,
@@ -931,6 +961,7 @@ export type {
   CorrectedCaseResult,
   CorrectedComparisonSummary,
   CorrectedDispatcherOptions,
+  CorrectionGraded,
   ReplayRunReader,
 } from './corrected-dispatcher.js';
 export {
@@ -1192,6 +1223,7 @@ export type {
   DeploymentPromoteOutcome,
   DeploymentRegisterInput,
   DeploymentRegisterOutcome,
+  DeploymentSource,
   PromotedToolSecretScopes,
   SystemDeploymentRetireReason,
 } from './deployment-binding.js';

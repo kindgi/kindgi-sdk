@@ -29,6 +29,7 @@ import type { AdapterRegistryBinding } from './adapter-binding.js';
 import type { AgentRegistryBinding } from './agent-binding.js';
 import type { AgentPinBindings } from './agent-pin-binding.js';
 import type { BlockRegistryBinding, BlockUseBinding } from './block-binding.js';
+import type { BlockVersionPullRequestBinding } from './block-version-pr-binding.js';
 import type { CapabilityRegistryBinding } from './capability-binding.js';
 import type { ConnectionBinding } from './connection-binding.js';
 import type { CorrectionRegistryBinding } from './correction-binding.js';
@@ -120,7 +121,7 @@ import {
 } from './rotation-status-store.js';
 import { adaptersRouter } from './routes/adapters.js';
 import { agentTestSetRouter } from './routes/agent-test-set.js';
-import { agentsRouter } from './routes/agents.js';
+import { agentOwnProject, agentsRouter } from './routes/agents.js';
 import { approvalsRouter } from './routes/approvals.js';
 import {
   DEFAULT_ARTIFACT_MAX_BYTES,
@@ -129,7 +130,7 @@ import {
 } from './routes/artifacts.js';
 import { auditRouter } from './routes/audit.js';
 import { authRouter, logoutHandler } from './routes/auth.js';
-import { blocksRouter } from './routes/blocks.js';
+import { type BlockRunsInDeps, blocksRouter } from './routes/blocks.js';
 import { capabilitiesRouter } from './routes/capabilities.js';
 import { complianceRouter } from './routes/compliance.js';
 import {
@@ -168,6 +169,7 @@ import {
   type ProductionGateOptions,
   projectProductionRouter,
 } from './routes/project-production.js';
+import { projectRepoConnectionRouter } from './routes/project-repo-connection.js';
 import { projectsRouter } from './routes/projects.js';
 import { provenanceRouter } from './routes/provenance.js';
 import { providersRouter } from './routes/providers.js';
@@ -958,6 +960,13 @@ export interface CreateAppInput {
    * Absent: it isn't checked so.
    */
   readonly blockUse?: BlockUseBinding;
+  /**
+   * The pull requests opened to bring block versions back into a pack's
+   * files: `GET /v1/blocks/:blockId/runs-in` reads them for each row's
+   * `inYourFiles`. Absent: a row says only what the newest deployment of
+   * its agent's pack in the project lists.
+   */
+  readonly blockVersionPullRequests?: BlockVersionPullRequestBinding;
   /**
    * Optional. When present alongside `testSetRegistry`, mounts the
    * evaluation-run data-plane surface: `POST /v1/test-sets/:testSetId/runs`
@@ -2301,6 +2310,24 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   if (input.blockRegistry !== undefined) {
+    const agentRegistry = input.agentRegistry;
+    // Where a block runs reads what runs where (the pins and Latest) and,
+    // with no item-projects binding, each agent's own project; whether the
+    // pack's files have it, each project's deployments and the pull
+    // requests opened.
+    const runsIn: BlockRunsInDeps | undefined =
+      input.agentPins !== undefined && agentRegistry !== undefined
+        ? {
+            agentPins: input.agentPins,
+            ownProject: (tenantId, agentId) => agentOwnProject(agentRegistry, tenantId, agentId),
+            ...(input.deploymentRegistry !== undefined && {
+              deployments: input.deploymentRegistry,
+            }),
+            ...(input.blockVersionPullRequests !== undefined && {
+              pullRequests: input.blockVersionPullRequests,
+            }),
+          }
+        : undefined;
     v1.route(
       '/blocks',
       blocksRouter(
@@ -2311,6 +2338,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         itemServing,
         input.blockUse,
         input.auditEvents,
+        runsIn,
       ),
     );
   }
@@ -2326,6 +2354,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.reviewerBinding,
         input.agentRegistry,
         itemRights,
+        input.auditEvents,
         input.projectBinding,
       ),
     );
@@ -2401,6 +2430,14 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         tenantHierarchy: tenantHierarchyBinding,
         ...(authorizer !== undefined && { authorizer }),
         ...(input.production !== undefined && { production: input.production }),
+      }),
+    );
+    v1.route(
+      '/projects',
+      projectRepoConnectionRouter({
+        projects: input.projectBinding,
+        ...(input.connections !== undefined && { connections: input.connections }),
+        ...(authorizer !== undefined && { authorizer }),
       }),
     );
   }

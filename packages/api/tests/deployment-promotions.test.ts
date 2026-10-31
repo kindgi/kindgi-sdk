@@ -1370,6 +1370,7 @@ describe('pinning the carried agents in the target (pin)', () => {
     expect(res.body.error.message).toContain(
       'Promote a build that ships a version of it, then pin it. If this version came from a suggested change',
     );
+    expect(res.body.error.message).toContain('then promote this build again');
     expect(h.deployments.rows.some((d) => d.projectId === S2)).toBe(true);
     expect(h.pinned).toEqual([]);
   });

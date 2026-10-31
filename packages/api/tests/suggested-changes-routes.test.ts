@@ -70,6 +70,7 @@ import type {
   SuggestedChangeRule,
   TestRun,
   TestRunBinding,
+  TestRunJudging,
   TestRunStartInput,
   TokenResolver,
 } from '../src/index.js';
@@ -1344,6 +1345,37 @@ describe("a suggested change's check", () => {
       status: 'check-failed',
       check: { status: 'failed' },
     });
+  });
+
+  test("both runs' answers are judged by the version it's built on, so one model judges both", async () => {
+    const { testRuns } = await made();
+    expect(testRuns.started).toEqual([
+      expect.objectContaining({
+        agentRef: { agentId: AGENT, version: '1.0.1' },
+        judging: { version: '1.0.0' },
+      }),
+      expect.objectContaining({
+        agentRef: { agentId: AGENT, version: '1.0.0' },
+        judging: { version: '1.0.0' },
+      }),
+    ]);
+  });
+
+  test("a change to the model settings is judged by the version it's built on too, not the model it names", async () => {
+    const { testRuns } = await made({
+      modelSettings: true,
+      card: { block: MODEL, values: { temperature: 0.5, model: 'claude-haiku-4-5' } },
+    });
+    expect(testRuns.started).toEqual([
+      expect.objectContaining({
+        agentRef: { agentId: AGENT, version: '1.0.1' },
+        judging: { version: '1.0.0' },
+      }),
+      expect.objectContaining({
+        agentRef: { agentId: AGENT, version: '1.0.0' },
+        judging: { version: '1.0.0' },
+      }),
+    ]);
   });
 });
 
@@ -2865,8 +2897,11 @@ describe("a change held to the current version's replays (an Improve run's model
     { candidate: 0.42, spread: 0.02, cases: 12 },
   );
 
-  /** A draft evaluated against a reference run of the current version, both still running. */
-  async function held(rule: SuggestedChangeRule) {
+  /**
+   * A draft evaluated against a reference run of the current version, both
+   * still running; `judging`: whose model the Improve run checks answers with.
+   */
+  async function held(rule: SuggestedChangeRule, judging?: TestRunJudging) {
     const h = await harness();
     h.pinStore.pin({ kind: 'tenant' }, '1.0.0');
     const service = createSuggestedChangeService({
@@ -2903,6 +2938,7 @@ describe("a change held to the current version's replays (an Improve run's model
       objective: 'passRate',
       actor: { kind: 'service', id: 'improve-run' },
       against: { rule, reference: { testRunId: referenceId } },
+      ...(judging !== undefined && { judging }),
     });
     if (evaluated.kind !== 'ok') throw new Error(JSON.stringify(evaluated.error));
     const id = evaluated.value.id as unknown as string;
@@ -2915,6 +2951,17 @@ describe("a change held to the current version's replays (an Improve run's model
     };
     return { ...h, service, id, runId, referenceId, seen };
   }
+
+  test('the candidate is judged by the model the Improve run names; absent, by its own', async () => {
+    const named = await held('cheaper', { model: { providerId: 'acme-ai', model: 'acme-large' } });
+    // The reference run is started first, by the Improve run; the candidate's is the last.
+    expect(named.testRuns.started.at(-1)).toMatchObject({
+      agentRef: { agentId: AGENT },
+      judging: { model: { providerId: 'acme-ai', model: 'acme-large' } },
+    });
+    const own = await held('cheaper');
+    expect(own.testRuns.started.at(-1)).not.toHaveProperty('judging');
+  });
 
   test('no worse on the same cases, cheaper beyond the spread, every decision kept: ready, and kept', async () => {
     const h = await held('cheaper');

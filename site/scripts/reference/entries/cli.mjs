@@ -318,6 +318,9 @@ export const CLI_DEFAULTS = {
     project: "the tenant's Default project",
     spec: 'required',
   },
+  'agents owner': {
+    set: 'none (shows the owner)',
+  },
   'agents versions': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
@@ -766,16 +769,20 @@ export const CLI_DEFAULTS = {
     spec: 'required',
   },
   'corrections add': {
+    answer: 'none (at least one of `--decisions`, `--answer` or `--item` is required)',
+    decisions: 'none (at least one of `--decisions`, `--answer` or `--item` is required)',
     group: 'none (the correction is ungrouped)',
-    correction: 'none (an ordinary correction, without what the agent should have done)',
-    item: 'required',
-    no: 'off (exactly one of `--yes` or `--no` is required)',
+    item: 'none (at least one of `--decisions`, `--answer` or `--item` is required)',
+    'must-not-call': 'none',
+    no: 'off (with `--item`, exactly one of `--yes` or `--no` is required)',
     participant: 'none',
     pointer: 'none (item recorded without a pointer)',
     rank: 'none',
-    reason: 'none',
     run: 'required',
-    yes: 'off (exactly one of `--yes` or `--no` is required)',
+    'should-call': 'none',
+    'should-say': 'none',
+    why: 'none',
+    yes: 'off (with `--item`, exactly one of `--yes` or `--no` is required)',
   },
   'corrections list': {
     agent: 'none',
@@ -786,7 +793,28 @@ export const CLI_DEFAULTS = {
     limit: '`25` (at most `100`)',
     participant: 'none',
     project: 'none',
+    from: '`all`',
     run: 'none',
+    since: 'none',
+    'sorted-to': 'none (sorted anywhere, or not at all)',
+    status: 'none (every status but `removed`)',
+  },
+  'corrections set': {
+    link: 'none',
+    reason: 'none',
+    'sorted-to': 'none (at least one of `--status` or `--sorted-to` is required)',
+    status: 'none (at least one of `--status` or `--sorted-to` is required)',
+  },
+  'corrections export': {
+    agent: 'required',
+    format: '`csv`',
+    from: '`all`',
+    out: 'none (the export is printed)',
+    project: 'none',
+    since: 'none',
+    'sorted-to': 'none',
+    status: 'none (every status but `removed`)',
+    until: 'none',
   },
   'corrector-groups list': {
     agent: 'none',
@@ -957,6 +985,9 @@ export const CLI_DEFAULTS = {
   },
   'blocks reinstate': {
     'block-version': 'required',
+  },
+  'blocks pull': {
+    path: 'the current directory',
   },
   'release-gates list': {
     agent: 'none',
@@ -1486,6 +1517,16 @@ export const CLI_EXAMPLES = {
       line: 'kindgi agents unregister acme-ops.reply-drafter 1.2.0',
     },
   ],
+  'agents owner': [
+    {
+      purpose: "Show the agent's owner.",
+      line: 'kindgi agents owner acme-ops.reply-drafter',
+    },
+    {
+      purpose: 'Make a person the owner, replacing the one before.',
+      line: 'kindgi agents owner acme-ops.reply-drafter --set=<user-id>',
+    },
+  ],
   'agents versions': [
     {
       purpose: "List an agent's registered versions.",
@@ -1913,6 +1954,26 @@ export const CLI_EXAMPLES = {
       line: 'kindgi reviewers unregister <reviewer-id>',
     },
   ],
+  'corrections list': [
+    {
+      purpose: "List an agent's corrections that aren't fixed yet, sorted to its owner.",
+      line: 'kindgi corrections list --agent=acme-ops.reply-drafter --status=not-fixed --sorted-to=owner',
+    },
+  ],
+  'corrections set': [
+    {
+      purpose: 'Say a pull request is fixing a correction.',
+      line: 'kindgi corrections set <correction-id> --status=being-fixed --link=https://github.com/acme/agents/pull/7',
+    },
+    {
+      purpose: "Close a correction that won't be fixed, with why.",
+      line: "kindgi corrections set <correction-id> --status=wont-fix --reason='The refund policy changed.'",
+    },
+    {
+      purpose: 'Send a correction to the developer instead.',
+      line: "kindgi corrections set <correction-id> --sorted-to=developer --reason='It needs a new tool.'",
+    },
+  ],
   'corrector-groups list': [
     {
       purpose: 'List the corrector groups of the whole tenant.',
@@ -2138,6 +2199,16 @@ export const CLI_EXAMPLES = {
     {
       purpose: 'Reinstate an unregistered block version.',
       line: 'kindgi blocks reinstate acme.reply-style --block-version=1.0.0',
+    },
+  ],
+  'blocks pull': [
+    {
+      purpose: "Write the newest running version of each of the pack's blocks into its file.",
+      line: 'kindgi blocks pull',
+    },
+    {
+      purpose: 'Pull one block, in a pack in another directory.',
+      line: 'kindgi blocks pull acme.reply-style --path=./support-pack',
     },
   ],
   'release-gates list': [

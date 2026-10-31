@@ -95,6 +95,31 @@ function hasToolCalls(content: unknown): boolean {
   return Array.isArray(obj(content)?.toolCalls);
 }
 
+/**
+ * The tools an agent turn called, by id: the tool calls of each agent
+ * message its output appended (a call names its tool by the tool's id).
+ * `undefined` when they can't be read: an output with no `appended`
+ * messages (a flow run's, say), or a call that names no tool.
+ */
+export function turnToolIds(output: unknown): ReadonlySet<string> | undefined {
+  const appended = obj(output)?.appended;
+  if (!Array.isArray(appended)) return undefined;
+  const tools = new Set<string>();
+  for (const m of appended) {
+    const message = obj(m);
+    if (message?.role !== 'agent') continue;
+    const calls = obj(message.content)?.toolCalls;
+    if (calls === undefined) continue;
+    if (!Array.isArray(calls)) return undefined;
+    for (const call of calls) {
+      const name = obj(call)?.name;
+      if (typeof name !== 'string' || name.length === 0) return undefined;
+      tools.add(name);
+    }
+  }
+  return tools;
+}
+
 /** The items of a run's output (`agentTurn`: an agent turn's result). */
 export function outputItems(output: unknown, agentTurn: boolean): readonly OutputItem[] {
   const o = obj(output);

@@ -128,6 +128,7 @@ function makeInMemoryDeploymentBinding(): DeploymentBinding {
         ...(input.packEnv !== undefined && { packEnv: input.packEnv }),
         primitives: input.primitives,
         contents: input.contents,
+        ...(input.source !== undefined && { source: input.source }),
       };
       byTenant.set(input.tenantId as unknown as string, [...list, deployment]);
       registered.set(deployment.deploymentId, seq);
@@ -1342,6 +1343,7 @@ describe('POST /v1/deployments — happy path', () => {
       guardrails: [{ id: 'acme.no-fabricated-quotes' }],
       agents: [],
       flows: [],
+      blocks: [],
     });
 
     // Primitives landed in their catalogs.
@@ -7940,7 +7942,8 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     const asked: string[] = [];
     const audited: AuditEvent[] = [];
     const store = createInMemoryAuditEventBinding();
-    const deploy = async (f: SignedDeploy) => {
+    /** `f` deployed; `extra`: more fields in its body. */
+    const deploy = async (f: SignedDeploy, extra: Record<string, unknown> = {}) => {
       const { app } = makeApp({
         fixture: f,
         agentRegistry: {
@@ -7984,7 +7987,7 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
       const res = await app.request('/v1/deployments', {
         method: 'POST',
         headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-        body: JSON.stringify(f.wire),
+        body: JSON.stringify({ ...f.wire, ...extra }),
       });
       return { status: res.status, body: (await res.json()) as Record<string, any> };
     };
@@ -8029,6 +8032,75 @@ describe("POST /v1/deployments — the pack's data blocks are published with it"
     ]);
     // What the deploy brings needn't be reachable from elsewhere.
     expect(asked.filter((a) => a.startsWith('block:'))).toEqual([]);
+  });
+
+  const SOURCE = {
+    repo: 'github.com/acme/agents',
+    path: 'packs/support',
+    commit: 'b'.repeat(40),
+    branch: 'main',
+    dirty: true,
+  };
+
+  test("the deployment lists its blocks, and keeps where its pack lives with each block's file from the index", async () => {
+    const { deploy } = setup();
+    // A file the client names is not taken: the index says where each block is.
+    const res = await deploy(pack([REPLY, STYLE]), {
+      source: { ...SOURCE, blockFiles: { 'acme.reply': 'elsewhere.json' }, later: 'ignored' },
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body.contents.blocks).toEqual([
+      { id: 'acme.reply', version: '1.0.0' },
+      { id: 'acme.style', version: '1.0.0' },
+    ]);
+    expect(res.body.source).toEqual({
+      ...SOURCE,
+      blockFiles: { 'acme.reply': 'blocks/reply.json', 'acme.style': 'blocks/style.json' },
+    });
+  });
+
+  test('a deploy from outside git keeps no source; a detached HEAD or no origin keeps what there is', async () => {
+    const { deploy } = setup();
+    const outside = await deploy(pack([REPLY, STYLE]));
+    expect(outside.status, JSON.stringify(outside.body)).toBe(201);
+    expect(outside.body).not.toHaveProperty('source');
+
+    const { repo: _repo, branch: _branch, ...bare } = SOURCE;
+    const detached = await deploy(pack([REPLY, STYLE], '20261020.2'), {
+      source: { ...bare, path: '.' },
+    });
+    expect(detached.status, JSON.stringify(detached.body)).toBe(201);
+    expect(detached.body.source).toEqual({
+      ...bare,
+      path: '.',
+      blockFiles: { 'acme.reply': 'blocks/reply.json', 'acme.style': 'blocks/style.json' },
+    });
+  });
+
+  test("a source that isn't one is 400 bad-input, naming the field, and nothing is written", async () => {
+    const { deploy, written } = setup();
+    const cases: [unknown, string][] = [
+      ['github.com/acme/agents', 'source'],
+      [{ ...SOURCE, repo: 'https://github.com/acme/agents' }, 'source.repo'],
+      [{ ...SOURCE, repo: 'x-access-token:not-a-token@github.com/acme/agents' }, 'source.repo'],
+      [{ ...SOURCE, repo: 'github.com/acme' }, 'source.repo'],
+      [{ ...SOURCE, repo: 'github.com/acme/../agents' }, 'source.repo'],
+      [{ ...SOURCE, path: '/home/someone/agents/packs/support' }, 'source.path'],
+      [{ ...SOURCE, path: '../support' }, 'source.path'],
+      [{ ...SOURCE, path: 'packs\\support' }, 'source.path'],
+      [{ ...SOURCE, commit: 'b'.repeat(7) }, 'source.commit'],
+      [{ ...SOURCE, commit: 'B'.repeat(40) }, 'source.commit'],
+      [{ ...SOURCE, branch: 'a..b' }, 'source.branch'],
+      [{ ...SOURCE, branch: 'has space' }, 'source.branch'],
+      [{ ...SOURCE, dirty: 'yes' }, 'source.dirty'],
+    ];
+    for (const [source, path] of cases) {
+      const res = await deploy(pack([REPLY, STYLE]), { source });
+      expect(res.status, JSON.stringify(source)).toBe(400);
+      expect(res.body.error.code).toBe('bad-input');
+      expect(res.body.error.details.issues.map((i: { path: string }) => i.path)).toEqual([path]);
+    }
+    expect(written).toEqual([]);
   });
 
   test('each new block version names the deployment and its caller, audited once the deployment is recorded', async () => {

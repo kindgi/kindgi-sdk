@@ -542,6 +542,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "corrections.list": Operation("corrections.list", "GET", "/v1/corrections", "json", False),
     "corrections.create": Operation("corrections.create", "POST", "/v1/corrections", "json", True),
+    "corrections.export": Operation(
+        "corrections.export", "GET", "/v1/corrections/export", "byte-stream", False
+    ),
     "corrections.get": Operation(
         "corrections.get", "GET", "/v1/corrections/{correctionId}", "json", False
     ),
@@ -698,6 +701,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "blocks.versions.get": Operation(
         "blocks.versions.get", "GET", "/v1/blocks/{blockId}/versions/{version}", "json", False
+    ),
+    "blocks.runsIn": Operation(
+        "blocks.runsIn", "GET", "/v1/blocks/{blockId}/runs-in", "json", False
     ),
     "blocks.versions.unregister": Operation(
         "blocks.versions.unregister",
@@ -1011,6 +1017,20 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "projects.production.set": Operation(
         "projects.production.set", "PUT", "/v1/projects/{projectId}/production", "json", True
+    ),
+    "projects.repoConnection.set": Operation(
+        "projects.repoConnection.set",
+        "PUT",
+        "/v1/projects/{projectId}/repo-connection",
+        "json",
+        True,
+    ),
+    "projects.repoConnection.clear": Operation(
+        "projects.repoConnection.clear",
+        "DELETE",
+        "/v1/projects/{projectId}/repo-connection",
+        "json",
+        True,
     ),
     "projects.teamGrants.list": Operation(
         "projects.teamGrants.list", "GET", "/v1/projects/{projectId}/team-grants", "json", False
@@ -5548,6 +5568,65 @@ class CorrectionsResource:
             timeout=timeout,
         )
 
+    def export(
+        self,
+        /,
+        *,
+        format: Literal["csv", "jsonl"] | None = None,
+        run_id: str | UUID | None = None,
+        agent_id: str | UUID,
+        agent_version: str | None = None,
+        flow_id: str | UUID | None = None,
+        status: Literal[
+            "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+        ]
+        | list[
+            Literal[
+                "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+            ]
+        ]
+        | None = None,
+        sorted_to: Literal["none", "improve", "developer", "owner"]
+        | list[Literal["none", "improve", "developer", "owner"]]
+        | None = None,
+        from_: Literal["experts", "end-users", "all"] | None = None,
+        made_by: Literal["me"] | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        corrector_group_id: str | UUID | None = None,
+        participant_id: str | UUID | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> Iterator[bytes]:
+        """Export corrections. `GET /v1/corrections/export`
+
+        Every correction of an agent the list's filters match, streamed as CSV (`format=csv`, the default: RFC 4180, UTF-8, a header row) or JSON lines (`format=jsonl`: one correction per line, as the list sends it). Each comes only when the caller may read its project, and a project scope the caller can't read is a 403 before anything is sent. The run's own text isn't exported, only its id. A CSV field that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, so a spreadsheet doesn't run it. Recorded in the audit log: `corrections-export-started` before the first row (when it can't be written, a 500 and nothing is sent), and `corrections-exported` when the stream ends, with the rows sent and `succeeded` or `failed`.
+        """
+        return self._client._stream_bytes(
+            _OPERATIONS["corrections.export"],
+            path={},
+            query={
+                "format": format,
+                "runId": run_id,
+                "agentId": agent_id,
+                "agentVersion": agent_version,
+                "flowId": flow_id,
+                "status": status,
+                "sortedTo": sorted_to,
+                "from": from_,
+                "madeBy": made_by,
+                "since": since,
+                "until": until,
+                "correctorGroupId": corrector_group_id,
+                "participantId": participant_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+            },
+            headers={},
+            timeout=timeout,
+        )
+
     def get(
         self, correction_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.CorrectionWithCopies:
@@ -6856,6 +6935,22 @@ class BlocksResource:
             query={"projectId": project_id},
             headers={},
             response=_models.Block,
+            timeout=timeout,
+        )
+
+    def runs_in(
+        self, block_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.BlockRunsInList:
+        """List where a data block's versions run. `GET /v1/blocks/{blockId}/runs-in`
+
+        Where the block's versions run now: one row for each project, and each segment pin inside one, whose running version of an agent pins a version of the block (as a prompt, a settings block or its model settings). Each agent's projects are the ones `agents.projects` lists, and what runs in each is what it says: a pin that covers the project, else its Latest. Only the projects the caller can read are named, and an agent version the caller can't see is left out. A block no running version pins answers an empty list. Without the agents' pins and Latest in this runtime, `501 runs-in-unsupported`.
+        """
+        return self._client._request(
+            _OPERATIONS["blocks.runsIn"],
+            path={"blockId": block_id},
+            query={},
+            headers={},
+            response=_models.BlockRunsInList,
             timeout=timeout,
         )
 
@@ -8898,6 +8993,58 @@ class ProjectsProductionResource:
         )
 
 
+class ProjectsRepoConnectionResource:
+    """`client.projects.repo_connection` — the `projects.repoConnection` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def set(
+        self,
+        project_id: str | UUID,
+        body: _models.ProjectRepoConnectionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ProjectRepoConnection:
+        """Set a project's repo connection. `PUT /v1/projects/{projectId}/repo-connection`
+
+        The company-wide GitHub connection the project opens its block changes' pull requests through. For the project's admins (`admin` on it). It replaces any connection set before; setting the one already set answers 200 unchanged. The connection must be the tenant's, made through the GitHub app entry, and owned by the company: 404 `connection-not-found` for one that isn't there or was removed, and 400 `repo-connection-not-company-github` for any other. The project keeps only the id: a connection removed later reads as none. 501 `repo-connection-unsupported` from a runtime that can't keep one, or has no connections.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.repoConnection.set"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProjectRepoConnectionBody, body, fields),
+            response=_models.ProjectRepoConnection,
+            timeout=timeout,
+        )
+
+    def clear(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ProjectRepoConnection:
+        """Clear a project's repo connection. `DELETE /v1/projects/{projectId}/repo-connection`
+
+        After this, a block change pinned in the project, or added as its latest version, opens no pull request. For the project's admins (`admin` on it). Clearing a project with none answers 200 unchanged. 501 `repo-connection-unsupported` from a runtime that can't keep one.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.repoConnection.clear"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ProjectRepoConnection,
+            timeout=timeout,
+        )
+
+
 class ProjectsTeamGrantsResource:
     """`client.projects.team_grants` — the `projects.teamGrants` operations."""
 
@@ -9230,6 +9377,7 @@ class ProjectsResource:
         self.access = ProjectsAccessResource(client)
         self.pinned_versions = ProjectsPinnedVersionsResource(client)
         self.production = ProjectsProductionResource(client)
+        self.repo_connection = ProjectsRepoConnectionResource(client)
         self.team_grants = ProjectsTeamGrantsResource(client)
         self.sites = ProjectsSitesResource(client)
 
@@ -15370,6 +15518,65 @@ class AsyncCorrectionsResource:
             timeout=timeout,
         )
 
+    def export(
+        self,
+        /,
+        *,
+        format: Literal["csv", "jsonl"] | None = None,
+        run_id: str | UUID | None = None,
+        agent_id: str | UUID,
+        agent_version: str | None = None,
+        flow_id: str | UUID | None = None,
+        status: Literal[
+            "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+        ]
+        | list[
+            Literal[
+                "not-fixed", "open", "being-fixed", "with-owner", "fixed", "wont-fix", "removed"
+            ]
+        ]
+        | None = None,
+        sorted_to: Literal["none", "improve", "developer", "owner"]
+        | list[Literal["none", "improve", "developer", "owner"]]
+        | None = None,
+        from_: Literal["experts", "end-users", "all"] | None = None,
+        made_by: Literal["me"] | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        corrector_group_id: str | UUID | None = None,
+        participant_id: str | UUID | None = None,
+        scope_kind: Literal["tenant", "org", "project"] | None = None,
+        scope_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> AsyncIterator[bytes]:
+        """Export corrections. `GET /v1/corrections/export`
+
+        Every correction of an agent the list's filters match, streamed as CSV (`format=csv`, the default: RFC 4180, UTF-8, a header row) or JSON lines (`format=jsonl`: one correction per line, as the list sends it). Each comes only when the caller may read its project, and a project scope the caller can't read is a 403 before anything is sent. The run's own text isn't exported, only its id. A CSV field that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, so a spreadsheet doesn't run it. Recorded in the audit log: `corrections-export-started` before the first row (when it can't be written, a 500 and nothing is sent), and `corrections-exported` when the stream ends, with the rows sent and `succeeded` or `failed`.
+        """
+        return self._client._stream_bytes(
+            _OPERATIONS["corrections.export"],
+            path={},
+            query={
+                "format": format,
+                "runId": run_id,
+                "agentId": agent_id,
+                "agentVersion": agent_version,
+                "flowId": flow_id,
+                "status": status,
+                "sortedTo": sorted_to,
+                "from": from_,
+                "madeBy": made_by,
+                "since": since,
+                "until": until,
+                "correctorGroupId": corrector_group_id,
+                "participantId": participant_id,
+                "scopeKind": scope_kind,
+                "scopeId": scope_id,
+            },
+            headers={},
+            timeout=timeout,
+        )
+
     async def get(
         self, correction_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.CorrectionWithCopies:
@@ -16682,6 +16889,22 @@ class AsyncBlocksResource:
             query={"projectId": project_id},
             headers={},
             response=_models.Block,
+            timeout=timeout,
+        )
+
+    async def runs_in(
+        self, block_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.BlockRunsInList:
+        """List where a data block's versions run. `GET /v1/blocks/{blockId}/runs-in`
+
+        Where the block's versions run now: one row for each project, and each segment pin inside one, whose running version of an agent pins a version of the block (as a prompt, a settings block or its model settings). Each agent's projects are the ones `agents.projects` lists, and what runs in each is what it says: a pin that covers the project, else its Latest. Only the projects the caller can read are named, and an agent version the caller can't see is left out. A block no running version pins answers an empty list. Without the agents' pins and Latest in this runtime, `501 runs-in-unsupported`.
+        """
+        return await self._client._request(
+            _OPERATIONS["blocks.runsIn"],
+            path={"blockId": block_id},
+            query={},
+            headers={},
+            response=_models.BlockRunsInList,
             timeout=timeout,
         )
 
@@ -18730,6 +18953,58 @@ class AsyncProjectsProductionResource:
         )
 
 
+class AsyncProjectsRepoConnectionResource:
+    """`client.projects.repo_connection` — the `projects.repoConnection` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def set(
+        self,
+        project_id: str | UUID,
+        body: _models.ProjectRepoConnectionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ProjectRepoConnection:
+        """Set a project's repo connection. `PUT /v1/projects/{projectId}/repo-connection`
+
+        The company-wide GitHub connection the project opens its block changes' pull requests through. For the project's admins (`admin` on it). It replaces any connection set before; setting the one already set answers 200 unchanged. The connection must be the tenant's, made through the GitHub app entry, and owned by the company: 404 `connection-not-found` for one that isn't there or was removed, and 400 `repo-connection-not-company-github` for any other. The project keeps only the id: a connection removed later reads as none. 501 `repo-connection-unsupported` from a runtime that can't keep one, or has no connections.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.repoConnection.set"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProjectRepoConnectionBody, body, fields),
+            response=_models.ProjectRepoConnection,
+            timeout=timeout,
+        )
+
+    async def clear(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ProjectRepoConnection:
+        """Clear a project's repo connection. `DELETE /v1/projects/{projectId}/repo-connection`
+
+        After this, a block change pinned in the project, or added as its latest version, opens no pull request. For the project's admins (`admin` on it). Clearing a project with none answers 200 unchanged. 501 `repo-connection-unsupported` from a runtime that can't keep one.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.repoConnection.clear"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ProjectRepoConnection,
+            timeout=timeout,
+        )
+
+
 class AsyncProjectsTeamGrantsResource:
     """`client.projects.team_grants` — the `projects.teamGrants` operations."""
 
@@ -19062,6 +19337,7 @@ class AsyncProjectsResource:
         self.access = AsyncProjectsAccessResource(client)
         self.pinned_versions = AsyncProjectsPinnedVersionsResource(client)
         self.production = AsyncProjectsProductionResource(client)
+        self.repo_connection = AsyncProjectsRepoConnectionResource(client)
         self.team_grants = AsyncProjectsTeamGrantsResource(client)
         self.sites = AsyncProjectsSitesResource(client)
 

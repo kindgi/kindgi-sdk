@@ -876,6 +876,7 @@ function serializeProject(p: Project): Record<string, unknown> {
       productionSince: p.productionSince as unknown as string,
     }),
     sortEndUserCorrections: p.sortEndUserCorrections === true,
+    ...(p.repoConnectionId !== undefined && { repoConnectionId: p.repoConnectionId }),
     createdAt: p.createdAt as unknown as string,
     updatedAt: p.updatedAt as unknown as string,
   };

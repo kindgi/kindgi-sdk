@@ -2638,6 +2638,10 @@ class TestCase(BaseModel):
     """
     Present on a retired case: it stays listed, and no test run checks it.
     """
+    expert: Literal[True] | None = None
+    """
+    Present (true) on an expert's case: a correction's case when the correction was recorded while its group was restricted, and every hand case, since adding one needs publish on the agent, or write on its project when more than one project serves the agent. A test run weighted `experts-only` grades only these. Absent from older servers.
+    """
 
 
 class TestCaseCollectionPage(BaseModel):
@@ -5873,7 +5877,7 @@ class ModelInfo(BaseModel):
     """
     max_output_tokens: Annotated[int | None, Field(alias="maxOutputTokens", ge=1)] = None
     """
-    Fallback cap on output tokens. Adapters that require `max_tokens` on every request (e.g. Anthropic) use this when `ModelCallInput.maxOutputTokens` is unset.
+    The default cap on a call's output tokens: what a call asks for when it sets none. A call's own `ModelCallInput.maxOutputTokens` (its agent's `maxOutputTokens`) replaces it. Not the model's own maximum, which its vendor sets.
     """
     sampling: bool | None = None
     """
@@ -7079,6 +7083,80 @@ class BlockVersionSource(BaseModel):
     """
 
 
+class Pr(BaseModel):
+    """
+    The newest pull request opened for this version in the project, a draft on the pack's repository. Absent when none was opened: no repo connected, a pin wider than the project, or a version that came from the files.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    number: Annotated[int, Field(ge=1)]
+    url: str
+    state: Annotated[Literal["open", "merged", "closed"] | str, _open.OPEN]
+    """
+    As the repository said, read at most a minute ago.
+    """
+
+
+class InYourFiles(BaseModel):
+    """
+    Whether the pack's files have `blockVersion`: `yes` when the newest deployment in the project that ships `agentId` (its pack's newest there, looked for among the project's 200 newest deployments) lists the block at that version or a newer one, or the pull request opened for it there was merged; `not-yet` otherwise. Absent from a runtime that can't say, and for a row whose pull request can't be read now.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    state: Annotated[Literal["yes", "not-yet"] | str, _open.OPEN]
+    pr: Pr | None = None
+    """
+    The newest pull request opened for this version in the project, a draft on the pack's repository. Absent when none was opened: no repo connected, a pin wider than the project, or a version that came from the files.
+    """
+
+
+class BlockRunsIn(BaseModel):
+    """
+    One place a version of the block runs: a project, or a segment pin inside one, whose running version of an agent pins it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str, Field(alias="projectId")]
+    agent_id: Annotated[str, Field(alias="agentId")]
+    agent_version: Annotated[str, Field(alias="agentVersion")]
+    """
+    The agent's version that runs there, as `agents.projects` gives it.
+    """
+    block_version: Annotated[str, Field(alias="blockVersion")]
+    """
+    The block version that agent version pins.
+    """
+    follows: Annotated[Literal["pin", "latest"] | str, _open.OPEN]
+    """
+    Why the agent version runs there: `pin`, a pin that covers the project or the segment; `latest`, no pin covers it, so it runs the project's Latest.
+    """
+    segment: list[ScopeSegment] | None = None
+    """
+    A segment pin's path inside the project, which runs `agentVersion` instead. Absent for the project's own row.
+    """
+    in_your_files: Annotated[InYourFiles | None, Field(alias="inYourFiles")] = None
+    """
+    Whether the pack's files have `blockVersion`: `yes` when the newest deployment in the project that ships `agentId` (its pack's newest there, looked for among the project's 200 newest deployments) lists the block at that version or a newer one, or the pull request opened for it there was merged; `not-yet` otherwise. Absent from a runtime that can't say, and for a row whose pull request can't be read now.
+    """
+
+
+class BlockRunsInList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[BlockRunsIn]
+
+
 class PublishBlockBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -7517,6 +7595,9 @@ class TestRun(BaseModel):
     Why a `cancelled` run stopped when nobody cancelled it: its project or tenant took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.
     """
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
+    """
+    The id the run was started with. `pin:<change id>` is a test run Kindgi started for a pin change, and `latest:<agent id>:<project id>` one it started for Latest moving in a project; a caller can't start a run with either.
+    """
     comparison: TestRunComparison | None = None
 
 
@@ -7547,6 +7628,9 @@ class StartTestRunBody(BaseModel):
     flow_ref: Annotated[TestRunFlowRef | None, Field(alias="flowRef")] = None
     dry_run: Annotated[bool | None, Field(alias="dryRun")] = None
     correlation_id: Annotated[str | None, Field(alias="correlationId")] = None
+    """
+    An id of your own, kept on the run. It may not start with `pin:` or `latest:` (`bad-input`): those are the test runs Kindgi starts itself, for a pin change or Latest moving.
+    """
     baseline: (
         Annotated[Literal["recorded"] | str, _open.OPEN]
         | TestRunBaseline1
@@ -8986,6 +9070,82 @@ class DeploymentPrimitiveCounts(BaseModel):
     flows: Annotated[int, Field(ge=0)]
 
 
+class DeploymentSourceBody(BaseModel):
+    """
+    Where the pack lives in git, when the deploy runs inside a work tree. The deployment keeps it with each block's file from the image's index. A field it doesn't know is ignored. Not covered by the signature.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    repo: Annotated[
+        str | None,
+        Field(
+            max_length=1024, pattern="^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?:/[A-Za-z0-9_.-]+){2,}$"
+        ),
+    ] = None
+    """
+    The `origin` remote as `host/owner/name` (a group path may stand for the owner), with no scheme, user, password, token or `.git`. Absent when the work tree has no `origin`, or one that is not a host and a path.
+    """
+    path: Annotated[str, Field(max_length=1024, min_length=1)]
+    """
+    The pack's folder relative to the repository's root, `/`-separated: `.` when it is the root. Never an absolute path.
+    """
+    commit: Annotated[str, Field(pattern="^(?:[0-9a-f]{40}|[0-9a-f]{64})$")]
+    """
+    The commit checked out (`HEAD`), its full hex id.
+    """
+    branch: Annotated[str | None, Field(max_length=255, min_length=1)] = None
+    """
+    The branch checked out. Absent on a detached `HEAD`.
+    """
+    dirty: bool
+    """
+    The pack's folder had changes the commit doesn't hold, untracked files included.
+    """
+
+
+class DeploymentSource(BaseModel):
+    """
+    Where a deployment's pack lives in git, as `kindgi deploy` read it from the work tree it ran in. Absent for a deploy made outside git, one made before deploys said, and from a runtime that doesn't keep it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    repo: Annotated[
+        str | None,
+        Field(
+            max_length=1024, pattern="^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?:/[A-Za-z0-9_.-]+){2,}$"
+        ),
+    ] = None
+    """
+    The `origin` remote as `host/owner/name` (a group path may stand for the owner), with no scheme, user, password, token or `.git`. Absent when the work tree has no `origin`, or one that is not a host and a path.
+    """
+    path: Annotated[str, Field(max_length=1024, min_length=1)]
+    """
+    The pack's folder relative to the repository's root, `/`-separated: `.` when it is the root. Never an absolute path.
+    """
+    commit: Annotated[str, Field(pattern="^(?:[0-9a-f]{40}|[0-9a-f]{64})$")]
+    """
+    The commit checked out (`HEAD`), its full hex id.
+    """
+    branch: Annotated[str | None, Field(max_length=255, min_length=1)] = None
+    """
+    The branch checked out. Absent on a detached `HEAD`.
+    """
+    dirty: bool
+    """
+    The pack's folder had changes the commit doesn't hold, untracked files included.
+    """
+    block_files: Annotated[dict[str, str], Field(alias="blockFiles")]
+    """
+    Each of the pack's blocks by id: its file, relative to the pack's folder, as the image's index names it.
+    """
+
+
 class DeploymentEndpointProblem(BaseModel):
     """
     While the deployment waits for a pack service (`pending`, or `cleared` and `waiting`): the last reason recorded while it waited. A `ready` endpoint has none, nor a `retired` one. A fixed code, never free text.
@@ -9267,6 +9427,7 @@ class DeploymentRegistrationBody(BaseModel):
     """
     The project to deploy into, one per client: its agents, flows, tools and guardrails are registered there, and its secret sync writes there. It takes admin on that project (a key limited to another project is refused). Absent: a tenant-wide deploy, into the tenant's Default project. An id that already lives in another project is `409` (`tool-project-mismatch` and the like): each client gets its own pack, whose ids carry its own pack id. Not covered by the signature, which attests the image.
     """
+    source: DeploymentSourceBody | None = None
 
 
 class DeploymentValidationDetails(BaseModel):
@@ -10180,6 +10341,10 @@ class Project(BaseModel):
     """
     `true`: end users' corrections (an app's, with a `participantId`, and not an expert's) are sorted like the others when they're saved, and a schedule counting everyone's corrections counts them. `false` (the default): they're listed and become test cases, but stay open and unsorted, and never start Improve.
     """
+    repo_connection_id: Annotated[str | None, Field(alias="repoConnectionId")] = None
+    """
+    The company-wide GitHub connection the project opens its block changes' pull requests through; absent while none is set. A connection removed since reads as none.
+    """
     created_at: Annotated[str, Field(alias="createdAt")]
     updated_at: Annotated[str, Field(alias="updatedAt")]
 
@@ -10204,6 +10369,29 @@ class ProjectProduction(BaseModel):
     production_since: Annotated[AwareDatetime | None, Field(alias="productionSince")]
     """
     When the project went into production; `null` while it isn't in production.
+    """
+
+
+class ProjectRepoConnectionBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    connection_id: Annotated[str, Field(alias="connectionId", min_length=1)]
+    """
+    A company-wide GitHub connection's id (`GET /v1/connections`).
+    """
+
+
+class ProjectRepoConnection(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str, Field(alias="projectId")]
+    repo_connection_id: Annotated[str | None, Field(alias="repoConnectionId")]
+    """
+    The connection now set; `null` once cleared.
     """
 
 
@@ -13147,6 +13335,10 @@ class ComparisonCaseResultCorrection(BaseModel):
     """
     The `n` of "k of n".
     """
+    why: str | None = None
+    """
+    The judging model's reason, from the first repetition that failed, when it failed on its answer and the model gave one. It can quote the answer, so an erasure clears it. Absent from older servers.
+    """
 
 
 class DeploymentContentsTool(BaseModel):
@@ -13230,6 +13422,18 @@ class DeploymentContentsFlow(BaseModel):
     pin_changes: Annotated[list[PinChange] | None, Field(alias="pinChanges")] = None
     """
     For `pins-changed`: the pins that differ from `authoredVersion`'s.
+    """
+
+
+class DeploymentContentsBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    version: str | None = None
+    """
+    Absent for guardrails, which have no version.
     """
 
 
@@ -14998,6 +15202,10 @@ class CorrectedTestCase(BaseModel):
     """
     What the case expects of a run, as the agent's test set lists it. Set on a frozen case of an agent's test set, from its own correction or hand case, which also fill `items` and `corrections`. A grader reads it when it's present, and `items` and `corrections` otherwise.
     """
+    expert: Literal[True] | None = None
+    """
+    Present (true) on a frozen case whose test case is an expert's: a test run weighted `experts-only` grades its `expect`, and drops the `expect` of every other case. Absent from older servers.
+    """
     erased: Literal[True] | None = None
     """
     An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, `corrections`, `expect` and `segments` gone, and test runs leave it out (counted as `erased`).
@@ -15819,7 +16027,7 @@ class ComparisonCaseResult(BaseModel):
     """
     corrections: list[ComparisonCaseResultCorrection] | None = None
     """
-    Each correction graded on this case: its verdict and how many repetitions passed. Shown, not enforced. Survives an erasure — the differences, which quote values, are in `correctionDifferences`.
+    Each correction graded on this case: its verdict and how many repetitions passed. Shown, not enforced. A case of an agent's test set that carries `expect` has one entry instead, keyed by the case's id: a repetition passes when every part the case expects passed on it. It has none when the case expects only items, or when a part couldn't be checked. Survives an erasure, all but `why` — the differences, which quote values, are in `correctionDifferences`.
     """
     correction_differences: Annotated[
         list[CorrectionDifference] | None, Field(alias="correctionDifferences")
@@ -15829,7 +16037,7 @@ class ComparisonCaseResult(BaseModel):
     """
     cost_usd: Annotated[list[CostUsdItem] | None, Field(alias="costUsd")] = None
     """
-    What each repetition's replay cost in model calls, as the runtime reported it, in US dollars: one per repetition. Absent when a repetition reported none.
+    What each repetition's replay cost in model calls, as the runtime reported it, in US dollars: one per repetition, with what checking its answer cost. Absent when a repetition reported none.
     """
     diverged: bool
     refused_writes: Annotated[int, Field(alias="refusedWrites", ge=0)]
@@ -16066,6 +16274,10 @@ class DeploymentContents(BaseModel):
     guardrails: list[DeploymentContentsGuardrail]
     agents: list[DeploymentContentsAgent]
     flows: list[DeploymentContentsFlow]
+    blocks: list[DeploymentContentsBlock] | None = None
+    """
+    The pack's data blocks, each `{ id, version }`. Absent on a deployment recorded before deployments listed them, and from a runtime that doesn't keep them.
+    """
 
 
 class DeploymentRecord(BaseModel):
@@ -16126,6 +16338,7 @@ class DeploymentRecord(BaseModel):
     endpoint: DeploymentEndpoint | None = None
     primitives: DeploymentPrimitiveCounts
     contents: DeploymentContents
+    source: DeploymentSource | None = None
 
 
 class PromotionMoves(BaseModel):

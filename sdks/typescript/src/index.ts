@@ -70,11 +70,7 @@ export type {
   SuggestedChangesListInput,
   WithdrawInput,
 } from './resources/suggested-changes.js';
-export type {
-  ObservationFilter,
-  ObservationsClient,
-  PatternsInput,
-} from './resources/observations.js';
+export type { ObservationFilter, ObservationsClient } from './resources/observations.js';
 export type { Transport, TransportRequest } from './transport.js';
 export type {
   ApprovalFilter,
@@ -233,6 +229,7 @@ export type {
   ProjectTeamGrantsClient,
   ProjectPage,
   ProjectProductionShape,
+  ProjectRepoConnectionShape,
   ProjectRecordShape,
   ProjectRoleValue,
   TeamProjectGrantPage,
@@ -329,7 +326,11 @@ export type {
   ServiceAccountFilter,
   ServiceAccountsClient,
 } from './resources/service-accounts.js';
-export type { CorrectionFilter, CorrectionsClient } from './resources/corrections.js';
+export type {
+  CorrectionExportFilter,
+  CorrectionFilter,
+  CorrectionsClient,
+} from './resources/corrections.js';
 export type {
   McpClient,
   McpEndpointFilter,
@@ -508,6 +509,7 @@ export type {
   DeploymentPromotion,
   DeploymentPromotionCheck,
   DeploymentsClient,
+  DeploymentSource,
   DeploymentValue,
   DeploymentValues,
   DeploymentValuesClient,
@@ -539,6 +541,8 @@ export type {
   Block,
   BlockKind,
   BlockPage,
+  BlockRunsIn,
+  BlockRunsInList,
   BlocksClient,
   BlockVersionsClient,
   ListBlocksFilter,

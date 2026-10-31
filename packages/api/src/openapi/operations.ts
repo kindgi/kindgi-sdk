@@ -43,8 +43,11 @@ export interface ResponseSpec {
   readonly description: string;
   /** JSON body schema for `application/json` responses. Omit for streaming responses. */
   readonly schema?: JsonSchema;
-  /** Content-type of the response body. Defaults to `application/json`. */
-  readonly contentType?: string;
+  /**
+   * Content-type of the response body, or several, each with the schema.
+   * Defaults to `application/json`.
+   */
+  readonly contentType?: string | readonly string[];
 }
 
 export interface OperationSpec {
@@ -91,6 +94,12 @@ export interface OperationSpec {
    * `x-kindgi-sender-only`, and the client generators skip it.
    */
   readonly senderOnly?: string;
+  /**
+   * The 2xx body is handed on as it arrives, not read whole
+   * (`corrections.export`). Emitted as `x-kindgi-streamed: true`; the
+   * Python client yields its chunks.
+   */
+  readonly streamed?: true;
 }
 
 // ---------------- shared parameters ----------------
@@ -6038,6 +6047,44 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
+    honoPath: '/v1/corrections/export',
+    openapiPath: '/v1/corrections/export',
+    operationId: 'corrections.export',
+    summary: 'Export corrections',
+    description:
+      "Every correction of an agent the list's filters match, streamed as CSV (`format=csv`, the default: RFC 4180, UTF-8, a header row) or JSON lines (`format=jsonl`: one correction per line, as the list sends it). Each comes only when the caller may read its project, and a project scope the caller can't read is a 403 before anything is sent. The run's own text isn't exported, only its id. A CSV field that starts with `=`, `+`, `-`, `@`, a tab or a carriage return gets a leading `'`, so a spreadsheet doesn't run it. Recorded in the audit log: `corrections-export-started` before the first row (when it can't be written, a 500 and nothing is sent), and `corrections-exported` when the stream ends, with the rows sent and `succeeded` or `failed`.",
+    tags: ['corrections'],
+    security: 'bearer',
+    streamed: true,
+    parameters: [
+      correctionQuery('format', '`csv` (the default) or `jsonl`.', {
+        type: 'string',
+        enum: ['csv', 'jsonl'],
+      }),
+      ...CorrectionListQueryParams.map((p) =>
+        p.name === 'agentId'
+          ? { ...p, required: true, description: 'The agent whose corrections are exported.' }
+          : p,
+      ),
+      ScopeKindQueryParam,
+      ScopeIdQueryParam,
+    ],
+    responses: {
+      '200': {
+        description: 'The corrections, as CSV or JSON lines (by `format`).',
+        contentType: ['text/csv', 'application/jsonl'],
+        schema: { type: 'string' },
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Malformed query parameter, no `agentId`, or a `limit` or `cursor`.'),
+      '403': ErrorResponse("`permission-denied`: a project scope the caller can't read."),
+      '500': ErrorResponse(
+        "`persistence-error`: the export couldn't be recorded, so nothing was sent.",
+      ),
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/corrections/:correctionId',
     openapiPath: '/v1/corrections/{correctionId}',
     operationId: 'corrections.get',
@@ -7018,6 +7065,28 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The block at that version.', schema: ref('Block') },
       ...CommonAuthErrors,
       '404': ErrorResponse('`block-not-found`.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/blocks/:blockId/runs-in',
+    openapiPath: '/v1/blocks/{blockId}/runs-in',
+    operationId: 'blocks.runsIn',
+    summary: "List where a data block's versions run",
+    description:
+      "Where the block's versions run now: one row for each project, and each segment pin inside one, whose running version of an agent pins a version of the block (as a prompt, a settings block or its model settings). Each agent's projects are the ones `agents.projects` lists, and what runs in each is what it says: a pin that covers the project, else its Latest. Only the projects the caller can read are named, and an agent version the caller can't see is left out. A block no running version pins answers an empty list. Without the agents' pins and Latest in this runtime, `501 runs-in-unsupported`.",
+    tags: ['blocks'],
+    security: 'bearer',
+    parameters: [BlockIdPathParam],
+    responses: {
+      '200': { description: 'Where it runs.', schema: ref('BlockRunsInList') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse(
+        "`block-not-found`: no such block, or one in a project the caller can't read.",
+      ),
+      '501': ErrorResponse(
+        "`runs-in-unsupported`: this runtime doesn't read the agents' pins and Latest.",
+      ),
     },
   },
   {
@@ -9769,6 +9838,55 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No project with that id under this tenant (`project-not-found`).'),
       '501': ErrorResponse(
         "The runtime's projects can't be put in production (`production-unsupported`).",
+      ),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/projects/:projectId/repo-connection',
+    openapiPath: '/v1/projects/{projectId}/repo-connection',
+    operationId: 'projects.repoConnection.set',
+    summary: "Set a project's repo connection",
+    description:
+      "The company-wide GitHub connection the project opens its block changes' pull requests through. For the project's admins (`admin` on it). It replaces any connection set before; setting the one already set answers 200 unchanged. The connection must be the tenant's, made through the GitHub app entry, and owned by the company: 404 `connection-not-found` for one that isn't there or was removed, and 400 `repo-connection-not-company-github` for any other. The project keeps only the id: a connection removed later reads as none. 501 `repo-connection-unsupported` from a runtime that can't keep one, or has no connections.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('ProjectRepoConnectionBody') },
+    responses: {
+      '200': { description: 'The connection is set.', schema: ref('ProjectRepoConnection') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "Malformed request body (`bad-input`), or the connection isn't a company-wide GitHub connection (`repo-connection-not-company-github`, `details.connectionId`, `details.app`, `details.owner`).",
+      ),
+      '404': ErrorResponse(
+        'No project with that id under this tenant (`project-not-found`), or no connection with that id (`connection-not-found`).',
+      ),
+      '501': ErrorResponse(
+        "The runtime can't connect a project to a repo (`repo-connection-unsupported`).",
+      ),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/projects/:projectId/repo-connection',
+    openapiPath: '/v1/projects/{projectId}/repo-connection',
+    operationId: 'projects.repoConnection.clear',
+    summary: "Clear a project's repo connection",
+    description:
+      "After this, a block change pinned in the project, or added as its latest version, opens no pull request. For the project's admins (`admin` on it). Clearing a project with none answers 200 unchanged. 501 `repo-connection-unsupported` from a runtime that can't keep one.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': {
+        description: 'The project has no repo connection.',
+        schema: ref('ProjectRepoConnection'),
+      },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No project with that id under this tenant (`project-not-found`).'),
+      '501': ErrorResponse(
+        "The runtime can't connect a project to a repo (`repo-connection-unsupported`).",
       ),
     },
   },

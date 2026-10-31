@@ -392,6 +392,7 @@ function buildOperation(op: OperationSpec): Record<string, unknown> {
   };
   if (op.description !== undefined) doc.description = op.description;
   if (op.senderOnly !== undefined) doc['x-kindgi-sender-only'] = true;
+  if (op.streamed === true) doc['x-kindgi-streamed'] = true;
   if (op.parameters !== undefined && op.parameters.length > 0) {
     doc.parameters = op.parameters.map(buildParameter);
   }
@@ -441,8 +442,11 @@ function buildResponses(
   for (const [status, spec] of Object.entries(responses)) {
     const entry: Record<string, unknown> = { description: spec.description };
     if (spec.schema !== undefined) {
-      const contentType = spec.contentType ?? 'application/json';
-      entry.content = { [contentType]: { schema: spec.schema as JsonSchema } };
+      const contentTypes = spec.contentType ?? 'application/json';
+      const types = typeof contentTypes === 'string' ? [contentTypes] : contentTypes;
+      entry.content = Object.fromEntries(
+        types.map((type) => [type, { schema: spec.schema as JsonSchema }]),
+      );
     }
     doc[status] = entry;
   }

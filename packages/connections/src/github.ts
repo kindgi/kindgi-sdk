@@ -14,6 +14,10 @@ import { defineApp } from './define.js';
  * - **Withdrawing:** a disconnect revokes the installation token; the
  *   app stays installed until an admin uninstalls it at GitHub, which
  *   GitHub reports to the server by webhook.
+ * - **A project's repo connection** (`PUT /v1/projects/:id/repo-connection`)
+ *   uses `contents.write` and `pull_requests.write` to open a draft pull
+ *   request when a block change is pinned there, and `pull_requests.read`
+ *   to say whether it was merged.
  */
 export const github = defineApp({
   id: 'github',
@@ -23,6 +27,22 @@ export const github = defineApp({
   permissions: {
     'issues.read': { grants: 'issues:read', says: 'Read issues', changes: false },
     'issues.write': { grants: 'issues:write', says: 'Label and edit issues', changes: true },
+    'contents.read': { grants: 'contents:read', says: 'Read repository files', changes: false },
+    'contents.write': {
+      grants: 'contents:write',
+      says: 'Make branches and commit files',
+      changes: true,
+    },
+    'pull_requests.read': {
+      grants: 'pull_requests:read',
+      says: 'Read pull requests',
+      changes: false,
+    },
+    'pull_requests.write': {
+      grants: 'pull_requests:write',
+      says: 'Open, comment on and close pull requests',
+      changes: true,
+    },
   },
   account: { kind: 'github-installation' },
   removal: { revoke: 'github-installation-token', notices: 'github-webhooks' },

@@ -78,6 +78,7 @@ import {
   type DeploymentBinding,
   type DeploymentPrimitiveCounts,
   type DeploymentRegisterOutcome,
+  type DeploymentSource,
   serializeDeployment,
 } from '../deployment-binding.js';
 import { canonicalizeEnvelope, normaliseSha256Hex } from '../deployment-envelope.js';
@@ -1399,7 +1400,14 @@ export function deploymentsRouter(
           guardrails: validated.guardrails.map((g) => ({ id: g.id as unknown as string })),
           agents: deployedAgents,
           flows: deployedFlows,
+          blocks: validated.blocks.map((b) => ({
+            id: b.id as unknown as string,
+            version: b.version as unknown as string,
+          })),
         },
+        ...(wire.source !== undefined && {
+          source: { ...wire.source, blockFiles: Object.fromEntries(validated.blockFiles) },
+        }),
       });
     } catch (cause) {
       await rollback(rolled, c.get('log'));
@@ -1756,7 +1764,15 @@ interface WireBody {
   readonly publishedAt: string;
   /** The project to deploy into; absent: the tenant's Default project. */
   readonly projectId?: ProjectId;
+  /** Where the pack lives in git, when the client said. */
+  readonly source?: WireSource;
 }
+
+/**
+ * `source` as the client sends it: `DeploymentSource` less its block
+ * files, which the image's index says (each block's `modulePath`).
+ */
+type WireSource = Omit<DeploymentSource, 'blockFiles'>;
 
 interface Issue {
   readonly path: string;
@@ -1827,6 +1843,7 @@ function parseWireBody(body: unknown): ParseResult {
   if (projectId !== undefined && (typeof projectId !== 'string' || !UUID_RE.test(projectId))) {
     issues.push({ path: 'projectId', message: 'projectId must be a project id (a UUID)' });
   }
+  const source = parseSource(b.source, issues);
 
   if (issues.length > 0) {
     return {
@@ -1846,8 +1863,104 @@ function parseWireBody(body: unknown): ParseResult {
       signature: signature as string,
       publishedAt: publishedAt as string,
       ...(typeof projectId === 'string' && { projectId: projectId as unknown as ProjectId }),
+      ...(source !== undefined && { source }),
     },
   };
+}
+
+/** `host/owner/name`, a group path standing for the owner allowed: no scheme, user or token. */
+const REPO_RE = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?:\/[A-Za-z0-9_.-]+){2,}$/;
+const COMMIT_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+const SOURCE_TEXT_MAX = 1024;
+
+/**
+ * The body's `source`, or `undefined` when it has none or it's refused
+ * (each problem pushed onto `issues`). A field it doesn't know is
+ * ignored, as the body's are.
+ */
+function parseSource(raw: unknown, issues: Issue[]): WireSource | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    issues.push({ path: 'source', message: 'source must be an object' });
+    return undefined;
+  }
+  const { repo, path, commit, branch, dirty } = raw as Record<string, unknown>;
+  const before = issues.length;
+  if (
+    repo !== undefined &&
+    (typeof repo !== 'string' ||
+      repo.length > SOURCE_TEXT_MAX ||
+      !REPO_RE.test(repo) ||
+      repo.split('/').some((segment) => segment === '.' || segment === '..'))
+  ) {
+    issues.push({
+      path: 'source.repo',
+      message: 'source.repo must be host/owner/name, with no scheme, user or token',
+    });
+  }
+  if (typeof path !== 'string' || (path !== '.' && !isRelativeFile(path))) {
+    issues.push({
+      path: 'source.path',
+      message: "source.path must be the pack's folder relative to the repository's root, or .",
+    });
+  }
+  if (typeof commit !== 'string' || !COMMIT_RE.test(commit)) {
+    issues.push({
+      path: 'source.commit',
+      message: 'source.commit must be a full commit id, 40 or 64 lowercase hex',
+    });
+  }
+  if (branch !== undefined && (typeof branch !== 'string' || !isBranchName(branch))) {
+    issues.push({ path: 'source.branch', message: 'source.branch must be a branch name' });
+  }
+  if (typeof dirty !== 'boolean') {
+    issues.push({ path: 'source.dirty', message: 'source.dirty must be true or false' });
+  }
+  if (issues.length > before) return undefined;
+  return {
+    ...(repo !== undefined && { repo: repo as string }),
+    path: path as string,
+    commit: commit as string,
+    ...(branch !== undefined && { branch: branch as string }),
+    dirty: dirty as boolean,
+  };
+}
+
+/** A path relative to a folder, `/`-separated, that stays inside it. */
+function isRelativeFile(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= SOURCE_TEXT_MAX &&
+    !value.includes('\\') &&
+    !hasControlCharacter(value) &&
+    value.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..')
+  );
+}
+
+function hasControlCharacter(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
+/** A name `git check-ref-format --branch` takes, short of what only git knows. */
+function isBranchName(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= 255 &&
+    !/[ ~^:?*[\\]/.test(value) &&
+    !hasControlCharacter(value) &&
+    !value.includes('..') &&
+    !value.includes('@{') &&
+    !value.startsWith('-') &&
+    !value.startsWith('/') &&
+    !value.endsWith('/') &&
+    !value.endsWith('.') &&
+    !value.endsWith('.lock') &&
+    !value.includes('//')
+  );
 }
 
 /** `400 deployment-validation-failed`, naming each issue. */
@@ -2016,6 +2129,11 @@ interface ValidatedPrimitives {
   readonly flows: readonly import('@kindgi/flow').Flow[];
   /** The pack's data blocks (`blocks/`), each a valid block. */
   readonly blocks: readonly BlockDefinition[];
+  /**
+   * Each block's file in the pack by id: its `modulePath` in the index,
+   * where that's a path inside the pack. A deploy's `source` keeps them.
+   */
+  readonly blockFiles: ReadonlyMap<string, string>;
 }
 
 type ValidateResult =
@@ -2615,13 +2733,14 @@ function validatePrimitives(
   });
 
   const validatedBlocks: BlockDefinition[] = [];
+  const blockFiles = new Map<string, string>();
   blocks.forEach((raw, i) => {
     if (raw === null || typeof raw !== 'object') {
       details.push({ primitive: 'block', index: i, path: '', message: 'must be an object' });
       return;
     }
     // Its file in the pack (`modulePath`) is where the pack keeps it, not part of the block.
-    const { modulePath: _mp, ...definition } = raw as Record<string, unknown>;
+    const { modulePath, ...definition } = raw as Record<string, unknown>;
     const r = validateBlock(definition);
     if (r.kind === 'err') {
       const idBase: Partial<ValidationDetail> =
@@ -2640,6 +2759,9 @@ function validatePrimitives(
       return;
     }
     validatedBlocks.push(r.value);
+    if (typeof modulePath === 'string' && isRelativeFile(modulePath)) {
+      blockFiles.set(r.value.id as unknown as string, modulePath);
+    }
   });
 
   if (details.length > 0) {
@@ -2654,6 +2776,7 @@ function validatePrimitives(
       agents: validatedAgents,
       flows: validatedGraphs,
       blocks: validatedBlocks,
+      blockFiles,
     },
   };
 }

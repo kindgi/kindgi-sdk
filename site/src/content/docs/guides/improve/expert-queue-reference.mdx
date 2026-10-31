@@ -120,7 +120,9 @@ When a correction is saved, it's sorted by these rules, in order:
 ### Change a correction
 
 `PATCH /v1/corrections/{id}`, or `corrections.change` in the clients, takes
-`sortedTo`, `status`, or both, with a `link` or a `reason`. It needs
+`sortedTo`, `status`, or both, with a `link` or a `reason`. In the CLI,
+it's `kindgi corrections set <id>` with `--sorted-to`, `--status`, `--link`
+and `--reason`. It needs
 `publish` on the correction's agent or flow, or, for one that more than one
 project serves, `write` on the correction's project.
 
@@ -179,6 +181,27 @@ optional `agentId`, counts a project's corrections by status: `open`,
 TypeScript client it's `corrections.counts({ projectId, agentId })`, and in
 Python `corrections.counts(scope_kind="project", scope_id=..., agent_id=...)`.
 It counts in a project only, and takes read access to it.
+
+### Export
+
+`GET /v1/corrections/export?agentId=<agent-id>`, or `corrections.export` in
+the TypeScript and Python clients, streams every correction of the agent
+that the list's filters match, without paging:
+
+- **`format`**: `csv`, the default (RFC 4180, UTF-8, a header row,
+  `text/csv`), or `jsonl` (one correction per line, as the list sends it,
+  `application/jsonl`).
+- **Filters**: the list's, above. `agentId` is required, and it takes no
+  `limit` or `cursor`.
+- **Access**: each correction comes only when you may read its project. A
+  project scope you can't read is a 403, before anything is sent.
+
+It's recorded in the audit log as two events with the same `exportId`:
+`corrections-export-started`, before the first row, with who, the filters
+and the format, and `corrections-exported` when the stream ends, with the
+rows sent and an outcome of `succeeded` or `failed` (a page read broke, or
+the client left). When the first can't be written, the export is a 500 and
+sends nothing.
 
 ## Corrector groups
 

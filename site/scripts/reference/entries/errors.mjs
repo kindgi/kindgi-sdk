@@ -1712,11 +1712,12 @@ export const ERROR_ENTRIES = {
   },
   'invalid-provider': {
     description:
-      "The provider's metadata is invalid, for example an empty id, an empty region or no models. The message says which.",
+      "The provider's metadata is invalid, for example an empty id, an empty region, no models, or a field the metadata or a model doesn't take (a misspelled one). The message says which.",
     details: [
       {
         key: 'reason',
-        meaning: 'short code for the problem, such as empty-id or empty-region',
+        meaning:
+          'short code for the problem, such as empty-id, empty-region or unknown-model-field',
       },
       {
         key: 'providerId',
@@ -1871,6 +1872,11 @@ export const ERROR_ENTRIES = {
         meaning: 'the version looked up; present only when a version was requested',
       },
     ],
+  },
+  'runs-in-unsupported': {
+    description:
+      "This runtime doesn't read the agents' pins and Latest, so it can't say where a block's versions run (`GET /v1/blocks/{blockId}/runs-in`).",
+    details: [],
   },
   'block-already-registered': {
     description:
@@ -3405,6 +3411,22 @@ export const ERROR_ENTRIES = {
     description:
       "This server's projects can't be put in production: its project store has no production setting. Every run there is a staging run.",
     details: [],
+  },
+  'repo-connection-not-company-github': {
+    description:
+      "The connection named for the project's repo connection isn't a company-wide GitHub connection. Pull requests for a project's block changes are opened through the company's GitHub connection: connect GitHub for the company, then name that connection.",
+    details: [
+      { key: 'connectionId', meaning: 'the connection named' },
+      { key: 'app', meaning: 'the app entry it was made through' },
+      { key: 'owner', meaning: 'who owns it: `member` or `company`' },
+    ],
+    seeAlso: ['PUT /v1/projects/{projectId}/repo-connection', 'GET /v1/connections'],
+  },
+  'repo-connection-unsupported': {
+    description:
+      "This server can't connect a project to a repo: its project store keeps no repo connection, or, to set one, it has no connections. `kindgi blocks pull` still writes the versions that run into the pack's block files.",
+    details: [],
+    seeAlso: ['PUT /v1/projects/{projectId}/repo-connection'],
   },
   'team-membership-not-found': {
     description: "The user isn't a member of the team.",
