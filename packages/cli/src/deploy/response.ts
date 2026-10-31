@@ -311,15 +311,16 @@ function whyRenumbered(kind: 'agent' | 'flow', e: DeployedVersionRecord): string
 /**
  * Where a run already in flight sends its tool calls now. A record with a
  * pack service of its own (`endpoint`) is on a runtime that routes per
- * deployment: each call goes to the newest deployment that shipped the
- * version it names, so a deploy that bumps a tool's version leaves the older
- * one serving the runs that name it. Without one, the runtime has a single
- * pack service, which runs one build whatever version a call names (or the
- * deployment ships no pack code, so the line names the case it's about).
+ * deployment: each call goes to the newest deployment in the run's project
+ * that shipped the version it names, so a deploy that bumps a tool's version
+ * leaves the older one serving the runs that name it. Without one, the
+ * runtime has a single pack service, which runs one build whatever version a
+ * call names (or the deployment ships no pack code, so the line names the
+ * case it's about).
  */
 function inFlightLine(record: DeploymentRecord): string {
   return record.endpoint !== undefined
-    ? '  Runs already in flight keep their tool versions: each tool call goes to the newest deployment that shipped the version it names.'
+    ? "  Runs already in flight keep their tool versions: each tool call goes to the newest deployment in the run's project that shipped the version it names."
     : "  With one pack service, runs already in flight call that service's current build, as new runs do: a call naming a tool version that build doesn't have fails with tool-version-mismatch.";
 }
 
