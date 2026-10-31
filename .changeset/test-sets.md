@@ -11,7 +11,7 @@
 
 **Eval suites are now test sets.** This is a breaking rename, and no old name is kept.
 
-- **Routes.** `/v1/eval-suites` is `/v1/test-sets`, with `{testSetId}` in its paths; the sub-paths are the same, including `versions/from-corrections` and `runs`.
+- **Routes.** `/v1/eval-suites` is `/v1/test-sets`, with `{testSetId}` in its paths; the sub-paths are the same, including `runs`.
 - **Fields and values.**
   - `suiteId` is `testSetId` everywhere it names a test set, including on eval runs, and `suiteVersion` is `testSetVersion`.
   - A test set's and an eval run's kind `judged` is `corrections`.

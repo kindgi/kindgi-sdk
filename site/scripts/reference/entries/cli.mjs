@@ -318,13 +318,6 @@ export const CLI_DEFAULTS = {
     project: "the tenant's Default project",
     spec: 'required',
   },
-  'agents derive': {
-    from: 'required',
-    label: 'none',
-    project: 'none',
-    prompt: 'none (at least one `--prompt` or `--setting` is required)',
-    setting: 'none (at least one `--prompt` or `--setting` is required)',
-  },
   'agents versions': {
     cursor: 'none',
     limit: '`25` (at most `100`)',
@@ -447,35 +440,27 @@ export const CLI_DEFAULTS = {
     agent: 'none',
     cursor: 'none',
     limit: '`25` (at most `100`)',
-    org: 'none',
     project: 'none',
-    segment: 'none',
     status: 'none',
-    tier: 'none',
   },
-  'suggested-changes draft': {
+  'suggested-changes create': {
     agent: 'required',
     block: 'required',
-    correction: 'none',
-    'from-version': 'required',
+    fixes: 'none',
+    project: 'required',
     why: 'required',
     'idempotency-key': 'none',
-    org: 'none',
-    project: 'none',
-    segment: 'none',
     template: 'none',
     values: 'none',
   },
-  'suggested-changes evaluate': {
-    'group-weights': '`as-recorded`',
+  'suggested-changes check': {
     'idempotency-key': 'none',
-    k: '`10`',
-    objective: '`passRate`',
-    reads: '`recorded`',
-    repetitions: '`1`',
-    'test-set': 'required',
   },
-  'suggested-changes request': {
+  'suggested-changes pin': {
+    'idempotency-key': 'none',
+    reason: 'none',
+  },
+  'suggested-changes add-as-latest': {
     'idempotency-key': 'none',
     reason: 'none',
   },
@@ -943,19 +928,6 @@ export const CLI_DEFAULTS = {
   },
   'test-sets show': {
     'test-set-version': 'the latest version',
-  },
-  'test-sets from-corrections': {
-    agent: 'required: one of `--agent`, `--flow`',
-    'agent-version': 'none',
-    group: 'none',
-    description: 'none',
-    flow: 'required: one of `--agent`, `--flow`',
-    'min-corrections': '`1`',
-    project: 'required',
-    segment: 'none',
-    since: 'none',
-    'test-set-version': 'required',
-    until: 'none',
   },
   'test-sets cases': {
     cursor: 'none',
@@ -2078,6 +2050,12 @@ export const CLI_EXAMPLES = {
       line: 'kindgi test-runs list --agent=acme-ops.article-picker --status=failed --limit=10',
     },
   ],
+  'test-runs show': [
+    {
+      purpose: "Show a test run's status and, once it's done, its summary.",
+      line: 'kindgi test-runs show <test-run-id>',
+    },
+  ],
   'test-runs cancel': [
     {
       purpose: 'Cancel a pending or running test run.',
@@ -2096,8 +2074,8 @@ export const CLI_EXAMPLES = {
   ],
   'test-sets list': [
     {
-      purpose: 'List the corrections test sets of a project.',
-      line: 'kindgi test-sets list --project=<project-id> --kind=corrections',
+      purpose: 'List the accuracy test sets of a project.',
+      line: 'kindgi test-sets list --project=<project-id> --kind=accuracy',
     },
     {
       purpose: 'List test sets including retired ones.',
@@ -2518,6 +2496,7 @@ export const CLI_GROUP_SEE_ALSO = {
   'mcp-launch': ['guides/tools/mcp-servers'],
   deployments: ['hosted/deploy-your-agent', 'guides/secrets/pack-env'],
   projects: ['guides/projects/organize-by-org-and-project'],
+  'test-sets': ['guides/improve/build-a-test-set', 'guides/improve/compare-an-agent-version'],
   connections: ['deploy/people-and-keys'],
   'connection-apps': ['guides/secrets/store-a-secret', 'deploy/people-and-keys'],
   tenant: ['guides/projects/organize-by-org-and-project'],

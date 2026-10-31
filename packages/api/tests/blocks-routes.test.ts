@@ -12,16 +12,18 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import type { AuditEvent } from '@kindgi/audit-events';
+import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import { SELF_HOSTED_BOUNDS } from '@kindgi/bounds';
 import { overrideTenantInputBounds } from '@kindgi/bounds/testing';
 import { createLogger } from '@kindgi/log';
-import type { OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
+import type { AgentId, OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
-import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
+import type { BlockUse, RunHandlerBinding, TokenResolver } from '../src/index.js';
 import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
 
@@ -52,15 +54,25 @@ function decision(authz: Authz, action: Action, resource: ResourceRef): Decision
   };
 }
 
-function harness(authz?: Authz) {
+function harness(authz?: Authz, uses: readonly BlockUse[] = []) {
   const binding = inMemoryBlocks([projectA, projectB], { [projectA]: orgA });
   const logLines: string[] = [];
+  const store = createInMemoryAuditEventBinding();
+  const written: AuditEvent[] = [];
   const app = createApp({
     ...createStubAppBindings(),
     logger: createLogger({ write: (line) => logLines.push(line) }),
     resolveToken,
     runHandler: {} as RunHandlerBinding,
     blockRegistry: binding,
+    blockUse: { pinningBlock: async ({ blockId }) => uses.filter(() => blockId === 'acme.model') },
+    auditEvents: {
+      ...store,
+      append: async (events) => {
+        written.push(...events);
+        return store.append(events);
+      },
+    },
     ...(authz !== undefined && {
       authz: {
         fgaApiUrl: 'http://fga.invalid',
@@ -89,7 +101,8 @@ function harness(authz?: Authz) {
       body: JSON.parse(text) as Record<string, any>,
     };
   };
-  return { call, binding, logLines };
+  const events = (kind: string) => written.filter((e) => e.kind === kind);
+  return { call, binding, logLines, events };
 }
 
 const prompt = (version: string, template = 'Sort the request for {{ firm }}.') => ({
@@ -366,6 +379,8 @@ describe('/v1/blocks: list by project or org, as the other lists do', () => {
     const { call, binding } = harness();
     await call('POST', '/v1/blocks', prompt('1.0.0'));
     await binding.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
       tenantId,
       projectId: projectB,
       block: { id: 'acme.other', version: '1.0.0', kind: 'settings', content: { values: {} } },
@@ -393,6 +408,8 @@ describe('/v1/blocks: authorized through the project', () => {
     });
     expect((await call('POST', '/v1/blocks', prompt('1.0.0'))).status).toBe(201);
     await binding.publish({
+      publishedBy: { kind: 'user', id: 'user-1' },
+      source: { kind: 'api' },
       tenantId,
       projectId: projectB,
       block: { id: 'acme.other', version: '1.0.0', kind: 'settings', content: { values: {} } },
@@ -408,5 +425,129 @@ describe('/v1/blocks: authorized through the project', () => {
     const res = await call('POST', '/v1/blocks', prompt('1.0.0'));
     expect(res.status).toBe(403);
     expect(res.body.error.code).toBe('permission-denied');
+  });
+});
+
+const model = (version: string, values: Record<string, unknown>) => ({
+  projectId: projectA,
+  id: 'acme.model',
+  version,
+  kind: 'settings',
+  content: { values },
+});
+
+const usesAsModel = (preferredModel?: string): BlockUse[] => [
+  {
+    agentId: 'acme.intake' as AgentId,
+    version: '3.0.0',
+    as: 'model-settings',
+    blockVersion: '1.0.0',
+    ...(preferredModel !== undefined && { preferredModel }),
+  },
+];
+
+describe('/v1/blocks: who published a version, and from where', () => {
+  test('a version published here records the caller and `api`', async () => {
+    const { call } = harness();
+    expect((await call('POST', '/v1/blocks', prompt('1.0.0'))).status).toBe(201);
+    const read = await call('GET', '/v1/blocks/acme.intake-prompt/versions/1.0.0');
+    expect(read.body.publishedBy).toEqual({ kind: 'user', id: 'user-1' });
+    expect(read.body.source).toEqual({ kind: 'api' });
+  });
+
+  test('a version published before they were recorded reads without them', async () => {
+    const { call, binding } = harness();
+    expect((await call('POST', '/v1/blocks', prompt('1.0.0'))).status).toBe(201);
+    const read = binding.getVersion.bind(binding);
+    binding.getVersion = async (input) => {
+      const record = await read(input);
+      if (record === null) return null;
+      const { publishedBy: _by, source: _source, ...old } = record;
+      return old;
+    };
+    const shown = await call('GET', '/v1/blocks/acme.intake-prompt/versions/1.0.0');
+    expect(shown.status).toBe(200);
+    expect(shown.body).not.toHaveProperty('publishedBy');
+    expect(shown.body).not.toHaveProperty('source');
+  });
+});
+
+describe('/v1/blocks: a block an agent version uses as its model settings', () => {
+  test('a new version must be model settings, naming the agent version that uses it', async () => {
+    const { call } = harness(undefined, usesAsModel());
+    const res = await call('POST', '/v1/blocks', model('1.1.0', { tone: 'warm' }));
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('validation-failed');
+    expect(res.body.error.message).toContain('agent "acme.intake" version 3.0.0');
+    expect(res.body.error.details.issues.length).toBeGreaterThan(0);
+  });
+
+  test("it can't name the model the agent version names", async () => {
+    const { call } = harness(undefined, usesAsModel('gpt-x'));
+    const res = await call('POST', '/v1/blocks', model('1.1.0', { model: 'gpt-y' }));
+    expect(res.status).toBe(400);
+    expect(res.body.error.details.issues).toEqual([
+      expect.objectContaining({
+        path: '/content/values',
+        message: expect.stringContaining('agent "acme.intake" version 3.0.0'),
+      }),
+    ]);
+  });
+
+  test('model settings publish', async () => {
+    const { call } = harness(undefined, usesAsModel('gpt-x'));
+    expect((await call('POST', '/v1/blocks', model('1.1.0', { temperature: 0.2 }))).status).toBe(
+      201,
+    );
+  });
+
+  test('a settings block no agent version uses as model settings takes any values', async () => {
+    const { call } = harness(undefined, []);
+    expect((await call('POST', '/v1/blocks', model('1.0.0', { tone: 'warm' }))).status).toBe(201);
+  });
+});
+
+describe('/v1/blocks: audit events', () => {
+  test('publish, unregister and reinstate are recorded with the caller', async () => {
+    const { call, events } = harness();
+    expect((await call('POST', '/v1/blocks', prompt('1.0.0'))).status).toBe(201);
+    expect(
+      (await call('POST', '/v1/blocks/acme.intake-prompt/versions/1.0.0/unregister')).status,
+    ).toBe(200);
+    expect(
+      (await call('POST', '/v1/blocks/acme.intake-prompt/versions/1.0.0/reinstate')).status,
+    ).toBe(200);
+    const [published] = events('block-version-published');
+    expect(published?.actor).toBe('user:user-1');
+    expect(published?.projectId).toBe(projectA);
+    expect(published?.payload).toMatchObject({
+      doc: {
+        blockId: 'acme.intake-prompt',
+        version: '1.0.0',
+        kind: 'prompt',
+        source: { kind: 'api' },
+      },
+    });
+    expect(JSON.stringify(published?.payload)).not.toContain('Sort the request');
+    for (const kind of ['block-version-unregistered', 'block-version-reinstated']) {
+      const [event, ...more] = events(kind);
+      expect(more).toEqual([]);
+      expect(event?.actor).toBe('user:user-1');
+      expect(event?.projectId).toBe(projectA);
+      expect(event?.payload).toMatchObject({
+        doc: { blockId: 'acme.intake-prompt', version: '1.0.0' },
+      });
+    }
+  });
+
+  test('a refused publish, and a reinstate of a version never unregistered, record nothing', async () => {
+    const { call, events } = harness();
+    expect((await call('POST', '/v1/blocks', prompt('1.0.0'))).status).toBe(201);
+    expect((await call('POST', '/v1/blocks', prompt('1.0.0'))).status).toBe(409);
+    expect(
+      (await call('POST', '/v1/blocks/acme.intake-prompt/versions/1.0.0/reinstate')).status,
+    ).toBe(200);
+    expect(events('block-version-published')).toHaveLength(1);
+    expect(events('block-version-reinstated')).toEqual([]);
   });
 });

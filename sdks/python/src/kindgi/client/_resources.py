@@ -216,14 +216,27 @@ OPERATIONS: dict[str, Operation] = {
     "agents.listVersions": Operation(
         "agents.listVersions", "GET", "/v1/agents/{agentId}/versions", "json", False
     ),
-    "agents.deriveVersion": Operation(
-        "agents.deriveVersion", "POST", "/v1/agents/{agentId}/versions", "json", True
-    ),
     "agents.getVersion": Operation(
         "agents.getVersion", "GET", "/v1/agents/{agentId}/versions/{version}", "json", False
     ),
     "agents.setOwner": Operation(
         "agents.setOwner", "PUT", "/v1/agents/{agentId}/owner", "json", False
+    ),
+    "agents.testSet.get": Operation(
+        "agents.testSet.get", "GET", "/v1/agents/{agentId}/test-set", "json", False
+    ),
+    "agents.testSet.listCases": Operation(
+        "agents.testSet.listCases", "GET", "/v1/agents/{agentId}/test-set/cases", "json", False
+    ),
+    "agents.testSet.addCase": Operation(
+        "agents.testSet.addCase", "POST", "/v1/agents/{agentId}/test-set/cases", "json", True
+    ),
+    "agents.testSet.retireCase": Operation(
+        "agents.testSet.retireCase",
+        "POST",
+        "/v1/agents/{agentId}/test-set/cases/{caseId}/retire",
+        "json",
+        True,
     ),
     "agents.unregister": Operation(
         "agents.unregister",
@@ -457,17 +470,10 @@ OPERATIONS: dict[str, Operation] = {
     "suggestedChanges.get": Operation(
         "suggestedChanges.get", "GET", "/v1/suggested-changes/{suggestedChangeId}", "json", False
     ),
-    "suggestedChanges.evaluate": Operation(
-        "suggestedChanges.evaluate",
+    "suggestedChanges.check": Operation(
+        "suggestedChanges.check",
         "POST",
-        "/v1/suggested-changes/{suggestedChangeId}/evaluate",
-        "json",
-        True,
-    ),
-    "suggestedChanges.rescore": Operation(
-        "suggestedChanges.rescore",
-        "POST",
-        "/v1/suggested-changes/{suggestedChangeId}/rescore",
+        "/v1/suggested-changes/{suggestedChangeId}/check",
         "json",
         True,
     ),
@@ -475,6 +481,13 @@ OPERATIONS: dict[str, Operation] = {
         "suggestedChanges.pin",
         "POST",
         "/v1/suggested-changes/{suggestedChangeId}/pin",
+        "json",
+        True,
+    ),
+    "suggestedChanges.addAsLatest": Operation(
+        "suggestedChanges.addAsLatest",
+        "POST",
+        "/v1/suggested-changes/{suggestedChangeId}/add-as-latest",
         "json",
         True,
     ),
@@ -655,13 +668,6 @@ OPERATIONS: dict[str, Operation] = {
         "/v1/test-sets/{testSetId}/versions/{version}",
         "json",
         False,
-    ),
-    "testSets.buildFromCorrections": Operation(
-        "testSets.buildFromCorrections",
-        "POST",
-        "/v1/test-sets/{testSetId}/versions/from-corrections",
-        "json",
-        True,
     ),
     "testSets.listCases": Operation(
         "testSets.listCases",
@@ -2902,6 +2908,109 @@ class ApprovalsResource:
         )
 
 
+class AgentsTestSetResource:
+    """`client.agents.test_set` — the `agents.testSet` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def get(
+        self, agent_id: str | UUID, /, *, project_id: str | UUID, timeout: float | None = None
+    ) -> _models.AgentTestSet:
+        """A project's test set of an agent. `GET /v1/agents/{agentId}/test-set`
+
+        How many cases the agent's test set has in the project. Its cases are the agent's corrections there, except Won't fix and Removed ones (Fixed and With the owner included), and cases added by hand. It's computed when it's read. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.testSet.get"],
+            path={"agentId": agent_id},
+            query={"projectId": project_id},
+            headers={},
+            response=_models.AgentTestSet,
+            timeout=timeout,
+        )
+
+    def list_cases(
+        self,
+        agent_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID,
+        include: Literal["retired"] | None = None,
+        kind: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TestCaseCollectionPage:
+        """List a project's cases of an agent's test set. `GET /v1/agents/{agentId}/test-set/cases`
+
+        Cursor-paginated, newest added first. A retired case comes back only with `include=retired`. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.testSet.listCases"],
+            path={"agentId": agent_id},
+            query={
+                "projectId": project_id,
+                "include": include,
+                "kind": kind,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.TestCaseCollectionPage,
+            timeout=timeout,
+        )
+
+    def add_case(
+        self,
+        agent_id: str | UUID,
+        body: _models.AddTestCaseBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TestCase:
+        """Add a case to an agent's test set. `POST /v1/agents/{agentId}/test-set/cases`
+
+        A case by hand, from a correction's body on one of the agent's finished runs. It has no status, isn't sorted, and nothing that counts corrections counts it (Improve's trigger, the expert queue's progress, a rule's yes-rate). The run's first correction or case stores a copy of its input and output. A comparison's replay can't be a case. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.testSet.addCase"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AddTestCaseBody, body, fields),
+            response=_models.TestCase,
+            timeout=timeout,
+        )
+
+    def retire_case(
+        self,
+        agent_id: str | UUID,
+        case_id: str | UUID,
+        body: _models.RetireTestCaseBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TestCase:
+        """Retire a case of an agent's test set. `POST /v1/agents/{agentId}/test-set/cases/{caseId}/retire`
+
+        A retired case stays listed, and no test run checks it again. There's no un-retire, and retiring a correction's case doesn't change the correction's status. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.
+        """
+        return self._client._request(
+            _OPERATIONS["agents.testSet.retireCase"],
+            path={"agentId": agent_id, "caseId": case_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RetireTestCaseBody, body, fields),
+            response=_models.TestCase,
+            timeout=timeout,
+        )
+
+
 class AgentsPinnedResource:
     """`client.agents.pinned` — the `agents.pinned` operations."""
 
@@ -2919,7 +3028,7 @@ class AgentsPinnedResource:
     ) -> _models.AgentPinnedVersionResolution:
         """The version a run would use. `GET /v1/agents/{agentId}/pinned`
 
-        Resolves the version a run of this agent would use for a project and segment path: the most specific pinned version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
+        Resolves the version a run of this agent would use for a project and segment path: the most specific pinned version (segment path, project, org, tenant), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
         """
         return self._client._request(
             _OPERATIONS["agents.pinned.resolve"],
@@ -3097,6 +3206,7 @@ class AgentsResource:
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
+        self.test_set = AgentsTestSetResource(client)
         self.pinned = AgentsPinnedResource(client)
         self.release_gate = AgentsReleaseGateResource(client)
 
@@ -3165,9 +3275,9 @@ class AgentsResource:
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.Agent:
-        """Fetch the latest version of an agent. `GET /v1/agents/{agentId}`
+        """Fetch the highest version of an agent. `GET /v1/agents/{agentId}`
 
-        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version. For an agent, that is its highest version, which numbers the next one. It is not always what a project runs: `agents.projects` says what runs in each project.
         """
         return self._client._request(
             _OPERATIONS["agents.get"],
@@ -3181,9 +3291,9 @@ class AgentsResource:
     def projects(
         self, agent_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.AgentProjectList:
-        """List the projects an agent runs in. `GET /v1/agents/{agentId}/projects`
+        """List the projects an agent runs in, and what runs in each. `GET /v1/agents/{agentId}/projects`
 
-        The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty.
+        The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty. Each project says what a run there that names no version gets (`runs`) and why (`follows`): a pin that covers the project, else its Latest. Latest moves only when a deployment into the project ships a version, or when a person publishes a full version or adds one as the latest version; a pin never moves it. `segments` lists the pins on segments inside the project. `highest` is the agent's highest version, which numbers the next one. A version the caller can't see is left out.
         """
         return self._client._request(
             _OPERATIONS["agents.projects"],
@@ -3214,30 +3324,6 @@ class AgentsResource:
             query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
             response=_models.AgentCollectionPage,
-            timeout=timeout,
-        )
-
-    def derive_version(
-        self,
-        agent_id: str | UUID,
-        body: _models.DeriveAgentVersionBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.Agent:
-        """Derive an agent version with data-block pins swapped. `POST /v1/agents/{agentId}/versions`
-
-        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent. In a tenant with environment orders, the new version is made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted; the agent's project doesn't change.
-        """
-        return self._client._request(
-            _OPERATIONS["agents.deriveVersion"],
-            path={"agentId": agent_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.DeriveAgentVersionBody, body, fields),
-            response=_models.Agent,
             timeout=timeout,
         )
 
@@ -3307,7 +3393,7 @@ class AgentsResource:
     ) -> _models.ReinstateAgentVersionResult:
         """Reinstate a specific tombstoned agent version. `POST /v1/agents/{agentId}/versions/{version}/reinstate`
 
-        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).
+        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the highest active version, which numbers the next one. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).
         """
         return self._client._request(
             _OPERATIONS["agents.reinstateVersion"],
@@ -4612,31 +4698,23 @@ class SuggestedChangesResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal[
-            "draft",
-            "evaluating",
-            "evaluated",
-            "not-better",
-            "evaluation-failed",
-            "in-review",
+            "checking",
+            "check-failed",
+            "ready",
+            "waiting-for-second-person",
             "pinned",
-            "refused",
-            "rejected",
-            "expired",
-            "superseded",
-            "rolled-back",
+            "added-as-latest",
             "withdrawn",
         ]
         | None = None,
         agent_id: str | UUID | None = None,
-        tier: Literal["settings-block", "prompt-block"] | None = None,
-        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
-        scope_id: str | UUID | None = None,
-        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
+        project_id: str | UUID | None = None,
+        made_by: Literal["improve-run", "person", "service", "deploy", "offer"] | None = None,
         timeout: float | None = None,
     ) -> _models.SuggestedChangeCollectionPage:
         """List suggested changes. `GET /v1/suggested-changes`
 
-        Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the pin scope a suggested change is for (`scopeKind`, `scopeId`, `segment`, exactly as the pin history takes it).
+        Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?projectId=` (the project a suggested change is for), `?status=` and `?madeBy=` (a kind of maker). Statuses and makers are derived, so a page filtered by either can hold fewer rows than `limit`.
         """
         return self._client._request(
             _OPERATIONS["suggestedChanges.list"],
@@ -4646,10 +4724,8 @@ class SuggestedChangesResource:
                 "cursor": cursor,
                 "status": status,
                 "agentId": agent_id,
-                "tier": tier,
-                "scopeKind": scope_kind,
-                "scopeId": scope_id,
-                "segment": _segments(segments),
+                "projectId": project_id,
+                "madeBy": made_by,
             },
             headers={},
             response=_models.SuggestedChangeCollectionPage,
@@ -4665,9 +4741,9 @@ class SuggestedChangesResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.SuggestedChange:
-        """Suggest new content for a data block. `POST /v1/suggested-changes`
+        """Suggest a change to a block, for a project. `POST /v1/suggested-changes`
 
-        A hand-written suggested change: new settings values or a new prompt template for a block `fromVersion` pins, for a pin scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`. Needs `publish` on the agent.
+        New settings values or a new prompt template for one block, in what the project runs: its pin, or Latest. Checked as publishing that block version would be (its schema carries over; for the version's model-settings block, as model settings), and refused when it equals the content the version pins. Then the block version is published, an agent version is derived from what the project runs with that one block changed (it serves nothing until it's pinned or added as Latest), and the check starts on the project's test set, frozen now: the new version and what the project runs replay the same cases. The same change on the same version for the same project is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`, unchecked again. Needs `publish` on the agent.
         """
         return self._client._request(
             _OPERATIONS["suggestedChanges.create"],
@@ -4684,7 +4760,7 @@ class SuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Fetch a suggested change. `GET /v1/suggested-changes/{suggestedChangeId}`
 
-        Needs `read` on its agent.
+        With its block's content before and after (`changes[].before`, `changes[].after`). Needs `read` on its agent.
         """
         return self._client._request(
             _OPERATIONS["suggestedChanges.get"],
@@ -4695,31 +4771,7 @@ class SuggestedChangesResource:
             timeout=timeout,
         )
 
-    def evaluate(
-        self,
-        suggested_change_id: str | UUID,
-        body: _models.EvaluateSuggestedChangeBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.SuggestedChange:
-        """Compare a suggested change on a test set. `POST /v1/suggested-changes/{suggestedChangeId}/evaluate`
-
-        The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a pin makes them serve. Then a comparison test run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a pinned version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would serve there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
-        """
-        return self._client._request(
-            _OPERATIONS["suggestedChanges.evaluate"],
-            path={"suggestedChangeId": suggested_change_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.EvaluateSuggestedChangeBody, body, fields),
-            response=_models.SuggestedChange,
-            timeout=timeout,
-        )
-
-    def rescore(
+    def check(
         self,
         suggested_change_id: str | UUID,
         /,
@@ -4727,12 +4779,12 @@ class SuggestedChangesResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.SuggestedChange:
-        """Rescore a suggested change's latest evaluation. `POST /v1/suggested-changes/{suggestedChangeId}/rescore`
+        """Check a suggested change again. `POST /v1/suggested-changes/{suggestedChangeId}/check`
 
-        After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison test run scores the same replays again, counting those corrections, as `POST /v1/test-runs/{testRunId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
+        Checks it again on its project's test set, frozen now: its version and the version it's built on replay the same cases, so new corrections count. Its version is made first if it has none. When its project runs another version than the one it's built on, it's rebuilt there first: its block change on that version, as a new version, and `builtOn.rebuiltAt` says when. Takes no body fields. Needs `publish` on the agent. Allowed from `check-failed` and `ready`.
         """
         return self._client._request(
-            _OPERATIONS["suggestedChanges.rescore"],
+            _OPERATIONS["suggestedChanges.check"],
             path={"suggestedChangeId": suggested_change_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
@@ -4750,12 +4802,36 @@ class SuggestedChangesResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.SuggestedChange:
-        """Pin a suggested change's version for its scope. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
+        """Pin a suggested change's version for its project. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
 
-        A pin of the candidate for the suggested change's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. Needs `pin` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.
+        A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `pin` on the agent. Allowed from `ready`.
         """
         return self._client._request(
             _OPERATIONS["suggestedChanges.pin"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SuggestedChangeReasonBody, body, fields),
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    def add_as_latest(
+        self,
+        suggested_change_id: str | UUID,
+        body: _models.SuggestedChangeReasonBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SuggestedChange:
+        """Add a suggested change's version as its project's Latest. `POST /v1/suggested-changes/{suggestedChangeId}/add-as-latest`
+
+        Makes its version Latest in its project, now, so the project runs it. Only for a project on Latest, which takes each new Latest without a gate; a pinned project takes a pin of the change instead. `reason` is kept on its `addedAsLatest`. Needs `pin` on the agent. Allowed from `ready`.
+        """
+        return self._client._request(
+            _OPERATIONS["suggestedChanges.addAsLatest"],
             path={"suggestedChangeId": suggested_change_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
@@ -4776,7 +4852,7 @@ class SuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Withdraw a suggested change. `POST /v1/suggested-changes/{suggestedChangeId}/withdraw`
 
-        Closes it. Not while it's in review (decide its approval instead), nor once pinned, rejected or rolled back. Needs `publish` on the agent.
+        Closes it. Allowed from `checking`, `check-failed` and `ready`: not while it waits for a second person (they reject it instead), nor once pinned or added as Latest. Needs `publish` on the agent.
         """
         return self._client._request(
             _OPERATIONS["suggestedChanges.withdraw"],
@@ -6473,7 +6549,7 @@ class TestSetsResource:
     ) -> _models.TestSetCollectionPage:
         """List tenant test sets. `GET /v1/test-sets`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated. A `corrections` test set (an agent's frozen versions, and those built from corrections before) is listed only with `?kind=corrections`: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).
         """
         return self._client._request(
             _OPERATIONS["testSets.list"],
@@ -6504,7 +6580,7 @@ class TestSetsResource:
     ) -> _models.PublishTestSetResult:
         """Publish a test set. `POST /v1/test-sets`
 
-        Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201). An id that starts with `agent.` is refused with `400 bad-input`: those are agents' own test sets, whose versions only a check or a test run makes.
         """
         return self._client._request(
             _OPERATIONS["testSets.publish"],
@@ -6534,30 +6610,6 @@ class TestSetsResource:
             query={"projectId": project_id},
             headers={},
             response=_models.TestSet,
-            timeout=timeout,
-        )
-
-    def build_from_corrections(
-        self,
-        test_set_id: str | UUID,
-        body: _models.BuildCorrectedTestSetBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.BuildCorrectedTestSetResult:
-        """Build a test set from corrections. `POST /v1/test-sets/{testSetId}/versions/from-corrections`
-
-        Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
-        """
-        return self._client._request(
-            _OPERATIONS["testSets.buildFromCorrections"],
-            path={"testSetId": test_set_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.BuildCorrectedTestSetBody, body, fields),
-            response=_models.BuildCorrectedTestSetResult,
             timeout=timeout,
         )
 
@@ -6766,7 +6818,7 @@ class BlocksResource:
     ) -> _models.PublishBlockResult:
         """Publish a data block version. `POST /v1/blocks`
 
-        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.
+        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A settings block an agent version uses as its model settings takes only model settings, which never name the model that agent version names too. The version records the caller as `publishedBy`, and `source: { kind: "api" }`. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.
         """
         return self._client._request(
             _OPERATIONS["blocks.publish"],
@@ -7793,7 +7845,7 @@ class DeploymentsResource:
     ) -> _models.DeploymentPromotion:
         """Promote a deployment to the next environment. `POST /v1/deployments/{deploymentId}/promotions`
 
-        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since.
+        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `pin`, the move commits first; then each carried agent is pinned through its target scope's release gate, and each carried flow is pinned. A release gate that refuses or holds an agent isn't an error: its `pinned` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.pinned` and `details.pinnedFlows`.
         """
         return self._client._request(
             _OPERATIONS["deployments.promote"],
@@ -12668,6 +12720,109 @@ class AsyncApprovalsResource:
         )
 
 
+class AsyncAgentsTestSetResource:
+    """`client.agents.test_set` — the `agents.testSet` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def get(
+        self, agent_id: str | UUID, /, *, project_id: str | UUID, timeout: float | None = None
+    ) -> _models.AgentTestSet:
+        """A project's test set of an agent. `GET /v1/agents/{agentId}/test-set`
+
+        How many cases the agent's test set has in the project. Its cases are the agent's corrections there, except Won't fix and Removed ones (Fixed and With the owner included), and cases added by hand. It's computed when it's read. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.testSet.get"],
+            path={"agentId": agent_id},
+            query={"projectId": project_id},
+            headers={},
+            response=_models.AgentTestSet,
+            timeout=timeout,
+        )
+
+    async def list_cases(
+        self,
+        agent_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID,
+        include: Literal["retired"] | None = None,
+        kind: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TestCaseCollectionPage:
+        """List a project's cases of an agent's test set. `GET /v1/agents/{agentId}/test-set/cases`
+
+        Cursor-paginated, newest added first. A retired case comes back only with `include=retired`. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.testSet.listCases"],
+            path={"agentId": agent_id},
+            query={
+                "projectId": project_id,
+                "include": include,
+                "kind": kind,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.TestCaseCollectionPage,
+            timeout=timeout,
+        )
+
+    async def add_case(
+        self,
+        agent_id: str | UUID,
+        body: _models.AddTestCaseBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TestCase:
+        """Add a case to an agent's test set. `POST /v1/agents/{agentId}/test-set/cases`
+
+        A case by hand, from a correction's body on one of the agent's finished runs. It has no status, isn't sorted, and nothing that counts corrections counts it (Improve's trigger, the expert queue's progress, a rule's yes-rate). The run's first correction or case stores a copy of its input and output. A comparison's replay can't be a case. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.testSet.addCase"],
+            path={"agentId": agent_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AddTestCaseBody, body, fields),
+            response=_models.TestCase,
+            timeout=timeout,
+        )
+
+    async def retire_case(
+        self,
+        agent_id: str | UUID,
+        case_id: str | UUID,
+        body: _models.RetireTestCaseBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TestCase:
+        """Retire a case of an agent's test set. `POST /v1/agents/{agentId}/test-set/cases/{caseId}/retire`
+
+        A retired case stays listed, and no test run checks it again. There's no un-retire, and retiring a correction's case doesn't change the correction's status. Needs `publish` on the agent and `read` on the case's project; for an agent more than one project serves, `write` on the case's project.
+        """
+        return await self._client._request(
+            _OPERATIONS["agents.testSet.retireCase"],
+            path={"agentId": agent_id, "caseId": case_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RetireTestCaseBody, body, fields),
+            response=_models.TestCase,
+            timeout=timeout,
+        )
+
+
 class AsyncAgentsPinnedResource:
     """`client.agents.pinned` — the `agents.pinned` operations."""
 
@@ -12685,7 +12840,7 @@ class AsyncAgentsPinnedResource:
     ) -> _models.AgentPinnedVersionResolution:
         """The version a run would use. `GET /v1/agents/{agentId}/pinned`
 
-        Resolves the version a run of this agent would use for a project and segment path: the most specific pinned version (segment path, project, org, tenant), else the latest registered. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
+        Resolves the version a run of this agent would use for a project and segment path: the most specific pinned version (segment path, project, org, tenant), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
         """
         return await self._client._request(
             _OPERATIONS["agents.pinned.resolve"],
@@ -12863,6 +13018,7 @@ class AsyncAgentsResource:
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
+        self.test_set = AsyncAgentsTestSetResource(client)
         self.pinned = AsyncAgentsPinnedResource(client)
         self.release_gate = AsyncAgentsReleaseGateResource(client)
 
@@ -12931,9 +13087,9 @@ class AsyncAgentsResource:
         project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.Agent:
-        """Fetch the latest version of an agent. `GET /v1/agents/{agentId}`
+        """Fetch the highest version of an agent. `GET /v1/agents/{agentId}`
 
-        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version.
+        An item more than one project serves (an environment order carries it to later environments) answers its newest active version that can run in a project the caller reads, and `404` when there is none. `projectId` narrows that to one project. An item with one project answers its latest active version. For an agent, that is its highest version, which numbers the next one. It is not always what a project runs: `agents.projects` says what runs in each project.
         """
         return await self._client._request(
             _OPERATIONS["agents.get"],
@@ -12947,9 +13103,9 @@ class AsyncAgentsResource:
     async def projects(
         self, agent_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.AgentProjectList:
-        """List the projects an agent runs in. `GET /v1/agents/{agentId}/projects`
+        """List the projects an agent runs in, and what runs in each. `GET /v1/agents/{agentId}/projects`
 
-        The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty.
+        The project the agent was first published in, then each other project a version of it can run in: one that a deployment which is not retired shipped a version into, an unregistered version included. A change to the agent reaches each of them. Only the projects the caller can read are named, its first project included. A retired agent still answers. Without environment orders, an agent has one project. Under `kindgi dev`, whose pack names no project, the list is empty. Each project says what a run there that names no version gets (`runs`) and why (`follows`): a pin that covers the project, else its Latest. Latest moves only when a deployment into the project ships a version, or when a person publishes a full version or adds one as the latest version; a pin never moves it. `segments` lists the pins on segments inside the project. `highest` is the agent's highest version, which numbers the next one. A version the caller can't see is left out.
         """
         return await self._client._request(
             _OPERATIONS["agents.projects"],
@@ -12980,30 +13136,6 @@ class AsyncAgentsResource:
             query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
             response=_models.AgentCollectionPage,
-            timeout=timeout,
-        )
-
-    async def derive_version(
-        self,
-        agent_id: str | UUID,
-        body: _models.DeriveAgentVersionBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.Agent:
-        """Derive an agent version with data-block pins swapped. `POST /v1/agents/{agentId}/versions`
-
-        An expert's edit, without a code change: a new agent version that is `from`'s bag with some prompt or settings pins swapped (`derivedFrom: { version, reason: 'edited', label, by }`), numbered the next free patch after the agent's highest version. Only blocks `from` already references swap, to a published, active version of the right kind (model settings for the model-settings block); tool pins come from code. Needs `publish` on the agent. In a tenant with environment orders, the new version is made in the first environment of the agent's project's order, and reaches the later ones when a build of the agent is promoted; the agent's project doesn't change.
-        """
-        return await self._client._request(
-            _OPERATIONS["agents.deriveVersion"],
-            path={"agentId": agent_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.DeriveAgentVersionBody, body, fields),
-            response=_models.Agent,
             timeout=timeout,
         )
 
@@ -13073,7 +13205,7 @@ class AsyncAgentsResource:
     ) -> _models.ReinstateAgentVersionResult:
         """Reinstate a specific tombstoned agent version. `POST /v1/agents/{agentId}/versions/{version}/reinstate`
 
-        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the latest active version. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).
+        Un-tombstones a previously-unregistered version: clears the tombstone on that version and recomputes the highest active version, which numbers the next one. Restores the manifest bytes verbatim (semver hygiene: reinstate never mutates). Idempotent — reinstating an active version is a no-op (returns `wasTombstoned: false`). Reinstating any version of a fully-retired agent reactivates the identity: subsequent GETs return 200, invocations succeed. Publish is always allowed regardless of retirement state — this verb is for restoring previously-unregistered bytes, not for reactivating a retired identity (a fresh publish does that).
         """
         return await self._client._request(
             _OPERATIONS["agents.reinstateVersion"],
@@ -14380,31 +14512,23 @@ class AsyncSuggestedChangesResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal[
-            "draft",
-            "evaluating",
-            "evaluated",
-            "not-better",
-            "evaluation-failed",
-            "in-review",
+            "checking",
+            "check-failed",
+            "ready",
+            "waiting-for-second-person",
             "pinned",
-            "refused",
-            "rejected",
-            "expired",
-            "superseded",
-            "rolled-back",
+            "added-as-latest",
             "withdrawn",
         ]
         | None = None,
         agent_id: str | UUID | None = None,
-        tier: Literal["settings-block", "prompt-block"] | None = None,
-        scope_kind: Literal["tenant", "org", "project", "segment"] | None = None,
-        scope_id: str | UUID | None = None,
-        segments: Sequence[_models.ScopeSegment | Mapping[str, str]] | None = None,
+        project_id: str | UUID | None = None,
+        made_by: Literal["improve-run", "person", "service", "deploy", "offer"] | None = None,
         timeout: float | None = None,
     ) -> _models.SuggestedChangeCollectionPage:
         """List suggested changes. `GET /v1/suggested-changes`
 
-        Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the pin scope a suggested change is for (`scopeKind`, `scopeId`, `segment`, exactly as the pin history takes it).
+        Newest first, cursor-paginated, only the suggested changes of agents the caller can read. Filters: `?agentId=`, `?projectId=` (the project a suggested change is for), `?status=` and `?madeBy=` (a kind of maker). Statuses and makers are derived, so a page filtered by either can hold fewer rows than `limit`.
         """
         return await self._client._request(
             _OPERATIONS["suggestedChanges.list"],
@@ -14414,10 +14538,8 @@ class AsyncSuggestedChangesResource:
                 "cursor": cursor,
                 "status": status,
                 "agentId": agent_id,
-                "tier": tier,
-                "scopeKind": scope_kind,
-                "scopeId": scope_id,
-                "segment": _segments(segments),
+                "projectId": project_id,
+                "madeBy": made_by,
             },
             headers={},
             response=_models.SuggestedChangeCollectionPage,
@@ -14433,9 +14555,9 @@ class AsyncSuggestedChangesResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.SuggestedChange:
-        """Suggest new content for a data block. `POST /v1/suggested-changes`
+        """Suggest a change to a block, for a project. `POST /v1/suggested-changes`
 
-        A hand-written suggested change: new settings values or a new prompt template for a block `fromVersion` pins, for a pin scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`. Needs `publish` on the agent.
+        New settings values or a new prompt template for one block, in what the project runs: its pin, or Latest. Checked as publishing that block version would be (its schema carries over; for the version's model-settings block, as model settings), and refused when it equals the content the version pins. Then the block version is published, an agent version is derived from what the project runs with that one block changed (it serves nothing until it's pinned or added as Latest), and the check starts on the project's test set, frozen now: the new version and what the project runs replay the same cases. The same change on the same version for the same project is one suggested change: answered `200` with `X-Suggested-Change-Deduped: true`, unchecked again. Needs `publish` on the agent.
         """
         return await self._client._request(
             _OPERATIONS["suggestedChanges.create"],
@@ -14452,7 +14574,7 @@ class AsyncSuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Fetch a suggested change. `GET /v1/suggested-changes/{suggestedChangeId}`
 
-        Needs `read` on its agent.
+        With its block's content before and after (`changes[].before`, `changes[].after`). Needs `read` on its agent.
         """
         return await self._client._request(
             _OPERATIONS["suggestedChanges.get"],
@@ -14463,31 +14585,7 @@ class AsyncSuggestedChangesResource:
             timeout=timeout,
         )
 
-    async def evaluate(
-        self,
-        suggested_change_id: str | UUID,
-        body: _models.EvaluateSuggestedChangeBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.SuggestedChange:
-        """Compare a suggested change on a test set. `POST /v1/suggested-changes/{suggestedChangeId}/evaluate`
-
-        The first evaluation publishes the block version and derives the agent version (`derivedFrom.suggestedChangeId`); they serve no scope until a pin makes them serve. Then a comparison test run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a pinned version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would serve there at once (`409 suggested-change-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.
-        """
-        return await self._client._request(
-            _OPERATIONS["suggestedChanges.evaluate"],
-            path={"suggestedChangeId": suggested_change_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.EvaluateSuggestedChangeBody, body, fields),
-            response=_models.SuggestedChange,
-            timeout=timeout,
-        )
-
-    async def rescore(
+    async def check(
         self,
         suggested_change_id: str | UUID,
         /,
@@ -14495,12 +14593,12 @@ class AsyncSuggestedChangesResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> _models.SuggestedChange:
-        """Rescore a suggested change's latest evaluation. `POST /v1/suggested-changes/{suggestedChangeId}/rescore`
+        """Check a suggested change again. `POST /v1/suggested-changes/{suggestedChangeId}/check`
 
-        After people correct a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison test run scores the same replays again, counting those corrections, as `POST /v1/test-runs/{testRunId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the suggested change's evaluation, so the suggested change is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
+        Checks it again on its project's test set, frozen now: its version and the version it's built on replay the same cases, so new corrections count. Its version is made first if it has none. When its project runs another version than the one it's built on, it's rebuilt there first: its block change on that version, as a new version, and `builtOn.rebuiltAt` says when. Takes no body fields. Needs `publish` on the agent. Allowed from `check-failed` and `ready`.
         """
         return await self._client._request(
-            _OPERATIONS["suggestedChanges.rescore"],
+            _OPERATIONS["suggestedChanges.check"],
             path={"suggestedChangeId": suggested_change_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
@@ -14518,12 +14616,36 @@ class AsyncSuggestedChangesResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.SuggestedChange:
-        """Pin a suggested change's version for its scope. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
+        """Pin a suggested change's version for its project. `POST /v1/suggested-changes/{suggestedChangeId}/pin`
 
-        A pin of the candidate for the suggested change's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. Needs `pin` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.
+        A pin of its version for its project, with its check's test run, through the project's gate: as `POST /v1/agents/{agentId}/pinned/pin` answers. Only for a project that's pinned; a project on Latest takes the change as its Latest. Needs `pin` on the agent. Allowed from `ready`.
         """
         return await self._client._request(
             _OPERATIONS["suggestedChanges.pin"],
+            path={"suggestedChangeId": suggested_change_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SuggestedChangeReasonBody, body, fields),
+            response=_models.SuggestedChange,
+            timeout=timeout,
+        )
+
+    async def add_as_latest(
+        self,
+        suggested_change_id: str | UUID,
+        body: _models.SuggestedChangeReasonBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SuggestedChange:
+        """Add a suggested change's version as its project's Latest. `POST /v1/suggested-changes/{suggestedChangeId}/add-as-latest`
+
+        Makes its version Latest in its project, now, so the project runs it. Only for a project on Latest, which takes each new Latest without a gate; a pinned project takes a pin of the change instead. `reason` is kept on its `addedAsLatest`. Needs `pin` on the agent. Allowed from `ready`.
+        """
+        return await self._client._request(
+            _OPERATIONS["suggestedChanges.addAsLatest"],
             path={"suggestedChangeId": suggested_change_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
@@ -14544,7 +14666,7 @@ class AsyncSuggestedChangesResource:
     ) -> _models.SuggestedChange:
         """Withdraw a suggested change. `POST /v1/suggested-changes/{suggestedChangeId}/withdraw`
 
-        Closes it. Not while it's in review (decide its approval instead), nor once pinned, rejected or rolled back. Needs `publish` on the agent.
+        Closes it. Allowed from `checking`, `check-failed` and `ready`: not while it waits for a second person (they reject it instead), nor once pinned or added as Latest. Needs `publish` on the agent.
         """
         return await self._client._request(
             _OPERATIONS["suggestedChanges.withdraw"],
@@ -16245,7 +16367,7 @@ class AsyncTestSetsResource:
     ) -> _models.TestSetCollectionPage:
         """List tenant test sets. `GET /v1/test-sets`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
+        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated. A `corrections` test set (an agent's frozen versions, and those built from corrections before) is listed only with `?kind=corrections`: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).
         """
         return await self._client._request(
             _OPERATIONS["testSets.list"],
@@ -16276,7 +16398,7 @@ class AsyncTestSetsResource:
     ) -> _models.PublishTestSetResult:
         """Publish a test set. `POST /v1/test-sets`
 
-        Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `TestSet` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object). Deeper `spec` validation is the runtime consumer's responsibility per kind (eval-judge adapter for `accuracy`/`pairwise`/`regression`, HITL bridge for `human-review`, sandbox handler for `custom`). Re-publishing an existing `(testSetId, version)` returns `409 test-set-already-registered`. Idempotency-Key applies (retries with the same key replay the original 201). An id that starts with `agent.` is refused with `400 bad-input`: those are agents' own test sets, whose versions only a check or a test run makes.
         """
         return await self._client._request(
             _OPERATIONS["testSets.publish"],
@@ -16306,30 +16428,6 @@ class AsyncTestSetsResource:
             query={"projectId": project_id},
             headers={},
             response=_models.TestSet,
-            timeout=timeout,
-        )
-
-    async def build_from_corrections(
-        self,
-        test_set_id: str | UUID,
-        body: _models.BuildCorrectedTestSetBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.BuildCorrectedTestSetResult:
-        """Build a test set from corrections. `POST /v1/test-sets/{testSetId}/versions/from-corrections`
-
-        Publishes a `corrections` test set version whose cases are copies of corrected runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the corrected output, and each item's corrections summed up: yes and no counts, the weight behind yes and behind all corrections (an unclassified correction counts 1), and the reasons. `correctorGroupIds` counts only corrections of those classes; `minCorrections` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
-        """
-        return await self._client._request(
-            _OPERATIONS["testSets.buildFromCorrections"],
-            path={"testSetId": test_set_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.BuildCorrectedTestSetBody, body, fields),
-            response=_models.BuildCorrectedTestSetResult,
             timeout=timeout,
         )
 
@@ -16538,7 +16636,7 @@ class AsyncBlocksResource:
     ) -> _models.PublishBlockResult:
         """Publish a data block version. `POST /v1/blocks`
 
-        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.
+        Needs `write` on the project. A prompt's template must parse as Liquid; a settings block's `values` must satisfy its `schema` and the latest version's. A settings block an agent version uses as its model settings takes only model settings, which never name the model that agent version names too. The version records the caller as `publishedBy`, and `source: { kind: "api" }`. A taken version is `409 block-already-registered` (versions never change); a block keeps its kind, and its versions stay in its first version's project, or another project of that project's environment order (`409 block-project-mismatch`). A later environment of an order takes no publishes (`409 environment-takes-promotions`). Idempotency-Key applies.
         """
         return await self._client._request(
             _OPERATIONS["blocks.publish"],
@@ -17571,7 +17669,7 @@ class AsyncDeploymentsResource:
     ) -> _models.DeploymentPromotion:
         """Promote a deployment to the next environment. `POST /v1/deployments/{deploymentId}/promotions`
 
-        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since.
+        Moves the exact build a deployment runs into the next environment of its environment order: a new deployment of the target project with the same image, signature, signer and contents, and `promotedFromDeploymentId`. Nothing is built again and no registry is written. The edits of the build's agents and flows (versions made from a version it ships) move with it (`moved.agents[].carried`); edits made from a version it doesn't ship stay (`leftBehind`). Needs `read` on the deployment's project and `admin` on the target. Refused, with nothing written, when the target isn't the next environment, the deployment (or the target's copy) no longer serves, its signer is no longer trusted or its signature doesn't verify, or a value the build needs isn't ready in the target. The target having this build already answers `200` with its deployment, and records the edits made since. With `pin`, the move commits first; then each carried agent is pinned through its target scope's release gate, and each carried flow is pinned. A release gate that refuses or holds an agent isn't an error: its `pinned` entry has `pinned: false` and the gate's `status`. A refusal after the move leaves the move in place, and lists the pins already made in `details.pinned` and `details.pinnedFlows`.
         """
         return await self._client._request(
             _OPERATIONS["deployments.promote"],

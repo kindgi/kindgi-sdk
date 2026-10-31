@@ -324,6 +324,33 @@ describe('API — test-sets list', () => {
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe('bad-input');
   });
+
+  test('a test set built from corrections is listed only when asked by kind, and read by id', async () => {
+    const { app, binding } = makeApp();
+    await seed(binding, testSetSpec({ id: 'a.accuracy', kind: 'accuracy' }));
+    await seed(
+      binding,
+      testSetSpec({ id: 'b.corrected', kind: 'corrections', spec: { source: 'corrections' } }),
+    );
+    const listed = await app.request('/v1/test-sets', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(listed.status).toBe(200);
+    const body = (await listed.json()) as { data: Array<{ id: string }> };
+    expect(body.data.map((s) => s.id)).toEqual(['a.accuracy']);
+
+    const byKind = await app.request('/v1/test-sets?kind=corrections', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(byKind.status).toBe(200);
+    const corrections = (await byKind.json()) as { data: Array<{ id: string }> };
+    expect(corrections.data.map((s) => s.id)).toEqual(['b.corrected']);
+
+    const byId = await app.request('/v1/test-sets/b.corrected', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(byId.status).toBe(200);
+  });
 });
 
 describe('API — test-sets publish + get', () => {
@@ -577,6 +604,31 @@ describe('API — test-sets publish + get', () => {
     const body = (await res.json()) as { error: { code: string; message: string } };
     expect(body.error.code).toBe('bad-input');
     expect(body.error.message).toContain('projectId');
+  });
+
+  test("an id starting `agent.` is an agent's own test set: publishing one is 400, and nothing is written", async () => {
+    const { app } = makeApp();
+    lastPublishedProjectId = undefined;
+    const id = 'agent.acme.desk.5e3c1f0a-0b1d-4c2e-9f3a-7d6b2a1c0e9f';
+    const res = await app.request('/v1/test-sets', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(testSetPostBody({ id, kind: 'corrections' })),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error).toMatchObject({
+      code: 'bad-input',
+      message: `Test set ids starting \`agent.\` are agents' own test sets, and only a test run or a suggested change's check makes their versions. Publish "${id}" under another id.`,
+    });
+    expect(lastPublishedProjectId).toBeUndefined();
+    // Only the prefix is reserved.
+    const named = await app.request('/v1/test-sets', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(testSetPostBody({ id: 'agents.acme.desk' })),
+    });
+    expect(named.status).toBe(201);
   });
 });
 

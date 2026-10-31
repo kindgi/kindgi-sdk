@@ -3,8 +3,9 @@
 
 import type { BlockDefinition, BlockKind } from '@kindgi/agents';
 import type { Scope } from '@kindgi/platform';
-import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
+import type { AgentId, Cursor, ProjectId, TenantId } from '@kindgi/types';
 
+import type { PinActor } from './agent-pin-binding.js';
 import type { RegistryReadOnly } from './registry-read-only.js';
 
 /**
@@ -71,7 +72,21 @@ export type BlockRecord = BlockDefinition & {
   readonly publishedAt: string;
   /** ISO-8601; present only on an unregistered version. */
   readonly unregisteredAt?: string;
+  /** Who published it. Absent on a version published before it was recorded. */
+  readonly publishedBy?: PinActor;
+  /** Where it came from. Absent on a version published before it was recorded. */
+  readonly source?: BlockVersionSource;
 };
+
+/**
+ * Where a block version came from:
+ * - `api`: `POST /v1/blocks` (the CLI's `kindgi blocks publish` among its callers);
+ * - `deploy`: a deploy's pack, with the deployment's id;
+ * - `suggested-change`: a suggested change, with its id.
+ */
+export type BlockVersionSource =
+  | { readonly kind: 'api' }
+  | { readonly kind: 'deploy' | 'suggested-change'; readonly id: string };
 
 export interface BlockListInput {
   readonly tenantId: TenantId;
@@ -122,6 +137,45 @@ export interface BlockPublishInput {
   /** The project to publish into. REQUIRED; the store never falls back to Default. */
   readonly projectId: ProjectId;
   readonly block: BlockDefinition;
+  /** Who publishes it: the request's principal. Stored with the version. */
+  readonly publishedBy: PinActor;
+  /** Where it comes from. Stored with the version. */
+  readonly source: BlockVersionSource;
+}
+
+/**
+ * Which agent versions use a block: what `POST /v1/blocks` checks a new
+ * settings version against. A separate surface, so a registry fake
+ * needn't answer it; a deployment's agent registry implements it.
+ */
+export interface BlockUseBinding {
+  /**
+   * The agent versions, unregistered ones left out, that pin a version of
+   * the block: as a prompt, a settings block, or their model settings
+   * (`modelSettings`, which is a settings block too, listed once as
+   * `model-settings`). Read from each version's `pins` and
+   * `modelSettings`; a version published before pins existed is left
+   * out. Tenant-scoped.
+   */
+  pinningBlock(input: BlockUseInput): Promise<readonly BlockUse[]>;
+}
+
+export interface BlockUseInput {
+  readonly tenantId: TenantId;
+  readonly blockId: string;
+}
+
+/** One agent version that pins a block. */
+export interface BlockUse {
+  readonly agentId: AgentId;
+  readonly version: string;
+  /** How the version uses the block. */
+  readonly as: 'prompt' | 'settings' | 'model-settings';
+  /** The block version it pins. */
+  readonly blockVersion: string;
+  /** What the version says about the model, for `modelNamedTwice`. */
+  readonly preferredProvider?: string;
+  readonly preferredModel?: string;
 }
 
 export interface BlockVersionInput {
