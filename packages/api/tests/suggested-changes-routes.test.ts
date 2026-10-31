@@ -1221,6 +1221,24 @@ describe('POST /v1/suggested-changes', () => {
     expect(testRuns.started).toEqual([]);
   });
 
+  test('with corrections, it reads the cases first: none in the project freezes nothing (409)', async () => {
+    const { call, pinStore, suggestedChanges, freeze, testRuns } = await harness({
+      correctionRegistry: {
+        listCases: async () => ({ data: [], hasMore: false }),
+      } as unknown as CorrectionRegistryBinding,
+    });
+    pinStore.pin(PROJECT, '1.0.0');
+    const res = await call('POST', '/v1/suggested-changes', CARD);
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'suggested-change-nothing-to-check',
+      details: { projectId },
+    });
+    expect(freeze.calls).toEqual([]);
+    expect(suggestedChanges.rows.size).toBe(0);
+    expect(testRuns.started).toEqual([]);
+  });
+
   test("a runtime that freezes no test set can't check one (501), so it makes none", async () => {
     const { call, pinStore, suggestedChanges } = await harness({ freezes: false });
     pinStore.pin(PROJECT, '1.0.0');
@@ -1531,6 +1549,23 @@ describe('POST /v1/suggested-changes/:id/check', () => {
     expect(testRuns.started).toHaveLength(2);
   });
 
+  test('with corrections, a check reads the cases first: none left freezes nothing (409)', async () => {
+    const cases = { data: [{ id: 'j1' }] };
+    const { call, id, withRun, testRuns, freeze } = await made({
+      correctionRegistry: {
+        listCases: async () => ({ data: cases.data, hasMore: false }),
+      } as unknown as CorrectionRegistryBinding,
+    });
+    await testRuns.finish(withRun, 'failed');
+    cases.data = [];
+    const freezes = freeze.calls.length;
+    const res = await call('POST', `/v1/suggested-changes/${id}/check`);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('suggested-change-nothing-to-check');
+    expect(freeze.calls).toHaveLength(freezes);
+    expect(testRuns.started).toHaveLength(2);
+  });
+
   test.each([true, 'takes-candidates'] as const)(
     'a read-only agent registry (%s) refuses it (409 registry-read-only), with its reason, and starts nothing',
     async (readOnly) => {
@@ -1828,11 +1863,14 @@ describe('POST /v1/suggested-changes/:id/add-as-latest', () => {
   });
 
   test("with no case in the card's project, it freezes nothing and starts nothing", async () => {
+    // A case when the card is made and checked; none left when it's added.
+    const cases = { data: [{ id: 'j1' }] };
     const h = await readyOnLatest({
       correctionRegistry: {
-        listCases: async () => ({ data: [], hasMore: false }),
+        listCases: async () => ({ data: cases.data, hasMore: false }),
       } as unknown as CorrectionRegistryBinding,
     });
+    cases.data = [];
     latestByProject(h);
     h.testRuns.started.length = 0;
     const freezes = h.freeze.calls.length;

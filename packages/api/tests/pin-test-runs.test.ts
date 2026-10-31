@@ -797,7 +797,7 @@ describe('a pin that waits for approval', () => {
     expect(await h.get(id)).toMatchObject({ status: 'open' });
   });
 
-  test('with `start: false` it starts nothing, and still applies a run that ended', async () => {
+  test('with `start: false` it starts nothing and freezes nothing, and still applies a run that ended', async () => {
     const h = harness();
     h.onLatest(support, '12.0.0');
     h.onLatest(returns, '12.0.0');
@@ -806,21 +806,25 @@ describe('a pin that waits for approval', () => {
     const id = await h.corrected(support);
     await h.corrected(returns);
     const approved = h.approve(waiting.change);
-    // No run of the change anywhere: nothing starts, nothing changes.
+    // No run of the change anywhere: nothing starts, nothing changes, and
+    // the cases are only read, so no test set version is made for it.
     expect(await h.tookEffect(approved, { start: false })).toEqual({
       testRuns: [],
       fixed: [],
       reopened: [],
     });
     expect(h.started).toEqual([]);
+    expect(h.frozen).toEqual([]);
     // The approval's own call starts them; one that ends applies on the next `start: false`.
     const effect = await h.tookEffect(approved);
     expect(h.started).toHaveLength(2);
+    expect(h.frozen).toHaveLength(2);
     const run = effect.testRuns.find((r) => r.projectId === support);
     if (run === undefined) throw new Error('no run');
     h.end(run.testRunId, { [id]: true });
     expect(await h.tookEffect(approved, { start: false })).toMatchObject({ fixed: [id] });
     expect(h.started).toHaveLength(2);
+    expect(h.frozen).toHaveLength(2);
   });
 
   test("the approval leaves out a project whose test run doesn't start, and logs it", async () => {

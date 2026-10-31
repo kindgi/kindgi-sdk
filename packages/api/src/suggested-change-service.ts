@@ -697,13 +697,26 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
     return narrower === undefined ? undefined : { code: 'registry-read-only', message: narrower };
   }
 
-  /** The project's test set, frozen for a check; the 409 when it has no cases. */
+  /**
+   * The project's test set, frozen for a check; the 409 when it has no
+   * cases. One read of its cases comes first, as a pin's test runs do, so a
+   * project with none freezes nothing: a freeze makes a version. Without
+   * the corrections, the freeze alone says.
+   */
   async function frozenSet(
     testSets: TestSetFreezeBinding,
     tenantId: TenantId,
     agentId: AgentId,
     projectId: ProjectId,
   ): Promise<SuggestedChangeOutcome<FrozenTestSet>> {
+    const some = await deps.corrections?.listCases({
+      tenantId,
+      agentId: agentId as unknown as string,
+      projectId,
+      limit: 1,
+    });
+    if (some !== undefined && some.data.length === 0)
+      return err(nothingToCheck(agentId, projectId));
     const frozen = await testSets.freezeTestSet({ tenantId, agentId, projectId });
     if (frozen.cases.length > 0) return { kind: 'ok', value: frozen };
     return err(nothingToCheck(agentId, projectId));

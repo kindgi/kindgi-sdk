@@ -46,7 +46,7 @@
 - **Errors.** Five codes are new:
   - `suggested-change-not-for-a-project` (409);
   - `suggested-change-check-unsupported` (501): the runtime freezes no test set;
-  - `suggested-change-nothing-to-check` (409): the project's test set has no cases;
+  - `suggested-change-nothing-to-check` (409): the project has no cases, read before its test set is frozen, so no empty version of it is made;
   - `suggested-change-project-pinned` (409);
   - `suggested-change-out-of-date` (409).
 - **Audit events.** Making one, pinning it, adding it as Latest and withdrawing it are recorded, in its project, with the caller as the actor: `suggested-change-created`, `suggested-change-pinned` (with its promotion, and whether it's pinned or waits for a second person), `suggested-change-added-as-latest` and `suggested-change-withdrawn`. Each names the suggested change, its agent, block, versions and who made it, never its content, its `why` or a reason. The same change sent again records nothing. `EVIDENCE_KINDS` lists the four kinds. The `kind` examples in `compliance-evidence.schema.json` list them too, with the block version and provider kinds.
