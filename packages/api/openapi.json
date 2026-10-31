@@ -454,6 +454,8 @@
           "endpoint-not-ready": 409,
           "endpoint-retired": 409,
           "pack-env-conflict": 409,
+          "orchestrator-round-held": 409,
+          "orchestrator-round-not-held": 409,
           "tenant-slug-taken": 409,
           "tenant-slug-in-config": 409,
           "tenant-setup-pending": 409,
@@ -561,6 +563,7 @@
           "project-access-unsupported": 501,
           "environments-unsupported": 501,
           "pack-env-unsupported": 501,
+          "orchestrator-round-unsupported": 501,
           "pack-env-not-served": 501,
           "pack-env-secrets-unaudited": 501,
           "project-in-another-order": 409,
@@ -4003,6 +4006,61 @@
               "pack-env-secret-capacity"
             ],
             "description": "Why the pack service couldn't be created, or was refused: one of `DEPLOYMENT_ENDPOINT_PROBLEM_CODES`. The tenant sees the code, never more."
+          }
+        }
+      },
+      "ClaimOrchestratorRoundBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "claimant",
+          "holdSeconds"
+        ],
+        "properties": {
+          "claimant": {
+            "type": "string",
+            "pattern": "^[\\x21-\\x7e]{1,128}$",
+            "description": "The pass's own id: 1 to 128 printable characters, no spaces."
+          },
+          "holdSeconds": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 3600,
+            "description": "How long the pass holds the round. A claim is never renewed: the pass ends within it, or its claim lapses and the next pass takes the round over."
+          }
+        }
+      },
+      "OrchestratorRound": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "claimant",
+          "heldUntil"
+        ],
+        "properties": {
+          "claimant": {
+            "type": "string",
+            "pattern": "^[\\x21-\\x7e]{1,128}$",
+            "description": "The pass's own id: 1 to 128 printable characters, no spaces."
+          },
+          "heldUntil": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the claim lapses, by the server's clock."
+          }
+        }
+      },
+      "EndOrchestratorRoundBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "claimant"
+        ],
+        "properties": {
+          "claimant": {
+            "type": "string",
+            "pattern": "^[\\x21-\\x7e]{1,128}$",
+            "description": "The pass's own id: 1 to 128 printable characters, no spaces."
           }
         }
       },
@@ -11368,7 +11426,7 @@
               "completed",
               "failed"
             ],
-            "description": "`waiting-on-run`: a turn of the person's sits in a flow that serves other people; the erasure waits for it (`waitingOn`) until its deadline, then cancels it."
+            "description": "`waiting-on-run`: a turn of the person's sits in a flow that serves other people, or a test run still going has a case from their runs; the erasure waits for it (`waitingOn`) until its deadline, then cancels it."
           },
           "phase": {
             "type": "string",
@@ -11422,7 +11480,7 @@
                 "format": "date-time"
               }
             },
-            "description": "The run it waits (or waited) for, and until when; kept as the record of the wait."
+            "description": "The run or test run it waits (or waited) for, and until when; kept as the record of the wait."
           },
           "forced": {
             "type": "boolean",
@@ -11554,7 +11612,7 @@
               "completed",
               "failed"
             ],
-            "description": "`waiting-on-run`: a turn of the person's sits in a flow that serves other people; the erasure waits for it (`waitingOn`) until its deadline, then cancels it."
+            "description": "`waiting-on-run`: a turn of the person's sits in a flow that serves other people, or a test run still going has a case from their runs; the erasure waits for it (`waitingOn`) until its deadline, then cancels it."
           },
           "createdAt": {
             "type": "string",
@@ -11604,7 +11662,7 @@
         "properties": {
           "force": {
             "type": "boolean",
-            "description": "Stop waiting for a run in a flow that serves other people: it's cancelled, and the erasure goes on."
+            "description": "Stop waiting for a run in a flow that serves other people, or a test run with a case from the person's runs: it's cancelled, and the erasure goes on."
           }
         }
       },
@@ -20996,7 +21054,7 @@
           },
           "retired": {
             "type": "string",
-            "description": "`cleared` only: why no pack service is wanted for it now. `superseded` is for good: newer deployments ship every tool version and check it does, so no new call reaches it; a tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither."
+            "description": "`cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: each tool version, pack check, agent and flow version it serves is unregistered and not held (a check: no registered guardrail runs it), or a newer deployment into its project serves it. Registering one of its versions again makes it needed again (from Kindgi 0.4.0; before, it was for good: newer deployments shipped every tool version and check it does). A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither."
           },
           "packEnvProblem": {
             "type": "object",
@@ -21016,6 +21074,51 @@
                 "description": "When it was recorded."
               }
             }
+          },
+          "keptFor": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeploymentKeptFor"
+            },
+            "description": "What keeps this build's pack service, whatever its status, in kind, id, then version order. `[]` when nothing does: it's retired (`superseded`), or retired next. A suspended build has `retired` and still lists what keeps it, since its service comes back when the suspension lifts. On a list page, the first 20 entries, with `keptForTotal`; a get of one deployment gives them all. Absent when builds aren't counted (one service serves every build), and from a runtime before Kindgi 0.4.0."
+          },
+          "keptForTotal": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "On a list page, with `keptFor`: how many entries there are, of which `keptFor` holds the first 20. A get of one deployment doesn't send it."
+          }
+        }
+      },
+      "DeploymentKeptFor": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id"
+        ],
+        "description": "One thing a build's pack service is kept for. To let the build go, unregister it: `kindgi tools|agents|flows unregister <id> <version>`, `kindgi guardrails unregister <id>`.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "`tool`: a tool version this build is the newest into its project to route, still registered or held; a tool deployed without a version has no `version` and neither flag, and is kept until a newer deployment into the project ships the tool. `agent`, `flow`: a version this build is the newest into its project to ship or carry, still registered or held. `guardrail`: a registered guardrail that runs a pack check this build is the newest into its project to route; it has no `version`. A later runtime may add kinds, so treat an unknown one as a kind not yet named."
+          },
+          "id": {
+            "type": "string",
+            "description": "The tool, agent, flow or guardrail id."
+          },
+          "version": {
+            "type": "string",
+            "description": "The version kept for. Absent for a guardrail, or a tool deployed without one."
+          },
+          "registered": {
+            "type": "boolean",
+            "const": true,
+            "description": "The version (or guardrail) is registered."
+          },
+          "held": {
+            "type": "boolean",
+            "const": true,
+            "description": "A pin or a run that hasn't finished uses the version. Unregistering it then lets the build go only once the pin's own version is unregistered or the run finishes. Sent beside `registered` when both are true."
           }
         }
       },
@@ -21918,6 +22021,11 @@
           "packId": {
             "type": "string",
             "description": "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `packId` and lists them all."
+          },
+          "keptBuilds": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "How many builds keep a pack service among the deployments the project filter selects, whatever the page and the other filters: those whose `endpoint.keptFor` isn't empty. With `?projectId=`, that project's (the Default's counts the deployments that name no project); without, the total over the tenant's projects the caller may read. Absent when builds aren't counted (one service serves every build), and from a runtime before Kindgi 0.4.0."
           }
         }
       },
@@ -33571,6 +33679,257 @@
         ]
       }
     },
+    "/v1/system/deployments/round": {
+      "post": {
+        "operationId": "systemDeployments.claimRound",
+        "summary": "Claim the orchestrator's round",
+        "tags": [
+          "system-deployments"
+        ],
+        "responses": {
+          "200": {
+            "description": "Claimed, until `heldUntil`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrchestratorRound"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A malformed body, a `claimant` that isn't 1 to 128 printable characters, or a `holdSeconds` that isn't a whole number from 30 to 3600 (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:deployments` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Another pass's live claim holds the round (`orchestrator-round-held`): this pass stops.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "This server keeps no orchestrator round (`orchestrator-round-unsupported`): whatever runs its pack services keeps one pass at a time itself.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "One orchestrator pass at a time, whatever starts them (scheduled runs can overlap): a pass claims the round before it acts, for `holdSeconds`, and stops on a `409`. A claim is never renewed, the claimant's own included: the pass ends within its hold (`round/end`), or its claim lapses and the next pass takes the round over. Takes `system:deployments`.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClaimOrchestratorRoundBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/deployments/round/end": {
+      "post": {
+        "operationId": "systemDeployments.endRound",
+        "summary": "End the orchestrator's round",
+        "tags": [
+          "system-deployments"
+        ],
+        "responses": {
+          "204": {
+            "description": "Ended."
+          },
+          "400": {
+            "description": "A malformed body, or a malformed `claimant` (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:deployments` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The claimant doesn't hold the round: its hold ran out, and another pass may hold it now (`orchestrator-round-not-held`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "The request body is over the API's limit (`request-too-large`; `details.maxBytes` says how much).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "This server keeps no orchestrator round (`orchestrator-round-unsupported`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`), or the `Idempotency-Key` store couldn't be read before the request ran (`idempotency-store-unavailable`, with `Retry-After`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Ends the round the pass claimed, so the next pass claims it at once instead of waiting for the hold to lapse. Takes `system:deployments`.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5). A request whose key store can't be read before it runs is answered `503 idempotency-store-unavailable` with `Retry-After`: nothing ran, so retry with the same key (from 0.3.0)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EndOrchestratorRoundBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint": {
       "put": {
         "operationId": "systemDeployments.setEndpoint",
@@ -44465,7 +44824,7 @@
             }
           }
         },
-        "description": "Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people) stops waiting: the run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.",
+        "description": "Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people, or a test run still going with a case from their runs) stops waiting: that run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.",
         "parameters": [
           {
             "name": "erasureId",

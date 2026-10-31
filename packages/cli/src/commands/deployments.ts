@@ -218,8 +218,33 @@ function deploymentText(d: Deployment, read: PackEnvRead | undefined): string {
       counted(d.primitives.flows, 'flow'),
     ].join(', ')}`,
     ...(d.endpoint !== undefined ? packServiceLines(d.endpoint, packEnv, target, unread) : []),
+    ...(d.endpoint?.keptFor !== undefined ? keptForLines(d.endpoint.keptFor) : []),
   ];
   return `${lines.join('\n')}\n`;
+}
+
+type KeptFor = NonNullable<Endpoint['keptFor']>[number];
+
+/**
+ * What keeps its pack service, one a line, or that nothing does: a runtime
+ * that runs one per build says (from Kindgi 0.4.0).
+ */
+function keptForLines(keptFor: readonly KeptFor[]): string[] {
+  if (keptFor.length === 0) return ['  Kept for: nothing'];
+  return ['  Kept for:', ...keptFor.map((k) => `    ${keptForText(k)}`)];
+}
+
+/** `tool acme.lookup 1.2.0: registered, held`; `tool acme.search: deployed without a version`. */
+function keptForText(k: KeptFor): string {
+  const why = [
+    ...(k.registered === true ? ['registered'] : []),
+    ...(k.held === true ? ['held by a pin or a run'] : []),
+  ];
+  const named = `${k.kind} ${k.id}${k.version !== undefined ? ` ${k.version}` : ''}`;
+  if (why.length > 0) return `${named}: ${why.join(', ')}`;
+  return k.kind === 'tool' && k.version === undefined
+    ? `${named}: deployed without a version, until a newer build ships it`
+    : named;
 }
 
 /**

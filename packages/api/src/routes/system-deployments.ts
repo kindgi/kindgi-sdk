@@ -269,6 +269,24 @@ export interface SystemDeploymentsBinding {
     | { readonly kind: 'not-ready'; readonly endpoint: DeploymentEndpoint }
     | { readonly kind: 'conflict'; readonly appliedRevision?: string }
   >;
+  /**
+   * Claims the orchestrator's round for `claimant` until `holdUntil`, when
+   * no live claim holds it (`held` when another does): one orchestrator
+   * pass runs at a time, whatever starts them, though scheduled runs can
+   * overlap. A claim isn't renewed: a pass ends within its hold, or its
+   * claim lapses and the next pass takes the round over. A binding without
+   * it answers `501 orchestrator-round-unsupported`.
+   */
+  claimRound?(input: {
+    readonly claimant: string;
+    readonly now: Date;
+    readonly holdUntil: Date;
+  }): Promise<{ readonly kind: 'ok' } | { readonly kind: 'held' }>;
+  /** Ends `claimant`'s round: `not-held` when its claim lapsed and another holds the round. */
+  endRound?(input: {
+    readonly claimant: string;
+    readonly now: Date;
+  }): Promise<{ readonly kind: 'ok' } | { readonly kind: 'not-held' }>;
 }
 
 /**
@@ -306,6 +324,10 @@ const MIN_TOKEN_LENGTH = 16;
 const MAX_TOKEN_LENGTH = 512;
 const MAX_REASON_LENGTH = 500;
 const MAX_REVISION_LENGTH = 128;
+const MAX_CLAIMANT_LENGTH = 128;
+/** A round's hold, in seconds: long enough for one pass, short enough that a dead one lets go. */
+const MIN_HOLD_SECONDS = 30;
+const MAX_HOLD_SECONDS = 3600;
 const DEPLOYMENTS: SystemScope = 'system:deployments';
 const PACK_ENV: SystemScope = 'system:pack-env';
 const SUSPEND: SystemScope = 'system:suspend';
@@ -318,7 +340,7 @@ type WireError = { readonly code: string; readonly message: string } & Readonly<
  * `/v1/system/deployments` and `/v1/system/tenants/{tenantId}/deployments/…`:
  * how whatever runs a pack service per deployment (an orchestrator) learns
  * which deployments need one or should lose theirs, and records where each
- * runs. Mounted only on a runtime serving many tenants, under
+ * runs, one pass at a time (`/v1/system/deployments/round`). Under
  * `system:deployments`, except the pack suspend route, which takes
  * `system:suspend`, so the orchestrator's key can't suspend or restore a
  * pack, and the pack env routes (`/v1/system/pack-env` and
@@ -354,24 +376,62 @@ export function systemDeploymentsRouter(
       ...(cursor !== undefined && cursor !== '' && { cursor }),
       limit: limit.value,
     };
-    const result =
-      want === 'missing'
-        ? await binding.listNeedingEndpoint(page)
-        : want === 'ready'
-          ? await binding.listReady(page)
-          : await binding.listToRetire(page);
+    const result = await listDeployments(binding, want, page);
     if (result.kind === 'cursor-unreadable') {
       return fail(c, badInput('`cursor` is not one this route gave: start again without it').error);
     }
     return c.json({
-      data: result.data.map((entry) => ({
-        ...entryToWire(entry),
-        ...('warm' in entry && entry.warm !== undefined && { warm: entry.warm }),
-        ...('reason' in entry && { reason: entry.reason }),
-      })),
+      data: result.data.map(listedToWire),
       ...(result.nextCursor !== undefined && { nextCursor: result.nextCursor }),
       hasMore: result.nextCursor !== undefined,
     });
+  });
+
+  // ---------- POST /deployments/round ----------
+  // One orchestrator pass at a time: the pass claims the round first, and
+  // a claim another holds is a 409, so the pass stops.
+  r.post('/deployments/round', async (c) => {
+    const denied = systemReadAcrossTenants(c, DEPLOYMENTS, authorizer);
+    if (denied !== undefined) return denied;
+    if (binding.claimRound === undefined) return roundUnsupported(c);
+    const body = await readJsonBody(c);
+    if (body.kind === 'err') return fail(c, body.error);
+    const parsed = parseClaimBody(body.value);
+    if (parsed.kind === 'err') return fail(c, parsed.error);
+    const now = new Date();
+    const holdUntil = new Date(now.getTime() + parsed.value.holdSeconds * 1000);
+    const claimed = await binding.claimRound({
+      claimant: parsed.value.claimant,
+      now,
+      holdUntil,
+    });
+    if (claimed.kind === 'held') {
+      return fail(c, {
+        code: 'orchestrator-round-held',
+        message:
+          'Another orchestrator pass holds the round: this one stops, and the next one claims it once that pass ends or its hold runs out.',
+      });
+    }
+    return c.json({ claimant: parsed.value.claimant, heldUntil: holdUntil.toISOString() });
+  });
+
+  // ---------- POST /deployments/round/end ----------
+  r.post('/deployments/round/end', async (c) => {
+    const denied = systemReadAcrossTenants(c, DEPLOYMENTS, authorizer);
+    if (denied !== undefined) return denied;
+    if (binding.endRound === undefined) return roundUnsupported(c);
+    const body = await readJsonBody(c);
+    if (body.kind === 'err') return fail(c, body.error);
+    const claimant = parseClaimant(body.value);
+    if (claimant.kind === 'err') return fail(c, claimant.error);
+    const ended = await binding.endRound({ claimant: claimant.value, now: new Date() });
+    if (ended.kind === 'not-held') {
+      return fail(c, {
+        code: 'orchestrator-round-not-held',
+        message: `"${claimant.value}" doesn't hold the round: its hold ran out, and another pass may hold it now.`,
+      });
+    }
+    return c.body(null, 204);
   });
 
   const onDeployment = '/tenants/:tenantId/deployments/:deploymentId';
@@ -671,6 +731,26 @@ function checkEndpoint(
   return url;
 }
 
+/** The list `endpoint=` names. */
+function listDeployments(
+  binding: SystemDeploymentsBinding,
+  want: 'missing' | 'ready' | 'retire',
+  page: { readonly cursor?: string; readonly limit: number },
+): Promise<SystemDeploymentPage<SystemDeploymentToServe | SystemDeploymentToRetire>> {
+  if (want === 'missing') return binding.listNeedingEndpoint(page);
+  if (want === 'ready') return binding.listReady(page);
+  return binding.listToRetire(page);
+}
+
+/** A listed entry: `warm` from the `missing` and `ready` lists, when given; `reason` from `retire`. */
+function listedToWire(entry: SystemDeploymentToServe | SystemDeploymentToRetire) {
+  return {
+    ...entryToWire(entry),
+    ...('warm' in entry && entry.warm !== undefined && { warm: entry.warm }),
+    ...('reason' in entry && { reason: entry.reason }),
+  };
+}
+
 function entryToWire(entry: SystemDeploymentEntry) {
   return {
     tenantId: entry.tenantId as unknown as string,
@@ -915,6 +995,51 @@ function secretsUnaudited(c: Context<AppEnv>): Response {
     message:
       'This server has nowhere to audit a secret given out, so it gives none: a person has to set up its audit store.',
   });
+}
+
+function roundUnsupported(c: Context<AppEnv>): Response {
+  return fail(c, {
+    code: 'orchestrator-round-unsupported',
+    message:
+      'This server keeps no orchestrator round: whatever runs its pack services keeps one pass at a time itself.',
+  });
+}
+
+function parseClaimant(body: unknown): Parsed<string> {
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return badInput('Request body must be an object');
+  }
+  const claimant = (body as Record<string, unknown>).claimant;
+  if (
+    typeof claimant !== 'string' ||
+    claimant.length === 0 ||
+    claimant.length > MAX_CLAIMANT_LENGTH ||
+    !/^[\x21-\x7e]+$/.test(claimant)
+  ) {
+    return badInput(
+      `\`claimant\` must be 1 to ${MAX_CLAIMANT_LENGTH} printable characters with no spaces: the pass's own id`,
+    );
+  }
+  return { kind: 'ok', value: claimant };
+}
+
+function parseClaimBody(
+  body: unknown,
+): Parsed<{ readonly claimant: string; readonly holdSeconds: number }> {
+  const claimant = parseClaimant(body);
+  if (claimant.kind === 'err') return claimant;
+  const holdSeconds = (body as Record<string, unknown>).holdSeconds;
+  if (
+    typeof holdSeconds !== 'number' ||
+    !Number.isInteger(holdSeconds) ||
+    holdSeconds < MIN_HOLD_SECONDS ||
+    holdSeconds > MAX_HOLD_SECONDS
+  ) {
+    return badInput(
+      `\`holdSeconds\` must be a whole number from ${MIN_HOLD_SECONDS} to ${MAX_HOLD_SECONDS}: how long the pass holds the round`,
+    );
+  }
+  return { kind: 'ok', value: { claimant: claimant.value, holdSeconds } };
 }
 
 function packEnvUnsupported(c: Context<AppEnv>): Response {

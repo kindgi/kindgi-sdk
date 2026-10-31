@@ -2337,6 +2337,49 @@ export const RecordDeploymentProblemBodySchema: JsonSchema = {
   },
 };
 
+const ORCHESTRATOR_CLAIMANT: JsonSchema = {
+  type: 'string',
+  pattern: '^[\\x21-\\x7e]{1,128}$',
+  description: "The pass's own id: 1 to 128 printable characters, no spaces.",
+};
+
+export const ClaimOrchestratorRoundBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['claimant', 'holdSeconds'],
+  properties: {
+    claimant: ORCHESTRATOR_CLAIMANT,
+    holdSeconds: {
+      type: 'integer',
+      minimum: 30,
+      maximum: 3600,
+      description:
+        'How long the pass holds the round. A claim is never renewed: the pass ends within it, or its claim lapses and the next pass takes the round over.',
+    },
+  },
+};
+
+export const OrchestratorRoundSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['claimant', 'heldUntil'],
+  properties: {
+    claimant: ORCHESTRATOR_CLAIMANT,
+    heldUntil: {
+      type: 'string',
+      format: 'date-time',
+      description: "When the claim lapses, by the server's clock.",
+    },
+  },
+};
+
+export const EndOrchestratorRoundBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['claimant'],
+  properties: { claimant: ORCHESTRATOR_CLAIMANT },
+};
+
 export const SetPackSuspendedBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -6567,7 +6610,7 @@ const ErasureStatusSchema: JsonSchema = {
   type: 'string',
   enum: ['pending', 'running', 'waiting-on-run', 'completed', 'failed'],
   description:
-    "`waiting-on-run`: a turn of the person's sits in a flow that serves other people; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.",
+    "`waiting-on-run`: a turn of the person's sits in a flow that serves other people, or a test run still going has a case from their runs; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.",
 };
 
 /** Erase one fact. */
@@ -6683,7 +6726,7 @@ export const MemoryErasureSchema: JsonSchema = {
         until: { type: 'string', format: 'date-time' },
       },
       description:
-        'The run it waits (or waited) for, and until when; kept as the record of the wait.',
+        'The run or test run it waits (or waited) for, and until when; kept as the record of the wait.',
     },
     forced: { type: 'boolean', const: true, description: 'A tenant admin said not to wait.' },
     settleRoundsCapped: {
@@ -6706,7 +6749,7 @@ export const ResumeMemoryErasureBodySchema: JsonSchema = {
     force: {
       type: 'boolean',
       description:
-        "Stop waiting for a run in a flow that serves other people: it's cancelled, and the erasure goes on.",
+        "Stop waiting for a run in a flow that serves other people, or a test run with a case from the person's runs: it's cancelled, and the erasure goes on.",
     },
   },
 };
@@ -12970,7 +13013,7 @@ export const DeploymentEndpointSchema: JsonSchema = {
     retired: {
       type: 'string',
       description:
-        '`cleared` only: why no pack service is wanted for it now. `superseded` is for good: newer deployments ship every tool version and check it does, so no new call reaches it; a tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.',
+        '`cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: each tool version, pack check, agent and flow version it serves is unregistered and not held (a check: no registered guardrail runs it), or a newer deployment into its project serves it. Registering one of its versions again makes it needed again (from Kindgi 0.4.0; before, it was for good: newer deployments shipped every tool version and check it does). A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.',
     },
     packEnvProblem: {
       type: 'object',
@@ -12982,6 +13025,50 @@ export const DeploymentEndpointSchema: JsonSchema = {
         code: { $ref: '#/components/schemas/PackEnvHeldCode' },
         since: { type: 'string', format: 'date-time', description: 'When it was recorded.' },
       },
+    },
+    keptFor: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/DeploymentKeptFor' },
+      description:
+        "What keeps this build's pack service, whatever its status, in kind, id, then version order. `[]` when nothing does: it's retired (`superseded`), or retired next. A suspended build has `retired` and still lists what keeps it, since its service comes back when the suspension lifts. On a list page, the first 20 entries, with `keptForTotal`; a get of one deployment gives them all. Absent when builds aren't counted (one service serves every build), and from a runtime before Kindgi 0.4.0.",
+    },
+    keptForTotal: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "On a list page, with `keptFor`: how many entries there are, of which `keptFor` holds the first 20. A get of one deployment doesn't send it.",
+    },
+  },
+};
+
+/** One thing a build's pack service is kept for. */
+export const DeploymentKeptForSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  description:
+    "One thing a build's pack service is kept for. To let the build go, unregister it: `kindgi tools|agents|flows unregister <id> <version>`, `kindgi guardrails unregister <id>`.",
+  properties: {
+    kind: {
+      type: 'string',
+      description:
+        '`tool`: a tool version this build is the newest into its project to route, still registered or held; a tool deployed without a version has no `version` and neither flag, and is kept until a newer deployment into the project ships the tool. `agent`, `flow`: a version this build is the newest into its project to ship or carry, still registered or held. `guardrail`: a registered guardrail that runs a pack check this build is the newest into its project to route; it has no `version`. A later runtime may add kinds, so treat an unknown one as a kind not yet named.',
+    },
+    id: { type: 'string', description: 'The tool, agent, flow or guardrail id.' },
+    version: {
+      type: 'string',
+      description: 'The version kept for. Absent for a guardrail, or a tool deployed without one.',
+    },
+    registered: {
+      type: 'boolean',
+      const: true,
+      description: 'The version (or guardrail) is registered.',
+    },
+    held: {
+      type: 'boolean',
+      const: true,
+      description:
+        "A pin or a run that hasn't finished uses the version. Unregistering it then lets the build go only once the pin's own version is unregistered or the run finishes. Sent beside `registered` when both are true.",
     },
   },
 };
@@ -13095,6 +13182,12 @@ export const DeploymentCollectionPageSchema: JsonSchema = {
       type: 'string',
       description:
         "The pack on every page of a list asked for with `?packId=`, an empty one too: it holds only that pack's deployments. Absent from a runtime before Kindgi 0.1.9, which ignores `packId` and lists them all.",
+    },
+    keptBuilds: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "How many builds keep a pack service among the deployments the project filter selects, whatever the page and the other filters: those whose `endpoint.keptFor` isn't empty. With `?projectId=`, that project's (the Default's counts the deployments that name no project); without, the total over the tenant's projects the caller may read. Absent when builds aren't counted (one service serves every build), and from a runtime before Kindgi 0.4.0.",
     },
   },
 };
@@ -17303,6 +17396,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RecordPackEnvBody', RecordPackEnvBodySchema],
   ['PackEnvNames', PackEnvNamesSchema],
   ['RecordDeploymentProblemBody', RecordDeploymentProblemBodySchema],
+  ['ClaimOrchestratorRoundBody', ClaimOrchestratorRoundBodySchema],
+  ['OrchestratorRound', OrchestratorRoundSchema],
+  ['EndOrchestratorRoundBody', EndOrchestratorRoundBodySchema],
   ['SetPackSuspendedBody', SetPackSuspendedBodySchema],
   ['PackSuspension', PackSuspensionSchema],
   ['SystemTenant', SystemTenantSchema],
@@ -17746,6 +17842,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['DeploymentSource', DeploymentSourceSchema],
   ['DeploymentEndpointProblem', DeploymentEndpointProblemSchema],
   ['DeploymentEndpoint', DeploymentEndpointSchema],
+  ['DeploymentKeptFor', DeploymentKeptForSchema],
   ['DeploymentRecord', DeploymentRecordSchema],
   ['DeploymentReplacedBlock', DeploymentReplacedBlockSchema],
   ['DeployReplaceBlock', DeployReplaceBlockSchema],

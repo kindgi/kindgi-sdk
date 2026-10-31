@@ -2,7 +2,9 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type {
+  ClaimOrchestratorRoundBody,
   DeploymentEndpoint,
+  OrchestratorRound,
   PackSuspension,
   RecordDeploymentProblemBody,
   RecordPackEnvBody,
@@ -34,6 +36,8 @@ export type { PackSuspension };
  */
 export type { SystemPackEnv };
 export type PackEnvRecordSpec = RecordPackEnvBody;
+export type OrchestratorRoundSpec = ClaimOrchestratorRoundBody;
+export type { OrchestratorRound };
 
 /**
  * Which deployments to list: those that need a pack service, those whose
@@ -42,11 +46,12 @@ export type PackEnvRecordSpec = RecordPackEnvBody;
 export type SystemDeploymentsWanted = 'missing' | 'ready' | 'retire';
 
 /**
- * Per-deployment routing, on a runtime serving many tenants: whatever runs
- * each deployment's own pack service (an orchestrator, holding
- * `system:deployments`) lists the deployments that need one or should lose
- * theirs, and records where each runs. Support suspends a pack under
- * `system:suspend`. Any other caller gets 403 (`system-principal-required`,
+ * Per-deployment routing (`KINDGI_PACK_ROUTING=per-deployment`), on a
+ * runtime serving one tenant or many: whatever runs each deployment's own
+ * pack service (an orchestrator, holding `system:deployments`) lists the
+ * deployments that need one or should lose theirs, and records where each
+ * runs, one pass at a time. Support suspends a pack under `system:suspend`.
+ * Any other caller gets 403 (`system-principal-required`,
  * `system-scope-missing`).
  */
 export interface SystemDeploymentsClient {
@@ -61,6 +66,21 @@ export interface SystemDeploymentsClient {
     endpoint: SystemDeploymentsWanted,
     page?: { readonly cursor?: string; readonly limit?: number },
   ): Promise<SystemDeploymentPage>;
+  /**
+   * Claims the round for one pass, for `holdSeconds`, before it acts. A
+   * claim is never renewed: the pass ends within its hold, or its claim
+   * lapses. Another pass's live claim fails with 409
+   * (`orchestrator-round-held`): this pass stops.
+   *
+   * @wire `POST /v1/system/deployments/round`
+   */
+  claimRound(spec: OrchestratorRoundSpec): Promise<OrchestratorRound>;
+  /**
+   * Ends the round `claimant` claimed, so the next pass claims it at once.
+   *
+   * @wire `POST /v1/system/deployments/round/end`
+   */
+  endRound(claimant: string): Promise<void>;
   /**
    * Records where the deployment's pack service runs, once the server's
    * checks pass; its endpoint is then `ready`. A refusal names the check
@@ -169,6 +189,20 @@ export function makeSystemDeploymentsClient(transport: Transport): SystemDeploym
           ...(page?.cursor !== undefined && { cursor: page.cursor }),
           ...(page?.limit !== undefined && { limit: page.limit }),
         },
+      });
+    },
+    async claimRound(spec) {
+      return transport.request<OrchestratorRound>({
+        method: 'POST',
+        path: '/v1/system/deployments/round',
+        body: spec,
+      });
+    },
+    async endRound(claimant) {
+      return transport.request<void>({
+        method: 'POST',
+        path: '/v1/system/deployments/round/end',
+        body: { claimant },
       });
     },
     async setEndpoint(tenantId, deploymentId, spec, options) {
