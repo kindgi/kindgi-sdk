@@ -462,7 +462,7 @@ function parseChangeBody(raw: unknown): CorrectionChange | string {
   if (b.link !== undefined) {
     link = typeof b.link === 'string' ? parseCorrectionLink(b.link) : undefined;
     if (link === undefined)
-      return 'link must be a URL, an Improve run (ir-…) or a suggested change (sc-…).';
+      return 'link must be a URL, an Improve run (ir-<its id>) or a suggested change (sc-<its id>).';
   }
   if (b.reason !== undefined && (!nonEmpty(b.reason) || b.reason.length > MAX_TEXT)) {
     return `reason must be a string of 1 to ${MAX_TEXT} characters.`;
