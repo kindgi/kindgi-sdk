@@ -14,9 +14,22 @@ import {
 import { describe, expect, it } from 'vitest';
 
 import { githubIssuesAddLabels, githubIssuesList, githubLabelsList } from '../src/github-tools.js';
-import { gmailMessageGet, gmailMessagesList, gmailReply, gmailSend } from '../src/google-tools.js';
+import {
+  gmailMessageGet,
+  gmailMessagesList,
+  gmailReply,
+  gmailSend,
+  googleCalendarEventCreate,
+  googleCalendarEventUpdate,
+  googleCalendarEventsList,
+  googleCalendarFreeBusy,
+} from '../src/google-tools.js';
 import { linkedinPost } from '../src/linkedin-tools.js';
 import {
+  outlookCalendarEventCreate,
+  outlookCalendarEventUpdate,
+  outlookCalendarEventsList,
+  outlookCalendarFreeBusy,
   outlookMessageGet,
   outlookMessagesList,
   outlookReply,
@@ -45,6 +58,30 @@ const TOOLS = {
   outlookReply: (id: string) => outlookReply({ id }),
   'outlookReply as company': (id: string) => outlookReply({ id, as: 'company' }),
   linkedinPost: (id: string) => linkedinPost({ id }),
+  googleCalendarEventsList: (id: string) => googleCalendarEventsList({ id }),
+  'googleCalendarEventsList as company': (id: string) =>
+    googleCalendarEventsList({ id, as: 'company' }),
+  googleCalendarFreeBusy: (id: string) => googleCalendarFreeBusy({ id }),
+  'googleCalendarFreeBusy as company': (id: string) =>
+    googleCalendarFreeBusy({ id, as: 'company' }),
+  googleCalendarEventCreate: (id: string) => googleCalendarEventCreate({ id }),
+  'googleCalendarEventCreate as company': (id: string) =>
+    googleCalendarEventCreate({ id, as: 'company' }),
+  googleCalendarEventUpdate: (id: string) => googleCalendarEventUpdate({ id }),
+  'googleCalendarEventUpdate as company': (id: string) =>
+    googleCalendarEventUpdate({ id, as: 'company' }),
+  outlookCalendarEventsList: (id: string) => outlookCalendarEventsList({ id }),
+  'outlookCalendarEventsList as company': (id: string) =>
+    outlookCalendarEventsList({ id, as: 'company' }),
+  outlookCalendarFreeBusy: (id: string) => outlookCalendarFreeBusy({ id }),
+  'outlookCalendarFreeBusy as company': (id: string) =>
+    outlookCalendarFreeBusy({ id, as: 'company' }),
+  outlookCalendarEventCreate: (id: string) => outlookCalendarEventCreate({ id }),
+  'outlookCalendarEventCreate as company': (id: string) =>
+    outlookCalendarEventCreate({ id, as: 'company' }),
+  outlookCalendarEventUpdate: (id: string) => outlookCalendarEventUpdate({ id }),
+  'outlookCalendarEventUpdate as company': (id: string) =>
+    outlookCalendarEventUpdate({ id, as: 'company' }),
 } satisfies Record<string, (id: string) => AnyTool>;
 
 /**
