@@ -225,6 +225,85 @@ final class HttpToolTest {
   }
 
   @Test
+  void aBraceInTheUrlThatIsntAPlaceholdersIsRefused() {
+    for (String url :
+        List.of(
+            "https://cases.example.com/{court}/{{docket}}",
+            "https://cases.example.com/{court}/{docket}{?q}",
+            "https://cases.example.com/{court}/{docket-id}",
+            "https://cases.example.com/{court}/{docket",
+            "https://cases.example.com/{court}/{größe}")) {
+      IllegalArgumentException e =
+          assertThrows(
+              IllegalArgumentException.class,
+              () ->
+                  lookup()
+                      .http(
+                          HttpToolSpec.builder().method(HttpMethod.GET).urlTemplate(url).build()),
+              url);
+      assertEquals(
+          "Tool \"acme.lookup\" spec.urlTemplate has a brace that isn't part of a {field}"
+              + " placeholder; write a literal one as %7B or %7D",
+          e.getMessage());
+    }
+    lookup()
+        .http(
+            HttpToolSpec.builder()
+                .method(HttpMethod.GET)
+                .urlTemplate("https://cases.example.com/{court}/{docket}?f=%7Bopen%7D")
+                .build());
+  }
+
+  @Test
+  void aNameThatIsntAsciiInATextBodyOrAHeaderIsRefused() {
+    IllegalArgumentException body =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                lookup()
+                    .http(
+                        HttpToolSpec.builder()
+                            .method(HttpMethod.POST)
+                            .urlTemplate("https://cases.example.com/{court}")
+                            .requestBody(new HttpRequestBodySpec.Text("{\"size\": \"{größe}\"}"))
+                            .build()));
+    assertEquals(
+        "Tool \"acme.lookup\" spec.requestBody.template has {größe}, which isn't a {field}"
+            + " placeholder: a placeholder's name is ASCII letters, digits and _",
+        body.getMessage());
+    IllegalArgumentException header =
+        assertThrows(
+            IllegalArgumentException.class,
+            () ->
+                lookup()
+                    .http(
+                        HttpToolSpec.builder()
+                            .method(HttpMethod.GET)
+                            .urlTemplate("https://cases.example.com/{court}")
+                            .header("Accept", "application/json")
+                            .header("X-Query", "{größe} {straße}")
+                            .build()));
+    assertEquals(
+        "Tool \"acme.lookup\" spec.headers[1].value (the header \"X-Query\") has {größe},"
+            + " {straße}, which aren't {field} placeholders: a placeholder's name is ASCII"
+            + " letters, digits and _",
+        header.getMessage());
+  }
+
+  @Test
+  void jsonAndGraphqlWithSpacesInsideItsBracesPass() {
+    lookup()
+        .http(
+            HttpToolSpec.builder()
+                .method(HttpMethod.POST)
+                .urlTemplate("https://cases.example.com/{court}")
+                .header("X-Filter", "{\"docket\": \"{docket}\"}")
+                .requestBody(
+                    new HttpRequestBodySpec.Text("query { case(docket: \"{docket}\") { title } }"))
+                .build());
+  }
+
+  @Test
   void aPlaceholderInTheHostIsRefused() {
     IllegalArgumentException e =
         assertThrows(

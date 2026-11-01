@@ -36,6 +36,7 @@ import json
 import re
 import sys
 import types
+import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import cache
@@ -324,6 +325,9 @@ def http_tool(
     if issues:
         found = "; ".join(f"{i['instancePath'] or '/'} {i['message']}" for i in issues)
         raise DefinitionError(f"{where}: not a valid HTTP tool spec: {found}")
+    unfillable = _template_problem(spec)
+    if unfillable is not None:
+        raise DefinitionError(f"{where} {unfillable}")
     templates = [url_template]
     if request_body is not None and request_body.get("kind") == "text":
         templates.append(str(request_body.get("template", "")))
@@ -373,6 +377,52 @@ def _http_spec_validator() -> SchemaValidator:
     text = resources.files("kindgi._specs").joinpath("tool.schema.json").read_text("utf-8")
     defs = json.loads(text)["$defs"]
     return SchemaValidator({"$defs": defs, "$ref": "#/$defs/HttpToolSpec"})
+
+
+_BRACED = re.compile(r"\{([^{}]+)\}")
+"""A `{name}` with no brace inside it."""
+
+
+def _template_problem(spec: Mapping[str, Any]) -> str | None:
+    """What's wrong with an HTTP tool's templates, if anything: the field, then the problem.
+
+    They hold only what the runtime fills. The URL has no brace but a placeholder's (a literal
+    one is written ``%7B`` or ``%7D``), and a text body or a header value has no ``{name}``
+    whose name isn't ASCII, which reads as a placeholder that's never filled. The braces of
+    JSON, or of GraphQL with spaces inside them, pass. ``defineTool`` in ``@kindgi/tools`` and
+    the Java ``Tool`` builder refuse the same templates.
+    """
+    if re.search(r"[{}]", _PLACEHOLDER.sub("", str(spec["urlTemplate"]))):
+        return (
+            "spec.urlTemplate has a brace that isn't part of a {field} placeholder;"
+            " write a literal one as %7B or %7D"
+        )
+    filled: list[tuple[str, str]] = []
+    body = spec.get("requestBody")
+    if body is not None and body.get("kind") == "text":
+        filled.append(("spec.requestBody.template", str(body.get("template", ""))))
+    for i, header in enumerate(spec.get("headers", [])):
+        filled.append(
+            (f'spec.headers[{i}].value (the header "{header["name"]}")', str(header["value"]))
+        )
+    for where, text in filled:
+        names = list(
+            dict.fromkeys(n for n in _BRACED.findall(text) if _is_word(n) and not n.isascii())
+        )
+        if names:
+            rendered = ", ".join(f"{{{n}}}" for n in names)
+            which = (
+                f"{rendered}, which isn't a {{field}} placeholder"
+                if len(names) == 1
+                else f"{rendered}, which aren't {{field}} placeholders"
+            )
+            return f"{where} has {which}: a placeholder's name is ASCII letters, digits and _"
+    return None
+
+
+def _is_word(name: str) -> bool:
+    """Letters, marks, digits and ``_``, in any script."""
+    return all(c == "_" or unicodedata.category(c)[0] in "LMN" for c in name)
 
 
 def _compact(value: Mapping[str, Any]) -> dict[str, Any]:

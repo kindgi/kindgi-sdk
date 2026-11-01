@@ -3,6 +3,7 @@
 
 package com.kindgi.pack;
 
+import com.kindgi.pack.http.HttpHeaderSpec;
 import com.kindgi.pack.http.HttpRequestBodySpec;
 import com.kindgi.pack.http.HttpToolSpec;
 import com.kindgi.pack.internal.SchemaDeriver;
@@ -10,6 +11,7 @@ import com.kindgi.pack.internal.Specs;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -49,6 +51,9 @@ public final class Tool<I, O> {
   private static final Pattern URL_AUTHORITY =
       Pattern.compile("(https?)://([^/?#]*)", Pattern.CASE_INSENSITIVE);
   private static final Pattern PLACEHOLDER = Pattern.compile("\\{(\\w+)\\}");
+  private static final Pattern BRACED = Pattern.compile("\\{([^{}]+)\\}");
+  private static final Pattern WORD = Pattern.compile("[\\p{L}\\p{M}\\p{N}_]+");
+  private static final Pattern ASCII_WORD = Pattern.compile("\\w+");
 
   private final String id;
   private final @Nullable String description;
@@ -202,6 +207,56 @@ public final class Tool<I, O> {
     }
     if (authority.isEmpty()) {
       return "must name a host";
+    }
+    return null;
+  }
+
+  /**
+   * An HTTP tool's templates hold only what the runtime fills: the URL has no brace but a
+   * placeholder's (a literal one is written {@code %7B} or {@code %7D}), and a text body or a
+   * header value has no {@code {name}} whose name isn't ASCII, which reads as a placeholder that's
+   * never filled. The braces of JSON, or of GraphQL with spaces inside them, pass. {@code
+   * defineTool} in {@code @kindgi/tools} and Python's {@code http_tool} refuse the same templates.
+   *
+   * @return the field and what's wrong with it, or null when nothing is
+   */
+  private static @Nullable String checkHttpTemplates(HttpToolSpec spec) {
+    String unfilled = PLACEHOLDER.matcher(spec.urlTemplate()).replaceAll("");
+    if (unfilled.contains("{") || unfilled.contains("}")) {
+      return "spec.urlTemplate has a brace that isn't part of a {field} placeholder;"
+          + " write a literal one as %7B or %7D";
+    }
+    Map<String, String> filled = new LinkedHashMap<>();
+    if (spec.requestBody() instanceof HttpRequestBodySpec.Text text) {
+      filled.put("spec.requestBody.template", text.template());
+    }
+    List<HttpHeaderSpec> headers = spec.headers();
+    for (int i = 0; i < headers.size(); i++) {
+      HttpHeaderSpec header = headers.get(i);
+      filled.put(
+          "spec.headers[" + i + "].value (the header \"" + header.name() + "\")", header.value());
+    }
+    for (Map.Entry<String, String> template : filled.entrySet()) {
+      Set<String> names = new LinkedHashSet<>();
+      Matcher m = BRACED.matcher(template.getValue());
+      while (m.find()) {
+        String name = m.group(1);
+        if (WORD.matcher(name).matches() && !ASCII_WORD.matcher(name).matches()) {
+          names.add(name);
+        }
+      }
+      if (!names.isEmpty()) {
+        String rendered =
+            names.stream().map(name -> "{" + name + "}").collect(Collectors.joining(", "));
+        String which =
+            names.size() == 1
+                ? rendered + ", which isn't a {field} placeholder"
+                : rendered + ", which aren't {field} placeholders";
+        return template.getKey()
+            + " has "
+            + which
+            + ": a placeholder's name is ASCII letters, digits and _";
+      }
     }
     return null;
   }
@@ -421,6 +476,10 @@ public final class Tool<I, O> {
       String urlProblem = checkHttpUrlTemplate(spec.urlTemplate());
       if (urlProblem != null) {
         throw new IllegalArgumentException("Tool \"" + id + "\" spec.urlTemplate " + urlProblem);
+      }
+      String templateProblem = checkHttpTemplates(spec);
+      if (templateProblem != null) {
+        throw new IllegalArgumentException("Tool \"" + id + "\" " + templateProblem);
       }
 
       Set<String> placeholders = new TreeSet<>();

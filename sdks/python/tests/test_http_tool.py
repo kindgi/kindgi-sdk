@@ -141,6 +141,55 @@ def test_an_http_tools_model_schema_compiles_as_the_runtime_compiles_it() -> Non
         lookup(output=Docket)
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://cases.example.com/{court}/{{case_id}}",
+        "https://cases.example.com/{court}/{case_id}{?q}",
+        "https://cases.example.com/{court}/{case-id}",
+        "https://cases.example.com/{court}/{case_id",
+        "https://cases.example.com/{court}/{größe}",
+    ],
+)
+def test_a_brace_in_the_url_that_isnt_part_of_a_placeholder_is_refused(url: str) -> None:
+    with pytest.raises(DefinitionError) as raised:
+        lookup(url_template=url)
+    assert str(raised.value) == (
+        'Tool "acme.lookup" spec.urlTemplate has a brace that isn\'t part of a {field}'
+        " placeholder; write a literal one as %7B or %7D"
+    )
+
+
+def test_a_literal_brace_in_the_url_is_written_as_an_escape() -> None:
+    tool = lookup(url_template="https://cases.example.com/{court}/{case_id}?f=%7Bopen%7D")
+    assert tool.spec is not None
+
+
+def test_a_name_that_isnt_ascii_in_a_text_body_or_a_header_is_refused() -> None:
+    rule = "a placeholder's name is ASCII letters, digits and _"
+    with pytest.raises(DefinitionError) as body:
+        lookup(method="POST", request_body={"kind": "text", "template": '{"size": "{größe}"}'})
+    assert str(body.value) == (
+        'Tool "acme.lookup" spec.requestBody.template has {größe},'
+        f" which isn't a {{field}} placeholder: {rule}"
+    )
+    with pytest.raises(DefinitionError) as header:
+        lookup(headers={"Accept": "application/json", "X-Query": "{größe} {straße}"})
+    assert str(header.value) == (
+        'Tool "acme.lookup" spec.headers[1].value (the header "X-Query") has {größe}, {straße},'
+        f" which aren't {{field}} placeholders: {rule}"
+    )
+
+
+def test_json_and_graphql_with_spaces_inside_its_braces_pass() -> None:
+    tool = lookup(
+        method="POST",
+        headers={"X-Filter": '{"court": "{court}"}'},
+        request_body={"kind": "text", "template": 'query { case(id: "{case_id}") { title } }'},
+    )
+    assert tool.spec is not None
+
+
 def test_id_version_and_description_are_checked() -> None:
     with pytest.raises(DefinitionError, match="id must be a non-empty string"):
         lookup(id=" ")

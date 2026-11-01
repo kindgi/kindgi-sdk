@@ -14,7 +14,7 @@ description: >
   by kindgi-java-getting-started.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.5"
+version: "0.1.6"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -324,7 +324,10 @@ public static final Tool<FetchOrder, Order> TOOL =
 
 Every `{placeholder}` in the URL — in the path and query only, never in the
 host or port — is a field of the input, and so is one in a
-`HttpRequestBodySpec.Text` body; `.http(...)` throws if it isn't. Authorization
+`HttpRequestBodySpec.Text` body; `.http(...)` throws if it isn't. A name is
+ASCII letters, digits and `_`; any other brace in the URL throws too, so write
+a literal one as `%7B` or `%7D`. A text body or a header keeps JSON's braces,
+and GraphQL's with spaces inside them (`{ name }`). Authorization
 is a `secretRef` (`HttpAuthSpec.Bearer` or `HttpAuthSpec.Header`), named for the
 runtime to resolve, never a literal credential. A request body is
 `HttpRequestBodySpec.JsonInput` (the input as JSON), `InputPassthrough` or

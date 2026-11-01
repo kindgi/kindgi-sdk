@@ -35,9 +35,11 @@
    `defineTool` returns `invalid-tool-definition` with both set.
 
 5. **`{placeholder}` in `urlTemplate` without a matching input key.**
-   HTTP tools substitute placeholders from the input at invoke time.
-   Missing keys throw a clear error at invoke time — check both sides
-   line up.
+   HTTP tools fill placeholders from the input when they're called, and
+   `defineTool` refuses a `{name}` in the URL or a `text` body that the
+   input schema has no key for. A name is ASCII letters, digits and `_`.
+   Write a literal brace in the URL as `%7B`/`%7D`, and a GraphQL
+   selection in a `text` body with spaces: `{ name }`.
 
 6. **An HTTP tool's `secretRef` in the wrong env.** The runtime
    resolves `authorization.secretRef` itself, on every call, in the env

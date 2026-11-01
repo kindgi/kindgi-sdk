@@ -32,6 +32,7 @@ import { type ToolSpecSynthesizerOptions, getToolSpecSynthesizer } from './spec-
 import toolSchema from './tool.schema.json' with { type: 'json' };
 import {
   EFFECT_KINDS,
+  type HttpToolSpec,
   type Tool,
   type ToolContext,
   type ToolManifest,
@@ -316,6 +317,12 @@ export function defineTool(
 export interface DefineToolOptions {
   /** What a declarative `spec`'s synthesized handler gets (the runtime's guarded `fetch`). */
   readonly synthesizer?: ToolSpecSynthesizerOptions;
+  /**
+   * The tool is one the runtime stored when it was registered or deployed, rebuilt to run: an
+   * HTTP spec's template checks (`checkHttpTemplates`) aren't run again, so a tool stored before
+   * a check existed keeps working after an upgrade. Registration and deploys still run them.
+   */
+  readonly stored?: boolean;
 }
 
 /**
@@ -471,6 +478,8 @@ function finalizeDefinition<
   if (badOutput) return { kind: 'err', error: badOutput };
   const badNeeds = needsSpecProblem(manifest);
   if (badNeeds) return { kind: 'err', error: badNeeds };
+  const badTemplate = checkHttpTemplates(manifest, options);
+  if (badTemplate) return { kind: 'err', error: badTemplate };
 
   const tool = {
     ...wireSpec,
@@ -655,6 +664,8 @@ export function validateToolManifest(
   if (badNeeds) return { kind: 'err', error: badNeeds };
   const badUrl = checkHttpUrlTemplate(parsed);
   if (badUrl) return { kind: 'err', error: badUrl };
+  const badTemplate = checkHttpTemplates(parsed);
+  if (badTemplate) return { kind: 'err', error: badTemplate };
   return { kind: 'ok', value: parsed };
 }
 
@@ -680,6 +691,137 @@ function checkHttpUrlTemplate(manifest: ToolManifest): InvalidToolDefinitionErro
     code: 'invalid-tool-definition',
     message: `Tool "${manifest.id}" spec.urlTemplate ${message}`,
     issues: [{ path: '/spec/urlTemplate', message }],
+  };
+}
+
+/** A `{field}` placeholder, as the runtime's HTTP tool fills it (`http.ts`). */
+const PLACEHOLDER = /\{(\w+)\}/g;
+
+/** A `{name}` with no brace inside it. */
+const BRACED = /\{([^{}]+)\}/g;
+
+/** A name of letters, marks, digits and `_`, in any script. */
+const WORD = /^[\p{L}\p{M}\p{N}_]+$/u;
+
+const ASCII_WORD = /^\w+$/;
+
+/**
+ * An HTTP tool's templates hold only what the runtime fills (`http.ts`): `{field}` placeholders,
+ * each named in ASCII letters, digits and `_`, and each a field of the input.
+ * - The URL has no other brace: a literal one is written `%7B` or `%7D`.
+ * - A text body or a header value keeps the braces of JSON, or of GraphQL with spaces inside
+ *   them, but not a `{name}` whose name isn't ASCII: it reads as a placeholder that's never
+ *   filled.
+ * Run where a tool is defined, registered (`POST /v1/tools`) or deployed, but not when the
+ * runtime rebuilds a tool it stored (`DefineToolOptions.stored`). The Java `Tool` builder and
+ * Python's `http_tool` refuse the same templates, in the same words.
+ */
+function checkHttpTemplates(
+  manifest: ToolManifest,
+  options: DefineToolOptions = {},
+): InvalidToolDefinitionError | undefined {
+  const spec = manifest.spec;
+  if (spec?.kind !== 'http' || options.stored === true) return undefined;
+  const body = spec.requestBody?.kind === 'text' ? spec.requestBody.template : undefined;
+  return (
+    strayUrlBrace(manifest.id, spec.urlTemplate) ??
+    unfilledName(manifest.id, spec, body) ??
+    unknownField(manifest, spec.urlTemplate, body)
+  );
+}
+
+function templateRefusal(
+  id: ToolId,
+  field: string,
+  path: string,
+  message: string,
+): InvalidToolDefinitionError {
+  return {
+    code: 'invalid-tool-definition',
+    message: `Tool "${id}" ${field} ${message}`,
+    issues: [{ path, message }],
+  };
+}
+
+function strayUrlBrace(id: ToolId, urlTemplate: string): InvalidToolDefinitionError | undefined {
+  if (!/[{}]/.test(urlTemplate.replace(PLACEHOLDER, ''))) return undefined;
+  return templateRefusal(
+    id,
+    'spec.urlTemplate',
+    '/spec/urlTemplate',
+    "has a brace that isn't part of a {field} placeholder; write a literal one as %7B or %7D",
+  );
+}
+
+/** A `{name}` in a text body or a header value whose name isn't ASCII, so it's never filled. */
+function unfilledName(
+  id: ToolId,
+  spec: HttpToolSpec,
+  body: string | undefined,
+): InvalidToolDefinitionError | undefined {
+  const filled = [
+    ...(body === undefined
+      ? []
+      : [{ field: 'spec.requestBody.template', path: '/spec/requestBody/template', text: body }]),
+    ...(spec.headers ?? []).map((header, i) => ({
+      field: `spec.headers[${i}].value (the header "${header.name}")`,
+      path: `/spec/headers/${i}/value`,
+      text: header.value,
+    })),
+  ];
+  for (const { field, path, text } of filled) {
+    const names = [
+      ...new Set(
+        [...text.matchAll(BRACED)]
+          .map((m) => m[1] ?? '')
+          .filter((name) => WORD.test(name) && !ASCII_WORD.test(name)),
+      ),
+    ];
+    if (names.length === 0) continue;
+    const which =
+      names.length === 1
+        ? `{${names[0]}}, which isn't a {field} placeholder`
+        : `${names.map((name) => `{${name}}`).join(', ')}, which aren't {field} placeholders`;
+    return templateRefusal(
+      id,
+      field,
+      path,
+      `has ${which}: a placeholder's name is ASCII letters, digits and _`,
+    );
+  }
+  return undefined;
+}
+
+/** A placeholder in the URL or a text body that the input has no field for. */
+function unknownField(
+  manifest: ToolManifest,
+  urlTemplate: string,
+  body: string | undefined,
+): InvalidToolDefinitionError | undefined {
+  const properties = (manifest.input as { readonly properties?: unknown } | undefined)?.properties;
+  const fields = new Set(
+    properties !== null && typeof properties === 'object' ? Object.keys(properties) : [],
+  );
+  const templates = [
+    { path: '/spec/urlTemplate', text: urlTemplate },
+    ...(body === undefined ? [] : [{ path: '/spec/requestBody/template', text: body }]),
+  ].map(({ path, text }) => ({
+    path,
+    unknown: [...text.matchAll(PLACEHOLDER)].map((m) => m[1] ?? '').filter((n) => !fields.has(n)),
+  }));
+  const named = (names: readonly string[]): string =>
+    `${[...new Set(names)]
+      .sort()
+      .map((name) => `{${name}}`)
+      .join(', ')} not a field of the input, which fills placeholders`;
+  const issues = templates
+    .filter(({ unknown }) => unknown.length > 0)
+    .map(({ path, unknown }) => ({ path, message: named(unknown) }));
+  if (issues.length === 0) return undefined;
+  return {
+    code: 'invalid-tool-definition',
+    message: `Tool "${manifest.id}": ${named(templates.flatMap(({ unknown }) => unknown))}`,
+    issues,
   };
 }
 
