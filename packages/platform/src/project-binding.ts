@@ -13,7 +13,7 @@
  *
  * `getDefault` returns the tenant's default project (a new tenant gets one).
  * That row is the only one where `Project.isDefault = true`;
- * implementations keep exactly one per tenant (this binding's
+ * implementations keep at most one per tenant (this binding's
  * in-memory adapter checks at write time, before the row lands in the
  * map). Callers that don't naturally know a project resolve the
  * default with `getDefault` and pass its id explicitly (see e.g.

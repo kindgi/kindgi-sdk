@@ -9329,7 +9329,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.getDefault',
     summary: "Fetch the tenant's default project",
     description:
-      'Returns the row where `Project.isDefault = true` (exactly one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when no default has been provisioned.',
+      'Returns the row where `Project.isDefault = true` (at most one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the tenant has none.',
     tags: ['projects'],
     security: 'bearer',
     responses: {

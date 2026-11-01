@@ -2248,7 +2248,7 @@ export interface OrgPatch {
 }
 
 /**
- * Project primitive. Each tenant has exactly one default project.
+ * Project primitive. Each tenant has at most one default project.
  *
  * Mirrors `@kindgi/platform`'s `Project` shape. Vertical-agnostic on
  * the wire (packs alias it — `Matter` in legal, `Case` in HR,
@@ -2266,7 +2266,7 @@ export interface Project {
   readonly name: string;
   readonly slug: string;
   /**
-   * `true` for the tenant's default project (a new tenant gets one). Exactly
+   * `true` for the tenant's default project (a new tenant gets one). At most
    * one row per tenant carries `isDefault = true`.
    */
   readonly isDefault: boolean;

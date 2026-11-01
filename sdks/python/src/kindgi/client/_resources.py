@@ -9567,7 +9567,7 @@ class ProjectsResource:
     def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
         """Fetch the tenant's default project. `GET /v1/projects/default`
 
-        Returns the row where `Project.isDefault = true` (exactly one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when no default has been provisioned.
+        Returns the row where `Project.isDefault = true` (at most one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the tenant has none.
         """
         return self._client._request(
             _OPERATIONS["projects.getDefault"],
@@ -19714,7 +19714,7 @@ class AsyncProjectsResource:
     async def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
         """Fetch the tenant's default project. `GET /v1/projects/default`
 
-        Returns the row where `Project.isDefault = true` (exactly one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when no default has been provisioned.
+        Returns the row where `Project.isDefault = true` (at most one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the tenant has none.
         """
         return await self._client._request(
             _OPERATIONS["projects.getDefault"],
