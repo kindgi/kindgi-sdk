@@ -11,7 +11,7 @@
  * as text, never as HTML.
  */
 (() => {
-  const { __, _n, sprintf } = wp.i18n;
+  const { __, sprintf } = wp.i18n;
   // Read when a link is made: the page sets its config before or after this script.
   const urls = () => window.kindgiConfig?.urls ?? {};
 
@@ -301,20 +301,7 @@
     return el(
       'details',
       { className: 'kindgi-whole' },
-      el(
-        'summary',
-        {},
-        sprintf(
-          /* translators: %d: how many fields the call has */
-          _n(
-            'The whole call (%d field)',
-            'The whole call (%d fields)',
-            card.whole.length,
-            'kindgi',
-          ),
-          card.whole.length,
-        ),
-      ),
+      el('summary', {}, __('The whole call', 'kindgi')),
       el(
         'dl',
         { className: 'kindgi-facts' },
@@ -559,6 +546,7 @@
     ago,
     timeEl,
     notice,
+    technical,
     loading,
     muted,
     empty,

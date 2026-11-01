@@ -22,8 +22,20 @@
   const pollMs = config.pollMs ?? 1500;
   const ENDED = ['completed', 'failed', 'cancelled'];
 
-  const { api, el, when, ago, notice, loading, muted, empty, toolName, askUrl, approvalCard } =
-    window.kindgiCards;
+  const {
+    api,
+    el,
+    when,
+    ago,
+    notice,
+    technical,
+    loading,
+    muted,
+    empty,
+    toolName,
+    askUrl,
+    approvalCard,
+  } = window.kindgiCards;
   const absent = (value) => value === undefined || value === null || value === false;
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -286,73 +298,177 @@
 
   // ---------- Activity ----------
 
-  /** Who or what started a run, in words: a person by name. */
-  const STARTED = {
-    you: __('You', 'kindgi'),
-    kindgi: __('Someone using Kindgi', 'kindgi'),
-    webhook: __('A webhook', 'kindgi'),
-    schedule: __('A schedule', 'kindgi'),
-    event: __('An event', 'kindgi'),
-    mail: __('An email', 'kindgi'),
-    key: __('A service key', 'kindgi'),
+  /** Where a run came from, in words: who asked, or how it started. */
+  const SOURCE = {
+    you: __('You asked', 'kindgi'),
+    kindgi: __('Asked from Kindgi', 'kindgi'),
+    webhook: __('Webhook', 'kindgi'),
+    schedule: __('Schedule', 'kindgi'),
+    event: __('Event', 'kindgi'),
+    mail: __('Email', 'kindgi'),
+    key: __('Service key', 'kindgi'),
   };
-  const startedWords = (by) => (by.kind === 'person' ? by.name : (STARTED[by.kind] ?? '—'));
+  const sourceWords = (by) =>
+    by.kind === 'person' ? sprintf(__('%s asked', 'kindgi'), by.name) : (SOURCE[by.kind] ?? null);
 
-  /** A run's state in words; Kindgi's own word for one this page has none for. */
+  /** A run's state: the tone its chip is drawn in, and its words. */
   const STATUS = {
-    completed: __('Done', 'kindgi'),
-    cancelled: __('Cancelled', 'kindgi'),
-    suspended: __('Waiting', 'kindgi'),
-    running: __('Running', 'kindgi'),
-    pending: __('Running', 'kindgi'),
+    completed: ['ok', __('Done', 'kindgi')],
+    failed: ['err', __('Failed', 'kindgi')],
+    cancelled: ['none', __('Cancelled', 'kindgi')],
+    suspended: ['warn', __('Waiting', 'kindgi')],
+    running: ['run', __('Running', 'kindgi')],
+    pending: ['run', __('Running', 'kindgi')],
   };
 
-  /** A run's state: one waiting for an approval links to the Inbox; a failed one says why. */
-  function statusWords(run) {
-    if (run.waiting) return el('a', { href: urls.inbox }, __('Waits for an approval', 'kindgi'));
-    if (run.status !== 'failed') return STATUS[run.status] ?? run.status;
+  /** A run's state as a chip; one waiting for an approval links to the Inbox. */
+  function stateChip(run) {
+    if (run.waiting) {
+      return el(
+        'a',
+        { className: 'kindgi-state kindgi-state-warn', href: urls.inbox },
+        __('Waits for an approval', 'kindgi'),
+      );
+    }
+    const [tone, words] = STATUS[run.status] ?? ['none', run.status];
+    return el('span', { className: `kindgi-state kindgi-state-${tone}` }, words);
+  }
+
+  /** A day's key and heading: "Today", "Yesterday", else its weekday and the site's date. */
+  function dayOf(iso) {
+    const { dateI18n, getSettings } = wp.date;
+    const key = (at) => dateI18n('Y-m-d', at);
+    const day = key(iso);
+    if (day === key(new Date())) return [day, __('Today', 'kindgi')];
+    if (day === key(new Date(Date.now() - 24 * 60 * 60 * 1000))) {
+      return [day, __('Yesterday', 'kindgi')];
+    }
+    /* translators: 1: a weekday, 2: a date in the site's format */
     return [
-      el('span', { className: 'kindgi-failed' }, __('Failed', 'kindgi')),
-      run.failureMessage ? el('div', { className: 'kindgi-muted' }, run.failureMessage) : null,
+      day,
+      sprintf(
+        __('%1$s, %2$s', 'kindgi'),
+        dateI18n('l', iso),
+        dateI18n(getSettings().formats.date, iso),
+      ),
     ];
   }
 
-  /** A run's one-line summary: its agent's words quoted, or its fields as they are. */
-  function summaryLine(run) {
-    if (!run.summary) return null;
-    return run.said
-      ? el('div', {}, el('q', { className: 'kindgi-said' }, run.summary))
-      : el('div', {}, run.summary);
+  /** A run's time on its row (its day heads the group), with the full date on hover. */
+  const timeOf = (iso) =>
+    el(
+      'time',
+      { datetime: iso, title: when(iso) },
+      wp.date.dateI18n(wp.date.getSettings().formats.time, iso),
+    );
+
+  /** A name's first letter, for its round mark. */
+  const initial = (name) => [...name.trim()][0]?.toUpperCase() ?? '•';
+
+  /**
+   * What a run returned, in a sheet beside the page. It's a modal dialog:
+   * focus moves into it, Escape, Close or a click outside shuts it, and
+   * focus goes back to the button that opened it.
+   */
+  function outputSheet(run, name) {
+    const close = el('button', { type: 'button', className: 'button' }, __('Close', 'kindgi'));
+    const title = el('h2', {}, sprintf(__('What %s returned', 'kindgi'), name));
+    const sheet = el(
+      'dialog',
+      { className: 'kindgi-sheet' },
+      el(
+        'div',
+        { className: 'kindgi-sheet-inner' },
+        el('div', { className: 'kindgi-sheet-head' }, title, close),
+        el('p', { className: 'kindgi-muted' }, when(run.createdAt)),
+        el('pre', {}, run.output),
+      ),
+    );
+    title.id = `kindgi-sheet-${run.id}`;
+    sheet.setAttribute('aria-labelledby', title.id);
+    close.addEventListener('click', () => sheet.close());
+    // The sheet's own box is its inner one: a click on the dialog itself is on the backdrop.
+    sheet.addEventListener('click', (event) => {
+      if (event.target === sheet) sheet.close();
+    });
+    sheet.addEventListener('close', () => sheet.remove());
+    return sheet;
+  }
+
+  /** Why a run failed, in words for staff; Kindgi's own words for it under Details, for an administrator. */
+  const failedWhy = (run) => [
+    el('p', { className: 'kindgi-run-why' }, __("It couldn't finish.", 'kindgi')),
+    run.failureMessage ? technical({ code: 'run-failed', message: run.failureMessage }) : null,
+  ];
+
+  /** A run's links: its conversation, for the person's own; what it returned, in a sheet. */
+  function runLinks(run, name) {
+    return [
+      run.conversationId
+        ? el('a', { href: askUrl(run.conversationId) }, __('Open the conversation', 'kindgi'))
+        : null,
+      run.output === null
+        ? null
+        : el(
+            'button',
+            {
+              type: 'button',
+              className: 'button-link',
+              onclick: () => {
+                const sheet = outputSheet(run, name);
+                root.append(sheet);
+                sheet.showModal();
+              },
+            },
+            __('What it returned', 'kindgi'),
+          ),
+    ].filter((link) => link !== null);
   }
 
   function activityRow(run, nameOf) {
     const name = run.agentId !== null ? nameOf(run.agentId) : (run.flow ?? __('A run', 'kindgi'));
+    const source = sourceWords(run.startedBy);
     return el(
-      'tr',
-      {},
-      el('td', {}, when(run.createdAt)),
+      'li',
+      { className: 'kindgi-run' },
+      el('span', { className: 'kindgi-mark-round', 'aria-hidden': 'true' }, initial(name)),
       el(
-        'td',
-        { className: 'column-primary' },
-        el('strong', {}, name),
-        summaryLine(run),
-        run.conversationId
-          ? el(
-              'div',
-              { className: 'row-actions visible' },
-              el('a', { href: askUrl(run.conversationId) }, __('Open the conversation', 'kindgi')),
-            )
-          : null,
-        run.output === null
-          ? null
-          : el('details', {}, el('summary', {}, __('Output', 'kindgi')), el('pre', {}, run.output)),
+        'div',
+        { className: 'kindgi-run-body' },
+        el('div', { className: 'kindgi-run-head' }, el('strong', {}, name), stateChip(run)),
+        run.summary ? el('p', { className: 'kindgi-run-summary' }, run.summary) : null,
+        run.status === 'failed' ? failedWhy(run) : null,
         run.private === 'orders'
           ? muted(__('What it found shows to people who can edit orders.', 'kindgi'))
           : null,
+        el(
+          'p',
+          { className: 'kindgi-run-meta' },
+          timeOf(run.createdAt),
+          source ? [' · ', source] : null,
+          runLinks(run, name).flatMap((link) => [' · ', link]),
+        ),
       ),
-      el('td', {}, startedWords(run.startedBy)),
-      el('td', {}, statusWords(run)),
     );
+  }
+
+  /** The feed: runs under their day's heading, newest first; an older page carries on under the last. */
+  function feed(nameOf) {
+    const node = el('div', { className: 'kindgi-feed' });
+    let lastDay = null;
+    let list = null;
+    const add = (runs) => {
+      for (const run of runs) {
+        const [day, heading] = dayOf(run.createdAt);
+        if (day !== lastDay) {
+          lastDay = day;
+          list = el('ul', { className: 'kindgi-runs' });
+          node.append(el('h2', { className: 'kindgi-day' }, heading), list);
+        }
+        list.append(activityRow(run, nameOf));
+      }
+    };
+    return { node, add };
   }
 
   async function renderActivity() {
@@ -386,11 +502,8 @@
       );
       return;
     }
-    const body = el(
-      'tbody',
-      {},
-      page.runs.map((run) => activityRow(run, nameOf)),
-    );
+    const runs = feed(nameOf);
+    runs.add(page.runs);
     root.replaceChildren(
       ...[
         muted(
@@ -399,28 +512,8 @@
             'kindgi',
           ),
         ),
-        el(
-          'table',
-          { className: 'widefat striped kindgi-activity' },
-          el(
-            'thead',
-            {},
-            el(
-              'tr',
-              {},
-              [
-                __('When', 'kindgi'),
-                __('What', 'kindgi'),
-                __('Started by', 'kindgi'),
-                __('Status', 'kindgi'),
-              ].map((heading) => el('th', { scope: 'col' }, heading)),
-            ),
-          ),
-          body,
-        ),
-        olderButton('/activity', page.nextCursor, (more) =>
-          body.append(...more.runs.map((run) => activityRow(run, nameOf))),
-        ),
+        runs.node,
+        olderButton('/activity', page.nextCursor, (more) => runs.add(more.runs)),
       ].filter((child) => !absent(child)),
     );
   }
