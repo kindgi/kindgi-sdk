@@ -40,6 +40,9 @@ mkdir -p "$BIN"
 OLD_DIGEST="sha256:$(printf '%064d' 0)"
 NEW_DIGEST="sha256:$(printf '%063d1' 0)"
 REPO="kindgiab12.azurecr.io"
+# What the az stub's `acr login --expose-token` prints: it must reach docker
+# login's stdin and no command's arguments.
+export STUB_ACR_TOKEN="stub-acr-token-$(printf '%032d' 7)"
 RUNNING_IMAGE="$REPO/runtime@$OLD_DIGEST"
 NEW_IMAGE="$REPO/runtime@$NEW_DIGEST"
 OLD_PACK="$REPO/pack@sha256:$(printf '%064d' 2)"
@@ -74,11 +77,15 @@ case "$*" in
     jq -n --arg id "${STUB_SUBSCRIPTION-$STUB_SUB}" '{id: $id, name: "dev", state: "Enabled", isDefault: true}'
     exit 0 ;;
   "acr login"*)
-    # As the real one does: a token for the registry in docker's config.
-    if [[ -n ${DOCKER_CONFIG:-} ]]; then
-      printf '{"auths":{"%s.azurecr.io":{"identitytoken":"stub"}}}\n' "$(arg -n "$@")" >"$DOCKER_CONFIG/config.json"
+    # Only the token form answers: a plain `az acr login` hands the token to
+    # `docker login --password`, in docker's arguments. This one prints the
+    # token, for docker login's stdin, and warns as the real one does.
+    if [[ " $* " != *" --expose-token "* || $(arg --query "$@") != accessToken || $(arg -o "$@") != tsv ]]; then
+      printf 'az %s\n' "$*" >>"$STUB_UNKNOWN_LOG"; exit 97
     fi
     if [[ -n ${STUB_ACR_LOGIN_ERR:-} ]]; then printf '%s\n' "$STUB_ACR_LOGIN_ERR" >&2; exit 1; fi
+    printf "WARNING: You can perform manual login using the provided access token below, for example: 'docker login loginServer -u 00000000-0000-0000-0000-000000000000 -p accessToken'\n" >&2
+    printf '%s\n' "$STUB_ACR_TOKEN"
     exit 0 ;;
   "acr manifest list-metadata"*)
     # The registry's manifests, each with its digest and tags; the running
@@ -276,6 +283,20 @@ case "$*" in
     printf '%s\n' "$*" >>"$STUB_DOCKER_LOG"
     printf 'stub: imagetools create\n' >&2
     : >"$STUB_MARKER_COPY"; exit "${STUB_COPY_RC:-0}" ;;
+  "login "*)
+    # Only `docker login <server> --username <name> --password-stdin`: the
+    # password never in the arguments. As the real one does, it reads all of
+    # stdin, drops one trailing newline, and keeps the login in docker's config.
+    if [[ $# -ne 5 || $3 != --username || $5 != --password-stdin ]]; then
+      printf 'docker %s\n' "$*" >>"$STUB_UNKNOWN_LOG"; exit 97
+    fi
+    cat >"$STUB_LOGIN_STDIN"
+    if [[ -n ${STUB_DOCKER_LOGIN_ERR:-} ]]; then printf '%s\n' "$STUB_DOCKER_LOGIN_ERR" >&2; exit 1; fi
+    if [[ ! -s $STUB_LOGIN_STDIN ]]; then
+      printf 'Error: Cannot perform an interactive login from a non TTY device\n' >&2; exit 1
+    fi
+    printf '{"auths":{"%s":{"auth":"stub"}}}\n' "$2" >"$DOCKER_CONFIG/config.json"
+    printf 'Login Succeeded\n'; exit 0 ;;
   *) printf 'docker %s\n' "$*" >>"$STUB_UNKNOWN_LOG"; exit 97 ;;
 esac
 STUB
@@ -353,7 +374,7 @@ fail() { FAIL=$((FAIL + 1)); printf '  FAIL: %s\n' "$*"; }
 
 # A fresh case directory, var-file and markers. $1 = a pack_image line to add.
 reset_env() {
-  unset STUB_TAGS STUB_SUBSCRIPTION STUB_ACR_LOGIN_ERR STUB_PG_ERR STUB_PG_STATE STUB_PG_RETENTION \
+  unset STUB_TAGS STUB_SUBSCRIPTION STUB_ACR_LOGIN_ERR STUB_DOCKER_LOGIN_ERR STUB_PG_ERR STUB_PG_STATE STUB_PG_RETENTION \
         STUB_PG_EARLIEST STUB_PG_TIER STUB_PG_NESTED STUB_URL_SECRET STUB_JOB_CREATE_ERR STUB_JOB_START_ERR \
         STUB_EXEC_STATUS STUB_EXEC_ONLY STUB_EXEC_SEQUENCE STUB_JOB_DELETE_RC STUB_JOB_SHOW_RC STUB_BACKUP_ERR \
         STUB_PLAN_RC STUB_APPLY_RC STUB_COPY_RC STUB_INSPECT_ERR STUB_PLAN_CHANGES STUB_PLAN_KEEP_IMAGE \
@@ -378,6 +399,7 @@ reset_env() {
   export STUB_APP_AFTER="$APP_READY"
   export STUB_RELEASE_DIGEST="$NEW_DIGEST"
   export STUB_DOCKER_LOG="$CASE_DIR/docker.log"
+  export STUB_LOGIN_STDIN="$CASE_DIR/login-stdin"
   export STUB_MARKER_APPLY="$CASE_DIR/applied"
   export STUB_MARKER_COPY="$CASE_DIR/copied"
   export STUB_PLAN_SAW="$CASE_DIR/plan-saw"
@@ -502,9 +524,14 @@ assert_file_has "$STUB_CALLS_LOG" "terraform apply $kept" "yes applies the kept 
 if [[ "$(ls -l "$kept" | cut -c1-10)" == "-rw-------" ]]; then pass; else fail "the kept plan is readable by others: $(ls -l "$kept")"; fi
 if cmp -s "$(ls "$CASE_DIR"/dev.tfvars.pre-upgrade-*)" "$CASE_DIR/original.tfvars"; then pass; else fail "no .pre-upgrade copy of the original"; fi
 if cmp -s "$DOCKER_CONFIG/config.json" "$CASE_DIR/original-docker-config.json"; then fail "docker wasn't logged in to the module's registry"; else pass; fi
-assert_file_has "$STUB_CALLS_LOG" "az acr login -n kindgiab12" "docker logged in to the registry by its name"
+assert_file_has "$STUB_CALLS_LOG" "az acr login -n kindgiab12 --expose-token --query accessToken -o tsv" "a token for the registry, by its name"
+assert_file_has "$STUB_CALLS_LOG" "docker login $REPO --username 00000000-0000-0000-0000-000000000000 --password-stdin" "docker logged in to the registry with the token's username"
+# The token goes from az's stdout to docker login's stdin, and nowhere else.
+if [[ "$(cat "$STUB_LOGIN_STDIN" 2>/dev/null)" == "$STUB_ACR_TOKEN" ]]; then pass; else fail "docker login didn't get az's token on its stdin"; fi
+assert_file_lacks "$STUB_CALLS_LOG" "$STUB_ACR_TOKEN" "the token is in no command's arguments"
+assert_file_lacks "$OUT" "$STUB_ACR_TOKEN" "the token isn't printed"
 # The image is copied before any check job is made: the jobs pull it.
-assert_before "$STUB_CALLS_LOG" "az acr login" "docker buildx imagetools create" "the login comes before the copy"
+assert_before "$STUB_CALLS_LOG" "docker login" "docker buildx imagetools create" "the login comes before the copy"
 assert_before "$STUB_CALLS_LOG" "docker buildx imagetools create" "az resource create" "the copy comes before the checks"
 # The subscription az is set to is checked before anything else is read.
 assert_before "$STUB_CALLS_LOG" "az account show" "az containerapp show" "the subscription is checked first"
@@ -828,7 +855,7 @@ run "yes"
 assert_rc 1 "a short retention stops it"
 assert_out "keeps 6 days of backups: going back restores it to a point in time, which needs at least 7 (database_backup_retention_days)."
 assert_out "a precondition failed (above). Nothing was copied, backed up or changed."
-if grep -q "az acr login" "$STUB_CALLS_LOG"; then fail "docker was logged in to the registry"; else pass; fi
+if grep -qE "^(az acr login|docker login) " "$STUB_CALLS_LOG"; then fail "docker was logged in to the registry"; else pass; fi
 assert_absent "$STUB_MARKER_COPY" "copy"
 assert_absent "$STUB_JOBS_LOG" "a check job"
 assert_docker_config_unchanged
@@ -1110,9 +1137,25 @@ case_start "az acr login fails"
 reset_env; export STUB_TAGS="0.1.10" STUB_ACR_LOGIN_ERR="ERROR: (AuthorizationFailed) acme"
 run "yes"
 assert_rc 1 "no registry login stops it"
-assert_out "couldn't log docker in to $REPO (az acr login). Nothing was copied or changed."
+assert_out "couldn't log docker in to $REPO (az acr login --expose-token). Nothing was copied or changed. ERROR: (AuthorizationFailed) acme"
+# docker login, which ran on the other end of the pipe with no token, isn't
+# what the run reports.
+assert_file_lacks "$OUT" "non TTY device" "docker's own error for an empty stdin"
 assert_absent "$STUB_MARKER_COPY" "copy"
 assert_absent "$STUB_JOBS_LOG" "a check job"
+assert_docker_config_unchanged
+
+# 28a. docker won't take az's token: docker's error, before the copy.
+case_start "docker login fails"
+reset_env; export STUB_TAGS="0.1.10" STUB_DOCKER_LOGIN_ERR="Error response from daemon: Get \"https://$REPO/v2/\": unauthorized"
+run "yes"
+assert_rc 1 "a refused docker login stops it"
+assert_out "couldn't log docker in to $REPO (docker login, with az's token). Nothing was copied or changed. Error response from daemon"
+assert_file_lacks "$OUT" "You can perform manual login" "az's warning"
+assert_file_lacks "$OUT" "$STUB_ACR_TOKEN" "the token isn't printed"
+assert_absent "$STUB_MARKER_COPY" "copy"
+assert_absent "$STUB_JOBS_LOG" "a check job"
+assert_docker_config_unchanged
 
 # 29. 0.1.11 never had a final release (its changes ship in 0.2.0): neither it
 # nor one of its rcs is a target.
@@ -1162,7 +1205,7 @@ run "yes" --pack-dir "$PACK_DIR" --dry-run
 assert_rc 0 "a dry run exits 0"
 assert_out "DRY RUN. It reads only"
 assert_file_has "$STUB_CALLS_LOG" "docker buildx imagetools inspect registry.kindgi.com/kindgi/runtime:0.2.0 " "the release digest is read"
-assert_file_has "$OUT" "2. log docker in to $REPO (az acr login: a token for it in your docker config)" "the docker login"
+assert_file_has "$OUT" "2. log docker in to $REPO (a token from az acr login --expose-token, on docker login's stdin, which keeps it as for any docker login)" "the docker login"
 assert_file_has "$OUT" "2. add the image tag $REPO/runtime:0.2.0 to the module's registry" "the copy"
 assert_file_has "$OUT" "   (both platforms, through this machine; on a slow uplink it can take most of an hour)" "the copy's time"
 assert_file_has "$OUT" "kindgi-upgchk-<HHMMSS>-pk  (check provider-keys)" "the provider-keys job"

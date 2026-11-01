@@ -194,13 +194,20 @@ digest, with every platform it was built for:
 
 ```sh
 ACR=$(terraform output -raw image_registry)
-az acr login -n "${ACR%%.*}"
+az acr login -n "${ACR%%.*}" --expose-token --query accessToken -o tsv \
+  | docker login "$ACR" --username 00000000-0000-0000-0000-000000000000 --password-stdin
 docker buildx imagetools create --tag "$ACR/runtime:0.3.0" \
   registry.kindgi.com/kindgi/runtime:0.3.0@sha256:1f5cfe0032bb82b467781949978719d6a3da4d500cd994471f2f2e009c9a1b9f
 ```
 
 - `ACR` is the registry's address, from the foundation's output, and
   `${ACR%%.*}` its name, for `az acr login`.
+- `--expose-token` prints a token for the registry, which goes straight to
+  `docker login`'s stdin. A plain `az acr login` runs
+  `docker login --password <token>`, which puts the token on a command line
+  other processes on the machine can read.
+  `00000000-0000-0000-0000-000000000000` is the username az's token goes
+  with.
 - `imagetools create --tag` copies the image by digest, every platform
   included, under the tag you give.
 
@@ -746,7 +753,8 @@ identity that deploys the module. `<rg>` is the resource group, and
 
    ```sh
    ACR=$(terraform output -raw image_registry)
-   az acr login -n "${ACR%%.*}"
+   az acr login -n "${ACR%%.*}" --expose-token --query accessToken -o tsv \
+     | docker login "$ACR" --username 00000000-0000-0000-0000-000000000000 --password-stdin
    docker buildx imagetools create --tag "$ACR/runtime:<version>" \
      registry.kindgi.com/kindgi/runtime:<version>@sha256:<digest>
    ```
