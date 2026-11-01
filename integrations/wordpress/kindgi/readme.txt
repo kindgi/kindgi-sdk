@@ -45,7 +45,7 @@ No. It sends nothing until an administrator enters a Kindgi URL under **Kindgi â
 
 = Who sees the Kindgi pages? =
 
-With WooCommerce active, people who can manage WooCommerce: shop managers and administrators. Without it, people who can edit others' posts: editors and administrators. Authors, contributors and customers never see them. The `kindgi_capability` filter changes it. Kindgi decides the rest from the person's roles on this site.
+With WooCommerce active, people who can manage WooCommerce: shop managers and administrators. Without it, people who can edit others' posts: editors and administrators. Authors, contributors and customers never see them. The `kindgi_capability` filter changes who sees them, except **Kindgi â†’ Settings**, which is for administrators only. Kindgi decides the rest from the person's roles on this site.
 
 = Where should the signing key live? =
 
