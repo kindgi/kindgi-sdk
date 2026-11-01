@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { Context } from 'hono';
 import { Hono } from 'hono';
 
 import { type Principal, ref } from '@kindgi/authz';
@@ -17,6 +18,7 @@ import type {
 } from '@kindgi/platform';
 import type { Cursor, OrgId, TeamId, TenantId, UserId } from '@kindgi/types';
 
+import { NAME_MAX, boundedText, once, patchedField, slugText } from '../bounded-text.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -194,24 +196,10 @@ export function teamsRouter(
       );
     }
     const b = body as Record<string, unknown>;
-    if (typeof b.name !== 'string' || b.name.length === 0) {
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError(
-          { code: 'bad-input', message: '`name` is required and must be a non-empty string' },
-          requestId,
-        ),
-      );
-    }
-    if (typeof b.slug !== 'string' || b.slug.length === 0) {
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError(
-          { code: 'bad-input', message: '`slug` is required and must be a non-empty string' },
-          requestId,
-        ),
-      );
-    }
+    const name = boundedText(b.name, 'name', NAME_MAX);
+    if (name.problem !== undefined) return badInput(c, requestId, name.problem);
+    const slug = slugText(b.slug);
+    if (slug.problem !== undefined) return badInput(c, requestId, slug.problem);
     if (b.description !== undefined && typeof b.description !== 'string') {
       c.status(statusFor('bad-input') as never);
       return c.json(
@@ -231,8 +219,8 @@ export function teamsRouter(
       );
     }
     const spec: TeamSpec = {
-      name: b.name,
-      slug: b.slug,
+      name: name.value,
+      slug: slug.value,
       ...(b.description !== undefined && { description: b.description as string }),
       ...(b.orgId !== undefined && { orgId: b.orgId as unknown as OrgId }),
     };
@@ -581,30 +569,22 @@ export function teamsRouter(
     }
     const b = body as Record<string, unknown>;
     const shaped: { -readonly [K in keyof TeamPatch]: TeamPatch[K] } = {};
-    if (b.name !== undefined) {
-      if (typeof b.name !== 'string') {
-        c.status(statusFor('bad-input') as never);
-        return c.json(
-          toWireError(
-            { code: 'bad-input', message: '`name` must be a string when present' },
-            requestId,
-          ),
-        );
-      }
-      shaped.name = b.name;
-    }
-    if (b.slug !== undefined) {
-      if (typeof b.slug !== 'string') {
-        c.status(statusFor('bad-input') as never);
-        return c.json(
-          toWireError(
-            { code: 'bad-input', message: '`slug` must be a string when present' },
-            requestId,
-          ),
-        );
-      }
-      shaped.slug = b.slug;
-    }
+    // As create checks them; the team is read only when a sent value fails.
+    const stored = once(() => binding.get(tenantId, teamId));
+    const name = await patchedField(
+      b.name,
+      (raw) => boundedText(raw, 'name', NAME_MAX),
+      async () => (await stored())?.name,
+    );
+    const slug = await patchedField(
+      b.slug,
+      (raw) => slugText(raw),
+      async () => (await stored())?.slug,
+    );
+    if (name.kind === 'refused') return badInput(c, requestId, name.problem);
+    if (slug.kind === 'refused') return badInput(c, requestId, slug.problem);
+    if (name.kind === 'write') shaped.name = name.value;
+    if (slug.kind === 'write') shaped.slug = slug.value;
     if (b.description !== undefined) {
       if (typeof b.description !== 'string') {
         c.status(statusFor('bad-input') as never);
@@ -707,4 +687,9 @@ function serializeTeamMembership(m: TeamMembership): Record<string, unknown> {
     role: m.role,
     joinedAt: m.joinedAt as unknown as string,
   };
+}
+
+function badInput(c: Context<AppEnv>, requestId: string, message: string): Response {
+  c.status(statusFor('bad-input') as never);
+  return c.json(toWireError({ code: 'bad-input', message }, requestId));
 }
