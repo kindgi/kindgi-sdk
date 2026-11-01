@@ -222,7 +222,7 @@
     },
     {
       "name": "webhook-endpoints",
-      "description": "Outbound webhooks: endpoints the platform sends signed events to (`run.finished` when a top-level run completes, fails or is cancelled), their delivery log, redelivery and a test event. Signed in the Standard Webhooks format with a secret the endpoint references by name (`secretRef`); delivered at least once, so receivers deduplicate on `webhook-id`. Event bodies are under `webhooks`. Not to be confused with `/v1/webhooks`, which are inbound triggers. Caller-plugged via `WebhookEndpointBinding`."
+      "description": "Outbound webhooks: endpoints the platform sends signed events to (`run.finished` when a top-level run, not a replay, completes, fails or is cancelled), their delivery log, redelivery and a test event. Signed in the Standard Webhooks format with a secret the endpoint references by name (`secretRef`); delivered at least once, so receivers deduplicate on `webhook-id`. Event bodies are under `webhooks`. Not to be confused with `/v1/webhooks`, which are inbound triggers. Caller-plugged via `WebhookEndpointBinding`."
     },
     {
       "name": "connections",
@@ -27532,7 +27532,7 @@
       "WebhookEndpointFilter": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Which events reach the endpoint. Every field narrows; absent fields do not. `run.finished` is sent for top-level runs only.",
+        "description": "Which events reach the endpoint. Every field narrows; absent fields do not. `run.finished` is sent for top-level runs only, not replays.",
         "properties": {
           "projectId": {
             "type": "string",

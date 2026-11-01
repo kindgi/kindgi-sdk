@@ -16553,7 +16553,7 @@ export const WebhookEndpointFilterSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'Which events reach the endpoint. Every field narrows; absent fields do not. `run.finished` is sent for top-level runs only.',
+    'Which events reach the endpoint. Every field narrows; absent fields do not. `run.finished` is sent for top-level runs only, not replays.',
   properties: {
     projectId: { type: 'string', minLength: 1, description: 'Only runs in this project.' },
     flowIds: {
