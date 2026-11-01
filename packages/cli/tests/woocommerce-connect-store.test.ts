@@ -529,14 +529,14 @@ describe("the woocommerce starter's connect-store", () => {
       '--no-browser',
     ]);
     const link = await run.link;
-    expect(link.searchParams.get('app_name')).toBe('Kindgi (acme-shop, production)');
+    expect(link.searchParams.get('app_name')).toBe('Kindgi (acme-shop, production, project:p1)');
     expect(link.searchParams.get('app_id')).not.toBe(first.app_id);
     await approve(shop, link);
     out = await run.done;
     expect(out.code, out.stderr).toBe(0);
     expect(agent.passwords.map((p) => p.name)).toEqual([
       'Kindgi (acme-shop, local)',
-      'Kindgi (acme-shop, production)',
+      'Kindgi (acme-shop, production, project:p1)',
     ]);
     expect(agent.passwords[0]).toEqual(local);
     expect(out.stdout).toContain(
@@ -557,6 +557,25 @@ describe("the woocommerce starter's connect-store", () => {
     expect(state.secrets['project:p1 in env production WOO_APP_PASSWORD']).toEqual([
       agent.passwords[1]!.password,
     ]);
+
+    // Another client's project, on the same store and env, keeps the first's.
+    run = connectStore([
+      '--',
+      shop.url,
+      '--hosted',
+      '--env=production',
+      '--scope=project:p2',
+      '--no-browser',
+    ]);
+    await approve(shop, await run.link);
+    out = await run.done;
+    expect(out.code, out.stderr).toBe(0);
+    expect(agent.passwords.map((p) => p.name)).toEqual([
+      'Kindgi (acme-shop, local)',
+      'Kindgi (acme-shop, production, project:p1)',
+      'Kindgi (acme-shop, production, project:p2)',
+    ]);
+    expect(out.stdout).not.toContain('Revoked the agent');
   });
 
   test('a declined approval changes nothing', async () => {

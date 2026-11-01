@@ -78,18 +78,18 @@ function options(argv) {
     );
   }
   const env = values.env ?? 'local';
+  const scope = values.scope ?? 'tenant';
+  // WordPress groups an app's passwords by a UUID: one for each pack, env
+  // and scope, so a connect replaces only its own password, and two
+  // clients' projects on one store keep theirs. The tenant's leaves its
+  // scope out.
+  const of = scope === 'tenant' ? [PACK, env] : [PACK, env, scope];
   return {
     store: storeAddress(positionals[0]),
     env,
-    target: [
-      `--env=${env}`,
-      `--scope=${values.scope ?? 'tenant'}`,
-      ...(values.hosted ? ['--hosted'] : []),
-    ],
+    target: [`--env=${env}`, `--scope=${scope}`, ...(values.hosted ? ['--hosted'] : [])],
     openBrowser: !values['no-browser'],
-    // WordPress groups an app's passwords by a UUID: one for each pack and
-    // env, so a connect replaces only its own pack's password for that env.
-    app: { name: `Kindgi (${PACK}, ${env})`, id: uuidOf(`kindgi:${PACK}:${env}`) },
+    app: { name: `Kindgi (${of.join(', ')})`, id: uuidOf(`kindgi:${of.join(':')}`) },
   };
 }
 
@@ -404,7 +404,7 @@ async function connect(api, approval, { bin, store, target, app }) {
         // Never used, never shown: the agent signs in with its Application Passwords.
         password: randomBytes(24).toString('base64url'),
         roles: ['shop_manager'],
-        description: `Made by Kindgi when ${login} approved it. Kindgi signs in as this user with an Application Password for each pack and env, named "Kindgi (<pack>, <env>)": remove one to disconnect that pack, or this user to disconnect them all.`,
+        description: `Made by Kindgi when ${login} approved it. Kindgi signs in as this user with an Application Password for each pack and env, and a project's scope too, named "Kindgi (<pack>, <env>)" or "Kindgi (<pack>, <env>, project:<id>)": remove one to disconnect that pack, or this user to disconnect them all.`,
       },
     });
     if (!made.ok) throw wpError(`Making the user ${AGENT_USER}`, made);

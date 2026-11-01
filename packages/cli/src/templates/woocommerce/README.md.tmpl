@@ -184,10 +184,11 @@ For a deployed pack, name the env it runs in and its client's project
 {{RUN}} connect-store -- https://shop.example.com --hosted --env=<env> --scope=project:<client project id>
 ```
 
-Each pack and env has its own password, named `Kindgi (<pack>, <env>)`
-under `kindgi-agent`'s Application Passwords: connecting `kindgi dev` and a
-deploy to one store keeps both, and removing one there disconnects only
-that one.
+Each pack and env has its own password under `kindgi-agent`'s Application
+Passwords, named `Kindgi (<pack>, <env>)`, and each project scope too,
+named `Kindgi (<pack>, <env>, project:<id>)`: connecting `kindgi dev`, a
+deploy, and two clients' projects to one store keeps them all, and removing
+one there disconnects only that one.
 
 The password is a secret, and Kindgi hands it only to the tools that
 declare it (`needsSpec` in `lib/woo.ts`). Under `kindgi dev` it's kept in a
