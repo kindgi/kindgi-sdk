@@ -12,9 +12,9 @@
 // 2. With it, this script makes the agent's own user, `kindgi-agent`, a Shop
 //    Manager (or reuses it), and an Application Password for that user, so
 //    what the agent does in the store shows as that user's.
-// 3. It saves the store's address, the user and its password in Kindgi
-//    (`kindgi env set`, `kindgi secrets set --from-stdin`), then revokes the
-//    approver's password.
+// 3. It saves the user's password in Kindgi first, then the store's address
+//    and the user (`kindgi secrets set --from-stdin`, `kindgi env set`),
+//    and revokes the approver's password.
 //
 // Nothing secret is printed, written to a file, or put in a command's
 // arguments. Run it again to replace the agent's password.
@@ -318,28 +318,47 @@ async function checkKindgi(bin, target) {
   }
 }
 
-/** Each setting is this connect's to set; one set before says what it was. */
-async function saveInKindgi(bin, store, password, target) {
+/**
+ * The password first: until Kindgi holds it, a failure leaves the store's
+ * address and the password before as they were, so both still name one
+ * store. A secret set before gets a new version.
+ */
+async function savePassword(bin, password, target) {
+  const secret = ['secrets', 'set', 'WOO_APP_PASSWORD', ...target, '--from-stdin'];
+  let res = await kindgi(bin, secret, password);
+  if (res.code !== 0 && /Version conflict/.test(res.out)) {
+    res = await kindgi(bin, [...secret, '--write-mode=add-version'], password);
+    if (res.code === 0) return ['WOO_APP_PASSWORD gets a new version'];
+  }
+  if (res.code !== 0) throw new Failure(`kindgi secrets set WOO_APP_PASSWORD failed:\n${said(res.out)}`);
+  return [];
+}
+
+/**
+ * Then the store's address and the user. Each is this connect's to set;
+ * one set before says what it was. Kindgi holds the new password by now,
+ * so a failure here keeps it, and says so.
+ */
+async function saveStore(bin, store, target) {
   const replaced = [];
   for (const [name, value] of [
     ['WOO_STORE_URL', store],
     ['WOO_USER', AGENT_USER],
   ]) {
     let res = await kindgi(bin, ['env', 'set', name, value, ...target]);
+    let was;
     if (res.code !== 0 && /Re-run with --force/.test(res.out)) {
-      const was = /already set .*? to "(.*)"\. Re-run with --force/.exec(res.out)?.[1];
+      was = /already set .*? to "(.*)"\. Re-run with --force/.exec(res.out)?.[1];
       res = await kindgi(bin, ['env', 'set', name, value, ...target, '--force']);
       if (res.code === 0) replaced.push(was === undefined ? `${name} replaced` : `${name} was "${was}"`);
     }
-    if (res.code !== 0) throw new Failure(`kindgi env set ${name} failed:\n${said(res.out)}`);
+    if (res.code !== 0) {
+      const still = was === undefined ? '' : `, while ${name} still says "${was}"`;
+      throw new Failure(
+        `kindgi env set ${name} failed:\n${said(res.out)}\nKindgi holds the store's new password (WOO_APP_PASSWORD) now${still}: the password stays in the store, and running this again once kindgi can set ${name} finishes the connect.`,
+      );
+    }
   }
-  const secret = ['secrets', 'set', 'WOO_APP_PASSWORD', ...target, '--from-stdin'];
-  let res = await kindgi(bin, secret, password);
-  if (res.code !== 0 && /Version conflict/.test(res.out)) {
-    res = await kindgi(bin, [...secret, '--write-mode=add-version'], password);
-    if (res.code === 0) replaced.push('WOO_APP_PASSWORD gets a new version');
-  }
-  if (res.code !== 0) throw new Failure(`kindgi secrets set WOO_APP_PASSWORD failed:\n${said(res.out)}`);
   return replaced;
 }
 
@@ -395,6 +414,7 @@ async function connect(api, approval, { bin, store, target, app }) {
   const created = await call(passwords, { method: 'POST', auth: owner, body: { name: app.name, app_id: app.id } });
   if (!created.ok) throw wpError("Making the agent's Application Password", created);
 
+  let held = false;
   try {
     const check = await call(api('wc/v3/orders', { per_page: 1 }), { auth: basic(AGENT_USER, created.json.password) });
     if (!check.ok) {
@@ -403,12 +423,17 @@ async function connect(api, approval, { bin, store, target, app }) {
       );
     }
     say('✓ Its Application Password signs in to WooCommerce.');
-    const replaced = await saveInKindgi(bin, store, created.json.password, target);
+    const secret = await savePassword(bin, created.json.password, target);
+    held = true;
+    const replaced = [...(await saveStore(bin, store, target)), ...secret];
     say(`✓ Saved in Kindgi (${target.join(' ')}): WOO_STORE_URL, WOO_USER, and the secret WOO_APP_PASSWORD.`);
     if (replaced.length > 0) say(`  Replaced: ${replaced.join('; ')}.`);
   } catch (err) {
-    // Nobody else has the new password: it goes, and the one before stays.
-    await call(api(`wp/v2/users/${agent.id}/application-passwords/${created.json.uuid}`), { method: 'DELETE', auth: owner }).catch(() => {});
+    // Until Kindgi holds the new password, nobody else has it: it goes,
+    // and the one before stays.
+    if (!held) {
+      await call(api(`wp/v2/users/${agent.id}/application-passwords/${created.json.uuid}`), { method: 'DELETE', auth: owner }).catch(() => {});
+    }
     throw err;
   }
 
