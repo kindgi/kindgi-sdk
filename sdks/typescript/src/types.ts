@@ -1465,8 +1465,8 @@ export interface ProvenanceVerifyResult {
 // ============================================================
 
 /**
- * Multi-tenant SaaS core: workspace lifecycle, user management, cost
- * budgets, admin ops.
+ * A workspace: its lifecycle, user management, cost budgets and admin
+ * ops (the multi-tenant SaaS core).
  */
 export interface Tenant {
   readonly id: import('@kindgi/types').TenantId;

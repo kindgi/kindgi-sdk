@@ -10381,7 +10381,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     ],
     responses: {
       '200': {
-        description: 'Page of workspace-config entries.',
+        description: 'Page of workspace config entries.',
         schema: ref('TenantConfigCollectionPage'),
       },
       ...CommonAuthErrors,
@@ -10393,7 +10393,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/tenant/config',
     openapiPath: '/v1/tenant/config',
     operationId: 'tenant.config.upsert',
-    summary: 'Upsert a workspace-config entry',
+    summary: 'Upsert a workspace config entry',
     description:
       'Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a workspace setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.',
     tags: ['tenant'],

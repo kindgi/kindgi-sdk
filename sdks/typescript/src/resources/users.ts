@@ -28,7 +28,7 @@ import type {
  *   - `GET  /v1/identity/users` (cursor-paginated list, `?query=`
  *     displayName prefix; tenant admins only)
  *   - `GET  /v1/identity/users/{userId}` (get; a tenant admin, or the
- *     person; `404 identity-user-not-found` on unknown or cross-workspace)
+ *     person; `404 identity-user-not-found` on unknown or cross-tenant)
  *   - `GET  /v1/identity/whoami` (self — returns `WhoamiResult`, not
  *     `User`; carries the current-token's auth context plus the
  *     fuller `UserRecord` when the token has a `userId`)

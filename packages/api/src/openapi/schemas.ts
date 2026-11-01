@@ -2161,12 +2161,12 @@ export const PackEnvScopeSchema: JsonSchema = {
   additionalProperties: false,
   required: ['kind'],
   description:
-    "Where a value is set: the deployment's project, the project's org, or the workspace.",
+    "Where a value is set: the deployment's project, the project's org, or the workspace (`tenant`).",
   properties: {
     kind: { type: 'string', enum: ['project', 'org', 'tenant'] },
     id: {
       type: 'string',
-      description: "The project's or the org's id. Absent for the workspace.",
+      description: "The project's or the org's id. Absent for the workspace (`tenant`).",
     },
   },
 };
@@ -3541,7 +3541,7 @@ export const AgentMemoryPolicySchema: JsonSchema = {
           type: 'string',
           enum: ['same-user', 'same-conversation', 'same-project', 'tenant'],
           description:
-            "Where its facts go: the conversation's end user (else the user the run acts for), the conversation, the run's project, or the workspace. Each but `tenant` includes the run's project.",
+            "Where its facts go: the conversation's end user (else the user the run acts for), the conversation, the run's project, or the workspace (`tenant`). Each but `tenant` includes the run's project.",
         },
         keepDays: {
           type: 'integer',
@@ -9462,7 +9462,7 @@ export const PublishPolicyBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        'Optional. When present, must match the caller workspace (server-derived from the token). Cross-workspace publish is rejected.',
+        "Optional. When present, must match the caller's workspace (server-derived from the token). Cross-tenant publish is rejected.",
     },
     version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
     kind: { $ref: '#/components/schemas/PolicyKind' },
@@ -9774,7 +9774,7 @@ export const PublishTestSetBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        'Optional. When present, must match the caller workspace (server-derived from the token). Cross-workspace publish is rejected.',
+        "Optional. When present, must match the caller's workspace (server-derived from the token). Cross-tenant publish is rejected.",
     },
     version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
     kind: { $ref: '#/components/schemas/TestSetKind' },
@@ -12906,7 +12906,7 @@ export const DeploymentValueSchema: JsonSchema = {
       type: 'string',
       enum: ['project', 'org', 'tenant'],
       description:
-        'Where a run finds it, when it is set: the project, else its org, else the workspace.',
+        'Where a run finds it, when it is set: the project, else its org, else the workspace (`tenant`).',
     },
     problem: {
       type: 'string',

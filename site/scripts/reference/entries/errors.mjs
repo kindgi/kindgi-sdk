@@ -3638,12 +3638,12 @@ export const ERROR_ENTRIES = {
     ],
     seeAlso: ['GET /v1/tenant'],
   },
-  'workspace-config-not-found': {
+  'tenant-config-not-found': {
     description: "The API doesn't send this code.",
     details: [],
     seeAlso: ['deploy/self-hosted/operate'],
   },
-  'workspace-config-revision-conflict': {
+  'tenant-config-revision-conflict': {
     description:
       'The workspace config entry changed since the revision you sent in `ifRevision`, so the write is refused. Read the entry again and retry with its current revision.',
     details: [

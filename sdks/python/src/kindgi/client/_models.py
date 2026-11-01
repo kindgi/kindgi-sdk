@@ -1031,7 +1031,7 @@ class PackEnvDeclaration(BaseModel):
 
 class PackEnvScope(BaseModel):
     """
-    Where a value is set: the deployment's project, the project's org, or the workspace.
+    Where a value is set: the deployment's project, the project's org, or the workspace (`tenant`).
     """
 
     model_config = ConfigDict(
@@ -1041,7 +1041,7 @@ class PackEnvScope(BaseModel):
     kind: Annotated[Literal["project", "org", "tenant"] | str, _open.OPEN]
     id: str | None = None
     """
-    The project's or the org's id. Absent for the workspace.
+    The project's or the org's id. Absent for the workspace (`tenant`).
     """
 
 
@@ -2995,7 +2995,7 @@ class Remember(BaseModel):
         Literal["same-user", "same-conversation", "same-project", "tenant"] | str, _open.OPEN
     ]
     """
-    Where its facts go: the conversation's end user (else the user the run acts for), the conversation, the run's project, or the workspace. Each but `tenant` includes the run's project.
+    Where its facts go: the conversation's end user (else the user the run acts for), the conversation, the run's project, or the workspace (`tenant`). Each but `tenant` includes the run's project.
     """
     keep_days: Annotated[int | None, Field(alias="keepDays", ge=1, le=3650)] = None
     """
@@ -6708,7 +6708,7 @@ class PublishPolicyBody(BaseModel):
     id: Annotated[str, Field(min_length=1)]
     tenant_id: Annotated[UUID | None, Field(alias="tenantId")] = None
     """
-    Optional. When present, must match the caller workspace (server-derived from the token). Cross-workspace publish is rejected.
+    Optional. When present, must match the caller's workspace (server-derived from the token). Cross-tenant publish is rejected.
     """
     version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
     kind: Annotated[
@@ -7136,7 +7136,7 @@ class PublishTestSetBody(BaseModel):
     """
     tenant_id: Annotated[UUID | None, Field(alias="tenantId")] = None
     """
-    Optional. When present, must match the caller workspace (server-derived from the token). Cross-workspace publish is rejected.
+    Optional. When present, must match the caller's workspace (server-derived from the token). Cross-tenant publish is rejected.
     """
     version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
     kind: Annotated[
@@ -9582,7 +9582,7 @@ class DeploymentValue(BaseModel):
         Field(alias="foundAt"),
     ] = None
     """
-    Where a run finds it, when it is set: the project, else its org, else the workspace.
+    Where a run finds it, when it is set: the project, else its org, else the workspace (`tenant`).
     """
     problem: str | None = None
     """

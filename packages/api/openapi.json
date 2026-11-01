@@ -3707,7 +3707,7 @@
         "required": [
           "kind"
         ],
-        "description": "Where a value is set: the deployment's project, the project's org, or the workspace.",
+        "description": "Where a value is set: the deployment's project, the project's org, or the workspace (`tenant`).",
         "properties": {
           "kind": {
             "type": "string",
@@ -3719,7 +3719,7 @@
           },
           "id": {
             "type": "string",
-            "description": "The project's or the org's id. Absent for the workspace."
+            "description": "The project's or the org's id. Absent for the workspace (`tenant`)."
           }
         }
       },
@@ -8177,7 +8177,7 @@
                   "same-project",
                   "tenant"
                 ],
-                "description": "Where its facts go: the conversation's end user (else the user the run acts for), the conversation, the run's project, or the workspace. Each but `tenant` includes the run's project."
+                "description": "Where its facts go: the conversation's end user (else the user the run acts for), the conversation, the run's project, or the workspace (`tenant`). Each but `tenant` includes the run's project."
               },
               "keepDays": {
                 "type": "integer",
@@ -15832,7 +15832,7 @@
           "tenantId": {
             "type": "string",
             "format": "uuid",
-            "description": "Optional. When present, must match the caller workspace (server-derived from the token). Cross-workspace publish is rejected."
+            "description": "Optional. When present, must match the caller's workspace (server-derived from the token). Cross-tenant publish is rejected."
           },
           "version": {
             "type": "string",
@@ -16249,7 +16249,7 @@
           "tenantId": {
             "type": "string",
             "format": "uuid",
-            "description": "Optional. When present, must match the caller workspace (server-derived from the token). Cross-workspace publish is rejected."
+            "description": "Optional. When present, must match the caller's workspace (server-derived from the token). Cross-tenant publish is rejected."
           },
           "version": {
             "type": "string",
@@ -21772,7 +21772,7 @@
               "org",
               "tenant"
             ],
-            "description": "Where a run finds it, when it is set: the project, else its org, else the workspace."
+            "description": "Where a run finds it, when it is set: the project, else its org, else the workspace (`tenant`)."
           },
           "problem": {
             "type": "string",
@@ -66013,7 +66013,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Page of workspace-config entries.",
+            "description": "Page of workspace config entries.",
             "content": {
               "application/json": {
                 "schema": {
@@ -66103,7 +66103,7 @@
       },
       "patch": {
         "operationId": "tenant.config.upsert",
-        "summary": "Upsert a workspace-config entry",
+        "summary": "Upsert a workspace config entry",
         "tags": [
           "tenant"
         ],
