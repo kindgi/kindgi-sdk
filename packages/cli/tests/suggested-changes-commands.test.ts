@@ -259,6 +259,91 @@ describe('kindgi suggested-changes pin / add-as-latest / withdraw', () => {
     );
   });
 
+  test("under kindgi dev: it reads the change, asks the pin check for its version, for the whole workspace, with its check's run, then pins; the check's warning goes on stderr", async () => {
+    const { calls, rec } = recorder();
+    const checked = {
+      ...SUGGESTED_CHANGE,
+      version: '1.4.1',
+      check: {
+        ...SUGGESTED_CHANGE.check,
+        status: 'done',
+        with: { testRunId: 'tr-1', passing: 3, of: 3 },
+      },
+      status: 'ready',
+    };
+    const pinned = { pin: { id: 'p-1' }, suggestedChange: { ...checked, status: 'pinned' } };
+    const out = await run(['suggested-changes', 'pin', 'prop-1', '--json'], {
+      suggestedChanges: { get: rec('get', checked), pin: rec('pin', pinned) },
+      agents: {
+        pinned: {
+          check: rec('check', {
+            outcome: 'would-pin',
+            releaseGate: null,
+            checks: [],
+            uncommittedFiles: ['blocks/weights.json'],
+          }),
+        },
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['get', 'prop-1'],
+      ['check', 'acme.scorer', { version: '1.4.1', scope: { kind: 'tenant' }, testRunId: 'tr-1' }],
+      ['pin', 'prop-1', {}],
+    ]);
+    expect(out.stdout).toBe(`${JSON.stringify(pinned, null, 2)}\n`);
+    expect(out.stderr).toBe(
+      "git hasn't committed these files, so the pin writes over changes git can't bring back: blocks/weights.json. The pin keeps them as they were right before it: pin the version before to go back.\n",
+    );
+  });
+
+  test.each([
+    [
+      'the change unreadable',
+      {
+        get: async () => {
+          throw new KindgiApiError(fromWire({ code: 'forbidden', message: 'Not allowed' }, 403));
+        },
+      },
+      {},
+    ],
+    [
+      'the check refused',
+      { get: async () => ({ ...SUGGESTED_CHANGE, version: '1.4.1' }) },
+      {
+        check: async () => {
+          throw new KindgiApiError(fromWire({ code: 'forbidden', message: 'Not allowed' }, 403));
+        },
+      },
+    ],
+    [
+      'the check without the fields (any other runtime)',
+      { get: async () => ({ ...SUGGESTED_CHANGE, version: '1.4.1' }) },
+      { check: async () => ({ outcome: 'would-pin', releaseGate: null, checks: [] }) },
+    ],
+  ])('%s: the pin goes as before, and nothing more is said', async (_name, reads, pinned) => {
+    const { calls, rec } = recorder();
+    const out = await run(['suggested-changes', 'pin', 'prop-1'], {
+      suggestedChanges: { ...reads, pin: rec('pin') },
+      agents: { pinned },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['pin', 'prop-1', {}]]);
+    expect(JSON.parse(out.stdout)).toEqual(SUGGESTED_CHANGE);
+    expect(out.stderr).toBe('');
+  });
+
+  test("a change with no version yet: the check isn't asked", async () => {
+    const { calls, rec } = recorder();
+    const out = await run(['suggested-changes', 'pin', 'prop-1'], {
+      suggestedChanges: { get: async () => SUGGESTED_CHANGE, pin: rec('pin') },
+      agents: { pinned: { check: rec('check') } },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['pin', 'prop-1', {}]]);
+    expect(out.stderr).toBe('');
+  });
+
   test('add-as-latest takes an optional reason', async () => {
     const { calls, rec } = recorder();
     const client = { suggestedChanges: { addAsLatest: rec('addAsLatest') } };

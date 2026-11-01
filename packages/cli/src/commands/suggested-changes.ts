@@ -16,6 +16,7 @@ import {
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
 import { renderJson } from '../output.js';
+import { askPinFiles, pinFilesStderr } from '../pin-files-warning.js';
 import {
   type TableSpec,
   integerFlag,
@@ -326,7 +327,7 @@ const pin: LeafCommand = {
   kind: 'leaf',
   name: 'pin',
   description:
-    "Pin a suggested change's version for its project, through the project's release gate with its check. It prints the pin's answer: the pin, its test runs, the corrections a reused run marked `fixed` or reopened, and the suggested change under `suggestedChange`, `pinned` or `waiting-for-second-person` (a reviewer decides the approval: `kindgi approvals complete`). A refusal by the release gate lists every check, and leaves it `ready`. A project that follows Latest is refused (`409 pin-stops-latest`) unless --stop-following-latest; `kindgi suggested-changes add-as-latest` adds it as the project's Latest instead. Allowed when `ready`. Needs `pin` on the agent.",
+    "Pin a suggested change's version for its project, through the project's release gate with its check. It prints the pin's answer: the pin, its test runs, the corrections a reused run marked `fixed` or reopened, and the suggested change under `suggestedChange`, `pinned` or `waiting-for-second-person` (a reviewer decides the approval: `kindgi approvals complete`). A refusal by the release gate lists every check, and leaves it `ready`. A project that follows Latest is refused (`409 pin-stops-latest`) unless --stop-following-latest; `kindgi suggested-changes add-as-latest` adds it as the project's Latest instead. Under `kindgi dev`, where a pin writes the version into the pack's files, it says on stderr which of the files it writes over git hasn't committed, or that the pack isn't in git, from the pin check it asks first. Allowed when `ready`. Needs `pin` on the agent.",
   usage:
     'kindgi suggested-changes pin <suggested-change-id> [--reason=<text>] [--stop-following-latest]',
   optionSpec: {
@@ -339,14 +340,38 @@ const pin: LeafCommand = {
     ...IDEMPOTENCY_FLAG,
   },
   run: (ctx) =>
-    runSdk(ctx, 'suggested-changes pin', async () =>
-      ctx.client().suggestedChanges.pin(requiredPositional(ctx, 0, 'suggested-change-id'), {
+    runSdkRendered(ctx, 'suggested-changes pin', async () => {
+      const id = requiredPositional(ctx, 0, 'suggested-change-id');
+      const client = ctx.client();
+      const warned = await askPinFiles(() => pinCheck(client, id));
+      const answer = await client.suggestedChanges.pin(id, {
         ...reasonFlag(ctx),
         ...(ctx.options['stop-following-latest'] === true && { stopFollowingLatest: true }),
         ...idempotency(ctx),
-      }),
-    ),
+      });
+      return {
+        stdout: renderJson(answer, ctx.globals.format).stdout,
+        stderr: pinFilesStderr(warned, ctx.globals.format),
+      };
+    }),
 };
+
+/**
+ * The pin check for pinning suggested change `id`: its version, with the
+ * test run its check ran it in, for the whole workspace. Under `kindgi
+ * dev`, the one runtime whose check warns about the pack's files, a
+ * suggested change is for the whole workspace.
+ */
+async function pinCheck(client: KindgiClient, id: string) {
+  const suggested = await client.suggestedChanges.get(id);
+  if (suggested.version === undefined) return {};
+  const testRunId = suggested.check?.with?.testRunId;
+  return client.agents.pinned.check(suggested.agentId, {
+    version: suggested.version,
+    scope: { kind: 'tenant' },
+    ...(testRunId !== undefined && { testRunId }),
+  });
+}
 
 const addAsLatest: LeafCommand = {
   kind: 'leaf',
