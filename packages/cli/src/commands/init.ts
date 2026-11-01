@@ -48,6 +48,7 @@ import {
   isPackageVersion,
   readPnpmVersion,
   scriptCommand,
+  scriptRunner,
   usablePackageManager,
 } from '../package-manager.js';
 import { note, renderLines, warning } from '../progress-lines.js';
@@ -368,7 +369,7 @@ async function runInitFresh(
     PACK_ID: args.packName,
     PACK_VERSION: DEFAULT_PACK_VERSION,
   };
-  const filesWritten = await scaffoldTemplate({
+  const { written: filesWritten, templated } = await scaffoldTemplate({
     templateDir,
     targetDir: args.targetDir,
     substitutions,
@@ -414,14 +415,16 @@ async function runInitFresh(
   const specs = resolvedSpecs.specs;
   if (specs.source !== 'workspace') await rewriteTemplateDependencySpecs(args.targetDir, specs);
 
-  // The README's commands are the Next steps' own: the same install and
-  // the same `kindgi` runner, for the manager that installs it here.
+  // The README's commands (and a starter script's) are the Next steps' own:
+  // the same install and the same `kindgi` runner, for the manager that
+  // installs it here.
   const runner = {
     INSTALL: installCommand(packageManager),
     TYPECHECK: scriptCommand(packageManager, 'typecheck'),
     KINDGI: binDisplay(packageManager, 'kindgi'),
+    RUN: scriptRunner(packageManager),
   };
-  await fillReadmeRunner(args.targetDir, runner);
+  await fillRunner(templated, runner);
   const displayPath = relative(ctx.cwd, args.targetDir) || '.';
   const nextSteps = [
     `cd ${displayPath}`,
@@ -545,7 +548,7 @@ async function runInitPython(
   // How the pack runs its `kindgi`: `uv run kindgi` with the PyPI CLI in
   // its dev group, else the `kindgi` on PATH. The README says the same.
   const kindgi = binDisplay(pypi ? 'uv' : 'path', 'kindgi');
-  const filesWritten = await scaffoldTemplate({
+  const { written: filesWritten } = await scaffoldTemplate({
     templateDir,
     targetDir: args.targetDir,
     substitutions: {
@@ -625,7 +628,7 @@ async function runInitJava(
   const source = await resolveKindgiJavaSource();
   if (source.kind === 'error') return { kind: 'error', stderr: `${source.message}\n`, exitCode: 1 };
   const javaPackage = javaPackageOf(args.packName);
-  const filesWritten = await scaffoldTemplate({
+  const { written: filesWritten } = await scaffoldTemplate({
     templateDir,
     targetDir: args.targetDir,
     substitutions: {
@@ -738,7 +741,7 @@ async function runInitScala(
   const source = await resolveKindgiJavaSource();
   if (source.kind === 'error') return { kind: 'error', stderr: `${source.message}\n`, exitCode: 1 };
   const scalaPackage = scalaPackageOf(args.packName);
-  const filesWritten = await scaffoldTemplate({
+  const { written: filesWritten } = await scaffoldTemplate({
     templateDir,
     targetDir: args.targetDir,
     substitutions: {
@@ -852,20 +855,26 @@ function resolveFreshArgs(ctx: CommandContext, packName: string, targetDir: stri
   };
 }
 
-/** Fill the README's runner placeholders, once the package manager is known. */
-async function fillReadmeRunner(targetDir: string, runner: RunnerPlaceholders): Promise<void> {
-  const path = join(targetDir, 'README.md');
-  if (!existsSync(path)) return;
-  await writeFile(path, fillRunnerPlaceholders(await readFile(path, 'utf8'), runner), 'utf8');
+/**
+ * Fill the runner placeholders in the files rendered from `.tmpl` (the
+ * README, a starter's scripts), once the package manager is known.
+ */
+async function fillRunner(templated: readonly string[], runner: RunnerPlaceholders): Promise<void> {
+  for (const path of templated) {
+    const raw = await readFile(path, 'utf8');
+    const filled = fillRunnerPlaceholders(raw, runner);
+    if (filled !== raw) await writeFile(path, filled, 'utf8');
+  }
 }
 
 async function scaffoldTemplate(inputs: {
   readonly templateDir: string;
   readonly targetDir: string;
   readonly substitutions: Substitutions;
-}): Promise<string[]> {
+}): Promise<{ readonly written: string[]; readonly templated: readonly string[] }> {
   const files = await collectTemplateFiles(inputs.templateDir);
   const written: string[] = [];
+  const templated: string[] = [];
   for (const rel of files) {
     const src = join(inputs.templateDir, rel);
     const dest = join(
@@ -880,6 +889,7 @@ async function scaffoldTemplate(inputs: {
       const raw = await readFile(src, 'utf8');
       const rendered = substitute(raw, inputs.substitutions);
       await writeFile(dest, rendered, 'utf8');
+      templated.push(dest);
     } else {
       const bytes = await readFile(src);
       await writeFile(dest, bytes);
@@ -889,7 +899,7 @@ async function scaffoldTemplate(inputs: {
     written.push(dest);
   }
   written.sort();
-  return written;
+  return { written, templated };
 }
 
 async function isNonEmptyDir(path: string): Promise<boolean> {

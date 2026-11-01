@@ -299,6 +299,7 @@ describe('kindgi init --template=woocommerce', () => {
       'agents/order-reviewer/index.test.ts',
       'flows/order-review/index.ts',
       'fixtures/order-created.json',
+      'scripts/connect-store.mjs',
       'README.md',
     ]) {
       expect(files, rel).toContain(rel);
@@ -316,6 +317,44 @@ describe('kindgi init --template=woocommerce', () => {
     expect(agent).toContain("retryOn: ['invalid-arguments', 'unknown-tool', 'tool-error']");
     const reviewer = await readFile(join(root, 'agents/order-reviewer/index.ts'), 'utf8');
     expect(reviewer).toContain('{{ input.order.orderNumber }}');
+  });
+
+  test.each([
+    { name: 'with pnpm', seam: undefined, run: 'pnpm', kindgi: 'pnpm exec kindgi' },
+    {
+      name: 'without pnpm',
+      seam: {
+        pnpmVersion: async () => {
+          throw new Error('spawn pnpm ENOENT');
+        },
+        packageManagerRuns: async (pm: string) => pm !== 'pnpm',
+      },
+      run: 'npm run',
+      kindgi: 'npx --no -- kindgi',
+    },
+  ])("connect-store's commands are the project's own, $name", async ({ seam, run, kindgi }) => {
+    const out = await runCli(
+      baseInputs({
+        argv: ['init', 'acme-shop', '--template=woocommerce'],
+        ...(seam !== undefined && { initSeam: seam }),
+      }),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    const root = join(cwd, 'acme-shop');
+    const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    expect(manifest.scripts['connect-store']).toBe('node scripts/connect-store.mjs');
+    const readme = (await readFile(join(root, 'README.md'), 'utf8')).split('\n');
+    expect(readme).toContain(`${run} connect-store https://shop.example.com`);
+    expect(readme).toContain(
+      `${run} connect-store -- https://shop.example.com --hosted --env=<env> --scope=project:<client project id>`,
+    );
+    const script = await readFile(join(root, 'scripts/connect-store.mjs'), 'utf8');
+    expect(script).toContain("const PACK = 'acme-shop';");
+    expect(script).toContain(`Usage: ${run} connect-store https://shop.example.com`);
+    expect(script).toContain(`Try the store agent: ${kindgi} runs start --agent=`);
+    expect(script).not.toContain('{{');
   });
 
   test("the store agent's instructions are a prompt block the pack brings, and it holds up", async () => {
