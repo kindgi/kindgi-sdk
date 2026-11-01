@@ -64,7 +64,8 @@ either way, answer 2xx and move on.
 - **The filter applies:** `flowIds`, `projectId` and `includeDryRuns`.
 - **Every run that isn't inside another run sends it,** whatever started it:
   your app, the CLI, a schedule, a webhook trigger or a mail trigger. The
-  runs inside it, such as an agent step's turn, don't.
+  runs inside it, such as an agent step's turn, don't. A test run's replays
+  don't either.
 
 ### On an agent's run
 

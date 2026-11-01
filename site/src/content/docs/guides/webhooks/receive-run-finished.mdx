@@ -321,7 +321,8 @@ It prints the endpoint's id and URL:
 
 Every run that isn't inside another run sends `run.finished`, whatever
 started it: your app, the CLI, a schedule, a webhook trigger or a mail
-trigger. The runs inside it, such as an agent step's turn, don't.
+trigger. The runs inside it, such as an agent step's turn, don't. A test
+run's replays don't either.
 
 ## 3. What your endpoint receives
 
