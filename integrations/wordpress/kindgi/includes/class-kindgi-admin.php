@@ -145,10 +145,10 @@ final class Kindgi_Admin {
 	 */
 	public static function privacy_policy_text(): string {
 		return self::privacy_part(
-			__( 'Use this part if your site\'s staff use the Kindgi page. If the site sends Kindgi no email addresses (the kindgi_statement_email filter), drop the email address and the email.', 'kindgi' ),
+			__( 'Use this part if your site\'s staff use the Kindgi pages. If the site sends Kindgi no email addresses (the kindgi_statement_email filter), drop the email address and the email.', 'kindgi' ),
 			sprintf(
 				/* translators: %s: the address of Kindgi Cloud's privacy policy. */
-				__( 'Our staff can use Kindgi from this site, to ask AI agents for help and to approve or reject what an agent is about to do. When a staff member opens the Kindgi page, this site sends Kindgi a random id for them, their display name, their roles on this site and their email address, so that they act as themselves, with what their roles allow, and get an email when an approval waits for them. Kindgi also receives their messages to agents and their approval decisions, and is told when their roles change or they leave the site. The agents send what they work on to [our AI model provider]. [Kindgi Cloud, run by Kindgi Inc., processes this data for us, only to run our agents. Its privacy policy is at %s.] [We run our own Kindgi server, so this data stays on it, apart from what goes to the model provider.]', 'kindgi' ),
+				__( 'Our staff can use Kindgi from this site, to ask AI agents for help and to approve or reject what an agent is about to do. When a staff member opens a Kindgi page, this site sends Kindgi a random id for them, their display name, their roles on this site and their email address, so that they act as themselves, with what their roles allow, and get an email when an approval waits for them. Kindgi also receives their messages to agents and their approval decisions, and is told when their roles change or they leave the site. The agents send what they work on to [our AI model provider]. [Kindgi Cloud, run by Kindgi Inc., processes this data for us, only to run our agents. Its privacy policy is at %s.] [We run our own Kindgi server, so this data stays on it, apart from what goes to the model provider.]', 'kindgi' ),
 				self::PRIVACY_URL
 			)
 		) . self::privacy_part(

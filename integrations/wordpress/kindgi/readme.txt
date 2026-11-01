@@ -19,7 +19,7 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 
 = How it works =
 
-* **The site vouches for its staff.** When Jane opens the Kindgi page, the plugin signs a short statement, "the person signed in here is Jane, with these WordPress roles", and sends it to Kindgi, server to server. Kindgi exchanges it for a 15-minute session as Jane, limited to the site's project. What she can do there comes from her roles on this site, under the ceiling the site was registered with.
+* **The site vouches for its staff.** When Jane opens a Kindgi page, the plugin signs a short statement, "the person signed in here is Jane, with these WordPress roles", and sends it to Kindgi, server to server. Kindgi exchanges it for a 15-minute session as Jane, limited to the site's project. What she can do there comes from her roles on this site, under the ceiling the site was registered with.
 * **Nothing reaches the browser but this site's own pages.** The page calls the plugin's routes (`/wp-json/kindgi/v1/…`), and the plugin calls Kindgi. No Kindgi token is ever in a browser.
 * **People are matched by the site, never by email.** Each person is a random id the plugin keeps for them, never their WordPress user id, login name or email.
 
@@ -43,9 +43,9 @@ The URL must be `https://`. An `http://` URL works only to this computer (`local
 
 No. It sends nothing until an administrator enters a Kindgi URL under **Kindgi → Settings** and connects with a one-time code from Kindgi. Activating the plugin sends nothing.
 
-= Who sees the Kindgi page? =
+= Who sees the Kindgi pages? =
 
-With WooCommerce active, people who can manage WooCommerce: shop managers and administrators. Without it, people who can edit others' posts: editors and administrators. Authors, contributors and customers never see it. The `kindgi_capability` filter changes it. Kindgi decides the rest from the person's roles on this site.
+With WooCommerce active, people who can manage WooCommerce: shop managers and administrators. Without it, people who can edit others' posts: editors and administrators. Authors, contributors and customers never see them. The `kindgi_capability` filter changes it. Kindgi decides the rest from the person's roles on this site.
 
 = Where should the signing key live? =
 
@@ -78,7 +78,7 @@ This plugin connects the site to Kindgi, which runs the AI agents the site's sta
 = What the plugin sends, and when =
 
 * **When an administrator connects:** the one-time code from Kindgi, and the public half of the site's signing key.
-* **When a staff member opens the Kindgi page with no live session** (a session lasts 15 minutes): a statement the site signs, with the site's id, a random id for the person, their display name, their WordPress roles, and their email address. Kindgi uses the email only to mail them when an approval waits for them; the `kindgi_statement_email` filter sends none.
+* **When a staff member opens a Kindgi page with no live session** (a session lasts 15 minutes): a statement the site signs, with the site's id, a random id for the person, their display name, their WordPress roles, and their email address. Kindgi uses the email only to mail them when an approval waits for them; the `kindgi_statement_email` filter sends none.
 * **While they use the page:** their messages to agents and their approval decisions, and the requests that read their conversations and approvals.
 * **In the background:** a statement when someone's roles change, when someone is deleted or removed from the site, again when one didn't get through, and on a daily check. These go only for people Kindgi already knows.
 
