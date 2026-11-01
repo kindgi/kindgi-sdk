@@ -42,6 +42,10 @@ const ALLOWED: Readonly<Record<string, { readonly sites: number; readonly why: s
     why: "ajv-formats' url format, written without backtracking",
   },
   'sdk/src/webhook-events.ts': { sites: 1, why: "Kindgi's generated event shapes, in a client" },
+  'types/src/hidden-characters.ts': {
+    sites: 1,
+    why: 'fixed Unicode classes and three flag sequences: a match is at most 7 code points',
+  },
 };
 
 /** Packages that never run in a server. */
@@ -114,6 +118,7 @@ describe('no tenant pattern skips compileTenantPattern', () => {
       'handler-runtime/src/discovery.ts: listed, but has none',
       'schema/src/bounded.ts: listed, but has none',
       'sdk/src/webhook-events.ts: listed, but has none',
+      'types/src/hidden-characters.ts: listed, but has none',
     ]);
   });
 });
