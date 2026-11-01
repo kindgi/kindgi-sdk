@@ -13,7 +13,9 @@
  * At every start, {@link sandboxedCommand} works out what this start runs
  * (the runtime, the dependencies: `policy.ts`), writes the sandbox for it
  * (macOS: a Seatbelt profile; Linux: bwrap's arguments and a wrapper), and
- * returns the command inside it.
+ * returns the command inside it. On Linux, the wrapper's `sh` and the
+ * programs it runs are the ones in `PATH`'s absolute entries
+ * ({@link findOnPath}), never a copy in the folder it runs in.
  */
 
 import { createHash } from 'node:crypto';
@@ -22,8 +24,9 @@ import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { findOnPath } from '../../git.js';
 import type { PackCode } from '../pack-code.js';
-import { BWRAP_WRAPPER, appSecrets, bwrapArgs } from './bwrap.js';
+import { BWRAP_WRAPPER, BWRAP_WRAPPER_PROGRAMS, appSecrets, bwrapArgs } from './bwrap.js';
 import { SANDBOX_EXEC, type SandboxEngine } from './detect.js';
 import { type SandboxPolicy, sandboxPolicy } from './policy.js';
 import { seatbeltProfile } from './seatbelt.js';
@@ -92,6 +95,24 @@ export interface SandboxedCommand {
   readonly policy: SandboxPolicy;
 }
 
+/**
+ * `name`'s path on `env`'s `PATH` ({@link findOnPath}). Rejects, when no
+ * absolute entry holds it, with the error Node's spawn gives for a
+ * program it can't find (`code` `ENOENT`, `spawn <name> ENOENT`).
+ */
+async function wrapperProgram(
+  name: string,
+  env: Readonly<Record<string, string>>,
+): Promise<string> {
+  const file = await findOnPath(name, env);
+  if (file !== undefined) return file;
+  const error: NodeJS.ErrnoException = new Error(`spawn ${name} ENOENT`);
+  error.code = 'ENOENT';
+  error.syscall = `spawn ${name}`;
+  error.path = name;
+  throw error;
+}
+
 export async function sandboxedCommand(
   sandbox: ActiveDevSandbox,
   opts: SandboxedCommandOptions,
@@ -122,6 +143,10 @@ export async function sandboxedCommand(
     await writeFile(profile, seatbeltProfile(policy), { mode: 0o600 });
     return { command: [SANDBOX_EXEC, '-f', profile, ...opts.command], policy };
   }
+  // One at a time, so a miss names the first program missing.
+  const sh = await wrapperProgram('sh', opts.env);
+  const programs: string[] = [];
+  for (const name of BWRAP_WRAPPER_PROGRAMS) programs.push(await wrapperProgram(name, opts.env));
   const wrapper = join(devDir, 'kindgi-dev-sandbox');
   await writeFile(wrapper, BWRAP_WRAPPER, { mode: 0o755 });
   await chmod(wrapper, 0o755);
@@ -132,5 +157,5 @@ export async function sandboxedCommand(
     );
   }
   const args = bwrapArgs(policy, secrets);
-  return { command: ['sh', wrapper, ...args, '--', ...opts.command], policy };
+  return { command: [sh, wrapper, ...programs, ...args, '--', ...opts.command], policy };
 }

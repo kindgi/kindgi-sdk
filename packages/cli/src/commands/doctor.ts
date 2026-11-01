@@ -258,7 +258,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
   checks.push(
     await devSandboxCheck(
       ctx.env,
-      seam.sandbox ?? (() => detectDevSandbox(process.platform, probeReal)),
+      seam.sandbox ?? (() => detectDevSandbox(process.platform, probeReal, ctx.env)),
     ),
   );
   const apiKey = apiKeyCheck(ctx.config);
