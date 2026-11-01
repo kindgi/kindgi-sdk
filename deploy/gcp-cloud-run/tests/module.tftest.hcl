@@ -911,8 +911,19 @@ run "the_server_routes_per_deployment" {
     error_message = "The server gets none of the one pack service's settings."
   }
   assert {
-    condition     = google_project_iam_member.server_invokes_packs.role == "roles/run.invoker" && google_project_iam_member.server_invokes_packs.project == "acme-app-dev"
-    error_message = "The server may invoke the project's services, so every pack service the orchestrator makes."
+    condition     = google_project_iam_member.server_invokes_packs.role == "roles/run.servicesInvoker" && google_project_iam_member.server_invokes_packs.project == "acme-app-dev"
+    error_message = "The server may invoke the project's services, so every pack service the orchestrator makes, and only invoke them."
+  }
+  assert {
+    # The module's project grants to the server's account, listed by hand: a
+    # test can't range over every grant in the plan, so a new one joins here.
+    condition = !contains(concat(
+      google_project_iam_member.server_sql_client[*].role,
+      google_project_iam_member.server_sql_client_served[*].role,
+      google_project_iam_member.server_vertex_ai[*].role,
+      [google_project_iam_member.server_invokes_packs.role]
+    ), "roles/run.invoker")
+    error_message = "No project grant gives the server roles/run.invoker, which would let it run the project's Jobs."
   }
   assert {
     condition     = google_cloud_run_v2_service.server.template[0].containers[0].resources[0].cpu_idle == false
