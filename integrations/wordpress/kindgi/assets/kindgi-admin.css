@@ -456,7 +456,7 @@
   margin-top: var(--kindgi-space-1);
 }
 
-.kindgi .kindgi-composer .kindgi-agent {
+.kindgi .kindgi-composer .kindgi-agent-pick {
   max-width: 50%;
 }
 
@@ -464,6 +464,13 @@
   flex: 1;
   color: var(--kindgi-muted);
   font-size: 12px;
+}
+
+/* By touch, Enter starts a new line: the hint about keys would be wrong. */
+@media (pointer: coarse) {
+  .kindgi .kindgi-hint {
+    visibility: hidden;
+  }
 }
 
 .kindgi .kindgi-send {
