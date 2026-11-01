@@ -81,12 +81,11 @@ This plugin connects the site to Kindgi, which runs the AI agents the site's sta
 * **When a staff member opens the Kindgi page with no live session** (a session lasts 15 minutes): a statement the site signs, with the site's id, a random id for the person, their display name, their WordPress roles, and their email address. Kindgi uses the email only to mail them when an approval waits for them; the `kindgi_statement_email` filter sends none.
 * **While they use the page:** their messages to agents and their approval decisions, and the requests that read their conversations and approvals.
 * **In the background:** a statement when someone's roles change, when someone is deleted or removed from the site, again when one didn't get through, and on a daily check. These go only for people Kindgi already knows.
+* **With each of these:** the site's address and its WordPress version, which WordPress sends with every request it makes.
 
-Kindgi uses this so each person asks and approves as themselves, with what their roles on the site allow. The agents send what they work on, staff messages among it, to the AI model provider they're set up with, and to the tools they call.
+Kindgi uses this so each person asks and approves as themselves, with what their roles on the site allow.
 
-<!-- HELD: the store-data item goes here, in a commit of its own. -->
-
-With Kindgi Cloud, Kindgi Inc. processes this data: see the [Kindgi Cloud terms](<terms-url>) and the [privacy policy](<privacy-url>). With a Kindgi server the site's owner runs, the data goes to that server.
+<!-- HELD: the store-data item, and the end of this section (where the agents send what they work on, who processes the data, and the terms and privacy links), go here in a commit of their own. -->
 
 == Changelog ==
 
