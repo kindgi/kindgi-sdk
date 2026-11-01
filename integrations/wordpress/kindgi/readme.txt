@@ -25,7 +25,7 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 
 = What you need =
 
-* **Kindgi with site sign-in on.** Kindgi Cloud has it on. A Kindgi server you run needs it turned on: see [the WordPress page of Kindgi's docs](https://docs.kindgi.com/sites/wordpress/).
+* **Kindgi with site sign-in on.** Kindgi Cloud's is coming. A Kindgi server you run needs it turned on: see [the WordPress page of Kindgi's docs](https://docs.kindgi.com/sites/wordpress/).
 * **PHP with sodium.** WordPress ships a fallback for PHP builds without ext/sodium.
 
 == Installation ==
