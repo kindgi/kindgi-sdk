@@ -15,7 +15,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import type { AuditEvent } from '@kindgi/audit-events';
 import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
@@ -24,6 +24,7 @@ import type { ProjectId, TenantId, TriggerId, UserId } from '@kindgi/types';
 
 import { createInMemoryTriggerRegistry, createStubAppBindings } from '../src/testing/index.js';
 import { validateAgainst } from './support/openapi-schema.js';
+import { type LabelAnswer, describeTriggerLabel } from './support/trigger-label-cases.js';
 
 import { createApp } from '../src/index.js';
 import type {
@@ -737,4 +738,36 @@ describe('reads', () => {
     ]);
     expect(validateAgainst('MailFirePage', res.body)).toEqual([]);
   });
+});
+
+describeTriggerLabel('a mail trigger', () => {
+  const { call, triggerRegistry } = harness();
+  const update = vi.spyOn(triggerRegistry, 'update');
+  const answer = (res: { status: number; body: Record<string, any> }): LabelAnswer => ({
+    status: res.status,
+    ...(typeof res.body.triggerId === 'string' && { id: res.body.triggerId }),
+    ...(res.body.error !== undefined && { message: res.body.error.message }),
+  });
+  return {
+    create: async (label) =>
+      answer(await call('POST', BASE, personal(label !== undefined ? { label } : {}))),
+    update: async (id, label) => answer(await call('PATCH', `${BASE}/${id}`, { label })),
+    labelOf: async (id) =>
+      (
+        (await triggerRegistry.get({ tenantId, triggerId: id as TriggerId })) as {
+          label?: string | null;
+        }
+      )?.label ?? null,
+    store: async (id, label) => {
+      await triggerRegistry.update({
+        kind: 'mail',
+        tenantId,
+        triggerId: id as TriggerId,
+        by: ADA,
+        label,
+      } as never);
+    },
+    sent: () => update.mock.calls.map(([input]) => input as unknown as Record<string, unknown>),
+    updated: 200,
+  };
 });

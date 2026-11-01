@@ -183,3 +183,34 @@ describe('my conversations (?openedBy=me)', () => {
     expect(res.body.error.code).toBe('bad-input');
   });
 });
+
+describe("a conversation's title", () => {
+  const { title: _title, ...untitled } = OPEN;
+
+  test('201 code points are refused, and nothing is opened', async () => {
+    const h = harness();
+    const res = await h.call('/v1/conversations', JANE, { ...OPEN, title: 'x'.repeat(201) });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatchObject({
+      code: 'bad-input',
+      message: '`title` must be a string of at most 200 characters when supplied',
+    });
+    expect(h.openedWith).toEqual([]);
+  });
+
+  test('200 code points outside the BMP, 400 UTF-16 units, are taken', async () => {
+    const h = harness();
+    const title = String.fromCodePoint(0x1f600).repeat(200);
+    expect((await h.call('/v1/conversations', JANE, { ...OPEN, title })).status).toBe(201);
+    expect(h.openedWith[0]?.title).toBe(title);
+  });
+
+  test.each([
+    ['blank', { ...untitled, title: '   ' }],
+    ['absent', untitled],
+  ])('a %s one is "Untitled conversation"', async (_what, body) => {
+    const h = harness();
+    expect((await h.call('/v1/conversations', JANE, body)).status).toBe(201);
+    expect(h.openedWith[0]?.title).toBe('Untitled conversation');
+  });
+});

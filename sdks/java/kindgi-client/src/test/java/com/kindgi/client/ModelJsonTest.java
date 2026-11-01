@@ -11,6 +11,8 @@ import com.kindgi.client.models.EvalBaseline;
 import com.kindgi.client.models.LiveScope;
 import com.kindgi.client.models.LiveScopeTenant;
 import com.kindgi.client.models.PatchScheduleBody;
+import com.kindgi.client.models.ProjectPatch;
+import com.kindgi.client.models.ProjectSpec;
 import com.kindgi.client.models.PromptRef;
 import com.kindgi.client.models.Run;
 import com.kindgi.client.models.ScopeSegment;
@@ -123,6 +125,19 @@ class ModelJsonTest {
             ValidationException.class,
             e -> assertThat(e.violations())
                 .containsExactly("key: must match ^[a-z][a-z0-9_-]{0,63}$", "value: must be at least 1 character long"));
+  }
+
+  @Test
+  void aProjectUpdateSendsAStoredSlugBackAndCreateRefusesIt() {
+    // A slug stored before the rule, and a name over the limit: the server passes them
+    // sent back unchanged, so the update's builder doesn't refuse them. Create's does.
+    String name = "x".repeat(101);
+    assertThat(json.writeValueAsString(ProjectPatch.builder().name(name).slug("Foo Bar").build()))
+        .isEqualTo("{\"name\":\"" + name + "\",\"slug\":\"Foo Bar\"}");
+    assertThatThrownBy(() -> ProjectSpec.builder().name("Shop").slug("Foo Bar").build())
+        .isInstanceOfSatisfying(
+            ValidationException.class,
+            e -> assertThat(e.violations()).containsExactly("slug: must match ^[a-z0-9][a-z0-9-]{0,62}$"));
   }
 
   @Test

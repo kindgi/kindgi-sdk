@@ -11,7 +11,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { Hono } from 'hono';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import type { ProjectId, TenantId, TriggerId, UserId } from '@kindgi/types';
 import { createInMemoryTriggerRegistry, createStubAppBindings } from '../src/testing/index.js';
@@ -21,6 +21,7 @@ import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
 import type { Authorizer } from '../src/middleware/authorize.js';
 import { schedulesRouter } from '../src/routes/schedules.js';
 import type { AppEnv } from '../src/types.js';
+import { describeTriggerLabel, labelAnswer } from './support/trigger-label-cases.js';
 
 const tenantId = randomUUID() as TenantId;
 const userId = randomUUID() as UserId;
@@ -670,4 +671,38 @@ describe('the list holds only schedules whose project the caller may read', () =
     expect(page.hasMore).toBe(true);
     expect(page.nextCursor).toBeDefined();
   });
+});
+
+describeTriggerLabel('a schedule', () => {
+  const { built, registry } = app();
+  const update = vi.spyOn(registry, 'update');
+  return {
+    create: async (label) =>
+      labelAnswer(
+        await built.request(
+          '/v1/schedules',
+          send('POST', { ...nightly, ...(label !== undefined && { label }) }),
+        ),
+        'scheduleId',
+      ),
+    update: async (id, label) =>
+      labelAnswer(
+        await built.request(`/v1/schedules/${id}`, send('PATCH', { label })),
+        'scheduleId',
+      ),
+    labelOf: async (id) =>
+      ((await registry.get({ tenantId, triggerId: id as TriggerId })) as { label?: string | null })
+        ?.label ?? null,
+    store: async (id, label) => {
+      await registry.update({
+        kind: 'cron',
+        tenantId,
+        triggerId: id as TriggerId,
+        by: userId,
+        label,
+      } as never);
+    },
+    sent: () => update.mock.calls.map(([input]) => input as unknown as Record<string, unknown>),
+    updated: 200,
+  };
 });

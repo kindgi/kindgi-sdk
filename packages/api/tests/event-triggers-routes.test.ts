@@ -9,10 +9,11 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
-import type { TenantId, UserId } from '@kindgi/types';
-import { createStubAppBindings } from '../src/testing/index.js';
+import type { TenantId, TriggerId, UserId } from '@kindgi/types';
+import { createInMemoryTriggerRegistry, createStubAppBindings } from '../src/testing/index.js';
+import { describeTriggerLabel, labelAnswer } from './support/trigger-label-cases.js';
 
 import { createApp } from '../src/index.js';
 import type { RunHandlerBinding, TokenResolver, TriggerRegistryBinding } from '../src/index.js';
@@ -82,4 +83,48 @@ describe('POST /v1/event-triggers', () => {
     expect(await res.text()).toContain('`config.eventKind` is required');
     expect(registered).toEqual([]);
   });
+});
+
+describeTriggerLabel('an event trigger', () => {
+  const registry = createInMemoryTriggerRegistry();
+  const update = vi.spyOn(registry, 'update');
+  const app = createApp({
+    ...createStubAppBindings(),
+    triggerRegistry: registry,
+    resolveToken,
+    runHandler: {} as RunHandlerBinding,
+  });
+  const send = (method: string, path: string, body: unknown) =>
+    app.request(`/v1/event-triggers${path}`, {
+      method,
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  const happened = {
+    flowId: 'acme.flow',
+    flowVersion: '1.0.0',
+    config: { eventKind: 'acme.happened' },
+  };
+  return {
+    create: async (label) =>
+      labelAnswer(
+        await send('POST', '', { ...happened, ...(label !== undefined && { label }) }),
+        'triggerId',
+      ),
+    update: async (id, label) => labelAnswer(await send('PATCH', `/${id}`, { label }), 'triggerId'),
+    labelOf: async (id) =>
+      ((await registry.get({ tenantId, triggerId: id as TriggerId })) as { label?: string | null })
+        ?.label ?? null,
+    store: async (id, label) => {
+      await registry.update({
+        kind: 'event',
+        tenantId,
+        triggerId: id as TriggerId,
+        by: 'user-1',
+        label,
+      } as never);
+    },
+    sent: () => update.mock.calls.map(([input]) => input as unknown as Record<string, unknown>),
+    updated: 200,
+  };
 });
