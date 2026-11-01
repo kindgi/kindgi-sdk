@@ -807,6 +807,24 @@ describe('API — invitations', () => {
     expect(Object.keys(body)).not.toContain('invite');
   });
 
+  test('a displayName with a hidden character is 400, and the directory is not asked', async () => {
+    const { app, creates } = makeInviteApp();
+    const res = await post(
+      app,
+      '/v1/identity/users',
+      { displayName: 'Car\u{200b}ol' },
+      ADMIN_TOKEN,
+    );
+    expect(res.status).toBe(400);
+    expect(
+      ((await res.json()) as { error: { code: string; message: string } }).error,
+    ).toMatchObject({
+      code: 'bad-input',
+      message: '`displayName` must not contain control, format or invisible characters',
+    });
+    expect(creates).toEqual([]);
+  });
+
   test('a sendInvite that is not true or false is 400, and the directory is not asked', async () => {
     const { app, creates } = makeInviteApp();
     for (const sendInvite of ['yes', 1, null]) {

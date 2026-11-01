@@ -249,6 +249,22 @@ describe('/v1/signing-keys', () => {
     expect((rsa.body.error as { code: string }).code).toBe('signing-key-algorithm-unsupported');
   });
 
+  test('a label with a hidden character is refused, and nothing is stored', async () => {
+    const app = makeApp();
+    const res = await call(app, 'POST', '/v1/signing-keys', ADMIN, {
+      keyId: 'ci',
+      publicKey: PUBLIC_KEY,
+      label: 'CI\u{200b} key',
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatchObject({
+      code: 'bad-input',
+      message: '`label` must not contain control, format or invisible characters',
+    });
+    const listed = await call(app, 'GET', '/v1/signing-keys', ADMIN);
+    expect(listed.body.data).toEqual([]);
+  });
+
   test("one tenant can't see another's keys", async () => {
     const app = makeApp();
     await call(app, 'POST', '/v1/signing-keys', ADMIN, { keyId: 'ci', publicKey: PUBLIC_KEY });

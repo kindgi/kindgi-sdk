@@ -11,7 +11,14 @@ import {
   REVIEWER_ROLE_RANK,
   type ReviewerRole,
 } from '@kindgi/authz';
-import type { Cursor, EnvName, SessionId, TenantId, UserId } from '@kindgi/types';
+import {
+  type Cursor,
+  type EnvName,
+  type SessionId,
+  type TenantId,
+  type UserId,
+  hasHiddenCharacters,
+} from '@kindgi/types';
 
 import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../caller.js';
 import type { EnvBinding } from '../env-binding.js';
@@ -34,6 +41,7 @@ import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
 import type { AppEnv } from '../types.js';
+import { hiddenCharactersMessage } from './hidden-characters.js';
 import { type LicenseStatusBinding, licenseOperatorOnlyFor } from './license.js';
 import { clampLimit } from './pagination.js';
 import { DEFAULT_TENANT_CONFIG_ENV_NAME } from './tenant.js';
@@ -986,6 +994,7 @@ function parseCreateUser(
   ) {
     return `\`displayName\` must be a non-empty string of at most ${MAX_NAME_LENGTH} characters`;
   }
+  if (hasHiddenCharacters(b.displayName)) return hiddenCharactersMessage('displayName');
   if (b.primaryEmail === undefined) return { displayName: b.displayName.trim(), ...send };
   if (typeof b.primaryEmail !== 'string' || !/^[^@\s]+@[^@\s]+$/.test(b.primaryEmail)) {
     return '`primaryEmail` must be an email address';

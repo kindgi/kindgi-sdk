@@ -303,12 +303,30 @@ describe('the sites of a project (tenant admins)', () => {
     ['a display name with a C1 control', { displayName: 'Acme\u0085store' }, 'displayName'],
     ['a display name with a line separator', { displayName: 'Acme\u2028store' }, 'displayName'],
     ['a display name with a bidirectional override', { displayName: 'Acme ‮store' }, 'displayName'],
+    ['a display name with a Hangul filler', { displayName: 'Acme\u{3164}store' }, 'displayName'],
+    [
+      'a display name with a lone surrogate',
+      { displayName: `Acme${String.fromCharCode(0xd800)}store` },
+      'displayName',
+    ],
   ])('refuses %s (site-invalid), before the binding is asked', async (_what, change, field) => {
     const h = makeApp();
     const res = await h.call(ADMIN, 'POST', `/v1/projects/${P1}/sites`, { ...register, ...change });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatchObject({ code: 'site-invalid', details: { field } });
     expect(h.calls).toEqual([]);
+  });
+
+  test('a display name with a joiner, a variation selector and a flag registers', async () => {
+    const h = makeApp();
+    const displayName =
+      'Sam \u{1f468}\u{200d}\u{1f469} \u{200c} \u{2764}\u{fe0f} \u{1f3f4}\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}';
+    const res = await h.call(ADMIN, 'POST', `/v1/projects/${P1}/sites`, {
+      ...register,
+      displayName,
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.site).toMatchObject({ displayName });
   });
 
   test('a senior reviewer is fine under a senior ceiling; http on loopback is fine', async () => {

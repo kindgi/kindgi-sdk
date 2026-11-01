@@ -5,7 +5,14 @@ import { type ResourceRef, ref } from '@kindgi/authz';
 import type { BlobFilter, BlobMeta, BlobPutInput, BlobStorageBinding } from '@kindgi/blob-binding';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
 import type { RunBinding } from '@kindgi/runtime';
-import type { ArtifactId, Cursor, ProjectId, RunId, TenantId } from '@kindgi/types';
+import {
+  type ArtifactId,
+  type Cursor,
+  type ProjectId,
+  type RunId,
+  type TenantId,
+  hasHiddenCharacters,
+} from '@kindgi/types';
 import type { Context, MiddlewareHandler } from 'hono';
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
@@ -15,6 +22,7 @@ import { databaseBusyAnswer } from '../middleware/error-mapper.js';
 import { takeBody } from '../middleware/request-body.js';
 import type { AppEnv } from '../types.js';
 import { refused } from './denied.js';
+import { hiddenCharactersMessage } from './hidden-characters.js';
 import { clampLimit } from './pagination.js';
 import { savedFileHeaders } from './stored-bytes.js';
 
@@ -377,7 +385,8 @@ type ValidationResult<T> =
  * every other field is optional metadata. `tags` is a JSON-encoded
  * object; `ownerRunId` is a plain string; `expectedHash` is
  * `sha256`-hex; `contentType` overrides the file part's own MIME.
- * `name` defaults to the file part's filename.
+ * `name` defaults to the file part's filename, and is refused, either
+ * way, when it has a hidden character (`hasHiddenCharacters`).
  */
 function validateMultipart(form: FormData): ValidationResult<BlobPutInput> {
   const file = form.get('file');
@@ -395,6 +404,7 @@ function validateMultipart(form: FormData): ValidationResult<BlobPutInput> {
       : file.name !== undefined && file.name.length > 0
         ? file.name
         : 'unnamed';
+  if (hasHiddenCharacters(name)) return { kind: 'err', message: hiddenCharactersMessage('name') };
 
   const contentTypeField = form.get('contentType');
   const contentType =

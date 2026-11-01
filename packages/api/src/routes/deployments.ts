@@ -38,16 +38,17 @@ import type { Logger } from '@kindgi/log';
 import type { ProjectBinding } from '@kindgi/platform';
 import { SchemaCompileBudgetError, compileInlineSchema } from '@kindgi/schema';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
-import type {
-  Cursor,
-  EnvName,
-  FlowId,
-  GuardrailId,
-  ProjectId,
-  Semver,
-  SigningKeyId,
-  TenantId,
-  ToolId,
+import {
+  type Cursor,
+  type EnvName,
+  type FlowId,
+  type GuardrailId,
+  type ProjectId,
+  type Semver,
+  type SigningKeyId,
+  type TenantId,
+  type ToolId,
+  hasHiddenCharacters,
 } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
@@ -147,6 +148,7 @@ import {
 } from './deployment-promotions.js';
 import { requireEnvName } from './env.js';
 import type { GuardrailWriteHook } from './guardrails.js';
+import { hiddenCharactersMessage } from './hidden-characters.js';
 import { clampLimit } from './pagination.js';
 import { scopeResourceRef } from './scope-params.js';
 import { tenantResourceAccess } from './tenant-access.js';
@@ -2967,12 +2969,16 @@ function validateAgentIndexShape(
   const out: { path: string; message: string }[] = [];
   if (typeof spec.id !== 'string' || (spec.id as string).length === 0) {
     out.push({ path: '/id', message: 'agent.id must be a non-empty string' });
+  } else if (hasHiddenCharacters(spec.id)) {
+    out.push({ path: '/id', message: hiddenCharactersMessage('agent.id') });
   }
   if (typeof spec.version !== 'string' || !SEMVER_RE.test(spec.version as string)) {
     out.push({ path: '/version', message: 'agent.version must be semver' });
   }
   if (typeof spec.name !== 'string' || (spec.name as string).length === 0) {
     out.push({ path: '/name', message: 'agent.name must be a non-empty string' });
+  } else if (hasHiddenCharacters(spec.name)) {
+    out.push({ path: '/name', message: hiddenCharactersMessage('agent.name') });
   }
   const instructions = spec.instructions as { prompt?: unknown; version?: unknown } | string;
   const promptRef =
@@ -3037,6 +3043,11 @@ function validateFlowIndexShape(
   const out: { path: string; message: string }[] = [];
   if (typeof spec.id !== 'string' || (spec.id as string).length === 0) {
     out.push({ path: '/id', message: 'flow.id must be a non-empty string' });
+  } else if (hasHiddenCharacters(spec.id)) {
+    out.push({ path: '/id', message: hiddenCharactersMessage('flow.id') });
+  }
+  if (typeof spec.name === 'string' && hasHiddenCharacters(spec.name)) {
+    out.push({ path: '/name', message: hiddenCharactersMessage('flow.name') });
   }
   if (typeof spec.version !== 'string' || !SEMVER_RE.test(spec.version as string)) {
     out.push({ path: '/version', message: 'flow.version must be semver' });

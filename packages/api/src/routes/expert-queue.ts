@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 
 import { ref } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
-import type { Cursor, TenantId, Timestamp } from '@kindgi/types';
+import { type Cursor, type TenantId, type Timestamp, hasHiddenCharacters } from '@kindgi/types';
 
 import { callerRef } from '../caller.js';
 import {
@@ -29,6 +29,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import type { AppEnv } from '../types.js';
+import { hiddenCharactersMessage } from './hidden-characters.js';
 import { clampLimit } from './pagination.js';
 
 /**
@@ -413,6 +414,7 @@ function parseSpec(raw: unknown, mode: 'create' | 'patch' | 'preview'): QueueRul
     if (typeof b.name !== 'string' || b.name.trim() === '' || b.name.length > MAX_TEXT) {
       return `\`name\` must be a non-empty string of at most ${MAX_TEXT} characters`;
     }
+    if (mode === 'create' && hasHiddenCharacters(b.name)) return hiddenCharactersMessage('name');
     out.name = b.name.trim();
   }
   if (b.when !== undefined || mode !== 'patch') {

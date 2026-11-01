@@ -208,10 +208,11 @@ export {
   SITE_DEFAULTS,
   applySiteChange,
   checkSiteSettings,
-  hasHiddenCharacters,
   siteOrigin,
-  withoutHiddenCharacters,
 } from './routes/sites.js';
+// The hidden-character rule a site's display name is checked by, and a
+// person's name from a site cleaned by, for the runtime's own checks.
+export { hasHiddenCharacters, withoutHiddenCharacters } from '@kindgi/types';
 export { SITE_REQUEST_MAX_BYTES, publicEd25519Key } from './routes/site-auth.js';
 export type {
   Session,

@@ -84,6 +84,7 @@ function harness() {
       });
     },
   };
+  const registered: number[] = [];
   const reviewerRegistry: ReviewerRegistryBinding = {
     list: async () => ({
       data: [
@@ -98,7 +99,10 @@ function harness() {
       ],
     }),
     get: async () => null,
-    register: async () => ({ kind: 'ok', reviewer: {} as never }),
+    register: async () => {
+      registered.push(1);
+      return { kind: 'ok', reviewer: {} as never };
+    },
     unregister: async () => ({ unregistered: false }),
   };
   const reviewerBinding: ReviewerBinding = {
@@ -129,7 +133,7 @@ function harness() {
     });
     return { status: res.status, body: (await res.json()) as Record<string, any> };
   };
-  return { call, recorded };
+  return { call, recorded, registered };
 }
 
 describe('who reads the reviewer roster', () => {
@@ -173,6 +177,21 @@ describe('who reads the reviewer roster', () => {
     expect(
       h.recorded.filter((r) => r.correlationId === res.body.error.requestId).length,
     ).toBeGreaterThan(0);
+  });
+
+  test('a displayName with a hidden character is a 400, and nobody is registered', async () => {
+    const h = harness();
+    const res = await h.call(ADMIN, 'POST', '/v1/approvals/reviewers', {
+      userId: 'rev-2',
+      role: 'standard',
+      displayName: 'Rae\u{200b} Reviewer',
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatchObject({
+      code: 'bad-input',
+      message: '`displayName` must not contain control, format or invisible characters',
+    });
+    expect(h.registered).toEqual([]);
   });
 
   test('registering still needs a tenant admin', async () => {

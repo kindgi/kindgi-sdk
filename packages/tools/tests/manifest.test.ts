@@ -122,3 +122,22 @@ describe('the built-in prefix', () => {
     expect(validateToolManifest({ ...manifest, id: 'acme.remember' }).kind).toBe('ok');
   });
 });
+
+describe('hidden characters', () => {
+  test('a tool id with one is refused, and the message never quotes it', () => {
+    const r = validateToolManifest({
+      id: 'acme.re\u{200B}member',
+      description: 'A lookalike',
+      version: '1.0.0',
+      input: { type: 'object' },
+      output: { type: 'object' },
+    });
+    expect(r.kind === 'err' && r.error.code).toBe('invalid-tool-definition');
+    if (r.kind === 'err' && r.error.code === 'invalid-tool-definition') {
+      expect(r.error.issues).toEqual([
+        { path: '/id', message: 'must not contain control, format or invisible characters' },
+      ]);
+      expect(r.error.message).not.toContain('\u{200B}');
+    }
+  });
+});

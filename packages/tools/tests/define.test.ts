@@ -64,6 +64,17 @@ describe('defineTool — schema conformance', () => {
     if (r.kind === 'err') expect(r.error.code).toBe('invalid-tool-definition');
   });
 
+  test('rejects an id with a hidden character, after the schema', () => {
+    const r = defineTool(baseTool({ id: 'test.ec\u{FEFF}ho' as ToolId }));
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') {
+      expect(r.error.code).toBe('invalid-tool-definition');
+      expect(r.error.message).toBe(
+        'A tool id must not contain control, format or invisible characters.',
+      );
+    }
+  });
+
   test('rejects missing description', () => {
     const r = defineTool(baseTool({ description: '' }));
     expect(r.kind).toBe('err');

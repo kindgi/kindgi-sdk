@@ -295,6 +295,40 @@ describe('API — mcp endpoints register + get', () => {
     }
   });
 
+  test('an endpointId or a name with a hidden character is a 400 invalid-mcp-endpoint, and nothing is stored', async () => {
+    const { app, binding } = makeApp();
+    const cases = [
+      [
+        { endpointId: 'acme\u{200b}docs' },
+        'hidden-characters-in-endpoint-id',
+        '`endpointId` must not contain control, format or invisible characters',
+      ],
+      [
+        { name: 'Legal\u{202e} MCP' },
+        'hidden-characters-in-name',
+        '`name` must not contain control, format or invisible characters',
+      ],
+    ] as const;
+    for (const [overrides, reason, message] of cases) {
+      const endpoint = stdioEndpoint(overrides);
+      const res = await app.request('/v1/mcp/endpoints', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ ...endpoint, scopeKind: 'tenant' }),
+      });
+      expect(res.status).toBe(400);
+      const { error } = (await res.json()) as {
+        error: { code: string; message: string; details?: { reason?: string } };
+      };
+      expect([error.code, error.details?.reason, error.message]).toEqual([
+        'invalid-mcp-endpoint',
+        reason,
+        message,
+      ]);
+      expect(await binding.get({ tenantId, endpointId: endpoint.endpointId })).toBeNull();
+    }
+  });
+
   test('config-transport ↔ top-level mismatch → 400 invalid-mcp-endpoint', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/mcp/endpoints', {

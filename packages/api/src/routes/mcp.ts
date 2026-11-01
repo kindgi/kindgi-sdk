@@ -5,7 +5,13 @@ import { Hono } from 'hono';
 
 import { ref, tuplesForCreate } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
-import type { Cursor, OrgId, ProjectId, TenantId } from '@kindgi/types';
+import {
+  type Cursor,
+  type OrgId,
+  type ProjectId,
+  type TenantId,
+  hasHiddenCharacters,
+} from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import {
@@ -39,6 +45,7 @@ import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import { type TenantHostAccess, deniesHostReach, stdioRefusal } from '../tenant-host-access.js';
 import type { AppEnv } from '../types.js';
 import { refused } from './denied.js';
+import { hiddenCharactersMessage } from './hidden-characters.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams, scopeResourceRef } from './scope-params.js';
 import { parseSecretRef } from './secret-ref.js';
@@ -758,6 +765,16 @@ function validateMCPEndpoint(
       error: { message: 'endpointId required (non-empty string)', reason: 'empty-endpoint-id' },
     };
   }
+  // Its tools' ids start with it, and a tool's id refuses one too.
+  if (hasHiddenCharacters(b.endpointId)) {
+    return {
+      kind: 'err',
+      error: {
+        message: hiddenCharactersMessage('endpointId'),
+        reason: 'hidden-characters-in-endpoint-id',
+      },
+    };
+  }
   // A tool's id is `<endpointId>.<tool name>`: with a `.` here, two
   // endpoints' tools could share one id. An endpoint registered with one
   // before keeps it.
@@ -777,6 +794,12 @@ function validateMCPEndpoint(
         message: `endpoint "${b.endpointId}" missing name`,
         reason: 'empty-name',
       },
+    };
+  }
+  if (hasHiddenCharacters(b.name)) {
+    return {
+      kind: 'err',
+      error: { message: hiddenCharactersMessage('name'), reason: 'hidden-characters-in-name' },
     };
   }
   if (

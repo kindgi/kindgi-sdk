@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { ProjectId, TenantId, UserId } from '@kindgi/types';
+import { type ProjectId, type TenantId, type UserId, hasHiddenCharacters } from '@kindgi/types';
 import { type Context, Hono } from 'hono';
 
 import { callerIdentity, isTenantAdmin } from '../caller.js';
@@ -18,6 +18,7 @@ import type {
   SiteRoleGrant,
 } from '../site-binding.js';
 import type { AppEnv } from '../types.js';
+import { hiddenCharactersMessage } from './hidden-characters.js';
 import { serializeUser } from './identity.js';
 import { clampLimit } from './pagination.js';
 import { UUID_RE } from './uuid-param.js';
@@ -349,12 +350,7 @@ export function checkSiteSettings(
     if (typeof name !== 'string' || name.trim().length === 0 || name.length > 100) {
       return no('displayName', '`displayName` must be 1 to 100 characters');
     }
-    if (hasHiddenCharacters(name)) {
-      return no(
-        'displayName',
-        '`displayName` must not contain control, format or invisible characters',
-      );
-    }
+    if (hasHiddenCharacters(name)) return no('displayName', hiddenCharactersMessage('displayName'));
     out.displayName = name.trim();
   }
   if (body.origin !== undefined) {
@@ -495,30 +491,6 @@ export function siteOrigin(raw: unknown): string | undefined {
     return undefined;
   if (url.pathname !== '/' || raw.replace(/\/$/, '') !== url.origin) return undefined;
   return url.origin;
-}
-
-/**
- * Characters that can disguise a name: controls (C0 and C1), format
- * characters (bidirectional marks, overrides and isolates, zero-width
- * characters, the byte-order mark) and the line and paragraph separators.
- * A site's display name, set by a tenant admin, is refused when it has one.
- * A person's `name`, which a site sends, is cleaned instead
- * (`withoutHiddenCharacters`): refusing it would keep out a person whose
- * name needs a joiner.
- */
-export function hasHiddenCharacters(text: string): boolean {
-  return /[\p{Cc}\p{Cf}\u2028\u2029]/u.test(text);
-}
-
-/**
- * A person's name with what can disguise it removed: controls, the
- * bidirectional marks, embeddings, overrides and isolates, the line and
- * paragraph separators, and the other format characters, except the
- * zero-width joiner and non-joiner (U+200D, U+200C), which names in
- * Persian and Indic scripts, and emoji sequences, need. Trimmed.
- */
-export function withoutHiddenCharacters(text: string): string {
-  return text.replace(/[\p{Cc}\u2028\u2029]|(?![\u200c\u200d])\p{Cf}/gu, '').trim();
 }
 
 function no(field: string, message: string): { kind: 'invalid'; field: string; message: string } {

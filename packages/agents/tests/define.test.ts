@@ -87,6 +87,31 @@ describe('defineAgent — rejections', () => {
     }
   });
 
+  test('rejects an id and a name with a hidden character', () => {
+    const r = defineAgent({
+      ...baseSpec,
+      id: 'acme.\u{202E}citation-verifier',
+      name: 'Citation\u{200B}Verifier',
+    });
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') {
+      expect(r.error.issues).toEqual(
+        expect.arrayContaining([
+          { path: '/id', message: 'id must not contain control, format or invisible characters' },
+          {
+            path: '/name',
+            message: 'name must not contain control, format or invisible characters',
+          },
+        ]),
+      );
+    }
+  });
+
+  test('keeps a name with a joined emoji', () => {
+    const r = defineAgent({ ...baseSpec, name: 'Citation Verifier \u{1F469}\u{200D}\u{1F4BB}' });
+    expect(r.kind).toBe('ok');
+  });
+
   test('rejects malformed semver', () => {
     const r = defineAgent({ ...baseSpec, version: 'v1' });
     expect(r.kind).toBe('err');

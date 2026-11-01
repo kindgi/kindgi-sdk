@@ -91,6 +91,12 @@ export type JsonSchema = Record<string, unknown>;
 
 // ---------------- shared shapes ----------------
 
+// A name or a label people set is refused with a hidden character
+// (`hasHiddenCharacters` in `@kindgi/types`). JSON Schema can't say which
+// characters those are, so each field says it in words.
+const NO_HIDDEN_CHARACTERS =
+  'No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.';
+
 export const WireErrorSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -2817,7 +2823,7 @@ export const RegisterReviewerBodySchema: JsonSchema = {
   properties: {
     userId: { type: 'string', format: 'uuid' },
     role: ReviewerRoleSchema,
-    displayName: { type: 'string', minLength: 1 },
+    displayName: { type: 'string', minLength: 1, description: NO_HIDDEN_CHARACTERS },
   },
 };
 
@@ -2955,7 +2961,7 @@ export const SiteCollectionPageSchema: JsonSchema = {
 };
 
 const SiteSettingsProperties: Record<string, JsonSchema> = {
-  displayName: { type: 'string', minLength: 1, maxLength: 100 },
+  displayName: { type: 'string', minLength: 1, maxLength: 100, description: NO_HIDDEN_CHARACTERS },
   origin: {
     type: 'string',
     description: 'An https:// origin with no path; http:// only for localhost, 127.0.0.1 or [::1].',
@@ -5248,7 +5254,7 @@ export const CreateCorrectorGroupBodySchema: JsonSchema = {
   required: ['scope', 'name', 'weight'],
   properties: {
     scope: { $ref: '#/components/schemas/CorrectorGroupScope' },
-    name: { type: 'string', minLength: 1, maxLength: 100 },
+    name: { type: 'string', minLength: 1, maxLength: 100, description: NO_HIDDEN_CHARACTERS },
     weight: { type: 'number', minimum: 0 },
     description: { type: 'string' },
     assertableBy: { $ref: '#/components/schemas/CorrectorGroupAssertableBy' },
@@ -6988,7 +6994,7 @@ export const TrustSigningKeyBodySchema: JsonSchema = {
       type: 'string',
       description: 'Base64 of the 32 raw bytes of the Ed25519 public key.',
     },
-    label: { type: 'string', maxLength: 200 },
+    label: { type: 'string', maxLength: 200, description: NO_HIDDEN_CHARACTERS },
   },
 };
 
@@ -8033,7 +8039,10 @@ export const UploadArtifactBodySchema: JsonSchema = {
   required: ['file'],
   properties: {
     file: { type: 'string', format: 'binary' },
-    name: { type: 'string' },
+    name: {
+      type: 'string',
+      description: `Default: the file part's filename, which is checked the same way. ${NO_HIDDEN_CHARACTERS}`,
+    },
     contentType: { type: 'string' },
     tags: {
       type: 'string',
@@ -8731,8 +8740,12 @@ export const RegisterMCPEndpointBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       pattern: '^[^.]+$',
-      description:
-        "No `.`: an MCP tool's id is `<endpointId>.<tool name>`, so it splits at its first `.`. An endpoint registered with one before keeps it.",
+      description: `No \`.\`: an MCP tool's id is \`<endpointId>.<tool name>\`, so it splits at its first \`.\`. An endpoint registered with one before keeps it. ${NO_HIDDEN_CHARACTERS}`,
+    },
+    name: {
+      type: 'string',
+      minLength: 1,
+      description: `Human-readable display name. ${NO_HIDDEN_CHARACTERS}`,
     },
     scopeKind: { $ref: '#/components/schemas/ScopeKind' },
     scopeId: {
@@ -10778,7 +10791,7 @@ const IDENTITY_PROVIDER_BASE_PROPERTIES = {
   displayName: {
     type: 'string',
     minLength: 1,
-    description: 'The name a sign-in page shows ("Sign in with …"). Default: `providerId`.',
+    description: `The name a sign-in page shows ("Sign in with …"). Default: \`providerId\`. ${NO_HIDDEN_CHARACTERS}`,
   },
   domains: {
     type: 'array',
@@ -11556,7 +11569,12 @@ export const CreateUserBodySchema: JsonSchema = {
   additionalProperties: false,
   required: ['displayName'],
   properties: {
-    displayName: { type: 'string', minLength: 1, maxLength: 200 },
+    displayName: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 200,
+      description: NO_HIDDEN_CHARACTERS,
+    },
     primaryEmail: { type: 'string', description: "Unique among the tenant's people." },
     sendInvite: {
       type: 'boolean',
@@ -11902,7 +11920,7 @@ export const QueueRuleWhenSchema: JsonSchema = {
 };
 
 const QUEUE_RULE_FIELDS: Record<string, JsonSchema> = {
-  name: { type: 'string', minLength: 1, maxLength: 200 },
+  name: { type: 'string', minLength: 1, maxLength: 200, description: NO_HIDDEN_CHARACTERS },
   when: { $ref: '#/components/schemas/QueueRuleWhen' },
   sample: {
     type: 'number',
@@ -14983,7 +15001,7 @@ function toolsAllowedUnattendedProperty(lead: string): JsonSchema {
     maxItems: 100,
     uniqueItems: true,
     items: { type: 'string', minLength: 1, maxLength: 200 },
-    description: `${lead} Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.`,
+    description: `${lead} Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.`,
   };
 }
 
@@ -16780,7 +16798,7 @@ export const CreateConnectionAppBodySchema: JsonSchema = {
   description: 'Give `oauth2` for an app that signs in with OAuth, `githubApp` for a GitHub App.',
   properties: {
     app: { type: 'string', pattern: '^[a-z][a-z0-9-]{1,31}$', description: "The app's entry id." },
-    label: { type: 'string', maxLength: 200 },
+    label: { type: 'string', maxLength: 200, description: NO_HIDDEN_CHARACTERS },
     oauth2: { $ref: '#/components/schemas/ConnectionOAuth2App' },
     githubApp: { $ref: '#/components/schemas/ConnectionGitHubApp' },
     projects: {

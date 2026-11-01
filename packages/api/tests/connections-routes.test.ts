@@ -484,6 +484,7 @@ describe('/v1/connection-apps', () => {
       'oauth2.tenant',
     ],
     ['a project twice', { app: 'google', projects: ['p-1', 'p-1'] }, 'projects'],
+    ['a label with a zero-width space', { app: 'google', label: 'Work\u{200b}Google' }, 'label'],
     ['every project spelled as null on a create', { app: 'google', projects: null }, 'projects'],
   ])('refuses a create with %s, naming the field', async (_what, body, field) => {
     const { app, calls } = makeApp();

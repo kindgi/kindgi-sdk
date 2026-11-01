@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { NodeId, Result } from '@kindgi/types';
+import { type NodeId, type Result, hasHiddenCharacters } from '@kindgi/types';
 
 import { compileInlineSchema, createSpecRegistry } from '@kindgi/schema';
 import type { SpecRegistry } from '@kindgi/schema';
@@ -99,6 +99,7 @@ const SEMANTIC_CHECKS: readonly ((flow: Flow) => FlowError | undefined)[] = [
   checkStartEdge,
   detectOuterCycle,
   validateAllLoopBodies,
+  checkIdentity,
 ];
 
 /**
@@ -134,6 +135,8 @@ const SEMANTIC_CHECKS: readonly ((flow: Flow) => FlowError | undefined)[] = [
  *   18. Per loop-body: has a $loop-start-rooted edge; body-edge endpoints
  *       resolve to body nodes or $loop-start / $loop-end sentinels; body
  *       sub-DAG cycle detection.
+ *   19. The flow's id and name have no hidden character
+ *       (`hasHiddenCharacters`).
  *
  * The loader is pure: no I/O, no side effects, safe to call from anywhere.
  */
@@ -243,6 +246,31 @@ function compileProblem(schema: unknown): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+// ============ id and name ============
+
+function checkIdentity(flow: Flow): SchemaValidationError | undefined {
+  const issues = [
+    ...(hasHiddenCharacters(flow.id)
+      ? [{ path: '/id', message: 'id must not contain control, format or invisible characters' }]
+      : []),
+    ...(flow.name !== undefined && hasHiddenCharacters(flow.name)
+      ? [
+          {
+            path: '/name',
+            message: 'name must not contain control, format or invisible characters',
+          },
+        ]
+      : []),
+  ];
+  if (issues.length === 0) return undefined;
+  return {
+    code: 'schema-validation-failed',
+    message: `The flow's ${issues.map((i) => i.path.slice(1)).join(' and ')} must not contain control, format or invisible characters.`,
+    flowId: flow.id,
+    issues,
+  };
 }
 
 // ============ reserved ids ============

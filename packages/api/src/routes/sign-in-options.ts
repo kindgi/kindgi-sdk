@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { hasHiddenCharacters } from '@kindgi/types';
 import { type Context, Hono } from 'hono';
 
 import { statusFor, toWireError } from '../errors.js';
@@ -11,7 +12,6 @@ import {
   nearestForwardedClient,
 } from '../rate-limit-store.js';
 import type { AppEnv } from '../types.js';
-import { hasHiddenCharacters } from './sites.js';
 
 /**
  * `GET /v1/auth/sign-in-options?email=`: how a person can sign in, before
@@ -122,7 +122,7 @@ export function checkConsoleLinks(links: readonly ConsoleLink[] | undefined): vo
     const shown = label.trim();
     if (shown === '' || shown.length > MAX_CONSOLE_LINK_LABEL || hasHiddenCharacters(shown)) {
       throw new Error(
-        `createApp: consoleLinks[${i}].label must be 1 to ${MAX_CONSOLE_LINK_LABEL} characters, with no control or format character.`,
+        `createApp: consoleLinks[${i}].label must be 1 to ${MAX_CONSOLE_LINK_LABEL} characters, with no control, format or invisible character.`,
       );
     }
     const first = placeOf.get(shown);

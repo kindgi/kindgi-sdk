@@ -303,7 +303,8 @@ describe("sign-in options: the deployment's terms and privacy policy", () => {
 describe("sign-in options: the deployment's own links, for the console", () => {
   const HELP = { label: 'Help', url: 'https://help.acme.example/' };
   const STATUS = { label: 'Status', url: 'https://status.acme.example/now' };
-  const labelRule = 'label must be 1 to 40 characters, with no control or format character.';
+  const labelRule =
+    'label must be 1 to 40 characters, with no control, format or invisible character.';
 
   test.each([
     ['unset', undefined],

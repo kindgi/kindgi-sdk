@@ -18,7 +18,7 @@ import type {
   ZodConverter,
   ZodLikeSchema,
 } from '@kindgi/schema';
-import type { Result, ToolId } from '@kindgi/types';
+import { type Result, type ToolId, hasHiddenCharacters } from '@kindgi/types';
 
 import type {
   InvalidSchemaError,
@@ -462,6 +462,8 @@ function finalizeDefinition<
     return { kind: 'err', error: toDefinitionError(err) };
   }
 
+  const hiddenInId = hiddenIdRefusal(manifest.id);
+  if (hiddenInId) return { kind: 'err', error: hiddenInId };
   const badEffect = checkEffectKinds(manifest);
   if (badEffect) return { kind: 'err', error: badEffect };
 
@@ -627,6 +629,20 @@ function checkEffectKinds(manifest: ToolManifest): UnknownEffectError | undefine
  */
 export const BUILT_IN_TOOL_PREFIX = 'kindgi_';
 
+/**
+ * A tool id with a hidden character (`hasHiddenCharacters`), refused after
+ * the schema, by `defineTool` and `validateToolManifest` alike. The message
+ * doesn't quote the id: the id is what's wrong with it.
+ */
+function hiddenIdRefusal(id: ToolId): InvalidToolDefinitionError | undefined {
+  if (!hasHiddenCharacters(id)) return undefined;
+  return {
+    code: 'invalid-tool-definition',
+    message: 'A tool id must not contain control, format or invisible characters.',
+    issues: [{ path: '/id', message: 'must not contain control, format or invisible characters' }],
+  };
+}
+
 export function validateToolManifest(
   manifest: unknown,
 ): Result<ToolManifest, InvalidToolDefinitionError | InvalidSchemaError | UnknownEffectError> {
@@ -663,6 +679,8 @@ export function validateToolManifest(
       },
     };
   }
+  const hiddenInId = hiddenIdRefusal(parsed.id);
+  if (hiddenInId) return { kind: 'err', error: hiddenInId };
   const badEffect = checkEffectKinds(parsed);
   if (badEffect) return { kind: 'err', error: badEffect };
   const badInput = compilesAsSchema(parsed.input, 'input', parsed);

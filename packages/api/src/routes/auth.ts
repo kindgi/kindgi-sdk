@@ -8,7 +8,7 @@ import type { Context, MiddlewareHandler } from 'hono';
 
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import { ref } from '@kindgi/authz';
-import type { SessionId, TenantId, Timestamp } from '@kindgi/types';
+import { type SessionId, type TenantId, type Timestamp, hasHiddenCharacters } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type {
@@ -24,6 +24,7 @@ import { withholdFromReplay } from '../middleware/idempotency.js';
 import type { SessionCreateOutput, SessionStoreBinding } from '../session-store-binding.js';
 import type { AppEnv } from '../types.js';
 import { hasCapability, refused } from './denied.js';
+import { hiddenCharactersMessage } from './hidden-characters.js';
 import { tenantResourceAccess } from './tenant-access.js';
 
 /**
@@ -127,6 +128,13 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
     if (parsed.kind === 'err') {
       c.status(statusFor(parsed.error.code) as never);
       return c.json(toWireError(parsed.error, requestId));
+    }
+    // Sign-in options show it to people before they sign in.
+    const { displayName } = parsed.value;
+    if (displayName !== undefined && hasHiddenCharacters(displayName)) {
+      const refusal = invalid(hiddenCharactersMessage('displayName'));
+      c.status(statusFor(refusal.error.code) as never);
+      return c.json(toWireError(refusal.error, requestId));
     }
 
     const existing = await identityProvider.get({ tenantId, providerId: parsed.value.providerId });

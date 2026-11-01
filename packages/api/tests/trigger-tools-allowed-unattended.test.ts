@@ -365,6 +365,16 @@ describe('the field as a body names it', () => {
     ['a wildcard', ['acme.*'], "isn't a tool id"],
     ['a pattern', ['acme.[a-z]'], "isn't a tool id"],
     ['whitespace', ['acme refund'], "isn't a tool id"],
+    [
+      'a format character',
+      ['acme.re\u{200b}fund'],
+      '`toolsAllowedUnattended[0]` must not contain control, format or invisible characters',
+    ],
+    [
+      'a control character',
+      ['acme.refund', 'acme.re\u{7}fund'],
+      '`toolsAllowedUnattended[1]` must not contain control, format or invisible characters',
+    ],
     ['an empty id', [''], 'must be a tool id'],
     ['not a string', [7], 'must be a tool id'],
     ['an id twice', ['acme.refund', 'acme.refund'], 'is named twice'],

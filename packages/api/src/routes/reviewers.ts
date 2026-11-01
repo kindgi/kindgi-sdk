@@ -4,7 +4,13 @@
 import { Hono } from 'hono';
 
 import { type ReviewerRole, ref } from '@kindgi/authz';
-import type { Cursor, ReviewerId, TenantId, UserId } from '@kindgi/types';
+import {
+  type Cursor,
+  type ReviewerId,
+  type TenantId,
+  type UserId,
+  hasHiddenCharacters,
+} from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -16,6 +22,7 @@ import type {
 import { callerReviewerRole } from '../reviewer-role.js';
 import type { AppEnv } from '../types.js';
 import { refused } from './denied.js';
+import { hiddenCharactersMessage } from './hidden-characters.js';
 import { clampLimit } from './pagination.js';
 
 /**
@@ -239,6 +246,9 @@ function parseRegisterBody(
         kind: 'err',
         message: 'Field `displayName` must be a non-empty string when present',
       };
+    }
+    if (hasHiddenCharacters(displayNameRaw)) {
+      return { kind: 'err', message: hiddenCharactersMessage('displayName') };
     }
     displayName = displayNameRaw;
   }

@@ -6,7 +6,14 @@ import type { Context } from 'hono';
 
 import { type PrincipalRef, ref } from '@kindgi/authz';
 import { APP_ID_PATTERN, type AppEntry, PERMISSION_KEY_PATTERN } from '@kindgi/connections';
-import type { Cursor, EnvName, ProjectId, TenantId, UserId } from '@kindgi/types';
+import {
+  type Cursor,
+  type EnvName,
+  type ProjectId,
+  type TenantId,
+  type UserId,
+  hasHiddenCharacters,
+} from '@kindgi/types';
 
 import { callerPrincipal, isTenantAdmin } from '../caller.js';
 import type {
@@ -36,6 +43,7 @@ import { type ServedEnvRule, refuseUnservedReference } from '../served-env.js';
 import { WEBHOOK_BODY_LIMITS } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
 import { refused } from './denied.js';
+import { hiddenCharactersMessage } from './hidden-characters.js';
 import { WEBHOOK_REFUSALS_PER_CLIENT_PER_MINUTE } from './hooks.js';
 import { clampLimit } from './pagination.js';
 import { parseSecretRef } from './secret-ref.js';
@@ -590,6 +598,9 @@ function parseAppHead(
     (typeof body.label !== 'string' || body.label.length > MAX_LABEL_LENGTH)
   ) {
     return bad(`\`label\` must be a string of at most ${MAX_LABEL_LENGTH} characters`, 'label');
+  }
+  if (mode === 'create' && typeof body.label === 'string' && hasHiddenCharacters(body.label)) {
+    return bad(hiddenCharactersMessage('label'), 'label');
   }
   return {
     kind: 'ok',

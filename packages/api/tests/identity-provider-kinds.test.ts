@@ -190,6 +190,11 @@ describe('refusals', () => {
     ['saml with no IdP details', { providerId: 'x', kind: 'saml' }, 'needs `idpMetadataXml`'],
     ['an unknown kind', { ...OIDC, kind: 'ldap' }, '`kind` must be'],
     [
+      'a display name with a zero-width space',
+      { ...OIDC, displayName: 'Acme\u{200b}SSO' },
+      '`displayName` must not contain control, format or invisible characters',
+    ],
+    [
       'join: domain without domains',
       { ...OIDC, domains: undefined, join: 'domain' },
       'needs `domains`',

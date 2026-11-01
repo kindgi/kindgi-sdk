@@ -3,13 +3,14 @@
 
 import { type Context, Hono } from 'hono';
 
-import type { Cursor, SigningKeyId, TenantId } from '@kindgi/types';
+import { type Cursor, type SigningKeyId, type TenantId, hasHiddenCharacters } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { SigningKeyBinding, TrustedKey } from '../signing-key-binding.js';
 import type { AppEnv } from '../types.js';
 import { capabilityRefusal } from './denied.js';
+import { hiddenCharactersMessage } from './hidden-characters.js';
 import { clampLimit } from './pagination.js';
 import { tenantResourceAccess } from './tenant-access.js';
 
@@ -231,6 +232,9 @@ function parseAddBody(body: unknown):
       kind: 'err',
       error: { code: 'bad-input', message: '`label` must be a string of at most 200 characters' },
     };
+  }
+  if (typeof b.label === 'string' && hasHiddenCharacters(b.label)) {
+    return { kind: 'err', error: { code: 'bad-input', message: hiddenCharactersMessage('label') } };
   }
   return {
     kind: 'ok',

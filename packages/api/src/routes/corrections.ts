@@ -17,6 +17,7 @@ import {
   type ScopeSegment,
   type Semver,
   type TenantId,
+  hasHiddenCharacters,
 } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
@@ -70,6 +71,7 @@ import type { AppEnv } from '../types.js';
 import { captureTurnContext } from './correction-context.js';
 import { captureFlowContext } from './correction-flow-context.js';
 import { type Refusal, recordRefusal, refusalError } from './denied.js';
+import { hiddenCharactersMessage } from './hidden-characters.js';
 import { clampLimit } from './pagination.js';
 import { parseListScope } from './scope-params.js';
 
@@ -1293,6 +1295,7 @@ function parseGroupBody(raw: unknown): Parsed<GroupBody> {
   const b = raw as Record<string, unknown>;
   if (!nonEmpty(b.name) || b.name.length > 100)
     return err('name is required (at most 100 characters).');
+  if (hasHiddenCharacters(b.name)) return err(hiddenCharactersMessage('name'));
   if (!isWeight(b.weight)) return err('weight is required: a number ≥ 0.');
   if (b.description !== undefined && typeof b.description !== 'string') {
     return err('description must be a string.');

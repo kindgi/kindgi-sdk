@@ -447,6 +447,25 @@ describe('a key limited to a project', () => {
     expect(h.blobs.rows.size).toBe(1);
   });
 
+  test('a name, or a file name, with a hidden character is bad input, and nothing is stored', async () => {
+    const h = harness();
+    const named = new FormData();
+    named.set('file', new Blob(['hello'], { type: 'text/plain' }), 'note.txt');
+    named.set('name', 'note\u{200b}.txt');
+    const unnamed = new FormData();
+    unnamed.set('file', new Blob(['hello'], { type: 'text/plain' }), 'note\u{202e}txt.exe');
+    for (const form of [named, unnamed]) {
+      const sent = new Request('http://localhost/', { method: 'POST', body: form });
+      const r = await h.sendBytes('alice-key-p1', sent);
+      expect(r.status).toBe(400);
+      expect(r.body.error).toMatchObject({
+        code: 'bad-input',
+        message: '`name` must not contain control, format or invisible characters',
+      });
+    }
+    expect(h.blobs.rows.size).toBe(0);
+  });
+
   test('a JSON body labelled multipart is bad input, and nothing is stored', async () => {
     const h = harness();
     const json = new Request('http://localhost/', {

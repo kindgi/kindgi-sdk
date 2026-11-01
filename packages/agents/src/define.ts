@@ -10,7 +10,7 @@ import {
   toJSONSchemaSync,
 } from '@kindgi/schema';
 import { BUILT_IN_TOOL_PREFIX, pickVersion } from '@kindgi/tools';
-import type { Result, Semver } from '@kindgi/types';
+import { type Result, type Semver, hasHiddenCharacters } from '@kindgi/types';
 
 import type { InvalidAgentError } from './errors.js';
 import { templateProblem } from './liquid.js';
@@ -279,12 +279,22 @@ function validateIdentity(spec: DefineAgentSpec): Issue[] {
   const out: Issue[] = [];
   if (typeof spec.id !== 'string' || spec.id.trim().length === 0) {
     out.push({ path: '/id', message: 'id must be a non-empty string' });
+  } else if (hasHiddenCharacters(spec.id)) {
+    out.push({
+      path: '/id',
+      message: 'id must not contain control, format or invisible characters',
+    });
   }
   if (typeof spec.version !== 'string' || !SEMVER_RE.test(spec.version)) {
     out.push({ path: '/version', message: 'version must be a valid semver string' });
   }
   if (typeof spec.name !== 'string' || spec.name.trim().length === 0) {
     out.push({ path: '/name', message: 'name must be a non-empty string' });
+  } else if (hasHiddenCharacters(spec.name)) {
+    out.push({
+      path: '/name',
+      message: 'name must not contain control, format or invisible characters',
+    });
   }
   return out;
 }

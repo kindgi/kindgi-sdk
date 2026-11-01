@@ -1108,6 +1108,21 @@ describe('POST /v1/corrections/:id/remove', () => {
 });
 
 describe('/v1/corrector-groups', () => {
+  test('a name with a hidden character is a 400, and no group is made', async () => {
+    const h = harness([], {}, { grants: [`admin project:${projectA}`], checked: [] });
+    const res = await h.call('POST', '/v1/corrector-groups', {
+      scope: { kind: 'project', projectId: projectA },
+      name: 'exp\u{202e}ert',
+      weight: 3,
+    });
+    expect([res.status, res.body.error.code, res.body.error.message]).toEqual([
+      400,
+      'bad-input',
+      '`name` must not contain control, format or invisible characters',
+    ]);
+    expect((await h.call('GET', '/v1/corrector-groups')).body.data).toEqual([]);
+  });
+
   test("whom a group names is for its scope's admins; every reader gets the count", async () => {
     const grants = [`admin project:${projectA}`, `read project:${projectA}`];
     const h = harness([], {}, { grants, checked: [] });

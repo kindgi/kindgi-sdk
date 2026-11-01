@@ -2333,6 +2333,50 @@ describe('POST /v1/deployments — manifest validation', () => {
     expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
   });
 
+  test("an agent's and a flow's id and name with a hidden character is a 400 at /id and /name; nothing is deployed", async () => {
+    const index = indexWith(undefined, [
+      { ...fanoutFlow({ type: 'object' }), id: 'acme.in\u{200b}take', name: 'Intake\u{202e}' },
+    ]);
+    const fixture = buildSignedDeploy({
+      index: {
+        ...index,
+        agents: index.agents.map((a) => ({ ...a, name: 'Summary\u{200b}' })),
+      },
+    });
+    const { app, deploymentRegistry } = makeApp({ fixture });
+    const res = await post(app, fixture.wire);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { details?: { issues?: Array<Record<string, unknown>> } };
+    };
+    const no = (field: string) =>
+      `\`${field}\` must not contain control, format or invisible characters`;
+    expect(body.error.details?.issues).toEqual([
+      {
+        primitive: 'agent',
+        index: 0,
+        id: 'acme.summary',
+        path: '/name',
+        message: no('agent.name'),
+      },
+      {
+        primitive: 'flow',
+        index: 0,
+        id: 'acme.in\u{200b}take',
+        path: '/id',
+        message: no('flow.id'),
+      },
+      {
+        primitive: 'flow',
+        index: 0,
+        id: 'acme.in\u{200b}take',
+        path: '/name',
+        message: no('flow.name'),
+      },
+    ]);
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
   test("an agent's parallelToolCalls: false deploys, and its agent is registered with it", async () => {
     const index = indexWith(undefined);
     const fixture = buildSignedDeploy({

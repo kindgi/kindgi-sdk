@@ -35,3 +35,7 @@ export { CORRECTION_ITEM } from './correction.js';
 // A stored file as a plain JSON value, which several packages pass on;
 // its shape check takes no dependency.
 export { FILE_NOT_READ_REASONS, FILE_NOT_SHOWN_REASONS, isFileValue } from './file.js';
+
+// What can disguise a name people set: the API refuses a name or a label
+// that has one, and cleans a person's name that a site sends of them.
+export { hasHiddenCharacters, withoutHiddenCharacters } from './hidden-characters.js';

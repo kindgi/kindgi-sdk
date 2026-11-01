@@ -4,13 +4,21 @@
 import type { Agent } from '@kindgi/agents';
 import { emitAuditEvent } from '@kindgi/compliance';
 import { type Flow, type FlowNode, isFanoutNode, isLoopNode, isSubflowNode } from '@kindgi/flow';
-import type { AgentId, FlowId, ProjectId, Semver, TenantId } from '@kindgi/types';
+import {
+  type AgentId,
+  type FlowId,
+  type ProjectId,
+  type Semver,
+  type TenantId,
+  hasHiddenCharacters,
+} from '@kindgi/types';
 
 import type { AgentRegistryBinding } from '../agent-binding.js';
 import type { AgentPinBindings } from '../agent-pin-binding.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
 import type { TriggerTarget } from '../trigger-binding.js';
 import { whatRuns } from '../what-runs.js';
+import { hiddenCharactersMessage } from './hidden-characters.js';
 
 type EmitAuditEventArgs = Parameters<typeof emitAuditEvent>[0];
 
@@ -37,8 +45,12 @@ export const TOOLS_ALLOWED_UNATTENDED_FIELD = 'toolsAllowedUnattended';
 /** The most ids one list takes. */
 export const TOOLS_ALLOWED_UNATTENDED_MAX = 100;
 
-/** What isn't a tool id: a wildcard or a pattern's characters, whitespace and control characters. */
-const NOT_A_TOOL_ID = /[*?[\]{}\s\p{Cc}]/u;
+/**
+ * What isn't a tool id: a wildcard or a pattern's characters and
+ * whitespace. A hidden character (`hasHiddenCharacters`) is refused first,
+ * without quoting the id.
+ */
+const NOT_A_TOOL_ID = /[*?[\]{}\s]/u;
 
 /** The field as a body names it: absent, a list, or why it's refused. */
 export type ParsedToolsAllowed =
@@ -63,6 +75,9 @@ export function parseToolsAllowedUnattended(body: Record<string, unknown>): Pars
   for (const [i, id] of raw.entries()) {
     if (typeof id !== 'string' || id.length === 0 || id.length > 200) {
       return { kind: 'err', message: `\`toolsAllowedUnattended[${i}]\` must be a tool id` };
+    }
+    if (hasHiddenCharacters(id)) {
+      return { kind: 'err', message: hiddenCharactersMessage(`toolsAllowedUnattended[${i}]`) };
     }
     if (NOT_A_TOOL_ID.test(id)) {
       return {

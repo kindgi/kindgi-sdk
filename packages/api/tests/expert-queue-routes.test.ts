@@ -355,6 +355,10 @@ describe('queue rules', () => {
         '`when` names agents (`agentIds`) or flows (`flowIds`), not both',
       ],
       [{ when: {} }, '`name` must be a non-empty string of at most 200 characters'],
+      [
+        { ...RULE, name: 'Refunds\u{202e}' },
+        '`name` must not contain control, format or invisible characters',
+      ],
     ] as const) {
       const r = await h.call(EDITOR, 'POST', '/queue-rules', body);
       expect(r.status, JSON.stringify(body)).toBe(400);

@@ -55,6 +55,29 @@ describe('loadFlow — schema conformance', () => {
   });
 });
 
+describe('loadFlow — id and name', () => {
+  test('rejects an id and a name with a hidden character', () => {
+    const r = loadFlow(flow({ id: 'test.\u{2066}flow', name: 'Refund\u{3164}flow' }));
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') {
+      expect(r.error.code).toBe('schema-validation-failed');
+      expect(r.error).toMatchObject({
+        issues: [
+          { path: '/id', message: 'id must not contain control, format or invisible characters' },
+          {
+            path: '/name',
+            message: 'name must not contain control, format or invisible characters',
+          },
+        ],
+      });
+    }
+  });
+
+  test('keeps a name with a variation selector', () => {
+    expect(loadFlow(flow({ name: 'Refunds \u{2764}\u{FE0F}' })).kind).toBe('ok');
+  });
+});
+
 describe('loadFlow — structural checks', () => {
   test('rejects duplicate node ids', () => {
     const r = loadFlow(

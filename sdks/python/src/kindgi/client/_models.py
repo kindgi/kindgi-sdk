@@ -1654,6 +1654,9 @@ class TrustSigningKeyBody(BaseModel):
     Base64 of the 32 raw bytes of the Ed25519 public key.
     """
     label: Annotated[str | None, Field(max_length=200)] = None
+    """
+    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    """
 
 
 class TrustedSigningKeyPage(BaseModel):
@@ -1889,6 +1892,9 @@ class RegisterReviewerBody(BaseModel):
     Reviewer role class. Hierarchy: standard < senior < admin.
     """
     display_name: Annotated[str | None, Field(alias="displayName", min_length=1)] = None
+    """
+    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    """
 
 
 class UnregisterReviewerResult(BaseModel):
@@ -5891,6 +5897,9 @@ class UploadArtifactBody(BaseModel):
     )
     file: bytes
     name: str | None = None
+    """
+    Default: the file part's filename, which is checked the same way. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    """
     content_type: Annotated[str | None, Field(alias="contentType")] = None
     tags: str | None = None
     """
@@ -7907,7 +7916,7 @@ class OidcIdentityProviderConfig(BaseModel):
     provider_id: Annotated[str, Field(alias="providerId", min_length=1)]
     display_name: Annotated[str | None, Field(alias="displayName", min_length=1)] = None
     """
-    The name a sign-in page shows ("Sign in with …"). Default: `providerId`.
+    The name a sign-in page shows ("Sign in with …"). Default: `providerId`. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
     """
     domains: list[Domain] | None = None
     """
@@ -7972,7 +7981,7 @@ class SamlIdentityProviderConfig(BaseModel):
     provider_id: Annotated[str, Field(alias="providerId", min_length=1)]
     display_name: Annotated[str | None, Field(alias="displayName", min_length=1)] = None
     """
-    The name a sign-in page shows ("Sign in with …"). Default: `providerId`.
+    The name a sign-in page shows ("Sign in with …"). Default: `providerId`. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
     """
     domains: list[Domain] | None = None
     """
@@ -8575,6 +8584,9 @@ class CreateUserBody(BaseModel):
         populate_by_name=True,
     )
     display_name: Annotated[str, Field(alias="displayName", max_length=200, min_length=1)]
+    """
+    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    """
     primary_email: Annotated[str | None, Field(alias="primaryEmail")] = None
     """
     Unique among the tenant's people.
@@ -8654,6 +8666,9 @@ class QueueRuleSpec(BaseModel):
         populate_by_name=True,
     )
     name: Annotated[str, Field(max_length=200, min_length=1)]
+    """
+    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    """
     when: QueueRuleWhen
     sample: Annotated[float | None, Field(gt=0.0, le=1.0)] = None
     """
@@ -8683,6 +8698,9 @@ class QueueRulePatch(BaseModel):
         populate_by_name=True,
     )
     name: Annotated[str | None, Field(max_length=200, min_length=1)] = None
+    """
+    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    """
     when: QueueRuleWhen | None = None
     sample: Annotated[float | None, Field(gt=0.0, le=1.0)] = None
     """
@@ -8715,6 +8733,9 @@ class QueueRule(BaseModel):
     project_id: Annotated[str, Field(alias="projectId")]
     version: Annotated[int, Field(ge=1)]
     name: Annotated[str, Field(max_length=200, min_length=1)]
+    """
+    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    """
     when: QueueRuleWhen
     sample: Annotated[float, Field(gt=0.0, le=1.0)]
     max_open: Annotated[int | None, Field(alias="maxOpen", ge=1, le=10000)] = None
@@ -11531,7 +11552,7 @@ class MailTriggerRecord(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a mail started asks for one for every call that changes something or uses its mailbox. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a mail started asks for one for every call that changes something or uses its mailbox. Absent: none. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
     last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
@@ -11626,7 +11647,7 @@ class RegisterMailTriggerBody(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -11656,7 +11677,7 @@ class PatchMailTriggerBody(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    Replaces the list (`[]` clears it; absent keeps it). Naming it takes `admin` on the trigger's project. A new target (not just a version) or another mailbox while it lists any must name it again, as it is or `[]`. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    Replaces the list (`[]` clears it; absent keeps it). Naming it takes `admin` on the trigger's project. A new target (not just a version) or another mailbox while it lists any must name it again, as it is or `[]`. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -11762,7 +11783,7 @@ class MailTriggerDefinition(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a mail started asks for one for every call that changes something or uses its mailbox. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a mail started asks for one for every call that changes something or uses its mailbox. Absent: none. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -12100,6 +12121,9 @@ class CreateConnectionAppBody(BaseModel):
     The app's entry id.
     """
     label: Annotated[str | None, Field(max_length=200)] = None
+    """
+    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    """
     oauth2: ConnectionOAuth2App | None = None
     github_app: Annotated[ConnectionGitHubApp | None, Field(alias="githubApp")] = None
     projects: Annotated[list[str] | None, Field(max_length=500, min_length=1)] = None
@@ -12655,6 +12679,9 @@ class RegisterSiteBody(BaseModel):
         populate_by_name=True,
     )
     display_name: Annotated[str, Field(alias="displayName", max_length=100, min_length=1)]
+    """
+    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    """
     origin: str
     """
     An https:// origin with no path; http:// only for localhost, 127.0.0.1 or [::1].
@@ -12705,6 +12732,9 @@ class UpdateSiteBody(BaseModel):
     display_name: Annotated[
         str | None, Field(alias="displayName", max_length=100, min_length=1)
     ] = None
+    """
+    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    """
     origin: str | None = None
     """
     An https:// origin with no path; http:// only for localhost, 127.0.0.1 or [::1].
@@ -15656,6 +15686,9 @@ class CreateCorrectorGroupBody(BaseModel):
     Where a corrector group applies: the whole tenant, one project, or one agent in a project.
     """
     name: Annotated[str, Field(max_length=100, min_length=1)]
+    """
+    No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
+    """
     weight: Annotated[float, Field(ge=0.0)]
     description: str | None = None
     assertable_by: Annotated[CorrectorGroupAssertableBy | None, Field(alias="assertableBy")] = None
@@ -17671,7 +17704,7 @@ class ScheduleRecord(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
     next_fire_at: Annotated[AwareDatetime | None, Field(alias="nextFireAt")]
     """
@@ -17754,7 +17787,7 @@ class RegisterScheduleBody(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this schedule's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the schedule's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this schedule's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the schedule's project. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -17805,7 +17838,7 @@ class PatchScheduleBody(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    Replaces the schedule's list; `[]` clears it, and absent keeps it. Naming it takes `admin` on the schedule's project. A change of what it runs (another flow or agent) while the list isn't empty must name it again, as it is or `[]`; a new version alone keeps it. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    Replaces the schedule's list; `[]` clears it, and absent keeps it. Naming it takes `admin` on the schedule's project. A change of what it runs (another flow or agent) while the list isn't empty must name it again, as it is or `[]`; a new version alone keeps it. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -17908,7 +17941,7 @@ class WebhookTriggerRecord(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this trigger's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
     last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
@@ -17985,7 +18018,7 @@ class RegisterWebhookTriggerBody(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this trigger's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the trigger's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this trigger's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the trigger's project. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -18033,7 +18066,7 @@ class PatchWebhookTriggerBody(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    Replaces the trigger's list; `[]` clears it, and absent keeps it (a new `flowVersion` too). Naming it takes `admin` on the trigger's project, and it's checked against the flow at the version the trigger will run. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    Replaces the trigger's list; `[]` clears it, and absent keeps it (a new `flowVersion` too). Naming it takes `admin` on the trigger's project, and it's checked against the flow at the version the trigger will run. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -18100,7 +18133,7 @@ class ScheduleDefinition(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -18219,7 +18252,7 @@ class WebhookTriggerDefinition(BaseModel):
         Field(alias="toolsAllowedUnattended", max_length=100),
     ] = None
     """
-    The tools whose calls in this trigger's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
+    The tools whose calls in this trigger's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.
     """
 
 
@@ -19253,11 +19286,11 @@ class RegisterMCPEndpointBody(BaseModel):
     )
     endpoint_id: Annotated[str, Field(alias="endpointId", min_length=1, pattern="^[^.]+$")]
     """
-    No `.`: an MCP tool's id is `<endpointId>.<tool name>`, so it splits at its first `.`. An endpoint registered with one before keeps it.
+    No `.`: an MCP tool's id is `<endpointId>.<tool name>`, so it splits at its first `.`. An endpoint registered with one before keeps it. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
     """
     name: Annotated[str, Field(min_length=1)]
     """
-    Human-readable display name.
+    Human-readable display name. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept.
     """
     transport: Annotated[Literal["stdio", "http-sse", "streamable-http"] | str, _open.OPEN]
     """

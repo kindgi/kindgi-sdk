@@ -3,7 +3,7 @@
   "info": {
     "title": "Kindgi Platform API",
     "version": "0.1.0",
-    "description": "REST + SSE API for Kindgi: runs, agents, flows, human-in-the-loop approvals and the admin control plane. Generated from the route and schema registrations in `@kindgi/api` and drift-checked against the mounted routes. `info[\"x-kindgi-capabilities\"]` names what this API does that an earlier one didn't: an open list of strings, which a client checks before a request an earlier runtime would take differently, and whose names it doesn't know it ignores.",
+    "description": "REST + SSE API for Kindgi: runs, agents, flows, human-in-the-loop approvals and the admin control plane. Generated from the route and schema registrations in `@kindgi/api` and drift-checked against the mounted routes. `info[\"x-kindgi-capabilities\"]` names what this API does that an earlier one didn't: an open list of strings, which a client checks before a request an earlier runtime would take differently, and whose names it doesn't know it ignores.\n\n**Names.** A name or a label a request sets, such as a person's `displayName` or an app's `label`, is refused with `400` when it holds a hidden character, by Unicode class: a control character (Cc), a line break or a tab among them; the line and paragraph separators (U+2028, U+2029); a lone surrogate (Cs), half a pair, which a JSON string can hold; a format character (Cf) other than the zero-width non-joiner and joiner (U+200C, U+200D); or another default-ignorable code point other than a variation selector, such as the filler U+3164. Tag characters are kept only in the flags of England, Scotland and Wales. The classes follow the Unicode data of the server's Node, so a later Unicode can add to them. The refusal says \"`<field>` must not contain control, format or invisible characters\".",
     "x-kindgi-capabilities": [
       "deploy-publishes-pack-blocks"
     ]
@@ -5055,7 +5055,8 @@
           },
           "label": {
             "type": "string",
-            "maxLength": 200
+            "maxLength": 200,
+            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
           }
         }
       },
@@ -5692,7 +5693,8 @@
           },
           "displayName": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
           }
         }
       },
@@ -6373,7 +6375,8 @@
           "name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 100
+            "maxLength": 100,
+            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
           },
           "weight": {
             "type": "number",
@@ -13759,7 +13762,8 @@
             "format": "binary"
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Default: the file part's filename, which is checked the same way. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
           },
           "contentType": {
             "type": "string"
@@ -14700,12 +14704,12 @@
             "type": "string",
             "minLength": 1,
             "pattern": "^[^.]+$",
-            "description": "No `.`: an MCP tool's id is `<endpointId>.<tool name>`, so it splits at its first `.`. An endpoint registered with one before keeps it."
+            "description": "No `.`: an MCP tool's id is `<endpointId>.<tool name>`, so it splits at its first `.`. An endpoint registered with one before keeps it. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
           },
           "name": {
             "type": "string",
             "minLength": 1,
-            "description": "Human-readable display name."
+            "description": "Human-readable display name. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
           },
           "transport": {
             "$ref": "#/components/schemas/MCPTransport"
@@ -18201,7 +18205,7 @@
           "displayName": {
             "type": "string",
             "minLength": 1,
-            "description": "The name a sign-in page shows (\"Sign in with …\"). Default: `providerId`."
+            "description": "The name a sign-in page shows (\"Sign in with …\"). Default: `providerId`. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
           },
           "domains": {
             "type": "array",
@@ -18287,7 +18291,7 @@
           "displayName": {
             "type": "string",
             "minLength": 1,
-            "description": "The name a sign-in page shows (\"Sign in with …\"). Default: `providerId`."
+            "description": "The name a sign-in page shows (\"Sign in with …\"). Default: `providerId`. No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
           },
           "domains": {
             "type": "array",
@@ -19470,7 +19474,8 @@
           "displayName": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 200
+            "maxLength": 200,
+            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
           },
           "primaryEmail": {
             "type": "string",
@@ -19660,7 +19665,8 @@
           "name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 200
+            "maxLength": 200,
+            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
           },
           "when": {
             "$ref": "#/components/schemas/QueueRuleWhen"
@@ -19695,7 +19701,8 @@
           "name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 200
+            "maxLength": 200,
+            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
           },
           "when": {
             "$ref": "#/components/schemas/QueueRuleWhen"
@@ -19756,7 +19763,8 @@
           "name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 200
+            "maxLength": 200,
+            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
           },
           "when": {
             "$ref": "#/components/schemas/QueueRuleWhen"
@@ -25519,7 +25527,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+            "description": "The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
           },
           "nextFireAt": {
             "type": [
@@ -25803,7 +25811,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "The tools whose calls in this schedule's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the schedule's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+            "description": "The tools whose calls in this schedule's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the schedule's project. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
           }
         }
       },
@@ -25887,7 +25895,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Replaces the schedule's list; `[]` clears it, and absent keeps it. Naming it takes `admin` on the schedule's project. A change of what it runs (another flow or agent) while the list isn't empty must name it again, as it is or `[]`; a new version alone keeps it. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+            "description": "Replaces the schedule's list; `[]` clears it, and absent keeps it. Naming it takes `admin` on the schedule's project. A change of what it runs (another flow or agent) while the list isn't empty must name it again, as it is or `[]`; a new version alone keeps it. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
           }
         }
       },
@@ -26108,7 +26116,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "The tools whose calls in this trigger's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+            "description": "The tools whose calls in this trigger's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
           },
           "lastFiredAt": {
             "type": [
@@ -26413,7 +26421,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "The tools whose calls in this trigger's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the trigger's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+            "description": "The tools whose calls in this trigger's runs needn't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Naming it, `[]` included, takes `admin` on the trigger's project. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
           }
         }
       },
@@ -26480,7 +26488,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Replaces the trigger's list; `[]` clears it, and absent keeps it (a new `flowVersion` too). Naming it takes `admin` on the trigger's project, and it's checked against the flow at the version the trigger will run. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+            "description": "Replaces the trigger's list; `[]` clears it, and absent keeps it (a new `flowVersion` too). Naming it takes `admin` on the trigger's project, and it's checked against the flow at the version the trigger will run. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
           }
         }
       },
@@ -26659,7 +26667,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a mail started asks for one for every call that changes something or uses its mailbox. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+            "description": "The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a mail started asks for one for every call that changes something or uses its mailbox. Absent: none. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
           },
           "lastFiredAt": {
             "type": [
@@ -26792,7 +26800,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+            "description": "The tools whose calls in this trigger's runs needn't wait for a person's yes. Naming it, `[]` included, takes `admin` on the trigger's project. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
           }
         }
       },
@@ -26837,7 +26845,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "Replaces the list (`[]` clears it; absent keeps it). Naming it takes `admin` on the trigger's project. A new target (not just a version) or another mailbox while it lists any must name it again, as it is or `[]`. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+            "description": "Replaces the list (`[]` clears it; absent keeps it). Naming it takes `admin` on the trigger's project. A new target (not just a version) or another mailbox while it lists any must name it again, as it is or `[]`. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
           }
         }
       },
@@ -27042,7 +27050,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+            "description": "The tools whose calls in this schedule's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
           }
         }
       },
@@ -27196,7 +27204,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "The tools whose calls in this trigger's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+            "description": "The tools whose calls in this trigger's runs don't wait for a person's yes, though a tool asks for one in a run no person started (`needsApprovalWhenUnattended`). Absent: none. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
           }
         }
       },
@@ -27335,7 +27343,7 @@
               "minLength": 1,
               "maxLength": 200
             },
-            "description": "The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a mail started asks for one for every call that changes something or uses its mailbox. Absent: none. Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
+            "description": "The tools whose calls in this trigger's runs don't wait for a person's yes, though a run a mail started asks for one for every call that changes something or uses its mailbox. Absent: none. Each tool by its id, with no wildcard, pattern or hidden character, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply."
           }
         }
       },
@@ -27979,7 +27987,8 @@
           },
           "label": {
             "type": "string",
-            "maxLength": 200
+            "maxLength": 200,
+            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
           },
           "oauth2": {
             "$ref": "#/components/schemas/ConnectionOAuth2App"
@@ -29299,7 +29308,8 @@
           "displayName": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 100
+            "maxLength": 100,
+            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
           },
           "origin": {
             "type": "string",
@@ -29361,7 +29371,8 @@
           "displayName": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 100
+            "maxLength": 100,
+            "description": "No control, format or invisible character: a line break, a tab, a bidirectional mark, a zero-width space, a filler such as U+3164 or a lone surrogate is refused. The zero-width joiner and non-joiner, the variation selectors and the flags of England, Scotland and Wales are kept."
           },
           "origin": {
             "type": "string",
