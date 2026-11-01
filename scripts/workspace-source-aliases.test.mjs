@@ -181,6 +181,40 @@ describe('workspace-source-aliases', () => {
     );
   });
 
+  test('a ./dist/ export with no .js target throws', () => {
+    for (const [exports, failing] of [
+      [{ '.': { require: './dist/index.cjs', default: './dist/index.cjs' } }, '@kindgi/app'],
+      [{ '.': entry('./dist/index.js'), './*': './dist/*' }, '@kindgi/app/*'],
+    ]) {
+      const { dirOf: dirs } = workspace({
+        '@kindgi/app': { manifest: { exports }, sources: ['src/index.ts'] },
+      });
+      assert.throws(
+        () => workspaceSourceAliases(dirs('@kindgi/app')),
+        (error) =>
+          error.message.startsWith(`${failing} exports ./dist/`) &&
+          error.message.endsWith('with no ./dist/<path>.js target to alias to its source'),
+      );
+    }
+  });
+
+  test('a package with no exports whose main or module is in dist/ throws', () => {
+    for (const [field, target] of [
+      ['main', 'dist/index.js'],
+      ['module', './dist/index.mjs'],
+    ]) {
+      const { dirOf: dirs } = workspace({
+        '@kindgi/app': { manifest: { [field]: target }, sources: ['src/index.ts'] },
+      });
+      assert.throws(
+        () => workspaceSourceAliases(dirs('@kindgi/app')),
+        (error) =>
+          error.message ===
+          `@kindgi/app has no exports, and its ${field} ${target} is in dist/, which has no source alias`,
+      );
+    }
+  });
+
   test('a workspace dependency that is not linked throws', () => {
     const { dirOf: dirs } = workspace({
       '@kindgi/app': {
