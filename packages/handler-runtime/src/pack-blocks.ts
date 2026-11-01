@@ -278,12 +278,33 @@ export interface PackBlockWrite {
    * The content the block's file must hold now for the write to go (a
    * prompt's template text included): what the new version was made
    * from, or, going back, what the file holds at its version. A file that
-   * holds anything else is refused `changed`, so an edit made since, at
-   * the same version or not, is never written over. Given, the write may
-   * take the block to an older version; absent, its version must be past
-   * the file's.
+   * doesn't hold it (`holdsContent`) is refused `changed`, so an edit made
+   * since, at the same version or not, is never written over. Given, the
+   * write may take the block to an older version; absent, its version must
+   * be past the file's.
    */
   readonly expected?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * Whether a block's file holds a version's content: the same content, key
+ * order aside, with a prompt's template file read in as the index holds
+ * it. A settings file that gives no `schema` holds a version stored with
+ * one: a settings version that gives none is stored with the schema it
+ * carries from the block's latest version, and a deploy holds a pack's
+ * block to its stored version the same way (`sameDefinition` in
+ * @kindgi/api's `deploy-blocks.ts`).
+ */
+export function holdsContent(
+  kind: IndexedBlock['kind'],
+  fileContent: Readonly<Record<string, unknown>>,
+  versionContent: Readonly<Record<string, unknown>>,
+): boolean {
+  const version =
+    kind === 'settings' && fileContent.schema === undefined
+      ? { ...versionContent, schema: undefined }
+      : versionContent;
+  return canonicalize(fileContent) === canonicalize(version);
 }
 
 export type PackBlockWriteOutcome =
@@ -373,7 +394,7 @@ export async function writePackBlock(
   }
   if (
     write.expected !== undefined &&
-    canonicalize(current.content) !== canonicalize(write.expected)
+    !holdsContent(current.kind, current.content, write.expected)
   ) {
     return refused(
       'changed',
@@ -437,7 +458,7 @@ export type BlockFileText =
  * file (another id or kind, or no `major.minor.patch` version), the
  * file's own version, and a version that isn't past the file's unless the
  * write carries `expected`. The caller checks `expected` against the
- * file, as `writePackBlock` does.
+ * file (`holdsContent`), as `writePackBlock` does.
  */
 export function blockFileText(
   text: string,
