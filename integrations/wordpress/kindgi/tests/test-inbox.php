@@ -134,7 +134,9 @@ function test_inbox_the_tools_own_words_for_a_call_read_first(): void {
 		kindgi_test_names()
 	);
 	kindgi_assert_same( '', $card['summary'], 'a long reason that is also the summary shows once: compared whole, before the quote is cut' );
-	kindgi_assert_same( Kindgi_Inbox::VALUE_MAX, mb_strlen( $card['words'][0]['text'] ), 'the quote, cut' );
+	kindgi_assert_same( trim( $long ), $card['words'][0]['text'], 'the quote, whole: a draft is read in full' );
+	$words = Kindgi_Inbox::words_of( array( 'body' => str_repeat( 'The box was crushed on one side. ', 200 ) ) );
+	kindgi_assert_same( Kindgi_Inbox::WORDS_MAX, mb_strlen( $words[0]['text'] ), 'words past the most a card shows, cut' );
 	$own = kindgi_test_approval(
 		array(
 			'context' => array(
@@ -352,6 +354,36 @@ function test_inbox_words_for_fields_and_values(): void {
 	kindgi_assert_same( 300, mb_strlen( Kindgi_Inbox::text_of( str_repeat( 'é', 400 ) ) ), 'cut short' );
 	kindgi_assert_same( array(), Kindgi_Inbox::facts( array( 1, 2 ) ), 'a list has no fields to name' );
 	kindgi_assert_same( array(), Kindgi_Inbox::facts( 'refund' ), 'nor does a string' );
+}
+
+function test_inbox_the_whole_call_shows_when_the_card_leaves_part_of_it_out(): void {
+	kindgi_assert_same( null, Kindgi_Inbox::whole( array( 'orderId' => 27, 'reason' => 'One of the two vases arrived broken.' ) ), 'a short call shows whole already' );
+	kindgi_assert_same( null, Kindgi_Inbox::whole( null ), 'no call' );
+
+	$long  = array( 'orderId' => 27, 'items' => array_fill( 0, 60, array( 'sku' => 'VASE-BLUE' ) ) );
+	$whole = Kindgi_Inbox::whole( $long );
+	kindgi_assert_same( array( 'Order ID', 'Items' ), array_column( $whole, 'label' ), 'every field, in order' );
+	kindgi_assert_same( (string) wp_json_encode( $long['items'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ), $whole[1]['value'], 'the value cut on the card is whole here, over lines' );
+
+	$many  = array();
+	for ( $i = 1; $i <= Kindgi_Inbox::FACTS_MAX + 2; $i++ ) {
+		$many[ "line$i" ] = $i;
+	}
+	kindgi_assert_same( Kindgi_Inbox::FACTS_MAX + 2, count( (array) Kindgi_Inbox::whole( $many ) ), 'the fields past the facts too' );
+
+	$draft = array( 'to' => 'pat@example.com', 'body' => str_repeat( 'Thanks for your patience. ', 200 ) );
+	kindgi_assert_same( trim( $draft['body'] ), Kindgi_Inbox::whole( $draft )[1]['value'], 'words cut on the card are whole here' );
+
+	kindgi_assert_same(
+		array(
+			array(
+				'label' => 'The call',
+				'value' => "[\n    {\n        \"sku\": \"VASE-BLUE\"\n    }\n]",
+			),
+		),
+		Kindgi_Inbox::whole( array( array( 'sku' => 'VASE-BLUE' ) ) ),
+		'a list has no fields to name, so the card shows none: here it is'
+	);
 }
 
 function test_inbox_a_count_is_kept_a_minute_as_wordpress_hands_it_back(): void {

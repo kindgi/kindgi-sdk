@@ -34,6 +34,9 @@ final class Kindgi_Inbox {
 	const FACTS_MAX = 12;
 	const VALUE_MAX = 300;
 
+	/** The agent's own words (a draft to a customer) are read in full, up to this many characters. */
+	const WORDS_MAX = 4000;
+
 	public static function register(): void {
 		add_filter( 'heartbeat_received', array( self::class, 'heartbeat' ), 10, 2 );
 	}
@@ -65,6 +68,8 @@ final class Kindgi_Inbox {
 			'facts'          => null === $tool ? array() : self::facts( $ref['arguments'] ?? null ),
 			// The agent's own words among them (a reason, a note): quoted, apart from the facts.
 			'words'          => self::words_of( $ref['arguments'] ?? null, $prose ),
+			// The whole call, folded, when the facts and words leave part of it out.
+			'whole'          => null === $tool ? null : self::whole( $ref['arguments'] ?? null ),
 			'status'         => (string) ( $a['status'] ?? '' ),
 			'createdAt'      => (string) ( $a['createdAt'] ?? '' ),
 			'expiresAt'      => is_string( $a['expiresAt'] ?? null ) ? $a['expiresAt'] : null,
@@ -241,6 +246,42 @@ final class Kindgi_Inbox {
 	}
 
 	/**
+	 * The whole call, when its facts and words leave part of it out: a
+	 * field past the first `FACTS_MAX`, a value cut at `VALUE_MAX`, words
+	 * cut at `WORDS_MAX`, or a call that's a list or a value rather than
+	 * fields. Every field then, in order, each value whole; null when the
+	 * card already shows all of it.
+	 *
+	 * @return array<int, array{label: string, value: string}>|null
+	 */
+	public static function whole( $arguments ): ?array {
+		if ( null === $arguments || array() === $arguments ) {
+			return null;
+		}
+		if ( array() === self::fields( $arguments ) ) {
+			return array(
+				array(
+					'label' => __( 'The call', 'kindgi' ),
+					'value' => self::plain( $arguments, true ),
+				),
+			);
+		}
+		$left_out = count( $arguments ) > self::FACTS_MAX;
+		$rows     = array();
+		foreach ( $arguments as $key => $value ) {
+			$prose    = self::is_prose( $value );
+			$text     = $prose ? trim( $value ) : self::plain( $value, true );
+			// Measured as the card shows it: words whole up to `WORDS_MAX`, a value as `text_of` cuts it.
+			$left_out = $left_out || mb_strlen( $prose ? $text : self::plain( $value ) ) > ( $prose ? self::WORDS_MAX : self::VALUE_MAX );
+			$rows[]   = array(
+				'label' => self::words( (string) $key ),
+				'value' => $text,
+			);
+		}
+		return $left_out ? $rows : null;
+	}
+
+	/**
 	 * A call's fields that are words someone wrote, the agent that asked:
 	 * a reason, a note to the customer. Shown as theirs, never as a fact.
 	 *
@@ -253,7 +294,7 @@ final class Kindgi_Inbox {
 		foreach ( $prose ?? self::prose_of( $arguments ) as $key => $text ) {
 			$words[] = array(
 				'label' => self::words( (string) $key ),
-				'text'  => self::cut( $text ),
+				'text'  => self::cut( $text, self::WORDS_MAX ),
 			);
 		}
 		return $words;
@@ -302,8 +343,16 @@ final class Kindgi_Inbox {
 		return '' === $words ? $name : ucfirst( $words );
 	}
 
-	/** A value as text, cut short: a list of words or numbers joined, anything else as its JSON. */
+	/** A value as text, cut short (`plain`). */
 	public static function text_of( $value ): string {
+		return self::cut( self::plain( $value ) );
+	}
+
+	/**
+	 * A value as text, whole: a list of words or numbers joined, anything
+	 * else as its JSON, laid out over lines when `$lines` (the whole call).
+	 */
+	private static function plain( $value, bool $lines = false ): string {
 		if ( is_bool( $value ) ) {
 			$text = $value ? __( 'yes', 'kindgi' ) : __( 'no', 'kindgi' );
 		} elseif ( null === $value ) {
@@ -314,14 +363,14 @@ final class Kindgi_Inbox {
 			// A list of words or numbers reads as one.
 			$text = implode( ', ', array_map( 'strval', $value ) );
 		} else {
-			$text = (string) wp_json_encode( $value );
+			$text = (string) wp_json_encode( $value, $lines ? JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE : 0 );
 		}
-		return self::cut( $text );
+		return $text;
 	}
 
-	/** A text cut to `VALUE_MAX` characters, the last an ellipsis. */
-	private static function cut( string $text ): string {
-		return mb_strlen( $text ) > self::VALUE_MAX ? mb_substr( $text, 0, self::VALUE_MAX - 1 ) . '…' : $text;
+	/** A text cut to `$max` characters (`VALUE_MAX` unless said), the last an ellipsis. */
+	private static function cut( string $text, int $max = self::VALUE_MAX ): string {
+		return mb_strlen( $text ) > $max ? mb_substr( $text, 0, $max - 1 ) . '…' : $text;
 	}
 
 	/**

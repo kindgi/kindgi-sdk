@@ -22,7 +22,7 @@
   const pollMs = config.pollMs ?? 1500;
   const ENDED = ['completed', 'failed', 'cancelled'];
 
-  const { api, el, when, notice, loading, muted, empty, toolName, askUrl, approvalCard } =
+  const { api, el, when, ago, notice, loading, muted, empty, toolName, askUrl, approvalCard } =
     window.kindgiCards;
   const absent = (value) => value === undefined || value === null || value === false;
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -464,10 +464,6 @@
     return offered.find((a) => a.id === latest?.agentId) ?? offered[0];
   }
 
-  /** "2 hours ago"; the site's date where WordPress has no words for it. */
-  const ago = (iso) =>
-    iso && typeof wp.date.humanTimeDiff === 'function' ? wp.date.humanTimeDiff(iso) : when(iso);
-
   /**
    * Ask: the person's conversations beside the open one. With none open,
    * the page is a new conversation, ready to type in, with the first agent
@@ -707,9 +703,10 @@
   const touch = () => window.matchMedia?.('(pointer: coarse)').matches === true;
 
   /**
-   * The box to write in. Enter sends and Shift+Enter starts a new line; it
-   * grows with what's written. A new conversation picks its agent here,
-   * and one about an order starts with its number.
+   * The box to write in. Enter sends and Shift+Enter starts a new line (by
+   * touch, Enter starts a new line); it grows with what's written. A new
+   * conversation picks its agent here, and one about an order starts with
+   * its number.
    */
   function composer({ log, progress, conversation, offered, onAgent, onSend }) {
     const fit = () => {
