@@ -230,8 +230,9 @@ verdict on:
 - A [test run](../compare-an-agent-version/#what-a-case-expects) checks
   each part on every repetition. A judging model checks answers, and its
   calls cost money. Each part the case expects, its decisions and its
-  answer, is one check in `passRate`, beside its items. A case that
-  expects only `items` has no pass: its items count toward the metrics.
+  answer, is one check in `passRate` when it could be checked, beside its
+  items. A case that expects only `items` has no pass: its items count
+  toward the metrics.
 - **`expert: true`** marks an expert's case: a correction's case when the
   correction was made under a restricted expert group, and every case added
   by hand. A test run that counts only experts' corrections grades only

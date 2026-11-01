@@ -15,8 +15,8 @@ import type { TestCaseAnswer } from './test-case-binding.js';
  *
  * The host plugs it into the comparison test run's dispatcher
  * (`CorrectedDispatcherOptions.answers`). Without it, a case's answer
- * isn't checked, and the case has no pass. A check that throws fails the
- * test run; one that can't be made answers `unchecked` instead.
+ * isn't checked, and the answer adds no check. A check that throws fails
+ * the test run; one that can't be made answers `unchecked` instead.
  */
 export interface AnswerCheckBinding {
   check(input: AnswerCheckInput): Promise<AnswerCheck>;
@@ -59,7 +59,9 @@ export interface AnswerCheckInput {
  * (counted in the test run's cost). `unchecked`: it couldn't be checked,
  * say because the version has no model settings, the call to the judging
  * model failed, or its reply couldn't be read (what that call cost still
- * counts); the case then has no pass.
+ * counts); the answer then adds no check. Its `reason` says what's
+ * missing, never quoting the case or its answer: the test run's summary
+ * shows the first one (`unchecked.why`).
  */
 export type AnswerCheck =
   | {

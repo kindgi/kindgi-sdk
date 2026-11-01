@@ -6,6 +6,7 @@ import { describe, expect, test } from 'vitest';
 import type { ReplayToolTrace } from '@kindgi/agents';
 import type { ProjectId, RunId, TenantId } from '@kindgi/types';
 
+import { passKnown } from '../src/corrected-dispatcher.js';
 import type {
   AnswerCheck,
   AnswerCheckBinding,
@@ -1319,14 +1320,70 @@ describe("a case's expect, graded", () => {
     expect(extra.perCase[0]?.corrections?.[0]?.pass).toBe(false);
   });
 
-  test("decisions right: a recorded run whose calls can't be read leaves the case with no pass", async () => {
-    const { perCase } = await compare({
+  test("decisions right: a recorded run whose calls can't be read leaves the decisions unchecked", async () => {
+    const { summary, perCase } = await compare({
       comparison: once,
       // `turn` records its call without the tool's name.
       cases: [expecting({ decisions: { verdict: 'right' } }, { output: turn('Refunded $25.') })],
       answer: () => replayed('j-1', [call('acme.lookup')]),
     });
-    expect(perCase[0]?.corrections).toBeUndefined();
+    expect(perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: false,
+        repetitionsPassed: 0,
+        repetitions: 1,
+        parts: {},
+        unchecked: ['decisions'],
+      },
+    ]);
+    // Its pass isn't known: it's no correction graded, and no check.
+    expect(summary.corrections).toBeUndefined();
+    expect(summary.metrics.passRate.n).toBe(0);
+    // No checker was asked, so there's no reason.
+    expect(summary.unchecked).toEqual({ cases: 1 });
+    expect(wireErrors({ summary, perCase })).toEqual([]);
+  });
+
+  test("decisions right: with its calls unreadable, the case's answer is still checked, and counts alone", async () => {
+    const answers = checker({ kind: 'checked', pass: false, why: 'It never says how long.' });
+    const { summary, perCase } = await compare({
+      comparison: once,
+      cases: [
+        expecting(
+          {
+            decisions: { verdict: 'right' },
+            answer: { verdict: 'wrong', shouldSay: 'Say the refund takes five days.' },
+          },
+          { output: turn('Refunded $25.') },
+        ),
+      ],
+      answers: answers.binding,
+      answer: () => replayed('j-1', [call('acme.lookup')], 'Refunded $25.'),
+    });
+    expect(answers.asked).toHaveLength(1);
+    expect(perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: false,
+        repetitionsPassed: 0,
+        repetitions: 1,
+        why: 'It never says how long.',
+        parts: { answer: false },
+        unchecked: ['decisions'],
+      },
+    ]);
+    // A checked part failed, so its pass is known: graded, and one failing check.
+    expect(summary.corrections).toEqual({
+      checked: 1,
+      passed: 0,
+      results: [{ correctionId: 'j-1', pass: false }],
+    });
+    expect(summary.metrics.passRate.n).toBe(1);
+    expect(summary.metrics.passRate.candidate).toBe(0);
+    // Its pass is known, so it isn't one the summary's `unchecked` counts.
+    expect(summary.unchecked).toBeUndefined();
+    expect(wireErrors({ summary, perCase })).toEqual([]);
   });
 
   test('answer wrong: the checker decides, and a failing answer says why', async () => {
@@ -1540,10 +1597,10 @@ describe("a case's expect, graded", () => {
     ]);
   });
 
-  test('a test run stopped before its answers are checked leaves the case with no pass', async () => {
+  test('a test run stopped before its answers are checked leaves the answer unchecked', async () => {
     const stop = new AbortController();
     const answers = checker();
-    const { perCase, error } = await compare({
+    const { summary, perCase, error } = await compare({
       comparison: once,
       cases: [expecting(sayHowLong)],
       answers: answers.binding,
@@ -1555,33 +1612,146 @@ describe("a case's expect, graded", () => {
     });
     expect(error).toBe('cancelled');
     expect(answers.asked).toHaveLength(0);
-    expect(perCase[0]?.corrections).toBeUndefined();
+    expect(perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: false,
+        repetitionsPassed: 0,
+        repetitions: 1,
+        parts: {},
+        unchecked: ['answer'],
+      },
+    ]);
+    expect(summary.corrections).toBeUndefined();
+    expect(summary.metrics.passRate.n).toBe(0);
+    expect(summary.unchecked).toEqual({ cases: 1 });
+    expect(wireErrors({ summary, perCase })).toEqual([]);
   });
 
-  test('no checker: a case that expects an answer has no pass, even when its decisions pass', async () => {
-    const { perCase } = await compare({
+  test('a test run stopped after the decisions are graded: they count, and the test run is cancelled', async () => {
+    const stop = new AbortController();
+    const answers = checker();
+    const { summary, perCase, error } = await compare({
+      comparison: once,
+      cases: [expecting({ ...refundNoEmail, ...sayHowLong })],
+      answers: answers.binding,
+      abortSignal: stop.signal,
+      answer: () => {
+        stop.abort();
+        return replayed('j-1', [call('acme.refund', { amount: 25 })]);
+      },
+    });
+    expect(error).toBe('cancelled');
+    expect(answers.asked).toHaveLength(0);
+    expect(perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: false,
+        repetitionsPassed: 0,
+        repetitions: 1,
+        parts: { decisions: true },
+        unchecked: ['answer'],
+      },
+    ]);
+    // Its pass isn't known: no correction graded. Its decisions are one passing check.
+    expect(summary.corrections).toBeUndefined();
+    expect(summary.metrics.passRate.n).toBe(1);
+    expect(summary.metrics.passRate.candidate).toBe(1);
+    expect(summary.unchecked).toEqual({ cases: 1 });
+    expect(wireErrors({ summary, perCase })).toEqual([]);
+  });
+
+  test('no checker: a case that expects an answer has its answer unchecked, even when its decisions pass', async () => {
+    const { summary, perCase } = await compare({
       comparison: once,
       cases: [expecting({ ...refundNoEmail, ...sayHowLong })],
       answer: () => replayed('j-1', [call('acme.refund', { amount: 25 })]),
     });
-    expect(perCase[0]?.corrections).toBeUndefined();
+    expect(perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: false,
+        repetitionsPassed: 0,
+        repetitions: 1,
+        parts: { decisions: true },
+        unchecked: ['answer'],
+      },
+    ]);
     expect(perCase[0]?.correctionDifferences).toBeUndefined();
+    // Its pass isn't known: it's left out of the corrections graded.
+    expect(summary.corrections).toBeUndefined();
+    expect(summary.unchecked).toEqual({ cases: 1 });
+    expect(wireErrors({ summary, perCase })).toEqual([]);
   });
 
-  test("a checker that can't check leaves the case with no pass", async () => {
+  test("decisions that fail beside an answer the checker can't check: the failure counts, and is graded", async () => {
     const answers = checker({ kind: 'unchecked', reason: 'The version has no model settings.' });
-    const { perCase } = await compare({
+    const { summary, perCase } = await compare({
+      comparison: once,
+      cases: [expecting({ ...refundNoEmail, ...sayHowLong })],
+      answers: answers.binding,
+      answer: () => replayed('j-1', [call('acme.lookup')]),
+    });
+    expect(answers.asked).toHaveLength(1);
+    expect(perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: false,
+        repetitionsPassed: 0,
+        repetitions: 1,
+        parts: { decisions: false },
+        unchecked: ['answer'],
+      },
+    ]);
+    expect(perCase[0]?.correctionDifferences).toEqual([
+      {
+        correctionId: 'j-1',
+        repetition: 1,
+        differences: [
+          { tool: 'acme.refund', kind: 'count', expected: 1, actual: 0 },
+          { tool: 'acme.refund', kind: 'missing-field', field: 'amount', expected: 25 },
+        ],
+      },
+    ]);
+    expect(summary.metrics.passRate.n).toBe(1);
+    expect(summary.metrics.passRate.candidate).toBe(0);
+    expect(summary.corrections).toEqual({
+      checked: 1,
+      passed: 0,
+      results: [{ correctionId: 'j-1', pass: false }],
+    });
+    // Its pass is known: the summary's `unchecked` counts only the cases left out of `corrections`.
+    expect(summary.unchecked).toBeUndefined();
+    expect(wireErrors({ summary, perCase })).toEqual([]);
+  });
+
+  test("a checker that can't check leaves the answer unchecked", async () => {
+    const answers = checker({ kind: 'unchecked', reason: 'The version has no model settings.' });
+    const { summary, perCase } = await compare({
       comparison: { ...DEFAULT_COMPARISON, repetitions: 2 },
       cases: [expecting(sayHowLong)],
       answers: answers.binding,
       answer: () => replayed('j-1', []),
     });
     expect(answers.asked).toHaveLength(1);
-    expect(perCase[0]?.corrections).toBeUndefined();
+    expect(perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: false,
+        repetitionsPassed: 0,
+        repetitions: 2,
+        parts: {},
+        unchecked: ['answer'],
+      },
+    ]);
+    expect(summary.corrections).toBeUndefined();
+    expect(summary.metrics.passRate.n).toBe(0);
+    expect(summary.unchecked).toEqual({ cases: 1, why: 'The version has no model settings.' });
+    expect(wireErrors({ summary, perCase })).toEqual([]);
   });
 
-  test("a check whose reply couldn't be read leaves the case with no pass, and counts what its call cost", async () => {
-    const { perCase } = await compare({
+  test("a check whose reply couldn't be read leaves the answer unchecked, and counts what its call cost", async () => {
+    const { summary, perCase } = await compare({
       comparison: once,
       cases: [expecting(sayHowLong)],
       answers: checker({
@@ -1591,8 +1761,64 @@ describe("a case's expect, graded", () => {
       }).binding,
       answer: () => replayed('j-1', [], 'Refunded $25.', { costUsd: 0.1 }),
     });
-    expect(perCase[0]?.corrections).toBeUndefined();
+    expect(perCase[0]?.corrections).toEqual([
+      {
+        correctionId: 'j-1',
+        pass: false,
+        repetitionsPassed: 0,
+        repetitions: 1,
+        parts: {},
+        unchecked: ['answer'],
+      },
+    ]);
     expect(perCase[0]?.costUsd?.[0]).toBeCloseTo(0.11, 10);
+    expect(summary.corrections).toBeUndefined();
+    expect(summary.unchecked).toEqual({
+      cases: 1,
+      why: "The judging model's reply couldn't be read.",
+    });
+    expect(wireErrors({ summary, perCase })).toEqual([]);
+  });
+
+  test("the first reason the checker gave is the summary's, and a reason of only spaces is none", async () => {
+    const answers = checker(
+      { kind: 'unchecked', reason: '  ' },
+      { kind: 'unchecked', reason: "The judging model's call failed." },
+      { kind: 'unchecked', reason: 'The version has no model settings.' },
+    );
+    const { summary } = await compare({
+      comparison: once,
+      cases: [
+        expecting(sayHowLong, { caseId: 'j-1', runId: 'j-1-run' }),
+        expecting(sayHowLong, { caseId: 'j-2', runId: 'j-2-run' }),
+        expecting(sayHowLong, { caseId: 'j-3', runId: 'j-3-run' }),
+      ],
+      answers: answers.binding,
+      answer: (input) => replayed(input.replay?.of as unknown as string, []),
+    });
+    expect(answers.asked).toHaveLength(3);
+    expect(summary.unchecked).toEqual({ cases: 3, why: "The judging model's call failed." });
+  });
+
+  test("a reason from a case whose pass is known isn't the summary's", async () => {
+    const answers = checker({ kind: 'unchecked', reason: 'The version has no model settings.' });
+    const { summary } = await compare({
+      comparison: once,
+      cases: [
+        // Its decisions fail, so its pass is known.
+        expecting({ ...refundNoEmail, ...sayHowLong }, { caseId: 'j-1', runId: 'j-1-run' }),
+        // Its decisions can't be checked, and it expects no answer: no reason.
+        expecting(
+          { decisions: { verdict: 'right' } },
+          { caseId: 'j-2', runId: 'j-2-run', output: turn('Refunded $25.') },
+        ),
+      ],
+      answers: answers.binding,
+      answer: (input) => replayed(input.replay?.of as unknown as string, [call('acme.lookup')]),
+    });
+    expect(answers.asked).toHaveLength(1);
+    expect(summary.corrections?.results).toEqual([{ correctionId: 'j-1', pass: false }]);
+    expect(summary.unchecked).toEqual({ cases: 1 });
   });
 
   test('a case that expects only items has no pass, and counts toward the metric as before', async () => {
@@ -1737,36 +1963,35 @@ describe("a case's expect, graded", () => {
       expect(summary.metrics.passRate).toMatchObject({ baseline: 1, candidate: 0.5, spread: 0 });
     });
 
-    test('a case with no pass adds no check', async () => {
-      // No checker: the answer can't be checked, so the case has no entry.
+    test("a part that couldn't be checked adds no check, and the case's other part still does", async () => {
+      // No checker: the answer can't be checked. Its decisions, marked wrong on the
+      // recorded run, pass on the replay.
       const { summary } = await compare({
         comparison: once,
         cases: [expecting({ ...refundNoEmail, ...sayHowLong })],
         answer: () => replayed('j-1', [call('acme.refund', { amount: 25 })]),
       });
       expect(summary.metrics.passRate).toMatchObject({
-        baseline: null,
-        candidate: null,
-        n: 0,
-        baselineN: 0,
+        baseline: 0,
+        candidate: 1,
+        n: 1,
+        weight: 1,
+        baselineN: 1,
       });
     });
 
-    test('a rescore counts each case as the run it rescores graded it, and checks no answer again', async () => {
-      const cases = [expecting({ ...refundNoEmail, ...sayHowLong })];
-      const answers = checker();
-      const first = await compare({
-        comparison: once,
-        cases,
-        answers: answers.binding,
-        answer: () => replayed('j-1', [call('acme.refund', { amount: 25 })]),
-      });
+    /** A rescore of the run whose result was `prior`: each replay's output reads again as `replayed('j-1', [])`'s. */
+    const rescored = async (
+      cases: readonly CorrectedTestCase[],
+      prior: { readonly summary: unknown; readonly perCase: unknown },
+      answers: AnswerCheckBinding,
+    ) => {
       const store = inMemoryCaseStore();
       await store.putCases({ tenantId, testSetId: 'acme.set', version: '1.0.0', cases });
       const out = await createCorrectedDispatcher({
         cases: store,
         corrections: inMemoryCorrections(),
-        answers: answers.binding,
+        answers,
         testRuns: {
           get: async () => ({
             testRunId: 'eval-1' as RunId,
@@ -1777,7 +2002,7 @@ describe("a case's expect, graded", () => {
             status: 'completed',
             dryRun: false,
             startedAt: '2026-10-09T00:00:00.000Z' as never,
-            result: { summary: first.summary, perCase: first.perCase },
+            result: { summary: prior.summary, perCase: prior.perCase },
           }),
         },
         runs: { getRun: async () => ({ output: replayed('j-1', []).output }) },
@@ -1799,11 +2024,63 @@ describe("a case's expect, graded", () => {
         subject: { invoke: async () => ({ error: 'a rescore never replays' }) },
         onProgress: () => undefined,
       });
-      const { summary } = out.result as { summary: CorrectedComparisonSummary };
+      return out.result as { summary: CorrectedComparisonSummary; perCase: CorrectedCaseResult[] };
+    };
+
+    test('a rescore counts each case as the run it rescores graded it, and checks no answer again', async () => {
+      const cases = [expecting({ ...refundNoEmail, ...sayHowLong })];
+      const answers = checker();
+      const first = await compare({
+        comparison: once,
+        cases,
+        answers: answers.binding,
+        answer: () => replayed('j-1', [call('acme.refund', { amount: 25 })]),
+      });
+      const { summary } = await rescored(cases, first, answers.binding);
       expect(answers.asked).toHaveLength(1);
       expect(summary.metrics.passRate).toEqual(first.summary.metrics.passRate);
       // Both parts, marked wrong on the recorded run, passed on the replay.
       expect(summary.metrics.passRate).toMatchObject({ baseline: 0, candidate: 1, weight: 2 });
+    });
+
+    test('a rescore keeps the unchecked parts, their count and the reason the run it rescores gave', async () => {
+      const cases = [expecting({ ...refundNoEmail, ...sayHowLong })];
+      const answers = checker({ kind: 'unchecked', reason: 'The version has no model settings.' });
+      const first = await compare({
+        comparison: once,
+        cases,
+        answers: answers.binding,
+        answer: () => replayed('j-1', [call('acme.refund', { amount: 25 })]),
+      });
+      const { summary, perCase } = await rescored(cases, first, answers.binding);
+      expect(answers.asked).toHaveLength(1);
+      expect(perCase[0]?.corrections).toEqual(first.perCase[0]?.corrections);
+      expect(summary.metrics.passRate).toEqual(first.summary.metrics.passRate);
+      expect(summary.unchecked).toEqual({ cases: 1, why: 'The version has no model settings.' });
+      expect(wireErrors({ summary, perCase })).toEqual([]);
+    });
+
+    test('a rescore of a run graded before parts were counted alone keeps its entries and its count', async () => {
+      const cases = [expecting({ ...refundNoEmail, ...sayHowLong })];
+      const answers = checker();
+      const first = await compare({
+        comparison: once,
+        cases,
+        answer: () => replayed('j-1', [call('acme.refund', { amount: 25 })]),
+      });
+      // Graded the old way: a part unchecked left the case with no entry, and no check.
+      const { unchecked: _, ...oldSummary } = first.summary;
+      const oldPerCase = first.perCase.map(({ corrections: __, ...r }) => r);
+      const { summary, perCase } = await rescored(
+        cases,
+        { summary: oldSummary, perCase: oldPerCase },
+        answers.binding,
+      );
+      expect(answers.asked).toHaveLength(0);
+      expect(perCase[0]?.corrections).toBeUndefined();
+      expect(summary.metrics.passRate).toMatchObject({ candidate: null, n: 0 });
+      expect(summary.corrections).toBeUndefined();
+      expect(summary.unchecked).toBeUndefined();
     });
   });
 
@@ -1884,5 +2161,32 @@ describe("a case's expect, graded", () => {
     ]);
     // Its own correction wasn't an expert's either: nothing of it is graded.
     expect(perCase.find((c) => c.caseId === 'j-2')?.corrections).toBeUndefined();
+  });
+});
+
+describe("whether a case's pass is known", () => {
+  const entry = { correctionId: 'j-1', pass: false, repetitionsPassed: 0, repetitions: 1 };
+
+  test('every part checked: known, passed or not', () => {
+    expect(
+      passKnown({ ...entry, pass: true, repetitionsPassed: 1, parts: { decisions: true } }),
+    ).toBe(true);
+    expect(passKnown({ ...entry, parts: { decisions: true, answer: false } })).toBe(true);
+    // A correction's entry has no parts.
+    expect(passKnown(entry)).toBe(true);
+  });
+
+  test('a checked part failed: known, whatever is unchecked', () => {
+    expect(passKnown({ ...entry, parts: { decisions: false }, unchecked: ['answer'] })).toBe(true);
+    expect(passKnown({ ...entry, parts: { answer: false }, unchecked: ['decisions'] })).toBe(true);
+  });
+
+  test('a part unchecked and none that was checked failed: unknown', () => {
+    expect(passKnown({ ...entry, parts: { decisions: true }, unchecked: ['answer'] })).toBe(false);
+  });
+
+  test('nothing checked: unknown', () => {
+    expect(passKnown({ ...entry, parts: {}, unchecked: ['decisions', 'answer'] })).toBe(false);
+    expect(passKnown({ ...entry, parts: {}, unchecked: ['answer'] })).toBe(false);
   });
 });

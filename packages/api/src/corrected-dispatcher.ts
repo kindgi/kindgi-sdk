@@ -217,6 +217,14 @@ export interface CorrectedComparisonSummary {
     readonly results?: readonly { readonly correctionId: string; readonly pass: boolean }[];
   };
   /**
+   * The cases whose pass isn't known (`passKnown`): a part of their
+   * `expect` couldn't be checked (each entry's `unchecked`), and none that
+   * was checked failed. They're the ones left out of `corrections`. `why`
+   * is the first reason the answer checker gave for an answer of theirs it
+   * couldn't check, when it gave one. Absent when there are none.
+   */
+  readonly unchecked?: { readonly cases: number; readonly why?: string };
+  /**
    * What the candidate's replays cost in model calls, as the runtime
    * reported it: each repetition's total over the cases whose every
    * repetition reported a cost (`cases`), averaged over the repetitions;
@@ -250,9 +258,10 @@ export interface CorrectedCaseResult {
    *
    * A case that carries `expect` gives one entry instead, keyed by the
    * case's id: it passes a repetition when every part it expects passed
-   * on it, and each part (`parts`) is one check in `passRate`, beside the
-   * case's items. It gives none when it expects only items, or when a part
-   * couldn't be checked.
+   * on it, and each part that was checked (`parts`) is one check in
+   * `passRate`, beside the case's items. A part that couldn't be checked is
+   * named in `unchecked`, and the case doesn't pass. It gives none when it
+   * expects only items.
    */
   readonly corrections?: readonly CorrectionGraded[];
   /**
@@ -299,7 +308,7 @@ export interface CorrectionGraded {
   /**
    * How many repetitions passed. For a case's `expect` with an `answer`,
    * the answers after the first that failed aren't checked, and their
-   * repetitions count as not passed.
+   * repetitions count as not passed. With a part `unchecked`, none passed.
    */
   readonly repetitionsPassed: number;
   readonly repetitions: number;
@@ -310,10 +319,27 @@ export interface CorrectionGraded {
    */
   readonly why?: string;
   /**
-   * A case's `expect` only: whether each part it expects passed on every
-   * repetition. Each one is a check in `passRate`.
+   * A case's `expect` only: whether each part it expects that was checked
+   * passed on every repetition. Each one is a check in `passRate`.
    */
   readonly parts?: { readonly decisions?: boolean; readonly answer?: boolean };
+  /**
+   * A case's `expect` only: each part it expects that couldn't be checked
+   * (`gradeExpect`). It adds no check to `passRate`, and the case doesn't
+   * pass. Whether its pass is known: `passKnown`.
+   */
+  readonly unchecked?: readonly ('decisions' | 'answer')[];
+}
+
+/**
+ * Whether an entry's `pass` is known: no part of it was unchecked, or a
+ * part that was checked failed. One that isn't is read as a case the run
+ * didn't grade: it's left out of the summary's `corrections` and doesn't
+ * change its correction's status.
+ */
+export function passKnown(entry: CorrectionGraded): boolean {
+  if (entry.unchecked === undefined || entry.unchecked.length === 0) return true;
+  return entry.parts?.decisions === false || entry.parts?.answer === false;
 }
 
 /** Reads a replay run's output again, for a rescore. */
@@ -336,8 +362,8 @@ export interface CorrectedDispatcherOptions {
   /**
    * Checks a replay's answer against a case's `expect.answer`, with the
    * judging model (`DispatchContext.judging`, else the tested version's
-   * own). The host passes it in. Without it, a case that expects
-   * something of the answer has no pass. A rescore never calls it.
+   * own). The host passes it in. Without it, a case's answer is unchecked:
+   * it adds no check. A rescore never calls it.
    */
   readonly answers?: AnswerCheckBinding;
 }
@@ -432,25 +458,28 @@ async function replayAll(
   // Erased after they were listed: the replay was refused (`run-erased`).
   const erasedLate = new Set<string>();
   let halt: Halt | undefined;
+  // The first reason the checker gave for an answer it couldn't check.
+  let uncheckedWhy: string | undefined;
   for (const correctedCase of all) {
     if (ctx.abortSignal.aborted) break;
-    const result = await runCase(ctx, comparison, correctedCase, models, options.answers);
-    if (result === 'erased') {
+    const done = await runCase(ctx, comparison, correctedCase, models, options.answers);
+    if (done === 'erased') {
       erasedLate.add(correctedCase.caseId);
       continue;
     }
-    if ('halt' in result) {
-      halt = result.halt;
+    if ('halt' in done) {
+      halt = done.halt;
       break;
     }
-    results.push(result);
-    ctx.onProgress(result as unknown as Readonly<Record<string, unknown>>);
+    results.push(done.result);
+    uncheckedWhy ??= done.uncheckedWhy;
+    ctx.onProgress(done.result as unknown as Readonly<Record<string, unknown>>);
   }
   const pinsDigest = await candidatePins(options.agents, ctx);
   const ran = all.filter((c) => !erasedLate.has(c.caseId));
   const erasedAll = erased + erasedLate.size;
   const summary = {
-    ...summarize(ctx, comparison, ran, results, [...models.values()], pinsDigest),
+    ...summarize(ctx, comparison, ran, results, [...models.values()], pinsDigest, uncheckedWhy),
     ...(erasedAll > 0 && { erased: erasedAll }),
   };
   return {
@@ -657,7 +686,7 @@ async function runCase(
   correctedCase: CorrectedTestCase,
   models: Map<string, { providerId: string; model: string; runs: number }>,
   answers: AnswerCheckBinding | undefined,
-): Promise<CorrectedCaseResult | 'erased' | { readonly halt: Halt }> {
+): Promise<CaseRan | 'erased' | { readonly halt: Halt }> {
   // An agent turn's items are its answer and typed result; a flow run's, its whole output.
   const agentTurn = correctedCase.subject.kind === 'agent';
   const baseline = scoreItems(
@@ -681,7 +710,16 @@ async function runCase(
     correctedCase.expect === undefined
       ? undefined
       : await gradeExpect(ctx, correctedCase, correctedCase.expect, tally.repetitions, answers);
-  return tally.result(baseline, graded);
+  return {
+    result: tally.result(baseline, graded),
+    ...(graded?.uncheckedWhy !== undefined && { uncheckedWhy: graded.uncheckedWhy }),
+  };
+}
+
+/** A case that ran: its result, and why the checker couldn't check its answer, when it said. */
+interface CaseRan {
+  readonly result: CorrectedCaseResult;
+  readonly uncheckedWhy?: string;
 }
 
 /** One repetition, as a case's `expect` is graded on it. */
@@ -695,7 +733,7 @@ interface Repetition {
 
 /** A case's `expect`, graded over its repetitions. */
 interface ExpectGraded {
-  /** Its one entry, keyed by the case's id; absent when it has no pass. */
+  /** Its one entry, keyed by the case's id; absent when it expects only items. */
   readonly entry?: CorrectionGraded;
   /** How the calls differed from `decisions: wrong` on the first repetition whose calls did. */
   readonly differences?: {
@@ -705,6 +743,8 @@ interface ExpectGraded {
   };
   /** What checking each repetition's answer cost, by repetition (0-based). */
   readonly judgingCosts: readonly (number | undefined)[];
+  /** Why the checker couldn't check the answer, when it said and the case's pass isn't known. */
+  readonly uncheckedWhy?: string;
 }
 
 /**
@@ -726,8 +766,9 @@ interface ExpectGraded {
  * checked, nor any after it. A repetition passes when every part passed on
  * it, and each part (`parts`) passes when it passed on every repetition.
  * The entry is left out when the case expects only items (they count
- * toward `weightedPrecisionAtK`), or when a part was unchecked; what
- * checking cost counts either way.
+ * toward `weightedPrecisionAtK`); a part that couldn't be checked is named
+ * in `unchecked`, and no repetition passes. What checking cost counts
+ * either way.
  */
 async function gradeExpect(
   ctx: DispatchContext,
@@ -738,43 +779,67 @@ async function gradeExpect(
 ): Promise<ExpectGraded> {
   const { decisions, answer } = expect;
   if (decisions === undefined && answer === undefined) return { judgingCosts: [] };
+  const unchecked: ('decisions' | 'answer')[] = [];
   const decided = gradeDecisions(correctedCase, decisions, repetitions);
-  // Decisions that can't be checked leave the case with no pass: its answer isn't checked.
-  if (decided === undefined) return { judgingCosts: [] };
-  const { differences } = decided;
-  let answered: readonly (boolean | undefined)[] = repetitions.map(() => true);
+  // Decisions that can't be checked are unchecked; the answer is still checked.
+  if (decided === undefined) unchecked.push('decisions');
+  const differences = decided?.differences;
+  let answered: readonly (boolean | undefined)[] | undefined = repetitions.map(() => true);
   let judgingCosts: readonly (number | undefined)[] = [];
   let why: string | undefined;
+  let uncheckedWhy: string | undefined;
   if (answer !== undefined) {
     const checked = await checkAnswers(ctx, correctedCase, answer, repetitions, answers);
     // What a check cost counts even when a later one couldn't be made.
     judgingCosts = checked.costs;
     if (checked.unchecked === true) {
-      return { judgingCosts, ...(differences !== undefined && { differences }) };
+      unchecked.push('answer');
+      answered = undefined;
+      uncheckedWhy = checked.reason;
+    } else {
+      answered = checked.passes;
+      why = checked.why;
     }
-    answered = checked.passes;
-    why = checked.why;
   }
   const n = repetitions.length;
+  // A part that's unchecked passes no repetition.
   const repetitionsPassed = repetitions.filter(
-    (_, i) => decided.passes[i] === true && answered[i] === true,
+    (_, i) => decided?.passes[i] === true && answered?.[i] === true,
   ).length;
+  const entry: CorrectionGraded = {
+    correctionId: correctedCase.caseId,
+    pass: n > 0 && repetitionsPassed === n,
+    repetitionsPassed,
+    repetitions: n,
+    ...(why !== undefined && { why }),
+    parts: partsPassed(expect, decided?.passes, answered, n),
+    ...(unchecked.length > 0 && { unchecked }),
+  };
   return {
-    entry: {
-      correctionId: correctedCase.caseId,
-      pass: n > 0 && repetitionsPassed === n,
-      repetitionsPassed,
-      repetitions: n,
-      ...(why !== undefined && { why }),
-      parts: {
-        ...(decisions !== undefined && {
-          decisions: n > 0 && decided.passes.every((p) => p),
-        }),
-        ...(answer !== undefined && { answer: n > 0 && answered.every((p) => p === true) }),
-      },
-    },
+    entry,
     ...(differences !== undefined && { differences }),
     judgingCosts,
+    // The summary's reason is for a case whose pass the run couldn't know.
+    ...(uncheckedWhy !== undefined && !passKnown(entry) && { uncheckedWhy }),
+  };
+}
+
+/**
+ * Whether each part the case expects that was checked passed on every one
+ * of its `n` repetitions (`parts`). A part with no passes wasn't checked,
+ * and has none.
+ */
+function partsPassed(
+  expect: TestCaseExpect,
+  decided: readonly boolean[] | undefined,
+  answered: readonly (boolean | undefined)[] | undefined,
+  n: number,
+): NonNullable<CorrectionGraded['parts']> {
+  return {
+    ...(expect.decisions !== undefined &&
+      decided !== undefined && { decisions: n > 0 && decided.every((p) => p) }),
+    ...(expect.answer !== undefined &&
+      answered !== undefined && { answer: n > 0 && answered.every((p) => p === true) }),
   };
 }
 
@@ -828,6 +893,8 @@ interface AnswersChecked {
    * run stopped before a check.
    */
   readonly unchecked?: true;
+  /** Why the checker couldn't check one, when it said (`AnswerCheck`). */
+  readonly reason?: string;
 }
 
 /**
@@ -871,7 +938,10 @@ async function checkAnswers(
     });
     // A call whose reply couldn't be read still cost what it did.
     costs[i] = checked.costUsd;
-    if (checked.kind === 'unchecked') return { passes, costs, unchecked: true };
+    if (checked.kind === 'unchecked') {
+      const reason = checked.reason.trim();
+      return { passes, costs, unchecked: true, ...(reason.length > 0 && { reason }) };
+    }
     passes[i] = checked.pass;
     if (!checked.pass) {
       return { passes, costs, ...(checked.why !== undefined && { why: checked.why }) };
@@ -943,7 +1013,15 @@ async function rescore(
   const ran = all.filter((c) => before.has(c.caseId));
   const notRescored = results.filter((r) => r.rescored === false).length;
   const summary = {
-    ...summarize(ctx, comparison, ran, results, priorModels(prior), pinsDigest),
+    ...summarize(
+      ctx,
+      comparison,
+      ran,
+      results,
+      priorModels(prior),
+      pinsDigest,
+      priorUncheckedWhy(prior),
+    ),
     rescoreOf: of,
     ...(notRescored > 0 && { notRescored }),
     ...(erased > 0 && { erased }),
@@ -1040,6 +1118,17 @@ function priorModels(run: {
 }): { providerId: string; model: string; runs: number }[] {
   const summary = run.result?.summary as CorrectedComparisonSummary | undefined;
   return [...(summary?.sampling?.models ?? [])];
+}
+
+/**
+ * The first reason the checker gave in the run rescored: a rescore checks
+ * no answer, and keeps that run's entries.
+ */
+function priorUncheckedWhy(run: {
+  readonly result?: Readonly<Record<string, unknown>>;
+}): string | undefined {
+  const summary = run.result?.summary as CorrectedComparisonSummary | undefined;
+  return summary?.unchecked?.why;
 }
 
 function refusedCount(outcome: TestRunSubjectInvokeOutcome): number {
@@ -1180,7 +1269,8 @@ function metric(
  * `expect` (its entry under its id: `parts`) is one check of weight 1,
  * beside its items. The recorded run passes a part when people marked it
  * `right`; each repetition that ran, when the part passed on every one.
- * A case with no entry (only `items`, or a part unchecked) adds none.
+ * A case with no entry (only `items`) adds none, and nor does a part
+ * unchecked.
  */
 function withExpectChecks(
   cases: readonly CorrectedTestCase[],
@@ -1233,6 +1323,7 @@ function summarize(
   results: readonly CorrectedCaseResult[],
   models: readonly { providerId: string; model: string; runs: number }[],
   pinsDigest: string | undefined,
+  uncheckedWhy: string | undefined,
 ): CorrectedComparisonSummary {
   const errors = results.filter((r) => r.error !== undefined).length;
   const stopped = results.filter((r) => r.stopped !== undefined).length;
@@ -1255,6 +1346,7 @@ function summarize(
       : (ctx.projectId as unknown as string | undefined);
   const correctedWeight = (s: OutputScore) => s.totalWeight;
   const corrections = correctionsOf(results);
+  const unchecked = uncheckedOf(results, uncheckedWhy);
   const costUsd = costOf(results, comparison.repetitions);
   return {
     testRunId: ctx.testRunId as unknown as string,
@@ -1307,20 +1399,40 @@ function summarize(
       ),
     },
     ...(corrections !== undefined && { corrections }),
+    ...(unchecked !== undefined && { unchecked }),
     ...(costUsd !== undefined && { costUsd }),
   };
 }
 
-/** The corrections graded across the cases, and whether each one passed, by correction; none graded, undefined. */
+/**
+ * The corrections graded across the cases, and whether each one passed, by
+ * correction; none graded, undefined. An entry whose pass isn't known
+ * (`passKnown`) is left out.
+ */
 function correctionsOf(
   results: readonly CorrectedCaseResult[],
 ): CorrectedComparisonSummary['corrections'] {
   const graded = results.flatMap((r) =>
-    (r.corrections ?? []).map(({ correctionId, pass }) => ({ correctionId, pass })),
+    (r.corrections ?? [])
+      .filter(passKnown)
+      .map(({ correctionId, pass }) => ({ correctionId, pass })),
   );
   if (graded.length === 0) return undefined;
   const passed = graded.filter((j) => j.pass).length;
   return { checked: graded.length, passed, results: graded };
+}
+
+/**
+ * The cases whose pass isn't known (`passKnown`), and the first reason the
+ * checker gave for one (`why`); none, undefined.
+ */
+function uncheckedOf(
+  results: readonly CorrectedCaseResult[],
+  why: string | undefined,
+): CorrectedComparisonSummary['unchecked'] {
+  const cases = results.filter((r) => (r.corrections ?? []).some((c) => !passKnown(c))).length;
+  if (cases === 0) return undefined;
+  return { cases, ...(why !== undefined && { why }) };
 }
 
 /**

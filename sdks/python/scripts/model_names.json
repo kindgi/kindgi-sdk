@@ -1160,6 +1160,7 @@
   "TurnBudget": ["TurnBudget"],
   "Type": ["AgentMemoryPolicy.remember.types"],
   "TypedNeeds": ["TypedNeeds"],
+  "Unchecked": ["CorrectedComparisonSummary.unchecked"],
   "UnmatchedItem": ["ReplayMemoryErasuresResult.unmatched"],
   "UnpinBody": [],
   "UnpinVersionBody": ["UnpinVersionBody"],

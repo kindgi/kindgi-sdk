@@ -7561,6 +7561,25 @@ class Corrections(BaseModel):
     """
 
 
+class Unchecked(BaseModel):
+    """
+    Cases whose pass isn't known: a part of their `expect` couldn't be checked, each naming it in its entry's `unchecked`, and none that was checked failed. Say every case's answer, when the version has no model settings. They're left out of `corrections`. Absent from older servers, and when there are none.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    cases: Annotated[int, Field(ge=1)]
+    """
+    How many cases.
+    """
+    why: Annotated[str | None, Field(min_length=1)] = None
+    """
+    The first reason the answer checker gave for an answer of theirs it couldn't check. Absent when it gave none: no checker, a test run stopped before a check, or only decisions unchecked.
+    """
+
+
 class CorrectedComparisonCost(BaseModel):
     """
     What the candidate's replays cost in model calls, as the runtime reported it. Absent from a summary when no case's replays reported a cost.
@@ -13751,7 +13770,7 @@ class ComparisonCaseResultTool(BaseModel):
 
 class Parts(BaseModel):
     """
-    A case's `expect` only: whether each part the case expects passed on every repetition. Each one is a check in `passRate`. Absent from older servers.
+    A case's `expect` only: whether each part the case expects that was checked passed on every repetition. Each one is a check in `passRate`. Absent from older servers.
     """
 
     model_config = ConfigDict(
@@ -13786,7 +13805,11 @@ class ComparisonCaseResultCorrection(BaseModel):
     """
     parts: Parts | None = None
     """
-    A case's `expect` only: whether each part the case expects passed on every repetition. Each one is a check in `passRate`. Absent from older servers.
+    A case's `expect` only: whether each part the case expects that was checked passed on every repetition. Each one is a check in `passRate`. Absent from older servers.
+    """
+    unchecked: Annotated[list[Literal["decisions", "answer"]] | None, Field(min_length=1)] = None
+    """
+    A case's `expect` only: each part the case expects that couldn't be checked, say its answer when the version has no model settings or the call to the judging model failed. It adds no check to `passRate`, and the case doesn't pass. A case with a part unchecked and none failed is left out of the summary's `corrections`. Absent from older servers, and when every part was checked.
     """
 
 
@@ -16568,6 +16591,10 @@ class CorrectedComparisonSummary(BaseModel):
     """
     Corrections graded across the cases: shown for a release gate, not enforced. Absent when the test set carries no corrections.
     """
+    unchecked: Unchecked | None = None
+    """
+    Cases whose pass isn't known: a part of their `expect` couldn't be checked, each naming it in its entry's `unchecked`, and none that was checked failed. Say every case's answer, when the version has no model settings. They're left out of `corrections`. Absent from older servers, and when there are none.
+    """
     cost_usd: Annotated[CorrectedComparisonCost | None, Field(alias="costUsd")] = None
 
 
@@ -16621,7 +16648,7 @@ class ComparisonCaseResult(BaseModel):
     """
     corrections: list[ComparisonCaseResultCorrection] | None = None
     """
-    Each correction graded on this case: its verdict and how many repetitions passed. Shown, not enforced. A case of an agent's test set that carries `expect` has one entry instead, keyed by the case's id: a repetition passes when every part the case expects passed on it, and each part (`parts`) is one check in `passRate`. It has none when the case expects only items, or when a part couldn't be checked. Survives an erasure, all but `why` — the differences, which quote values, are in `correctionDifferences`.
+    Each correction graded on this case: its verdict and how many repetitions passed. Shown, not enforced. A case of an agent's test set that carries `expect` has one entry instead, keyed by the case's id: a repetition passes when every part the case expects passed on it, and each part that was checked (`parts`) is one check in `passRate`. A part that couldn't be checked is named in `unchecked`, and the case doesn't pass. It has none when the case expects only items. Survives an erasure, all but `why` — the differences, which quote values, are in `correctionDifferences`.
     """
     correction_differences: Annotated[
         list[CorrectionDifference] | None, Field(alias="correctionDifferences")

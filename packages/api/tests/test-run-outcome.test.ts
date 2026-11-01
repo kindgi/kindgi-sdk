@@ -19,6 +19,8 @@ import {
   type AnswerCheck,
   type Pin,
   type PinActor,
+  type TestCaseAnswer,
+  type TestCaseExpect,
   type TestRun,
   type TestRunComparison,
   type TestSet,
@@ -321,13 +323,22 @@ describe("an answer-only correction, graded by the host's answer checker", () =>
     output: {},
   });
 
+  const sayNoRefund: TestCaseAnswer = { verdict: 'wrong', shouldSay: 'Final sale: no refund.' };
+  const onlyAnswer: TestCaseExpect = { answer: sayNoRefund };
+
   /**
    * What a test run of `version` records when it replays correction `id`,
    * frozen as the freeze makes it: one case under the correction's id that
-   * expects only an answer. The corrected dispatcher grades it, and the
-   * host's checker answers `check`.
+   * expects only an answer, unless `caseExpect` says more. The corrected
+   * dispatcher grades it, and the host's checker answers `check`. Its
+   * replay makes no tool calls.
    */
-  const dispatched = async (id: string, version: string, check: AnswerCheck) => {
+  const dispatched = async (
+    id: string,
+    version: string,
+    check: AnswerCheck,
+    caseExpect: TestCaseExpect = onlyAnswer,
+  ) => {
     const testSetId = agentTestSetId(agentId as AgentId, projectId);
     const testRunId = randomUUID() as RunId;
     const cases = inMemoryCaseStore();
@@ -343,7 +354,7 @@ describe("an answer-only correction, graded by the host's answer checker", () =>
           input: 'refund order 41?',
           output: turn('Refunded.'),
           items: [],
-          expect: { answer: { verdict: 'wrong', shouldSay: 'Final sale: no refund.' } },
+          expect: caseExpect,
         },
       ],
     });
@@ -439,6 +450,56 @@ describe("an answer-only correction, graded by the host's answer checker", () =>
       fixedIn: { version: '13.0.0', how: 'pin', by: ana },
     });
     expect(kept?.reopenedIn).toBeUndefined();
+  });
+
+  test("decisions that passed beside an answer the checker couldn't check never reopen a fixed one", async () => {
+    const h = harness();
+    const id = await h.corrected();
+    const v13 = h.project.pin('13.0.0', ana);
+    const passed = await dispatched(id, '13.0.0', { kind: 'checked', pass: true });
+    await h.apply(h.ran('13.0.0', pinRunCorrelation(v13.id), {}, 'completed', { result: passed }));
+    const v14 = h.project.pin('14.0.0', ben);
+    // Its replay makes no calls, so it calls no refund: its decisions pass.
+    const unchecked = await dispatched(
+      id,
+      '14.0.0',
+      { kind: 'unchecked', reason: 'The version has no model settings.' },
+      { decisions: { verdict: 'wrong', mustNotCall: ['acme.refund'] }, answer: sayNoRefund },
+    );
+    const run = h.ran('14.0.0', pinRunCorrelation(v14.id), {}, 'completed', { result: unchecked });
+    expect(await h.apply(run)).toEqual({ fixed: [], reopened: [] });
+    const kept = await h.get(id);
+    expect(kept).toMatchObject({
+      status: 'fixed',
+      fixedIn: { version: '13.0.0', how: 'pin', by: ana },
+    });
+    expect(kept?.reopenedIn).toBeUndefined();
+  });
+
+  test("decisions that failed beside an answer the checker couldn't check reopen a fixed one", async () => {
+    const h = harness();
+    const id = await h.corrected();
+    const v13 = h.project.pin('13.0.0', ana);
+    const passed = await dispatched(id, '13.0.0', { kind: 'checked', pass: true });
+    await h.apply(h.ran('13.0.0', pinRunCorrelation(v13.id), {}, 'completed', { result: passed }));
+    const v14 = h.project.pin('14.0.0', ben);
+    // Its replay makes no calls, so the refund it should call isn't: its decisions fail.
+    const failed = await dispatched(
+      id,
+      '14.0.0',
+      { kind: 'unchecked', reason: 'The version has no model settings.' },
+      {
+        decisions: { verdict: 'wrong', shouldCall: [{ tool: 'acme.refund', args: {} }] },
+        answer: sayNoRefund,
+      },
+    );
+    const run = h.ran('14.0.0', pinRunCorrelation(v14.id), {}, 'completed', { result: failed });
+    expect(await h.apply(run)).toEqual({ fixed: [], reopened: [id] });
+    expect(await h.get(id)).toMatchObject({
+      status: 'open',
+      fixedIn: { version: '13.0.0', how: 'pin', by: ana },
+      reopenedIn: { version: '14.0.0', how: 'pin', by: ben },
+    });
   });
 });
 

@@ -22,7 +22,7 @@ import { highestVersion } from '@kindgi/tools';
 import type { AgentId, AgentPinScope, ProjectId, RunId, TenantId } from '@kindgi/types';
 
 import type { AgentPinBindings, Pin } from './agent-pin-binding.js';
-import type { CorrectedCaseResult } from './corrected-dispatcher.js';
+import { type CorrectedCaseResult, passKnown } from './corrected-dispatcher.js';
 import type {
   Correction,
   CorrectionMadeBy,
@@ -511,14 +511,15 @@ function effectiveAt(change: Pin): string {
 
 /**
  * Whether the run passed each correction it graded: every case that
- * carries it passed it.
+ * carries it passed it. An entry whose pass isn't known (`passKnown`)
+ * grades nothing.
  */
 function passedByCorrection(run: TestRun): ReadonlyMap<string, boolean> {
   const passed = new Map<string, boolean>();
   const perCase = run.result?.perCase;
   if (!Array.isArray(perCase)) return passed;
   for (const result of perCase as readonly CorrectedCaseResult[]) {
-    for (const c of result.corrections ?? []) {
+    for (const c of (result.corrections ?? []).filter(passKnown)) {
       passed.set(c.correctionId, (passed.get(c.correctionId) ?? true) && c.pass);
     }
   }

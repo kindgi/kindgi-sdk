@@ -418,10 +418,11 @@ is graded on its `expect`, part by part, on each repetition:
 | `items` | Nothing: the items count toward the metrics, as above, with no pass |
 
 The case has one entry in `corrections`, under the case's id, and it's
-counted in the summary's `corrections`. A repetition passes when every
-part the case expects passed on it, and the case passes when every
-repetition did. Its `parts` says whether each part, its decisions and its
-answer, passed on every repetition. Each graded part is one check in
+counted in the summary's `corrections`, unless a part couldn't be checked
+and none failed. A repetition passes when every part the case expects
+passed on it, and the case passes when every repetition did. Its `parts`
+names the parts that were checked, its decisions and its answer, and says
+whether each passed on every repetition. Each graded part is one check in
 `passRate`, beside the case's items, so a case that expects both is two
 checks, and a release gate on `passRate` counts them. The recorded run
 passes a part when people marked it `right`, and each repetition that ran
@@ -451,12 +452,18 @@ answer fails, `why` has the judging model's reason:
   checked in order, and checking stops at the first answer that fails. An
   answer is checked on a repetition whose decisions failed too, since it's
   a check of its own.
-- **No pass.** A case that expects only `items` has no entry, and adds no
-  check to `passRate`: its items count toward the metrics. Neither does a
-  case whose answer couldn't be checked, say because the version has no
-  model settings or the call to the judging model failed, or one that
-  expects `decisions: "right"` when the recorded run's tool calls can't be
-  read. A failed call doesn't stop the test run.
+- **What isn't checked.** A case that expects only `items` has no entry,
+  and adds no check to `passRate`: its items count toward the metrics. A
+  part that couldn't be checked adds no check either, and the case's other
+  part still does: an answer, say, when the version has no model settings
+  or the call to the judging model failed, or `decisions: "right"` when the
+  recorded run's tool calls can't be read. The entry's `unchecked` names
+  that part, and the case doesn't pass. A case none of whose parts could be
+  checked has an entry too: its `parts` is empty, `unchecked` names every
+  part, and it adds no check. A failed call doesn't stop the test run. The
+  summary's `unchecked` counts the cases whose pass isn't known, a part
+  unchecked and none failed (`cases`), with the first reason an answer of
+  theirs couldn't be checked (`why`).
 - **A repetition that errored or stopped** fails every part, and its answer
   isn't checked, nor any after it.
 

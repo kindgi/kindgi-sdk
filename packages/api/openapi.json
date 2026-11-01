@@ -17279,6 +17279,26 @@
               }
             }
           },
+          "unchecked": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "cases"
+            ],
+            "description": "Cases whose pass isn't known: a part of their `expect` couldn't be checked, each naming it in its entry's `unchecked`, and none that was checked failed. Say every case's answer, when the version has no model settings. They're left out of `corrections`. Absent from older servers, and when there are none.",
+            "properties": {
+              "cases": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "How many cases."
+              },
+              "why": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The first reason the answer checker gave for an answer of theirs it couldn't check. Absent when it gave none: no checker, a test run stopped before a check, or only decisions unchecked."
+              }
+            }
+          },
           "costUsd": {
             "$ref": "#/components/schemas/CorrectedComparisonCost"
           }
@@ -17738,7 +17758,7 @@
           },
           "corrections": {
             "type": "array",
-            "description": "Each correction graded on this case: its verdict and how many repetitions passed. Shown, not enforced. A case of an agent's test set that carries `expect` has one entry instead, keyed by the case's id: a repetition passes when every part the case expects passed on it, and each part (`parts`) is one check in `passRate`. It has none when the case expects only items, or when a part couldn't be checked. Survives an erasure, all but `why` — the differences, which quote values, are in `correctionDifferences`.",
+            "description": "Each correction graded on this case: its verdict and how many repetitions passed. Shown, not enforced. A case of an agent's test set that carries `expect` has one entry instead, keyed by the case's id: a repetition passes when every part the case expects passed on it, and each part that was checked (`parts`) is one check in `passRate`. A part that couldn't be checked is named in `unchecked`, and the case doesn't pass. It has none when the case expects only items. Survives an erasure, all but `why` — the differences, which quote values, are in `correctionDifferences`.",
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -17773,7 +17793,7 @@
                 "parts": {
                   "type": "object",
                   "additionalProperties": false,
-                  "description": "A case's `expect` only: whether each part the case expects passed on every repetition. Each one is a check in `passRate`. Absent from older servers.",
+                  "description": "A case's `expect` only: whether each part the case expects that was checked passed on every repetition. Each one is a check in `passRate`. Absent from older servers.",
                   "properties": {
                     "decisions": {
                       "type": "boolean"
@@ -17782,6 +17802,19 @@
                       "type": "boolean"
                     }
                   }
+                },
+                "unchecked": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "decisions",
+                      "answer"
+                    ]
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "description": "A case's `expect` only: each part the case expects that couldn't be checked, say its answer when the version has no model settings or the call to the judging model failed. It adds no check to `passRate`, and the case doesn't pass. A case with a part unchecked and none failed is left out of the summary's `corrections`. Absent from older servers, and when every part was checked."
                 }
               }
             }

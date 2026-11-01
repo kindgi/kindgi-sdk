@@ -13,6 +13,15 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a comparison counts each part of a case that was checked, even
+  when another part couldn't be.** A case that expects decisions or an answer
+  always has an entry in `corrections`. Its `parts` names only the parts that
+  were checked, and the new `unchecked` (`"decisions"`, `"answer"`) names the
+  rest: such a case doesn't pass. A part that failed beside an unchecked one
+  counts in `pass_rate` and, as a fail, in the summary's `corrections`. The
+  summary's new `unchecked` has `cases`, how many cases' pass isn't known
+  (a part unchecked and none failed), and `why`, the first reason an answer
+  of theirs couldn't be checked. Both are `None` from an older runtime.
 - `kindgi`: **a suggested change says how many corrections it fixes in all**:
   `SuggestedChange.correction_count`. `fixes` names the first 100 at most, and
   an Improve run can fix more. It's `None` from an older runtime: there, take
