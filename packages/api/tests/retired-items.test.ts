@@ -2,10 +2,10 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * An agent, tool or test set with every version unregistered (retired)
- * can be found and brought back, as a flow can: the lists take
- * `?includeRetired=true` and show it as its highest version with
- * `unregisteredAt`, and an agent's or test set's versions list answers
+ * An agent, tool, test set, block, policy or release gate with every
+ * version unregistered (retired) can be found and brought back, as a flow
+ * can: the lists take `?includeRetired=true` and show it as its highest
+ * version with `unregisteredAt`, and an agent's or test set's versions list answers
  * for it (not 404), with its unregistered versions under
  * `?includeTombstoned=true`. Both are asked for: the defaults are as
  * before. And a test run says which project it's in.
@@ -23,7 +23,11 @@ import { validateAgainst } from './support/openapi-schema.js';
 
 import { createApp } from '../src/index.js';
 import type {
+  AgentPinBindings,
   AgentRegistryBinding,
+  BlockRegistryBinding,
+  PolicyRegistryBinding,
+  ReleaseGateBinding,
   RunHandlerBinding,
   TestRun,
   TestRunBinding,
@@ -65,6 +69,32 @@ const testSet = (version: string) => ({
   spec: { cases: [] },
   unregisteredAt: at,
 });
+const block = (version: string) => ({
+  id: 'acme.retired-prompt',
+  version,
+  kind: 'prompt',
+  content: { template: 'Answer briefly.' },
+  projectId,
+  publishedAt: at,
+  unregisteredAt: at,
+});
+const policy = (version: string) => ({
+  id: 'acme.retired-routing',
+  tenantId,
+  version,
+  kind: 'model-routing',
+  spec: {},
+  unregisteredAt: at,
+});
+const releaseGate = (version: string) => ({
+  id: 'acme.retired-gate',
+  version,
+  agentId: 'acme.retired-agent',
+  scope: { kind: 'project', projectId },
+  spec: {},
+  createdAt: at,
+  unregisteredAt: at,
+});
 
 /** Registries each holding one retired item, recording what each list was asked. */
 function harness() {
@@ -101,6 +131,11 @@ function harness() {
       'testSetId',
       testSet,
     ) as unknown as TestSetRegistryBinding,
+    blockRegistry: registry('blocks', 'blockId', block) as unknown as BlockRegistryBinding,
+    policyRegistry: registry('policies', 'policyId', policy) as unknown as PolicyRegistryBinding,
+    agentPins: {
+      releaseGates: registry('gates', 'id', releaseGate) as unknown as ReleaseGateBinding,
+    } as unknown as AgentPinBindings,
   });
   const get = async (path: string) => {
     const res = await app.request(path, { headers: { authorization: `Bearer ${TOKEN}` } });
@@ -113,9 +148,12 @@ const LISTS = [
   ['agents', '/v1/agents', 'acme.retired-agent', 'AgentCollectionPage'],
   ['tools', '/v1/tools', 'acme.retired-tool', 'ToolCollectionPage'],
   ['testSets', '/v1/test-sets', 'acme.retired-cases', 'TestSetCollectionPage'],
+  ['blocks', '/v1/blocks', 'acme.retired-prompt', 'BlockCollectionPage'],
+  ['policies', '/v1/policies', 'acme.retired-routing', 'PolicyCollectionPage'],
+  ['gates', '/v1/release-gates', 'acme.retired-gate', 'ReleaseGatePage'],
 ] as const;
 
-describe('a retired agent, tool or test set can be found', () => {
+describe('a retired agent, tool, test set, block, policy or release gate can be found', () => {
   test.each(LISTS)(
     '%s: the list leaves it out by default, and lists it with ?includeRetired=true',
     async (kind, path, id, schema) => {

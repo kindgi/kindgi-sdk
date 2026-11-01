@@ -27,6 +27,7 @@ import {
   isAgentTestSetId,
 } from '../test-set-binding.js';
 import type { AppEnv } from '../types.js';
+import { includeRetiredOf } from './include-retired.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
@@ -170,10 +171,6 @@ export function testSetsRouter(
     const cursorRaw = c.req.query('cursor');
     const kindRaw = c.req.query('kind');
     const nameRaw = c.req.query('name');
-    // `?includeRetired=true` lists retired items too (no active version),
-    // each as its highest version with `unregisteredAt`. Anything else →
-    // items with an active version only (the default).
-    const includeRetired = c.req.query('includeRetired') === 'true';
 
     const askedKind = kindRaw !== undefined && kindRaw.length > 0 ? kindRaw : undefined;
     if (askedKind !== undefined && !(TEST_SET_KINDS as readonly string[]).includes(askedKind)) {
@@ -205,7 +202,7 @@ export function testSetsRouter(
       ...(nameRaw !== undefined && nameRaw.length > 0 && { nameFilter: nameRaw }),
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
-      ...(includeRetired && { includeRetired: true }),
+      ...includeRetiredOf(c),
     });
     // Asked by kind, the list holds that kind, `corrections` too.
     const visible = await readable(
