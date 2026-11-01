@@ -10,7 +10,7 @@
  * ever set as text, never as HTML.
  */
 (() => {
-  const root = document.getElementById('kindgi-order');
+  const root = document.getElementById('kindgi-order-app');
   if (root === null) return;
   const { __ } = wp.i18n;
   const { api, el, notice, loading, muted, approvalCard } = window.kindgiCards;

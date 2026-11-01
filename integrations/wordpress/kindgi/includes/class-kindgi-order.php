@@ -96,7 +96,8 @@ final class Kindgi_Order {
 
 	/**
 	 * The box's place: its script fills it in from the `/orders/{id}`
-	 * route. A new order has nothing at Kindgi yet.
+	 * route. A new order has nothing at Kindgi yet. WordPress gives the box
+	 * itself the id `kindgi-order`, so the place has its own.
 	 *
 	 * @param WP_Post|WC_Order $post_or_order The order, or its post when orders are posts.
 	 */
@@ -108,7 +109,7 @@ final class Kindgi_Order {
 		}
 		Kindgi_Admin::order_assets();
 		printf(
-			'<div id="kindgi-order" class="kindgi kindgi-order-box" data-order="%1$d"><p class="kindgi-muted">%2$s</p></div><noscript>%3$s</noscript>',
+			'<div id="kindgi-order-app" class="kindgi kindgi-order-box" data-order="%1$d"><p class="kindgi-muted">%2$s</p></div><noscript>%3$s</noscript>',
 			(int) $order->get_id(),
 			esc_html__( 'Loading…', 'kindgi' ),
 			esc_html__( 'The Kindgi box needs JavaScript.', 'kindgi' )
