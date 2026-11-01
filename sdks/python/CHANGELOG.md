@@ -13,6 +13,10 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **a suggested change says how many corrections it fixes in all**:
+  `SuggestedChange.correction_count`. `fixes` names the first 100 at most, and
+  an Improve run can fix more. It's `None` from an older runtime: there, take
+  `len(fixes)`.
 - `kindgi`: **`system_deployments.list`'s docstrings say which deployments
   need a pack service by the rule the runtime applies**: since 0.4.0, one
   that serves something a call can still ask for (a tool, agent or flow

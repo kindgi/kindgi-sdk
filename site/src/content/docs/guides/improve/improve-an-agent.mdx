@@ -314,11 +314,12 @@ API or the clients, to choose either, whatever groups exist.
 The suggested change an Improve run writes names the corrections on the cases
 it learned from, never on the rest: the ones its runs on the test
 cases counted and, for an Improve run on the instructions, the ones its
-drafter was shown, including the ones with calls. Its `evidence.fixes`
-lists up to 100 of them: first the ones the drafter was shown, case by case,
-each case's corrections with calls right after its items marked wrong; then
-the ones behind items marked wrong, then the others. When there are more,
-`evidence.correctionCount` gives how many. Its runs on the test cases also
+drafter was shown, including the ones with calls. Its `fixes` lists up to
+100 of them: first the ones the drafter was shown, case by case, each case's
+corrections with calls right after its items marked wrong; then the ones
+behind items marked wrong, then the others. Its `correctionCount` says how
+many in all. An older runtime leaves it out, and there the length of `fixes`
+is the count. Its runs on the test cases also
 grade a correction's calls on each replay and show the result.
 An Improve run on test cases built before correction ids (`correctionIds`)
 names none.
