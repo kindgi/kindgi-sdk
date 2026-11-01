@@ -2970,7 +2970,9 @@
           },
           "label": {
             "type": "string",
-            "description": "Optional human-readable label."
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Optional human-readable label, not blank."
           },
           "expiresAt": {
             "type": "string",
@@ -9705,7 +9707,8 @@
           },
           "title": {
             "type": "string",
-            "description": "Optional. Defaults to `\"Untitled conversation\"` when omitted."
+            "maxLength": 200,
+            "description": "Optional. Defaults to `\"Untitled conversation\"` when omitted or blank."
           },
           "projectId": {
             "type": "string",
@@ -21153,11 +21156,14 @@
         "properties": {
           "name": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 100
           },
           "slug": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 63,
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
           }
         }
       },
@@ -21167,11 +21173,11 @@
         "properties": {
           "name": {
             "type": "string",
-            "minLength": 1
+            "description": "A new name must be a non-empty string of at most 100 characters. The stored name sent back unchanged passes."
           },
           "slug": {
             "type": "string",
-            "minLength": 1
+            "description": "A new slug must be lowercase letters, digits and hyphens, starting with a letter or digit, at most 63 characters. The stored slug sent back unchanged passes."
           }
         }
       },
@@ -21267,11 +21273,14 @@
         "properties": {
           "name": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 100
           },
           "slug": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 63,
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
           },
           "description": {
             "type": "string"
@@ -21287,11 +21296,11 @@
         "properties": {
           "name": {
             "type": "string",
-            "minLength": 1
+            "description": "A new name must be a non-empty string of at most 100 characters. The stored name sent back unchanged passes."
           },
           "slug": {
             "type": "string",
-            "minLength": 1
+            "description": "A new slug must be lowercase letters, digits and hyphens, starting with a letter or digit, at most 63 characters. The stored slug sent back unchanged passes."
           },
           "description": {
             "type": "string"
@@ -21822,11 +21831,14 @@
         "properties": {
           "name": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 100
           },
           "slug": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 63,
+            "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
           },
           "description": {
             "type": "string"
@@ -21845,11 +21857,11 @@
         "properties": {
           "name": {
             "type": "string",
-            "minLength": 1
+            "description": "A new name must be a non-empty string of at most 100 characters. The stored name sent back unchanged passes."
           },
           "slug": {
             "type": "string",
-            "minLength": 1
+            "description": "A new slug must be lowercase letters, digits and hyphens, starting with a letter or digit, at most 63 characters. The stored slug sent back unchanged passes."
           },
           "description": {
             "type": "string"
@@ -23755,7 +23767,9 @@
             "description": "Default 600."
           },
           "label": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
           },
           "toolsAllowedUnattended": {
             "type": "array",
@@ -23839,7 +23853,7 @@
               "string",
               "null"
             ],
-            "description": "`null` clears the label; omit to leave unchanged."
+            "description": "`null` clears the label; omit to leave unchanged. A new label must be a non-empty string of at most 100 characters. The stored label sent back unchanged passes."
           },
           "toolsAllowedUnattended": {
             "type": "array",
@@ -24300,7 +24314,9 @@
             "maximum": 6000
           },
           "label": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
           },
           "runAsServiceAccountId": {
             "type": "string",
@@ -24339,7 +24355,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "`null` clears the label; omit to leave unchanged. A new label must be a non-empty string of at most 100 characters. The stored label sent back unchanged passes."
           },
           "flowVersion": {
             "type": "string",
@@ -24688,7 +24705,9 @@
             "$ref": "#/components/schemas/RegisterMailTriggerBodyConfig"
           },
           "label": {
-            "type": "string"
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
           },
           "toolsAllowedUnattended": {
             "type": "array",
@@ -24733,7 +24752,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "`null` clears the label; omit to leave unchanged. A new label must be a non-empty string of at most 100 characters. The stored label sent back unchanged passes."
           },
           "toolsAllowedUnattended": {
             "type": "array",
