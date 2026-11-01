@@ -8,14 +8,18 @@
  * for real: `dev-sandbox-live.test.ts`.
  */
 
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { appSecrets, bwrapArgs } from '../src/dev/sandbox/bwrap.js';
+import { runIndexerReadReal } from '../src/dev/defaults.js';
+import type { PackCode } from '../src/dev/pack-code.js';
+import { BWRAP_WRAPPER_PROGRAMS, appSecrets, bwrapArgs } from '../src/dev/sandbox/bwrap.js';
 import { type ProbeResult, detectDevSandbox } from '../src/dev/sandbox/detect.js';
+import { sandboxedCommand } from '../src/dev/sandbox/index.js';
 import { kindgiConfigFiles, resolveDevSandbox } from '../src/dev/sandbox/notices.js';
 import {
   CONFIG_FILE_NAMES,
@@ -27,6 +31,7 @@ import {
 } from '../src/dev/sandbox/policy.js';
 import { seatbeltProfile } from '../src/dev/sandbox/seatbelt.js';
 import { devSandboxSettings } from '../src/dev/sandbox/settings.js';
+import { findOnPath } from '../src/git.js';
 
 const PATHS = { packDir: '/work/app', home: '/home/me' };
 const ON = { mode: 'on', source: 'default', allowRead: [], allowUnixSockets: [] } as const;
@@ -594,3 +599,77 @@ describe('what kindgi dev says', () => {
     expect(detected).toBe(false);
   });
 });
+
+describe.skipIf(process.platform === 'win32')(
+  'the dev sandbox runs its helper programs by full path',
+  () => {
+    let root: string;
+    let app: string;
+    let bin: string;
+    beforeEach(async () => {
+      root = await realpath(await mkdtemp(join(tmpdir(), 'kindgi-bwrap-paths-')));
+      app = join(root, 'app');
+      bin = join(root, 'bin');
+      await mkdir(app);
+      await mkdir(bin);
+      await writeFile(join(app, 'service.js'), '');
+    });
+    afterEach(async () => {
+      await rm(root, { recursive: true, force: true });
+    });
+
+    const COMMAND = [process.execPath, 'service.js'] as const;
+    const bwrap = () => ({ engine: 'bwrap', settings: ON, home: join(root, 'home') }) as const;
+    const service = (env: Record<string, string>) => ({
+      packDir: app,
+      code: { language: 'node' } as PackCode,
+      command: COMMAND,
+      env,
+      node: { execPath: process.execPath, entry: join(app, 'service.js') },
+    });
+    const wrapper = () => join(app, '.kindgi', 'dev', 'kindgi-dev-sandbox');
+    /** A `PATH` whose one folder holds `sh` and nothing else the wrapper runs. */
+    const shOnly = async (): Promise<string> => {
+      await symlink('/bin/sh', join(bin, 'sh'));
+      return bin;
+    };
+
+    test("bubblewrap's command: sh, then the wrapper, then the programs it runs, each the one on the child's PATH", async () => {
+      // A bwrap ahead of the system's, so the paths are the child's, not this process's.
+      await writeFile(join(bin, 'bwrap'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      const env = { PATH: `${bin}:${process.env.PATH ?? ''}` };
+      const { command } = await sandboxedCommand(bwrap(), service(env));
+      const paths: (string | undefined)[] = [];
+      for (const name of ['sh', ...BWRAP_WRAPPER_PROGRAMS]) paths.push(await findOnPath(name, env));
+      for (const file of paths) expect(file !== undefined && isAbsolute(file), file).toBe(true);
+      expect(paths[1]).toBe(join(bin, 'bwrap'));
+      expect(command.slice(0, 6)).toEqual([paths[0], wrapper(), ...paths.slice(1)]);
+      expect(command.slice(-COMMAND.length)).toEqual([...COMMAND]);
+    });
+
+    test("one of them not on the child's PATH: refused as spawn refuses it, before the wrapper is written", async () => {
+      const env = { PATH: await shOnly() };
+      await expect(sandboxedCommand(bwrap(), service(env))).rejects.toMatchObject({
+        code: 'ENOENT',
+        syscall: 'spawn bwrap',
+        path: 'bwrap',
+        message: 'spawn bwrap ENOENT',
+      });
+      expect(existsSync(wrapper())).toBe(false);
+    });
+
+    test("the indexer, sandboxed, with one of them not on its PATH: a child that didn't start, not a rejection", async () => {
+      const env = { PATH: await shOnly() };
+      const result = await runIndexerReadReal(app, join(app, 'index.json'), {
+        sandbox: bwrap(),
+        env: async () => env,
+        code: { language: 'node' } as PackCode,
+      });
+      expect(result).toMatchObject({
+        kind: 'err',
+        code: 'index-child-failed',
+        message: expect.stringContaining('spawn bwrap ENOENT'),
+      });
+    });
+  },
+);
