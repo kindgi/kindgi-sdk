@@ -142,7 +142,7 @@ function oneLine(value: string): string {
     value
       // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what it replaces.
       .replace(/[\x00-\x1f\x7f-\x9f\u{2028}\u{2029}]/gu, ' ')
-      .replace(/[\u{200e}\u{200f}\u{202a}-\u{202e}\u{2066}-\u{2069}]/gu, '')
+      .replace(/[\u{061c}\u{200e}\u{200f}\u{202a}-\u{202e}\u{2066}-\u{2069}]/gu, '')
       .replace(/\s+/g, ' ')
       .trim()
   );
@@ -159,8 +159,10 @@ function cut(text: string, max: number): string {
  * call's arguments in one pass (a value holding `{x}` stays as it is),
  * each value on one line and cut when long, then each text cut. A call
  * whose arguments don't fill every placeholder (a pack read from disk
- * wasn't checked where it was defined) answers the path of the text that
- * didn't fill, and its approval reads the default.
+ * wasn't checked where it was defined), or fill its title to nothing,
+ * answers the path of the text that didn't fill, and its approval reads
+ * the default. A summary or an `about.id` that fills to nothing is left
+ * out.
  */
 export function renderApproval(
   approval: ToolApproval,
@@ -183,7 +185,9 @@ export function renderApproval(
     return filled ? cut(text, TEXT_MAX[part]) : undefined;
   };
   const title = fill(approval.title, 'title');
-  if (title === undefined) return { kind: 'err', error: { path: '/approval/title' } };
+  if (title === undefined || title.trim() === '') {
+    return { kind: 'err', error: { path: '/approval/title' } };
+  }
   const summary = approval.summary !== undefined ? fill(approval.summary, 'summary') : undefined;
   if (approval.summary !== undefined && summary === undefined) {
     return { kind: 'err', error: { path: '/approval/summary' } };
@@ -195,10 +199,10 @@ export function renderApproval(
   return {
     kind: 'ok',
     value: {
-      text: { title, ...(summary !== undefined && { summary }) },
+      text: { title, ...(summary !== undefined && summary.trim() !== '' && { summary }) },
       ...(approval.about !== undefined &&
         id !== undefined &&
-        id !== '' && { about: { kind: approval.about.kind, id } }),
+        id.trim() !== '' && { about: { kind: approval.about.kind, id } }),
     },
   };
 }

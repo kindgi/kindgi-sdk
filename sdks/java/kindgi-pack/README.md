@@ -77,7 +77,7 @@ the words a reviewer reads a call in, each `{field}` filled from the call: a
 required input field that is a string, a number, an integer or a boolean.
 `withSummary` says more, and `withAbout("woocommerce.order", "{orderId}")`
 names what the call acts on. Building the tool throws for a placeholder a call
-couldn't fill. Left unset, an approval reads "Approve a call to <tool id>".
+couldn't fill. Left unset, an approval reads `Approve a call to <tool id>`.
 
 ## The pack
 

@@ -13,7 +13,7 @@ import re
 from typing import Any, Literal
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from kindgi import DefinitionError, http_tool, tool
 
@@ -30,6 +30,10 @@ class Refund(BaseModel):
 
 class Done(BaseModel):
     ok: bool
+
+
+class Resize(BaseModel):
+    size: str = Field(alias="gr\u00f6\u00dfe")
 
 
 def _refund_tool(approval: Any) -> Any:
@@ -102,6 +106,22 @@ def test_an_approval_its_schema_refuses_is_refused_where_declared(approval: dict
     refused = re.escape('Tool "acme.refund": not a valid approval:')
     with pytest.raises(DefinitionError, match=refused):
         _refund_tool(approval)
+
+
+def _resize_tool(approval: Any) -> Any:
+    @tool(id="acme.resize", approval=approval)
+    def resize(input: Resize) -> Done:
+        "Resizes a picture."
+        return Done(ok=True)
+
+    return resize
+
+
+def test_a_placeholder_names_its_field_in_ascii_as_typescript_reads_it() -> None:
+    # The field's name (its alias) isn't ASCII: not a placeholder in TypeScript, so not here.
+    refused = "approval.title has a brace that isn't part of a {field} placeholder"
+    with pytest.raises(DefinitionError, match=re.escape(f'Tool "acme.resize": {refused}')):
+        _resize_tool({"title": "Resize to {gr\u00f6\u00dfe}"})
 
 
 def test_an_http_tools_approval_is_checked_the_same_way() -> None:

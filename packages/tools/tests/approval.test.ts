@@ -194,7 +194,7 @@ describe("renderApproval fills a call's approval from its arguments", () => {
   });
 
   test('a value reads on one line: breaks and controls become spaces, bidi controls go', () => {
-    const reason = 'Zip\nbroke\r\n\tday\u{2028}one \u{202E}lanigiro\u{202C} \u{0007}end';
+    const reason = 'Zip\nbroke\r\n\tday\u{2028}one \u{202E}lanigiro\u{202C} \u{0007}\u{061C}end';
     const r = renderApproval(approval, { amount: 25, orderId: 1043, reason });
     expect(r.kind === 'ok' && r.value.text.summary).toBe('Zip broke day one lanigiro end');
   });
@@ -228,6 +228,25 @@ describe("renderApproval fills a call's approval from its arguments", () => {
     expect(renderApproval(approval, null)).toEqual({
       kind: 'err',
       error: { path: '/approval/title' },
+    });
+  });
+
+  test('a title that fills to nothing answers its path, so the approval reads the default', () => {
+    expect(
+      renderApproval({ title: '{reason} {note}' }, { reason: ' \n ', note: '\u{200E}' }),
+    ).toEqual({
+      kind: 'err',
+      error: { path: '/approval/title' },
+    });
+  });
+
+  test('a summary that fills to nothing is left out', () => {
+    expect(renderApproval(approval, { amount: 25, orderId: 1043, reason: '\t ' })).toEqual({
+      kind: 'ok',
+      value: {
+        text: { title: 'Refund 25 on order #1043' },
+        about: { kind: 'acme.order', id: '1043' },
+      },
     });
   });
 

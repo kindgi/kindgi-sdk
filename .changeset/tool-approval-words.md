@@ -13,4 +13,4 @@
 - a call's values fill them in as plain text, on one line, cut when long;
 - the approval keeps the words in its `context` (`context.text`, `context.about`), beside the call's arguments.
 
-An approval of a tool call is now titled "Approve a call to <tool id>", where it read "HITL review: <tool id>". The title goes out in the reviewer's mail and the `approval.requested` event, which never carry a call's arguments, so it never holds the tool's words. The pack index carries `approval`, and `GET /v1/tools` shows it. The WooCommerce starter's four tools that change the store declare one each.
+An approval of a tool call is now titled `Approve a call to <tool id>`, where it read `HITL review: <tool id>`. The title goes out in the reviewer's mail and the `approval.requested` event, which never carry a call's arguments, so it never holds the tool's words. The pack index carries `approval`, and `GET /v1/tools` shows it. The WooCommerce starter's four tools that change the store declare one each.

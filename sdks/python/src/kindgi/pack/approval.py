@@ -22,8 +22,9 @@ from .._schema import SchemaValidator
 
 __all__ = ["approval_problem", "approval_wire"]
 
-_PLACEHOLDER = re.compile(r"\{(\w+)\}")
-"""A ``{field}`` placeholder, as an HTTP tool's ``url_template`` names one."""
+_PLACEHOLDER = re.compile(r"\{(\w+)\}", re.ASCII)
+"""A ``{field}`` placeholder: its name in ASCII letters, digits and ``_``, as TypeScript's and
+Java's checks read one, so a pack this check passes isn't refused where it's deployed."""
 
 _SCALAR_TYPES = frozenset({"string", "number", "integer", "boolean"})
 

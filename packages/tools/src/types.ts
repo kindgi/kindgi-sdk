@@ -293,7 +293,7 @@ export type NetworkPolicy =
  *
  * The words stay behind sign-in: the approval keeps them in its
  * `context` (`context.text`, `context.about`), with the call's
- * arguments, and its `title` stays "Approve a call to <tool id>", since
+ * arguments, and its `title` stays `Approve a call to <tool id>`, since
  * the title goes out in the reviewer's mail and the `approval.requested`
  * event, which never carry a call's arguments.
  *
@@ -580,7 +580,7 @@ export interface ToolManifest {
    * reviewer sees the call in the tool's own words, its arguments filled
    * in. It doesn't make a call wait: an agent's approval rules and
    * `needsApprovalWhenUnattended` decide that. See `ToolApproval`. Absent,
-   * an approval reads "Approve a call to <tool id>".
+   * an approval reads `Approve a call to <tool id>`.
    */
   readonly approval?: ToolApproval;
   /** Isolation posture — see `SandboxMode`. */

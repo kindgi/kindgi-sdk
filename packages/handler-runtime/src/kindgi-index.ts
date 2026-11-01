@@ -367,7 +367,7 @@ export interface IndexedTool {
   /**
    * The tool's declared `approval`: how an approval of a call to it reads,
    * with `{field}` placeholders a call's arguments fill in. Absent, an
-   * approval reads "Approve a call to <tool id>".
+   * approval reads `Approve a call to <tool id>`.
    */
   readonly approval?: ToolApproval;
   readonly modulePath: string;
