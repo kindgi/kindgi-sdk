@@ -133,7 +133,8 @@ export interface ItemProjectsBinding {
   /**
    * `versionProjectsOfMany` for a page of one kind's items, in one query:
    * each item's asked versions, with where each can run. A version missing
-   * from an item's map is no version of it. Not asked for guardrails.
+   * from an item's map is no version of it. An item with none of the asked
+   * versions may be missing from the answer. Not asked for guardrails.
    */
   versionProjectsOfItems(
     input: VersionProjectsOfItemsInput,

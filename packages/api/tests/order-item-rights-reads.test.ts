@@ -520,7 +520,10 @@ describe('filterItems with each row at its own version (`atOwnVersion`)', () => 
     // Both rows' versions in one ask.
     expect(prod.asked).toEqual(['projectsOfMany agent', 'versionProjectsOfItems agent']);
     expect((await kept('staging')).versions).toEqual(['1.1.0']);
-    expect((await kept('nobody')).versions).toEqual([]);
+    const nobody = await kept('nobody');
+    expect(nobody.versions).toEqual([]);
+    // Reading none of the projects, nobody causes no version read.
+    expect(nobody.asked).toEqual(['projectsOfMany agent']);
   });
 });
 
