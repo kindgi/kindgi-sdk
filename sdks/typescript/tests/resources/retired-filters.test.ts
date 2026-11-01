@@ -3,8 +3,9 @@
 
 /**
  * A retired agent, tool, test set, block, policy or release gate and
- * unregistered versions are asked for, never listed by default: `includeRetired` on the lists and
- * `includeTombstoned` on the versions lists send the query only when set.
+ * unregistered versions are asked for, never listed by default:
+ * `includeRetired` on the lists and `includeTombstoned` on the versions
+ * lists send the query only when set.
  */
 
 import { describe, expect, it } from 'vitest';

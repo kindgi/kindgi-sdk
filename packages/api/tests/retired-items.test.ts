@@ -5,8 +5,8 @@
  * An agent, tool, test set, block, policy or release gate with every
  * version unregistered (retired) can be found and brought back, as a flow
  * can: the lists take `?includeRetired=true` and show it as its highest
- * version with `unregisteredAt`, and an agent's or test set's versions list answers
- * for it (not 404), with its unregistered versions under
+ * version with `unregisteredAt`, and an agent's or test set's versions
+ * list answers for it (not 404), with its unregistered versions under
  * `?includeTombstoned=true`. Both are asked for: the defaults are as
  * before. And a test run says which project it's in.
  */

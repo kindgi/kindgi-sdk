@@ -3,9 +3,9 @@
 
 /**
  * Finding a retired agent, tool, test set, block or release gate, and an
- * unregistered version, from the CLI: `--include-retired` on the lists, `--include-unregistered`
- * on the versions lists (the same flag blocks and flows take; tools'
- * old `--include-tombstoned` is gone).
+ * unregistered version, from the CLI: `--include-retired` on the lists,
+ * `--include-unregistered` on the versions lists (the same flag blocks and
+ * flows take; tools' old `--include-tombstoned` is gone).
  */
 
 import { mkdtemp, rm } from 'node:fs/promises';
