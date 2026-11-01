@@ -353,7 +353,7 @@ describe('API — projects /default', () => {
     // before the param handler), the /default segment resolves to
     // getDefault, not to a get-by-id call.
     const { app } = makeApp();
-    // No Default provisioned — /default returns 404 project-not-found
+    // No default provisioned — /default returns 404 project-not-found
     // (a proof that the /default route ran, not the :projectId route
     // which would return 404 with the same code but different message
     // — the message helps disambiguate but the code is the same, so
@@ -366,7 +366,7 @@ describe('API — projects /default', () => {
     // getDefault's 404 says "Tenant has no default project"; the
     // :projectId 404 says "No project with id 'default'". Distinct
     // messages confirm the /default route handled the request.
-    expect(body.error.message).toContain('Default');
+    expect(body.error.message).toBe('Tenant has no default project');
   });
 });
 
