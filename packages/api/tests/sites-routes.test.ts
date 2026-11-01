@@ -302,7 +302,11 @@ describe('the sites of a project (tenant admins)', () => {
     ['a display name with a zero-width space', { displayName: 'Ac\u200bme' }, 'displayName'],
     ['a display name with a C1 control', { displayName: 'Acme\u0085store' }, 'displayName'],
     ['a display name with a line separator', { displayName: 'Acme\u2028store' }, 'displayName'],
-    ['a display name with a bidirectional override', { displayName: 'Acme ‮store' }, 'displayName'],
+    [
+      'a display name with a bidirectional override',
+      { displayName: 'Acme \u{202e}store' },
+      'displayName',
+    ],
     ['a display name with a Hangul filler', { displayName: 'Acme\u{3164}store' }, 'displayName'],
     [
       'a display name with a lone surrogate',

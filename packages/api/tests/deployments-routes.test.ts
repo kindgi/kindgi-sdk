@@ -2333,7 +2333,7 @@ describe('POST /v1/deployments — manifest validation', () => {
     expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
   });
 
-  test("an agent's and a flow's id and name with a hidden character is a 400 at /id and /name; nothing is deployed", async () => {
+  test("an agent's and a flow's id and name with a hidden character is a 400 at /id and /name, an issue's id only when it has none; nothing is deployed", async () => {
     const index = indexWith(undefined, [
       { ...fanoutFlow({ type: 'object' }), id: 'acme.in\u{200b}take', name: 'Intake\u{202e}' },
     ]);
@@ -2362,14 +2362,12 @@ describe('POST /v1/deployments — manifest validation', () => {
       {
         primitive: 'flow',
         index: 0,
-        id: 'acme.in\u{200b}take',
         path: '/id',
         message: no('flow.id'),
       },
       {
         primitive: 'flow',
         index: 0,
-        id: 'acme.in\u{200b}take',
         path: '/name',
         message: no('flow.name'),
       },

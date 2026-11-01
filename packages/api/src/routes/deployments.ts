@@ -2671,6 +2671,15 @@ function ociCodeArtifactRef(image: DeployedImage, modulePath: unknown) {
 }
 
 /**
+ * A refused index entry's `id` for its details, when it's a string with
+ * no hidden character (`hasHiddenCharacters`): an answer never echoes one.
+ * `index` says which entry it is either way.
+ */
+function detailId(rawId: unknown): Partial<ValidationDetail> {
+  return typeof rawId === 'string' && !hasHiddenCharacters(rawId) ? { id: rawId } : {};
+}
+
+/**
  * Validate the index's primitives as the registries store them. Tools
  * and guardrails keep where their code is (`codeArtifactRef`, an `oci`
  * pointer into the deployed image) in place of the index's module path;
@@ -2707,7 +2716,7 @@ function validatePrimitives(
         issues?: readonly { path: string; message: string }[];
       };
       const rawId = (raw as { id?: unknown }).id;
-      const idBase: Partial<ValidationDetail> = typeof rawId === 'string' ? { id: rawId } : {};
+      const idBase = detailId(rawId);
       if (err.issues && err.issues.length > 0) {
         for (const issue of err.issues) {
           details.push({
@@ -2776,7 +2785,7 @@ function validatePrimitives(
         issues?: readonly { path: string; message: string }[];
       };
       const rawId = (raw as { id?: unknown }).id;
-      const idBase: Partial<ValidationDetail> = typeof rawId === 'string' ? { id: rawId } : {};
+      const idBase = detailId(rawId);
       if (err.issues && err.issues.length > 0) {
         for (const issue of err.issues) {
           details.push({
@@ -2843,7 +2852,7 @@ function validatePrimitives(
     const shapeIssues = validateAgentIndexShape(spec);
     if (shapeIssues.length > 0) {
       const rawId = (spec as { id?: unknown }).id;
-      const idBase: Partial<ValidationDetail> = typeof rawId === 'string' ? { id: rawId } : {};
+      const idBase = detailId(rawId);
       for (const issue of shapeIssues) {
         details.push({ primitive: 'agent', index: i, ...idBase, ...issue });
       }
@@ -2862,7 +2871,7 @@ function validatePrimitives(
     const shapeIssues = validateFlowIndexShape(spec);
     if (shapeIssues.length > 0) {
       const rawId = (spec as { id?: unknown }).id;
-      const idBase: Partial<ValidationDetail> = typeof rawId === 'string' ? { id: rawId } : {};
+      const idBase = detailId(rawId);
       for (const issue of shapeIssues) {
         details.push({ primitive: 'flow', index: i, ...idBase, ...issue });
       }

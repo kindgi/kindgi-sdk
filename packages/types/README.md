@@ -1,6 +1,6 @@
 # `@kindgi/types`
 
-Foundational TypeScript types shared across Kindgi. Almost entirely type-only: the runtime exports are small helpers with no dependencies, `makeEnvName` (the validated constructor for `EnvName`), `headerValueProblem` and `bearerValueProblem`, `CORRECTION_ITEM`, and `isFileValue` with `FILE_NOT_SHOWN_REASONS`.
+Foundational TypeScript types shared across Kindgi. Almost entirely type-only: the runtime exports are small helpers with no dependencies, `makeEnvName` (the validated constructor for `EnvName`), `headerValueProblem` and `bearerValueProblem`, `CORRECTION_ITEM`, `isFileValue` with `FILE_NOT_SHOWN_REASONS`, and `hasHiddenCharacters` with `withoutHiddenCharacters` (the one rule for a name or a label people set).
 
 ## Purpose
 
