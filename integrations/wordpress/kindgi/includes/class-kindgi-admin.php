@@ -256,26 +256,48 @@ final class Kindgi_Admin {
 			return;
 		}
 		wp_enqueue_style( 'kindgi-admin', plugins_url( 'assets/kindgi-admin.css', KINDGI_PLUGIN_FILE ), array(), $version );
-		wp_enqueue_script( 'kindgi-admin', plugins_url( 'assets/kindgi-admin.js', KINDGI_PLUGIN_FILE ), array( 'wp-api-fetch', 'wp-date', 'wp-i18n' ), $version, true );
+		self::register_cards();
+		wp_enqueue_script( 'kindgi-admin', plugins_url( 'assets/kindgi-admin.js', KINDGI_PLUGIN_FILE ), array( 'kindgi-cards' ), $version, true );
 		wp_set_script_translations( 'kindgi-admin', 'kindgi' );
 		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- links to open, not actions.
 		$approval     = isset( $_GET['approval'] ) ? sanitize_text_field( wp_unslash( $_GET['approval'] ) ) : '';
 		$conversation = isset( $_GET['conversation'] ) ? sanitize_text_field( wp_unslash( $_GET['conversation'] ) ) : '';
+		$order        = isset( $_GET['order'] ) ? absint( $_GET['order'] ) : 0;
 		// phpcs:enable
 		$id     = '/^' . Kindgi_Rest::ID . '$/';
 		$config = array(
 			'view'         => self::$views[ $hook ],
 			'approval'     => preg_match( $id, $approval ) ? $approval : null,
 			'conversation' => preg_match( $id, $conversation ) ? $conversation : null,
+			// "Ask about this order", from the order's box: a new conversation's first words name it.
+			'order'        => $order > 0 && Kindgi_Order::shown() ? $order : null,
 			'pollMs'       => 1500,
-			'urls'         => array(
-				'inbox'    => admin_url( 'admin.php?page=' . self::PAGE ),
-				'activity' => admin_url( 'admin.php?page=' . self::ACTIVITY_PAGE ),
-				'ask'      => admin_url( 'admin.php?page=' . self::ASK_PAGE ),
-				'settings' => current_user_can( 'manage_options' ) ? admin_url( 'admin.php?page=' . self::SETTINGS_PAGE ) : null,
-			),
+			'urls'         => self::urls(),
 		);
-		wp_add_inline_script( 'kindgi-admin', 'window.kindgiConfig = ' . wp_json_encode( $config ) . ';', 'before' );
+		wp_add_inline_script( 'kindgi-cards', 'window.kindgiConfig = ' . wp_json_encode( $config ) . ';', 'before' );
+	}
+
+	/** The Kindgi pages' addresses, for the scripts. */
+	private static function urls(): array {
+		return array(
+			'inbox'    => admin_url( 'admin.php?page=' . self::PAGE ),
+			'activity' => admin_url( 'admin.php?page=' . self::ACTIVITY_PAGE ),
+			'ask'      => admin_url( 'admin.php?page=' . self::ASK_PAGE ),
+			'settings' => current_user_can( 'manage_options' ) ? admin_url( 'admin.php?page=' . self::SETTINGS_PAGE ) : null,
+		);
+	}
+
+	/**
+	 * The order box's script and styles (`Kindgi_Order::box`), enqueued as
+	 * the box draws, so only an order's screen with the box loads them.
+	 */
+	public static function order_assets(): void {
+		$version = KINDGI_PLUGIN_VERSION;
+		wp_enqueue_style( 'kindgi-admin', plugins_url( 'assets/kindgi-admin.css', KINDGI_PLUGIN_FILE ), array(), $version );
+		self::register_cards();
+		wp_enqueue_script( 'kindgi-order', plugins_url( 'assets/kindgi-order.js', KINDGI_PLUGIN_FILE ), array( 'kindgi-cards' ), $version, true );
+		wp_set_script_translations( 'kindgi-order', 'kindgi' );
+		wp_add_inline_script( 'kindgi-cards', 'window.kindgiConfig = ' . wp_json_encode( array( 'urls' => self::urls() ) ) . ';', 'before' );
 	}
 
 	/** A page staff use: its heading, then the app, which shows the page's view. */
@@ -288,6 +310,12 @@ final class Kindgi_Admin {
 			return;
 		}
 		echo '<div id="kindgi-app"></div><noscript>' . esc_html__( 'The Kindgi pages need JavaScript.', 'kindgi' ) . '</noscript></div>';
+	}
+
+	/** The approval cards' script, which the Kindgi pages and the order's box share. */
+	public static function register_cards(): void {
+		wp_register_script( 'kindgi-cards', plugins_url( 'assets/kindgi-cards.js', KINDGI_PLUGIN_FILE ), array( 'wp-api-fetch', 'wp-date', 'wp-i18n' ), KINDGI_PLUGIN_VERSION, true );
+		wp_set_script_translations( 'kindgi-cards', 'kindgi' );
 	}
 
 	/**

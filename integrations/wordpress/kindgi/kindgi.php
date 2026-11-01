@@ -34,10 +34,12 @@ require_once __DIR__ . '/includes/class-kindgi-inbox.php';
 require_once __DIR__ . '/includes/class-kindgi-activity.php';
 require_once __DIR__ . '/includes/class-kindgi-rest.php';
 require_once __DIR__ . '/includes/class-kindgi-admin.php';
+require_once __DIR__ . '/includes/class-kindgi-order.php';
 
 Kindgi_Rest::register();
 Kindgi_Inbox::register();
 Kindgi_Admin::register();
+Kindgi_Order::register();
 Kindgi_People::register();
 Kindgi_Webhooks::register();
 register_deactivation_hook( __FILE__, array( Kindgi_People::class, 'unschedule' ) );

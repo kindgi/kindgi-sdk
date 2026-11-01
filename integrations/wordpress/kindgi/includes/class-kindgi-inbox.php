@@ -73,6 +73,8 @@ final class Kindgi_Inbox {
 			'waitsFor'       => $pending ? ( null === $not_mine ? 'you' : 'others' ) : null,
 			'notYours'       => $not_mine,
 			'conversationId' => null !== $tool && is_string( $ref['conversationId'] ?? null ) ? $ref['conversationId'] : null,
+			// What it's about, when its tool says (a WooCommerce order: `Kindgi_Order`).
+			'about'          => self::about_of( $a ),
 			// Kindgi's own words and ids, behind "Details".
 			'details'        => array(
 				'title'        => (string) ( $a['title'] ?? '' ),
@@ -187,6 +189,22 @@ final class Kindgi_Inbox {
 		}
 		$text = trim( is_string( $a['description'] ?? null ) ? $a['description'] : '' );
 		return 1 === preg_match( '/^Tool call \S+ awaiting reviewer approval before dispatch\.$/', $text ) ? '' : $text;
+	}
+
+	/**
+	 * What an approval is about, when its tool says (Kindgi puts it in the
+	 * approval's `context.about`): a kind, `woocommerce.order`, and an id.
+	 *
+	 * @return array{kind: string, id: string}|null
+	 */
+	public static function about_of( array $a ): ?array {
+		$about = is_array( $a['context']['about'] ?? null ) ? $a['context']['about'] : array();
+		$kind  = is_string( $about['kind'] ?? null ) ? trim( $about['kind'] ) : '';
+		$id    = is_string( $about['id'] ?? null ) || is_int( $about['id'] ?? null ) ? trim( (string) $about['id'] ) : '';
+		return '' === $kind || '' === $id ? null : array(
+			'kind' => $kind,
+			'id'   => $id,
+		);
 	}
 
 	/** One of the tool's own words for the call (`context.text`'s `title` or `summary`), or null. */
@@ -316,30 +334,42 @@ final class Kindgi_Inbox {
 
 	/**
 	 * How many on a page of Kindgi's waiting approvals wait for the person,
-	 * and whether more pages may hold more (then it shows as "12+").
+	 * whether more pages may hold more (then it shows as "12+"), and the
+	 * WooCommerce orders some are about: `you` when one about the order
+	 * waits for the person, else `others` (the Orders list's column).
 	 *
 	 * @param array      $page     Kindgi's list: `data` and `hasMore`.
 	 * @param string     $me       The person's Kindgi id.
 	 * @param array|null $reviewer The person as a reviewer (`reviewer_of`).
-	 * @return array{n: int, more: bool}
+	 * @return array{n: int, more: bool, orders: array<string, string>}
 	 */
 	public static function count_of( array $page, string $me, ?array $reviewer ): array {
-		$n = 0;
+		$n      = 0;
+		$orders = array();
 		foreach ( is_array( $page['data'] ?? null ) ? $page['data'] : array() as $a ) {
-			if ( is_array( $a ) && in_array( $a['status'] ?? null, self::WAITING, true ) && null === self::not_yours( $a, $me, $reviewer ) ) {
+			if ( ! is_array( $a ) || ! in_array( $a['status'] ?? null, self::WAITING, true ) ) {
+				continue;
+			}
+			$yours = null === self::not_yours( $a, $me, $reviewer );
+			if ( $yours ) {
 				++$n;
+			}
+			$order = Kindgi_Order::of( self::about_of( $a ) );
+			if ( null !== $order && 'you' !== ( $orders[ (string) $order ] ?? null ) ) {
+				$orders[ (string) $order ] = $yours ? 'you' : 'others';
 			}
 		}
 		return array(
-			'n'    => $n,
-			'more' => null !== $reviewer && true === ( $page['hasMore'] ?? false ),
+			'n'      => $n,
+			'more'   => null !== $reviewer && true === ( $page['hasMore'] ?? false ),
+			'orders' => $orders,
 		);
 	}
 
 	/**
 	 * The count kept for the person, or null when there's none to show.
 	 *
-	 * @return array{n: int, more: bool}|null
+	 * @return array{n: int, more: bool, orders: array<string, string>}|null
 	 */
 	public static function kept_count( int $user_id ): ?array {
 		$kept = self::kept( $user_id );
@@ -350,12 +380,13 @@ final class Kindgi_Inbox {
 	 * Keeps the person's count for the minute: null keeps that Kindgi
 	 * didn't answer, so it isn't asked again until the minute is out.
 	 *
-	 * @param array{n: int, more: bool}|null $count
+	 * @param array{n: int, more: bool, orders: array<string, string>}|null $count
 	 */
 	public static function keep_count( int $user_id, ?array $count ): void {
 		$kept = null === $count ? array(
-			'n'    => -1,
-			'more' => false,
+			'n'      => -1,
+			'more'   => false,
+			'orders' => array(),
 		) : $count;
 		set_transient( self::COUNT . $user_id, $kept, self::COUNT_TTL );
 	}
@@ -373,7 +404,7 @@ final class Kindgi_Inbox {
 	 * show (not connected, no live session, or Kindgi didn't answer; a
 	 * failure is kept for the minute too).
 	 *
-	 * @return array{n: int, more: bool}|null
+	 * @return array{n: int, more: bool, orders: array<string, string>}|null
 	 */
 	public static function count( WP_User $user ): ?array {
 		$kept = self::kept( $user->ID );
@@ -391,27 +422,26 @@ final class Kindgi_Inbox {
 	/**
 	 * The count as kept, a failure (`n` -1) included; null when there's none.
 	 *
-	 * @return array{n: int, more: bool}|null
+	 * @return array{n: int, more: bool, orders: array<string, string>}|null
 	 */
 	private static function kept( int $user_id ): ?array {
 		$kept = get_transient( self::COUNT . $user_id );
-		return is_array( $kept ) && is_int( $kept['n'] ?? null ) && is_bool( $kept['more'] ?? null ) ? $kept : null;
+		return is_array( $kept ) && is_int( $kept['n'] ?? null ) && is_bool( $kept['more'] ?? null ) && is_array( $kept['orders'] ?? null ) ? $kept : null;
 	}
 
-	/** @return array{n: int, more: bool}|null */
+	/**
+	 * Someone who can't decide is asked for the page too: the Orders list
+	 * says which orders wait for a reviewer.
+	 *
+	 * @return array{n: int, more: bool, orders: array<string, string>}|null
+	 */
 	private static function ask_count( WP_User $user ): ?array {
 		$permissions = Kindgi_Api::kept_get( $user, '/v1/identity/me/permissions' );
 		if ( ! is_array( $permissions ) ) {
 			return null;
 		}
 		$reviewer = self::reviewer_of( $permissions['body'] );
-		if ( null === $reviewer ) {
-			return array(
-				'n'    => 0,
-				'more' => false,
-			);
-		}
-		$page = Kindgi_Api::kept_get(
+		$page     = Kindgi_Api::kept_get(
 			$user,
 			'/v1/approvals',
 			array(
@@ -424,12 +454,20 @@ final class Kindgi_Inbox {
 		return is_array( $page ) ? self::count_of( $page['body'], (string) $page['session']['user_id'], $reviewer ) : null;
 	}
 
-	/** WordPress's heartbeat on an admin page asks for the count; it answers with it, or null. */
+	/**
+	 * WordPress's heartbeat on an admin page asks for the count; it answers
+	 * with it, or null. The orders that wait go only to someone who sees
+	 * the Orders list's column.
+	 */
 	public static function heartbeat( array $response, array $data ): array {
 		if ( empty( $data['kindgi_inbox'] ) || ! Kindgi_Rest::allowed() ) {
 			return $response;
 		}
-		$response['kindgi_inbox'] = self::count( wp_get_current_user() );
+		$count = self::count( wp_get_current_user() );
+		if ( null !== $count && ! Kindgi_Order::shown() ) {
+			$count['orders'] = array();
+		}
+		$response['kindgi_inbox'] = $count;
 		return $response;
 	}
 }
