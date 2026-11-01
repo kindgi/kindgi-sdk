@@ -94,7 +94,8 @@ prints where to open one: its URL, when the remote gives one). The
 corrections it fixes that are still `open` are then `being-fixed`, linked to
 the pull request. Without `--pr`, it only writes the files. It refuses a
 block file that holds a newer version than the one the suggested change is
-built on, or that version with edits, and, with `--pr`, block files with
+built on, or a version with edits that aren't in the runtime's copy of it,
+or a version the runtime doesn't have, and, with `--pr`, block files with
 changes that aren't committed. Under `kindgi dev` the pin writes them
 itself. Making one by hand or checking one again is 409
 `registry-read-only`: edit the file, or run Improve.

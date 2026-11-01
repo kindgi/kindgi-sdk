@@ -663,6 +663,36 @@ describe('kindgi suggested-changes pull', () => {
     ]);
   });
 
+  test('every refused block change is named, and no block is written', async () => {
+    await pack({ git: false });
+    const weights = {
+      id: 'acme.weights',
+      version: '2.0.0',
+      kind: 'settings',
+      content: { values: { calls: 5 } },
+    };
+    await writeFile(join(cwd, 'blocks/weights.json'), `${JSON.stringify(weights, null, 2)}\n`);
+    const before = await readFile(join(cwd, 'blocks/weights.json'), 'utf8');
+    const out = await pull(
+      ['sc-1'],
+      client({
+        changes: [
+          { kind: 'block', blockId: 'acme.tone', from: '0.9.0', to: '1.1.0' },
+          { kind: 'block', blockId: 'acme.weights', from: '2.0.0', to: '2.1.0' },
+        ],
+      }),
+    );
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      'blocks/tone.json holds acme.tone 1.0.0, newer than the 0.9.0 the suggested change is built on',
+    );
+    expect(out.stderr).toContain(
+      "blocks/weights.json holds acme.weights 2.0.0 with edits that aren't in the runtime's 2.0.0",
+    );
+    expect((await toneFile()).version).toBe('1.0.0');
+    expect(await readFile(join(cwd, 'blocks/weights.json'), 'utf8')).toBe(before);
+  });
+
   describe('--pr refuses before anything is written', () => {
     test.each<[string, () => Promise<void>, string]>([
       [

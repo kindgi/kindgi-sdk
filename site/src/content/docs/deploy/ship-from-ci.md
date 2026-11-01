@@ -419,8 +419,9 @@ Improve, suggested changes and edits in the console change the runtime, not git,
 the next deploy from git doesn't have them. Bring each one back as a pull
 request: copy the change into the pack's files, and open the pull request.
 For blocks, `kindgi blocks pull` writes the newest version running anywhere
-into each block's file. It leaves a file that holds edits its version
-doesn't have on the runtime, and says so, so it never drops them.
+into each block's file. When a block's file holds edits that aren't in its
+version on the runtime, or a version the runtime doesn't have, it names the
+file and writes nothing, so it never drops them.
 [Improve an agent](../../guides/improve/improve-an-agent/) has what Improve
 changes.
 

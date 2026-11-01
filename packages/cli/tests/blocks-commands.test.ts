@@ -201,6 +201,8 @@ describe('kindgi blocks pull', () => {
   });
   /** The runtime's block versions: the pack's files hold acme.tone 1.0.0 and acme.weights 2.0.0. */
   const VERSIONS: Record<string, Record<string, unknown>> = {
+    'acme.intro@1.0.0': { template: 'Hello.' },
+    'acme.intro@1.1.0': { template: 'Hello there.' },
     'acme.tone@1.0.0': { template: 'Be brief.' },
     'acme.tone@1.2.0': { template: 'Be brief and kind.' },
     'acme.weights@2.0.0': { values: {}, schema: { type: 'object' } },
@@ -293,7 +295,7 @@ describe('kindgi blocks pull', () => {
             `${JSON.stringify({ ...tone, content: { template: 'Be short.' } }, null, 2)}\n`,
           );
         },
-        "blocks/tone.json holds acme.tone 1.0.0 with edits that aren't in the runtime's 1.0.0: pulling 1.2.0 would drop them. Give the edits a version of their own and deploy it, or undo them (`git restore -- blocks/tone.json`), then pull again.",
+        "blocks/tone.json holds acme.tone 1.0.0 with edits that aren't in the runtime's 1.0.0: pulling 1.2.0 would drop them. Give the edits a version of their own and deploy it, or undo them (for edits git hasn't committed: `git restore --staged --worktree -- blocks/tone.json`), then pull again.",
       ],
       [
         'an edited template file',
@@ -305,7 +307,7 @@ describe('kindgi blocks pull', () => {
             `${JSON.stringify({ ...tone, content: { templateFile: 'tone.liquid' } }, null, 2)}\n`,
           );
         },
-        "blocks/tone.json and its template blocks/tone.liquid hold acme.tone 1.0.0 with edits that aren't in the runtime's 1.0.0: pulling 1.2.0 would drop them. Give the edits a version of their own and deploy it, or undo them (`git restore -- blocks/tone.json blocks/tone.liquid`), then pull again.",
+        "blocks/tone.json and its template blocks/tone.liquid hold acme.tone 1.0.0 with edits that aren't in the runtime's 1.0.0: pulling 1.2.0 would drop them. Give the edits a version of their own and deploy it, or undo them (for edits git hasn't committed: `git restore --staged --worktree -- blocks/tone.json blocks/tone.liquid`), then pull again.",
       ],
       [
         "a version the runtime doesn't have",
@@ -317,6 +319,18 @@ describe('kindgi blocks pull', () => {
           );
         },
         "blocks/tone.json holds acme.tone 1.0.1, which this runtime doesn't have, so Kindgi can't tell whether it holds edits. Deploy 1.0.1 first, or bring the file back to a version the runtime has.",
+      ],
+      [
+        "a block and its template at a version the runtime doesn't have",
+        async () => {
+          const tone = JSON.parse(await readFile(join(cwd, 'blocks/tone.json'), 'utf8'));
+          await writeFile(join(cwd, 'blocks/tone.liquid'), 'Be brief.');
+          await writeFile(
+            join(cwd, 'blocks/tone.json'),
+            `${JSON.stringify({ ...tone, version: '1.0.1', content: { templateFile: 'tone.liquid' } }, null, 2)}\n`,
+          );
+        },
+        "blocks/tone.json and its template blocks/tone.liquid hold acme.tone 1.0.1, which this runtime doesn't have, so Kindgi can't tell whether they hold edits. Deploy 1.0.1 first, or bring the files back to a version the runtime has.",
       ],
     ])('%s', async (_name, edit, said) => {
       await pack();
@@ -337,8 +351,10 @@ describe('kindgi blocks pull', () => {
     });
   });
 
-  test('every refused file is named, and none of the blocks is written', async () => {
+  test('every refused file is named, and no block is written, not even one that could be', async () => {
     await pack();
+    const intro = `${JSON.stringify({ id: 'acme.intro', version: '1.0.0', kind: 'prompt', content: { template: 'Hello.' } }, null, 2)}\n`;
+    await writeFile(join(cwd, 'blocks/intro.json'), intro);
     const tone = JSON.parse(await readFile(join(cwd, 'blocks/tone.json'), 'utf8'));
     await writeFile(
       join(cwd, 'blocks/tone.json'),
@@ -352,7 +368,11 @@ describe('kindgi blocks pull', () => {
     const calls: [string, ...unknown[]][] = [];
     const out = await pull([], {
       blocks: {
-        runsIn: runsInAt(calls, { 'acme.tone': ['1.2.0'], 'acme.weights': ['2.1.0'] }),
+        runsIn: runsInAt(calls, {
+          'acme.intro': ['1.1.0'],
+          'acme.tone': ['1.2.0'],
+          'acme.weights': ['2.1.0'],
+        }),
         versions: { get: versionsGet(calls) },
       },
     });
@@ -367,6 +387,8 @@ describe('kindgi blocks pull', () => {
     expect(JSON.parse(await readFile(join(cwd, 'blocks/weights.json'), 'utf8')).version).toBe(
       '2.0.1',
     );
+    // acme.intro holds its 1.0.0 and 1.1.0 runs, so alone it would be written.
+    expect(await readFile(join(cwd, 'blocks/intro.json'), 'utf8')).toBe(intro);
   });
 
   test('a settings file that gives no schema holds its version, which the runtime stored with the schema it carried', async () => {

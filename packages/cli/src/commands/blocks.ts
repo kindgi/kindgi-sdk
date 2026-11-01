@@ -330,11 +330,11 @@ export function notPulledLine(
     : `${block.modulePath} and its template ${files[1]} hold`;
   return found === 'edited'
     ? `${held} ${block.id} ${block.version} with edits that aren't in the runtime's ${block.version}: pulling ${pulling} would drop them. ${undo}`
-    : `${held} ${block.id} ${block.version}, which this runtime doesn't have, so Kindgi can't tell whether ${one ? 'it holds' : 'they hold'} edits. Deploy ${block.version} first, or bring the file back to a version the runtime has.`;
+    : `${held} ${block.id} ${block.version}, which this runtime doesn't have, so Kindgi can't tell whether ${one ? 'it holds' : 'they hold'} edits. Deploy ${block.version} first, or bring ${one ? 'the file' : 'the files'} back to a version the runtime has.`;
 }
 
 /** `word` as one shell word in a printed git line: as it is when it's plain, else single-quoted. */
-function shellWord(word: string): string {
+export function shellWord(word: string): string {
   return /^[A-Za-z0-9._/-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
 }
 
@@ -378,7 +378,7 @@ async function planFor(
       files,
       held.kind,
       runs,
-      `Give the edits a version of their own and deploy it, or undo them (\`git restore -- ${files.map(shellWord).join(' ')}\`), then pull again.`,
+      `Give the edits a version of their own and deploy it, or undo them (for edits git hasn't committed: \`git restore --staged --worktree -- ${files.map(shellWord).join(' ')}\`), then pull again.`,
     ),
   };
 }

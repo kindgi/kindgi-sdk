@@ -33,6 +33,7 @@ import {
   fileVersionOf,
   notPulledLine,
   packBlocksAt,
+  shellWord,
   templateFileOf,
 } from './blocks.js';
 import { consoleUrlOf } from './console.js';
@@ -92,37 +93,45 @@ function blockChangesOf(s: SuggestedChange): readonly (BlockChange & { readonly 
   });
 }
 
-/**
- * The pack's block for a change. Refused when the pack has none, when its
- * file isn't older than the change's version, and when it holds a version
- * newer than the one the change is built on: writing would drop those
- * edits. A file that doesn't hold its own version as the runtime has it
- * (`fileVersionOf`) comes back as the line that says so, so that every
- * such block is named before any is written.
- */
-async function pullOf(
-  client: KindgiClient,
-  packDir: string,
-  pattern: string,
+/** The pack's block for a change; refused, as run in another pack, when the pack has none. */
+function blockOf(
   blocks: readonly IndexedBlock[],
-  suggestedChangeId: string,
-  change: BlockChange & { readonly to: string },
-): Promise<Pull | { readonly refused: string }> {
+  pattern: string,
+  change: BlockChange,
+): IndexedBlock {
   const block = blocks.find((b) => b.id === change.blockId);
   if (block === undefined) {
     throw new UsageError(
       `${change.blockId} isn't among the pack's blocks (${pattern}): run this in the pack that has it, or pass --path=<dir>.`,
     );
   }
+  return block;
+}
+
+/**
+ * A change's pull into its block's file, or the line that refuses it: when
+ * the file isn't older than the change's version, when it holds a version
+ * newer than the one the change is built on (writing would drop those
+ * edits), and when it doesn't hold its own version as the runtime has it
+ * (`fileVersionOf`). Each refusal comes back as a line, so that every
+ * refused block is named before any is written.
+ */
+async function pullOf(
+  client: KindgiClient,
+  packDir: string,
+  block: IndexedBlock,
+  suggestedChangeId: string,
+  change: BlockChange & { readonly to: string },
+): Promise<Pull | { readonly refused: string }> {
   if (!semver.gt(change.to, block.version)) {
-    throw new Error(
-      `${block.modulePath} holds ${block.id} ${block.version} now, not older than the suggested change's ${change.to}: there's nothing to pull.`,
-    );
+    return {
+      refused: `${block.modulePath} holds ${block.id} ${block.version} now, not older than the suggested change's ${change.to}: there's nothing to pull.`,
+    };
   }
   if (semver.gt(block.version, change.from)) {
-    throw new Error(
-      `${block.modulePath} holds ${block.id} ${block.version}, newer than the ${change.from} the suggested change is built on: pulling it would drop ${block.version}'s edits. Make the change again on what the pack holds.`,
-    );
+    return {
+      refused: `${block.modulePath} holds ${block.id} ${block.version}, newer than the ${change.from} the suggested change is built on: pulling it would drop ${block.version}'s edits. Make the change again on what the pack holds.`,
+    };
   }
   const template = await templateFileOf(packDir, block);
   const files = template === undefined ? [block.modulePath] : [block.modulePath, template];
@@ -613,10 +622,15 @@ async function pullsFor(
     );
   }
   if (!PULLABLE.has(suggested.status)) throw new Error(notPullable(suggested));
+  // Every change's block is found before any is checked, so a usage error loses no refusal.
+  const changes = blockChangesOf(suggested).map((change) => ({
+    change,
+    block: blockOf(blocks, pattern, change),
+  }));
   const pulls: Pull[] = [];
   const refused: string[] = [];
-  for (const change of blockChangesOf(suggested)) {
-    const pull = await pullOf(client, packDir, pattern, blocks, suggested.id, change);
+  for (const { change, block } of changes) {
+    const pull = await pullOf(client, packDir, block, suggested.id, change);
     if ('refused' in pull) refused.push(pull.refused);
     else pulls.push(pull);
   }
@@ -660,11 +674,6 @@ async function commitOnBranch(
 /** The block files written, each with its template file when it keeps one. */
 function filesOf(wrote: readonly PulledBlock[]): string[] {
   return wrote.flatMap((w) => (w.templateFile === undefined ? [w.file] : [w.file, w.templateFile]));
-}
-
-/** `word` as one shell word in a printed git line: as it is when it's plain, else single-quoted. */
-function shellWord(word: string): string {
-  return /^[A-Za-z0-9._/-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
 }
 
 /** Where a failure after `checkout -b` leaves the pack, and the way back. */
