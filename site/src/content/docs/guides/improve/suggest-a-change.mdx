@@ -44,8 +44,8 @@ A deploy makes suggested changes too, for its new code:
   environments when a build is promoted.
 - **A deployed runtime that keeps a project's test set.** One that doesn't
   refuses a suggested change with `501 suggested-change-check-unsupported`.
-  Under `kindgi dev`, making one is refused, as
-  [Under `kindgi dev`](#under-kindgi-dev) shows.
+  Under `kindgi dev`, making one by hand is refused: an Improve run makes
+  them there, as [Under `kindgi dev`](#under-kindgi-dev) shows.
 - **`publish` on the agent** to make, check and withdraw, and **`pin`** to
   pin or add as Latest. For an agent that several projects serve, it's
   `write` on the project where its versions are made, and `admin` in the
@@ -427,15 +427,34 @@ version was made in, when that's known.
 
 ## Under `kindgi dev`
 
-Under `kindgi dev`, the pack's files are what runs, and they serve every
-project. A suggested change is for one project, so making one is refused
-with `409 registry-read-only`, before anything is made. So is an
-[Improve run](../improve-an-agent/), started or checked: it makes a suggested
-change.
+Under `kindgi dev`, the pack's files are what runs. There, an
+[Improve run](../improve-an-agent/) makes each suggested change: it reads the
+dev project's corrections and checks its candidate there, and its suggested
+change is for every project. Pinning it goes through the release gate and
+writes its changed prompt or settings into the pack's files. `kindgi dev`
+reloads them, and the pin waits for that: the next runs use the new version,
+and the pin's test runs mark what it fixes, as on a deployed runtime.
 
-Change the block's file instead, as
+- **Making one by hand, and checking one again,** are refused with
+  `409 registry-read-only`: an Improve run makes and checks each one. Run
+  Improve again instead.
+- **Adding one as Latest** is refused with `409 registry-read-only`: the
+  pack's files are what runs, and there's no Latest. Pin it.
+- **A block's file edited since the suggested change was made,** even at the
+  same version, refuses the pin with `409 pin-superseded`, naming the file,
+  and nothing is written. Run Improve again on the files as they are now.
+- **One built on a version that no longer runs** is
+  `409 suggested-change-out-of-date`, and isn't rebuilt: run Improve again.
+- **A pin the release gate holds for a reviewer** isn't checked when it's
+  approved: under `kindgi dev`, only a pin that goes through at once marks
+  what it fixes.
+- **Undoing a pin** is a change to the pack's files: undo it with git, and
+  `kindgi dev` reloads them. Commit the files before you pin, so there's
+  something to go back to.
+
+Or change the block's file yourself, as
 [Keep them in the pack](../change-a-prompt-or-setting/#keep-them-in-the-pack)
-shows, and suggest changes on a deployed runtime.
+shows.
 
 ## Find them
 

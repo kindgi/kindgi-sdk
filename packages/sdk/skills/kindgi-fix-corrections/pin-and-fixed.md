@@ -69,3 +69,12 @@ earlier version fails reopen. `kindgi agents unpin <agent-id> --project=<project
 takes the pin away instead: the project follows its Latest again.
 `kindgi agents pin-history list <agent-id>` shows every pin and unpin, with
 who asked and why.
+
+## Under `kindgi dev`
+
+A pin there is for every project (`--tenant`), and it writes the version's
+prompts and settings into the pack's files: tell the person to commit them
+first. `kindgi dev` reloads them, and the pin marks what its check fixes, as
+above. A pin that waits for a second person marks nothing when it's approved
+there. Going back is a git change to the files, not a pin, so the
+corrections the pin fixed stay `fixed`.

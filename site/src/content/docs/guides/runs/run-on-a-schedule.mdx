@@ -606,10 +606,10 @@ more than once an hour: "At most once an hour: name one minute (0 * * * * is
 every hour). Each fire may start an Improve run, which costs money."
 
 **Create** makes it, running as you, and opens its page. Under `kindgi dev`,
-Schedule Improve is off, and the page says why: a schedule's Improve runs
-are each for one project, and a change under `kindgi dev` is for every
-project. An Improve run is refused there, started by hand or by a schedule's
-fire, as a suggested change is: run Improve on a deployed runtime.
+Schedule Improve is off, and the page says why: `kindgi dev` isn't left
+running, so a schedule is for a deployed runtime. A schedule's fire starts no
+Improve run there; an Improve run started by hand does, as
+[Under `kindgi dev`](../../improve/suggest-a-change/#under-kindgi-dev) shows.
 
 ## Next
 
