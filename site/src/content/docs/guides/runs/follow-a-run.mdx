@@ -177,7 +177,7 @@ journal), a `timestamp`, the step's `nodeId` for step events, and a `payload`:
 | `run.step-started` | A step started. | `input` |
 | `run.step-completed` | A step ended. | `output` |
 | `run.step-failed` | A step failed. | `message` |
-| `run.step-retry-scheduled` | A step failed and will be [retried](../../flows/retry-a-step/), or, with `left: true`, was [left for the run's next resume](../../flows/retry-a-step/#a-step-whose-read-failed). | `attempt`, `nextDelayMs`, `previousError`, `left` |
+| `run.step-retry-scheduled` | A step failed and will be [retried](../../flows/retry-a-step/), or, with `left: true`, was [left for the run's next resume](../../flows/retry-a-step/#a-step-whose-read-failed). | `attempt`, `nextDelayMs`, `previousError`, `left`, `childRunId` |
 | `run.iteration-started`, `run.iteration-completed` | A pass of a [loop](../../flows/loop/). | `iteration`, … |
 | `run.wait-suspended`, `run.wait-resumed` | The run stopped to wait, and went on ([approvals](../../flows/wait-for-an-approval/)). | |
 | `run.completed` | The run completed. | `output` |
