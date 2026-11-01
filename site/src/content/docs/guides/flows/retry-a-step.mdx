@@ -383,12 +383,6 @@ A step isn't left when its read finds nothing, such as an agent that isn't
 registered: that's a failed attempt. Nor is one whose read was cut short by
 its `timeoutMs` or by the run's cancel.
 
-A subflow's child run that's left with its parent's subflow step is held
-for its parent. It stays `running`, and only the parent's resume resumes it:
-a resume of the child itself is refused with `run-held-by-parent`. Once the
-parent's subflow step has been left 3 times, the child's step fails with the
-read's error, and the parent's subflow step fails with `child-failed`.
-
 ## Where a policy applies
 
 A policy applies to the step its edge leads to, when that step has exactly one
