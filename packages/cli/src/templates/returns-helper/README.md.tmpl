@@ -82,10 +82,11 @@ its files. Then:
    `{{KINDGI}} improve runs start --agent={{PACK_ID}}.returns-helper --project=<project-id> --check`,
    then run it without `--check`. It tries other wording for the `tone`
    block, on the test set. The model named in `returns-model.json` writes
-   the wording (`--provider` and `--model` name another), and judges
-   whether each new answer says what the correction asks. The check answers
-   `ready: true` with `settings` missing: the sample marks no setting
-   Improve may tune, since its model takes no temperature.
+   the wording, and judges whether each new answer says what the correction
+   asks. `--provider` and `--model` name another model to write it, and the
+   judge stays the same. The check answers `ready: true` with `settings`
+   missing: the sample marks no setting Improve may tune, since its model
+   takes no temperature.
 6. **Read its suggested change and pin it.** The agent's **Suggested
    changes** page shows what it found and its check: the correction should
    pass on the new version and nothing should newly fail. Pin it. The pin

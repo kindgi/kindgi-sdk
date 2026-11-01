@@ -13,7 +13,7 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
-- `kindgi`: **a comparison says why a case's answer wasn't checked.** A case result's `unchecked` is why its `expect` couldn't be graded, such as a version whose model settings name no model to judge with. The summary's `unchecked` counts those cases and lists their reasons, each once, at most five. So a `passRate` with no value says why. Both are optional.
+- `kindgi`: **a comparison says why a case's answer wasn't checked.** A case result's `unchecked` is why its `expect` couldn't be graded, such as a version whose model settings name no model to judge with. The summary's `unchecked` (`CorrectedComparisonUnchecked`) counts those cases and lists their reasons, each once, at most five. So a `pass_rate` of `None` says why. Both are optional.
 - `kindgi`: **a suggested change says how many corrections it fixes in all**:
   `SuggestedChange.correction_count`. `fixes` names the first 100 at most, and
   an Improve run can fix more. It's `None` from an older runtime: there, take

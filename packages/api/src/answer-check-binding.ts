@@ -61,7 +61,8 @@ export interface AnswerCheckInput {
  * judging model failed, or its reply couldn't be read (what that call cost
  * still counts); the case then has no pass. Its `reason` is shown on the
  * case's result and in the comparison's summary (`unchecked`), which an
- * erasure doesn't clear: it names no secret and quotes nothing of the case.
+ * erasure doesn't clear: so it should name no secret and quote nothing of
+ * the case.
  */
 export type AnswerCheck =
   | {

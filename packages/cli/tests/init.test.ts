@@ -587,6 +587,8 @@ describe('kindgi init --template=returns-helper', () => {
       | { readonly schema?: Record<string, unknown>; readonly values?: Record<string, unknown> }
       | undefined;
     expect(settings?.values).toMatchObject({ providerId: 'anthropic', model: 'claude-sonnet-5-5' });
+    // It sets no temperature: the model would drop it, with a warning on every answer.
+    expect(settings?.values).not.toHaveProperty('temperature');
     expect(tunableKeys(settings?.schema)).toEqual([]);
     const anthropic = (await loadProviderPresets()).anthropic;
     expect(anthropic?.metadata.id).toBe('anthropic');
