@@ -462,7 +462,7 @@
         const [day, heading] = dayOf(run.createdAt);
         if (day !== lastDay) {
           lastDay = day;
-          list = el('ul', { className: 'kindgi-runs' });
+          list = el('ul', { className: 'kindgi-runs', role: 'list' });
           node.append(el('h2', { className: 'kindgi-day' }, heading), list);
         }
         list.append(activityRow(run, nameOf));
