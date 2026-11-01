@@ -174,6 +174,30 @@ object Citator {
   Strings, and not secret.
 - `ctx.config`: **reserved, empty today**.
 
+## Work that takes longer than a call
+
+A tool call has a deadline: 120 s by default (`KINDGI_PACK_CALL_TIMEOUT_MS`
+on a runtime the user runs). At the deadline the call fails with
+`deadline-exceeded` and `ctx.cancellation` fires; a handler that doesn't
+stop runs on, and its result goes nowhere.
+- In an agent, the turn fails, unless the agent's `toolErrors`
+  (`set("toolErrors", …)`) lists `tool-error` in `retryOn`. The list
+  replaces the default, so keep `invalid-arguments` and `unknown-tool` in
+  it; the tenant's `tool-errors` policy can narrow it further.
+- In a flow, the step fails. An edge's `retry` may run it again while the
+  first handler still runs, with the same `ctx.idempotencyKey`: pass the
+  key on. An edge's `timeoutMs` can only fail it sooner.
+- A run whose call is still running is executing, not parked: a runtime
+  deploy or restart, or a crash, fails it.
+
+NEVER write a tool that waits for work taking minutes or hours, and don't
+raise the deadline for it: a Scala tool can't pause its run. Start the job
+with `ctx.idempotencyKey`, return its id at once, and give the other
+system a webhook trigger that starts the next flow with its answer; when it
+can't call back, check the job from a scheduled flow.
+
+Docs: https://docs.kindgi.com/v0.3/guides/tools/write-a-tool/#work-that-takes-longer-than-a-call
+
 ## Configuration and secrets
 
 A secret that belongs to the tenant, such as an API key a customer gives
