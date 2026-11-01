@@ -92,6 +92,18 @@ export interface StepRetryScheduledPayload {
    * never set it.
    */
   readonly left?: true;
+  /**
+   * With `left`, the run id of the step's agent turn, when the step was left
+   * after it found that turn and before the turn ended. On a loop's or
+   * fan-out's entry left with such a step, that step's turn; never on a
+   * subflow step's. If the turn has failed or been cancelled by the run's
+   * next resume, the step fails, naming the turn, and the resume starts no
+   * new turn over it; the edge's policy retries that failure as any other,
+   * with a new turn, while it has attempts left. Absent for a step left
+   * before its turn started or before it found it, and for a retry by the
+   * edge's policy. Written from runtime `<x>`; earlier runtimes never set it.
+   */
+  readonly childRunId?: RunId;
 }
 
 /**

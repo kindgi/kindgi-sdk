@@ -362,6 +362,10 @@ doesn't fail. It's left for the run's next resume:
 {"sequence": 3, "kind": "step.retry-scheduled", "nodeId": "draft", "payload": {"nodeId": "draft", "attempt": 1, "nextDelayMs": 0, "previousError": "run-version-unreadable: Could not read …", "left": true}, …}
 ```
 
+Runtime `<x>` or later also leaves it when its turn's run, guardrails or
+organization, or its own run's journal, can't be read, or when another
+runtime holds its turn's run or its resume hits a passing database error.
+
 - **Its `step.retry-scheduled` entry says `left: true`,** with `nextDelayMs`
   0 and the read's error in `previousError`.
 - **The run stays `running`.** Steps running beside it finish first.
@@ -389,6 +393,22 @@ for its parent. It stays `running`, and only the parent's resume resumes it:
 a resume of the child itself is refused with `run-held-by-parent`. Once the
 parent's subflow step has been left 3 times, the child's step fails with the
 read's error, and the parent's subflow step fails with `child-failed`.
+
+An agent's step that's left after it found its turn, and before the turn
+ended, names the turn, by its run id, in the entry's `childRunId`:
+
+```json
+{"sequence": 6, "kind": "step.retry-scheduled", "nodeId": "draft", "payload": {"nodeId": "draft", "attempt": 1, "nextDelayMs": 0, "previousError": "run-snapshot-unreadable: Could not read the agent snapshot of the step's turn …", "left": true, "childRunId": "…"}, …}
+```
+
+When the run is resumed, the step goes on with that turn. If the turn has
+failed or been cancelled by then, the step fails, naming the turn, and the
+resume starts no new turn over it, so the turn's tools aren't called again
+unless the step's `retry` policy retries the step. A step left before its turn
+started, or before it found it, has no `childRunId`. A loop or fan-out left
+with the step names the same turn on its own entry. A subflow step left with
+its child run doesn't: the child run's journal names the turn. `childRunId` is
+written by runtime `<x>` or later; earlier ones never write it.
 
 ## Where a policy applies
 
