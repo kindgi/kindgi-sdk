@@ -34,6 +34,9 @@ final class Kindgi_Inbox {
 	const FACTS_MAX = 12;
 	const VALUE_MAX = 300;
 
+	/** The agent's own words (a draft to a customer) are read in full, up to this many characters. */
+	const WORDS_MAX = 4000;
+
 	public static function register(): void {
 		add_filter( 'heartbeat_received', array( self::class, 'heartbeat' ), 10, 2 );
 	}
@@ -253,7 +256,7 @@ final class Kindgi_Inbox {
 		foreach ( $prose ?? self::prose_of( $arguments ) as $key => $text ) {
 			$words[] = array(
 				'label' => self::words( (string) $key ),
-				'text'  => self::cut( $text ),
+				'text'  => self::cut( $text, self::WORDS_MAX ),
 			);
 		}
 		return $words;
@@ -319,9 +322,9 @@ final class Kindgi_Inbox {
 		return self::cut( $text );
 	}
 
-	/** A text cut to `VALUE_MAX` characters, the last an ellipsis. */
-	private static function cut( string $text ): string {
-		return mb_strlen( $text ) > self::VALUE_MAX ? mb_substr( $text, 0, self::VALUE_MAX - 1 ) . '…' : $text;
+	/** A text cut to `$max` characters (`VALUE_MAX` unless said), the last an ellipsis. */
+	private static function cut( string $text, int $max = self::VALUE_MAX ): string {
+		return mb_strlen( $text ) > $max ? mb_substr( $text, 0, $max - 1 ) . '…' : $text;
 	}
 
 	/**

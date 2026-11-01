@@ -134,7 +134,9 @@ function test_inbox_the_tools_own_words_for_a_call_read_first(): void {
 		kindgi_test_names()
 	);
 	kindgi_assert_same( '', $card['summary'], 'a long reason that is also the summary shows once: compared whole, before the quote is cut' );
-	kindgi_assert_same( Kindgi_Inbox::VALUE_MAX, mb_strlen( $card['words'][0]['text'] ), 'the quote, cut' );
+	kindgi_assert_same( trim( $long ), $card['words'][0]['text'], 'the quote, whole: a draft is read in full' );
+	$words = Kindgi_Inbox::words_of( array( 'body' => str_repeat( 'The box was crushed on one side. ', 200 ) ) );
+	kindgi_assert_same( Kindgi_Inbox::WORDS_MAX, mb_strlen( $words[0]['text'] ), 'words past the most a card shows, cut' );
 	$own = kindgi_test_approval(
 		array(
 			'context' => array(

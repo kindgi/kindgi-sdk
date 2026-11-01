@@ -563,8 +563,52 @@
   max-width: 760px;
 }
 
-.kindgi .kindgi-card h3 {
+.kindgi .kindgi-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--kindgi-space-1) var(--kindgi-space-3);
   margin: var(--kindgi-space-1) 0 var(--kindgi-space-2);
+}
+
+.kindgi .kindgi-card h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+/* The order a card is about, as a small pill beside its heading. */
+.kindgi .kindgi-chip-link {
+  display: inline-block;
+  padding: 2px 10px;
+  border: 1px solid var(--kindgi-border);
+  border-radius: 999px;
+  background: var(--kindgi-sunken);
+  color: var(--kindgi-text);
+  font-size: 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.kindgi a.kindgi-chip-link:hover,
+.kindgi a.kindgi-chip-link:focus {
+  border-color: var(--kindgi-accent);
+  color: var(--kindgi-accent);
+}
+
+.kindgi .kindgi-summary {
+  margin: 0 0 var(--kindgi-space-2);
+  font-size: 14px;
+}
+
+.kindgi .kindgi-meta {
+  margin: var(--kindgi-space-2) 0;
+  color: var(--kindgi-muted);
+}
+
+/* Little time left to decide: amber, dark enough to read. */
+.kindgi .kindgi-meta .kindgi-soon {
+  color: #996800;
 }
 
 .kindgi .kindgi-facts {
@@ -604,28 +648,82 @@
   max-width: 560px;
 }
 
+.kindgi .kindgi-why {
+  margin: var(--kindgi-space-3) 0 0;
+}
+
+.kindgi .kindgi-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--kindgi-space-2);
+  margin: var(--kindgi-space-3) 0 0;
+}
+
+.kindgi .kindgi-actions .button-link {
+  padding: 0 var(--kindgi-space-2);
+}
+
+.kindgi .button.kindgi-reject {
+  border-color: var(--kindgi-err);
+  color: var(--kindgi-err);
+}
+
+.kindgi .button.kindgi-reject:hover,
+.kindgi .button.kindgi-reject:focus {
+  background: var(--kindgi-err-soft);
+  border-color: var(--kindgi-err);
+  color: var(--kindgi-err);
+}
+
 .kindgi .kindgi-decision {
   font-weight: 600;
+}
+
+.kindgi .kindgi-decision-approve::before {
+  content: "✓ " / "";
+  color: var(--kindgi-ok);
+}
+
+.kindgi .kindgi-decision-reject::before {
+  content: "✕ " / "";
+  color: var(--kindgi-err);
 }
 
 .kindgi .kindgi-note {
   font-style: italic;
 }
 
-/* The agent's own words: set apart from the facts. */
+/* The agent's own words (a reason, a draft to a customer): set apart from the facts, read as written. */
 .kindgi figure.kindgi-said {
   margin: var(--kindgi-space-2) 0;
 }
 
 .kindgi .kindgi-said figcaption {
+  margin: 0 0 var(--kindgi-space-1);
   color: var(--kindgi-muted);
 }
 
-.kindgi .kindgi-said blockquote {
-  margin: var(--kindgi-space-1) 0 0;
-  padding-left: 10px;
-  border-left: 3px solid var(--kindgi-border);
-  font-style: italic;
+.kindgi .kindgi-said-text {
+  max-width: 68ch;
+  padding: var(--kindgi-space-3) var(--kindgi-space-4);
+  background: var(--kindgi-sunken);
+  border-radius: var(--kindgi-radius);
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A long one shows its start, fading out, until Show all. */
+.kindgi .kindgi-folded .kindgi-said-text {
+  max-height: 9.5em;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 60%, transparent);
+}
+
+.kindgi .kindgi-said .button-link {
+  margin-top: var(--kindgi-space-1);
 }
 
 .kindgi q.kindgi-said {

@@ -41,6 +41,13 @@
 
   // The site's own date format and time zone (Settings → General).
   const when = (iso) => (iso ? wp.date.dateI18n(wp.date.getSettings().formats.datetime, iso) : '');
+
+  /** "2 hours ago", "in 23 hours"; the site's date where WordPress has no words for it. */
+  const ago = (iso) =>
+    iso && typeof wp.date.humanTimeDiff === 'function' ? wp.date.humanTimeDiff(iso) : when(iso);
+
+  /** A time in words, with the site's full date on hover. */
+  const timeEl = (iso, text = ago(iso)) => el('time', { datetime: iso, title: when(iso) }, text);
   /** Why Kindgi wouldn't sign the person in (its `reason`), in words for them. */
   const SIGN_IN = {
     'role-not-allowed': __(
@@ -221,7 +228,7 @@
     if (asked.kind === 'you') return __('You asked', 'kindgi');
     if (asked.kind === 'person') return sprintf(__('%s asked', 'kindgi'), asked.name);
     if (asked.kind === 'kindgi') return __('Asked from Kindgi', 'kindgi');
-    return __('No person asked: a webhook, a schedule or a service key started it', 'kindgi');
+    return __('Started automatically', 'kindgi');
   }
 
   /** How an approval closed without a person's approve or reject. */
@@ -243,15 +250,21 @@
   /**
    * One approval: what would happen, in words; who asked and by when it's
    * decided; then the decision, why it's someone else's, or Approve and
-   * Reject. Kindgi's own words and ids are folded under Details.
+   * Reject. Kindgi's own words and ids are folded under Technical details,
+   * for administrators.
    */
   function approvalCard(card, { after, inConversation = false, inOrder = false } = {}) {
     const kind = card.waitsFor ?? card.status;
     return el(
       'div',
       { className: `kindgi-card kindgi-${kind}`, 'data-approval': card.id },
-      el('h3', {}, card.heading),
-      card.summary ? el('p', {}, card.summary) : null,
+      el(
+        'div',
+        { className: 'kindgi-card-head' },
+        el('h3', {}, card.heading),
+        inOrder ? null : orderChip(card),
+      ),
+      card.summary ? el('p', { className: 'kindgi-summary' }, card.summary) : null,
       card.facts.length > 0
         ? el(
             'dl',
@@ -260,55 +273,101 @@
           )
         : null,
       card.words.map(agentWords),
-      el(
-        'p',
-        { className: 'kindgi-muted' },
-        askedWords(card.asked),
-        `, ${when(card.createdAt)}`,
-        card.waitsFor !== null && card.expiresAt
-          ? [' · ', el('strong', {}, sprintf(__('Decide by %s', 'kindgi'), when(card.expiresAt)))]
-          : null,
-      ),
-      cardLinks(card, inConversation, inOrder),
+      cardMeta(card),
+      inConversation || !card.opens
+        ? null
+        : el(
+            'p',
+            { className: 'kindgi-links' },
+            el(
+              'a',
+              { href: askUrl(card.conversationId, card.id) },
+              __('Open the conversation', 'kindgi'),
+            ),
+          ),
       cardEnding(card, after),
       details(card),
     );
   }
 
   /**
-   * Where a card leads: its conversation, for whoever may read it, and the
-   * order it's about, for someone who may edit orders (`orderUrl`). A card
-   * on that page leaves its own link out.
+   * The order a card is about, beside its heading: a link for someone who
+   * may edit orders (`orderUrl`), else its number.
    */
-  function cardLinks(card, inConversation, inOrder) {
-    const links = [
-      inConversation || !card.opens
-        ? null
-        : el(
-            'a',
-            { href: askUrl(card.conversationId, card.id) },
-            __('Open the conversation', 'kindgi'),
-          ),
-      inOrder || !card.orderUrl
-        ? null
-        : el('a', { href: card.orderUrl }, sprintf(__('Order #%s', 'kindgi'), card.about.id)),
-    ].filter((link) => link !== null);
-    if (links.length === 0) return null;
+  function orderChip(card) {
+    if (card.about?.kind !== 'woocommerce.order') return null;
+    const label = sprintf(__('Order #%s', 'kindgi'), card.about.id);
+    return card.orderUrl
+      ? el('a', { className: 'kindgi-chip-link', href: card.orderUrl }, label)
+      : el('span', { className: 'kindgi-chip-link' }, label);
+  }
+
+  /** Under an approval waiting less than this long to be decided, its time left shows as short. */
+  const SOON_MS = 2 * 60 * 60 * 1000;
+
+  /** Who asked and when; for a waiting approval, how long is left to decide it. */
+  function cardMeta(card) {
+    const started = card.asked.kind === 'none';
+    const left =
+      card.waitsFor !== null && card.expiresAt ? Date.parse(card.expiresAt) - Date.now() : null;
     return el(
       'p',
-      { className: 'kindgi-links' },
-      links.flatMap((link, i) => (i === 0 ? [link] : [' · ', link])),
+      { className: 'kindgi-meta' },
+      el(
+        'span',
+        started
+          ? { title: __('By a webhook, a schedule or a service key: no person asked.', 'kindgi') }
+          : {},
+        askedWords(card.asked),
+      ),
+      ' · ',
+      timeEl(card.createdAt),
+      left === null
+        ? null
+        : [
+            ' · ',
+            el(
+              'strong',
+              { className: left < SOON_MS ? 'kindgi-soon' : null, title: when(card.expiresAt) },
+              /* translators: %s: how soon, in words, e.g. "in 23 hours" */
+              sprintf(__('Decide %s', 'kindgi'), ago(card.expiresAt)),
+            ),
+          ],
     );
   }
 
-  /** Words the agent wrote in its call (a reason, a note): quoted, and said to be its own. */
-  const agentWords = (w) =>
-    el(
+  /** Words the agent wrote in its call (a reason, a draft to a customer): set apart, and said to be its own. */
+  function agentWords(w) {
+    const long = w.text.length > LONG_WORDS || w.text.split('\n').length > 6;
+    const text = el('div', { className: 'kindgi-said-text' }, w.text);
+    const node = el(
       'figure',
-      { className: 'kindgi-said' },
+      { className: `kindgi-said${long ? ' kindgi-folded' : ''}` },
       el('figcaption', {}, sprintf(__("%s, in the agent's words", 'kindgi'), w.label)),
-      el('blockquote', {}, w.text),
+      text,
     );
+    if (long) {
+      const more = el(
+        'button',
+        {
+          type: 'button',
+          className: 'button-link',
+          'aria-expanded': 'false',
+          onclick: () => {
+            const folded = node.classList.toggle('kindgi-folded');
+            more.setAttribute('aria-expanded', String(!folded));
+            more.textContent = folded ? __('Show all', 'kindgi') : __('Show less', 'kindgi');
+          },
+        },
+        __('Show all', 'kindgi'),
+      );
+      node.append(more);
+    }
+    return node;
+  }
+
+  /** Words longer than this (or over six lines) show their start, with Show all. */
+  const LONG_WORDS = 480;
 
   /** What a card ends with: the decision made, why it's someone else's, or the controls to make one. */
   function cardEnding(card, after) {
@@ -328,8 +387,9 @@
     return decisionControls(card, after);
   }
 
-  /** Kindgi's own words and ids for an approval, and the call's raw fields. */
+  /** Kindgi's own words and ids for an approval, and the call's raw fields: for administrators. */
   function details(card) {
+    if (window.kindgiConfig?.admin !== true) return null;
     const d = card.details;
     const rows = [
       [__('Tool', 'kindgi'), d.toolId, true],
@@ -341,7 +401,7 @@
     return el(
       'details',
       { className: 'kindgi-details' },
-      el('summary', {}, __('Details', 'kindgi')),
+      el('summary', {}, __('Technical details', 'kindgi')),
       el(
         'dl',
         { className: 'kindgi-facts' },
@@ -367,16 +427,23 @@
     ];
   }
 
-  /** Approve, or reject with a reason. */
+  /**
+   * Approve, or Reject: the reason box opens only then, since a rejection
+   * needs one and an approval doesn't.
+   */
   function decisionControls(card, after) {
     const reason = el('textarea', {
-      rows: '2',
+      rows: '3',
       maxlength: '2000',
-      'aria-label': __('Reason', 'kindgi'),
-      placeholder: __('Why (needed to reject)', 'kindgi'),
+      'aria-label': __('Why you reject it', 'kindgi'),
+      placeholder: __('Why you reject it: the agent and whoever asked see this.', 'kindgi'),
+    });
+    const why = el('div', { className: 'kindgi-why', hidden: true }, reason);
+    reason.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') rejecting(false);
     });
     const result = el('div', { 'aria-live': 'polite' });
-    const buttons = el('p');
+    const buttons = el('p', { className: 'kindgi-actions' });
     const setDisabled = (disabled) => {
       for (const b of buttons.querySelectorAll('button')) b.disabled = disabled;
     };
@@ -396,7 +463,7 @@
         });
         result.replaceChildren(...decided(done));
         buttons.remove();
-        reason.remove();
+        why.remove();
         // The count on the menu and in the admin bar, now rather than in a minute.
         window.wp?.heartbeat?.connectNow?.();
         if (after !== undefined) setTimeout(after, 1500);
@@ -405,20 +472,24 @@
         result.replaceChildren(notice(error));
       }
     };
-    buttons.append(
-      el(
-        'button',
-        { type: 'button', className: 'button button-primary', onclick: () => decide('approve') },
-        __('Approve', 'kindgi'),
-      ),
-      ' ',
-      el(
-        'button',
-        { type: 'button', className: 'button', onclick: () => decide('reject') },
-        __('Reject', 'kindgi'),
-      ),
-    );
-    return el('div', {}, reason, buttons, result);
+    const button = (label, className, onclick) =>
+      el('button', { type: 'button', className, onclick }, label);
+    const asking = [
+      button(__('Approve', 'kindgi'), 'button button-primary', () => decide('approve')),
+      button(__('Reject…', 'kindgi'), 'button', () => rejecting(true)),
+    ];
+    const rejectingButtons = [
+      button(__('Reject', 'kindgi'), 'button kindgi-reject', () => decide('reject')),
+      button(__('Cancel', 'kindgi'), 'button-link', () => rejecting(false)),
+    ];
+    const rejecting = (on) => {
+      why.hidden = !on;
+      result.replaceChildren();
+      buttons.replaceChildren(...(on ? rejectingButtons : asking));
+      if (on) reason.focus();
+    };
+    buttons.append(...asking);
+    return el('div', {}, why, buttons, result);
   }
 
   /** A decision in words, by who made it: you, a person here, or someone at Kindgi. */
@@ -442,8 +513,11 @@
     else if (decision.by) who = 'person';
     return el(
       'p',
-      { className: 'kindgi-decision' },
-      made[who](when(decision.decidedAt), decision.by),
+      {
+        className: `kindgi-decision kindgi-decision-${decision.decision === 'reject' ? 'reject' : 'approve'}`,
+        title: when(decision.decidedAt),
+      },
+      made[who](ago(decision.decidedAt), decision.by),
       decision.reason ? `: ${decision.reason}` : '',
     );
   }
@@ -452,6 +526,8 @@
     api,
     el,
     when,
+    ago,
+    timeEl,
     notice,
     loading,
     muted,
