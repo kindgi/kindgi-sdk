@@ -11,9 +11,9 @@
  * A caller sees a pin only with all three of: `read` on the project (the
  * guard below, before the cursor, the limit or the 501); `read` on the
  * pin's agent, as the agents list asks it; and the pin's version, as
- * `GET /v1/agents/:agentId/pinned-versions` shows it (`seenPins`). So it shows
- * no pin that route doesn't already show its caller, and only the scopes
- * that cover this project. The filter runs on the page the binding read, so
+ * `GET /v1/agents/:agentId/pinned-versions` shows it. So it shows no pin
+ * that route doesn't already show its caller, and only the scopes that
+ * cover this project. The filter runs on the page the binding read, so
  * a page can come back short, or empty, with `hasMore: true`: page on the
  * cursor, not the count.
  */
@@ -30,7 +30,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { ItemRights } from '../item-rights.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
-import { seenPins, serializeAgentPinnedVersion } from './agent-pins.js';
+import { serializeAgentPinnedVersion } from './agent-pins.js';
 import { deniedBy } from './denied.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
@@ -81,8 +81,8 @@ export function projectPinnedVersionsRouter(deps: {
       ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
     });
     // The pin's agent, as the agents list asks it, but each pin at its own
-    // version: no `versions`, which would show a row at the agent's newest.
-    const readable =
+    // version (`atOwnVersion`): `versions` would show a row at the agent's newest.
+    const pins =
       authorizer === undefined
         ? page.data
         : itemRights === undefined
@@ -90,8 +90,8 @@ export function projectPinnedVersionsRouter(deps: {
           : await itemRights.filterItems(c, 'agent', page.data, {
               idOf: (p) => p.agentId,
               todayRef: (p) => ref('agent', p.agentId),
+              atOwnVersion: (p) => p.version as unknown as string,
             });
-    const pins = await seenPins(itemRights, c, readable);
     return c.json({
       data: pins.map(serializeAgentPinnedVersion),
       hasMore: page.nextCursor !== undefined,

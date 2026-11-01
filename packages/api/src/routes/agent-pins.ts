@@ -413,31 +413,6 @@ export async function seenVersions(
   return visibleOf(itemRights, c, agentId, await itemRights?.multi(c, 'agent', agentId), versions);
 }
 
-/**
- * The pins among `pins` whose version the caller can see, in order, by the
- * rule `seenVersions` applies to each pin's agent. One ask finds the agents
- * more than one project serves; only their versions are read further.
- */
-export async function seenPins<P extends Pick<AgentPinnedVersion, 'agentId' | 'version'>>(
-  itemRights: ItemRights | undefined,
-  c: Ctx,
-  pins: readonly P[],
-): Promise<P[]> {
-  if (itemRights === undefined || pins.length === 0) return [...pins];
-  const versionOf = (p: P) => p.version as unknown as string;
-  const multi = await itemRights.multiOfMany(
-    c,
-    'agent',
-    pins.map((p) => p.agentId),
-  );
-  const visible = new Map<string, ReadonlySet<string>>();
-  for (const [agentId, projects] of multi) {
-    const versions = [...new Set(pins.filter((p) => p.agentId === agentId).map(versionOf))];
-    visible.set(agentId, await visibleOf(itemRights, c, agentId, projects, versions));
-  }
-  return pins.filter((p) => visible.get(p.agentId)?.has(versionOf(p)) ?? true);
-}
-
 /** A pin on the wire (`AgentPinnedVersion`), as an agent's and a project's lists show it. */
 export function serializeAgentPinnedVersion(p: AgentPinnedVersion) {
   return {

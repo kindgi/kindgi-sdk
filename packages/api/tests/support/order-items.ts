@@ -78,6 +78,18 @@ export function itemProjects(rows: ItemRow[]): ItemProjectsBinding & { readonly 
       }
       return out;
     },
+    async versionProjectsOfItems({ kind, versions }) {
+      asked.push(`versionProjectsOfItems ${kind}`);
+      const out = new Map<string, ReadonlyMap<string, readonly ProjectId[]>>();
+      for (const [id, wanted] of versions) {
+        const of = new Map<string, readonly ProjectId[]>();
+        for (const v of find(kind, id)?.versions ?? []) {
+          if (wanted.includes(v.version)) of.set(v.version, v.projects);
+        }
+        if (of.size > 0) out.set(id, of);
+      }
+      return out;
+    },
     async newestVisibleOfMany({ kind, readable, retired }) {
       asked.push(`newestVisibleOfMany ${kind}`);
       const out = new Map<string, string>();

@@ -46,6 +46,13 @@ export interface VersionProjectsOfManyInput extends ItemProjectsInput {
   readonly versions: readonly string[];
 }
 
+export interface VersionProjectsOfItemsInput {
+  readonly tenantId: TenantId;
+  readonly kind: OrderItemKind;
+  /** Per item id, the versions asked about. */
+  readonly versions: ReadonlyMap<string, readonly string[]>;
+}
+
 export interface NewestVisibleOfManyInput {
   readonly tenantId: TenantId;
   readonly kind: OrderItemKind;
@@ -123,6 +130,14 @@ export interface ItemProjectsBinding {
   versionProjectsOfMany(
     input: VersionProjectsOfManyInput,
   ): Promise<ReadonlyMap<string, readonly ProjectId[]>>;
+  /**
+   * `versionProjectsOfMany` for a page of one kind's items, in one query:
+   * each item's asked versions, with where each can run. A version missing
+   * from an item's map is no version of it. Not asked for guardrails.
+   */
+  versionProjectsOfItems(
+    input: VersionProjectsOfItemsInput,
+  ): Promise<ReadonlyMap<string, ReadonlyMap<string, readonly ProjectId[]>>>;
   /**
    * For a page of one kind's items, each item's newest version (the
    * highest active one; for a `retired` item, the highest) that the caller

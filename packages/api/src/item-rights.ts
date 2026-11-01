@@ -78,23 +78,45 @@ export type ItemCheck =
   /** Rule 4: a change to one version, on each project it can run in. */
   | { readonly rule: 'every-version'; readonly action: Action; readonly version: string };
 
-/** How a list route reads its rows, for `filterItems`. */
-export interface ItemRows<T> {
+/** What every list route gives `filterItems`. */
+interface ItemRowsBase<T> {
   readonly idOf: (row: T) => string;
   /** What today's check reads a row by: the item, or (blocks) its project. */
   readonly todayRef: (row: T) => ResourceRef;
-  /**
-   * The row's version, and another version of its item: each row is shown
-   * at its item's newest version the caller can see. Absent for items
-   * without versions (guardrails): rule 1 alone.
-   */
-  readonly versions?: {
-    readonly versionOf: (row: T) => string;
-    readonly getVersion: (id: string, version: string) => Promise<T | null>;
-  };
-  /** A row of a retired item (a list including them): its unregistered versions count. */
-  readonly retired?: (row: T) => boolean;
 }
+
+/**
+ * How a list route reads its rows, for `filterItems`: each row at its
+ * item's newest version the caller can see (`versions`), or at its own
+ * (`atOwnVersion`), never both.
+ */
+export type ItemRows<T> = ItemRowsBase<T> &
+  (
+    | {
+        /**
+         * The row's version, and another version of its item: each row is shown
+         * at its item's newest version the caller can see. Absent for items
+         * without versions (guardrails): rule 1 alone.
+         */
+        readonly versions?: {
+          readonly versionOf: (row: T) => string;
+          readonly getVersion: (id: string, version: string) => Promise<T | null>;
+        };
+        /** A row of a retired item (a list including them): its unregistered versions count. */
+        readonly retired?: (row: T) => boolean;
+        readonly atOwnVersion?: never;
+      }
+    | {
+        /**
+         * The row's own version: a row of an item more than one project
+         * serves is shown only if that version runs in a project the
+         * caller reads.
+         */
+        readonly atOwnVersion: (row: T) => string;
+        readonly versions?: never;
+        readonly retired?: never;
+      }
+  );
 
 export interface ItemRights {
   /** The item's projects, its first one first; `undefined`: no such item. Asked once per request. */
@@ -181,7 +203,9 @@ export interface ItemRights {
   /**
    * Rules 1 and 2 for a list page: the rows the caller may read, each an
    * item more than one project serves shown at its newest version the
-   * caller can see. A page of one-project items is today's one check.
+   * caller can see, or, with `atOwnVersion`, at its own version, shown only
+   * if that version runs in a project the caller reads. A page of
+   * one-project items is today's one check.
    */
   filterItems<T>(c: Ctx, kind: OrderItemKind, rows: readonly T[], how: ItemRows<T>): Promise<T[]>;
   /**
@@ -415,7 +439,12 @@ export function createItemRights(
         ? [head, ...read]
         : read;
     };
-    const { versions } = how;
+    const { versions, atOwnVersion } = how;
+    if (atOwnVersion !== undefined) {
+      // Each row at its own version: rule 2 for the page's versions, in one ask.
+      const seen = await seenAtOwnVersion(c, kind, many, readableOf, how.idOf, atOwnVersion);
+      return rows.filter((row) => (many.has(row) ? seen.has(row) : allowed.has(row)));
+    }
     if (versions === undefined) {
       // No versions: rule 1, the item's own read or read on one of its projects.
       return rows.filter((row) => (many.has(row) ? readableOf(row).length > 0 : allowed.has(row)));
@@ -453,6 +482,47 @@ export function createItemRights(
       await authorizer.filterByCan(c, 'read', pageProjects, (p) => ref('project', p)),
     );
     return { allowed, readProjects };
+  }
+
+  /**
+   * For a page's rows at their own version, of items more than one project
+   * serves: those whose version can run in a project the caller reads
+   * (`visibleVersions`' test, per row), with every item's versions in one ask.
+   */
+  async function seenAtOwnVersion<T>(
+    c: Ctx,
+    kind: OrderItemKind,
+    many: ReadonlySet<T>,
+    readableOf: (row: T) => readonly ProjectId[],
+    idOf: (row: T) => string,
+    versionOf: (row: T) => string,
+  ): Promise<ReadonlySet<T>> {
+    const readable = new Map<T, readonly ProjectId[]>();
+    const asked = new Map<string, Set<string>>();
+    for (const row of many) {
+      const projects = readableOf(row);
+      if (projects.length === 0) continue;
+      readable.set(row, projects);
+      const versions = asked.get(idOf(row)) ?? new Set<string>();
+      versions.add(versionOf(row));
+      asked.set(idOf(row), versions);
+    }
+    if (asked.size === 0) return new Set();
+    const where = await binding.versionProjectsOfItems({
+      tenantId: tenantOf(c),
+      kind,
+      versions: new Map([...asked].map(([id, versions]) => [id, [...versions]])),
+    });
+    return new Set(
+      [...readable]
+        .filter(([row, projects]) =>
+          where
+            .get(idOf(row))
+            ?.get(versionOf(row))
+            ?.some((p) => projects.includes(p)),
+        )
+        .map(([row]) => row),
+    );
   }
 
   /** For a page's items more than one project serves, each one's newest version the caller can see, in one ask. */

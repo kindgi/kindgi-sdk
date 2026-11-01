@@ -1351,6 +1351,7 @@ export type {
   OrderItemKind,
   ServesInInput,
   VersionProjectsInput,
+  VersionProjectsOfItemsInput,
   VersionProjectsOfManyInput,
 } from './item-projects-binding.js';
 export type {

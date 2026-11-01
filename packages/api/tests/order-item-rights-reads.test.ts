@@ -15,12 +15,17 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
+import { userPrincipal } from '@kindgi/authz';
 import type { ProjectId, TenantId, UserId } from '@kindgi/types';
+import { Hono } from 'hono';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { CreateAppInput, OrderItemKind, TokenResolver } from '../src/index.js';
+import { type ItemRows, itemRightsOf } from '../src/item-rights.js';
+import { createAuthorizer } from '../src/middleware/authorize.js';
+import type { AppEnv } from '../src/types.js';
 import { environmentOrders } from './support/environment-orders.js';
 import { type Grant, type ItemRow, grantsAuthz, itemProjects } from './support/order-items.js';
 
@@ -479,3 +484,67 @@ describe.each(KINDS)('`?projectId=` on a $kind with no authorizer', (k) => {
     expect(items).toContain(`projectsOf ${k.kind} ${SERVED}`);
   });
 });
+
+describe('filterItems with each row at its own version (`atOwnVersion`)', () => {
+  /** Rows of the order's agent at two versions: `0.9.0` runs in prod only, `1.1.0` in staging only. */
+  const ROWS: readonly OwnVersionRow[] = [
+    { id: SERVED, version: '0.9.0' },
+    { id: SERVED, version: '1.1.0' },
+  ];
+
+  /** The versions `filterItems` keeps of `ROWS` for `who`, and what the binding was asked. */
+  async function kept(who: string) {
+    const authz = grantsAuthz(PEOPLE);
+    const items = itemProjects(rows());
+    const rights = itemRightsOf(createAuthorizer(authz.authz.authzCheckBinding), items);
+    if (rights === undefined) throw new Error('no item rights');
+    const app = new Hono<AppEnv>();
+    app.get('/', async (c) => {
+      c.set('tenantId' as never, tenantId as never);
+      c.set('requestId' as never, 'req-own-version' as never);
+      c.set('principal' as never, userPrincipal(who as UserId, tenantId) as never);
+      const shown = await rights.filterItems(c, 'agent', ROWS, {
+        idOf: (r) => r.id,
+        todayRef: (r) => ({ type: 'agent', id: r.id }),
+        atOwnVersion: (r) => r.version,
+      });
+      return c.json(shown.map((r) => r.version));
+    });
+    const res = await app.request('/');
+    return { versions: (await res.json()) as string[], asked: items.asked };
+  }
+
+  test('keeps a row only if its own version runs in a project the caller reads', async () => {
+    const prod = await kept('prod');
+    expect(prod.versions).toEqual(['0.9.0']);
+    // Both rows' versions in one ask.
+    expect(prod.asked).toEqual(['projectsOfMany agent', 'versionProjectsOfItems agent']);
+    expect((await kept('staging')).versions).toEqual(['1.1.0']);
+    expect((await kept('nobody')).versions).toEqual([]);
+  });
+});
+
+interface OwnVersionRow {
+  readonly id: string;
+  readonly version: string;
+}
+
+// A row is read at its item's newest version or at its own, never both:
+// checked by `pnpm typecheck` (tsc over tests/). Never executed: the
+// assertions are the @ts-expect-error directives.
+function _atOwnVersionAlone(): void {
+  const base = {
+    idOf: (r: OwnVersionRow) => r.id,
+    todayRef: (r: OwnVersionRow) => ({ type: 'agent' as const, id: r.id }),
+  };
+  const atOwnVersion = (r: OwnVersionRow) => r.version;
+  const versions = { versionOf: (r: OwnVersionRow) => r.version, getVersion: async () => null };
+  const retired = () => false;
+  // @ts-expect-error: `atOwnVersion` with `versions` must not compile.
+  const withVersions: ItemRows<OwnVersionRow> = { ...base, atOwnVersion, versions };
+  // @ts-expect-error: `atOwnVersion` with `retired` must not compile.
+  const withRetired: ItemRows<OwnVersionRow> = { ...base, atOwnVersion, retired };
+  const alone: ItemRows<OwnVersionRow> = { ...base, atOwnVersion };
+  void [withVersions, withRetired, alone];
+}
+void _atOwnVersionAlone;

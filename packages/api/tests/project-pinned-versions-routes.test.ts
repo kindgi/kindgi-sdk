@@ -8,7 +8,8 @@
  * is the runtime's to test. Here: the guard on the project comes first,
  * paging is the promotions list's, a binding without `listCovering`
  * answers 501, and a caller sees a pin only with read on its agent and its
- * version, each pin at its own version.
+ * version, each pin at its own version. A page asks where its agents and
+ * their versions run once for the page, never once per agent.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -42,6 +43,9 @@ const NOW = '2026-10-28T00:00:00.000Z' as Timestamp;
 /** An agent an order carries from staging to prod, and one in a single project. */
 const SERVED = 'acme.desk';
 const SOLO = 'acme.solo';
+/** Two more agents the order carries, with one version, in both projects. */
+const SERVED_EU = 'acme.desk-eu';
+const SERVED_US = 'acme.desk-us';
 
 /** `0.9.0` runs in prod only, `1.0.0` in both, `1.1.0` (the newest) in staging only. */
 function rows(): ItemRow[] {
@@ -62,6 +66,14 @@ function rows(): ItemRow[] {
       projects: [OTHER],
       versions: [{ version: '1.0.0', projects: [OTHER] }],
     },
+    ...[SERVED_EU, SERVED_US].map(
+      (id): ItemRow => ({
+        kind: 'agent',
+        id,
+        projects: [STAGING, PROD],
+        versions: [{ version: '1.0.0', projects: [STAGING, PROD] }],
+      }),
+    ),
   ];
 }
 
@@ -141,6 +153,7 @@ function harness(
 ) {
   const fake = fakeLive(opts);
   const authz = grantsAuthz(PEOPLE);
+  const items = itemProjects(rows());
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
@@ -156,8 +169,7 @@ function harness(
     },
     ...(opts.withProjects !== false && { projectBinding: projects }),
     ...(opts.rights === true && { authz: authz.authz }),
-    ...(opts.rights === true &&
-      opts.noItemRights !== true && { itemProjects: itemProjects(rows()) }),
+    ...(opts.rights === true && opts.noItemRights !== true && { itemProjects: items }),
   });
   const list = async (who: string, projectId: string, query = '') => {
     const res = await app.request(`/v1/projects/${projectId}/pinned-versions${query}`, {
@@ -166,7 +178,9 @@ function harness(
     const text = await res.text();
     return { status: res.status, text, body: JSON.parse(text) as Record<string, any> };
   };
-  return { list, ...fake };
+  // What a request read: the item-projects binding's asks, and the
+  // authorizer's decisions and batches.
+  return { list, ...fake, reads: items.asked, decided: authz.asked, batches: authz.batches };
 }
 
 const versions = (body: Record<string, any>) =>
@@ -320,5 +334,59 @@ describe('who sees which pin (item rights, through createApp)', () => {
     expect(res.status, res.text).toBe(200);
     // Read on prod isn't read on acme.desk: only acme.solo's pin.
     expect(versions(res.body)).toEqual([`${SOLO}@1.0.0`]);
+  });
+});
+
+describe('what a page reads (item rights, through createApp)', () => {
+  /** One pin of each agent: the three the order carries, then the one-project agent. */
+  const ONE_EACH: readonly AgentPinnedVersion[] = [
+    pin(SERVED, '1.0.0', { kind: 'project', projectId: PROD }),
+    pin(SERVED_EU, '1.0.0', { kind: 'project', projectId: PROD }),
+    pin(SERVED_US, '1.0.0', { kind: 'tenant' }),
+    pin(SOLO, '1.0.0', { kind: 'org', orgId: ORG as never }),
+  ];
+  const only = (...ids: string[]) => ONE_EACH.filter((p) => ids.includes(p.agentId));
+
+  test('agents more than one project serves: one ask for their projects, one for their versions, two batches', async () => {
+    const { list, state, reads, decided, batches } = harness({ rights: true });
+    state.page = { data: ONE_EACH };
+    const res = await list('solo-reader', PROD);
+    expect(res.status, res.text).toBe(200);
+    expect(versions(res.body)).toEqual([
+      `${SERVED}@1.0.0`,
+      `${SERVED_EU}@1.0.0`,
+      `${SERVED_US}@1.0.0`,
+      `${SOLO}@1.0.0`,
+    ]);
+    // Every agent's versions in one ask: none for one agent at a time.
+    expect(reads).toEqual(['projectsOfMany agent', 'versionProjectsOfItems agent']);
+    // The page's two batches: its agents' own read, then its projects'.
+    expect(batches).toEqual([
+      `read agent:${SERVED},agent:${SERVED_EU},agent:${SERVED_US},agent:${SOLO}`,
+      `read project:${STAGING},project:${PROD}`,
+    ]);
+    for (const id of [SERVED, SERVED_EU, SERVED_US, SOLO]) {
+      expect(decided.filter((d) => d === `solo-reader read agent:${id}`)).toHaveLength(1);
+    }
+  });
+
+  test('one such agent on the page: the same asks and the same two batches', async () => {
+    const { list, state, reads, batches } = harness({ rights: true });
+    state.page = { data: only(SERVED, SOLO) };
+    const res = await list('solo-reader', PROD);
+    expect(res.status, res.text).toBe(200);
+    expect(versions(res.body)).toEqual([`${SERVED}@1.0.0`, `${SOLO}@1.0.0`]);
+    expect(reads).toEqual(['projectsOfMany agent', 'versionProjectsOfItems agent']);
+    expect(batches).toHaveLength(2);
+  });
+
+  test('no such agent on the page: one ask for the projects, no version read, one batch', async () => {
+    const { list, state, reads, batches } = harness({ rights: true });
+    state.page = { data: only(SOLO) };
+    const res = await list('solo-reader', PROD);
+    expect(res.status, res.text).toBe(200);
+    expect(versions(res.body)).toEqual([`${SOLO}@1.0.0`]);
+    expect(reads).toEqual(['projectsOfMany agent']);
+    expect(batches).toEqual([`read agent:${SOLO}`]);
   });
 });
