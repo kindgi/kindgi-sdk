@@ -489,6 +489,17 @@ For reference, the release gate it writes looks like this. This guide saves it a
 }
 ```
 
+**For an agent whose job is a write,** such as sending a reply or placing
+an order, leave `replay` out and gate on `cases` instead, for example
+`"cases": { "minPassing": 3, "noNewFailures": true }`.
+[A replay](../compare-an-agent-version/#what-a-replay-does) refuses a call
+that changes things unless the past run made the same call, with the same
+arguments, and a write the model words, such as a mail's body, almost never
+repeats word for word. Each refusal counts in `refusedWrites`, so
+`"maxRefusedWrites": 0` refuses every version. To keep `replay`, set
+`maxRefusedWrites`, and any other count the version's run on the test cases
+shows, to what you accept: those left out are 0.
+
 Then publish it:
 
 <Tabs syncKey="lang">
