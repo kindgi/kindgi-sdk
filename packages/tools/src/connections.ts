@@ -15,7 +15,7 @@ export interface ConnectionNeed {
   readonly permissions: readonly string[];
   /**
    * Whose connection: `'person'` is the run's person (the one it acts for,
-   * who started it or owns its trigger); `'company'` is the tenant's.
+   * who started it or owns its trigger); `'company'` is the workspace's.
    */
   readonly as: 'person' | 'company';
 }
@@ -102,7 +102,7 @@ export type ResolveConnectionsOutcome =
 
 /**
  * What a run's tool dispatch asks for a call's connections: a runtime
- * implements it. For each need it finds the tenant's registration of the
+ * implements it. For each need it finds the workspace's registration of the
  * app that allows the project, the owner (the run's person, or the
  * company), and that owner's live connection with every permission the
  * need lists, in the served env.

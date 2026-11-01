@@ -27,7 +27,7 @@ export interface AuditEvent {
   readonly id: string;
   readonly tenantId: TenantId;
   /**
-   * Content-scope anchor. Optional so tenant-level events (e.g. admin
+   * Content-scope anchor. Optional so workspace-level events (e.g. admin
    * actions taken before any project exists) can land without one.
    * Events emitted inside a project carry it; queries use it for scope
    * narrowing.

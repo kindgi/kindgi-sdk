@@ -42,7 +42,7 @@
       "items": {
         "$ref": "#/$defs/Effect"
       },
-      "description": "Declared side-effects. Enables policy enforcement (can this tool run in this tenant?), safe parallelization (are two calls conflicting?), and causal provenance."
+      "description": "Declared side-effects. Enables policy enforcement (can this tool run in this workspace?), safe parallelization (are two calls conflicting?), and causal provenance."
     },
     "transport": {
       "type": "string",
@@ -248,7 +248,7 @@
         },
         "as": {
           "enum": ["person", "company"],
-          "description": "Whose connection: `person`, the run's person (the one it acts for, who started it or owns its trigger); `company`, the tenant's."
+          "description": "Whose connection: `person`, the run's person (the one it acts for, who started it or owns its trigger); `company`, the workspace's."
         }
       }
     },

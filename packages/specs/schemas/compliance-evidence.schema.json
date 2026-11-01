@@ -20,7 +20,7 @@
     "projectId": {
       "type": "string",
       "minLength": 1,
-      "description": "Content-scope anchor: the project the underlying audit event belongs to. Absent for tenant-level events (e.g. authz decisions, tenant-level admin actions)."
+      "description": "Content-scope anchor: the project the underlying audit event belongs to. Absent for workspace-level events (e.g. authz decisions, workspace-level admin actions)."
     },
     "kind": {
       "type": "string",

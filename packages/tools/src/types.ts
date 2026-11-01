@@ -47,7 +47,7 @@ export interface Effect {
 
 /**
  * A typed context requirement — a named slot the tool expects the runtime
- * to supply. The name matches an entry in the tenant's provider registry
+ * to supply. The name matches an entry in the workspace's provider registry
  * (`tenant`, `db`, `memory:facts`, `blob`, etc.). Not enforced by this
  * package; declarative metadata for capability + policy layers.
  */
@@ -188,7 +188,7 @@ export interface ToolContext {
   /**
    * The env values this tool declares in `needsSpec.env`, by name,
    * resolved by the runtime for this call: the call's project's value,
-   * else its org's, else the tenant's, in the env the runtime serves
+   * else its org's, else the workspace's, in the env the runtime serves
    * (`KINDGI_ENV`). A name no scope sets gets its schema's `default`.
    * Every declared name is present: one with neither a value nor a
    * default, or whose value doesn't match its schema, fails the call

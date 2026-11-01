@@ -2243,7 +2243,7 @@ describe('kindgi build --local', () => {
 
   test('an indexer warning is printed and the pack still builds', async () => {
     const message =
-      'guardrails/cites.ts: check "cites" doesn\'t start with this pack\'s id ("my-pack."). Name it "my-pack.checks.<name>" so it can\'t collide with another pack\'s check in the same tenant. The pack builds as it is.';
+      'guardrails/cites.ts: check "cites" doesn\'t start with this pack\'s id ("my-pack."). Name it "my-pack.checks.<name>" so it can\'t collide with another pack\'s check in the same workspace. The pack builds as it is.';
     const fixtures = makeFixtures({
       indexOutcome: {
         kind: 'ok',

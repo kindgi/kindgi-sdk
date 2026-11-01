@@ -328,7 +328,7 @@ export const PACK_HEADERS = {
    */
   traceparent: 'traceparent',
   /**
-   * The tenant the call is for, set by the server from the deployment it
+   * The workspace the call is for, set by the server from the deployment it
    * routed the call to (never copied from a caller), on `/v1/invoke` and
    * `/v1/info`. A pack service with `KINDGI_PACK_TENANT_ID` refuses a call
    * whose header is missing or names another tenant, with 421. Optional: a

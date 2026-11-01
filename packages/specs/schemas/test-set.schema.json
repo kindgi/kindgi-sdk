@@ -3,7 +3,7 @@
   "$id": "https://kindgi.com/schemas/v1/test-set.schema.json",
   "$comment": "schema-version: 1.0.0",
   "title": "Test set",
-  "description": "Tenant-scoped test set definition — the *registry* shape (`/v1/test-sets`). A test set defines WHAT a version is checked on; test runs + per-kind grader dispatch are separate concerns. `kind` selects the shape of `spec`; the registry treats `spec` as opaque JSON so new kinds can extend the catalog without breaking existing readers. Each kind's runtime consumer (eval-judge adapter for `accuracy` / `pairwise` / `regression`, HITL bridge for `human-review`, sandbox handler for `custom`) deserializes `spec` against its own contract. Case data lives in `spec`.",
+  "description": "Workspace-scoped test set definition — the *registry* shape (`/v1/test-sets`). A test set defines WHAT a version is checked on; test runs + per-kind grader dispatch are separate concerns. `kind` selects the shape of `spec`; the registry treats `spec` as opaque JSON so new kinds can extend the catalog without breaking existing readers. Each kind's runtime consumer (eval-judge adapter for `accuracy` / `pairwise` / `regression`, HITL bridge for `human-review`, sandbox handler for `custom`) deserializes `spec` against its own contract. Case data lives in `spec`.",
   "type": "object",
   "required": ["id", "tenantId", "version", "kind", "spec"],
   "additionalProperties": false,
@@ -16,7 +16,7 @@
     "tenantId": {
       "type": "string",
       "minLength": 1,
-      "description": "Tenant owning the test set. When published via HTTP, must match the caller tenant (server-derived from the token). Cross-tenant publish is rejected."
+      "description": "The workspace owning the test set. When published via HTTP, must match the caller's workspace (server-derived from the token). Cross-tenant publish is rejected."
     },
     "version": {
       "type": "string",

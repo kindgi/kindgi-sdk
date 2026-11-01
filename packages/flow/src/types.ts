@@ -610,7 +610,7 @@ export interface EdgePolicy {
   /**
    * Per-key kernel semaphore. When set on the SOLE incoming edge of a
    * destination node, the kernel serializes dispatch across every node
-   * (across every run, across every flow, within a single tenant) that
+   * (across every run, across every flow, within a single workspace) that
    * shares the same key: at most one such node runs at a time.
    *
    * A node whose lease is unavailable at dispatch time is journaled as

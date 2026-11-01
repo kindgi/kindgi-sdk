@@ -21,7 +21,7 @@
     "tenantId": {
       "type": "string",
       "minLength": 1,
-      "description": "Tenant that owns this event. Cross-tenant delivery is denied by policy."
+      "description": "The workspace that owns this event. Cross-tenant delivery is denied by policy."
     },
     "timestamp": {
       "type": "string",

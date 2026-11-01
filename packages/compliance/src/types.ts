@@ -218,7 +218,7 @@ export interface Evidence {
   readonly tenantId: TenantId;
   /**
    * Content-scope anchor — the project the underlying audit event
-   * belongs to. Absent for tenant-level events (e.g. authz decisions,
+   * belongs to. Absent for workspace-level events (e.g. authz decisions,
    * admin actions before any project exists), mirroring the optional
    * `AuditEvent.projectId`.
    */

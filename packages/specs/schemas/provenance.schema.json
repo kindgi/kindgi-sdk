@@ -3,7 +3,7 @@
   "$id": "https://kindgi.com/schemas/v1/provenance.schema.json",
   "$comment": "schema-version: 1.1.0",
   "title": "Provenance DAG",
-  "description": "Causal DAG for a run. Every output node has edges back to every input that influenced it — prompts, retrieved chunks, tool results, prior turns, model version, tenant policy in effect. This is the PRIMARY audit artifact, not a derivative of OTel spans. Signed with Ed25519 for verification outside the runtime.",
+  "description": "Causal DAG for a run. Every output node has edges back to every input that influenced it — prompts, retrieved chunks, tool results, prior turns, model version, workspace policy in effect. This is the PRIMARY audit artifact, not a derivative of OTel spans. Signed with Ed25519 for verification outside the runtime.",
   "type": "object",
   "required": ["id", "runId", "tenantId", "version", "nodes", "edges", "createdAt"],
   "additionalProperties": false,
@@ -21,7 +21,7 @@
     "tenantId": {
       "type": "string",
       "minLength": 1,
-      "description": "Tenant that owns this provenance record. Cross-tenant reads are denied by policy."
+      "description": "The workspace that owns this provenance record. Cross-tenant reads are denied by policy."
     },
     "version": {
       "type": "string",

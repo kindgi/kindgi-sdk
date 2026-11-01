@@ -45,7 +45,7 @@ of more answers `size` without sending its bytes."""
 NotStoredReason = Literal["type", "size", "limit", "storage"]
 """Why a store kept nothing: `type` (the bytes aren't a type a model is shown, or not the type
 they claim), `size` (over the type's limit), `limit` (the call has stored
-`MAX_STORED_FILES_PER_CALL` files), `storage` (the tenant's storage is full)."""
+`MAX_STORED_FILES_PER_CALL` files), `storage` (the workspace's storage is full)."""
 
 NotReadReason = Literal["rule", "gone", "changed", "size"]
 """Why a read answered no bytes: `rule` (the call's run may not be shown a file of that id),

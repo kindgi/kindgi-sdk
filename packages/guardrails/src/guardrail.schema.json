@@ -207,7 +207,7 @@
     },
     "judgeCapabilities": {
       "type": "object",
-      "description": "For llm-judge guardrails: capability declaration for the judge model. Routed through `@kindgi/capabilities` over the providers bound for evaluation; when the caller passes a tenant policy (an agent turn passes its own), the judge is routed under it. BYO judges supported.",
+      "description": "For llm-judge guardrails: capability declaration for the judge model. Routed through `@kindgi/capabilities` over the providers bound for evaluation; when the caller passes a workspace policy (an agent turn passes its own), the judge is routed under it. BYO judges supported.",
       "additionalProperties": true
     }
   },

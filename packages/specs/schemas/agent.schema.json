@@ -71,7 +71,7 @@
     "retrieval": {
       "type": "array",
       "items": { "$ref": "#/$defs/RetrievalIntent" },
-      "description": "Fact-retrieval intents run before every turn to ground the model's context. Each sees only what the run may (its project and org, the user it acts for, its conversation and that conversation's end user, and tenant-wide facts); retrieved facts reach the model as a labelled data block, never as instructions. Schema-version 1.4.0 adds the `same-user` scope and `memory`; 1.5.0 adds `memory.remember`; 1.6.0 adds `source: conversations` and `same-segment`."
+      "description": "Fact-retrieval intents run before every turn to ground the model's context. Each sees only what the run may (its project and org, the user it acts for, its conversation and that conversation's end user, and workspace-wide facts); retrieved facts reach the model as a labelled data block, never as instructions. Schema-version 1.4.0 adds the `same-user` scope and `memory`; 1.5.0 adds `memory.remember`; 1.6.0 adds `source: conversations` and `same-segment`."
     },
     "memory": {
       "type": "object",
@@ -98,7 +98,7 @@
             "scope": {
               "type": "string",
               "enum": ["same-user", "same-conversation", "same-project", "tenant"],
-              "description": "Where its facts go: the conversation's end user (else the user the run acts for), the conversation, the run's project, or the tenant. Each but `tenant` includes the run's project."
+              "description": "Where its facts go: the conversation's end user (else the user the run acts for), the conversation, the run's project, or the workspace. Each but `tenant` includes the run's project."
             },
             "keepDays": {
               "type": "integer",
@@ -118,7 +118,7 @@
     "preferredProvider": {
       "type": "string",
       "minLength": 1,
-      "description": "Preferred model provider id. Soft hint: the router prefers this provider when it satisfies the agent's capabilities and tenant policy, and otherwise routes normally."
+      "description": "Preferred model provider id. Soft hint: the router prefers this provider when it satisfies the agent's capabilities and workspace policy, and otherwise routes normally."
     },
     "preferredModel": {
       "type": "string",
@@ -161,7 +161,7 @@
     "ToolErrorsSpec": {
       "type": "object",
       "additionalProperties": false,
-      "description": "What the turn does when a tool call fails (schema-version 1.3.0): the failure goes back to the model as the call's result, so it can correct the call, up to `maxRetries` times per turn, for the kinds in `retryOn`. Default: one retry, for `invalid-arguments` and `unknown-tool`. A tenant `tool-errors` policy can lower it.",
+      "description": "What the turn does when a tool call fails (schema-version 1.3.0): the failure goes back to the model as the call's result, so it can correct the call, up to `maxRetries` times per turn, for the kinds in `retryOn`. Default: one retry, for `invalid-arguments` and `unknown-tool`. A workspace `tool-errors` policy can lower it.",
       "properties": {
         "maxRetries": {
           "type": "integer",

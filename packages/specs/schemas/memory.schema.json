@@ -263,7 +263,7 @@
     "Retention": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Fact-level retention override. Tenant policy sets defaults.",
+      "description": "Fact-level retention override. Workspace policy sets defaults.",
       "properties": {
         "keepUntil": {
           "type": "string",

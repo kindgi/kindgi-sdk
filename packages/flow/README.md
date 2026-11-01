@@ -107,7 +107,7 @@ Kernel runtime semantics (timer wiring, `AbortSignal` composition, timeout+retry
 
 ## Concurrency policy (schema-version 1.4.0+)
 
-Per-edge kernel semaphore is declared via `FlowEdge.policy.concurrencyKey`. When set on the sole incoming edge of a destination node, the kernel serializes dispatch across every node (across every run, across every flow, within a single tenant) that shares the same key: at most one such node runs at a time.
+Per-edge kernel semaphore is declared via `FlowEdge.policy.concurrencyKey`. When set on the sole incoming edge of a destination node, the kernel serializes dispatch across every node (across every run, across every flow, within a single workspace) that shares the same key: at most one such node runs at a time.
 
 ```ts
 const edge: FlowEdge = {

@@ -1749,7 +1749,7 @@ function reservedCheckIn(
 /**
  * The check implementations a guardrail module ships (the guardrail's own
  * `check`, and any check the module exports) whose id doesn't start with
- * the pack's id: `<packId>.`. Packs in one tenant share one space of
+ * the pack's id: `<packId>.`. Packs in one workspace share one space of
  * check names, so a check named for its pack can't collide with another
  * pack's. A warning, never a refusal: the pack builds as it did.
  */
@@ -1772,7 +1772,7 @@ function unprefixedChecksIn(
   }
   return [...ids].map((id) => ({
     code: 'check-id-unprefixed',
-    message: `${relPath}: check "${id}" doesn't start with this pack's id ("${packId}."). Name it "${packId}.checks.<name>" so it can't collide with another pack's check in the same tenant. The pack builds as it is.`,
+    message: `${relPath}: check "${id}" doesn't start with this pack's id ("${packId}."). Name it "${packId}.checks.<name>" so it can't collide with another pack's check in the same workspace. The pack builds as it is.`,
     filePath: relPath,
     field: 'check',
   }));

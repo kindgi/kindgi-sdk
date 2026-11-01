@@ -3,7 +3,7 @@
   "$id": "https://kindgi.com/schemas/v1/pack.schema.json",
   "$comment": "schema-version: 1.1.0",
   "title": "Pack manifest",
-  "description": "An installable vertical application. Bundles agents, tools, guardrails, memory schemas, capability declarations, and UI metadata — all as data. Installation is 'load this manifest into tenant config'. Pack tools reach the runtime over MCP (`mcpEndpoint`), as a handler artifact (`codeArtifactRef`), or as a declarative `spec`; pack code runs outside the runtime server process, in a separate process or container.",
+  "description": "An installable vertical application. Bundles agents, tools, guardrails, memory schemas, capability declarations, and UI metadata — all as data. Installation is 'load this manifest into the workspace's config'. Pack tools reach the runtime over MCP (`mcpEndpoint`), as a handler artifact (`codeArtifactRef`), or as a declarative `spec`; pack code runs outside the runtime server process, in a separate process or container.",
   "type": "object",
   "required": ["id", "version", "name", "manifestVersion"],
   "additionalProperties": false,
@@ -108,14 +108,14 @@
       "items": {
         "type": "string"
       },
-      "description": "Context slots this pack requires the tenant to have configured (e.g. 'model:vision-capable', 'blob', 'compliance-provider'). Install fails if any is unmet."
+      "description": "Context slots this pack requires the workspace to have configured (e.g. 'model:vision-capable', 'blob', 'compliance-provider'). Install fails if any is unmet."
     },
     "permissions": {
       "type": "array",
       "items": {
         "type": "string"
       },
-      "description": "Permissions this pack asks the admin to grant on install (e.g. 'memory:write:facts', 'blob:write', 'events:emit'). Enforced by the tenant policy engine."
+      "description": "Permissions this pack asks the admin to grant on install (e.g. 'memory:write:facts', 'blob:write', 'events:emit'). Enforced by the workspace policy engine."
     },
     "signature": {
       "$ref": "#/$defs/PackSignature"

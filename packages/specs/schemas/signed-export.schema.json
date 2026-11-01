@@ -30,7 +30,7 @@
     },
     "tenantId": {
       "type": "string",
-      "description": "A compliance export's tenant."
+      "description": "A compliance export's workspace."
     },
     "bundle": {
       "type": "string",
