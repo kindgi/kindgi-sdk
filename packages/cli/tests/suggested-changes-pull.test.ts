@@ -113,7 +113,7 @@ const TONE = {
 async function pack(opts: { git?: boolean } = {}): Promise<void> {
   await mkdir(join(cwd, 'blocks'), { recursive: true });
   await writeFile(join(cwd, 'blocks/tone.json'), `${JSON.stringify(TONE, null, 2)}\n`);
-  await writeFile(join(cwd, 'notes.md'), 'Notes.\n');
+  await writeFile(join(cwd, 'notes.txt'), 'Notes.\n');
   if (opts.git === false) return;
   execFileSync(REAL_GIT, ['init', '-q', '--bare', remote], { env: env() });
   inPack('init', '-q');
@@ -254,8 +254,8 @@ describe('kindgi suggested-changes pull', () => {
   test('with --pr: a branch, a commit of the block file alone, a push, a pull request, and the open corrections being-fixed', async () => {
     await pack();
     // Staged, and not the block's: it stays out of the commit.
-    await writeFile(join(cwd, 'notes.md'), 'Notes, edited.\n');
-    inPack('add', 'notes.md');
+    await writeFile(join(cwd, 'notes.txt'), 'Notes, edited.\n');
+    inPack('add', 'notes.txt');
     await fakeGh({ stdout: `${PR_URL}\n` });
     const stub = client();
     const out = await pull(['sc-1', '--pr'], stub);
@@ -283,7 +283,7 @@ describe('kindgi suggested-changes pull', () => {
       '',
       'blocks/tone.json',
     ]);
-    expect(inPack('diff', '--cached', '--name-only').trim()).toBe('notes.md');
+    expect(inPack('diff', '--cached', '--name-only').trim()).toBe('notes.txt');
     expect(
       execFileSync(REAL_GIT, ['--git-dir', remote, 'rev-parse', `refs/heads/${BRANCH}`], {
         env: env(),
