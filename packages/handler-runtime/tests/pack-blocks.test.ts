@@ -19,7 +19,7 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { runIndexer } from '../src/kindgi-index.js';
-import { blockFileText, readPackBlocks, writePackBlock } from '../src/pack-blocks.js';
+import { blockFileText, holdsContent, readPackBlocks, writePackBlock } from '../src/pack-blocks.js';
 
 const addFormats = ((addFormatsModule as { default?: unknown }).default ??
   addFormatsModule) as unknown as (ajv: Ajv2020) => void;
@@ -671,6 +671,18 @@ describe('writePackBlock', () => {
       expect(await read('blocks/reply.liquid')).toBe('Reply to {{ customer_name }}, kindly.');
     });
 
+    test('a settings file that gives no schema holds a version stored with the schema it carried', async () => {
+      const values = { values: { tone: 'warm' } };
+      await write({ 'blocks/style.json': json(settings({ content: values })) });
+      const out = await writePackBlock(packDir, BLOCKS, {
+        id: 'acme.reply-style',
+        version: '1.0.1',
+        content: { values: { tone: 'brief' } },
+        expected: settings().content as Record<string, unknown>,
+      });
+      expect(out).toMatchObject({ kind: 'ok', replaced: '1.0.0' });
+    });
+
     test("a settings block's whole content is compared, its values too", async () => {
       await write({ 'blocks/style.json': json(settings()) });
       const was = settings().content as Record<string, unknown>;
@@ -694,6 +706,47 @@ describe('writePackBlock', () => {
       });
       expect(out).toMatchObject({ kind: 'err', reason: 'invalid' });
     });
+  });
+});
+
+describe('holdsContent: whether a block file holds a version', () => {
+  const template = { template: 'Reply to {{ customer_name }}.', parameters: [] };
+  const schema = { type: 'object', properties: { tone: { type: 'string' } } };
+
+  test('the same content holds, its keys in any order', () => {
+    expect(holdsContent('prompt', template, { parameters: [], template: template.template })).toBe(
+      true,
+    );
+    expect(
+      holdsContent(
+        'settings',
+        { values: { tone: 'warm', length: 2 }, schema },
+        { schema, values: { length: 2, tone: 'warm' } },
+      ),
+    ).toBe(true);
+  });
+
+  test("a prompt's template is compared as the index holds it, read in from its file", () => {
+    expect(holdsContent('prompt', template, { ...template, template: 'Reply kindly.' })).toBe(
+      false,
+    );
+    expect(holdsContent('prompt', template, { template: template.template })).toBe(false);
+  });
+
+  test('a settings file without a schema holds the version stored with one; with one, it must be the same', () => {
+    const values = { values: { tone: 'warm' } };
+    expect(holdsContent('settings', values, { ...values, schema })).toBe(true);
+    expect(holdsContent('settings', values, { values: { tone: 'brief' }, schema })).toBe(false);
+    expect(holdsContent('settings', { ...values, schema }, values)).toBe(false);
+    expect(
+      holdsContent('settings', { ...values, schema }, { ...values, schema: { type: 'object' } }),
+    ).toBe(false);
+  });
+
+  test("the schema rule is a settings block's: a prompt's other fields are all compared", () => {
+    expect(holdsContent('prompt', { template: 'Hi.' }, { template: 'Hi.', schema: {} })).toBe(
+      false,
+    );
   });
 });
 

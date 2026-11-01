@@ -249,11 +249,32 @@ export interface PackBlockWrite {
   /**
    * The content the block's file must hold now for the write to go (a
    * prompt's template text included): what the new version was made
-   * from. A file that holds anything else is refused `changed`, so an edit
-   * made since, at the same version or not, is never written over. Absent:
-   * only the version is checked.
+   * from. A file that doesn't hold it (`holdsContent`) is refused
+   * `changed`, so an edit made since, at the same version or not, is never
+   * written over. Absent: only the version is checked.
    */
   readonly expected?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * Whether a block's file holds a version's content: the same content, key
+ * order aside, with a prompt's template file read in as the index holds
+ * it. A settings file that gives no `schema` holds a version stored with
+ * one: a settings version that gives none is stored with the schema it
+ * carries from the block's latest version, and a deploy holds a pack's
+ * block to its stored version the same way (`sameDefinition` in
+ * @kindgi/api's `deploy-blocks.ts`).
+ */
+export function holdsContent(
+  kind: IndexedBlock['kind'],
+  fileContent: Readonly<Record<string, unknown>>,
+  versionContent: Readonly<Record<string, unknown>>,
+): boolean {
+  const version =
+    kind === 'settings' && fileContent.schema === undefined
+      ? { ...versionContent, schema: undefined }
+      : versionContent;
+  return canonicalize(fileContent) === canonicalize(version);
 }
 
 export type PackBlockWriteOutcome =
@@ -321,7 +342,7 @@ export async function writePackBlock(
   }
   if (
     write.expected !== undefined &&
-    canonicalize(current.content) !== canonicalize(write.expected)
+    !holdsContent(current.kind, current.content, write.expected)
   ) {
     return refused(
       'changed',
