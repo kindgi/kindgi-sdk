@@ -11838,7 +11838,7 @@ class FlowId(RootModel[str]):
 
 class WebhookEndpointFilter(BaseModel):
     """
-    Which events reach the endpoint. Every field narrows; absent fields do not. `run.finished` is sent for top-level runs only.
+    Which events reach the endpoint. Every field narrows; absent fields do not. `run.finished` is sent for top-level runs only, not replays.
     """
 
     model_config = ConfigDict(
