@@ -357,17 +357,12 @@ function test_inbox_words_for_fields_and_values(): void {
 function test_inbox_a_count_is_kept_a_minute_as_wordpress_hands_it_back(): void {
 	$user = new WP_User( 7, 'Anna', array( 'shop_manager' ) );
 	kindgi_assert_same( null, Kindgi_Inbox::count( $user ), 'not connected' );
-	Kindgi_Inbox::keep_count(
-		7,
-		array(
-			'n'    => 2,
-			'more' => false,
-		)
-	);
 	$kept = array(
-		'n'    => 2,
-		'more' => false,
+		'n'      => 2,
+		'more'   => false,
+		'orders' => array( '18' => 'you' ),
 	);
+	Kindgi_Inbox::keep_count( 7, $kept );
 	kindgi_assert_same( $kept, Kindgi_Inbox::count( $user ), 'a kept count' );
 	kindgi_assert_same( $kept, Kindgi_Inbox::kept_count( 7 ), 'what the menu shows' );
 	Kindgi_Inbox::keep_count( 7, null );
@@ -382,6 +377,14 @@ function test_inbox_a_count_is_kept_a_minute_as_wordpress_hands_it_back(): void 
 		kindgi_assert_same( '' . $old, get_transient( Kindgi_Inbox::COUNT . 7 ), 'as WordPress returns it' );
 		kindgi_assert_same( null, Kindgi_Inbox::kept_count( 7 ), 'read as no count' );
 	}
+	set_transient(
+		Kindgi_Inbox::COUNT . 7,
+		array(
+			'n'    => 2,
+			'more' => false,
+		)
+	);
+	kindgi_assert_same( null, Kindgi_Inbox::kept_count( 7 ), 'a count kept without its orders is asked again' );
 }
 
 function test_inbox_a_count_is_asked_only_on_a_session_the_person_still_has(): void {
@@ -409,23 +412,32 @@ function test_inbox_a_count_is_asked_only_on_a_session_the_person_still_has(): v
 		200,
 		array(
 			'data'    => array(
-				kindgi_test_approval(),
+				kindgi_test_approval( array( 'context' => kindgi_test_about_order( '18' ) ) ),
 				kindgi_test_approval(
 					array(
 						'assignedTo' => 'r-jane',
 						'status'     => 'assigned',
 					)
 				),
-				kindgi_test_approval( array( 'requiredRole' => 'senior' ) ),
+				kindgi_test_approval(
+					array(
+						'requiredRole' => 'senior',
+						'context'      => kindgi_test_about_order( '19' ),
+					)
+				),
 			),
 			'hasMore' => true,
 		)
 	);
 	$count = array(
-		'n'    => 2,
-		'more' => true,
+		'n'      => 2,
+		'more'   => true,
+		'orders' => array(
+			'18' => 'you',
+			'19' => 'others',
+		),
 	);
-	kindgi_assert_same( $count, Kindgi_Inbox::count( $jane ), "two of the page are hers, and there's another page" );
+	kindgi_assert_same( $count, Kindgi_Inbox::count( $jane ), "two of the page are hers, and there's another page; the orders they're about" );
 	kindgi_assert_same( 2, count( $GLOBALS['kindgi_test']['requests'] ), 'her permissions and one page, on her session' );
 	kindgi_assert( false !== strpos( $GLOBALS['kindgi_test']['requests'][1][0], 'status=pending%2Cassigned%2Cin_review' ), 'every waiting state' );
 	kindgi_assert_same( $count, Kindgi_Inbox::kept_count( $jane->ID ), 'kept for the menu' );

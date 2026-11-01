@@ -206,3 +206,17 @@
 .kindgi q.kindgi-said {
   font-style: italic;
 }
+
+/* The order's box, in the order screen's narrow side column. */
+.kindgi.kindgi-order-box .kindgi-card {
+  padding: 6px 8px;
+}
+
+.kindgi.kindgi-order-box .kindgi-card h3,
+.kindgi.kindgi-order-box .kindgi-order-section {
+  font-size: 13px;
+}
+
+.kindgi.kindgi-order-box .kindgi-order-section {
+  margin: 12px 0 6px;
+}

@@ -12,7 +12,7 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 
 ## How it works
 
-- **The site vouches for its staff.** When Jane opens a Kindgi page:
+- **The site vouches for its staff.** When Jane opens a Kindgi page, or uses the Kindgi box on an order:
   1. The plugin signs a short statement: "the person signed in here is Jane, with these WordPress roles".
   2. It sends the statement to Kindgi, server to server.
   3. Kindgi exchanges it for a 15-minute session as Jane, limited to the site's project. What she can do there comes from her roles on this site, under the ceiling the site was registered with.
@@ -70,7 +70,9 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 - **Kindgi decides the rest from the person's roles on this site.** A role the site wasn't registered to allow is refused there.
 - **The Inbox** shows everyone what waits for them and what waits for others. Approve and Reject show only for someone who may decide: their roles give a reviewer role, and they have a row on Kindgi's reviewer roster.
 - **Each person reads their own.** A conversation opens for the person it's with, and for an approval's reviewer through that approval. In **Activity**, someone else's run is one line: who, which agent, when and its state. A run no person started (a webhook, a schedule) shows what it found; with WooCommerce, only to someone who can edit orders.
-- **The count** of what waits for a person shows on the Kindgi menu and in the admin bar. It's asked of Kindgi at most once a minute, on the person's own session while they have one. The count never signs anyone in: only opening a Kindgi page does.
+- **On a store, what's about an order needs `edit_shop_orders` too.** The order's **Kindgi** box (what waits about it, to decide there, and what was decided), the **Kindgi** column on the Orders list (what waits), and a card's link to its order show only to someone who may also edit orders.
+- **A decision made on this site leaves a private note on its order:** what was decided, by whom, and why when they said. Whoever may edit the order reads it, as any private note; the customer never does. A decision made in Kindgi's console leaves none.
+- **The count** of what waits for a person shows on the Kindgi menu and in the admin bar. It's asked of Kindgi at most once a minute, on the person's own session while they have one. The count never signs anyone in, and neither does opening an order. Only two things do: opening a Kindgi page, and using an order's Kindgi box (its "Show what Kindgi has for this order" button, or a decision made there).
 - **Notification address:** each statement carries the person's email, for Kindgi's "an approval is waiting" mail only. Change it, or send none, with the `kindgi_statement_email` filter.
 - **A changed role counts at once.** The plugin tells Kindgi when a person's roles change, so what they get there follows. Losing every role the site allows ends their grants, reviewer role and sessions at Kindgi. The same roles back bring the same person back.
 - **When someone leaves, Kindgi is told, for good.** Deleting their user, removing them from the site (on a network), or erasing their data ends their grants, reviewer role and sessions at Kindgi, and Kindgi refuses them from then on.

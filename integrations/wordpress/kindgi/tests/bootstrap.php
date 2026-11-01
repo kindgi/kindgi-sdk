@@ -26,6 +26,9 @@ function kindgi_test_reset(): void {
 		'cron'         => array(),
 		'transients'   => array(),
 		'webhooks'     => array(),
+		'current_user' => new WP_User( 0, '', array() ),
+		'caps'         => array(),
+		'orders'       => array(),
 	);
 	putenv( 'KINDGI_SITE_SECRET_KEY' );
 	kindgi_test_reset_request();
@@ -84,6 +87,81 @@ final class WP_User {
 		$this->roles        = $roles;
 		$this->user_email   = $email;
 	}
+}
+
+/** A REST request: its parameters, read as WordPress's are (`$request['name']`). */
+final class WP_REST_Request implements ArrayAccess {
+	private $params;
+
+	public function __construct( array $params = array() ) {
+		$this->params = $params;
+	}
+
+	public function offsetExists( $key ): bool {
+		return isset( $this->params[ $key ] );
+	}
+
+	#[\ReturnTypeWillChange]
+	public function offsetGet( $key ) {
+		return $this->params[ $key ] ?? null;
+	}
+
+	public function offsetSet( $key, $value ): void {
+		$this->params[ $key ] = $value;
+	}
+
+	public function offsetUnset( $key ): void {
+		unset( $this->params[ $key ] );
+	}
+}
+
+/** WooCommerce's orders, as `orders` holds them; its order functions make a site a store (`Kindgi_Order::store`). */
+class WC_Order {
+	private $id;
+	private $status;
+	/** The notes added, each `array( note, is_customer_note, added_by_user )`. */
+	public $notes = array();
+
+	public function __construct( int $id, string $status = 'processing' ) {
+		$this->id     = $id;
+		$this->status = $status;
+	}
+
+	public function get_id(): int {
+		return $this->id;
+	}
+
+	public function get_status(): string {
+		return $this->status;
+	}
+
+	public function add_order_note( string $note, int $is_customer_note = 0, bool $added_by_user = false ): int {
+		$this->notes[] = array( $note, $is_customer_note, $added_by_user );
+		return count( $this->notes );
+	}
+}
+
+function wc_get_order( $order ) {
+	$id = $order instanceof WC_Order ? $order->get_id() : (int) $order;
+	return $GLOBALS['kindgi_test']['orders'][ $id ] ?? false;
+}
+
+/** The signed-in person (`current_user`) and what they may do (`caps`). */
+function wp_get_current_user(): WP_User {
+	return $GLOBALS['kindgi_test']['current_user'];
+}
+
+function get_current_user_id(): int {
+	return wp_get_current_user()->ID;
+}
+
+function current_user_can( string $capability ): bool {
+	return in_array( $capability, $GLOBALS['kindgi_test']['caps'], true );
+}
+
+/** No one this site signed in is found by their Kindgi id: names read as unknown. */
+function get_users( array $args = array() ): array {
+	return array();
 }
 
 final class Kindgi_Test_Wpdb {
@@ -291,3 +369,4 @@ require_once dirname( __DIR__ ) . '/includes/class-kindgi-inbox.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-activity.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-rest.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-admin.php';
+require_once dirname( __DIR__ ) . '/includes/class-kindgi-order.php';

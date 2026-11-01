@@ -87,6 +87,18 @@ final class Kindgi_Rest {
 		self::route( '/approvals/' . $id, 'GET', 'approval' );
 		self::route( '/activity', 'GET', 'activity', array( 'cursor' => self::optional_string( 512 ) ) );
 		self::route(
+			'/orders/(?P<order>[1-9][0-9]{0,17})',
+			'GET',
+			'order',
+			array(
+				// Opening an order signs no one in: the box asks to, when the person says so.
+				'signIn' => array(
+					'type'    => 'boolean',
+					'default' => false,
+				),
+			)
+		);
+		self::route(
 			'/approvals/' . $id . '/decide',
 			'POST',
 			'decide',
@@ -456,7 +468,7 @@ final class Kindgi_Rest {
 		$me    = (string) $answer['session']['user_id'];
 		$cards = array();
 		foreach ( self::list_of( $answer['body']['data'] ?? null ) as $a ) {
-			$cards[] = Kindgi_Inbox::card( $a, $me, $r['reviewer'], array( self::class, 'who' ) );
+			$cards[] = self::card( $a, $me, $r['reviewer'] );
 		}
 		if ( $waiting ) {
 			// The menu's count follows what the person just saw.
@@ -477,7 +489,7 @@ final class Kindgi_Rest {
 			return $r;
 		}
 		$answer = Kindgi_Api::body( $user, 'GET', '/v1/approvals/' . rawurlencode( $request['id'] ) );
-		return is_wp_error( $answer ) ? $answer : Kindgi_Inbox::card( $answer['body'], (string) $answer['session']['user_id'], $r['reviewer'], array( self::class, 'who' ) );
+		return is_wp_error( $answer ) ? $answer : self::card( $answer['body'], (string) $answer['session']['user_id'], $r['reviewer'] );
 	}
 
 	/**
@@ -507,7 +519,7 @@ final class Kindgi_Rest {
 			return $answer;
 		}
 		$me           = (string) $answer['session']['user_id'];
-		$reads_orders = ! class_exists( 'WooCommerce' ) || current_user_can( 'edit_shop_orders' );
+		$reads_orders = Kindgi_Order::reads_orders();
 		$rows         = array();
 		foreach ( self::list_of( $answer['body']['data'] ?? null ) as $run ) {
 			$rows[] = Kindgi_Activity::row( $run, $me, array( self::class, 'who' ), $reads_orders );
@@ -516,6 +528,59 @@ final class Kindgi_Rest {
 			'runs'       => $rows,
 			'nextCursor' => is_string( $answer['body']['nextCursor'] ?? null ) ? $answer['body']['nextCursor'] : null,
 		);
+	}
+
+	/**
+	 * What Kindgi has about a WooCommerce order, for the order's box: the
+	 * approvals about it that wait (oldest first) and those closed (newest
+	 * first). For someone who may edit orders only. Opening an order signs
+	 * no one in: without a live session the answer says so, and the box
+	 * offers to (`signIn`).
+	 */
+	public static function order( WP_REST_Request $request ) {
+		$order = (int) $request['order'];
+		if ( ! Kindgi_Order::store() || ! current_user_can( 'edit_shop_orders' ) || ! wc_get_order( $order ) instanceof WC_Order ) {
+			return new WP_Error( 'kindgi_order_not_found', __( 'No order you may edit has that number.', 'kindgi' ), array( 'status' => 404 ) );
+		}
+		$user = wp_get_current_user();
+		$get  = static function ( string $path, array $query = array() ) use ( $user, $request ) {
+			return true === $request['signIn'] ? Kindgi_Api::body( $user, 'GET', $path, $query ) : Kindgi_Api::kept_get( $user, $path, $query );
+		};
+		$permissions = $get( '/v1/identity/me/permissions' );
+		if ( ! is_array( $permissions ) ) {
+			return null === $permissions ? array( 'signedIn' => false ) : $permissions;
+		}
+		$reviewer = Kindgi_Inbox::reviewer_of( $permissions['body'] );
+		$me       = (string) $permissions['session']['user_id'];
+		$answer   = array(
+			'signedIn' => true,
+			'more'     => false,
+		);
+		foreach ( array( 'waiting' => Kindgi_Inbox::WAITING, 'closed' => Kindgi_Inbox::CLOSED ) as $view => $statuses ) {
+			$page = $get(
+				'/v1/approvals',
+				array(
+					'scopeKind' => 'project',
+					'scopeId'   => $permissions['session']['project_id'],
+					'status'    => implode( ',', $statuses ),
+					'order'     => 'waiting' === $view ? 'asc' : 'desc',
+					'limit'     => Kindgi_Order::PAGE,
+				)
+			);
+			if ( ! is_array( $page ) ) {
+				return null === $page ? array( 'signedIn' => false ) : $page;
+			}
+			if ( 'waiting' === $view ) {
+				Kindgi_Inbox::keep_count( $user->ID, Kindgi_Inbox::count_of( $page['body'], $me, $reviewer ) );
+			}
+			$answer[ $view ] = array();
+			foreach ( Kindgi_Order::about_order( $page['body'], $order ) as $a ) {
+				$answer[ $view ][] = Kindgi_Inbox::card( $a, $me, $reviewer, array( self::class, 'who' ) );
+			}
+			// The box looked through one page: older approvals about the order may be on the next.
+			$answer['more'] = $answer['more'] || true === ( $page['body']['hasMore'] ?? false );
+		}
+		return $answer;
 	}
 
 	/** Approve or reject, as this person; the run resumes in the same call. */
@@ -532,11 +597,15 @@ final class Kindgi_Rest {
 		if ( is_wp_error( $answer ) ) {
 			return $answer;
 		}
-		Kindgi_Inbox::forget_count( wp_get_current_user()->ID );
+		$user = wp_get_current_user();
+		Kindgi_Inbox::forget_count( $user->ID );
 		$b = $answer['body'];
 		// Decided: no longer anyone's to decide, whatever the person's role.
+		$card = self::card( is_array( $b['approval'] ?? null ) ? $b['approval'] : array(), (string) $answer['session']['user_id'], null );
+		// On the order it's about, a private note says who decided what.
+		Kindgi_Order::note( $card, (string) $request['decision'], $reason, $user );
 		return array(
-			'approval'          => Kindgi_Inbox::card( is_array( $b['approval'] ?? null ) ? $b['approval'] : array(), (string) $answer['session']['user_id'], null, array( self::class, 'who' ) ),
+			'approval'          => $card,
 			'waitpointResolved' => (bool) ( $b['waitpointResolved'] ?? false ),
 			'runStatus'         => is_string( $b['runStatus'] ?? null ) ? $b['runStatus'] : null,
 		);
@@ -609,6 +678,13 @@ final class Kindgi_Rest {
 		}
 		$card = Kindgi_Inbox::card( $a['body'], $r['me'], $r['reviewer'], array( self::class, 'who' ) );
 		return $conversation === $card['conversationId'] && Kindgi_Inbox::reviews( $card );
+	}
+
+	/** An approval as its card, with a link to the order it's about for someone who may edit orders. */
+	private static function card( array $a, string $me, ?array $reviewer ): array {
+		$card             = Kindgi_Inbox::card( $a, $me, $reviewer, array( self::class, 'who' ) );
+		$card['orderUrl'] = Kindgi_Order::edit_url( $card );
+		return $card;
 	}
 
 	/** The approval a conversation is opened through, when the address names one. */
