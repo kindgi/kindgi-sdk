@@ -19,7 +19,7 @@ import type { BuiltInGuardrail, EvaluationResult, Guardrail, GuardrailSpec } fro
  * SDK exposes:
  *   - **Author + list + get + unregister**: register a new guardrail
  *     against a server-registered `check` implementation; enumerate
- *     the tenant's active set; retire a specific id.
+ *     the workspace's active set; retire a specific id.
  *
  * Registration is metadata-only (`{id, kind, action, check?, config?,
  * severity?, scope?, budget?, judgeCapabilities?}`), with the `check`
@@ -31,7 +31,7 @@ export interface GuardrailsClient {
   /**
    * Author a new guardrail in a project (`options.projectId`, sent
    * next to the spec fields in the request body; `400 bad-input` when it
-   * does not name a project in the tenant). Server validates the spec via
+   * does not name a project in the workspace). Server validates the spec via
    * `@kindgi/guardrails.validateGuardrailSpec` and rejects with
    * `409 guardrail-already-registered` on duplicate id.
    *

@@ -27,7 +27,7 @@ import type {
 /**
  * Memory resource — facts + retrieval.
  *
- * Facts are versioned, typed records scoped to a tenant (and
+ * Facts are versioned, typed records scoped to a workspace (and
  * optionally a project, user, thread, end user, …). A fact keeps its id
  * across revisions. Every read sees only the facts the caller may.
  * Retrieval lists facts or searches them by keyword, semantic
@@ -107,7 +107,7 @@ export interface MemoryErasuresClient {
   resume(id: string, options?: { readonly force?: boolean }): Promise<MemoryErasure>;
   /**
    * After restoring a backup: the exported ledger back, and its
-   * erasures run again for whoever the tenant holds again.
+   * erasures run again for whoever the workspace holds again.
    *
    * @wire `POST /v1/memory/erasures/replay`
    */
@@ -120,7 +120,7 @@ export interface MemoryErasuresClient {
 export interface FactsClient {
   /**
    * Write a fact. Server assigns the numeric `version`; retention
-   * defaults to tenant policy when omitted. Returns the created
+   * defaults to workspace policy when omitted. Returns the created
    * `Fact`.
    *
    * @wire `POST /v1/memory/facts` — see

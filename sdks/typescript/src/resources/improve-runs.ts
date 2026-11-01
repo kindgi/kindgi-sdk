@@ -84,9 +84,9 @@ export interface StartImproveRunInput {
    */
   readonly tiers?: readonly ('settings' | 'prompt')[];
   readonly objective?: SuggestedChangeObjective;
-  /** Which corrections it learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project, or the agent in the project has an expert group, then only corrections recorded under one (`experts-only`). */
+  /** Which corrections it learns from. Omit it for the default: everyone's (`as-recorded`) until the workspace, the project, or the agent in the project has an expert group, then only corrections recorded under one (`experts-only`). */
   readonly groupWeights?: 'experts-only' | 'as-recorded';
-  /** For the prompt tier: the tenant's provider and model that drafts the templates. Default: the model of the version's own model-settings block. */
+  /** For the prompt tier: the workspace's provider and model that drafts the templates. Default: the model of the version's own model-settings block. */
   readonly model?: { readonly providerId: string; readonly model: string };
   /** For the prompt tier: how many templates it drafts (1–5). Default: the runtime's. */
   readonly candidates?: number;

@@ -58,7 +58,7 @@ export interface RateLimitedError {
   /** Suggested seconds to wait before retry (from server `Retry-After`). */
   readonly retryAfterSeconds?: number;
   /**
-   * Which of the tenant's limits refused it (the wire's `details.limit`),
+   * Which of the workspace's limits refused it (the wire's `details.limit`),
    * such as `schema-compile-time` or `template-render-time`; absent for a
    * limit the server doesn't name.
    */

@@ -27,7 +27,7 @@ import type {
  * The SDK wires `upload` (`POST /v1/artifacts`, multipart),
  * `download` (`GET /v1/artifacts/{blobId}`, streamed bytes), `list` and
  * `delete`. Every artifact belongs to a project (its owner run's, else
- * `projectId`, else the tenant's default): reading it needs `read`
+ * `projectId`, else the workspace's default): reading it needs `read`
  * there, uploading and deleting `write`.
  *
  * `put` and `get` (content-addressed `BlobRef`s), `presign` and

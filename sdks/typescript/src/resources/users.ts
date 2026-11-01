@@ -28,7 +28,7 @@ import type {
  *   - `GET  /v1/identity/users` (cursor-paginated list, `?query=`
  *     displayName prefix; tenant admins only)
  *   - `GET  /v1/identity/users/{userId}` (get; a tenant admin, or the
- *     person; `404 identity-user-not-found` on unknown or cross-tenant)
+ *     person; `404 identity-user-not-found` on unknown or cross-workspace)
  *   - `GET  /v1/identity/whoami` (self — returns `WhoamiResult`, not
  *     `User`; carries the current-token's auth context plus the
  *     fuller `UserRecord` when the token has a `userId`)
@@ -58,7 +58,7 @@ import type {
  */
 export interface UsersClient {
   /**
-   * Add a person to the tenant, with no grants: give them a role, then
+   * Add a person to the workspace, with no grants: give them a role, then
    * mint their first key with `tokens.create({ for: { kind: 'user', id } })`.
    * Tenant admins only; mounted where the identity directory can add
    * people. Another person's email is `409 identity-user-email-taken`.
@@ -91,13 +91,13 @@ export interface UsersClient {
    * @wire `GET /v1/identity/whoami` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1identity~1whoami/get`.
    *
-   * Returns `WhoamiResult` (tenant + scopes + optional session / user
+   * Returns `WhoamiResult` (workspace + scopes + optional session / user
    * context), not a `User`.
    */
   me(): Promise<WhoamiResult>;
 
   /**
-   * The tenant's people, for tenant admins only (`403 permission-denied`
+   * The workspace's people, for tenant admins only (`403 permission-denied`
    * otherwise). Anyone else adds a person to a project by their email or
    * id: `projects.memberships.add(projectId, { email, role })`.
    *
@@ -145,7 +145,7 @@ export interface UsersClient {
   ): Promise<PersonGrants>;
 
   /**
-   * Remove a person from the tenant, where the directory can: every API
+   * Remove a person from the workspace, where the directory can: every API
    * key and session of theirs is revoked and every grant and membership
    * taken away before it returns (their keys get 401 at once). Their
    * record stays, with `unregisteredAt`; their email is free again.

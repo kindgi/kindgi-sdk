@@ -15,7 +15,7 @@ import type {
 } from '../types.js';
 
 /**
- * Policies resource — versioned tenant policy registry.
+ * Policies resource — versioned workspace policy registry.
  *
  * Each policy carries a `kind` (`access-control`, `model-routing`,
  * `adapter-allowlist`, `rate-limit`, `retention`, `compliance`,
@@ -38,7 +38,7 @@ export interface PoliciesClient {
    * specs belong to the consumer of that kind. Publishing the same
    * `(id, version)` twice returns `409 policy-already-registered`.
    *
-   * A tenant has one retention policy per domain, plus one for `*`: a
+   * A workspace has one retention policy per domain, plus one for `*`: a
    * second policy id for a covered domain returns
    * `409 policy-scope-taken` (`details.heldBy` names the one that covers
    * it; publish a new version of that one instead), and a new version

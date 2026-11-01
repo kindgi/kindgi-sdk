@@ -137,9 +137,9 @@ export interface KindgiClient {
   readonly projects: ProjectsClient;
   readonly env: EnvClient;
   readonly secrets: SecretsClient;
-  /** The tenant's env names, across env values and secrets (tenant admin). */
+  /** The workspace's env names, across env values and secrets (tenant admin). */
   readonly environments: EnvironmentsClient;
-  /** The order a tenant runs a project through on its way to live (its "environments"). */
+  /** The order a workspace runs a project through on its way to live (its "environments"). */
   readonly environmentOrders: EnvironmentOrdersClient;
   readonly deployments: DeploymentsClient;
   readonly compliance: ComplianceClient;

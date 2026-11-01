@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Projects — org-optional sub-tenants (workstreams within a tenant).
+ * Projects — org-optional sub-tenants (workstreams within a workspace).
  *
  * @wire /v1/projects/*  (packages/api/src/routes/projects.ts)
  * @generated Wire shapes from `../generated/api.js`.
@@ -92,7 +92,7 @@ export interface ListProjectPinnedVersionsFilter {
 }
 
 /**
- * Every agent's pinned versions that cover a project: the tenant's, the
+ * Every agent's pinned versions that cover a project: the workspace's, the
  * project's org's, the project's own and its segments', ordered by agent
  * id, then scope. Takes `read` on the project, and shows only the pins of
  * agents and versions the caller can read, so a page can hold fewer than
@@ -161,7 +161,7 @@ export interface ProjectsClient {
   ): Promise<CreateResourceResult>;
   /** @wire GET /v1/projects */
   list(filter?: ListProjectsFilter): Promise<ProjectPage>;
-  /** @wire GET /v1/projects/default — the tenant's default project */
+  /** @wire GET /v1/projects/default — the workspace's default project */
   getDefault(): Promise<ProjectShape>;
   /** @wire GET /v1/projects/:projectId */
   get(projectId: string): Promise<ProjectShape>;
@@ -177,11 +177,11 @@ export interface ProjectsClient {
    * Put the project in production (`true`), or take it out (`false`). A run
    * in a project in production is a production run; a run anywhere else is
    * staging. For tenant admins. Setting what's already set changes
-   * nothing. With the runtime's production gate on, a tenant that isn't
+   * nothing. With the runtime's production gate on, a workspace that isn't
    * allowed is refused with `403 production-not-allowed`, whose
    * `details.next` says where to go when the runtime names it. With the
-   * tenant's `projectsInProduction` limit set, another project is refused
-   * with `403 production-limit-reached` while the tenant has that many in
+   * workspace's `projectsInProduction` limit set, another project is refused
+   * with `403 production-limit-reached` while the workspace has that many in
    * production (`details.projectsInProduction`, `details.inProduction`);
    * taking one out is never refused.
    *
@@ -232,7 +232,7 @@ export interface ProjectMembershipsClient {
   /** @wire GET /v1/projects/:projectId/memberships */
   list(projectId: string, filter?: ListProjectMembershipsFilter): Promise<ProjectMembershipPage>;
   /**
-   * Add a person of the tenant, named by exactly one of `userId` and
+   * Add a person of the workspace, named by exactly one of `userId` and
    * `email`; someone who isn't one is `404 identity-user-not-found`. The
    * outcome has their `userId`.
    *

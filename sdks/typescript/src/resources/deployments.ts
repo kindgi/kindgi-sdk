@@ -9,7 +9,7 @@
  *
  * Register a deployment by handing in a signed Ed25519 envelope over
  * `{ imageDigest, artifactVersion, indexHash, tenantId, publishedAt }`.
- * Server verifies signature against the tenant trust-list, pulls the
+ * Server verifies signature against the workspace trust-list, pulls the
  * image, validates + upserts every packed primitive (tools, guardrails,
  * agents, flows), and appends an immutable ledger row. All-or-nothing.
  *

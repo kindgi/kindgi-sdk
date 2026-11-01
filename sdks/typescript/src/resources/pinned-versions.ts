@@ -12,7 +12,7 @@ import type { Transport } from '../transport.js';
 
 /**
  * Pinned versions of a flow or a tool: which version is in use in a scope
- * (a project, an org, the tenant) when nothing names one. A new version is
+ * (a project, an org, the workspace) when nothing names one. A new version is
  * published without going into use where a pin covers; without a pin, it's
  * in use at once.
  */
@@ -30,7 +30,7 @@ export interface PinnedVersionsClient {
    * Pin `version` for `scope`, or move the scope's pin to it. Pinning the
    * version the scope already pins changes nothing and answers the change
    * that set it. `404` when the version isn't registered and active; `409
-   * pin-scope-spans-environments` for a tenant- or org-wide pin of an item
+   * pin-scope-spans-environments` for a workspace- or org-wide pin of an item
    * in an environment order.
    *
    * @wire POST /v1/{flows|tools}/:id/pinned/pin
@@ -55,7 +55,7 @@ export interface PinnedVersionsClient {
   history(id: string, page?: PinHistoryPage): Promise<PinnedVersionChangePage>;
 }
 
-/** What `resolve` looks up for: a project (and its org), or an org; neither → the tenant's pin. */
+/** What `resolve` looks up for: a project (and its org), or an org; neither → the workspace's pin. */
 export interface PinnedWhere {
   readonly projectId?: string;
   readonly orgId?: string;

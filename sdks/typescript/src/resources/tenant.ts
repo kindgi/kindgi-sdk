@@ -2,12 +2,12 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Tenant — the caller's current tenant view + config.
+ * Tenant — the caller's current workspace view + config.
  *
  * @wire /v1/tenant/*  (packages/api/src/routes/tenant.ts)
  * @generated Wire shapes from `../generated/api.js`.
  *
- * `.config` is a key/value catalog scoped to the tenant (residency,
+ * `.config` is a key/value catalog scoped to the workspace (residency,
  * retention defaults, feature flags, FGA model refs, etc.). Distinct
  * from `env` + `secrets` (those live on their own clients).
  */
@@ -39,7 +39,7 @@ export interface TenantClient {
   /** @wire GET /v1/tenant */
   get(): Promise<TenantInfo>;
   /**
-   * Rename the caller's tenant: its name, its slug, or both. Its id stays;
+   * Rename the caller's workspace: its name, its slug, or both. Its id stays;
    * the console's addresses carry the slug, so links with the old one stop
    * opening it. Takes a tenant admin. Answers nothing: `get()` reads it.
    *

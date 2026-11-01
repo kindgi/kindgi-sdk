@@ -201,7 +201,7 @@ export interface RunsClient {
   cancel(runId: RunId, options?: { readonly idempotencyKey?: string }): Promise<Run>;
 
   /**
-   * Cursor-paginated list of runs for the tenant.
+   * Cursor-paginated list of runs for the workspace.
    *
    * @wire `GET /v1/runs` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1runs/get`.
@@ -317,7 +317,7 @@ export type StartRunInput =
        * (or, in a conversation, the version its earlier turns used).
        */
       readonly agentVersion?: string;
-      /** Project the run belongs to. Omit to use the tenant's default project. */
+      /** Project the run belongs to. Omit to use the workspace's default project. */
       readonly projectId?: string;
       /** Where the run happens, coarse to fine (e.g. company, then role); picks the pinned version. */
       readonly segments?: readonly ScopeSegment[];
@@ -336,7 +336,7 @@ export type StartRunInput =
       readonly flow: FlowId | string;
       /**
        * Semver; omit → the version pinned for the run's project (the
-       * project, its org, then the tenant), else the newest it reaches.
+       * project, its org, then the workspace), else the newest it reaches.
        */
       readonly flowVersion?: string;
       /** Project the run belongs to. Optional; when omitted, the API's run handler chooses. */

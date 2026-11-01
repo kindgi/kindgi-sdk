@@ -1778,7 +1778,7 @@ class SigningKeysResource:
     ) -> _models.TrustedSigningKey:
         """Trust a signing key. `POST /v1/signing-keys`
 
-        Adds a public key to the tenant's trust list: deployments it signs verify. Needs the `signing-keys:write` capability. Trusting the same key again answers `200`; a known `keyId` with a different public key is `409 signing-key-conflict` (rotate under a new id). Mounted when the deployment supplies a signing-key registry.
+        Adds a public key to the workspace's trust list: deployments it signs verify. Needs the `signing-keys:write` capability. Trusting the same key again answers `200`; a known `keyId` with a different public key is `409 signing-key-conflict` (rotate under a new id). Mounted when the deployment supplies a signing-key registry.
         """
         return self._client._request(
             _OPERATIONS["signingKeys.trust"],
@@ -2766,7 +2766,7 @@ class ServiceAccountsResource:
     ) -> _models.ServiceAccount:
         """Create a service account. `POST /v1/service-accounts`
 
-        A named, non-human principal with its first grants, written before it is returned. It isn't a tenant member unless a grant makes it one (`{kind: 'tenant-member'}`: read the tenant's settings); give it only what its job needs. Mint its keys at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the deployment supplies a `ServiceAccountBinding`.
+        A named, non-human principal with its first grants, written before it is returned. It isn't a tenant member unless a grant makes it one (`{kind: 'tenant-member'}`: read the workspace's settings); give it only what its job needs. Mint its keys at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the deployment supplies a `ServiceAccountBinding`.
         """
         return self._client._request(
             _OPERATIONS["serviceAccounts.create"],
@@ -2879,7 +2879,7 @@ class ApprovalsReviewersResource:
         role: Literal["standard", "senior", "admin"] | None = None,
         timeout: float | None = None,
     ) -> _models.ReviewerCollectionPage:
-        """List reviewers registered for the caller's tenant. `GET /v1/approvals/reviewers`
+        """List reviewers registered for the caller's workspace. `GET /v1/approvals/reviewers`
 
         Cursor-paginated. Optional `?role=` narrows to a specific role class. The roster names people: with authorization on, a tenant admin or a reviewer (a role on the token, or one the roster gives the user) reads it, and anyone else gets `403 permission-denied`.
         """
@@ -3001,7 +3001,7 @@ class ApprovalsResource:
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
 
-        Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). With authorization on, a person who is the tenant's admin (through a session or an `admin` key not limited to a project) reads at every tier: with no roster entry, as an `admin` reviewer; with a lower role, their own tier, and any tier they ask for with `requiredRole`. The roster doesn't show such a reader, but the access audit records the tenant-admin check (`authz-decision`), made only where it changes what the roster gives. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). With authorization on, only approvals whose project the caller may read. `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.
+        Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). With authorization on, a person who is the workspace's admin (through a session or an `admin` key not limited to a project) reads at every tier: with no roster entry, as an `admin` reviewer; with a lower role, their own tier, and any tier they ask for with `requiredRole`. The roster doesn't show such a reader, but the access audit records the tenant-admin check (`authz-decision`), made only where it changes what the roster gives. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). With authorization on, only approvals whose project the caller may read. `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return self._client._request(
             _OPERATIONS["approvals.list"],
@@ -3029,7 +3029,7 @@ class ApprovalsResource:
     def get(self, approval_id: str | UUID, /, *, timeout: float | None = None) -> _models.Approval:
         """Fetch a single approval. `GET /v1/approvals/{approvalId}`
 
-        Requires a reviewer, or (with authorization on) a person who is the tenant's admin, as the list does; the tenant's admin reads an approval of any tier. Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4), or that are in a project the caller may not read. A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).
+        Requires a reviewer, or (with authorization on) a person who is the workspace's admin, as the list does; the workspace's admin reads an approval of any tier. Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4), or that are in a project the caller may not read. A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).
         """
         return self._client._request(
             _OPERATIONS["approvals.get"],
@@ -3209,7 +3209,7 @@ class AgentsPinnedResource:
     ) -> _models.AgentPinnedVersionResolution:
         """The version a run would use. `GET /v1/agents/{agentId}/pinned`
 
-        Resolves the version a run of this agent would use for a project and segment path: the most specific pinned version (segment path, project, org, tenant), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
+        Resolves the version a run of this agent would use for a project and segment path: the most specific pinned version (segment path, project, org, workspace), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
         """
         return self._client._request(
             _OPERATIONS["agents.pinned.resolve"],
@@ -3370,7 +3370,7 @@ class AgentsReleaseGateResource:
     ) -> _models.ReleaseGateResolution:
         """The release gate for a scope. `GET /v1/agents/{agentId}/release-gate`
 
-        The release gate a pin of the agent for the scope would be checked against: the most specific scope with an active gate (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `releaseGate: null` when none applies.
+        The release gate a pin of the agent for the scope would be checked against: the most specific scope with an active gate (a segment path's longer prefixes first, then its project, the project's org, the workspace), at its latest active version. `releaseGate: null` when none applies.
         """
         return self._client._request(
             _OPERATIONS["agents.releaseGate.resolve"],
@@ -3532,7 +3532,7 @@ class AgentsResource:
     ) -> _models.SetAgentOwnerResult:
         """Set an agent's owner. `PUT /v1/agents/{agentId}/owner`
 
-        One owner per agent: the person its corrections go to when they need the owner. Setting it again replaces the one before. Needs `admin` on the agent (an admin of its project). With a directory of people, the owner must be one of the tenant's.
+        One owner per agent: the person its corrections go to when they need the owner. Setting it again replaces the one before. Needs `admin` on the agent (an admin of its project). With a directory of people, the owner must be one of the workspace's.
         """
         return self._client._request(
             _OPERATIONS["agents.setOwner"],
@@ -3626,7 +3626,7 @@ class ReleaseGatesVersionsResource:
     ) -> _models.ReleaseGate:
         """Unregister a release gate version. `POST /v1/release-gates/{releaseGateId}/versions/{version}/unregister`
 
-        The version stops applying; the gate's latest remaining active version applies, or, with none, the scope above's gate. Pins keep the version they were checked against. Needs `admin` on the tenant.
+        The version stops applying; the gate's latest remaining active version applies, or, with none, the scope above's gate. Pins keep the version they were checked against. Needs `admin` on the workspace.
         """
         return self._client._request(
             _OPERATIONS["releaseGates.versions.unregister"],
@@ -3642,7 +3642,7 @@ class ReleaseGatesVersionsResource:
     ) -> _models.ReleaseGate:
         """Reinstate a release gate version. `POST /v1/release-gates/{releaseGateId}/versions/{version}/reinstate`
 
-        Needs `admin` on the tenant.
+        Needs `admin` on the workspace.
         """
         return self._client._request(
             _OPERATIONS["releaseGates.versions.reinstate"],
@@ -3706,7 +3706,7 @@ class ReleaseGatesResource:
     ) -> _models.ReleaseGate:
         """Publish a release gate. `POST /v1/release-gates`
 
-        Registers a release gate, or a new version of one: what a pin of `agentId` for `scope` must show. One gate per agent and scope: another gate id for a scope that has one is refused with `409 release-gate-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 release-gate-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may pin can't loosen their own gate.
+        Registers a release gate, or a new version of one: what a pin of `agentId` for `scope` must show. One gate per agent and scope: another gate id for a scope that has one is refused with `409 release-gate-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 release-gate-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the workspace: whoever may pin can't loosen their own gate.
         """
         return self._client._request(
             _OPERATIONS["releaseGates.publish"],
@@ -3752,7 +3752,7 @@ class FlowsPinnedResource:
     ) -> _models.PinnedVersionResolution:
         """The version in use for a project. `GET /v1/flows/{flowId}/pinned`
 
-        Resolves the version in use for a project (or an org, or the whole tenant): the most specific pin covering it (the project, its org, then the tenant) whose version is still active, else the newest version the project reaches, as a run that names no version takes it. A pin whose version doesn't reach the project is passed over, as a run passes it over. `via` says which; `pinnedScope` names the pin that matched.
+        Resolves the version in use for a project (or an org, or the whole workspace): the most specific pin covering it (the project, its org, then the workspace) whose version is still active, else the newest version the project reaches, as a run that names no version takes it. A pin whose version doesn't reach the project is passed over, as a run passes it over. `via` says which; `pinnedScope` names the pin that matched.
         """
         return self._client._request(
             _OPERATIONS["flows.pinned.resolve"],
@@ -3791,7 +3791,7 @@ class FlowsPinnedResource:
     ) -> _models.PinnedVersionChange:
         """Pin a version for a scope. `POST /v1/flows/{flowId}/pinned/pin`
 
-        Pins `version` for `scope` (the tenant, an org or a project), or moves the scope's pin to it. A run that names no flow version takes the version pinned for its project (the project's own pin, then its org's, then the tenant's), else the newest version the project reaches. A run that names its version isn't affected, and a run already started keeps its version. The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs `pin` on the flow.
+        Pins `version` for `scope` (the workspace, an org or a project), or moves the scope's pin to it. A run that names no flow version takes the version pinned for its project (the project's own pin, then its org's, then the workspace's), else the newest version the project reaches. A run that names its version isn't affected, and a run already started keeps its version. The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs `pin` on the flow.
         """
         return self._client._request(
             _OPERATIONS["flows.pinned.pin"],
@@ -3815,7 +3815,7 @@ class FlowsPinnedResource:
     ) -> _models.PinnedVersionChange:
         """Remove a scope's pin. `POST /v1/flows/{flowId}/pinned/unpin`
 
-        Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the tenant's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs `pin` on the flow.
+        Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the workspace's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs `pin` on the flow.
         """
         return self._client._request(
             _OPERATIONS["flows.pinned.unpin"],
@@ -4030,7 +4030,7 @@ class ToolsPinnedResource:
     ) -> _models.PinnedVersionResolution:
         """The version in use for a project. `GET /v1/tools/{toolId}/pinned`
 
-        Resolves the version in use for a project (or an org, or the whole tenant): the most specific pin covering it (the project, its org, then the tenant) whose version is still active, else the newest active version, the one a flow version made now would lock its tool step to. `via` says which; `pinnedScope` names the pin that matched.
+        Resolves the version in use for a project (or an org, or the whole workspace): the most specific pin covering it (the project, its org, then the workspace) whose version is still active, else the newest active version, the one a flow version made now would lock its tool step to. `via` says which; `pinnedScope` names the pin that matched.
         """
         return self._client._request(
             _OPERATIONS["tools.pinned.resolve"],
@@ -4069,7 +4069,7 @@ class ToolsPinnedResource:
     ) -> _models.PinnedVersionChange:
         """Pin a version for a scope. `POST /v1/tools/{toolId}/pinned/pin`
 
-        Pins `version` for `scope` (the tenant, an org or a project), or moves the scope's pin to it. An agent or flow version made in a project the pin covers (the project's own pin, then its org's, then the tenant's) locks the tool at the pinned version: a flow's tool step always, an agent's tool reference when the pinned version is in its range. A version already made keeps its lock; a pin reaches an agent or flow through its next version. The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs `pin` on the tool.
+        Pins `version` for `scope` (the workspace, an org or a project), or moves the scope's pin to it. An agent or flow version made in a project the pin covers (the project's own pin, then its org's, then the workspace's) locks the tool at the pinned version: a flow's tool step always, an agent's tool reference when the pinned version is in its range. A version already made keeps its lock; a pin reaches an agent or flow through its next version. The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs `pin` on the tool.
         """
         return self._client._request(
             _OPERATIONS["tools.pinned.pin"],
@@ -4093,7 +4093,7 @@ class ToolsPinnedResource:
     ) -> _models.PinnedVersionChange:
         """Remove a scope's pin. `POST /v1/tools/{toolId}/pinned/unpin`
 
-        Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the tenant's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs `pin` on the tool.
+        Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the workspace's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs `pin` on the tool.
         """
         return self._client._request(
             _OPERATIONS["tools.pinned.unpin"],
@@ -4180,7 +4180,7 @@ class ToolsResource:
     ) -> _models.RegisterToolResult:
         """Register a tool manifest. `POST /v1/tools`
 
-        Body is a `ToolManifest` (Tool minus its runtime handler). Server validates via `@kindgi/tools.validateToolManifest`. Metadata only: the handler is not uploaded through this route and must already be available to the runtime. A tool never gets a model provider's key: one that declares (`needsSpec.secrets`) or sends (`spec.authorization.secretRef`) a secret a provider registration of the tenant names, in any env, is refused. Where each secret it names is read is recorded on the version (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only.
+        Body is a `ToolManifest` (Tool minus its runtime handler). Server validates via `@kindgi/tools.validateToolManifest`. Metadata only: the handler is not uploaded through this route and must already be available to the runtime. A tool never gets a model provider's key: one that declares (`needsSpec.secrets`) or sends (`spec.authorization.secretRef`) a secret a provider registration of the workspace names, in any env, is refused. Where each secret it names is read is recorded on the version (`secretScopes`): the first of its own scope, its project's org and the workspace that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only.
         """
         return self._client._request(
             _OPERATIONS["tools.register"],
@@ -4517,7 +4517,7 @@ class ConversationsResource:
     ) -> _models.Conversation:
         """Unregister a conversation. `POST /v1/conversations/{conversationId}/unregister`
 
-        A tombstone: from now on no read, list or recall of earlier conversations returns it, and no message can be added. The retention sweep removes it after the tenant's grace.
+        A tombstone: from now on no read, list or recall of earlier conversations returns it, and no message can be added. The retention sweep removes it after the workspace's grace.
         """
         return self._client._request(
             _OPERATIONS["conversations.unregister"],
@@ -4573,7 +4573,7 @@ class MemoryResource:
     ) -> _models.FactCollectionPage:
         """List facts. `GET /v1/memory/facts`
 
-        Cursor-paginated: the current revision of each fact the caller may see. That is tenant-wide facts, the projects they may read (with those projects' orgs), their own user facts, and every end user's and conversation's facts in the projects they may write; a tenant admin sees every fact. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist), `?asOf=` (memory as it stood then). Sort order is binding-defined.
+        Cursor-paginated: the current revision of each fact the caller may see. That is workspace-wide facts, the projects they may read (with those projects' orgs), their own user facts, and every end user's and conversation's facts in the projects they may write; a tenant admin sees every fact. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist), `?asOf=` (memory as it stood then). Sort order is binding-defined.
         """
         return self._client._request(
             _OPERATIONS["memory.listFacts"],
@@ -4604,7 +4604,7 @@ class MemoryResource:
     ) -> _models.Fact:
         """Write a fact. `POST /v1/memory/facts`
 
-        Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and tenant `admin` for a tenant-wide fact. The fact records who wrote it (`attributedTo`).
+        Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and workspace `admin` for a workspace-wide fact. The fact records who wrote it (`attributedTo`).
         """
         return self._client._request(
             _OPERATIONS["memory.writeFact"],
@@ -4756,7 +4756,7 @@ class MemoryResource:
     ) -> _models.MemoryErasurePage:
         """List erasures. `GET /v1/memory/erasures`
 
-        Cursor-paginated, newest first: each erasure, how far it got and what it cleared. A completed one shows no selector. Requires `admin` on the tenant.
+        Cursor-paginated, newest first: each erasure, how far it got and what it cleared. A completed one shows no selector. Requires `admin` on the workspace.
         """
         return self._client._request(
             _OPERATIONS["memory.listErasures"],
@@ -4778,7 +4778,7 @@ class MemoryResource:
     ) -> _models.MemoryErasureCreated:
         """Erase a person's words. `POST /v1/memory/erasures`
 
-        Starts erasing, in the background, one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name) or one conversation (`conversationId`): their facts, conversations (messages, recall rows), the runs that served them (input, output, journal, snapshots) and the free text they left in provenance; facts written from them go to review. Answers `202` with the erasure; follow it with `GET /v1/memory/erasures/{erasureId}`. A completed erasure keeps no identifier, only a keyed hash for a replay after a backup restore; `warnings` says when this deployment can't keep one (`erasure-unmatchable`: no erasure ledger key, `KINDGI_ERASURE_LEDGER_KEY`). Requires `admin` on the tenant.
+        Starts erasing, in the background, one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name) or one conversation (`conversationId`): their facts, conversations (messages, recall rows), the runs that served them (input, output, journal, snapshots) and the free text they left in provenance; facts written from them go to review. Answers `202` with the erasure; follow it with `GET /v1/memory/erasures/{erasureId}`. A completed erasure keeps no identifier, only a keyed hash for a replay after a backup restore; `warnings` says when this deployment can't keep one (`erasure-unmatchable`: no erasure ledger key, `KINDGI_ERASURE_LEDGER_KEY`). Requires `admin` on the workspace.
         """
         return self._client._request(
             _OPERATIONS["memory.createErasure"],
@@ -4793,7 +4793,7 @@ class MemoryResource:
     def export_erasures(self, /, *, timeout: float | None = None) -> _models.MemoryErasureLedger:
         """Export the erasure ledger. `GET /v1/memory/erasures/export`
 
-        The whole ledger, oldest first, content-free: each erasure's selector kind, the keyed hash of whom it erased, who asked and when. Keep it off-box: restoring a backup rolls the ledger back too, and `POST /v1/memory/erasures/replay` with it runs the erasures again. Requires `admin` on the tenant.
+        The whole ledger, oldest first, content-free: each erasure's selector kind, the keyed hash of whom it erased, who asked and when. Keep it off-box: restoring a backup rolls the ledger back too, and `POST /v1/memory/erasures/replay` with it runs the erasures again. Requires `admin` on the workspace.
         """
         return self._client._request(
             _OPERATIONS["memory.exportErasures"],
@@ -4815,7 +4815,7 @@ class MemoryResource:
     ) -> _models.ReplayMemoryErasuresResult:
         """Replay erasures after a backup restore. `POST /v1/memory/erasures/replay`
 
-        Takes the ledger `GET /v1/memory/erasures/export` gave, puts back the rows the restore lost, and finds each erasure's person (or fact, or conversation) again by its keyed hash: those run again (`replayed`); ones nothing in the tenant matches are only restored (`restored`); ones with no keyed hash, or a key this deployment doesn't hold, are `unmatched`. Requires `admin` on the tenant.
+        Takes the ledger `GET /v1/memory/erasures/export` gave, puts back the rows the restore lost, and finds each erasure's person (or fact, or conversation) again by its keyed hash: those run again (`replayed`); ones nothing in the workspace matches are only restored (`restored`); ones with no keyed hash, or a key this deployment doesn't hold, are `unmatched`. Requires `admin` on the workspace.
         """
         return self._client._request(
             _OPERATIONS["memory.replayErasures"],
@@ -4839,7 +4839,7 @@ class MemoryResource:
     ) -> _models.MemoryErasure:
         """Resume an erasure. `POST /v1/memory/erasures/{erasureId}/resume`
 
-        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people, or a test run still going with a case from their runs) stops waiting: that run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.
+        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people, or a test run still going with a case from their runs) stops waiting: that run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the workspace.
         """
         return self._client._request(
             _OPERATIONS["memory.resumeErasure"],
@@ -4856,7 +4856,7 @@ class MemoryResource:
     ) -> _models.MemoryErasure:
         """Get an erasure. `GET /v1/memory/erasures/{erasureId}`
 
-        One erasure: its status (`pending`, `running`, `completed`, `failed`), phase, what each store cleared (`counts`), and `lastError` (a code, or `not-yet:<reason>` while it waits for a run to finish). Requires `admin` on the tenant.
+        One erasure: its status (`pending`, `running`, `completed`, `failed`), phase, what each store cleared (`counts`), and `lastError` (a code, or `not-yet:<reason>` while it waits for a run to finish). Requires `admin` on the workspace.
         """
         return self._client._request(
             _OPERATIONS["memory.getErasure"],
@@ -5294,7 +5294,7 @@ class RuntimeResource:
     def get(self, /, *, timeout: float | None = None) -> _models.RuntimeInfo:
         """Which runtime answers. `GET /v1/runtime`
 
-        Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a tenant reads it; no right is asked. A runtime that doesn't report it answers 404.
+        Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a workspace reads it; no right is asked. A runtime that doesn't report it answers 404.
         """
         return self._client._request(
             _OPERATIONS["runtime.get"],
@@ -5374,7 +5374,7 @@ class ArtifactsResource:
     ) -> _models.BlobMeta:
         """Upload an artifact. `POST /v1/artifacts`
 
-        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the tenant's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.
+        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.
         """
         return self._client._request(
             _OPERATIONS["artifacts.upload"],
@@ -5455,7 +5455,7 @@ class ObservationsResource:
     ) -> _models.ObservationCollectionPage:
         """Query supervisor observations. `GET /v1/observations`
 
-        Cursor-paginated. Any authenticated caller can read observations for their tenant.
+        Cursor-paginated. Any authenticated caller can read observations for their workspace.
         """
         return self._client._request(
             _OPERATIONS["observations.list"],
@@ -5494,7 +5494,7 @@ class CapabilitiesResource:
     ) -> _models.CapabilityCollectionPage:
         """List capability descriptors. `GET /v1/capabilities`
 
-        Cursor-paginated. Read-only — capabilities are framework-declared + deployment-extended at boot time, not tenant-created via HTTP. Optional `?feature=` filters by prefix on `feature`.
+        Cursor-paginated. Read-only — capabilities are framework-declared + deployment-extended at boot time, not workspace-created via HTTP. Optional `?feature=` filters by prefix on `feature`.
         """
         return self._client._request(
             _OPERATIONS["capabilities.list"],
@@ -5921,7 +5921,7 @@ class CorrectorGroupsResource:
     ) -> _models.CorrectorGroup:
         """Create a corrector group. `POST /v1/corrector-groups`
 
-        A named kind of person who corrects with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live groups of a scope. Needs `admin` on the tenant (tenant scope) or the project.
+        A named kind of person who corrects with a weight, scoped to the workspace, a project, or an agent in a project. Names are unique among the live groups of a scope. Needs `admin` on the workspace (tenant scope) or the project.
         """
         return self._client._request(
             _OPERATIONS["correctorGroups.create"],
@@ -6129,7 +6129,7 @@ class McpEndpointsResource:
     ) -> _models.RegisterMCPEndpointResult:
         """Register an MCP endpoint. `POST /v1/mcp/endpoints`
 
-        Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.
+        Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the workspace that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.
         """
         return self._client._request(
             _OPERATIONS["mcp.endpoints.register"],
@@ -6297,7 +6297,7 @@ class CostResource:
     ) -> _models.CostAggregateResult:
         """Aggregate cost across a time window. `GET /v1/cost/aggregate`
 
-        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. It needs `read` on the scope, and across projects (no scope, the tenant, or an org) it counts only the projects the caller may read, and records with no project; a tenant admin's counts every project. Each group, and the total, carries its cost and its token sums (`tokens`). `groups` is ordered by `totalUsd`, highest first (ties by key), and capped at `limit` (default 1000): `truncated` and `totalGroups` say when there were more, and the totals still cover every record. For every record, page through `/v1/cost/records`. `inherit` has no effect on cost records, which always belong to a project.
+        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. It needs `read` on the scope, and across projects (no scope, the workspace, or an org) it counts only the projects the caller may read, and records with no project; a tenant admin's counts every project. Each group, and the total, carries its cost and its token sums (`tokens`). `groups` is ordered by `totalUsd`, highest first (ties by key), and capped at `limit` (default 1000): `truncated` and `totalGroups` say when there were more, and the totals still cover every record. For every record, page through `/v1/cost/records`. `inherit` has no effect on cost records, which always belong to a project.
         """
         return self._client._request(
             _OPERATIONS["cost.aggregate"],
@@ -6513,7 +6513,7 @@ class PoliciesResource:
         include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.PolicyCollectionPage:
-        """List tenant policies. `GET /v1/policies`
+        """List workspace policies. `GET /v1/policies`
 
         Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id. A retired policy (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
@@ -6543,7 +6543,7 @@ class PoliciesResource:
     ) -> _models.PublishPolicyResult:
         """Publish a policy. `POST /v1/policies`
 
-        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A tenant has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). Where this server has a retention limit for a domain, a policy for that domain that keeps its rows longer, or holds them (`graceSeconds: -1`), is refused with `400 retention-over-limit` (`details.limitSeconds` is the limit); a `*` policy isn't, as the server caps each limited domain when it sweeps. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A workspace has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). Where this server has a retention limit for a domain, a policy for that domain that keeps its rows longer, or holds them (`graceSeconds: -1`), is refused with `400 retention-over-limit` (`details.limitSeconds` is the limit); a `*` policy isn't, as the server caps each limited domain when it sweeps. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return self._client._request(
             _OPERATIONS["policies.publish"],
@@ -6629,7 +6629,7 @@ class RetentionResource:
     ) -> _models.RetentionScheduledPage:
         """List deleted rows scheduled for purging. `GET /v1/retention/scheduled`
 
-        Tombstoned rows in every domain a retention policy or this server's retention limit covers, with when each is purged (`purgeAt`) and what decides it: the policy (`policyId`), or the limit (`limitApplied`) when no policy covers the domain or its policy keeps rows longer. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones neither covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the tenant.
+        Tombstoned rows in every domain a retention policy or this server's retention limit covers, with when each is purged (`purgeAt`) and what decides it: the policy (`policyId`), or the limit (`limitApplied`) when no policy covers the domain or its policy keeps rows longer. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones neither covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the workspace.
         """
         return self._client._request(
             _OPERATIONS["retention.scheduled"],
@@ -6655,7 +6655,7 @@ class RetentionResource:
     ) -> _models.RetentionSweepResult:
         """Purge the deleted rows past their grace. `POST /v1/retention/sweep`
 
-        Purges, for good, every tombstoned row past its grace (or only `domain`'s): the grace of the retention policy that covers its domain, or this server's limit for the domain when no policy covers it or the policy keeps rows longer (`limitApplied`), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows, unless the domain has a limit. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.
+        Purges, for good, every tombstoned row past its grace (or only `domain`'s): the grace of the retention policy that covers its domain, or this server's limit for the domain when no policy covers it or the policy keeps rows longer (`limitApplied`), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows, unless the domain has a limit. Idempotent: a second call purges nothing new. Requires `admin` on the workspace.
         """
         return self._client._request(
             _OPERATIONS["retention.sweep"],
@@ -6699,7 +6699,7 @@ class RetentionResource:
     ) -> _models.RetentionSweepResult:
         """Purge one domain's deleted rows past their grace. `POST /v1/retention/sweep/{domain}`
 
-        As `POST /v1/retention/sweep`, for one domain. Requires `admin` on the tenant.
+        As `POST /v1/retention/sweep`, for one domain. Requires `admin` on the workspace.
         """
         return self._client._request(
             _OPERATIONS["retention.sweepDomain"],
@@ -6804,7 +6804,7 @@ class TestSetsResource:
         include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.TestSetCollectionPage:
-        """List tenant test sets. `GET /v1/test-sets`
+        """List workspace test sets. `GET /v1/test-sets`
 
         Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated. A `corrections` test set (an agent's frozen versions, and those built from corrections before) is listed only with `?kind=corrections`: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).
         """
@@ -7145,7 +7145,7 @@ class TestRunsResource:
     ) -> _models.StartTestRunResult:
         """Start a test run against a test set. `POST /v1/test-sets/{testSetId}/runs`
 
-        Dispatches a test run against the latest version of the test set. An agent's own test set (`agent.<agentId>.<projectId>`, read at `GET /v1/agents/{agentId}/test-set`) is frozen first, as a suggested change's check freezes it, and the run records the frozen version as `testSetVersion`; a dry run freezes it too; it runs only its agent, in its project. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
+        Dispatches a test run against the latest version of the test set. An agent's own test set (`agent.<agentId>.<projectId>`, read at `GET /v1/agents/{agentId}/test-set`) is frozen first, as a suggested change's check freezes it, and the run records the frozen version as `testSetVersion`; a dry run freezes it too; it runs only its agent, in its project. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or workspace stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
         """
         return self._client._request(
             _OPERATIONS["testRuns.start"],
@@ -7277,9 +7277,9 @@ class AuthProvidersResource:
         self._client = client
 
     def list(self, /, *, timeout: float | None = None) -> _models.IdentityProviderCollectionPage:
-        """List identity providers configured for the tenant. `GET /v1/auth/providers`
+        """List identity providers configured for the workspace. `GET /v1/auth/providers`
 
-        Returns the tenant's identity providers (OIDC, SAML), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
+        Returns the workspace's identity providers (OIDC, SAML), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
         """
         return self._client._request(
             _OPERATIONS["auth.providers.list"],
@@ -7301,7 +7301,7 @@ class AuthProvidersResource:
     ) -> _models.RegisterIdentityProviderResult:
         """Register an identity provider (OIDC or SAML). `POST /v1/auth/providers`
 
-        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
+        Unique per workspace on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
         """
         return self._client._request(
             _OPERATIONS["auth.providers.register"],
@@ -7480,7 +7480,7 @@ class AuthResource:
     ) -> _models.SignInOptions:
         """How a person can sign in. `GET /v1/auth/sign-in-options`
 
-        Public: nobody is signed in yet. With `email`, the ways in for that email's domain: the identity providers of the one tenant the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, "Continue with Google"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Lookups with an email are rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`); a read without one, the same for everyone, isn't counted.
+        Public: nobody is signed in yet. With `email`, the ways in for that email's domain: the identity providers of the one workspace the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, "Continue with Google"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Lookups with an email are rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`); a read without one, the same for everyone, isn't counted.
         """
         return self._client._request(
             _OPERATIONS["auth.signInOptions"],
@@ -7578,9 +7578,9 @@ class IdentityUsersResource:
         include: Literal["grants"] | None = None,
         timeout: float | None = None,
     ) -> _models.UserCollectionPage:
-        """List users in the tenant. `GET /v1/identity/users`
+        """List users in the workspace. `GET /v1/identity/users`
 
-        Cursor-paginated list of tenant users (sort order is binding-defined), for tenant admins only. Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per tenant policy. Anyone else adds a person to a project by their email or id (`POST /v1/projects/{projectId}/memberships`).
+        Cursor-paginated list of workspace users (sort order is binding-defined), for tenant admins only. Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per workspace policy. Anyone else adds a person to a project by their email or id (`POST /v1/projects/{projectId}/memberships`).
         """
         return self._client._request(
             _OPERATIONS["identity.users.list"],
@@ -7609,7 +7609,7 @@ class IdentityUsersResource:
     ) -> _models.UserCreated:
         """Add a person. `POST /v1/identity/users`
 
-        Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. A person added with an email is invited (`invite`): they sign in within 7 days, or a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`); the invitation is emailed where the deployment sends email, and `inviteEmail` says whether it was. Tenant admins only. Mounted when the identity directory can add people.
+        Adds a person to the workspace as a tenant member, written before it answers: they can read the workspace's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. A person added with an email is invited (`invite`): they sign in within 7 days, or a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`); the invitation is emailed where the deployment sends email, and `inviteEmail` says whether it was. Tenant admins only. Mounted when the identity directory can add people.
         """
         return self._client._request(
             _OPERATIONS["identity.users.create"],
@@ -7661,7 +7661,7 @@ class IdentityUsersResource:
     ) -> _models.UnregisterUserResult:
         """Remove a person. `POST /v1/identity/users/{userId}/unregister`
 
-        Removes a person from the tenant, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, and every grant and membership they hold is taken away, all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.
+        Removes a person from the workspace, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, and every grant and membership they hold is taken away, all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.
         """
         return self._client._request(
             _OPERATIONS["identity.users.unregister"],
@@ -7952,7 +7952,7 @@ class IdentityResource:
         self.me = IdentityMeResource(client)
 
     def whoami(self, /, *, timeout: float | None = None) -> _models.WhoamiResult:
-        """Self — the caller's user + tenant + session context. `GET /v1/identity/whoami`
+        """Self — the caller's user + workspace + session context. `GET /v1/identity/whoami`
 
         Reflects the auth middleware's attached context: `tenantId` + `scopes` always; `userId` / `sessionId` / `providerId` / `expiresAt` when the caller is on a session token; the fuller `UserRecord` under `user` when a `userId` is present and the `IdentityDirectoryBinding` resolves it. Always mounted — the `/users/*` routes only mount when the directory binding is wired.
         """
@@ -7982,7 +7982,7 @@ class DeploymentsValuesResource:
     ) -> _models.DeploymentValueList:
         """List the values a deployment needs in a project. `GET /v1/deployments/{deploymentId}/values`
 
-        Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), `read` on the project the deployment serves, and `read` on the tenant, as every deployments route does.
+        Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), `read` on the project the deployment serves, and `read` on the workspace, as every deployments route does.
         """
         return self._client._request(
             _OPERATIONS["deployments.values.list"],
@@ -8044,7 +8044,7 @@ class DeploymentsResource:
     ) -> _models.DeploymentRecord:
         """Register a signed deployment. `POST /v1/deployments`
 
-        Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info["x-kindgi-capabilities"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.
+        Atomic transaction: check the signing key against the workspace's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the workspace's default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info["x-kindgi-capabilities"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.
         """
         return self._client._request(
             _OPERATIONS["deployments.register"],
@@ -8066,7 +8066,7 @@ class DeploymentsResource:
     ) -> _models.DeployCheckResult:
         """Check a deploy's blocks against what runs. `POST /v1/deployments/check`
 
-        What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. It takes the deploy's own right: admin on `projectId`, else on the tenant.
+        What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. It takes the deploy's own right: admin on `projectId`, else on the workspace.
         """
         return self._client._request(
             _OPERATIONS["deployments.check"],
@@ -8096,7 +8096,7 @@ class DeploymentsResource:
     ) -> _models.PackEnvNames:
         """Show where each name a deployment's pack declares is set. `GET /v1/deployments/{deploymentId}/pack-env`
 
-        On a server that runs a pack service per deployment and gives it the env its pack declares: each declared name, where it's set (the deployment's project, then its org, then the tenant, at the env the server serves) and why it can't be given, if it can't. Never a value. A name set only as a secret can't be given into the pack service's environment yet: a tool reads it per call (`ctx.secrets`).
+        On a server that runs a pack service per deployment and gives it the env its pack declares: each declared name, where it's set (the deployment's project, then its org, then the workspace, at the env the server serves) and why it can't be given, if it can't. Never a value. A name set only as a secret can't be given into the pack service's environment yet: a tool reads it per call (`ctx.secrets`).
         """
         return self._client._request(
             _OPERATIONS["deployments.packEnv"],
@@ -8225,7 +8225,7 @@ class ComplianceEvidenceResource:
     ) -> _models.ComplianceEvidence:
         """Fetch one compliance-evidence record. `GET /v1/compliance/evidence/{evidenceId}`
 
-        Returns the full evidence record. 404 `compliance-evidence-not-found` when the id is unknown within the tenant scope (never leaks the existence of another tenant's records).
+        Returns the full evidence record. 404 `compliance-evidence-not-found` when the id is unknown within the tenant scope (never leaks the existence of another workspace's records).
         """
         return self._client._request(
             _OPERATIONS["compliance.evidence.get"],
@@ -8298,7 +8298,7 @@ class AuditSignInsResource:
     ) -> _models.AuditSignInsListResponse:
         """List sign-in audit events. `GET /v1/audit/sign-ins`
 
-        The tenant's sign-in history: who signed in and out, how (`method`), when and from where (`clientAddress`), what was refused and why, and emailed links sent or capped. `?userId=` narrows to one person's own sign-ins and sign-outs. Oldest first; `?order=desc` for newest first. A tenant admin's to read (403 `permission-denied` otherwise). Only mounted when `CreateAppInput.auditEvents` is wired.
+        The workspace's sign-in history: who signed in and out, how (`method`), when and from where (`clientAddress`), what was refused and why, and emailed links sent or capped. `?userId=` narrows to one person's own sign-ins and sign-outs. Oldest first; `?order=desc` for newest first. A tenant admin's to read (403 `permission-denied` otherwise). Only mounted when `CreateAppInput.auditEvents` is wired.
         """
         return self._client._request(
             _OPERATIONS["audit.signIns.list"],
@@ -8343,7 +8343,7 @@ class AuditAuthzResource:
     ) -> _models.AuditAuthzListResponse:
         """List authz decision audit events. `GET /v1/audit/authz`
 
-        Cursor-paginated read of `authz-decision` audit events for the tenant. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Oldest first; `?order=desc` for newest first. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.
+        Cursor-paginated read of `authz-decision` audit events for the workspace. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Oldest first; `?order=desc` for newest first. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.
         """
         return self._client._request(
             _OPERATIONS["audit.authz.list"],
@@ -8391,7 +8391,7 @@ class OrgsResource:
         name_contains: str | None = None,
         timeout: float | None = None,
     ) -> _models.OrgCollectionPage:
-        """List orgs in the caller's tenant. `GET /v1/orgs`
+        """List orgs in the caller's workspace. `GET /v1/orgs`
 
         Cursor-paginated list of orgs. Optional `?nameContains=` narrows by substring match on `Org.name`.
         """
@@ -8516,7 +8516,7 @@ class TeamsMembershipsResource:
     ) -> _models.AddTeamMembershipResult:
         """Add a user to a team. `POST /v1/teams/{teamId}/memberships`
 
-        Someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
+        Someone who is not a person of this workspace, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
         """
         return self._client._request(
             _OPERATIONS["teams.memberships.add"],
@@ -8615,7 +8615,7 @@ class TeamsResource:
         name_contains: str | None = None,
         timeout: float | None = None,
     ) -> _models.TeamCollectionPage:
-        """List teams in the caller's tenant. `GET /v1/teams`
+        """List teams in the caller's workspace. `GET /v1/teams`
 
         Cursor-paginated. Optional `?orgId=` narrows to a specific org (absent = every team, including teams with no org). `?nameContains=` substring-matches on `Team.name`.
         """
@@ -9046,7 +9046,7 @@ class ProjectsMembershipsResource:
     ) -> _models.AddProjectMembershipResult:
         """Add a user directly to a project. `POST /v1/projects/{projectId}/memberships`
 
-        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
+        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this workspace, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
         """
         return self._client._request(
             _OPERATIONS["projects.memberships.add"],
@@ -9144,7 +9144,7 @@ class ProjectsPinnedVersionsResource:
     ) -> _models.ProjectPinnedVersionPage:
         """List the pinned versions that cover a project. `GET /v1/projects/{projectId}/pinned-versions`
 
-        Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/pinned-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.
+        Every agent's pinned versions that cover the project: the workspace's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/pinned-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.
         """
         return self._client._request(
             _OPERATIONS["projects.pinnedVersions.list"],
@@ -9174,7 +9174,7 @@ class ProjectsProductionResource:
     ) -> _models.ProjectProduction:
         """Put a project in production, or take it out. `PUT /v1/projects/{projectId}/production`
 
-        A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the tenant), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the tenant isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. With the tenant's `projectsInProduction` limit set, putting another project in production is refused with 403 `production-limit-reached` while that many of its projects are in production, or more; taking one out is never refused. 501 `production-unsupported` from a runtime whose projects can't be put in production.
+        A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the workspace), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the workspace isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. With the workspace's `projectsInProduction` limit set, putting another project in production is refused with 403 `production-limit-reached` while that many of its projects are in production, or more; taking one out is never refused. 501 `production-unsupported` from a runtime whose projects can't be put in production.
         """
         return self._client._request(
             _OPERATIONS["projects.production.set"],
@@ -9205,7 +9205,7 @@ class ProjectsRepoConnectionResource:
     ) -> _models.ProjectRepoConnection:
         """Set a project's repo connection. `PUT /v1/projects/{projectId}/repo-connection`
 
-        The company-wide GitHub connection the project opens its block changes' pull requests through. For the project's admins (`admin` on it). It replaces any connection set before; setting the one already set answers 200 unchanged. The connection must be the tenant's, made through the GitHub app entry, and owned by the company: 404 `connection-not-found` for one that isn't there or was removed, and 400 `repo-connection-not-company-github` for any other. The project keeps only the id: a connection removed later reads as none. 501 `repo-connection-unsupported` from a runtime that can't keep one, or has no connections.
+        The company-wide GitHub connection the project opens its block changes' pull requests through. For the project's admins (`admin` on it). It replaces any connection set before; setting the one already set answers 200 unchanged. The connection must be the workspace's, made through the GitHub app entry, and owned by the company: 404 `connection-not-found` for one that isn't there or was removed, and 400 `repo-connection-not-company-github` for any other. The project keeps only the id: a connection removed later reads as none. 501 `repo-connection-unsupported` from a runtime that can't keep one, or has no connections.
         """
         return self._client._request(
             _OPERATIONS["projects.repoConnection.set"],
@@ -9349,7 +9349,7 @@ class ProjectsSitesResource:
     ) -> _models.SiteCollectionPage:
         """List the project's sites. `GET /v1/projects/{projectId}/sites`
 
-        The sites that sign their own people in to this project. Tenant admins only: a site creates people in the tenant. `includeUnregistered=true` lists unregistered ones too. Mounted when the deployment supplies a `SiteBinding`.
+        The sites that sign their own people in to this project. Tenant admins only: a site creates people in the workspace. `includeUnregistered=true` lists unregistered ones too. Mounted when the deployment supplies a `SiteBinding`.
         """
         return self._client._request(
             _OPERATIONS["projects.sites.list"],
@@ -9548,7 +9548,7 @@ class ProjectsSitesResource:
     ) -> _models.SitePersonRestoreResult:
         """Let a person removed in Kindgi back in, through their site. `POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`
 
-        For one of the site's people removed in Kindgi (`POST /v1/identity/users/{userId}/unregister`) while the site still knows them: they're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` for someone in the tenant whose site still knows them; `left` when their site said they left it, removed in Kindgi too or not: a site forgets a person who leaves, and signs them in as a new person if they come back; `linked-elsewhere` when they also sign in another way (through another site, or the tenant's own sign-in), which letting them back in would open too: add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.
+        For one of the site's people removed in Kindgi (`POST /v1/identity/users/{userId}/unregister`) while the site still knows them: they're in the workspace again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` for someone in the workspace whose site still knows them; `left` when their site said they left it, removed in Kindgi too or not: a site forgets a person who leaves, and signs them in as a new person if they come back; `linked-elsewhere` when they also sign in another way (through another site, or the workspace's own sign-in), which letting them back in would open too: add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.
         """
         return self._client._request(
             _OPERATIONS["projects.sites.restorePerson"],
@@ -9576,9 +9576,9 @@ class ProjectsResource:
         self.sites = ProjectsSitesResource(client)
 
     def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
-        """Fetch the tenant's default project. `GET /v1/projects/default`
+        """Fetch the workspace's default project. `GET /v1/projects/default`
 
-        Returns the row where `Project.isDefault = true` (at most one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the tenant has none.
+        Returns the row where `Project.isDefault = true` (at most one per workspace), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the workspace has none.
         """
         return self._client._request(
             _OPERATIONS["projects.getDefault"],
@@ -9599,7 +9599,7 @@ class ProjectsResource:
         name_contains: str | None = None,
         timeout: float | None = None,
     ) -> _models.ProjectCollectionPage:
-        """List projects in the caller's tenant. `GET /v1/projects`
+        """List projects in the caller's workspace. `GET /v1/projects`
 
         Cursor-paginated. Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.
         """
@@ -9628,7 +9628,7 @@ class ProjectsResource:
     ) -> _models.CreateResourceResult:
         """Create a project. `POST /v1/projects`
 
-        A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`.
+        A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`.
         """
         return self._client._request(
             _OPERATIONS["projects.create"],
@@ -9711,9 +9711,9 @@ class TenantConfigResource:
         key_prefix: str | None = None,
         timeout: float | None = None,
     ) -> _models.TenantConfigCollectionPage:
-        """List the tenant's config entries. `GET /v1/tenant/config`
+        """List the workspace's config entries. `GET /v1/tenant/config`
 
-        Cursor-paginated: the env entries (in the env binding order), then the `config` entries when they live apart from them, then the secret entries (in the secrets binding order); a page holds at most `limit` entries and `nextCursor` resumes where it ended. Optional `?kind=` narrows to one slot (env / config / secret); `?keyPrefix=` matches on entry key. `env` and `secret` entries are the ones under the env the runtime serves (`servedEnv` in whoami), where its tools read them; `config` entries, the tenant settings, are under `default` whatever it serves. On a runtime that serves none, all of them are under `default`. **Secret values are ALWAYS redacted on this admin surface** — the dispatch path is the only reader that receives raw material.
+        Cursor-paginated: the env entries (in the env binding order), then the `config` entries when they live apart from them, then the secret entries (in the secrets binding order); a page holds at most `limit` entries and `nextCursor` resumes where it ended. Optional `?kind=` narrows to one slot (env / config / secret); `?keyPrefix=` matches on entry key. `env` and `secret` entries are the ones under the env the runtime serves (`servedEnv` in whoami), where its tools read them; `config` entries, the workspace settings, are under `default` whatever it serves. On a runtime that serves none, all of them are under `default`. **Secret values are ALWAYS redacted on this admin surface** — the dispatch path is the only reader that receives raw material.
         """
         return self._client._request(
             _OPERATIONS["tenant.config.list"],
@@ -9733,9 +9733,9 @@ class TenantConfigResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.UpsertTenantConfigResult:
-        """Upsert a tenant-config entry. `PATCH /v1/tenant/config`
+        """Upsert a workspace-config entry. `PATCH /v1/tenant/config`
 
-        Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a tenant setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.
+        Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a workspace setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.
         """
         return self._client._request(
             _OPERATIONS["tenant.config.upsert"],
@@ -9756,9 +9756,9 @@ class TenantResource:
         self.config = TenantConfigResource(client)
 
     def get(self, /, *, timeout: float | None = None) -> _models.Tenant:
-        """Fetch the caller's tenant. `GET /v1/tenant`
+        """Fetch the caller's workspace. `GET /v1/tenant`
 
-        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the tenant's `limits`, and a deployment that publishes where its calls come from adds `egress`.
+        Returns the workspace the bearer token authenticates as. There is no `/v1/tenants` collection — workspaces are the sovereignty boundary, not a listable resource under a workspace. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the workspace's `limits`, and a deployment that publishes where its calls come from adds `egress`.
         """
         return self._client._request(
             _OPERATIONS["tenant.get"],
@@ -9778,9 +9778,9 @@ class TenantResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> None:
-        """Rename the caller's tenant. `PATCH /v1/tenant`
+        """Rename the caller's workspace. `PATCH /v1/tenant`
 
-        Changes its name, its slug, or both; a field left out stays as it is. Its id stays, so whatever names it by its id keeps working. The console's addresses carry the slug: after a new one, links with the old one stop opening the tenant, and another tenant may take the old one. The same values again change nothing. Takes `admin` on the tenant. A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.
+        Changes its name, its slug, or both; a field left out stays as it is. Its id stays, so whatever names it by its id keeps working. The console's addresses carry the slug: after a new one, links with the old one stop opening the workspace, and another workspace may take the old one. The same values again change nothing. Takes `admin` on the workspace. A runtime whose tenant-hierarchy binding can't rename workspaces doesn't serve this route.
         """
         return self._client._request(
             _OPERATIONS["tenant.update"],
@@ -9806,9 +9806,9 @@ class EnvironmentOrdersResource:
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.EnvironmentOrderPage:
-        """List the tenant's environment orders. `GET /v1/environment-orders`
+        """List the workspace's environment orders. `GET /v1/environment-orders`
 
-        The order a tenant runs a project through on its way to live — its environments: the tenant's own order and each org's. An order is listed when the caller can read a project in it; a project the caller can't read is named by its position alone, without its id.
+        The order a workspace runs a project through on its way to live — its environments: the workspace's own order and each org's. An order is listed when the caller can read a project in it; a project the caller can't read is named by its position alone, without its id.
         """
         return self._client._request(
             _OPERATIONS["environmentOrders.list"],
@@ -9820,9 +9820,9 @@ class EnvironmentOrdersResource:
         )
 
     def get_tenant(self, /, *, timeout: float | None = None) -> _models.EnvironmentOrder:
-        """Get the tenant's environment order. `GET /v1/environment-orders/tenant`
+        """Get the workspace's environment order. `GET /v1/environment-orders/tenant`
 
-        The tenant's own environment order; empty when it was never set or was cleared. A project the caller can't read is named by its position alone.
+        The workspace's own environment order; empty when it was never set or was cleared. A project the caller can't read is named by its position alone.
         """
         return self._client._request(
             _OPERATIONS["environmentOrders.getTenant"],
@@ -9842,9 +9842,9 @@ class EnvironmentOrdersResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.EnvironmentOrder:
-        """Set the tenant's environment order. `PUT /v1/environment-orders/tenant`
+        """Set the workspace's environment order. `PUT /v1/environment-orders/tenant`
 
-        Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the tenant and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.
+        Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the workspace and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.
         """
         return self._client._request(
             _OPERATIONS["environmentOrders.setTenant"],
@@ -9911,9 +9911,9 @@ class EnvironmentsResource:
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.EnvironmentPage:
-        """List the tenant's env names. `GET /v1/environments`
+        """List the workspace's env names. `GET /v1/environments`
 
-        The env names the tenant holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A revoked secret doesn't count. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.
+        The env names the workspace holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A revoked secret doesn't count. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.
         """
         return self._client._request(
             _OPERATIONS["environments.list"],
@@ -10599,7 +10599,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerCollectionPage:
         """List webhook triggers. `GET /v1/webhooks`
 
-        The tenant's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        The workspace's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
         """
         return self._client._request(
             _OPERATIONS["webhooks.list"],
@@ -10621,7 +10621,7 @@ class WebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Register a webhook trigger. `POST /v1/webhooks`
 
-        A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the workspace that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the workspace's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return self._client._request(
             _OPERATIONS["webhooks.register"],
@@ -10744,7 +10744,7 @@ class WebhooksResource:
     ) -> _models.WebhookFirePage:
         """A webhook trigger's deliveries. `GET /v1/webhooks/{triggerId}/fires`
 
-        Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused, its project or tenant suspended, or its tenant closing) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals and skipped deliveries past 20 a minute only count (the trigger's `suppressedRefusals`).
+        Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused, its project or workspace suspended, or its workspace closing) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals and skipped deliveries past 20 a minute only count (the trigger's `suppressedRefusals`).
         """
         return self._client._request(
             _OPERATIONS["webhooks.fires"],
@@ -10833,7 +10833,7 @@ class MailTriggersResource:
     ) -> _models.MailTriggerCollectionPage:
         """List mail triggers. `GET /v1/mail-triggers`
 
-        The tenant's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        The workspace's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
         """
         return self._client._request(
             _OPERATIONS["mailTriggers.list"],
@@ -10855,7 +10855,7 @@ class MailTriggersResource:
     ) -> _models.MailTriggerRecord:
         """Register a mail trigger. `POST /v1/mail-triggers`
 
-        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the workspace's default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return self._client._request(
             _OPERATIONS["mailTriggers.register"],
@@ -11271,9 +11271,9 @@ class ConnectionAppsResource:
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.ConnectionAppPage:
-        """List the tenant's app registrations. `GET /v1/connection-apps`
+        """List the workspace's app registrations. `GET /v1/connection-apps`
 
-        The tenant's own registrations of its client at an app: its client id, and its secrets by reference. Tenant admins only. Removed registrations are listed only with `includeRemoved=true`.
+        The workspace's own registrations of its client at an app: its client id, and its secrets by reference. Tenant admins only. Removed registrations are listed only with `includeRemoved=true`.
         """
         return self._client._request(
             _OPERATIONS["connectionApps.list"],
@@ -11295,7 +11295,7 @@ class ConnectionAppsResource:
     ) -> _models.ConnectionApp:
         """Register an app. `POST /v1/connection-apps`
 
-        Registers the tenant's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.
+        Registers the workspace's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.
         """
         return self._client._request(
             _OPERATIONS["connectionApps.create"],
@@ -11918,7 +11918,7 @@ class AsyncSigningKeysResource:
     ) -> _models.TrustedSigningKey:
         """Trust a signing key. `POST /v1/signing-keys`
 
-        Adds a public key to the tenant's trust list: deployments it signs verify. Needs the `signing-keys:write` capability. Trusting the same key again answers `200`; a known `keyId` with a different public key is `409 signing-key-conflict` (rotate under a new id). Mounted when the deployment supplies a signing-key registry.
+        Adds a public key to the workspace's trust list: deployments it signs verify. Needs the `signing-keys:write` capability. Trusting the same key again answers `200`; a known `keyId` with a different public key is `409 signing-key-conflict` (rotate under a new id). Mounted when the deployment supplies a signing-key registry.
         """
         return await self._client._request(
             _OPERATIONS["signingKeys.trust"],
@@ -12908,7 +12908,7 @@ class AsyncServiceAccountsResource:
     ) -> _models.ServiceAccount:
         """Create a service account. `POST /v1/service-accounts`
 
-        A named, non-human principal with its first grants, written before it is returned. It isn't a tenant member unless a grant makes it one (`{kind: 'tenant-member'}`: read the tenant's settings); give it only what its job needs. Mint its keys at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the deployment supplies a `ServiceAccountBinding`.
+        A named, non-human principal with its first grants, written before it is returned. It isn't a tenant member unless a grant makes it one (`{kind: 'tenant-member'}`: read the workspace's settings); give it only what its job needs. Mint its keys at `POST /v1/tokens` with `for`. Tenant admins only. Mounted when the deployment supplies a `ServiceAccountBinding`.
         """
         return await self._client._request(
             _OPERATIONS["serviceAccounts.create"],
@@ -13021,7 +13021,7 @@ class AsyncApprovalsReviewersResource:
         role: Literal["standard", "senior", "admin"] | None = None,
         timeout: float | None = None,
     ) -> _models.ReviewerCollectionPage:
-        """List reviewers registered for the caller's tenant. `GET /v1/approvals/reviewers`
+        """List reviewers registered for the caller's workspace. `GET /v1/approvals/reviewers`
 
         Cursor-paginated. Optional `?role=` narrows to a specific role class. The roster names people: with authorization on, a tenant admin or a reviewer (a role on the token, or one the roster gives the user) reads it, and anyone else gets `403 permission-denied`.
         """
@@ -13145,7 +13145,7 @@ class AsyncApprovalsResource:
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
 
-        Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). With authorization on, a person who is the tenant's admin (through a session or an `admin` key not limited to a project) reads at every tier: with no roster entry, as an `admin` reviewer; with a lower role, their own tier, and any tier they ask for with `requiredRole`. The roster doesn't show such a reader, but the access audit records the tenant-admin check (`authz-decision`), made only where it changes what the roster gives. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). With authorization on, only approvals whose project the caller may read. `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.
+        Requires a reviewer: a token that carries a `reviewerRole`, or whose user is a registered reviewer (the roster gives the role). With authorization on, a person who is the workspace's admin (through a session or an `admin` key not limited to a project) reads at every tier: with no roster entry, as an `admin` reviewer; with a lower role, their own tier, and any tier they ask for with `requiredRole`. The roster doesn't show such a reader, but the access audit records the tenant-admin check (`authz-decision`), made only where it changes what the roster gives. Role-scoped: reviewers only see approvals whose `requiredRole` rank ≤ their rank (standard < senior < admin). With authorization on, only approvals whose project the caller may read. `scopeKind`/`scopeId` narrow to one project's approvals, or every project's in an org; approvals from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return await self._client._request(
             _OPERATIONS["approvals.list"],
@@ -13175,7 +13175,7 @@ class AsyncApprovalsResource:
     ) -> _models.Approval:
         """Fetch a single approval. `GET /v1/approvals/{approvalId}`
 
-        Requires a reviewer, or (with authorization on) a person who is the tenant's admin, as the list does; the tenant's admin reads an approval of any tier. Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4), or that are in a project the caller may not read. A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).
+        Requires a reviewer, or (with authorization on) a person who is the workspace's admin, as the list does; the workspace's admin reads an approval of any tier. Returns 404 for ids that exist but require a higher role than the caller (avoids cross-tier existence leaks — see API-ROUTE-CONVENTIONS.md §2.4), or that are in a project the caller may not read. A decided approval carries its `decision`: what the reviewer decided, why, and who (`decidedBy`, `user:<userId>`).
         """
         return await self._client._request(
             _OPERATIONS["approvals.get"],
@@ -13355,7 +13355,7 @@ class AsyncAgentsPinnedResource:
     ) -> _models.AgentPinnedVersionResolution:
         """The version a run would use. `GET /v1/agents/{agentId}/pinned`
 
-        Resolves the version a run of this agent would use for a project and segment path: the most specific pinned version (segment path, project, org, tenant), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
+        Resolves the version a run of this agent would use for a project and segment path: the most specific pinned version (segment path, project, org, workspace), else the project's Latest: the version the newest deployment into the project shipped, or that a person published or added as the latest version there, whichever is newer. Without a project, Latest is taken over every version of the agent. A run that names its version, or a follow-up turn in a conversation, isn't resolved this way.
         """
         return await self._client._request(
             _OPERATIONS["agents.pinned.resolve"],
@@ -13516,7 +13516,7 @@ class AsyncAgentsReleaseGateResource:
     ) -> _models.ReleaseGateResolution:
         """The release gate for a scope. `GET /v1/agents/{agentId}/release-gate`
 
-        The release gate a pin of the agent for the scope would be checked against: the most specific scope with an active gate (a segment path's longer prefixes first, then its project, the project's org, the tenant), at its latest active version. `releaseGate: null` when none applies.
+        The release gate a pin of the agent for the scope would be checked against: the most specific scope with an active gate (a segment path's longer prefixes first, then its project, the project's org, the workspace), at its latest active version. `releaseGate: null` when none applies.
         """
         return await self._client._request(
             _OPERATIONS["agents.releaseGate.resolve"],
@@ -13678,7 +13678,7 @@ class AsyncAgentsResource:
     ) -> _models.SetAgentOwnerResult:
         """Set an agent's owner. `PUT /v1/agents/{agentId}/owner`
 
-        One owner per agent: the person its corrections go to when they need the owner. Setting it again replaces the one before. Needs `admin` on the agent (an admin of its project). With a directory of people, the owner must be one of the tenant's.
+        One owner per agent: the person its corrections go to when they need the owner. Setting it again replaces the one before. Needs `admin` on the agent (an admin of its project). With a directory of people, the owner must be one of the workspace's.
         """
         return await self._client._request(
             _OPERATIONS["agents.setOwner"],
@@ -13772,7 +13772,7 @@ class AsyncReleaseGatesVersionsResource:
     ) -> _models.ReleaseGate:
         """Unregister a release gate version. `POST /v1/release-gates/{releaseGateId}/versions/{version}/unregister`
 
-        The version stops applying; the gate's latest remaining active version applies, or, with none, the scope above's gate. Pins keep the version they were checked against. Needs `admin` on the tenant.
+        The version stops applying; the gate's latest remaining active version applies, or, with none, the scope above's gate. Pins keep the version they were checked against. Needs `admin` on the workspace.
         """
         return await self._client._request(
             _OPERATIONS["releaseGates.versions.unregister"],
@@ -13788,7 +13788,7 @@ class AsyncReleaseGatesVersionsResource:
     ) -> _models.ReleaseGate:
         """Reinstate a release gate version. `POST /v1/release-gates/{releaseGateId}/versions/{version}/reinstate`
 
-        Needs `admin` on the tenant.
+        Needs `admin` on the workspace.
         """
         return await self._client._request(
             _OPERATIONS["releaseGates.versions.reinstate"],
@@ -13852,7 +13852,7 @@ class AsyncReleaseGatesResource:
     ) -> _models.ReleaseGate:
         """Publish a release gate. `POST /v1/release-gates`
 
-        Registers a release gate, or a new version of one: what a pin of `agentId` for `scope` must show. One gate per agent and scope: another gate id for a scope that has one is refused with `409 release-gate-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 release-gate-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the tenant: whoever may pin can't loosen their own gate.
+        Registers a release gate, or a new version of one: what a pin of `agentId` for `scope` must show. One gate per agent and scope: another gate id for a scope that has one is refused with `409 release-gate-scope-taken` (`details.heldBy` names it; publish a new version of that one instead), and a new version can't change the agent or scope (`409 release-gate-scope-changed`). The `spec` is checked strictly: an unknown key is refused (`400 validation-failed`, `details.issues`). Needs `admin` on the workspace: whoever may pin can't loosen their own gate.
         """
         return await self._client._request(
             _OPERATIONS["releaseGates.publish"],
@@ -13898,7 +13898,7 @@ class AsyncFlowsPinnedResource:
     ) -> _models.PinnedVersionResolution:
         """The version in use for a project. `GET /v1/flows/{flowId}/pinned`
 
-        Resolves the version in use for a project (or an org, or the whole tenant): the most specific pin covering it (the project, its org, then the tenant) whose version is still active, else the newest version the project reaches, as a run that names no version takes it. A pin whose version doesn't reach the project is passed over, as a run passes it over. `via` says which; `pinnedScope` names the pin that matched.
+        Resolves the version in use for a project (or an org, or the whole workspace): the most specific pin covering it (the project, its org, then the workspace) whose version is still active, else the newest version the project reaches, as a run that names no version takes it. A pin whose version doesn't reach the project is passed over, as a run passes it over. `via` says which; `pinnedScope` names the pin that matched.
         """
         return await self._client._request(
             _OPERATIONS["flows.pinned.resolve"],
@@ -13937,7 +13937,7 @@ class AsyncFlowsPinnedResource:
     ) -> _models.PinnedVersionChange:
         """Pin a version for a scope. `POST /v1/flows/{flowId}/pinned/pin`
 
-        Pins `version` for `scope` (the tenant, an org or a project), or moves the scope's pin to it. A run that names no flow version takes the version pinned for its project (the project's own pin, then its org's, then the tenant's), else the newest version the project reaches. A run that names its version isn't affected, and a run already started keeps its version. The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs `pin` on the flow.
+        Pins `version` for `scope` (the workspace, an org or a project), or moves the scope's pin to it. A run that names no flow version takes the version pinned for its project (the project's own pin, then its org's, then the workspace's), else the newest version the project reaches. A run that names its version isn't affected, and a run already started keeps its version. The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs `pin` on the flow.
         """
         return await self._client._request(
             _OPERATIONS["flows.pinned.pin"],
@@ -13961,7 +13961,7 @@ class AsyncFlowsPinnedResource:
     ) -> _models.PinnedVersionChange:
         """Remove a scope's pin. `POST /v1/flows/{flowId}/pinned/unpin`
 
-        Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the tenant's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs `pin` on the flow.
+        Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the workspace's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs `pin` on the flow.
         """
         return await self._client._request(
             _OPERATIONS["flows.pinned.unpin"],
@@ -14176,7 +14176,7 @@ class AsyncToolsPinnedResource:
     ) -> _models.PinnedVersionResolution:
         """The version in use for a project. `GET /v1/tools/{toolId}/pinned`
 
-        Resolves the version in use for a project (or an org, or the whole tenant): the most specific pin covering it (the project, its org, then the tenant) whose version is still active, else the newest active version, the one a flow version made now would lock its tool step to. `via` says which; `pinnedScope` names the pin that matched.
+        Resolves the version in use for a project (or an org, or the whole workspace): the most specific pin covering it (the project, its org, then the workspace) whose version is still active, else the newest active version, the one a flow version made now would lock its tool step to. `via` says which; `pinnedScope` names the pin that matched.
         """
         return await self._client._request(
             _OPERATIONS["tools.pinned.resolve"],
@@ -14215,7 +14215,7 @@ class AsyncToolsPinnedResource:
     ) -> _models.PinnedVersionChange:
         """Pin a version for a scope. `POST /v1/tools/{toolId}/pinned/pin`
 
-        Pins `version` for `scope` (the tenant, an org or a project), or moves the scope's pin to it. An agent or flow version made in a project the pin covers (the project's own pin, then its org's, then the tenant's) locks the tool at the pinned version: a flow's tool step always, an agent's tool reference when the pinned version is in its range. A version already made keeps its lock; a pin reaches an agent or flow through its next version. The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs `pin` on the tool.
+        Pins `version` for `scope` (the workspace, an org or a project), or moves the scope's pin to it. An agent or flow version made in a project the pin covers (the project's own pin, then its org's, then the workspace's) locks the tool at the pinned version: a flow's tool step always, an agent's tool reference when the pinned version is in its range. A version already made keeps its lock; a pin reaches an agent or flow through its next version. The version must be registered and active. Pinning the version the scope already pins changes nothing and answers the change that set it. Every change is recorded, with who asked and why. Needs `pin` on the tool.
         """
         return await self._client._request(
             _OPERATIONS["tools.pinned.pin"],
@@ -14239,7 +14239,7 @@ class AsyncToolsPinnedResource:
     ) -> _models.PinnedVersionChange:
         """Remove a scope's pin. `POST /v1/tools/{toolId}/pinned/unpin`
 
-        Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the tenant's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs `pin` on the tool.
+        Removes the scope's own pin: the scope then follows the next scope up (its org's pin, then the workspace's), or, with none above, takes what it would if it had never been pinned. Recorded like a pin. Needs `pin` on the tool.
         """
         return await self._client._request(
             _OPERATIONS["tools.pinned.unpin"],
@@ -14326,7 +14326,7 @@ class AsyncToolsResource:
     ) -> _models.RegisterToolResult:
         """Register a tool manifest. `POST /v1/tools`
 
-        Body is a `ToolManifest` (Tool minus its runtime handler). Server validates via `@kindgi/tools.validateToolManifest`. Metadata only: the handler is not uploaded through this route and must already be available to the runtime. A tool never gets a model provider's key: one that declares (`needsSpec.secrets`) or sends (`spec.authorization.secretRef`) a secret a provider registration of the tenant names, in any env, is refused. Where each secret it names is read is recorded on the version (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only.
+        Body is a `ToolManifest` (Tool minus its runtime handler). Server validates via `@kindgi/tools.validateToolManifest`. Metadata only: the handler is not uploaded through this route and must already be available to the runtime. A tool never gets a model provider's key: one that declares (`needsSpec.secrets`) or sends (`spec.authorization.secretRef`) a secret a provider registration of the workspace names, in any env, is refused. Where each secret it names is read is recorded on the version (`secretScopes`): the first of its own scope, its project's org and the workspace that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only.
         """
         return await self._client._request(
             _OPERATIONS["tools.register"],
@@ -14663,7 +14663,7 @@ class AsyncConversationsResource:
     ) -> _models.Conversation:
         """Unregister a conversation. `POST /v1/conversations/{conversationId}/unregister`
 
-        A tombstone: from now on no read, list or recall of earlier conversations returns it, and no message can be added. The retention sweep removes it after the tenant's grace.
+        A tombstone: from now on no read, list or recall of earlier conversations returns it, and no message can be added. The retention sweep removes it after the workspace's grace.
         """
         return await self._client._request(
             _OPERATIONS["conversations.unregister"],
@@ -14719,7 +14719,7 @@ class AsyncMemoryResource:
     ) -> _models.FactCollectionPage:
         """List facts. `GET /v1/memory/facts`
 
-        Cursor-paginated: the current revision of each fact the caller may see. That is tenant-wide facts, the projects they may read (with those projects' orgs), their own user facts, and every end user's and conversation's facts in the projects they may write; a tenant admin sees every fact. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist), `?asOf=` (memory as it stood then). Sort order is binding-defined.
+        Cursor-paginated: the current revision of each fact the caller may see. That is workspace-wide facts, the projects they may read (with those projects' orgs), their own user facts, and every end user's and conversation's facts in the projects they may write; a tenant admin sees every fact. Filters: `?type=` (exact match on `Fact.type`), `?scope=` (URL-encoded JSON partial memory `Scope`), `?scopeKind + ?scopeId + ?inherit` (discriminated `PlatformScope` triplet — threaded into the binding as `platformScope`; both fields coexist), `?asOf=` (memory as it stood then). Sort order is binding-defined.
         """
         return await self._client._request(
             _OPERATIONS["memory.listFacts"],
@@ -14750,7 +14750,7 @@ class AsyncMemoryResource:
     ) -> _models.Fact:
         """Write a fact. `POST /v1/memory/facts`
 
-        Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and tenant `admin` for a tenant-wide fact. The fact records who wrote it (`attributedTo`).
+        Persists a new fact. `type` selects the retrieval policy (which indexes populate). Semantic-indexed types require an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. The caller needs write where the scope says: `write` on its project (an end user's or a conversation's fact included), `write` on its conversation outside a project, `admin` on its org for an org-wide fact, being that user for a user's fact, and workspace `admin` for a workspace-wide fact. The fact records who wrote it (`attributedTo`).
         """
         return await self._client._request(
             _OPERATIONS["memory.writeFact"],
@@ -14902,7 +14902,7 @@ class AsyncMemoryResource:
     ) -> _models.MemoryErasurePage:
         """List erasures. `GET /v1/memory/erasures`
 
-        Cursor-paginated, newest first: each erasure, how far it got and what it cleared. A completed one shows no selector. Requires `admin` on the tenant.
+        Cursor-paginated, newest first: each erasure, how far it got and what it cleared. A completed one shows no selector. Requires `admin` on the workspace.
         """
         return await self._client._request(
             _OPERATIONS["memory.listErasures"],
@@ -14924,7 +14924,7 @@ class AsyncMemoryResource:
     ) -> _models.MemoryErasureCreated:
         """Erase a person's words. `POST /v1/memory/erasures`
 
-        Starts erasing, in the background, one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name) or one conversation (`conversationId`): their facts, conversations (messages, recall rows), the runs that served them (input, output, journal, snapshots) and the free text they left in provenance; facts written from them go to review. Answers `202` with the erasure; follow it with `GET /v1/memory/erasures/{erasureId}`. A completed erasure keeps no identifier, only a keyed hash for a replay after a backup restore; `warnings` says when this deployment can't keep one (`erasure-unmatchable`: no erasure ledger key, `KINDGI_ERASURE_LEDGER_KEY`). Requires `admin` on the tenant.
+        Starts erasing, in the background, one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name) or one conversation (`conversationId`): their facts, conversations (messages, recall rows), the runs that served them (input, output, journal, snapshots) and the free text they left in provenance; facts written from them go to review. Answers `202` with the erasure; follow it with `GET /v1/memory/erasures/{erasureId}`. A completed erasure keeps no identifier, only a keyed hash for a replay after a backup restore; `warnings` says when this deployment can't keep one (`erasure-unmatchable`: no erasure ledger key, `KINDGI_ERASURE_LEDGER_KEY`). Requires `admin` on the workspace.
         """
         return await self._client._request(
             _OPERATIONS["memory.createErasure"],
@@ -14941,7 +14941,7 @@ class AsyncMemoryResource:
     ) -> _models.MemoryErasureLedger:
         """Export the erasure ledger. `GET /v1/memory/erasures/export`
 
-        The whole ledger, oldest first, content-free: each erasure's selector kind, the keyed hash of whom it erased, who asked and when. Keep it off-box: restoring a backup rolls the ledger back too, and `POST /v1/memory/erasures/replay` with it runs the erasures again. Requires `admin` on the tenant.
+        The whole ledger, oldest first, content-free: each erasure's selector kind, the keyed hash of whom it erased, who asked and when. Keep it off-box: restoring a backup rolls the ledger back too, and `POST /v1/memory/erasures/replay` with it runs the erasures again. Requires `admin` on the workspace.
         """
         return await self._client._request(
             _OPERATIONS["memory.exportErasures"],
@@ -14963,7 +14963,7 @@ class AsyncMemoryResource:
     ) -> _models.ReplayMemoryErasuresResult:
         """Replay erasures after a backup restore. `POST /v1/memory/erasures/replay`
 
-        Takes the ledger `GET /v1/memory/erasures/export` gave, puts back the rows the restore lost, and finds each erasure's person (or fact, or conversation) again by its keyed hash: those run again (`replayed`); ones nothing in the tenant matches are only restored (`restored`); ones with no keyed hash, or a key this deployment doesn't hold, are `unmatched`. Requires `admin` on the tenant.
+        Takes the ledger `GET /v1/memory/erasures/export` gave, puts back the rows the restore lost, and finds each erasure's person (or fact, or conversation) again by its keyed hash: those run again (`replayed`); ones nothing in the workspace matches are only restored (`restored`); ones with no keyed hash, or a key this deployment doesn't hold, are `unmatched`. Requires `admin` on the workspace.
         """
         return await self._client._request(
             _OPERATIONS["memory.replayErasures"],
@@ -14987,7 +14987,7 @@ class AsyncMemoryResource:
     ) -> _models.MemoryErasure:
         """Resume an erasure. `POST /v1/memory/erasures/{erasureId}/resume`
 
-        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people, or a test run still going with a case from their runs) stops waiting: that run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.
+        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people, or a test run still going with a case from their runs) stops waiting: that run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the workspace.
         """
         return await self._client._request(
             _OPERATIONS["memory.resumeErasure"],
@@ -15004,7 +15004,7 @@ class AsyncMemoryResource:
     ) -> _models.MemoryErasure:
         """Get an erasure. `GET /v1/memory/erasures/{erasureId}`
 
-        One erasure: its status (`pending`, `running`, `completed`, `failed`), phase, what each store cleared (`counts`), and `lastError` (a code, or `not-yet:<reason>` while it waits for a run to finish). Requires `admin` on the tenant.
+        One erasure: its status (`pending`, `running`, `completed`, `failed`), phase, what each store cleared (`counts`), and `lastError` (a code, or `not-yet:<reason>` while it waits for a run to finish). Requires `admin` on the workspace.
         """
         return await self._client._request(
             _OPERATIONS["memory.getErasure"],
@@ -15442,7 +15442,7 @@ class AsyncRuntimeResource:
     async def get(self, /, *, timeout: float | None = None) -> _models.RuntimeInfo:
         """Which runtime answers. `GET /v1/runtime`
 
-        Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a tenant reads it; no right is asked. A runtime that doesn't report it answers 404.
+        Its version, how many tenants it serves and whether it runs in development mode: what a client says about the runtime it's connected to. Any caller of a workspace reads it; no right is asked. A runtime that doesn't report it answers 404.
         """
         return await self._client._request(
             _OPERATIONS["runtime.get"],
@@ -15522,7 +15522,7 @@ class AsyncArtifactsResource:
     ) -> _models.BlobMeta:
         """Upload an artifact. `POST /v1/artifacts`
 
-        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the tenant's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.
+        Multipart upload. `file` part carries the bytes; other form fields carry metadata (`name`, `contentType`, `tags` (JSON), `ownerRunId`, `projectId`, `expectedHash`). Framework computes sha256 and returns it in `BlobMeta.hash`. If `expectedHash` was supplied and diverges, response is `400 blob-hash-mismatch`. Content-type sniffing is NOT performed server-side — the framework trusts the caller. The artifact belongs to its owner run's project, else `projectId`, else the project the caller's API key is limited to, else the workspace's default project; uploading needs `write` there, and a key limited to a project uploads into that project only. An upload over the runtime's cap (default 100 MiB) is `413 artifact-too-large`.
         """
         return await self._client._request(
             _OPERATIONS["artifacts.upload"],
@@ -15603,7 +15603,7 @@ class AsyncObservationsResource:
     ) -> _models.ObservationCollectionPage:
         """Query supervisor observations. `GET /v1/observations`
 
-        Cursor-paginated. Any authenticated caller can read observations for their tenant.
+        Cursor-paginated. Any authenticated caller can read observations for their workspace.
         """
         return await self._client._request(
             _OPERATIONS["observations.list"],
@@ -15642,7 +15642,7 @@ class AsyncCapabilitiesResource:
     ) -> _models.CapabilityCollectionPage:
         """List capability descriptors. `GET /v1/capabilities`
 
-        Cursor-paginated. Read-only — capabilities are framework-declared + deployment-extended at boot time, not tenant-created via HTTP. Optional `?feature=` filters by prefix on `feature`.
+        Cursor-paginated. Read-only — capabilities are framework-declared + deployment-extended at boot time, not workspace-created via HTTP. Optional `?feature=` filters by prefix on `feature`.
         """
         return await self._client._request(
             _OPERATIONS["capabilities.list"],
@@ -16069,7 +16069,7 @@ class AsyncCorrectorGroupsResource:
     ) -> _models.CorrectorGroup:
         """Create a corrector group. `POST /v1/corrector-groups`
 
-        A named kind of person who corrects with a weight, scoped to the tenant, a project, or an agent in a project. Names are unique among the live groups of a scope. Needs `admin` on the tenant (tenant scope) or the project.
+        A named kind of person who corrects with a weight, scoped to the workspace, a project, or an agent in a project. Names are unique among the live groups of a scope. Needs `admin` on the workspace (tenant scope) or the project.
         """
         return await self._client._request(
             _OPERATIONS["correctorGroups.create"],
@@ -16277,7 +16277,7 @@ class AsyncMcpEndpointsResource:
     ) -> _models.RegisterMCPEndpointResult:
         """Register an MCP endpoint. `POST /v1/mcp/endpoints`
 
-        Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the tenant that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.
+        Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef`, `auth` and `secretEnv` name secrets in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A credential in plaintext `config.headers` or a stdio endpoint's `config.env` is refused (`400 invalid-mcp-endpoint`, reason `credential-in-headers` or `credential-in-env`). Where each secret it names is read is recorded on it now (`secretScopes`): the first of its own scope, its project's org and the workspace that has the secret and that the caller administers, else the broadest they administer; the runtime reads it there only. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.
         """
         return await self._client._request(
             _OPERATIONS["mcp.endpoints.register"],
@@ -16445,7 +16445,7 @@ class AsyncCostResource:
     ) -> _models.CostAggregateResult:
         """Aggregate cost across a time window. `GET /v1/cost/aggregate`
 
-        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. It needs `read` on the scope, and across projects (no scope, the tenant, or an org) it counts only the projects the caller may read, and records with no project; a tenant admin's counts every project. Each group, and the total, carries its cost and its token sums (`tokens`). `groups` is ordered by `totalUsd`, highest first (ties by key), and capped at `limit` (default 1000): `truncated` and `totalGroups` say when there were more, and the totals still cover every record. For every record, page through `/v1/cost/records`. `inherit` has no effect on cost records, which always belong to a project.
+        Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. It needs `read` on the scope, and across projects (no scope, the workspace, or an org) it counts only the projects the caller may read, and records with no project; a tenant admin's counts every project. Each group, and the total, carries its cost and its token sums (`tokens`). `groups` is ordered by `totalUsd`, highest first (ties by key), and capped at `limit` (default 1000): `truncated` and `totalGroups` say when there were more, and the totals still cover every record. For every record, page through `/v1/cost/records`. `inherit` has no effect on cost records, which always belong to a project.
         """
         return await self._client._request(
             _OPERATIONS["cost.aggregate"],
@@ -16663,7 +16663,7 @@ class AsyncPoliciesResource:
         include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.PolicyCollectionPage:
-        """List tenant policies. `GET /v1/policies`
+        """List workspace policies. `GET /v1/policies`
 
         Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id. A retired policy (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
@@ -16693,7 +16693,7 @@ class AsyncPoliciesResource:
     ) -> _models.PublishPolicyResult:
         """Publish a policy. `POST /v1/policies`
 
-        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A tenant has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). Where this server has a retention limit for a domain, a policy for that domain that keeps its rows longer, or holds them (`graceSeconds: -1`), is refused with `400 retention-over-limit` (`details.limitSeconds` is the limit); a `*` policy isn't, as the server caps each limited domain when it sweeps. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
+        Body is a full `Policy` — the server validates top-level shape (id, tenantId, semver version, kind ∈ closed enum, spec is an object), and `spec` for `tool-errors`, `hitl` and `retention` (a retention policy with an unknown domain or `mode: archive` is refused with `400 validation-failed`, naming the field). Other kinds' specs are their runtime consumer's to validate. Re-publishing an existing `(policyId, version)` returns `409 policy-already-registered`. A workspace has one retention policy per domain, plus one for `*`: a second policy id for a covered domain is refused with `409 policy-scope-taken` (`details.heldBy` names the policy that covers it; publish a new version of that one instead), and a new version can't move a policy to another domain (`409 policy-scope-changed`). Where this server has a retention limit for a domain, a policy for that domain that keeps its rows longer, or holds them (`graceSeconds: -1`), is refused with `400 retention-over-limit` (`details.limitSeconds` is the limit); a `*` policy isn't, as the server caps each limited domain when it sweeps. A known kind that no runtime consumer applies yet (`access-control`, `adapter-allowlist`, `rate-limit`, `compliance`) is refused with `400 kind-not-applied` (`details.appliedKinds` lists the ones that are): publishing it would change nothing. Idempotency-Key applies (retries with the same key replay the original 201).
         """
         return await self._client._request(
             _OPERATIONS["policies.publish"],
@@ -16781,7 +16781,7 @@ class AsyncRetentionResource:
     ) -> _models.RetentionScheduledPage:
         """List deleted rows scheduled for purging. `GET /v1/retention/scheduled`
 
-        Tombstoned rows in every domain a retention policy or this server's retention limit covers, with when each is purged (`purgeAt`) and what decides it: the policy (`policyId`), or the limit (`limitApplied`) when no policy covers the domain or its policy keeps rows longer. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones neither covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the tenant.
+        Tombstoned rows in every domain a retention policy or this server's retention limit covers, with when each is purged (`purgeAt`) and what decides it: the policy (`policyId`), or the limit (`limitApplied`) when no policy covers the domain or its policy keeps rows longer. `domainsMissingAdapter` names the covered domains this deployment can't purge; `unpolicedDomains` the ones neither covers, whose tombstones are kept; `conflicts` the domains two policies cover (stored before one policy per domain was enforced). `limit` caps the rows **per domain**; `hasMore` says some domain has more than it returned, and `nextCursor` (when the runtime can continue) is the `cursor` for the next page. Requires `admin` on the workspace.
         """
         return await self._client._request(
             _OPERATIONS["retention.scheduled"],
@@ -16807,7 +16807,7 @@ class AsyncRetentionResource:
     ) -> _models.RetentionSweepResult:
         """Purge the deleted rows past their grace. `POST /v1/retention/sweep`
 
-        Purges, for good, every tombstoned row past its grace (or only `domain`'s): the grace of the retention policy that covers its domain, or this server's limit for the domain when no policy covers it or the policy keeps rows longer (`limitApplied`), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows, unless the domain has a limit. Idempotent: a second call purges nothing new. Requires `admin` on the tenant.
+        Purges, for good, every tombstoned row past its grace (or only `domain`'s): the grace of the retention policy that covers its domain, or this server's limit for the domain when no policy covers it or the policy keeps rows longer (`limitApplied`), up to `maxPerDomain` per domain; `remaining` counts what is left for the next call. Nothing sweeps on its own: call this (or `POST /v1/retention/sweep/{domain}`) from a schedule. A hold (`graceSeconds: -1`) keeps its domain's rows, unless the domain has a limit. Idempotent: a second call purges nothing new. Requires `admin` on the workspace.
         """
         return await self._client._request(
             _OPERATIONS["retention.sweep"],
@@ -16851,7 +16851,7 @@ class AsyncRetentionResource:
     ) -> _models.RetentionSweepResult:
         """Purge one domain's deleted rows past their grace. `POST /v1/retention/sweep/{domain}`
 
-        As `POST /v1/retention/sweep`, for one domain. Requires `admin` on the tenant.
+        As `POST /v1/retention/sweep`, for one domain. Requires `admin` on the workspace.
         """
         return await self._client._request(
             _OPERATIONS["retention.sweepDomain"],
@@ -16956,7 +16956,7 @@ class AsyncTestSetsResource:
         include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.TestSetCollectionPage:
-        """List tenant test sets. `GET /v1/test-sets`
+        """List workspace test sets. `GET /v1/test-sets`
 
         Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `TestSet.id`. Sort order: test set id ascending. Latest version per id. A retired test set (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated. A `corrections` test set (an agent's frozen versions, and those built from corrections before) is listed only with `?kind=corrections`: an agent's corrections are its test set (`/v1/agents/{agentId}/test-set`).
         """
@@ -17297,7 +17297,7 @@ class AsyncTestRunsResource:
     ) -> _models.StartTestRunResult:
         """Start a test run against a test set. `POST /v1/test-sets/{testSetId}/runs`
 
-        Dispatches a test run against the latest version of the test set. An agent's own test set (`agent.<agentId>.<projectId>`, read at `GET /v1/agents/{agentId}/test-set`) is frozen first, as a suggested change's check freezes it, and the run records the frozen version as `testSetVersion`; a dry run freezes it too; it runs only its agent, in its project. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or tenant stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
+        Dispatches a test run against the latest version of the test set. An agent's own test set (`agent.<agentId>.<projectId>`, read at `GET /v1/agents/{agentId}/test-set`) is frozen first, as a suggested change's check freezes it, and the run records the frozen version as `testSetVersion`; a dry run freezes it too; it runs only its agent, in its project. Exactly one of `agentRef` / `flowRef` is required — the subject the test set evaluates. Dispatch is per-kind: `accuracy` runs the subject once per case and grades via a configured judge; other kinds return `422 dispatcher-not-registered` unless the deployment registers a dispatcher for them. Nothing starts in a suspended project (`409 project-suspended`), and a run going when its project or workspace stops taking new runs ends `cancelled` at the next case, with the reason in `cancelReason`. Idempotency-Key applies.
         """
         return await self._client._request(
             _OPERATIONS["testRuns.start"],
@@ -17433,9 +17433,9 @@ class AsyncAuthProvidersResource:
     async def list(
         self, /, *, timeout: float | None = None
     ) -> _models.IdentityProviderCollectionPage:
-        """List identity providers configured for the tenant. `GET /v1/auth/providers`
+        """List identity providers configured for the workspace. `GET /v1/auth/providers`
 
-        Returns the tenant's identity providers (OIDC, SAML), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
+        Returns the workspace's identity providers (OIDC, SAML), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
         """
         return await self._client._request(
             _OPERATIONS["auth.providers.list"],
@@ -17457,7 +17457,7 @@ class AsyncAuthProvidersResource:
     ) -> _models.RegisterIdentityProviderResult:
         """Register an identity provider (OIDC or SAML). `POST /v1/auth/providers`
 
-        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
+        Unique per workspace on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
         """
         return await self._client._request(
             _OPERATIONS["auth.providers.register"],
@@ -17636,7 +17636,7 @@ class AsyncAuthResource:
     ) -> _models.SignInOptions:
         """How a person can sign in. `GET /v1/auth/sign-in-options`
 
-        Public: nobody is signed in yet. With `email`, the ways in for that email's domain: the identity providers of the one tenant the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, "Continue with Google"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Lookups with an email are rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`); a read without one, the same for everyone, isn't counted.
+        Public: nobody is signed in yet. With `email`, the ways in for that email's domain: the identity providers of the one workspace the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, "Continue with Google"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Lookups with an email are rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`); a read without one, the same for everyone, isn't counted.
         """
         return await self._client._request(
             _OPERATIONS["auth.signInOptions"],
@@ -17734,9 +17734,9 @@ class AsyncIdentityUsersResource:
         include: Literal["grants"] | None = None,
         timeout: float | None = None,
     ) -> _models.UserCollectionPage:
-        """List users in the tenant. `GET /v1/identity/users`
+        """List users in the workspace. `GET /v1/identity/users`
 
-        Cursor-paginated list of tenant users (sort order is binding-defined), for tenant admins only. Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per tenant policy. Anyone else adds a person to a project by their email or id (`POST /v1/projects/{projectId}/memberships`).
+        Cursor-paginated list of workspace users (sort order is binding-defined), for tenant admins only. Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per workspace policy. Anyone else adds a person to a project by their email or id (`POST /v1/projects/{projectId}/memberships`).
         """
         return await self._client._request(
             _OPERATIONS["identity.users.list"],
@@ -17765,7 +17765,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.UserCreated:
         """Add a person. `POST /v1/identity/users`
 
-        Adds a person to the tenant as a tenant member, written before it answers: they can read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. A person added with an email is invited (`invite`): they sign in within 7 days, or a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`); the invitation is emailed where the deployment sends email, and `inviteEmail` says whether it was. Tenant admins only. Mounted when the identity directory can add people.
+        Adds a person to the workspace as a tenant member, written before it answers: they can read the workspace's settings (providers, policies, adapters, signing keys, deployments), not its projects. Give them a role to work (project or team membership, or tenant admin), then mint their first API key at `POST /v1/tokens` with `for`. A person added with an email is invited (`invite`): they sign in within 7 days, or a tenant admin renews it (`POST /v1/identity/users/{userId}/invite`); the invitation is emailed where the deployment sends email, and `inviteEmail` says whether it was. Tenant admins only. Mounted when the identity directory can add people.
         """
         return await self._client._request(
             _OPERATIONS["identity.users.create"],
@@ -17819,7 +17819,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.UnregisterUserResult:
         """Remove a person. `POST /v1/identity/users/{userId}/unregister`
 
-        Removes a person from the tenant, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, and every grant and membership they hold is taken away, all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.
+        Removes a person from the workspace, in one step: they're marked removed (`unregisteredAt`; their record stays, so their history still says who they were), every API key and session of theirs is revoked, and every grant and membership they hold is taken away, all before it answers. Their keys get `401` at once. Their email is free again: adding it makes a new person. Removing someone already removed changes nothing. Refused for yourself and the deployment's seed user (`identity-user-unregister-refused`), and for the only tenant admin (`last-tenant-admin`). Tenant admins only. Mounted when the identity directory can remove people.
         """
         return await self._client._request(
             _OPERATIONS["identity.users.unregister"],
@@ -18110,7 +18110,7 @@ class AsyncIdentityResource:
         self.me = AsyncIdentityMeResource(client)
 
     async def whoami(self, /, *, timeout: float | None = None) -> _models.WhoamiResult:
-        """Self — the caller's user + tenant + session context. `GET /v1/identity/whoami`
+        """Self — the caller's user + workspace + session context. `GET /v1/identity/whoami`
 
         Reflects the auth middleware's attached context: `tenantId` + `scopes` always; `userId` / `sessionId` / `providerId` / `expiresAt` when the caller is on a session token; the fuller `UserRecord` under `user` when a `userId` is present and the `IdentityDirectoryBinding` resolves it. Always mounted — the `/users/*` routes only mount when the directory binding is wired.
         """
@@ -18140,7 +18140,7 @@ class AsyncDeploymentsValuesResource:
     ) -> _models.DeploymentValueList:
         """List the values a deployment needs in a project. `GET /v1/deployments/{deploymentId}/values`
 
-        Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), `read` on the project the deployment serves, and `read` on the tenant, as every deployments route does.
+        Every value the deployment needs set in the project before it serves there: each tool's secrets and env values with no default, a model key for each agent version it ships or carries, and the pack service's own env. Each is read where a run in that project reads it, under the env the runtime serves: `foundAt` says where it's set, and `problem` why it isn't ready. Names only, never a value. In the deployment's own project, a value is found wherever it's set. In another project, the one a promotion would take it to, a tool's secret counts only at a scope the caller administers, as a promotion by the caller would record it, so the list says what that promotion's check would say. Needs what listing secrets in that project needs (`admin` on it), `read` on the project the deployment serves, and `read` on the workspace, as every deployments route does.
         """
         return await self._client._request(
             _OPERATIONS["deployments.values.list"],
@@ -18202,7 +18202,7 @@ class AsyncDeploymentsResource:
     ) -> _models.DeploymentRecord:
         """Register a signed deployment. `POST /v1/deployments`
 
-        Atomic transaction: check the signing key against the tenant's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the tenant's default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info["x-kindgi-capabilities"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.
+        Atomic transaction: check the signing key against the workspace's trust list (the `signingKeyRegistry` binding), verify the Ed25519 signature over the canonical envelope, read the image's `/app/index.json` and verify it hashes to the signed `indexHash` and names the signed `artifactVersion` (`ImageRegistryBinding`), validate every tool / guardrail / agent / flow / data block it declares (the image's index is what registers; the request carries none), upsert into the corresponding registries (in the body's `projectId`, one project per client, else the workspace's default project), then record the deployment. The pack's data blocks (the index's `blocks`) are published first, as `POST /v1/blocks` publishes a version: a version the runtime holds with the same content is kept, and the agents' block ranges pin over the runtime's versions and the pack's, the newest in range. Its tools are checked the same way before anything is written: a tool version the runtime holds is kept only with the same definition (`409 tool-already-registered`). A runtime that does this lists `deploy-publishes-pack-blocks` in `info["x-kindgi-capabilities"]` of `/v1/openapi.json`. Where each tool's secrets are read is recorded on its version (`RecordedSecretScope`); one set nowhere yet is read where this deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), the scope this route needs `admin` on. All-or-nothing rollback on any failure. Idempotency: same `imageDigest` re-submitted returns 200 with the existing record (no new version bump). `Idempotency-Key` also applies at the HTTP layer.
         """
         return await self._client._request(
             _OPERATIONS["deployments.register"],
@@ -18224,7 +18224,7 @@ class AsyncDeploymentsResource:
     ) -> _models.DeployCheckResult:
         """Check a deploy's blocks against what runs. `POST /v1/deployments/check`
 
-        What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. It takes the deploy's own right: admin on `projectId`, else on the tenant.
+        What `POST /v1/deployments` answers about the pack's data blocks against what runs, with nothing written: `kindgi deploy` asks it before it builds the image. For each block, the newest version that runs in a project of one of `agents` (a project's own version, or a segment pin inside one; every project, whoever asks) is compared with the body's: a newer one stops the deploy unless `replace` names the block. Equal passes, a newer one in the files passes, and a block that runs nowhere passes. It takes the deploy's own right: admin on `projectId`, else on the workspace.
         """
         return await self._client._request(
             _OPERATIONS["deployments.check"],
@@ -18254,7 +18254,7 @@ class AsyncDeploymentsResource:
     ) -> _models.PackEnvNames:
         """Show where each name a deployment's pack declares is set. `GET /v1/deployments/{deploymentId}/pack-env`
 
-        On a server that runs a pack service per deployment and gives it the env its pack declares: each declared name, where it's set (the deployment's project, then its org, then the tenant, at the env the server serves) and why it can't be given, if it can't. Never a value. A name set only as a secret can't be given into the pack service's environment yet: a tool reads it per call (`ctx.secrets`).
+        On a server that runs a pack service per deployment and gives it the env its pack declares: each declared name, where it's set (the deployment's project, then its org, then the workspace, at the env the server serves) and why it can't be given, if it can't. Never a value. A name set only as a secret can't be given into the pack service's environment yet: a tool reads it per call (`ctx.secrets`).
         """
         return await self._client._request(
             _OPERATIONS["deployments.packEnv"],
@@ -18383,7 +18383,7 @@ class AsyncComplianceEvidenceResource:
     ) -> _models.ComplianceEvidence:
         """Fetch one compliance-evidence record. `GET /v1/compliance/evidence/{evidenceId}`
 
-        Returns the full evidence record. 404 `compliance-evidence-not-found` when the id is unknown within the tenant scope (never leaks the existence of another tenant's records).
+        Returns the full evidence record. 404 `compliance-evidence-not-found` when the id is unknown within the tenant scope (never leaks the existence of another workspace's records).
         """
         return await self._client._request(
             _OPERATIONS["compliance.evidence.get"],
@@ -18456,7 +18456,7 @@ class AsyncAuditSignInsResource:
     ) -> _models.AuditSignInsListResponse:
         """List sign-in audit events. `GET /v1/audit/sign-ins`
 
-        The tenant's sign-in history: who signed in and out, how (`method`), when and from where (`clientAddress`), what was refused and why, and emailed links sent or capped. `?userId=` narrows to one person's own sign-ins and sign-outs. Oldest first; `?order=desc` for newest first. A tenant admin's to read (403 `permission-denied` otherwise). Only mounted when `CreateAppInput.auditEvents` is wired.
+        The workspace's sign-in history: who signed in and out, how (`method`), when and from where (`clientAddress`), what was refused and why, and emailed links sent or capped. `?userId=` narrows to one person's own sign-ins and sign-outs. Oldest first; `?order=desc` for newest first. A tenant admin's to read (403 `permission-denied` otherwise). Only mounted when `CreateAppInput.auditEvents` is wired.
         """
         return await self._client._request(
             _OPERATIONS["audit.signIns.list"],
@@ -18501,7 +18501,7 @@ class AsyncAuditAuthzResource:
     ) -> _models.AuditAuthzListResponse:
         """List authz decision audit events. `GET /v1/audit/authz`
 
-        Cursor-paginated read of `authz-decision` audit events for the tenant. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Oldest first; `?order=desc` for newest first. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.
+        Cursor-paginated read of `authz-decision` audit events for the workspace. Filters (all AND-composed): `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=`. Oldest first; `?order=desc` for newest first. Admin@tenant only. Only mounted when `CreateAppInput.auditEvents` is wired.
         """
         return await self._client._request(
             _OPERATIONS["audit.authz.list"],
@@ -18549,7 +18549,7 @@ class AsyncOrgsResource:
         name_contains: str | None = None,
         timeout: float | None = None,
     ) -> _models.OrgCollectionPage:
-        """List orgs in the caller's tenant. `GET /v1/orgs`
+        """List orgs in the caller's workspace. `GET /v1/orgs`
 
         Cursor-paginated list of orgs. Optional `?nameContains=` narrows by substring match on `Org.name`.
         """
@@ -18674,7 +18674,7 @@ class AsyncTeamsMembershipsResource:
     ) -> _models.AddTeamMembershipResult:
         """Add a user to a team. `POST /v1/teams/{teamId}/memberships`
 
-        Someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
+        Someone who is not a person of this workspace, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
         """
         return await self._client._request(
             _OPERATIONS["teams.memberships.add"],
@@ -18773,7 +18773,7 @@ class AsyncTeamsResource:
         name_contains: str | None = None,
         timeout: float | None = None,
     ) -> _models.TeamCollectionPage:
-        """List teams in the caller's tenant. `GET /v1/teams`
+        """List teams in the caller's workspace. `GET /v1/teams`
 
         Cursor-paginated. Optional `?orgId=` narrows to a specific org (absent = every team, including teams with no org). `?nameContains=` substring-matches on `Team.name`.
         """
@@ -19204,7 +19204,7 @@ class AsyncProjectsMembershipsResource:
     ) -> _models.AddProjectMembershipResult:
         """Add a user directly to a project. `POST /v1/projects/{projectId}/memberships`
 
-        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
+        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this workspace, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
         """
         return await self._client._request(
             _OPERATIONS["projects.memberships.add"],
@@ -19302,7 +19302,7 @@ class AsyncProjectsPinnedVersionsResource:
     ) -> _models.ProjectPinnedVersionPage:
         """List the pinned versions that cover a project. `GET /v1/projects/{projectId}/pinned-versions`
 
-        Every agent's pinned versions that cover the project: the tenant's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/pinned-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.
+        Every agent's pinned versions that cover the project: the workspace's, the project's org's, the project's own and its segments', ordered by agent id, then scope. A run in the project takes the most specific one that covers it, else its agent's latest version. For readers of the project (`read`), and only the pins of agents and versions the caller can read, as `GET /v1/agents/{agentId}/pinned-versions` shows them. A page can hold fewer pins than `limit`, or none, with `hasMore` true: page on `nextCursor`, not the count. 501 `pinned-versions-not-supported` from a runtime that can't list them.
         """
         return await self._client._request(
             _OPERATIONS["projects.pinnedVersions.list"],
@@ -19332,7 +19332,7 @@ class AsyncProjectsProductionResource:
     ) -> _models.ProjectProduction:
         """Put a project in production, or take it out. `PUT /v1/projects/{projectId}/production`
 
-        A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the tenant), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the tenant isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. With the tenant's `projectsInProduction` limit set, putting another project in production is refused with 403 `production-limit-reached` while that many of its projects are in production, or more; taking one out is never refused. 501 `production-unsupported` from a runtime whose projects can't be put in production.
+        A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the workspace), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the workspace isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. With the workspace's `projectsInProduction` limit set, putting another project in production is refused with 403 `production-limit-reached` while that many of its projects are in production, or more; taking one out is never refused. 501 `production-unsupported` from a runtime whose projects can't be put in production.
         """
         return await self._client._request(
             _OPERATIONS["projects.production.set"],
@@ -19363,7 +19363,7 @@ class AsyncProjectsRepoConnectionResource:
     ) -> _models.ProjectRepoConnection:
         """Set a project's repo connection. `PUT /v1/projects/{projectId}/repo-connection`
 
-        The company-wide GitHub connection the project opens its block changes' pull requests through. For the project's admins (`admin` on it). It replaces any connection set before; setting the one already set answers 200 unchanged. The connection must be the tenant's, made through the GitHub app entry, and owned by the company: 404 `connection-not-found` for one that isn't there or was removed, and 400 `repo-connection-not-company-github` for any other. The project keeps only the id: a connection removed later reads as none. 501 `repo-connection-unsupported` from a runtime that can't keep one, or has no connections.
+        The company-wide GitHub connection the project opens its block changes' pull requests through. For the project's admins (`admin` on it). It replaces any connection set before; setting the one already set answers 200 unchanged. The connection must be the workspace's, made through the GitHub app entry, and owned by the company: 404 `connection-not-found` for one that isn't there or was removed, and 400 `repo-connection-not-company-github` for any other. The project keeps only the id: a connection removed later reads as none. 501 `repo-connection-unsupported` from a runtime that can't keep one, or has no connections.
         """
         return await self._client._request(
             _OPERATIONS["projects.repoConnection.set"],
@@ -19507,7 +19507,7 @@ class AsyncProjectsSitesResource:
     ) -> _models.SiteCollectionPage:
         """List the project's sites. `GET /v1/projects/{projectId}/sites`
 
-        The sites that sign their own people in to this project. Tenant admins only: a site creates people in the tenant. `includeUnregistered=true` lists unregistered ones too. Mounted when the deployment supplies a `SiteBinding`.
+        The sites that sign their own people in to this project. Tenant admins only: a site creates people in the workspace. `includeUnregistered=true` lists unregistered ones too. Mounted when the deployment supplies a `SiteBinding`.
         """
         return await self._client._request(
             _OPERATIONS["projects.sites.list"],
@@ -19706,7 +19706,7 @@ class AsyncProjectsSitesResource:
     ) -> _models.SitePersonRestoreResult:
         """Let a person removed in Kindgi back in, through their site. `POST /v1/projects/{projectId}/sites/{siteId}/people/{userId}/restore`
 
-        For one of the site's people removed in Kindgi (`POST /v1/identity/users/{userId}/unregister`) while the site still knows them: they're in the tenant again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` for someone in the tenant whose site still knows them; `left` when their site said they left it, removed in Kindgi too or not: a site forgets a person who leaves, and signs them in as a new person if they come back; `linked-elsewhere` when they also sign in another way (through another site, or the tenant's own sign-in), which letting them back in would open too: add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.
+        For one of the site's people removed in Kindgi (`POST /v1/identity/users/{userId}/unregister`) while the site still knows them: they're in the workspace again, the same person, with their history, and their next sign-in through the site is theirs again. Their grants come back with that sign-in, from the site's role map then; their API keys and sessions stay gone. Refused, with nothing changed (`409 site-person-restore-refused`, `details.reason`): `not-removed` for someone in the workspace whose site still knows them; `left` when their site said they left it, removed in Kindgi too or not: a site forgets a person who leaves, and signs them in as a new person if they come back; `linked-elsewhere` when they also sign in another way (through another site, or the workspace's own sign-in), which letting them back in would open too: add them again instead, as a new person. A paused site's people can be let back in; an unregistered site's can't. Tenant admins only. Mounted when the deployment's site binding can let people back in.
         """
         return await self._client._request(
             _OPERATIONS["projects.sites.restorePerson"],
@@ -19734,9 +19734,9 @@ class AsyncProjectsResource:
         self.sites = AsyncProjectsSitesResource(client)
 
     async def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
-        """Fetch the tenant's default project. `GET /v1/projects/default`
+        """Fetch the workspace's default project. `GET /v1/projects/default`
 
-        Returns the row where `Project.isDefault = true` (at most one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the tenant has none.
+        Returns the row where `Project.isDefault = true` (at most one per workspace), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when the workspace has none.
         """
         return await self._client._request(
             _OPERATIONS["projects.getDefault"],
@@ -19757,7 +19757,7 @@ class AsyncProjectsResource:
         name_contains: str | None = None,
         timeout: float | None = None,
     ) -> _models.ProjectCollectionPage:
-        """List projects in the caller's tenant. `GET /v1/projects`
+        """List projects in the caller's workspace. `GET /v1/projects`
 
         Cursor-paginated. Optional `?orgId=` narrows to a specific org (projects may have no org; absent = all); `?nameContains=` substring-matches on `Project.name`.
         """
@@ -19786,7 +19786,7 @@ class AsyncProjectsResource:
     ) -> _models.CreateResourceResult:
         """Create a project. `POST /v1/projects`
 
-        A project's slug is unique within its org, and a project without an org's among the tenant's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`.
+        A project's slug is unique within its org, and a project without an org's among the workspace's projects without one: two orgs may each have a project with the same slug. A taken slug answers `409 slug-conflict`; a second default project, `409 project-default-already-exists`.
         """
         return await self._client._request(
             _OPERATIONS["projects.create"],
@@ -19871,9 +19871,9 @@ class AsyncTenantConfigResource:
         key_prefix: str | None = None,
         timeout: float | None = None,
     ) -> _models.TenantConfigCollectionPage:
-        """List the tenant's config entries. `GET /v1/tenant/config`
+        """List the workspace's config entries. `GET /v1/tenant/config`
 
-        Cursor-paginated: the env entries (in the env binding order), then the `config` entries when they live apart from them, then the secret entries (in the secrets binding order); a page holds at most `limit` entries and `nextCursor` resumes where it ended. Optional `?kind=` narrows to one slot (env / config / secret); `?keyPrefix=` matches on entry key. `env` and `secret` entries are the ones under the env the runtime serves (`servedEnv` in whoami), where its tools read them; `config` entries, the tenant settings, are under `default` whatever it serves. On a runtime that serves none, all of them are under `default`. **Secret values are ALWAYS redacted on this admin surface** — the dispatch path is the only reader that receives raw material.
+        Cursor-paginated: the env entries (in the env binding order), then the `config` entries when they live apart from them, then the secret entries (in the secrets binding order); a page holds at most `limit` entries and `nextCursor` resumes where it ended. Optional `?kind=` narrows to one slot (env / config / secret); `?keyPrefix=` matches on entry key. `env` and `secret` entries are the ones under the env the runtime serves (`servedEnv` in whoami), where its tools read them; `config` entries, the workspace settings, are under `default` whatever it serves. On a runtime that serves none, all of them are under `default`. **Secret values are ALWAYS redacted on this admin surface** — the dispatch path is the only reader that receives raw material.
         """
         return await self._client._request(
             _OPERATIONS["tenant.config.list"],
@@ -19893,9 +19893,9 @@ class AsyncTenantConfigResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.UpsertTenantConfigResult:
-        """Upsert a tenant-config entry. `PATCH /v1/tenant/config`
+        """Upsert a workspace-config entry. `PATCH /v1/tenant/config`
 
-        Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a tenant setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.
+        Set / update an entry keyed by `(kind, key)`. An `env` or `secret` entry (or one sent with `sensitive: true`) is stored under the env the runtime serves (`servedEnv` in whoami), where its tools read it; a `config` entry, a workspace setting, under `default` whatever it serves. On a runtime that serves none, both are under `default`. Optional `ifRevision` provides optimistic-concurrency: the write fails with `tenant-config-revision-conflict` (409) unless the stored revision matches. Omit for last-write-wins.
         """
         return await self._client._request(
             _OPERATIONS["tenant.config.upsert"],
@@ -19916,9 +19916,9 @@ class AsyncTenantResource:
         self.config = AsyncTenantConfigResource(client)
 
     async def get(self, /, *, timeout: float | None = None) -> _models.Tenant:
-        """Fetch the caller's tenant. `GET /v1/tenant`
+        """Fetch the caller's workspace. `GET /v1/tenant`
 
-        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the tenant's `limits`, and a deployment that publishes where its calls come from adds `egress`.
+        Returns the workspace the bearer token authenticates as. There is no `/v1/tenants` collection — workspaces are the sovereignty boundary, not a listable resource under a workspace. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), one that sets limits adds the workspace's `limits`, and a deployment that publishes where its calls come from adds `egress`.
         """
         return await self._client._request(
             _OPERATIONS["tenant.get"],
@@ -19938,9 +19938,9 @@ class AsyncTenantResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> None:
-        """Rename the caller's tenant. `PATCH /v1/tenant`
+        """Rename the caller's workspace. `PATCH /v1/tenant`
 
-        Changes its name, its slug, or both; a field left out stays as it is. Its id stays, so whatever names it by its id keeps working. The console's addresses carry the slug: after a new one, links with the old one stop opening the tenant, and another tenant may take the old one. The same values again change nothing. Takes `admin` on the tenant. A runtime whose tenant-hierarchy binding can't rename tenants doesn't serve this route.
+        Changes its name, its slug, or both; a field left out stays as it is. Its id stays, so whatever names it by its id keeps working. The console's addresses carry the slug: after a new one, links with the old one stop opening the workspace, and another workspace may take the old one. The same values again change nothing. Takes `admin` on the workspace. A runtime whose tenant-hierarchy binding can't rename workspaces doesn't serve this route.
         """
         return await self._client._request(
             _OPERATIONS["tenant.update"],
@@ -19966,9 +19966,9 @@ class AsyncEnvironmentOrdersResource:
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.EnvironmentOrderPage:
-        """List the tenant's environment orders. `GET /v1/environment-orders`
+        """List the workspace's environment orders. `GET /v1/environment-orders`
 
-        The order a tenant runs a project through on its way to live — its environments: the tenant's own order and each org's. An order is listed when the caller can read a project in it; a project the caller can't read is named by its position alone, without its id.
+        The order a workspace runs a project through on its way to live — its environments: the workspace's own order and each org's. An order is listed when the caller can read a project in it; a project the caller can't read is named by its position alone, without its id.
         """
         return await self._client._request(
             _OPERATIONS["environmentOrders.list"],
@@ -19980,9 +19980,9 @@ class AsyncEnvironmentOrdersResource:
         )
 
     async def get_tenant(self, /, *, timeout: float | None = None) -> _models.EnvironmentOrder:
-        """Get the tenant's environment order. `GET /v1/environment-orders/tenant`
+        """Get the workspace's environment order. `GET /v1/environment-orders/tenant`
 
-        The tenant's own environment order; empty when it was never set or was cleared. A project the caller can't read is named by its position alone.
+        The workspace's own environment order; empty when it was never set or was cleared. A project the caller can't read is named by its position alone.
         """
         return await self._client._request(
             _OPERATIONS["environmentOrders.getTenant"],
@@ -20002,9 +20002,9 @@ class AsyncEnvironmentOrdersResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.EnvironmentOrder:
-        """Set the tenant's environment order. `PUT /v1/environment-orders/tenant`
+        """Set the workspace's environment order. `PUT /v1/environment-orders/tenant`
 
-        Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the tenant and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.
+        Replace the order with the projects given, in order; send `[]` to clear it. For a tenant admin. An order needs two or more projects, no project named twice, and each project live in the workspace and in no other order. A write that changes nothing is a no-op. Removing a project from the order or reordering leaves running deployments where they are; a project in no order takes builds directly, as before.
         """
         return await self._client._request(
             _OPERATIONS["environmentOrders.setTenant"],
@@ -20071,9 +20071,9 @@ class AsyncEnvironmentsResource:
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.EnvironmentPage:
-        """List the tenant's env names. `GET /v1/environments`
+        """List the workspace's env names. `GET /v1/environments`
 
-        The env names the tenant holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A revoked secret doesn't count. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.
+        The env names the workspace holds an env value or a secret under, at any scope, each once, in byte order: the `envName` that `GET /v1/env` and `GET /v1/secrets` take. A revoked secret doesn't count. For a tenant admin. 501 `environments-unsupported` from a runtime whose env or secret store can't list its env names.
         """
         return await self._client._request(
             _OPERATIONS["environments.list"],
@@ -20759,7 +20759,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerCollectionPage:
         """List webhook triggers. `GET /v1/webhooks`
 
-        The tenant's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        The workspace's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
         """
         return await self._client._request(
             _OPERATIONS["webhooks.list"],
@@ -20781,7 +20781,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookTriggerRecord:
         """Register a webhook trigger. `POST /v1/webhooks`
 
-        A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the tenant that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). Where it's read is recorded on the trigger (`hmacSecretScope`): the first of its project, the project's org and the workspace that has it and that the caller administers, else the broadest they administer; the receiver reads it there only. Or `generateSecret: true`: the server makes it, stores it as `hmacSecretName` in the trigger's own project (a name the project already has is refused, `409 secret-write-conflict`), and returns it once as `signingSecret`. `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the workspace's default project. Needs `write` on the project and `execute` on the flow. `toolsAllowedUnattended` names the tools whose calls in its runs needn't wait for a person's yes, though a tool asks for one in a run no person started: naming it takes `admin` on the project, each id must be a tool the flow calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return await self._client._request(
             _OPERATIONS["webhooks.register"],
@@ -20904,7 +20904,7 @@ class AsyncWebhooksResource:
     ) -> _models.WebhookFirePage:
         """A webhook trigger's deliveries. `GET /v1/webhooks/{triggerId}/fires`
 
-        Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused, its project or tenant suspended, or its tenant closing) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals and skipped deliveries past 20 a minute only count (the trigger's `suppressedRefusals`).
+        Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused, its project or workspace suspended, or its workspace closing) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, `body-too-deep`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals and skipped deliveries past 20 a minute only count (the trigger's `suppressedRefusals`).
         """
         return await self._client._request(
             _OPERATIONS["webhooks.fires"],
@@ -20993,7 +20993,7 @@ class AsyncMailTriggersResource:
     ) -> _models.MailTriggerCollectionPage:
         """List mail triggers. `GET /v1/mail-triggers`
 
-        The tenant's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        The workspace's mail triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
         """
         return await self._client._request(
             _OPERATIONS["mailTriggers.list"],
@@ -21015,7 +21015,7 @@ class AsyncMailTriggersResource:
     ) -> _models.MailTriggerRecord:
         """Register a mail trigger. `POST /v1/mail-triggers`
 
-        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the tenant's default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
+        Each new mail in the mailbox's folder starts a run of the trigger's agent or flow, with the mail as the run's input, as the trigger's owner. A trigger on a person's mailbox (`config.mailbox.as: person`) reads the caller's own mail through their connection, so the caller owns it: it needs `write` on the project, and a service account can't own it. One on the company's mailbox (`company`) reads it through the company's connection and needs `admin` on the project; `runAsServiceAccountId` makes it shared, owned by that service account (which needs `act_as` on it), and `runAsProject` makes it shared, owned by the project's own account (made the first time, with the `editor` role on the project). Both need `execute` on what it runs. A trigger that names no `projectId` goes in the workspace's default project. In its runs, every call that changes something, or uses the run's own mailbox, waits for a person's yes, unless `toolsAllowedUnattended` names it: naming it takes `admin` on the project, each id must be a tool the target calls, and it's audited (`trigger-tools-allowed-unattended-set`).
         """
         return await self._client._request(
             _OPERATIONS["mailTriggers.register"],
@@ -21433,9 +21433,9 @@ class AsyncConnectionAppsResource:
         cursor: str | None = None,
         timeout: float | None = None,
     ) -> _models.ConnectionAppPage:
-        """List the tenant's app registrations. `GET /v1/connection-apps`
+        """List the workspace's app registrations. `GET /v1/connection-apps`
 
-        The tenant's own registrations of its client at an app: its client id, and its secrets by reference. Tenant admins only. Removed registrations are listed only with `includeRemoved=true`.
+        The workspace's own registrations of its client at an app: its client id, and its secrets by reference. Tenant admins only. Removed registrations are listed only with `includeRemoved=true`.
         """
         return await self._client._request(
             _OPERATIONS["connectionApps.list"],
@@ -21457,7 +21457,7 @@ class AsyncConnectionAppsResource:
     ) -> _models.ConnectionApp:
         """Register an app. `POST /v1/connection-apps`
 
-        Registers the tenant's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.
+        Registers the workspace's own client at an app. Store its secrets first; the registration references them by name. The response gives the `redirectUrl` and `noticesUrl` to enter at the app. Tenant admins only.
         """
         return await self._client._request(
             _OPERATIONS["connectionApps.create"],

@@ -10,7 +10,7 @@
  *
  * Three clients:
  * - `client.connectionEntries`: the apps this server can connect to.
- * - `client.connectionApps`: the tenant's own registration of its client at
+ * - `client.connectionApps`: the workspace's own registration of its client at
  *   an app (a tenant admin's; secrets are referenced by name, never sent).
  * - `client.connections`: the connected accounts, and the connect that makes one.
  *

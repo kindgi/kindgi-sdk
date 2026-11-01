@@ -21,7 +21,7 @@ import type {
  * MCP resource — Model Context Protocol interop.
  *
  * The API routes cover **outbound** MCP endpoints: external MCP
- * servers the tenant has registered as reachable (over `stdio`,
+ * servers the workspace has registered as reachable (over `stdio`,
  * `http-sse` or `streamable-http`) — `GET/POST /v1/mcp/endpoints`,
  * `GET /v1/mcp/endpoints/{id}`, `POST .../unregister`, plus each
  * endpoint's resources and prompts.
@@ -32,7 +32,7 @@ import type {
  */
 export interface McpClient {
   /**
-   * Registered outbound MCP endpoints (external MCP servers the tenant
+   * Registered outbound MCP endpoints (external MCP servers the workspace
    * has told the OS about).
    */
   readonly endpoints: McpEndpointsClient;
@@ -71,7 +71,7 @@ export interface McpClient {
 
 /**
  * Outbound MCP endpoint registry — the set of external MCP servers the
- * tenant has told the OS about. Wire shape at
+ * workspace has told the OS about. Wire shape at
  * `@kindgi/api/openapi.json#/paths/~1v1~1mcp~1endpoints`.
  */
 export interface McpEndpointsClient {

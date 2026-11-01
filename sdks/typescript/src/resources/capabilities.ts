@@ -21,7 +21,7 @@ import type {
  * Primitives (`@kindgi/capabilities`): `defineCapability`, `route`,
  * `createProviderRegistry`. Capabilities are declarative constraints
  * (`structured-output`, `vision`, `long-context`, `tool-use`, ...);
- * per-tenant policy filters candidates before selection.
+ * per-workspace policy filters candidates before selection.
  *
  * The API routes:
  *   - `GET /v1/capabilities` + `GET /v1/capabilities/{id}` (read-only)

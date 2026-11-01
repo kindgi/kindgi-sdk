@@ -144,7 +144,7 @@ const ContentProjectIdProperty: JsonSchema = {
   type: 'string',
   format: 'uuid',
   description:
-    "Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.",
+    "Project this belongs to (its content scope). Required: missing, or not a project in the caller's workspace → `400 bad-input`.",
 };
 
 /**
@@ -268,7 +268,7 @@ export const PinScopeSegmentSchema = pinScopeVariant(
 
 export const AgentPinScopeSchema: JsonSchema = {
   description:
-    'Where an agent version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.',
+    'Where an agent version is pinned, from least to most specific: workspace, org, project, segment path. A run takes the most specific pin that covers it.',
   oneOf: [
     { $ref: '#/components/schemas/PinScopeTenant' },
     { $ref: '#/components/schemas/PinScopeOrg' },
@@ -346,7 +346,7 @@ export const AgentProjectSchema: JsonSchema = {
       type: 'string',
       enum: ['pin', 'latest'],
       description:
-        "Why `runs` runs there: `pin`, a pin that covers the project (its own, its org's or the tenant's); `latest`, no pin covers it, so it runs its Latest. Absent when neither has a version the caller can see, or when the server doesn't pin versions.",
+        "Why `runs` runs there: `pin`, a pin that covers the project (its own, its org's or the workspace's); `latest`, no pin covers it, so it runs its Latest. Absent when neither has a version the caller can see, or when the server doesn't pin versions.",
     },
     runs: { $ref: '#/components/schemas/AgentProjectRuns' },
     segments: {
@@ -523,7 +523,7 @@ const pinAnswerProperties = {
   testRuns: {
     type: 'array',
     description:
-      'One per project whose running version the pin changes and that has active cases: a project pin has one, a tenant or org pin one per such project, a segment pin none. While the pin waits for approval, its runs are already started.',
+      'One per project whose running version the pin changes and that has active cases: a project pin has one, a workspace or org pin one per such project, a segment pin none. While the pin waits for approval, its runs are already started.',
     items: { $ref: '#/components/schemas/PinTestRun' },
   },
   fixed: {
@@ -560,7 +560,7 @@ export const SuggestedChangePinAnswerSchema: JsonSchema = {
 
 // ---------------- pinned versions of flows and tools ----------------
 
-export const PinScopeTenantSchema = pinScopeVariant('tenant', 'The whole tenant.', {});
+export const PinScopeTenantSchema = pinScopeVariant('tenant', 'The whole workspace.', {});
 export const PinScopeOrgSchema = pinScopeVariant('org', "An org's projects.", {
   orgId: { type: 'string', format: 'uuid' },
 });
@@ -570,7 +570,7 @@ export const PinScopeProjectSchema = pinScopeVariant('project', 'One project.', 
 
 export const PinScopeSchema: JsonSchema = {
   description:
-    'Where a flow or tool version is pinned, from least to most specific: tenant, org, project. The most specific pin that covers a project is the version in use there when nothing names one.',
+    'Where a flow or tool version is pinned, from least to most specific: workspace, org, project. The most specific pin that covers a project is the version in use there when nothing names one.',
   oneOf: [
     { $ref: '#/components/schemas/PinScopeTenant' },
     { $ref: '#/components/schemas/PinScopeOrg' },
@@ -988,7 +988,7 @@ export const RunFailureSchema: JsonSchema = {
   additionalProperties: false,
   required: ['code', 'message'],
   description:
-    "Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …; `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed, with `details` naming the budget); any other failure is `run-failed`, with the run's failure message.",
+    "Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …; `rate-limit-exceeded` when a budget kept per workspace refused work the turn needed, with `details` naming the budget); any other failure is `run-failed`, with the run's failure message.",
   properties: {
     code: { type: 'string' },
     message: { type: 'string' },
@@ -1232,7 +1232,7 @@ export const RunSchema: JsonSchema = {
       type: 'string',
       enum: ['explicit', 'pinned', 'latest'],
       description:
-        "How the run's flow version was chosen, recorded when the run was created: `explicit` (the start named it), `pinned` (the version pinned for the run's project, its org or the tenant; `flowPinnedScope` names the pin) or `latest` (the newest version the run's project reaches). Absent when the runtime didn't record it, as on runs from before it did.",
+        "How the run's flow version was chosen, recorded when the run was created: `explicit` (the start named it), `pinned` (the version pinned for the run's project, its org or the workspace; `flowPinnedScope` names the pin) or `latest` (the newest version the run's project reaches). Absent when the runtime didn't record it, as on runs from before it did.",
     },
     flowPinnedScope: { $ref: '#/components/schemas/PinScope' },
     status: RunStatusSchema,
@@ -1325,7 +1325,7 @@ export const RunProgressSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "A run's progress: status and timing, without its input, output, failure message or tenant. Safe to show in a browser.",
+    "A run's progress: status and timing, without its input, output, failure message or workspace. Safe to show in a browser.",
   required: ['id', 'flowId', 'flowVersion', 'status', 'createdAt', 'updatedAt'],
   properties: {
     id: { type: 'string', format: 'uuid', description: 'RunId.' },
@@ -1374,7 +1374,7 @@ export const StartRunBodySchema: JsonSchema = {
         projectId: {
           type: 'string',
           format: 'uuid',
-          description: "Project to run under; omit → the tenant's default project.",
+          description: "Project to run under; omit → the workspace's default project.",
         },
         segments: {
           type: 'array',
@@ -1398,12 +1398,12 @@ export const StartRunBodySchema: JsonSchema = {
         flowVersion: {
           type: 'string',
           description:
-            "Semver; omit → the version pinned for the run's project (the project, its org, then the tenant), else the newest it reaches.",
+            "Semver; omit → the version pinned for the run's project (the project, its org, then the workspace), else the newest it reaches.",
         },
         projectId: {
           type: 'string',
           format: 'uuid',
-          description: "Project to run under; omit → the tenant's default project.",
+          description: "Project to run under; omit → the workspace's default project.",
         },
         segments: {
           type: 'array',
@@ -1573,7 +1573,7 @@ const ApiTokenRoleSchema: JsonSchema = {
   type: 'string',
   enum: ['admin', 'member'],
   description:
-    "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).",
+    "The most the key may do, under its principal's grants: an `admin` key may administer the workspace when its principal is a tenant admin; a `member` key takes no admin action on the workspace, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).",
 };
 
 export const ApiKeyPrincipalSchema: JsonSchema = {
@@ -2160,12 +2160,13 @@ export const PackEnvScopeSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['kind'],
-  description: "Where a value is set: the deployment's project, the project's org, or the tenant.",
+  description:
+    "Where a value is set: the deployment's project, the project's org, or the workspace.",
   properties: {
     kind: { type: 'string', enum: ['project', 'org', 'tenant'] },
     id: {
       type: 'string',
-      description: "The project's or the org's id. Absent for the tenant.",
+      description: "The project's or the org's id. Absent for the workspace.",
     },
   },
 };
@@ -2175,7 +2176,7 @@ export const PackEnvNameStatusSchema: JsonSchema = {
   additionalProperties: false,
   required: ['name', 'required', 'kind', 'scope', 'missing'],
   description:
-    "One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (for `ambiguous` only, `secretScope` names the secret's scope and `cloudSecretScope` the cloud secret's). Each name is looked for at the deployment's project, then its org, then the tenant (most specific wins); a tenant-wide deployment's, at the tenant's default project. Never a value.",
+    "One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (for `ambiguous` only, `secretScope` names the secret's scope and `cloudSecretScope` the cloud secret's). Each name is looked for at the deployment's project, then its org, then the workspace (most specific wins); a workspace-wide deployment's, at the workspace's default project. Never a value.",
   properties: {
     name: { type: 'string' },
     required: { type: 'boolean' },
@@ -2462,7 +2463,7 @@ export const ServiceAccountGrantTenantMemberSchema: JsonSchema = {
   additionalProperties: false,
   required: ['kind'],
   description:
-    "Tenant member: read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A service account has it only when granted; a person has it from being added.",
+    "Tenant member: read the workspace's settings (providers, policies, adapters, signing keys, deployments), not its projects. A service account has it only when granted; a person has it from being added.",
   properties: { kind: { type: 'string', enum: ['tenant-member'] } },
 };
 
@@ -2492,7 +2493,7 @@ export const ServiceAccountGrantProjectBodySchema: JsonSchema = {
 
 export const ServiceAccountGrantSchema: JsonSchema = {
   description:
-    "What a service account may do: tenant admin, tenant member (read the tenant's settings), or a role on one project.",
+    "What a service account may do: tenant admin, tenant member (read the workspace's settings), or a role on one project.",
   oneOf: [
     { $ref: '#/components/schemas/ServiceAccountGrantTenantAdmin' },
     { $ref: '#/components/schemas/ServiceAccountGrantTenantMember' },
@@ -2561,7 +2562,7 @@ export const ServiceAccountSchema: JsonSchema = {
   required: ['serviceAccountId', 'name', 'grants', 'createdAt'],
   properties: {
     serviceAccountId: { type: 'string' },
-    name: { type: 'string', description: "Unique among the tenant's active accounts." },
+    name: { type: 'string', description: "Unique among the workspace's active accounts." },
     description: { type: 'string' },
     grants: { type: 'array', items: { $ref: '#/components/schemas/ServiceAccountGrant' } },
     createdBy: {
@@ -2851,7 +2852,7 @@ export const ReviewerCollectionPageSchema: JsonSchema = {
 
 export const RegisterReviewerBodySchema: JsonSchema = {
   description:
-    "Register a reviewer for the caller's tenant. Idempotent w.r.t. `(tenantId, userId)` — re-registering rotates role/displayName rather than inserting a duplicate.",
+    "Register a reviewer for the caller's workspace. Idempotent w.r.t. `(tenantId, userId)` — re-registering rotates role/displayName rather than inserting a duplicate.",
   type: 'object',
   additionalProperties: false,
   required: ['userId', 'role'],
@@ -2934,7 +2935,7 @@ export const SiteSchema: JsonSchema = {
     'createdAt',
   ],
   description:
-    'A site that signs its own people in to one project: it vouches for whoever is signed in there, so they ask the project\'s agents and decide its approvals as themselves. Each person it signs in is a person of the tenant, shown as "<name>, via <displayName>".',
+    'A site that signs its own people in to one project: it vouches for whoever is signed in there, so they ask the project\'s agents and decide its approvals as themselves. Each person it signs in is a person of the workspace, shown as "<name>, via <displayName>".',
   properties: {
     siteId: { type: 'string', format: 'uuid' },
     projectId: { type: 'string', format: 'uuid' },
@@ -3431,7 +3432,7 @@ export const CompleteApprovalResultSchema: JsonSchema = {
     runStatus: RunStatusSchema,
     resume: {
       description:
-        "How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per tenant refused work the turn needed. The decision stands either way.",
+        "How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone, or `rate-limit-exceeded` when a budget kept per workspace refused work the turn needed. The decision stands either way.",
       oneOf: [
         {
           type: 'object',
@@ -3540,7 +3541,7 @@ export const AgentMemoryPolicySchema: JsonSchema = {
           type: 'string',
           enum: ['same-user', 'same-conversation', 'same-project', 'tenant'],
           description:
-            "Where its facts go: the conversation's end user (else the user the run acts for), the conversation, the run's project, or the tenant. Each but `tenant` includes the run's project.",
+            "Where its facts go: the conversation's end user (else the user the run acts for), the conversation, the run's project, or the workspace. Each but `tenant` includes the run's project.",
         },
         keepDays: {
           type: 'integer',
@@ -3692,7 +3693,7 @@ export const AgentSchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        'Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + tenant policy. Combine with `preferredModel` to pin the exact (provider, model) tuple. Falls back to capability-based ranking when the pinned provider is unregistered or filtered out.',
+        'Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + workspace policy. Combine with `preferredModel` to pin the exact (provider, model) tuple. Falls back to capability-based ranking when the pinned provider is unregistered or filtered out.',
     },
     preferredModel: {
       type: 'string',
@@ -3844,7 +3845,7 @@ export const PublishAgentBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        'Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + tenant policy. Combine with `preferredModel` to pin the exact (provider, model) tuple.',
+        'Soft hint — the router prefers this provider by id (e.g. `anthropic`) when at least one of its models satisfies `capabilities.needs` + workspace policy. Combine with `preferredModel` to pin the exact (provider, model) tuple.',
     },
     preferredModel: {
       type: 'string',
@@ -4044,7 +4045,7 @@ export const FlowSchema: JsonSchema = {
 
 export const FlowPinsSchema: JsonSchema = {
   description:
-    "The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the tenant), else to its latest version then; each agent it runs at no named version resolves once to its version pinned for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's release gates set on a segment covers runs the agent's version pinned for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version pinned for the run, else its latest.",
+    "The exact tool and agent versions a flow version runs: its lockfile. Set by the runtime when the version is published, never in the publish body: each tool the flow runs resolves once to its version pinned where the flow version is made (the project, then its org, then the workspace), else to its latest version then; each agent it runs at no named version resolves once to its version pinned for that project, else its latest. Every run of that flow version uses them, except that an agent step in a run whose segment path one of that agent's release gates set on a segment covers runs the agent's version pinned for that segment. Absent on a version published before pins existed: each run of it binds each tool's latest version, and each agent's version pinned for the run, else its latest.",
   type: 'object',
   additionalProperties: false,
   required: ['tools', 'agents'],
@@ -4250,7 +4251,7 @@ export const ConnectionNeedSchema: JsonSchema = {
     as: {
       enum: ['person', 'company'],
       description:
-        "Whose connection: `person`, the run's person (the one it acts for, who started it or owns its trigger); `company`, the tenant's.",
+        "Whose connection: `person`, the run's person (the one it acts for, who started it or owns its trigger); `company`, the workspace's.",
     },
   },
 };
@@ -4408,7 +4409,7 @@ export const ToolSpecSchema: JsonSchema = {
 
 export const RecordedSecretScopeSchema: JsonSchema = {
   description:
-    "Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.",
+    "Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the workspace that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the workspace for a deploy that names none and for a promotion into the default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.",
   oneOf: [
     {
       type: 'object',
@@ -4899,7 +4900,7 @@ export const ConversationSchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The project the conversation is in: the project of the run that opened it, or `projectId` on open (when omitted, the agent's own project, or the tenant's default project for an agent filed under none). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.",
+        "The project the conversation is in: the project of the run that opened it, or `projectId` on open (when omitted, the agent's own project, or the workspace's default project for an agent filed under none). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.",
     },
     openedBy: {
       type: 'string',
@@ -4957,7 +4958,7 @@ export const FileValueSchema: JsonSchema = {
       type: 'string',
       enum: [...FILE_NOT_SHOWN_REASONS],
       description:
-        "Set when the model isn't shown it, and reads a line naming it instead: `type` (not a type a model is shown), `size` (over its type's limit), `model` (the agent or its model doesn't take images and PDFs), `limit` (over a call's or a list's limits), `store` (no file store), `gone` (no longer stored), `changed` (not the bytes that were checked), `refused` (the model couldn't read it when it was attached), `storage` (a tool's store found the tenant's storage full), `reading` (what the model is sent in its place, an image or a text made from it, isn't made yet).",
+        "Set when the model isn't shown it, and reads a line naming it instead: `type` (not a type a model is shown), `size` (over its type's limit), `model` (the agent or its model doesn't take images and PDFs), `limit` (over a call's or a list's limits), `store` (no file store), `gone` (no longer stored), `changed` (not the bytes that were checked), `refused` (the model couldn't read it when it was attached), `storage` (a tool's store found the workspace's storage full), `reading` (what the model is sent in its place, an image or a text made from it, isn't made yet).",
     },
   },
 };
@@ -5011,7 +5012,7 @@ export const OpenConversationBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's tenant, else `400 bad-input`, that reaches the agent, else `400 reference-out-of-scope`. Omitted: the agent's own project, as for a run (the tenant's default project for an agent filed under none).",
+        "The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's workspace, else `400 bad-input`, that reaches the agent, else `400 reference-out-of-scope`. Omitted: the agent's own project, as for a run (the workspace's default project for an agent filed under none).",
     },
     scope: {
       type: 'object',
@@ -5146,7 +5147,7 @@ export const ObservationCollectionPageSchema: JsonSchema = {
 
 export const CorrectorGroupScopeSchema: JsonSchema = {
   description:
-    'Where a corrector group applies: the whole tenant, one project, or one agent in a project.',
+    'Where a corrector group applies: the whole workspace, one project, or one agent in a project.',
   oneOf: [
     {
       type: 'object',
@@ -6619,7 +6620,7 @@ export const FactCollectionPageSchema: JsonSchema = {
 
 export const WriteFactBodySchema: JsonSchema = {
   description:
-    "Write a fact. `type` selects the retrieval-policy (which indexes populate); `scope.tenantId` MUST match the caller's tenant. Optional `retention` overrides tenant defaults; optional `contentHash` is a caller-supplied idempotence hint (runtime computes its own hash regardless). `subjects` names whom it is about; `validFrom`/`validUntil` when it is true in the world; `observedAt` when it was said or seen.",
+    "Write a fact. `type` selects the retrieval-policy (which indexes populate); `scope.tenantId` MUST match the caller's workspace. Optional `retention` overrides workspace defaults; optional `contentHash` is a caller-supplied idempotence hint (runtime computes its own hash regardless). `subjects` names whom it is about; `validFrom`/`validUntil` when it is true in the world; `observedAt` when it was said or seen.",
   type: 'object',
   additionalProperties: false,
   required: ['type', 'scope', 'content'],
@@ -6917,7 +6918,8 @@ export const MemoryErasureLedgerEntrySchema: JsonSchema = {
     selectorHmac: {
       type: 'string',
       pattern: '^[0-9a-f]{64}$',
-      description: "HMAC-SHA256 of the selector under the tenant's ledger key; absent without one.",
+      description:
+        "HMAC-SHA256 of the selector under the workspace's ledger key; absent without one.",
     },
     keyId: { type: 'string', description: 'Which ledger key made `selectorHmac`.' },
     requestedBy: { type: 'string' },
@@ -6958,12 +6960,12 @@ export const ReplayMemoryErasuresResultSchema: JsonSchema = {
     replayed: {
       type: 'array',
       items: { type: 'string', format: 'uuid' },
-      description: 'Found in the tenant again: run again.',
+      description: 'Found in the workspace again: run again.',
     },
     restored: {
       type: 'array',
       items: { type: 'string', format: 'uuid' },
-      description: 'Put back in the ledger; nothing in the tenant matches.',
+      description: 'Put back in the ledger; nothing in the workspace matches.',
     },
     unmatched: {
       type: 'array',
@@ -6997,7 +6999,7 @@ export const TrustedSigningKeySchema: JsonSchema = {
   additionalProperties: false,
   required: ['keyId', 'tenantId', 'algorithm', 'publicKey', 'createdAt'],
   description:
-    'A public key the tenant trusts to sign deployments (`POST /v1/deployments`). A revoked key stays readable, with `revokedAt`, so the deployments it signed can be audited; it verifies no new ones.',
+    'A public key the workspace trusts to sign deployments (`POST /v1/deployments`). A revoked key stays readable, with `revokedAt`, so the deployments it signed can be audited; it verifies no new ones.',
   properties: {
     keyId: { type: 'string', description: 'The signer key id a deployment envelope names.' },
     tenantId: { type: 'string', format: 'uuid' },
@@ -7446,7 +7448,7 @@ export const ImproveRunSchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        'The project it works in. Absent from older servers, and on a run started for a tenant or an org before Improve runs worked in a project.',
+        'The project it works in. Absent from older servers, and on a run started for a workspace or an org before Improve runs worked in a project.',
     },
     startsFrom: { $ref: '#/components/schemas/ImproveRunStart' },
     testSetVersion: {
@@ -7591,7 +7593,7 @@ export const StartImproveRunBodySchema: JsonSchema = {
       additionalProperties: false,
       required: ['providerId', 'model'],
       description:
-        "For the prompt tier: the tenant's provider and model that drafts the templates. Omit it for the model of the version's own model-settings block.",
+        "For the prompt tier: the workspace's provider and model that drafts the templates. Omit it for the model of the version's own model-settings block.",
       properties: { providerId: { type: 'string' }, model: { type: 'string' } },
     },
     candidates: {
@@ -7605,7 +7607,7 @@ export const StartImproveRunBodySchema: JsonSchema = {
       type: 'string',
       enum: ['as-recorded', 'experts-only'],
       description:
-        "Which corrections the Improve run learns from. Omit it for the default: everyone's (`as-recorded`) until the tenant, the project, or the agent in the project has an expert group, then only corrections recorded under one (`experts-only`).",
+        "Which corrections the Improve run learns from. Omit it for the default: everyone's (`as-recorded`) until the workspace, the project, or the agent in the project has an expert group, then only corrections recorded under one (`experts-only`).",
     },
     objective: {
       type: 'string',
@@ -8044,7 +8046,7 @@ export const BlobMetaSchema: JsonSchema = {
     projectId: {
       type: 'string',
       description:
-        "The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the tenant's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded.",
+        "The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the workspace's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded.",
     },
     createdBy: {
       type: 'string',
@@ -8092,7 +8094,7 @@ export const UploadArtifactBodySchema: JsonSchema = {
     projectId: {
       type: 'string',
       description:
-        "The project it belongs to, when there's no `ownerRunId` (with one, the run's project, and this must agree). Default: the tenant's default project.",
+        "The project it belongs to, when there's no `ownerRunId` (with one, the run's project, and this must agree). Default: the workspace's default project.",
     },
     expectedHash: {
       type: 'string',
@@ -8180,7 +8182,7 @@ export const CapabilityDescriptorSchema: JsonSchema = {
       type: 'array',
       items: { $ref: '#/components/schemas/CapabilityProvider' },
       description:
-        "The tenant's registered providers with a model that has the feature, and those models. Absent from servers that don't read the provider registry; `[]` when no provider of the tenant has one.",
+        "The workspace's registered providers with a model that has the feature, and those models. Absent from servers that don't read the provider registry; `[]` when no provider of the workspace has one.",
     },
   },
 };
@@ -8189,7 +8191,7 @@ export const CapabilityProviderSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['providerId', 'models'],
-  description: 'A provider of the tenant with a model that has the feature.',
+  description: 'A provider of the workspace with a model that has the feature.',
   properties: {
     providerId: { type: 'string' },
     models: { type: 'array', items: { type: 'string' }, description: 'Its models that have it.' },
@@ -8406,7 +8408,7 @@ export const RegisterProviderBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        'The adapter that instantiates this provider (e.g. `@kindgi/adapter-model-gemini`). Must be registered for the tenant.',
+        'The adapter that instantiates this provider (e.g. `@kindgi/adapter-model-gemini`). Must be registered for the workspace.',
     },
     secret_ref: {
       type: 'object',
@@ -8417,7 +8419,7 @@ export const RegisterProviderBodySchema: JsonSchema = {
         name: { type: 'string', minLength: 1 },
       },
       description:
-        "The tenant secret holding the adapter's credential (an API key, a service-account key). Absent when the adapter needs none or finds its own (a cloud's default credentials).",
+        "The workspace secret holding the adapter's credential (an API key, a service-account key). Absent when the adapter needs none or finds its own (a cloud's default credentials).",
     },
     adapter_config: {
       type: 'object',
@@ -9388,7 +9390,7 @@ export const PolicySchema: JsonSchema = {
       type: 'object',
       additionalProperties: true,
       description:
-        "Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a tenant has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.",
+        "Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a workspace has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer.",
     },
     unregisteredAt: {
       type: 'string',
@@ -9460,7 +9462,7 @@ export const PublishPolicyBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        'Optional. When present, must match the caller tenant (server-derived from the token). Cross-tenant publish is rejected.',
+        'Optional. When present, must match the caller workspace (server-derived from the token). Cross-workspace publish is rejected.',
     },
     version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
     kind: { $ref: '#/components/schemas/PolicyKind' },
@@ -9772,7 +9774,7 @@ export const PublishTestSetBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        'Optional. When present, must match the caller tenant (server-derived from the token). Cross-tenant publish is rejected.',
+        'Optional. When present, must match the caller workspace (server-derived from the token). Cross-workspace publish is rejected.',
     },
     version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
     kind: { $ref: '#/components/schemas/TestSetKind' },
@@ -10782,7 +10784,7 @@ export const TestRunSchema: JsonSchema = {
     cancelReason: {
       type: 'string',
       description:
-        "Why a `cancelled` run stopped when nobody cancelled it: its project or tenant took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.",
+        "Why a `cancelled` run stopped when nobody cancelled it: its project or workspace took no new runs when a case started (`project-suspended`, `tenant-suspended`, `tenant-closing`). The cases before it are in `result`. Absent when it was cancelled, and from a runtime that doesn't say. A plain string: a later reason doesn't break a client.",
     },
     correlationId: {
       type: 'string',
@@ -11010,7 +11012,7 @@ export const SamlIdentityProviderConfigSchema: JsonSchema = {
 
 export const IdentityProviderConfigSchema: JsonSchema = {
   description:
-    'An identity provider registered on a tenant, one shape per `kind` (narrow on `kind` before reading kind-specific fields). Secrets are always REFERENCES resolved server-side (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a plaintext secret never crosses the wire, and a `clientSecret` field is refused.',
+    'An identity provider registered on a workspace, one shape per `kind` (narrow on `kind` before reading kind-specific fields). Secrets are always REFERENCES resolved server-side (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a plaintext secret never crosses the wire, and a `clientSecret` field is refused.',
   oneOf: [
     { $ref: '#/components/schemas/OidcIdentityProviderConfig' },
     { $ref: '#/components/schemas/SamlIdentityProviderConfig' },
@@ -11406,7 +11408,7 @@ export const WhoamiResultSchema: JsonSchema = {
     tenantAdmin: {
       type: 'boolean',
       description:
-        'Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.',
+        'Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the workspace when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.',
     },
     servedEnv: {
       type: 'object',
@@ -11437,7 +11439,7 @@ const USER_PROPERTIES: Record<string, JsonSchema> = {
     type: 'string',
     format: 'date-time',
     description:
-      'When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.',
+      'When they were removed from the workspace (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.',
   },
   invite: {
     $ref: '#/components/schemas/UserInvite',
@@ -11455,7 +11457,7 @@ const USER_PROPERTIES: Record<string, JsonSchema> = {
 
 export const UserRecordSchema: JsonSchema = {
   description:
-    'Tenant-scoped user record (admin plane). `primaryEmail` may be redacted on the wire based on tenant policy (the routes treat it as opaque). `metadata` is free-form JSON — deployments carry IdP claims / provisioning source / roles here.',
+    'Workspace-scoped user record (admin plane). `primaryEmail` may be redacted on the wire based on workspace policy (the routes treat it as opaque). `metadata` is free-form JSON — deployments carry IdP claims / provisioning source / roles here.',
   type: 'object',
   additionalProperties: false,
   required: ['userId', 'tenantId', 'createdAt'],
@@ -11665,7 +11667,7 @@ export const CreateUserBodySchema: JsonSchema = {
   required: ['displayName'],
   properties: {
     displayName: { type: 'string', minLength: 1, maxLength: 200 },
-    primaryEmail: { type: 'string', description: "Unique among the tenant's people." },
+    primaryEmail: { type: 'string', description: "Unique among the workspace's people." },
     sendInvite: {
       type: 'boolean',
       description:
@@ -11690,7 +11692,7 @@ export const PersonGrantsSchema: JsonSchema = {
     tenantMember: {
       type: 'boolean',
       description:
-        "Whether the person is a tenant member: they read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A person is one from being added. Absent when the runtime has no authorization store, or doesn't report it.",
+        "Whether the person is a tenant member: they read the workspace's settings (providers, policies, adapters, signing keys, deployments), not its projects. A person is one from being added. Absent when the runtime has no authorization store, or doesn't report it.",
     },
     projects: {
       type: 'array',
@@ -11896,7 +11898,7 @@ export const MyTenantAccessSchema: JsonSchema = {
     member: {
       type: 'boolean',
       description:
-        "Tenant member: reads the tenant's settings. Absent when the runtime doesn't report it.",
+        "Tenant member: reads the workspace's settings. Absent when the runtime doesn't report it.",
     },
   },
 };
@@ -11943,7 +11945,7 @@ export const MyPermissionsSchema: JsonSchema = {
       type: 'array',
       items: { type: 'string' },
       description:
-        "The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries those its person holds: none unless the runtime gives them some, as it does a tenant's first admin. An API key carries those it was minted with (`POST /v1/tokens`, none by default).",
+        "The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries those its person holds: none unless the runtime gives them some, as it does a workspace's first admin. An API key carries those it was minted with (`POST /v1/tokens`, none by default).",
     },
     projects: {
       type: 'array',
@@ -11965,7 +11967,7 @@ export const MyPermissionsSchema: JsonSchema = {
       type: 'string',
       maxLength: 280,
       description:
-        "The line a console shows a caller who may only view a project, as a tenant admin set it in the tenant config (`kind: 'config'`, key `console.readOnlyNotice`). Plain text on one line, at most 280 characters. Absent when none is set: the console shows its own.",
+        "The line a console shows a caller who may only view a project, as a tenant admin set it in the workspace config (`kind: 'config'`, key `console.readOnlyNotice`). Plain text on one line, at most 280 characters. Absent when none is set: the console shows its own.",
     },
     licenseOperatorOnly: {
       type: 'boolean',
@@ -12667,7 +12669,7 @@ export const DeploymentRecordSchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's default project).",
+        "The project the deploy named, which its primitives were registered into. Absent for a workspace-wide deploy (the workspace's default project).",
     },
     packEnv: { $ref: '#/components/schemas/PackEnvDeclaration' },
     promotedFromDeploymentId: {
@@ -12752,7 +12754,7 @@ export const DeployCheckBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The project the deploy goes into: the check takes the deploy's own right, admin on it. Absent: the tenant's default project, admin on the tenant. Every project of the pack's agents counts, whichever this is.",
+        "The project the deploy goes into: the check takes the deploy's own right, admin on it. Absent: the workspace's default project, admin on the workspace. Every project of the pack's agents counts, whichever this is.",
     },
     agents: {
       type: 'array',
@@ -12904,12 +12906,12 @@ export const DeploymentValueSchema: JsonSchema = {
       type: 'string',
       enum: ['project', 'org', 'tenant'],
       description:
-        'Where a run finds it, when it is set: the project, else its org, else the tenant.',
+        'Where a run finds it, when it is set: the project, else its org, else the workspace.',
     },
     problem: {
       type: 'string',
       description:
-        "Why it isn't ready; absent when it is. One of a fixed list; a later runtime may add problems, so treat an unknown one as a reason not yet named. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set two ways, as two of a plain value, a secret and a cloud secret. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one). `no-provider`: an agent that runs on any provider (it names none, or names one that isn't registered), with no provider registered in the tenant, so a run has none to call.",
+        "Why it isn't ready; absent when it is. One of a fixed list; a later runtime may add problems, so treat an unknown one as a reason not yet named. `missing`: set nowhere a run looks. `secret-not-yet`: a pack env name set only as a secret, which isn't given into a pack service's environment yet. `ambiguous`: a pack env name set two ways, as two of a plain value, a secret and a cloud secret. `revoked`: a tool's secret revoked where it's recorded, or a model key revoked where a run looks first (a run refuses rather than read a wider one). `no-provider`: an agent that runs on any provider (it names none, or names one that isn't registered), with no provider registered in the workspace, so a run has none to call.",
     },
   },
 };
@@ -13209,7 +13211,7 @@ export const DeploymentEndpointSchema: JsonSchema = {
     retired: {
       type: 'string',
       description:
-        "`cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the tenant, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.",
+        "`cleared` only: why no pack service is wanted for it now. `superseded`: nothing a call can still ask for needs it: for each tool version, pack check, agent and flow version it serves, a newer deployment into its project serves it too, or it's unregistered and not held (a check: no registered guardrail runs it in its project); and each tool it deployed without a version, a newer deployment into its project deploys without one too (from Kindgi 0.4.0; before, it meant newer deployments into its project shipped every tool version and check it does and deployed each tool it deployed without a version the same way, and was for good). One whose endpoint an earlier runtime made or last set is `superseded` as well, for good, once newer deployments into its project ship every tool version and check it does and deploy each tool it deployed without a version the same way. Otherwise it's needed again once something it serves that no newer deployment into its project serves is wanted again: a tool, agent or flow version registered or held again, or a check a newly registered guardrail runs in its project. A tool call a step made on it still goes back to it when the step runs again, and fails closed (`pack-endpoint-cleared`). `tenant-closing`, `tenant-suspended`, `project-suspended` and `pack-suspended` last until the workspace, project or pack is restored. A later runtime may add reasons, so treat an unknown one as a reason not yet named. A `cleared` endpoint carries this or `waiting`, never both. Absent from older servers, which send neither.",
     },
     packEnvProblem: {
       type: 'object',
@@ -13280,7 +13282,7 @@ export const DeploymentEndpointProblemSchema: JsonSchema = {
     code: {
       type: 'string',
       description:
-        "One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start). It can't be given its declared environment (`GET /v1/deployments/{deploymentId}/pack-env` names the names): `pack-env-ambiguous`, `pack-env-secret-not-yet`, `pack-env-missing`, `pack-env-secret-unreadable` (a name's secret can't be read for a reason the platform fixes, not the owner; it's tried again). It can't be given its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out; the platform fixes it, and it's tried again), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-name-too-long` (a name set as a secret is too long for the secret it's kept in, which is named after the pack service; shorten it in the pack), `pack-env-secret-capacity` (a name is set only as a secret, and there's no room just now for a pack service that can be given one, apart from other projects'; it's tried again).",
+        "One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the workspace's repository). The pack service couldn't be created: `tenant-not-provisioned` (the workspace has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start). It can't be given its declared environment (`GET /v1/deployments/{deploymentId}/pack-env` names the names): `pack-env-ambiguous`, `pack-env-secret-not-yet`, `pack-env-missing`, `pack-env-secret-unreadable` (a name's secret can't be read for a reason the platform fixes, not the owner; it's tried again). It can't be given its secrets: `pack-env-secrets-unaudited` (the runtime has nowhere to audit a secret it gives out; the platform fixes it, and it's tried again), `pack-env-secret-too-large` (a secret's value is over 32768 bytes, the most a pack service can be given), `pack-env-name-too-long` (a name set as a secret is too long for the secret it's kept in, which is named after the pack service; shorten it in the pack), `pack-env-secret-capacity` (a name is set only as a secret, and there's no room just now for a pack service that can be given one, apart from other projects'; it's tried again).",
     },
     since: {
       type: 'string',
@@ -13346,7 +13348,7 @@ export const DeploymentRegistrationBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The project to deploy into, one per client: its agents, flows, tools and guardrails are registered there, and its secret sync writes there. It takes admin on that project (a key limited to another project is refused). Absent: a tenant-wide deploy, into the tenant's default project. An id that already lives in another project is `409` (`tool-project-mismatch` and the like): each client gets its own pack, whose ids carry its own pack id. Not covered by the signature, which attests the image.",
+        "The project to deploy into, one per client: its agents, flows, tools and guardrails are registered there, and its secret sync writes there. It takes admin on that project (a key limited to another project is refused). Absent: a workspace-wide deploy, into the workspace's default project. An id that already lives in another project is `409` (`tool-project-mismatch` and the like): each client gets its own pack, whose ids carry its own pack id. Not covered by the signature, which attests the image.",
     },
     source: { $ref: '#/components/schemas/DeploymentSourceBody' },
     replace: {
@@ -13383,7 +13385,7 @@ export const DeploymentCollectionPageSchema: JsonSchema = {
       type: 'integer',
       minimum: 0,
       description:
-        "How many builds keep a pack service among the deployments the project filter selects, whatever the page and the other filters: those whose `endpoint.keptFor` isn't empty. With `?projectId=`, that project's (the default's counts the deployments that name no project); without, the total over the tenant's projects the caller may read. Absent when builds aren't counted (one service serves every build), and from a runtime before Kindgi 0.4.0.",
+        "How many builds keep a pack service among the deployments the project filter selects, whatever the page and the other filters: those whose `endpoint.keptFor` isn't empty. With `?projectId=`, that project's (the default's counts the deployments that name no project); without, the total over the workspace's projects the caller may read. Absent when builds aren't counted (one service serves every build), and from a runtime before Kindgi 0.4.0.",
     },
   },
 };
@@ -13571,7 +13573,7 @@ export const ComplianceEvidenceSchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        'The project the underlying audit event belongs to. Absent for tenant-level events (e.g. authz decisions).',
+        'The project the underlying audit event belongs to. Absent for workspace-level events (e.g. authz decisions).',
     },
     kind: EvidenceKindSchema,
     timestamp: { type: 'string', format: 'date-time' },
@@ -13607,7 +13609,7 @@ export const ExportComplianceEvidenceFilterSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'Optional filter narrowing the export set. Composition is AND — every populated field must match. Absent / empty filter exports every record for the tenant.',
+    'Optional filter narrowing the export set. Composition is AND — every populated field must match. Absent / empty filter exports every record for the workspace.',
   properties: {
     runId: { type: 'string' },
     agentId: { type: 'string' },
@@ -13991,7 +13993,7 @@ export const AddProjectMembershipBodySchema: JsonSchema = {
     email: {
       type: 'string',
       minLength: 1,
-      description: "The person's email, as the tenant has it.",
+      description: "The person's email, as the workspace has it.",
     },
     role: { $ref: '#/components/schemas/AssignableProjectRole' },
   },
@@ -14204,7 +14206,7 @@ export const TenantSchema: JsonSchema = {
     productionAllowed: {
       type: 'boolean',
       description:
-        "Whether the tenant may put projects in production. Absent from a runtime that doesn't gate production.",
+        "Whether the workspace may put projects in production. Absent from a runtime that doesn't gate production.",
     },
     productionNext: {
       type: 'string',
@@ -14226,7 +14228,7 @@ export const TenantPatchSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'A new name, a new slug, or both; a field left out stays as it is. The id stays, so whatever names the tenant by its id keeps working.',
+    'A new name, a new slug, or both; a field left out stays as it is. The id stays, so whatever names the workspace by its id keeps working.',
   properties: {
     name: { type: 'string', minLength: 1, maxLength: 100 },
     slug: {
@@ -14234,7 +14236,7 @@ export const TenantPatchSchema: JsonSchema = {
       maxLength: 63,
       pattern: '^[a-z0-9](?:-?[a-z0-9])*$',
       description:
-        "Lowercase letters, digits and single hyphens, unique across tenants. The console's addresses carry it, so links with the old one stop opening the tenant; nothing else is keyed by it.",
+        "Lowercase letters, digits and single hyphens, unique across workspaces. The console's addresses carry it, so links with the old one stop opening the workspace; nothing else is keyed by it.",
     },
   },
 };
@@ -14248,7 +14250,7 @@ export const EgressAddressesSchema: JsonSchema = {
   additionalProperties: false,
   required: ['server', 'deployments'],
   description:
-    "The IP addresses this deployment's calls to other sites come from, for a site that admits only known addresses. They're the same for every tenant on the deployment, so admitting them admits every tenant's calls: a site still checks its own credentials. They say where calls come from, not where they go. Absent when the deployment publishes none. An empty list: none of that kind.",
+    "The IP addresses this deployment's calls to other sites come from, for a site that admits only known addresses. They're the same for every workspace on the deployment, so admitting them admits every workspace's calls: a site still checks its own credentials. They say where calls come from, not where they go. Absent when the deployment publishes none. An empty list: none of that kind.",
   properties: {
     server: {
       type: 'array',
@@ -14268,7 +14270,7 @@ export const TenantLimitsSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "The tenant's limits that are set. A limit that isn't set is absent, and isn't enforced.",
+    "The workspace's limits that are set. A limit that isn't set is absent, and isn't enforced.",
   properties: {
     apiRequestsPerMinute: {
       type: 'integer',
@@ -14279,7 +14281,7 @@ export const TenantLimitsSchema: JsonSchema = {
       type: 'integer',
       minimum: 1,
       description:
-        "Webhook deliveries received a minute, across the tenant's triggers. Past it: 429.",
+        "Webhook deliveries received a minute, across the workspace's triggers. Past it: 429.",
     },
     runsAtOnce: {
       type: 'integer',
@@ -14295,7 +14297,7 @@ export const TenantLimitsSchema: JsonSchema = {
       type: 'integer',
       minimum: 1,
       description:
-        "Tool calls in flight to the tenant's pack services. Past it, a call waits for a slot.",
+        "Tool calls in flight to the workspace's pack services. Past it, a call waits for a slot.",
     },
     approvalsPending: {
       type: 'integer',
@@ -14370,7 +14372,7 @@ export const TenantConfigKindSchema: JsonSchema = {
   type: 'string',
   enum: ['env', 'config', 'secret'],
   description:
-    'Slot for a tenant config entry (tenant-scoped). `env` and `config` both address `EnvBinding`; `secret` addresses `SecretBinding`. Prefer `/v1/env/*` + `/v1/secrets/*` for new callers.',
+    'Slot for a workspace config entry (workspace-scoped). `env` and `config` both address `EnvBinding`; `secret` addresses `SecretBinding`. Prefer `/v1/env/*` + `/v1/secrets/*` for new callers.',
 };
 
 export const TenantConfigEntrySchema: JsonSchema = {
@@ -15107,7 +15109,7 @@ function toolsAllowedUnattendedProperty(lead: string): JsonSchema {
     maxItems: 100,
     uniqueItems: true,
     items: { type: 'string', minLength: 1, maxLength: 200 },
-    description: `${lead} Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the tenant's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.`,
+    description: `${lead} Each tool by its id, with no wildcard or pattern, and only tools this trigger's flow or agent calls. It lifts only that wait: the workspace's approval rules, the agent's own rules, the permission check (as the trigger's owner) and the tool's own limits all still apply.`,
   };
 }
 
@@ -15179,7 +15181,7 @@ export const ScheduleRecordSchema: JsonSchema = {
       type: 'string',
       enum: ['latest', 'skip'],
       description:
-        "After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence. A tenant's suspension isn't caught up either way: once the tenant is restored, a schedule that's on fires next at its first occurrence after the restore.",
+        "After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence. A workspace's suspension isn't caught up either way: once the workspace is restored, a schedule that's on fires next at its first occurrence after the restore.",
     },
     overlap: {
       type: 'string',
@@ -15270,7 +15272,7 @@ export const ImproveScheduleTargetSchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The schedule's own project. Absent from older servers, and on a schedule registered for a tenant or an org before Improve schedules worked in a project: its fires are refused until its target is saved with the schedule's project.",
+        "The schedule's own project. Absent from older servers, and on a schedule registered for a workspace or an org before Improve schedules worked in a project: its fires are refused until its target is saved with the schedule's project.",
     },
   },
 };
@@ -15345,7 +15347,7 @@ export const ImproveScheduleInputSchema: JsonSchema = {
 const COUNTS_TOWARD_PAUSE: JsonSchema = {
   type: 'boolean',
   description:
-    "Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for a refusal for a limit, such as the tenant's runs pending (`detail` starts `rate-limited:`): the limit passes, and the trigger isn't at fault. Absent from a runtime that doesn't say: `refused` and `failed` fires counted, and the others didn't.",
+    "Whether this fire counted toward the trigger's auto-pause (5 in a row by default). `false` for a refusal for a limit, such as the workspace's runs pending (`detail` starts `rate-limited:`): the limit passes, and the trigger isn't at fault. Absent from a runtime that doesn't say: `refused` and `failed` fires counted, and the others didn't.",
 };
 
 export const ScheduleFireSchema: JsonSchema = {
@@ -15376,7 +15378,7 @@ export const ScheduleFireSchema: JsonSchema = {
         'failed',
       ],
       description:
-        "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (enough new corrections since its last Improve run, or room under its month's cap); the target's project is suspended (`project-suspended`), so no run or Improve run started; its run or Improve run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.",
+        "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`, as `detail` says: what an improve schedule waits for wasn't there (enough new corrections since its last Improve run, or room under its month's cap); the target's project is suspended (`project-suspended`), so no run or Improve run started; its run or Improve run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do, unless `countsTowardPause` is `false`. A skip for a suspension or a close (`project-suspended`, `tenant-suspended`, `tenant-closing`) doesn't reset the auto-pause's count of fires in a row either.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
     version: {
@@ -15447,7 +15449,7 @@ export const RegisterScheduleBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the tenant's default project.",
+        "The schedule's project. Absent → for `improve`, `improve.projectId` (another is refused); else the workspace's default project.",
     },
     runAsServiceAccountId: {
       type: 'string',
@@ -15699,7 +15701,7 @@ export const WebhookTriggerRecordSchema: JsonSchema = {
     webhookId: {
       type: 'string',
       description:
-        'The routable id in the receive URL. Route-minted (a random UUID); unique per tenant. Not a secret: the signature is what a request is checked by.',
+        'The routable id in the receive URL. Route-minted (a random UUID); unique per workspace. Not a secret: the signature is what a request is checked by.',
     },
     receiveUrl: {
       type: 'string',
@@ -15732,7 +15734,7 @@ export const WebhookTriggerRecordSchema: JsonSchema = {
     hmacSecretScope: {
       oneOf: [{ $ref: '#/components/schemas/RecordedSecretScope' }, { type: 'null' }],
       description:
-        'Where the signing secret is read, recorded when the trigger was registered (or its secret named again). `null`: none usable, so no delivery verifies until an admin names it again. Absent on triggers registered before it was recorded: read at the tenant, as before.',
+        'Where the signing secret is read, recorded when the trigger was registered (or its secret named again). `null`: none usable, so no delivery verifies until an admin names it again. Absent on triggers registered before it was recorded: read at the workspace, as before.',
     },
     signingSecret: {
       type: 'string',
@@ -15804,7 +15806,7 @@ export const WebhookFireSchema: JsonSchema = {
       type: 'string',
       enum: ['pending', 'started', 'skipped', 'refused', 'failed'],
       description:
-        "`pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); its run hadn't started when its tenant was suspended, and the restore concluded it (`tenant-suspended`); or its tenant was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start.",
+        "`pending` while its run starts. `skipped`: no run started, and the event was dropped: the trigger was paused (`paused`); its project was suspended after the delivery was taken, before its run started (`project-suspended`); its run hadn't started when its workspace was suspended, and the restore concluded it (`tenant-suspended`); or its workspace was suspended or closing as its run started (`tenant-suspended`, `tenant-closing`). `refused`: `detail` says why. `failed`: the run couldn't start.",
     },
     runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
     version: {
@@ -15867,7 +15869,7 @@ export const ToolFileStoreAnswerSchema: JsonSchema = {
           type: 'string',
           enum: ['type', 'size', 'limit', 'storage'],
           description:
-            "Why nothing was stored: `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit), `limit` (the call has stored 10 files), `storage` (the tenant's storage is full). The tool returns it as the file's `notShown` reason.",
+            "Why nothing was stored: `type` (not a type a model is shown, or the bytes aren't the type they claim), `size` (over its type's limit), `limit` (the call has stored 10 files), `storage` (the workspace's storage is full). The tool returns it as the file's `notShown` reason.",
         },
       },
     },
@@ -15907,7 +15909,7 @@ export const WebhookReceiptSchema: JsonSchema = {
       type: 'string',
       enum: ['paused', 'tenant-suspended', 'project-suspended'],
       description:
-        "No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's tenant or project is suspended, and nothing was recorded.",
+        "No run started, and the event was dropped. `paused`: the trigger is paused, and a `skipped` fire was recorded. `tenant-suspended`, `project-suspended`: the trigger's workspace or project is suspended, and nothing was recorded.",
     },
     received: {
       type: 'string',
@@ -15951,7 +15953,7 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
     projectId: {
       type: 'string',
       format: 'uuid',
-      description: "The trigger's project; absent: the tenant's default project.",
+      description: "The trigger's project; absent: the workspace's default project.",
     },
     config: {
       type: 'object',
@@ -15964,7 +15966,7 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        "The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the tenant that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing). Under `kindgi dev`, `generateSecret` writes it to an env file, so the name is capital letters, digits and underscores, not starting with a digit (`secret-name-invalid` otherwise).",
+        "The signing secret, by name: written first with `POST /v1/secrets`, and read at the first of the trigger's project, its org and the workspace that has it and that you administer (`hmacSecretScope`); or the name `generateSecret` stores a new one under. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing). Under `kindgi dev`, `generateSecret` writes it to an env file, so the name is capital letters, digits and underscores, not starting with a digit (`secret-name-invalid` otherwise).",
     },
     generateSecret: {
       type: 'boolean',
@@ -16235,7 +16237,7 @@ export const RegisterMailTriggerBodySchema: JsonSchema = {
     projectId: {
       type: 'string',
       format: 'uuid',
-      description: "The trigger's project. Absent → the tenant's default project.",
+      description: "The trigger's project. Absent → the workspace's default project.",
     },
     runAsServiceAccountId: {
       type: 'string',
@@ -16704,7 +16706,7 @@ export const ConnectionOwnerSchema: JsonSchema = {
   additionalProperties: false,
   required: ['kind'],
   description:
-    "Who owns a connection: one member (`kind: member`, with their `userId`), or the company (`kind: company`, the tenant's own account).",
+    "Who owns a connection: one member (`kind: member`, with their `userId`), or the company (`kind: company`, the workspace's own account).",
   properties: {
     kind: { type: 'string', enum: ['member', 'company'] },
     userId: { type: 'string', description: 'The member. Present when `kind` is `member`.' },
@@ -16766,7 +16768,7 @@ export const ConnectionEntrySchema: JsonSchema = {
           type: 'object',
           additionalProperties: false,
           description:
-            "Present when the sign-in happens in a directory of the app's own (Microsoft's tenant, not a Kindgi tenant). A registration's `oauth2.tenant` names it; without `default`, each registration must give its own.",
+            "Present when the sign-in happens in a directory of the app's own (Microsoft's tenant, not a Kindgi workspace). A registration's `oauth2.tenant` names it; without `default`, each registration must give its own.",
           properties: {
             default: {
               type: 'string',
@@ -16857,7 +16859,7 @@ export const ConnectionAppSchema: JsonSchema = {
   additionalProperties: false,
   required: ['appId', 'app', 'redirectUrl', 'noticesUrl', 'createdAt', 'updatedAt'],
   description:
-    "A tenant's registration of its own client at an app. Secrets are references, never values.",
+    "A workspace's registration of its own client at an app. Secrets are references, never values.",
   properties: {
     appId: { type: 'string', format: 'uuid' },
     app: { type: 'string', description: "The app's entry id." },
@@ -17113,7 +17115,7 @@ export const CreateConnectRequestBodySchema: JsonSchema = {
     appId: {
       type: 'string',
       format: 'uuid',
-      description: 'Which registration, when the tenant has more than one for the app.',
+      description: 'Which registration, when the workspace has more than one for the app.',
     },
     projectId: {
       type: 'string',

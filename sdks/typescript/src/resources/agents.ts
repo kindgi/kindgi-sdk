@@ -43,7 +43,7 @@ export interface AgentsClient {
    * Publish an agent definition into a project. Server validates via
    * `@kindgi/agents.defineAgent`. `409 agent-already-registered`
    * on conflicting `(id, version)`; `400 bad-input` when `projectId`
-   * does not name a project in the tenant.
+   * does not name a project in the workspace.
    *
    * `spec` is the same value `defineAgent` accepts; the project it
    * lands in is `options.projectId`, sent next to the spec fields in
@@ -146,7 +146,7 @@ export interface AgentVersionsClient {
 /**
  * Pinned versions. A run that doesn't name its version uses the pinned
  * version of the most specific scope that has one (segment path,
- * project, org, tenant), else the latest registered version.
+ * project, org, workspace), else the latest registered version.
  */
 export interface AgentPinnedClient {
   /**

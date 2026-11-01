@@ -1000,7 +1000,7 @@ export interface Conversation {
   /**
    * The project the conversation is in: the project of the run that
    * opened it, or `projectId` on open (when omitted, the agent's own
-   * project, or the tenant's default project for an agent filed under
+   * project, or the workspace's default project for an agent filed under
    * none). Absent on conversations from before 0.1.3.
    */
   readonly projectId?: string;
@@ -1032,7 +1032,7 @@ export interface OpenConversationInput {
   readonly agentId: import('@kindgi/types').AgentId;
   readonly agentVersion: string;
   /**
-   * Put the conversation in a project (one of the tenant's, reaching the
+   * Put the conversation in a project (one of the workspace's, reaching the
    * agent): lists filter by it. Omitted: the agent's own project, as for a
    * run.
    */
@@ -1332,9 +1332,9 @@ export interface MemoryErasureLedgerEntry {
 }
 
 export interface ReplayMemoryErasuresResult {
-  /** Found in the tenant again: run again. */
+  /** Found in the workspace again: run again. */
   readonly replayed: readonly string[];
-  /** Put back in the ledger; nothing in the tenant matches. */
+  /** Put back in the ledger; nothing in the workspace matches. */
   readonly restored: readonly string[];
   readonly unmatched: readonly {
     readonly id: string;
@@ -1465,7 +1465,7 @@ export interface ProvenanceVerifyResult {
 // ============================================================
 
 /**
- * Multi-tenant SaaS core: tenant lifecycle, user management, cost
+ * Multi-tenant SaaS core: workspace lifecycle, user management, cost
  * budgets, admin ops.
  */
 export interface Tenant {
@@ -1477,7 +1477,7 @@ export interface Tenant {
 }
 
 /**
- * Tenant-level configuration surface. Each field is optional and
+ * Workspace-level configuration surface. Each field is optional and
  * independently updatable.
  */
 export interface TenantConfig {
@@ -1712,7 +1712,7 @@ export interface CapabilityDeclaration {
   readonly kind?: string;
   readonly paramsSchema?: Readonly<Record<string, unknown>>;
   /**
-   * The tenant's providers with a model that has the feature, and those
+   * The workspace's providers with a model that has the feature, and those
    * models. Absent from servers that don't read the provider registry.
    */
   readonly providers?: readonly {
@@ -1752,7 +1752,7 @@ export interface RouteResult {
  * endpoint (a specific `model` at a specific `region`); there is no
  * enable/disable state or vendor-with-N-models aggregation.
  *
- * Per-tenant policy filters provider candidates before selection.
+ * Per-workspace policy filters provider candidates before selection.
  */
 // Provider shape used by the `client.capabilities.providers` sub-client.
 // Named to avoid colliding with the `Provider` re-exported from
@@ -1848,7 +1848,7 @@ export interface AdapterTestOutcome {
 // -- Policies -------------------------------------------------
 
 /**
- * A tenant policy, versioned per tenant.
+ * A workspace policy, versioned per workspace.
  *
  * Wire shape — matches `@kindgi/api/openapi.json#Policy`:
  * `{ tenantId, kind, description, spec }`. `kind` selects the schema
@@ -1884,7 +1884,7 @@ export type PolicyStatus = 'draft' | 'active' | 'archived';
 
 /**
  * A tombstoning domain a `retention` policy can cover; `*` is the
- * tenant-wide default, except for `memory` and `conversation`, which
+ * workspace-wide default, except for `memory` and `conversation`, which
  * only a policy naming them covers. Wire enum — matches
  * `@kindgi/api/openapi.json#RetentionDomain`.
  */
@@ -2060,7 +2060,7 @@ export interface User {
   readonly displayName?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly lastActiveAt?: import('@kindgi/types').Timestamp;
-  /** When they were removed from the tenant (`client.users.unregister`); absent while they're here. */
+  /** When they were removed from the workspace (`client.users.unregister`); absent while they're here. */
   readonly unregisteredAt?: import('@kindgi/types').Timestamp;
   /**
    * Their invitation, while they haven't signed in; absent once they have,
@@ -2170,7 +2170,7 @@ export interface WhoamiResult {
  */
 export interface UserSpec {
   readonly displayName: string;
-  /** Unique among the tenant's people. */
+  /** Unique among the workspace's people. */
   readonly email?: string;
   /**
    * Email them the invitation (default true, where the runtime invites).
@@ -2237,8 +2237,8 @@ export interface TeamMembership {
 }
 
 /**
- * Structural subdivision within a tenant (a firm's litigation dept, a
- * hospital's cardiology). Small tenants ignore; large tenants use.
+ * Structural subdivision within a workspace (a firm's litigation dept, a
+ * hospital's cardiology). Small workspaces ignore; large workspaces use.
  */
 export interface Org {
   readonly id: import('@kindgi/types').OrgId;
@@ -2256,7 +2256,7 @@ export interface OrgPatch {
 }
 
 /**
- * Project primitive. Each tenant has at most one default project.
+ * Project primitive. Each workspace has at most one default project.
  *
  * Mirrors `@kindgi/platform`'s `Project` shape. Vertical-agnostic on
  * the wire (packs alias it — `Matter` in legal, `Case` in HR,
@@ -2274,8 +2274,8 @@ export interface Project {
   readonly name: string;
   readonly slug: string;
   /**
-   * `true` for the tenant's default project (a new tenant gets one). At most
-   * one row per tenant carries `isDefault = true`.
+   * `true` for the workspace's default project (a new workspace gets one). At most
+   * one row per workspace carries `isDefault = true`.
    */
   readonly isDefault: boolean;
   readonly description?: string;
@@ -2297,8 +2297,8 @@ export interface ProjectSpec {
   readonly description?: string;
   readonly orgId?: import('@kindgi/types').OrgId;
   /**
-   * Optional at spec time — the tenant's default project is
-   * created by the server when the tenant is created, not by a caller.
+   * Optional at spec time — the workspace's default project is
+   * created by the server when the workspace is created, not by a caller.
    */
   readonly isDefault?: boolean;
 }
@@ -2329,13 +2329,13 @@ export interface ProjectMembership {
 }
 
 /**
- * An API key's role in its tenant: `admin` administers the tenant (and
+ * An API key's role in its workspace: `admin` administers the workspace (and
  * manages keys); `member` belongs to it and administers nothing.
  */
 export type ApiTokenRole = 'admin' | 'member';
 
 /**
- * API keys: machine credentials, one service account each, per tenant,
+ * API keys: machine credentials, one service account each, per workspace,
  * with a role and explicit capabilities. The secret is shown once, at
  * creation.
  */
@@ -2404,7 +2404,7 @@ export interface ApiTokenCreated {
 
 /**
  * What a service account may do: tenant admin, tenant member (read the
- * tenant's settings), or a role on one project. A project role reads
+ * workspace's settings), or a role on one project. A project role reads
  * `member` only when given before it was retired.
  * Matches `@kindgi/api/openapi.json#ServiceAccountGrant`.
  */
@@ -2440,7 +2440,7 @@ export type ServiceAccountGrantTarget =
 /** Matches `@kindgi/api/openapi.json#ServiceAccount`. */
 export interface ServiceAccount {
   readonly serviceAccountId: string;
-  /** Unique among the tenant's active accounts, e.g. `acme-ci`. */
+  /** Unique among the workspace's active accounts, e.g. `acme-ci`. */
   readonly name: string;
   readonly description?: string;
   readonly grants: readonly ServiceAccountGrant[];
@@ -2468,7 +2468,7 @@ export interface PersonGrants {
   readonly userId: string;
   /** Absent when the runtime has no authorization store: nothing grants it then. */
   readonly tenantAdmin?: boolean;
-  /** A tenant member: reads the tenant's settings, not its projects. Absent when not reported. */
+  /** A tenant member: reads the workspace's settings, not its projects. Absent when not reported. */
   readonly tenantMember?: boolean;
   readonly projects: readonly {
     readonly projectId: string;
@@ -2498,7 +2498,7 @@ export interface CreateServiceAccountInput {
  * @unwired SDK-defined shapes for exposing Kindgi itself as an MCP
  * server (`serverInfo`, `tools`, `agents`, `invokeTool`, `invokeAgent`
  * on `client.mcp`); the API has no routes for them. The API's MCP
- * routes (`/v1/mcp/endpoints`) register external MCP servers the tenant
+ * routes (`/v1/mcp/endpoints`) register external MCP servers the workspace
  * can reach — see `McpEndpoint`.
  */
 export interface McpServerInfo {
@@ -2637,7 +2637,7 @@ export type McpEndpointAuth = McpBasicAuth | McpOAuth2ClientCredentialsAuth | Mc
 
 /**
  * Wire shape — matches `@kindgi/api/openapi.json#MCPEndpoint`. Represents an
- * external MCP server the tenant has registered as reachable.
+ * external MCP server the workspace has registered as reachable.
  */
 export interface McpEndpoint {
   readonly endpointId: string;
@@ -2818,7 +2818,7 @@ export interface UploadArtifactInput {
   readonly tags?: Readonly<Record<string, string>>;
   /** The run that produced it: the artifact belongs to its project. */
   readonly ownerRunId?: import('@kindgi/types').RunId;
-  /** With no `ownerRunId`: the project it belongs to (default: the tenant's default project). */
+  /** With no `ownerRunId`: the project it belongs to (default: the workspace's default project). */
   readonly projectId?: string;
   /** sha256, hex, lowercase: the upload is refused when the bytes differ. */
   readonly expectedHash?: string;
@@ -2933,8 +2933,8 @@ export interface PackToolBinding {
 export type PackInstallStatus = 'installed' | 'disabled' | 'upgrading' | 'uninstalled';
 
 /**
- * A pack installed into a specific tenant. Distinct from `Pack`
- * (the shippable artifact) — `InstalledPack` carries per-tenant
+ * A pack installed into a specific workspace. Distinct from `Pack`
+ * (the shippable artifact) — `InstalledPack` carries per-workspace
  * config, enable/disable state, and installation history.
  */
 export interface InstalledPack {
@@ -2968,7 +2968,7 @@ export type PackInstallInput =
     };
 
 /**
- * Auth configuration. Two modes: an API token (M2M, per-tenant,
+ * Auth configuration. Two modes: an API token (M2M, per-workspace,
  * rotatable) or an OAuth 2.0 access token (user-context flows). Both
  * are sent as `Authorization: Bearer <token>`.
  */
@@ -3072,7 +3072,7 @@ export interface CorrectionStatusNote {
 }
 
 /**
- * Where a corrector group applies: the whole tenant, one project, or one
+ * Where a corrector group applies: the whole workspace, one project, or one
  * agent in a project. Matches `@kindgi/api/openapi.json#CorrectorGroupScope`.
  */
 export type CorrectorGroupScope =

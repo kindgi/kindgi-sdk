@@ -12,7 +12,7 @@ export interface RuntimeClient {
    * what its build gave otherwise: `dev` when it gave none), its tenancy
    * (`single` when it serves one tenant, `multi` when it serves many) and
    * whether it runs in development mode.
-   * Any caller of a tenant reads it. A runtime that doesn't report it
+   * Any caller of a workspace reads it. A runtime that doesn't report it
    * answers 404.
    *
    * @wire `GET /v1/runtime`
