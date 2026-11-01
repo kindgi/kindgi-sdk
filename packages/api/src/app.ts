@@ -101,6 +101,7 @@ import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
 import type { PersonCapabilitiesBinding } from './person-capabilities-binding.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
+import { candidatesPinProjects } from './pin-test-runs.js';
 import type { PinnedVersionBinding } from './pinned-version-binding.js';
 import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
@@ -1662,12 +1663,18 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // `?projectId=` answers on its single read.
   const itemServing =
     input.itemProjects !== undefined ? itemServingOf(input.itemProjects) : undefined;
+  // Which projects a tenant or org pin's test runs check: those that serve
+  // the agent, and where the agent registry takes Improve's candidates
+  // with no binding to say (kindgi dev), the project it places the agent
+  // in (`candidatesPinProjects`). Rights and `?projectId=` reads keep
+  // `input.itemProjects`.
+  const pinProjects = input.itemProjects ?? candidatesPinProjects(input.agentRegistry);
   // What a pin's test runs need besides test runs and projects (`AgentPinGateDeps`):
   // the agent pin route, a promotion's pins and a card's pin all start them.
   const pinTestRunDeps = {
     ...(input.testSetFreeze !== undefined && { testSets: input.testSetFreeze }),
     ...(input.correctionRegistry !== undefined && { corrections: input.correctionRegistry }),
-    ...(input.itemProjects !== undefined && { itemProjects: input.itemProjects }),
+    ...(pinProjects !== undefined && { itemProjects: pinProjects }),
   };
   // A system principal acts in no tenant: it reaches /v1/system/* (and the
   // deployment's license), nothing else, and each of its requests is recorded.
@@ -1990,7 +1997,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       agentPins: input.agentPins,
       ...(input.testSetFreeze !== undefined && { testSets: input.testSetFreeze }),
       ...(input.correctionRegistry !== undefined && { corrections: input.correctionRegistry }),
-      ...(input.itemProjects !== undefined && { itemProjects: input.itemProjects }),
+      ...(pinProjects !== undefined && { itemProjects: pinProjects }),
       ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
       ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
       ...(input.projectSuspended !== undefined && {

@@ -455,7 +455,7 @@ export function createPackServiceSupervisor(
     return route.name;
   }
 
-  /** `POST /v1/blocks`: `{ id, version, content }` written into the pack, or why not. */
+  /** `POST /v1/blocks`: `{ id, version, content, expected? }` written into the pack, or why not. */
   async function writeBlockReply(req: IncomingMessage): Promise<Reply> {
     const writeBlock = options.writeBlock;
     if (writeBlock === undefined) return { status: 404, body: { error: 'No route /v1/blocks' } };
@@ -465,7 +465,10 @@ export function createPackServiceSupervisor(
     if (write === undefined) {
       return {
         status: 400,
-        body: { error: 'The body is a block write: { id, version, content }', reason: 'invalid' },
+        body: {
+          error: 'The body is a block write: { id, version, content, expected? }',
+          reason: 'invalid',
+        },
       };
     }
     const outcome = await writeBlock(write);
@@ -479,7 +482,9 @@ export function createPackServiceSupervisor(
         },
       };
     }
-    const status = { 'not-in-pack': 404, invalid: 400, 'not-newer': 409 }[outcome.reason];
+    const status = { 'not-in-pack': 404, invalid: 400, 'not-newer': 409, changed: 409 }[
+      outcome.reason
+    ];
     return { status, body: { error: outcome.message, reason: outcome.reason } };
   }
 
@@ -664,10 +669,13 @@ function blockWriteOf(text: string): PackBlockWrite | undefined {
   } catch {
     return undefined;
   }
-  const { id, version, content } = (body ?? {}) as Record<string, unknown>;
+  const { id, version, content, expected } = (body ?? {}) as Record<string, unknown>;
   if (typeof id !== 'string' || typeof version !== 'string') return undefined;
-  if (content === null || typeof content !== 'object' || Array.isArray(content)) return undefined;
-  return { id, version, content: content as Readonly<Record<string, unknown>> };
+  const isRecord = (v: unknown): v is Readonly<Record<string, unknown>> =>
+    v !== null && typeof v === 'object' && !Array.isArray(v);
+  if (!isRecord(content)) return undefined;
+  if (expected !== undefined && !isRecord(expected)) return undefined;
+  return { id, version, content, ...(expected !== undefined && { expected }) };
 }
 
 /** A connection that never reached a listener: the call did not run. */

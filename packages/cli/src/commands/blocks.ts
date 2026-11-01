@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 
 import {
   type DiscoveryConfig,
+  type IndexedBlock,
   readPackBlocks,
   resolveDiscovery,
   writePackBlock,
@@ -224,8 +225,27 @@ const reinstate: LeafCommand = {
     }),
 };
 
+/** The pack's blocks, read from the files its config's `discovery.blocks` pattern matches. */
+export async function packBlocksAt(
+  ctx: CommandContext,
+  packDir: string,
+): Promise<{ readonly pattern: string; readonly blocks: readonly IndexedBlock[] }> {
+  const loaded = await loadPackConfig(ctx, packDir);
+  if (loaded.kind === 'missing') {
+    throw new UsageError(
+      `No pack config here (${loaded.message}). Run this in a pack, or pass --path=<dir>.`,
+    );
+  }
+  if (loaded.kind === 'invalid') {
+    throw new UsageError(`Couldn't read the pack config: ${loaded.message}`);
+  }
+  const pattern = resolveDiscovery(loaded.config.discovery as DiscoveryConfig | undefined).blocks;
+  const { blocks } = await readPackBlocks(packDir, pattern);
+  return { pattern, blocks };
+}
+
 /** A block file `pull` wrote: the version it held, the one it holds now, and where. */
-interface PulledBlock {
+export interface PulledBlock {
   readonly blockId: string;
   readonly from: string;
   readonly to: string;
@@ -254,19 +274,7 @@ const pull: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'blocks pull', async () => {
       const packDir = packDirOf(ctx);
-      const loaded = await loadPackConfig(ctx, packDir);
-      if (loaded.kind === 'missing') {
-        throw new UsageError(
-          `No pack config here (${loaded.message}). Run this in a pack, or pass --path=<dir>.`,
-        );
-      }
-      if (loaded.kind === 'invalid') {
-        throw new UsageError(`Couldn't read the pack config: ${loaded.message}`);
-      }
-      const pattern = resolveDiscovery(
-        loaded.config.discovery as DiscoveryConfig | undefined,
-      ).blocks;
-      const { blocks } = await readPackBlocks(packDir, pattern);
+      const { pattern, blocks } = await packBlocksAt(ctx, packDir);
       const named = ctx.positionals;
       const unknown = named.filter((id) => !blocks.some((b) => b.id === id));
       if (unknown.length > 0) {

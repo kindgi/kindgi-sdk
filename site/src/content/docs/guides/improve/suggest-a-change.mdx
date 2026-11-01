@@ -44,8 +44,8 @@ A deploy makes suggested changes too, for its new code:
   environments when a build is promoted.
 - **A deployed runtime that keeps a project's test set.** One that doesn't
   refuses a suggested change with `501 suggested-change-check-unsupported`.
-  Under `kindgi dev`, making one is refused, as
-  [Under `kindgi dev`](#under-kindgi-dev) shows.
+  Under `kindgi dev`, making one by hand is refused: an Improve run makes
+  them there, as [Under `kindgi dev`](#under-kindgi-dev) shows.
 - **`publish` on the agent** to make, check and withdraw, and **`pin`** to
   pin or add as Latest. For an agent that several projects serve, it's
   `write` on the project where its versions are made, and `admin` in the
@@ -322,6 +322,49 @@ pnpm exec kindgi suggested-changes add-as-latest <suggested-change-id> --reason=
 - **A project whose Latest moved** since the suggested change was built
   takes it once it's [rebuilt](#if-the-project-moves-first).
 
+## Bring the pack up to it
+
+Once it's pinned or added as Latest, the project runs a block version your
+pack's `blocks/` folder doesn't have yet, and the pack's next deploy still
+carries the old one. Bring the block's file up to it through a pull request
+on the pack's repository:
+
+```sh
+pnpm exec kindgi suggested-changes pull <suggested-change-id> --pr
+```
+
+- It's allowed when the suggested change is `ready`,
+  `waiting-for-second-person`, `pinned` or `added-as-latest`. One still
+  `checking`, one whose check failed, one that's withdrawn, and
+  [a deploy's](#a-deploys-suggested-changes) are refused, each saying why.
+- It writes the block's version and content into its file, and into the
+  template file beside it, as
+  [Keep them in the pack](../change-a-prompt-or-setting/#keep-them-in-the-pack)
+  lays them out: only when it's newer than the file's. A file that holds a
+  newer version than the one the suggested change is built on, or that
+  version with edits, is refused, so it never drops what was changed since.
+- It makes a branch, `kindgi/<block>-<version>`, from the one checked out,
+  commits the block files alone, pushes the branch to `origin` (or the only
+  remote), and opens the pull request with `gh`. It stays on the new
+  branch, and says how to go back. Without `gh`, it prints where to open
+  one (its URL, when the remote gives one), and the lines that mark what it
+  fixes once it's open.
+- The pull request says where the suggested change came from, its test-set
+  numbers, the files, and a link to the suggested change with its check in
+  the console. It never says the suggested change's why, nor a
+  correction's words.
+- The corrections it fixes that are still `open` are then `being-fixed`,
+  linked to the pull request, which needs `publish` on the agent, or
+  `write` in the correction's project for an agent that several projects
+  serve. One it can't mark is named, with the line to run once it can be,
+  and the pull request stands.
+- Before it writes anything, it's refused when the pack isn't in git, its
+  block files have changes that aren't committed (or git can't say),
+  `HEAD` is detached, git has no `user.name`, there's no remote to push to,
+  or the branch is there already, in the pack's repository or on the remote.
+- Without `--pr`, it only writes the files, for you to commit. `--project`
+  refuses a suggested change for another project.
+
 ## If the project moves first
 
 A suggested change is built on the version its project runs when it's
@@ -427,15 +470,35 @@ version was made in, when that's known.
 
 ## Under `kindgi dev`
 
-Under `kindgi dev`, the pack's files are what runs, and they serve every
-project. A suggested change is for one project, so making one is refused
-with `409 registry-read-only`, before anything is made. So is an
-[Improve run](../improve-an-agent/), started or checked: it makes a suggested
-change.
+Under `kindgi dev`, the pack's files are what runs. There, an
+[Improve run](../improve-an-agent/) makes each suggested change. It runs in
+the default project, where `kindgi dev` places the pack's agents and their
+runs, reads that project's corrections and test set, and checks its
+candidate there. Its suggested change is for the whole workspace. Pinning it
+goes through the release gate and waits for your approval, since
+`kindgi dev` registers you as a reviewer; open it from the suggested change's
+page. Approved, it writes its changed prompt or settings into the pack's
+files. `kindgi dev` reloads them, and the pin waits for that. The
+next runs use the new version, and the pin's test runs check the default
+project and mark what it fixes there, as on a deployed runtime.
 
-Change the block's file instead, as
+- **Making one by hand, and checking one again,** are refused with
+  `409 registry-read-only`: an Improve run makes and checks each one. Run
+  Improve again instead.
+- **Adding one as Latest** is refused with `409 registry-read-only`: the
+  pack's files are what runs, and there's no Latest. Pin it.
+- **A block's file edited since the suggested change was made,** even at the
+  same version, refuses the pin with `409 pin-superseded`, naming the file,
+  and nothing is written. Run Improve again on the files as they are now.
+- **One built on a version that no longer runs** is
+  `409 suggested-change-out-of-date`, and isn't rebuilt: run Improve again.
+- **Undoing a pin** is a change to the pack's files: undo it with git, and
+  `kindgi dev` reloads them. Commit the files before you pin, so there's
+  something to go back to.
+
+Or change the block's file yourself, as
 [Keep them in the pack](../change-a-prompt-or-setting/#keep-them-in-the-pack)
-shows, and suggest changes on a deployed runtime.
+shows.
 
 ## Find them
 

@@ -26,6 +26,7 @@ import {
   runSdkRendered,
   stringFlag,
 } from './helpers.js';
+import { pull } from './suggested-changes-pull.js';
 import { followTestRun, oneOfFlag } from './test-runs.js';
 import type { Command, LeafCommand } from './types.js';
 
@@ -390,6 +391,6 @@ export const suggestedChangesCommand: Command = {
   kind: 'group',
   name: 'suggested-changes',
   description:
-    "Suggested changes: new content for a data block in what a project runs; checked on the project's test cases, then pinned through the project's release gate, or added as the project's Latest (list / get / create / check / pin / add-as-latest / withdraw).",
-  subcommands: [list, get, create, check, pin, addAsLatest, withdraw],
+    "Suggested changes: new content for a data block in what a project runs; checked on the project's test cases, then pinned through the project's release gate, or added as the project's Latest; its block version written into the pack's files, or opened as a pull request (list / get / create / check / pin / add-as-latest / pull / withdraw).",
+  subcommands: [list, get, create, check, pin, addAsLatest, pull, withdraw],
 };

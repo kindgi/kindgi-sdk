@@ -5,10 +5,9 @@ A returns helper — scaffolded by `kindgi init --template=returns-helper`.
 One agent answers a store's customers about returns and refunds an order
 within the store's rules. Its instructions, its return window and its
 model settings are blocks, so people change them without a deploy, and
-Improve can try other wording. Use it to try the correcting loop: on
-`kindgi dev`, correct a run and fix it in the pack; on a runtime the pack
-is deployed to, run Improve, pin its fix, and watch the correction become
-Fixed.
+Improve can try other wording. Use it to try the correcting loop on
+`kindgi dev`: correct a run, then fix it in the pack yourself, or run
+Improve, pin its suggested change, and watch the correction become Fixed.
 
 ## Layout
 
@@ -50,7 +49,7 @@ one, `kindgi dev`'s fallback only echoes a tool's answer.
 ### On `kindgi dev`
 
 With `kindgi dev` running, sign in to the console it prints and open the
-dev project.
+default project, where `kindgi dev` places the pack's agents.
 
 1. **Correct a run.** On the returns helper's page, start a run: "The
    seam on my tent from order A-1003 tore. Can I get my money back?" The
@@ -68,35 +67,46 @@ dev project.
    `^` range takes. `kindgi dev` reloads the pack, and the next run reads
    the new wording: start the same run again to see it.
 
-### On a deployed runtime
+### Or let Improve fix it
 
-Improve and its card change what one project runs. Under `kindgi dev`
-the pack's files serve every project, so there both answer 409
-`registry-read-only`, and there's no card to pin. Deploy the pack
-without step 4's change, so
-the answer still needs a fix, to a runtime. One on your machine works:
-the docs' **Self-host Kindgi** page sets one up. Correct a run there as in
-step 1. Then:
+Instead of step 4 (take it back with `git checkout blocks/` if you made it),
+Improve can find the wording. Commit the pack first: pinning writes into
+its files, and under `kindgi dev` git is how you go back. Then:
 
-5. **Run Improve.** Ask whether it's ready, naming the model that writes
-   new wording (the provider registered on that runtime; `anthropic` from
-   its preset here):
+5. **Run Improve.** Ask whether it's ready, with the default project's id
+   (`{{KINDGI}} projects list`) and the model that writes new wording (the
+   provider `AGENTS.md` has you declare; `anthropic` for its preset):
    `{{KINDGI}} improve runs start --agent={{PACK_ID}}.returns-helper --project=<project-id> --provider=anthropic --model=claude-sonnet-5-5 --check`,
    then run it without `--check`. It tries other wording for the `tone`
    block and the tunable `temperature`, on the test set. Without
    `--provider` and `--model` it tries `temperature` alone, since
    `returns-model.json` names no model.
-6. **Read its card and pin it.** The agent's **Suggested changes** page
-   shows what it found and its check: the correction should pass on the
-   new version and nothing should newly fail. Pin it. The project now runs
-   block versions that `blocks/` doesn't have yet:
-   `{{KINDGI}} suggested-changes get <suggested-change-id>` shows them, to
-   bring the files up to them.
-7. **Watch it become Fixed.** The correction now reads Fixed, in the
-   version the pin made, and the pin's answer lists it under `fixed`.
-8. **Go back.** On the agent's **Pinned versions** page, pin the version
-   before it again. The correction reopens, and says which version
-   reopened it.
+6. **Read its suggested change and pin it.** The agent's **Suggested
+   changes** page shows what it found and its check: the correction should
+   pass on the new version and nothing should newly fail. Pin it. The pin
+   waits for an approval, which under `kindgi dev` you give yourself
+   (`kindgi dev` registers you as a reviewer): open its approval from the
+   suggested change's page. Once it's approved, the new wording goes into
+   `blocks/tone.liquid` and the new versions into the blocks' JSON files,
+   and `kindgi dev` reloads them: `git diff` shows what changed. Commit it
+   to keep it.
+7. **Watch it become Fixed.** Once the pin is approved and its test run
+   has ended, the correction reads Fixed, in the version the pin made.
+8. **Go back.** Under `kindgi dev`, with git: `git checkout blocks/` (or
+   revert the commit), and `kindgi dev` reloads the files. The correction
+   stays Fixed there, since no pin checked the files you went back to.
+
+### On a deployed runtime
+
+Deploy the pack to a runtime (one on your machine works: the docs'
+**Self-host Kindgi** page sets one up), and steps 5 to 7 work there too,
+for one project. The pin's approval comes from a reviewer there: a second
+one, when the workspace has two. Pinning there changes no file: the project
+runs block versions that `blocks/` doesn't have yet, and
+`{{KINDGI}} suggested-changes get <suggested-change-id>` shows them, to
+bring the files up to them. Going back is a pin: on the agent's **Pinned
+versions** page, pin the version before it again. The correction reopens,
+and says which version reopened it.
 
 The other kind of fix: correct a refund of A-1002 ("our window is 14
 days", the decisions were wrong). That one goes to the agent's owner,
