@@ -244,9 +244,10 @@ final class Kindgi_Admin {
 		}
 		check_admin_referer( self::CONNECT );
 		// The URL is kept only once Kindgi takes the code: a typo never breaks a working connection.
+		// The field is `type="url"`, so the browser sends it without the spaces around it.
 		$url = Kindgi_Settings::url();
 		if ( ! Kindgi_Settings::url_is_constant() ) {
-			$url = rtrim( esc_url_raw( trim( wp_unslash( (string) ( $_POST['kindgi_url'] ?? '' ) ) ), array( 'https', 'http' ) ), '/' );
+			$url = rtrim( esc_url_raw( wp_unslash( (string) ( $_POST['kindgi_url'] ?? '' ) ), array( 'https', 'http' ) ), '/' );
 		}
 		if ( '' === $url || ! Kindgi_Settings::url_allowed( $url ) ) {
 			self::done( 'error', __( "Kindgi's URL must be https://. An http:// URL works only on this computer (localhost) or from a local or development site.", 'kindgi' ) );

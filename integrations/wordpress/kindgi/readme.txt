@@ -1,7 +1,7 @@
 === Kindgi ===
 Contributors: <wordpress-org-username>
 Tags: ai, agents, approvals, woocommerce, staff
-Tested up to: <tested-wordpress-version>
+Tested up to: 7.1
 Stable tag: 0.1.0
 License: Apache-2.0
 License URI: https://www.apache.org/licenses/LICENSE-2.0
