@@ -430,7 +430,7 @@ function tenantPolicyRequirements(policy: TenantPolicy | undefined): readonly {
         deny.includes(t.provider.metadata.id)
           ? {
               code: 'tenant-denied',
-              message: 'tenant policy deny',
+              message: 'workspace policy deny',
               providerId: t.provider.metadata.id,
             }
           : null,
@@ -446,7 +446,7 @@ function tenantPolicyRequirements(policy: TenantPolicy | undefined): readonly {
           ? null
           : {
               code: 'tenant-not-allowed',
-              message: 'not on tenant allow list',
+              message: 'not on workspace allow list',
               providerId: t.provider.metadata.id,
             },
     });
@@ -460,7 +460,7 @@ function tenantPolicyRequirements(policy: TenantPolicy | undefined): readonly {
         deny.includes(t.model.name)
           ? {
               code: 'tenant-model-denied',
-              message: 'tenant policy deny (model)',
+              message: 'workspace policy deny (model)',
               modelName: t.model.name,
             }
           : null,
@@ -476,7 +476,7 @@ function tenantPolicyRequirements(policy: TenantPolicy | undefined): readonly {
           ? null
           : {
               code: 'tenant-model-not-allowed',
-              message: 'not on tenant model allow list',
+              message: 'not on workspace model allow list',
               modelName: t.model.name,
             },
     });
@@ -490,7 +490,7 @@ function tenantPolicyRequirements(policy: TenantPolicy | undefined): readonly {
           ? null
           : {
               code: 'tenant-region-not-allowed',
-              message: `region "${t.provider.metadata.region}" not in tenant allow list`,
+              message: `region "${t.provider.metadata.region}" not in workspace allow list`,
               observed: t.provider.metadata.region,
               allow: regions,
             },
@@ -505,7 +505,7 @@ function tenantPolicyRequirements(policy: TenantPolicy | undefined): readonly {
           ? null
           : {
               code: 'tenant-cost-cap-exceeded',
-              message: `promptCost/1k=$${t.model.cost.promptUsdPer1kTokens} > tenant cap $${cap}`,
+              message: `promptCost/1k=$${t.model.cost.promptUsdPer1kTokens} > workspace cap $${cap}`,
               observedUsd: t.model.cost.promptUsdPer1kTokens,
               capUsd: cap,
             },
@@ -521,7 +521,7 @@ function tenantPolicyRequirements(policy: TenantPolicy | undefined): readonly {
           : {
               // Reuse context-window-mismatch for tenant-side context caps.
               code: 'context-window-mismatch',
-              message: `contextWindow=${t.model.contextWindow} < tenant cap ${cap}`,
+              message: `contextWindow=${t.model.contextWindow} < workspace cap ${cap}`,
               observed: t.model.contextWindow,
               op: '>=',
               wanted: cap,
@@ -576,7 +576,7 @@ function buildReason(t: ProviderModelPick, input: RouteInput, fallback: boolean)
     `satisfies ${input.capability.needs.length} constraint(s)`,
   ];
   if (fallback) parts.push('a fallback provider — no other registered provider satisfies it');
-  if (input.tenantPolicy !== undefined) parts.push('respects tenant policy');
+  if (input.tenantPolicy !== undefined) parts.push('respects workspace policy');
   const prefs = input.capability.prefer;
   if (prefs !== undefined && prefs.length > 0)
     parts.push(`ranked top of ${prefs.length} preference(s)`);

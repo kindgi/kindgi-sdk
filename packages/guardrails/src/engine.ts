@@ -289,7 +289,7 @@ function checkScope(guardrail: Guardrail, trace: RunTrace): ScopeMismatchError |
   ) {
     return {
       code: 'scope-mismatch',
-      message: `guardrail "${guardrail.id}" does not apply to tenant ${trace.tenantId}`,
+      message: `guardrail "${guardrail.id}" does not apply to workspace ${trace.tenantId}`,
       guardrailId: guardrail.id,
       reason: 'wrong-tenant',
     };

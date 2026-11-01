@@ -168,7 +168,7 @@ export function createProviderRegistry(
     if (m.has(provider.metadata.id)) {
       const dup: DuplicateProviderError = {
         code: 'duplicate-provider',
-        message: `Provider "${provider.metadata.id}" is already registered for tenant "${tenantId}"`,
+        message: `Provider "${provider.metadata.id}" is already registered for workspace "${tenantId}"`,
         providerId: provider.metadata.id,
       };
       return { kind: 'err', error: dup };
@@ -199,7 +199,7 @@ export function createProviderRegistry(
     const r = register(entry.tenantId, entry.provider);
     if (r.kind === 'err')
       throw new Error(
-        `seed provider "${entry.provider.metadata.id}" rejected for tenant "${entry.tenantId}": ${r.error.message}`,
+        `seed provider "${entry.provider.metadata.id}" rejected for workspace "${entry.tenantId}": ${r.error.message}`,
       );
   }
 

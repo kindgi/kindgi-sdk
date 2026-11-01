@@ -37,7 +37,7 @@ export function signProvenance(
   if (key.privateKey === undefined) {
     const err: SigningNotSupportedError = {
       code: 'signing-not-supported',
-      message: `No private key for keyId "${key.keyId}" (tenant "${provenance.tenantId}")`,
+      message: `No private key for keyId "${key.keyId}" (workspace "${provenance.tenantId}")`,
       keyId: key.keyId,
       tenantId: provenance.tenantId,
     };
