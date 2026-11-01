@@ -401,7 +401,8 @@ CAPTURE: "corrections": { "checked": …, "passed": … } from the same run's su
 ```
 
 With `--group-weights=experts-only`, only the ones made under an
-expert group are checked. No release gate checks them: read them
+expert group are checked. A release gate checks them only with
+[`cases`](../pinned-versions-reference/#release-gates), so read them
 before you [pin the version](../release-an-agent-version/#check-before-you-pin-it).
 
 ### What a case expects
