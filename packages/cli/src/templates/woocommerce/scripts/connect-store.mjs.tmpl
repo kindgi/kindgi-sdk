@@ -239,7 +239,11 @@ async function waitForApproval(authorize, { app, openBrowser }) {
         return;
       }
       clearTimeout(timer);
+      // The tab hears back once: the outcome, or that it was stopped.
+      let replied = false;
       const reply = (title, text) => {
+        if (replied) return;
+        replied = true;
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         res.end(page(title, text));
         server.close();
@@ -478,15 +482,34 @@ async function main() {
   await checkKindgi(bin, opts.target);
   const { api, authorize } = await discover(opts.store);
   const approval = await waitForApproval(authorize, opts);
+  // The approver's password is live from here, and in the browser's
+  // history: a stop (Ctrl-C, a kill) revokes it too before it exits.
+  let revoking;
+  const revoke = () => (revoking ??= revokeApproval(api, approval, opts.app));
+  let connected = false;
+  const stop = (signal) => {
+    process.stderr.write(
+      connected
+        ? `Stopped (${signal}).\n`
+        : `Stopped (${signal}) before the store was connected: run this again to connect it, which replaces what this run left.\n`,
+    );
+    approval.reply('Not connected', 'It was stopped in the terminal. You can close this tab.');
+    void revoke().then(() => process.exit(signal === 'SIGINT' ? 130 : 143));
+  };
+  process.once('SIGINT', stop);
+  process.once('SIGTERM', stop);
   try {
     await connect(api, approval, { ...opts, bin });
+    connected = true;
     approval.reply('Connected', `Kindgi signs in to this store as ${AGENT_USER}, a Shop Manager. You can close this tab.`);
   } catch (err) {
     const first = err instanceof Failure ? err.message.split('\n')[0].replace(/[.:]$/, '') : 'Something went wrong';
     approval.reply('Not connected', `${first}. The terminal says more. You can close this tab.`);
     throw err;
   } finally {
-    await revokeApproval(api, approval, opts.app);
+    await revoke();
+    process.off('SIGINT', stop);
+    process.off('SIGTERM', stop);
   }
   say(
     opts.target.includes('--hosted')

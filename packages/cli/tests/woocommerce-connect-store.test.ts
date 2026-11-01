@@ -16,7 +16,7 @@ import { type IncomingMessage, type Server, createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { runCli } from '../src/main.js';
 
@@ -172,7 +172,12 @@ const NOT_ALLOWED: Answer = [
 ];
 
 async function startStore(
-  opts: { applicationPasswords?: boolean; woocommerce?: boolean } = {},
+  opts: {
+    applicationPasswords?: boolean;
+    woocommerce?: boolean;
+    /** WooCommerce answers a sign-in only once this settles. */
+    hold?: Promise<void>;
+  } = {},
 ): Promise<Store> {
   const users: WpUser[] = [
     { id: 1, slug: 'owner', email: 'owner@example.com', roles: ['administrator'], passwords: [] },
@@ -190,13 +195,14 @@ async function startStore(
   const ofUser = (r: Request) => users.find((u) => u.id === Number(r.match[1]));
 
   // The routes a signed-in user reaches, as WordPress and WooCommerce answer them.
-  const routes: readonly [string, RegExp, (r: Request) => Answer][] = [
+  const routes: readonly [string, RegExp, (r: Request) => Answer | Promise<Answer>][] = [
     [
       'GET',
       /^wc\/v3\/orders$/,
-      (r) => {
+      async (r) => {
         if (!isAdmin(r.who.user) && !r.who.user.roles.includes('shop_manager')) return NOT_ALLOWED;
         wooSignIns.push(r.who.used.password);
+        await opts.hold;
         return [200, []];
       },
     ],
@@ -381,6 +387,7 @@ interface Run {
   /** The approval link, once the script prints it. */
   readonly link: Promise<URL>;
   readonly done: Promise<{ code: number | null; stdout: string; stderr: string }>;
+  readonly child: ChildProcess;
 }
 
 const children: ChildProcess[] = [];
@@ -420,7 +427,7 @@ function connectStore(args: readonly string[], env: Record<string, string> = {})
   const done = new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) =>
     child.on('close', (code) => resolve({ code, stdout, stderr })),
   );
-  return { link, done };
+  return { link, done, child };
 }
 
 const stores: Store[] = [];
@@ -670,6 +677,29 @@ describe("the woocommerce starter's connect-store", () => {
     expect((await kindgiState()).secrets['tenant in env local WOO_APP_PASSWORD']!.at(-1)).toBe(
       agent.passwords[0]!.password,
     );
+  });
+
+  test("a stop after the approval still revokes the approver's password", async () => {
+    let release: () => void = () => {};
+    const shop = await store({
+      hold: new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    });
+    const run = connectStore([shop.url, '--no-browser']);
+    const page = approve(shop, await run.link);
+    // It's checking the agent's new password on WooCommerce, which waits.
+    await vi.waitFor(() => expect(shop.wooSignIns).toHaveLength(1));
+    run.child.kill('SIGINT');
+    const { code, stdout, stderr } = await run.done;
+    release();
+    expect(code).toBe(130);
+    expect(stderr).toContain(
+      'Stopped (SIGINT) before the store was connected: run this again to connect it, which replaces what this run left.',
+    );
+    expect(await page).toContain('It was stopped in the terminal.');
+    expect(shop.users[0]!.passwords).toEqual([]);
+    expect(stdout).toContain("✓ Revoked owner's approval password.");
   });
 
   test('a pack whose @kindgi/cli is not installed is refused before any approval', async () => {
