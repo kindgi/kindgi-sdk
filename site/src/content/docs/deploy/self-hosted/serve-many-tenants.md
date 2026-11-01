@@ -265,10 +265,14 @@ that don't an installation each
 
 1. **List the deployments that need a service:**
    `GET /v1/system/deployments?endpoint=missing`, oldest first across tenants.
-   A deployment needs one while it's routed: it's the newest in its project
-   with routes for some tool version or pack check, it has no endpoint or a
-   cleared one, and nothing about it is closing or suspended. Each entry has
-   the tenant's id, the deployment's id, its pack and project (the one it
+   A deployment needs one while something a call can still ask for needs it:
+   it serves a tool, agent or flow version that's registered or used by a pin
+   or an unfinished run, a tool deployed without a version, or a pack check a
+   registered guardrail runs, and no newer deployment in its project serves
+   it (runtime 0.4.0 or later; before, while it was the newest in its project
+   with routes for some tool version or pack check). It also has no endpoint
+   or a cleared one, and nothing about it is closing or suspended. Each entry
+   has the tenant's id, the deployment's id, its pack and project (the one it
    named, else the tenant's Default), and its image: the digest-pinned
    `imageRef`, its digest, the artifact version and when it went live, and
    whether to start its service `warm` (step 7). It has nothing else of the
