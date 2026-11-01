@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
-// reads-source: packages/api/openapi.json
+// reads-source: packages/api/openapi.json packages/sdk/src/webhook-event-shapes.generated.ts
 
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
