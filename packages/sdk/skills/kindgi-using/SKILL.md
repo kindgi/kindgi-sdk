@@ -95,12 +95,12 @@ decided one opens its own page.
 | Approvals | `approvals`, one: `approvals/<approvalId>` | what waits for a person's decision |
 | Tools | `tools`, one: `tools/<toolId>` | the tools, what each may do and change |
 | Guardrails | `guardrails`, one: `guardrails/<guardrailId>` | each rule's settings, the agents it checks, what it caught |
-| Flows | `flows`, one: `flows/<flowId>` | the flows and their steps |
+| Flows | `flows`, one: `flows/<flowId>`, `…/corrections` | the flows and their steps |
 | Schedules | `schedules`, one: `schedules/<triggerId>` | when each runs next, and its past runs |
 | Mail triggers | `mail-triggers`, one: `mail-triggers/<triggerId>` | the mailbox each watches and what it starts; its latest mails, and the run each started |
 | Conversations | `conversations`, one: `conversations/<conversationId>` | each conversation's turns |
 | Cost | `cost` | what the project's model calls cost, by agent, model, flow or kind |
-| Corrections | `corrections` | runs to review (To review), corrections to fix (To fix), who corrects, rules, trends |
+| Corrections | `corrections` | runs to review, corrections to fix, who corrects, rules, trends |
 | An agent's test set | `agents/<agentId>/test-set` | each correction on its runs as a case, and cases added by hand |
 | Suggested changes | `agents/<agentId>/suggested-changes`, one: `…/suggested-changes/<suggestedChangeId>` | changes to a prompt or settings for one project, each with its check |
 | Pinned versions | `agents/<agentId>/pinned` | where each version is pinned, and the pin history |

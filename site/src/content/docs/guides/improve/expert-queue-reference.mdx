@@ -431,19 +431,42 @@ and by agent. **Dismiss** takes a run out of the queue with a reason, and
 
 ### To fix
 
-**To fix** lists the project's corrections that aren't fixed yet, in one
-part for each who fixes them, and leaves out a part with none:
+**To fix** lists the project's corrections that aren't fixed yet, in parts
+by who fixes them, and leaves out a part with none:
 
-- **Not sorted yet:** "end users' corrections, until someone hands each one
-  on."
-- **A developer:** "fixes it in the pack's code or files."
-- **The owner:** "decides the agent's rules and tools."
+- **Nobody yet:** "end users' corrections until someone hands each one on,
+  and a flow's corrections sorted to Improve, which takes only an agent's."
+- **Developer:** "fixes it in the pack's code or files."
+- **Owner:** "decides the agent's or flow's rules and tools."
 - **Improve:** "tries new wording or settings on the test set. Run it from
   the agent's Suggested changes tab."
 
 Each row names its agent or flow, which links that one's **Corrections**
 tab, and **Hand it to…** changes who fixes it. With none left: "Nothing to
 fix: every correction here is Fixed, Won't fix or Removed."
+
+### Who corrects
+
+![The Corrector groups tab: New class, the Columns menu, and two classes, both Restricted. The expert class "Counts 3× an unclassified one", applies to this project, may be given only by people and is wanted by the Echo half and Support sample rules; the bot class counts the same, only services, and no rule wants it. Below: "A share weights each correction by its class."](../../../../assets/quality/quality-classes.png)
+
+**Who corrects** lists, under **Corrector groups**, each
+[corrector group](#corrector-groups) that applies to the project's runs, in
+words:
+
+- how much it counts, such as "Counts 3× an unclassified one";
+- where it applies, such as "This project";
+- who may give it, such as "Only people" or "Only services". Who may give an
+  expert group is counted here, never listed;
+- the rules that want it.
+
+Below the list, the tab says what makes an expert: "Corrections in an
+expert group are the experts' corrections: "Count only experts" counts
+only those."
+
+Project admins add, change and remove a project's groups, and tenant admins
+a tenant's. Removing a group names the rules that want it.
+
+![The Remove expert? dialog, over the Corrector groups tab: "No new correction can name it. Corrections that named it keep it, and still count with its weight in trends." and "2 rules want its correction (Echo half, Support sample): change them first, or their items wait for a class nobody can give."](../../../../assets/quality/quality-class-remove.png)
 
 ### Rules
 
@@ -497,26 +520,3 @@ last 90 or 30 days. These are [a rule's results](#a-rules-results):
 **Every count** opens the counts behind a rule's trend.
 
 ![A rule's trend after the rule changed, now at rule version 2: "Too few corrections to chart yet: a version shows from 10 corrections.", 1.2.0 with too few corrections to say (0 so far), the one matched run the cap kept out, and rule version 1 shown apart, never added in.](../../../../assets/quality/quality-trends-changed.png)
-
-### Who corrects
-
-![The Corrector groups tab: New class, the Columns menu, and two classes, both Restricted. The expert class "Counts 3× an unclassified one", applies to this project, may be given only by people and is wanted by the Echo half and Support sample rules; the bot class counts the same, only services, and no rule wants it. Below: "A share weights each correction by its class."](../../../../assets/quality/quality-classes.png)
-
-**Who corrects** lists, under **Corrector groups**, each
-[corrector group](#corrector-groups) that applies to the project's runs, in
-words:
-
-- how much it counts, such as "Counts 3× an unclassified one";
-- where it applies, such as "This project";
-- who may give it, such as "Only people" or "Only services". Who may give an
-  expert group is counted here, never listed;
-- the rules that want it.
-
-Below the list, the tab says what makes an expert: "Corrections in an
-expert group are the experts' corrections: "Count only experts" counts
-only those."
-
-Project admins add, change and remove a project's groups, and tenant admins
-a tenant's. Removing a group names the rules that want it.
-
-![The Remove expert? dialog, over the Corrector groups tab: "No new correction can name it. Corrections that named it keep it, and still count with its weight in trends." and "2 rules want its correction (Echo half, Support sample): change them first, or their items wait for a class nobody can give."](../../../../assets/quality/quality-class-remove.png)
