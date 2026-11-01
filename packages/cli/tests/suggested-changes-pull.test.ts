@@ -11,7 +11,7 @@
 import { execFileSync } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 
 import { KindgiApiError } from '@kindgi/client';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
@@ -390,6 +390,57 @@ describe('kindgi suggested-changes pull', () => {
         encoding: 'utf8',
       }),
     ).toBe('');
+  });
+
+  // `.` and an empty entry ahead of the test's bin on PATH: a bare `git` or
+  // `gh` started in the pack's folder would run the stand-in there.
+  describe("a git or gh in the pack's folder is never run", () => {
+    async function standIn(name: 'git' | 'gh'): Promise<void> {
+      await writeFile(
+        join(cwd, name),
+        `#!/bin/sh\necho ${name} >> "$(dirname "$0")/ran"\nexit 1\n`,
+      );
+      await chmod(join(cwd, name), 0o755);
+    }
+    const ahead = (): Record<string, string> => ({ PATH: ['.', '', bin].join(delimiter) });
+    const ran = (): Promise<string> => readFile(join(cwd, 'ran'), 'utf8').catch(() => '');
+
+    test('with --pr, git and gh are the ones on PATH', async () => {
+      await pack();
+      await standIn('git');
+      await standIn('gh');
+      await fakeGh({ stdout: `${PR_URL}\n` });
+      const out = await pull(['sc-1', '--pr'], client(), ahead());
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(JSON.parse(out.stdout)).toMatchObject({ pullRequest: { opened: true, url: PR_URL } });
+      expect(await calls(gitLog)).toContainEqual(['push', '--set-upstream', 'origin', BRANCH]);
+      expect(await ran()).toBe('');
+    });
+
+    test("a git only in the pack's folder is no git: refused before anything is written", async () => {
+      await pack();
+      await rm(join(bin, 'git'));
+      await standIn('git');
+      const before = await readFile(join(cwd, 'blocks/tone.json'), 'utf8');
+      const out = await pull(['sc-1', '--pr'], client(), ahead());
+      expect(out.exitCode).toBe(1);
+      expect(out.stderr).toContain(
+        "--pr runs git, and there's no `git` on your PATH: install git, or pull without --pr to only write the files.",
+      );
+      expect(await readFile(join(cwd, 'blocks/tone.json'), 'utf8')).toBe(before);
+      expect(await ran()).toBe('');
+    });
+
+    test("a gh only in the pack's folder is no gh: the branch is pushed, and where to open the pull request", async () => {
+      await pack();
+      await standIn('gh');
+      const out = await pull(['sc-1', '--pr'], client(), ahead());
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(out.stderr).toContain(
+        `gh isn't installed, so no pull request was opened. ${BRANCH} is pushed: open a pull request from ${BRANCH} into main on origin.`,
+      );
+      expect(await ran()).toBe('');
+    });
   });
 
   test('a changed template file refuses --pr, and nothing is written', async () => {

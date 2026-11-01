@@ -28,6 +28,7 @@ import { stableStringify } from '../build/envelope.js';
 import type { CommandContext } from '../context.js';
 import { repoOf } from '../deploy/source.js';
 import { UsageError } from '../errors.js';
+import { findOnPath } from '../git.js';
 import { type Rendered, renderJson } from '../output.js';
 import { resolveProjectRef } from '../project-ref.js';
 import { gitCaller, gitEnv, uncommittedFiles } from '../uncommitted-files.js';
@@ -203,19 +204,26 @@ interface Ran {
   readonly stderr: string;
 }
 
-/** `cmd args` in `cwd`, with no shell: its output and exit code, or `missing` when it isn't on PATH. */
-function runTool(
+/**
+ * `cmd args` in `cwd`, with no shell, by the path {@link findOnPath} finds on
+ * the PATH it runs with: its output and exit code, or `missing` when it isn't on PATH.
+ */
+async function runTool(
   ctx: CommandContext,
   cmd: 'git' | 'gh',
   args: readonly string[],
   cwd: string,
 ): Promise<Ran | 'missing'> {
+  // gh asks nothing: a question it would ask is an error instead.
+  // git reads the pack's own repository, in English (`saidLine` reads it).
+  const env = cmd === 'git' ? gitEnv(ctx.env) : { ...ctx.env, GH_PROMPT_DISABLED: '1' };
+  // Never a git or gh in the pack's folder, which a bare name can run.
+  const file = await findOnPath(cmd, env);
+  if (file === undefined) return 'missing';
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, [...args], {
+    const child = spawn(file, [...args], {
       cwd,
-      // gh asks nothing: a question it would ask is an error instead.
-      // git reads the pack's own repository, in English (`saidLine` reads it).
-      env: cmd === 'git' ? gitEnv(ctx.env) : { ...ctx.env, GH_PROMPT_DISABLED: '1' },
+      env,
       stdio: ['ignore', 'pipe', 'pipe'],
       ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
     });
