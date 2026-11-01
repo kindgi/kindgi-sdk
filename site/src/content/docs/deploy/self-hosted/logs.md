@@ -63,8 +63,9 @@ A subsystem no part of the runtime logs under only warns:
 `api-keys`, and `connections` (runtime 0.2.0 or later), with these nested
 ones: `kernel.waitpoints`, `kernel.sweeper`,
 `webhooks.worker`, `authz.outbox`, `approvals.notifier`, `audit.retention`,
-`mcp.headers`, `providers.keys`, `providers.prune`, `secrets.scopes` and
-`tenants.purge` (runtime 0.1.10 or later).
+`mcp.headers`, `mcp.env` (runtime 0.4.0 or later), `providers.keys`,
+`providers.prune`, `secrets.scopes` and `tenants.purge` (runtime 0.1.10 or
+later).
 
 ## The two formats
 
