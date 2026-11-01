@@ -1891,7 +1891,8 @@
           },
           "unregisteredAt": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Present only on an unregistered version: a retired policy (every version unregistered) as `GET /v1/gate-policies?includeRetired=true` lists it."
           }
         }
       },
@@ -14489,6 +14490,11 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Kind-specific policy body. For `access-control`, matches `@kindgi/specs/policy.schema.json` (rules + defaults). For `model-routing`, matches `TenantPolicy` from `@kindgi/capabilities` (providers.allow / providers.deny / models.allow / models.deny / regionAllow / maxCostPerCallUsd / maxTokensPerCall). For `tool-errors`, `ToolErrorsSpec` (maxRetries / retryOn). For `hitl`, `HitlSpec` from `@kindgi/policy-contract` (maxTimeoutMs / minReviewerRole / tools — per tool id a mode or `{ mode, requiredRole }`); it only tightens an agent's approvals. For `retention`, `{ v: 1, doc: RetentionSpec }` from `@kindgi/policy-contract` (domain / graceSeconds / mode, which must be `purge`); a tenant has one retention policy per domain, plus one for `*`. `tool-errors`, `hitl` and `retention` specs are validated on publish. For other kinds, the shape is defined by the runtime consumer."
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Present only on an unregistered version: a retired policy (every version unregistered) as `GET /v1/policies?includeRetired=true` lists it. `GET /v1/policies/{policyId}` answers the latest active version, which never carries it."
           }
         }
       },
@@ -15183,7 +15189,7 @@
           "unregisteredAt": {
             "type": "string",
             "format": "date-time",
-            "description": "Present only on an unregistered version; agent versions that pin it still read it."
+            "description": "Present only on an unregistered version; agent versions that pin it still read it. A retired block (every version unregistered) carries it as `GET /v1/blocks?includeRetired=true` lists it."
           }
         }
       },
@@ -36361,7 +36367,7 @@
             }
           }
         },
-        "description": "Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's.",
+        "description": "Each gate policy's latest active version. `agentId` narrows it to one agent's; `scopeKind` (with `scopeId` and `segment`) to one scope's. A retired policy (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
         "parameters": [
           {
             "name": "limit",
@@ -36430,6 +36436,16 @@
             "required": false,
             "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine.",
             "x-kindgi-segment-path": true
+          },
+          {
+            "name": "includeRetired",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "When `true`, retired items (every version unregistered) are listed too, each as its highest version with that version's `unregisteredAt`. Default: `false` (items with an active version only)."
           }
         ],
         "security": [
@@ -48897,7 +48913,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id.",
+        "description": "Cursor-paginated. Optional `?kind=` narrows to a single policy kind (exact match); optional `?name=` is a prefix match on `Policy.id`. Sort order: policy id ascending. Latest version per id. A retired policy (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
         "parameters": [
           {
             "name": "limit",
@@ -48937,6 +48953,16 @@
             },
             "required": false,
             "description": "Prefix match on `Policy.id`. Dotted namespaces are the natural filter shape."
+          },
+          {
+            "name": "includeRetired",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "When `true`, retired items (every version unregistered) are listed too, each as its highest version with that version's `unregisteredAt`. Default: `false` (items with an active version only)."
           }
         ],
         "security": [
@@ -50987,7 +51013,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do.",
+        "description": "Cursor-paginated. Only the blocks of projects the caller can read. `?kind=` narrows to prompts or settings, `?name=` is a prefix match on the id, and `?scopeKind=` + `?scopeId=` narrow to a project or an org, as the other lists do. A retired block (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
         "parameters": [
           {
             "name": "limit",
@@ -51046,6 +51072,16 @@
             },
             "required": false,
             "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
+          },
+          {
+            "name": "includeRetired",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "When `true`, retired items (every version unregistered) are listed too, each as its highest version with that version's `unregisteredAt`. Default: `false` (items with an active version only)."
           }
         ],
         "security": [

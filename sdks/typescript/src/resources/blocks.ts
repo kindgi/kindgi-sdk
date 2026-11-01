@@ -48,6 +48,12 @@ export interface ListBlocksFilter {
   readonly name?: string;
   /** Only the blocks of this project, or of every project in this org. */
   readonly scope?: ScopeRef;
+  /**
+   * `true` lists retired blocks too (every version unregistered), each as
+   * its highest version with `unregisteredAt`. Default: blocks with an
+   * active version only.
+   */
+  readonly includeRetired?: boolean;
 }
 
 export interface ListBlockVersionsFilter {
@@ -111,6 +117,7 @@ export function makeBlocksClient(transport: Transport): BlocksClient {
           ...(filter?.kind !== undefined && { kind: filter.kind }),
           ...(filter?.name !== undefined && { name: filter.name }),
           ...(filter?.scope !== undefined && scopeToQuery(filter.scope)),
+          ...(filter?.includeRetired === true && { includeRetired: 'true' }),
         },
       });
     },
