@@ -16,7 +16,9 @@
  * One that isn't a file in the pack's folder (empty, absolute, outside it,
  * a folder, or with a NUL) answers `unknown`, with no git command run.
  *
- * Read-only, in the pack's folder, with no shell. `rev-parse --show-prefix`
+ * Read-only, in the pack's folder, with no shell, by the path `git.ts`'s
+ * `findOnPath` finds on `PATH`: never a `git` in the pack's folder.
+ * `rev-parse --show-prefix`
  * says where the pack's folder sits in its repository, since `status`
  * names files from the repository's root, which may be above it. `status`
  * then reads only the files asked about, named as literal paths, with each
@@ -38,6 +40,8 @@
 import { execFile } from 'node:child_process';
 import { lstat } from 'node:fs/promises';
 import path from 'node:path';
+
+import { findOnPath } from './git.js';
 
 /**
  * What git says of some of a pack's files: `git`, with those it hasn't
@@ -93,19 +97,24 @@ export type GitCall = (
 ) => Promise<GitAnswer>;
 
 /**
- * A `GitCall` that runs the `git` on `env`'s `PATH`, in `env` less git's
- * repository variables and with its messages in English, which it reads.
+ * A `GitCall` that runs the `git` `findOnPath` finds on `env`'s `PATH`, by
+ * that path, in `env` less git's repository variables and with its
+ * messages in English, which it reads. With no git there, it failed.
  */
 export function gitCaller(env: Readonly<Record<string, string | undefined>>): GitCall {
-  return (cwd, args, timeoutMs) =>
-    new Promise((resolve) => {
+  return async (cwd, args, timeoutMs) => {
+    // Looked for on the PATH it then runs with.
+    const childEnv = gitEnv(env);
+    const git = await findOnPath('git', childEnv);
+    if (git === undefined) return { kind: 'failed' };
+    return new Promise((resolve) => {
       try {
         execFile(
-          'git',
+          git,
           [...args],
           {
             cwd,
-            env: gitEnv(env),
+            env: childEnv,
             timeout: timeoutMs,
             killSignal: 'SIGKILL',
             maxBuffer: GIT_MAX_BUFFER,
@@ -124,6 +133,7 @@ export function gitCaller(env: Readonly<Record<string, string | undefined>>): Gi
         resolve({ kind: 'failed' });
       }
     });
+  };
 }
 
 /** `gitCaller` on this process's environment, as it is at each call. */

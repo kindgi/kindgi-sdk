@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { execFileSync } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -341,6 +341,21 @@ describe.skipIf(process.platform === 'win32')('uncommittedFiles: when git can’
         SLOW_START_MS,
       ),
     ).toEqual({ kind: 'not-in-git' });
+  });
+
+  test("the git in PATH's first absolute entry runs, never one in the pack's folder", async () => {
+    // A stand-in in the pack's folder, and `.` and an empty entry ahead of
+    // the git on PATH: a bare `git` would run the stand-in.
+    await writeFile(join(root, 'git'), '#!/bin/sh\necho ran > "$(dirname "$0")/ran"\n');
+    await chmod(join(root, 'git'), 0o755);
+    await fakeGit(
+      'echo "fatal: not a git repository (or any of the parent directories): .git" >&2\nexit 128',
+    );
+    vi.stubEnv('PATH', ['.', '', join(root, 'bin'), '/usr/bin', '/bin'].join(':'));
+    expect(await uncommittedFiles(root, ['blocks/tone.json'], callGit, SLOW_START_MS)).toEqual({
+      kind: 'not-in-git',
+    });
+    await expect(access(join(root, 'ran'))).rejects.toThrow();
   });
 
   test('a git that answers past the time: unknown, and it is stopped', async () => {
