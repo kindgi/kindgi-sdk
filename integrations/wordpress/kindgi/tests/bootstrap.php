@@ -237,8 +237,8 @@ function wp_salt( string $scheme = 'auth' ): string {
 	return 'acme-test-salt-' . $scheme;
 }
 
-function wp_json_encode( $value ) {
-	return json_encode( $value );
+function wp_json_encode( $value, int $flags = 0 ) {
+	return json_encode( $value, $flags );
 }
 
 function apply_filters( string $hook, $value ) {
@@ -279,5 +279,7 @@ require_once dirname( __DIR__ ) . '/includes/class-kindgi-sessions.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-people.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-webhooks.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-api.php';
+require_once dirname( __DIR__ ) . '/includes/class-kindgi-inbox.php';
+require_once dirname( __DIR__ ) . '/includes/class-kindgi-activity.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-rest.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-admin.php';

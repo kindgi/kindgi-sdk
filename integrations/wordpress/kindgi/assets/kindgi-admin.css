@@ -1,11 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* Copyright (C) 2026 Kindgi Inc. */
 
-/* The Kindgi page: wp-admin's own colors and controls, a little layout. */
-
-.kindgi .kindgi-panel {
-  margin-top: 16px;
-}
+/* The Kindgi pages: wp-admin's own colors and controls, a little layout. */
 
 .kindgi .kindgi-muted {
   color: #646970;
@@ -29,6 +25,10 @@
   display: block;
   margin: 4px 0 8px;
   max-width: 100%;
+}
+
+.kindgi .kindgi-side .kindgi-about {
+  margin: 0 0 8px;
 }
 
 .kindgi .kindgi-conversations {
@@ -79,6 +79,7 @@
   margin: 0 0 8px;
 }
 
+/* A card's left edge says whose it is: amber waits for you, grey for someone else; green approved, red rejected. */
 .kindgi .kindgi-wait,
 .kindgi .kindgi-card {
   background: #fff;
@@ -88,7 +89,38 @@
   padding: 8px 12px;
 }
 
+.kindgi .kindgi-card.kindgi-others,
+.kindgi .kindgi-card.kindgi-expired,
+.kindgi .kindgi-card.kindgi-cancelled {
+  border-left-color: #c3c4c7;
+}
+
+.kindgi .kindgi-card.kindgi-approved {
+  border-left-color: #00a32a;
+}
+
+.kindgi .kindgi-card.kindgi-rejected {
+  border-left-color: #d63638;
+}
+
+.kindgi .kindgi-card.kindgi-target {
+  box-shadow: 0 0 0 2px #2271b1;
+}
+
+.kindgi .kindgi-wait .kindgi-card {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+/* The Inbox's lists float, as on WordPress's own list screens. */
 .kindgi .kindgi-cards {
+  clear: both;
+  max-width: 760px;
+  padding-top: 8px;
+}
+
+.kindgi .kindgi-linked {
   max-width: 760px;
 }
 
@@ -96,26 +128,47 @@
   margin: 4px 0 8px;
 }
 
-.kindgi .kindgi-args {
+.kindgi .kindgi-facts {
   display: grid;
   grid-template-columns: max-content 1fr;
   gap: 2px 12px;
   margin: 0 0 8px;
 }
 
-.kindgi .kindgi-args dt {
+.kindgi .kindgi-facts dt {
   font-weight: 600;
 }
 
-.kindgi .kindgi-args dd {
+.kindgi .kindgi-facts dd {
   margin: 0;
   overflow-wrap: anywhere;
 }
 
-.kindgi .kindgi-card pre {
+.kindgi .kindgi-card pre,
+.kindgi .kindgi-activity pre {
   background: #f6f7f7;
   overflow: auto;
   padding: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.kindgi .kindgi-details summary {
+  color: #646970;
+  cursor: pointer;
+}
+
+.kindgi .kindgi-activity td {
+  vertical-align: top;
+}
+
+.kindgi .kindgi-activity .row-actions {
+  padding-top: 2px;
+}
+
+.kindgi .kindgi-failed {
+  color: #d63638;
+  font-weight: 600;
 }
 
 .kindgi .kindgi-card textarea {

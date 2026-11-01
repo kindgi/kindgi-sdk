@@ -5,25 +5,40 @@
 defined( 'ABSPATH' ) || exit;
 
 /**
- * The wp-admin side: the Kindgi page (Ask and Approvals), and the
- * settings page where an administrator connects the site with the
- * one-time code from Kindgi.
+ * The wp-admin side: the Kindgi menu, with a count of what waits for the
+ * person (also in the admin bar), and its pages: Inbox (what waits for a
+ * person, and what was decided), Activity (what the agents did), Ask
+ * (conversations with the agents offered to staff), and Settings, where an
+ * administrator connects the site with the one-time code from Kindgi and
+ * chooses the agents offered.
  */
 final class Kindgi_Admin {
 
-	/** The page's slug: an approval's link is `admin.php?page=kindgi&approval=<id>`. */
+	/** The Inbox's slug, the menu's own: an approval's link is `admin.php?page=kindgi&approval=<id>`. */
 	const PAGE = 'kindgi';
 
-	/** The settings page's slug. */
+	/** The other pages' slugs. */
+	const ACTIVITY_PAGE = 'kindgi-activity';
+	const ASK_PAGE      = 'kindgi-ask';
 	const SETTINGS_PAGE = 'kindgi-settings';
 
 	/** The connect form's action and nonce. */
 	const CONNECT = 'kindgi_connect';
 
+	/** The offered-agents form's action and nonce. */
+	const OFFER = 'kindgi_offer';
+
+	/** The page each admin hook shows (`inbox`, `activity`, `ask`), as the menu made them. */
+	private static $views = array();
+
 	public static function register(): void {
 		add_action( 'admin_menu', array( self::class, 'menu' ) );
+		// After every plugin's menu: the count goes on the menu's title, not into its pages' hook names.
+		add_action( 'admin_menu', array( self::class, 'count_on_menu' ), 99 );
+		add_action( 'admin_bar_menu', array( self::class, 'admin_bar' ), 80 );
 		add_action( 'admin_enqueue_scripts', array( self::class, 'assets' ) );
 		add_action( 'admin_post_' . self::CONNECT, array( self::class, 'connect' ) );
+		add_action( 'admin_post_' . self::OFFER, array( self::class, 'offer' ) );
 		add_filter( 'wp_privacy_personal_data_exporters', array( self::class, 'exporters' ) );
 		add_filter( 'wp_privacy_personal_data_erasers', array( self::class, 'erasers' ) );
 	}
@@ -123,117 +138,339 @@ final class Kindgi_Admin {
 	}
 
 	public static function menu(): void {
+		$capability = self::capability();
 		add_menu_page(
 			__( 'Kindgi', 'kindgi' ),
 			__( 'Kindgi', 'kindgi' ),
-			self::capability(),
+			$capability,
 			self::PAGE,
 			array( self::class, 'page' ),
 			'dashicons-format-chat',
 			58
 		);
-		add_submenu_page( self::PAGE, __( 'Kindgi', 'kindgi' ), __( 'Ask and approve', 'kindgi' ), self::capability(), self::PAGE, array( self::class, 'page' ) );
+		foreach ( self::pages() as $slug => $page ) {
+			$hook = add_submenu_page( self::PAGE, $page['title'], $page['title'], $capability, $slug, array( self::class, 'page' ) );
+			if ( false !== $hook ) {
+				self::$views[ $hook ] = $page['view'];
+			}
+		}
 		add_submenu_page( self::PAGE, __( 'Kindgi settings', 'kindgi' ), __( 'Settings', 'kindgi' ), 'manage_options', self::SETTINGS_PAGE, array( self::class, 'settings' ) );
 	}
 
-	public static function assets( string $hook ): void {
-		if ( 'toplevel_page_' . self::PAGE !== $hook ) {
+	/** The pages staff use, by slug: the Inbox first, as the menu's own page. */
+	private static function pages(): array {
+		return array(
+			self::PAGE          => array(
+				'title' => __( 'Inbox', 'kindgi' ),
+				'view'  => 'inbox',
+			),
+			self::ACTIVITY_PAGE => array(
+				'title' => __( 'Activity', 'kindgi' ),
+				'view'  => 'activity',
+			),
+			self::ASK_PAGE      => array(
+				'title' => __( 'Ask', 'kindgi' ),
+				'view'  => 'ask',
+			),
+		);
+	}
+
+	/**
+	 * The count of what waits for the person, on the Kindgi menu, in
+	 * WordPress's own bubble (hidden at 0). It shows the count kept from
+	 * Kindgi's last answer; the heartbeat keeps it fresh (`Kindgi_Inbox`).
+	 */
+	public static function count_on_menu(): void {
+		global $menu;
+		if ( ! is_array( $menu ) || null === Kindgi_Settings::site() ) {
 			return;
 		}
+		foreach ( $menu as $at => $item ) {
+			if ( self::PAGE === ( $item[2] ?? null ) ) {
+				$menu[ $at ][0] .= ' ' . self::bubble( Kindgi_Inbox::kept_count( get_current_user_id() ) ?? 0 );
+			}
+		}
+	}
+
+	/** WordPress's count bubble, as the Comments and Plugins menus have it. */
+	private static function bubble( int $count ): string {
+		return sprintf(
+			'<span class="awaiting-mod count-%1$d kindgi-count"><span class="pending-count" aria-hidden="true">%1$d</span><span class="screen-reader-text">%2$s</span></span>',
+			$count,
+			esc_html( self::waiting_words( $count ) )
+		);
+	}
+
+	/** "2 wait for you", for a screen reader. */
+	private static function waiting_words( int $count ): string {
+		/* translators: %s: how many approvals wait for the person */
+		return sprintf( _n( '%s waits for you', '%s wait for you', $count, 'kindgi' ), number_format_i18n( $count ) );
+	}
+
+	/** The count in the admin bar too, on every admin page, linking to the Inbox; hidden at 0. */
+	public static function admin_bar( WP_Admin_Bar $bar ): void {
+		if ( ! is_admin() || ! current_user_can( self::capability() ) || null === Kindgi_Settings::site() ) {
+			return;
+		}
+		$count = Kindgi_Inbox::kept_count( get_current_user_id() ) ?? 0;
+		$bar->add_node(
+			array(
+				'id'    => 'kindgi-inbox',
+				'title' => '<span class="ab-icon dashicons dashicons-format-chat" aria-hidden="true"></span><span class="ab-label kindgi-count-label">' . esc_html( number_format_i18n( $count ) ) . '</span><span class="screen-reader-text kindgi-count-words">' . esc_html( self::waiting_words( $count ) ) . '</span>',
+				'href'  => admin_url( 'admin.php?page=' . self::PAGE ),
+				'meta'  => array(
+					'class' => 0 === $count ? 'kindgi-none' : '',
+					'title' => __( 'Kindgi inbox', 'kindgi' ),
+				),
+			)
+		);
+	}
+
+	public static function assets( string $hook ): void {
 		$version = KINDGI_PLUGIN_VERSION;
+		if ( current_user_can( self::capability() ) && null !== Kindgi_Settings::site() ) {
+			// On every admin page: the heartbeat brings the count to the menu and the admin bar.
+			wp_enqueue_script( 'kindgi-count', plugins_url( 'assets/kindgi-count.js', KINDGI_PLUGIN_FILE ), array( 'heartbeat', 'jquery', 'wp-i18n' ), $version, true );
+			wp_set_script_translations( 'kindgi-count', 'kindgi' );
+			wp_add_inline_style( 'admin-bar', '#wpadminbar #wp-admin-bar-kindgi-inbox.kindgi-none{display:none}#wpadminbar #wp-admin-bar-kindgi-inbox .ab-icon:before{top:2px}' );
+		}
+		if ( ! isset( self::$views[ $hook ] ) ) {
+			return;
+		}
 		wp_enqueue_style( 'kindgi-admin', plugins_url( 'assets/kindgi-admin.css', KINDGI_PLUGIN_FILE ), array(), $version );
 		wp_enqueue_script( 'kindgi-admin', plugins_url( 'assets/kindgi-admin.js', KINDGI_PLUGIN_FILE ), array( 'wp-api-fetch', 'wp-date', 'wp-i18n' ), $version, true );
 		wp_set_script_translations( 'kindgi-admin', 'kindgi' );
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- a link to open, not an action.
-		$approval = isset( $_GET['approval'] ) ? sanitize_text_field( wp_unslash( $_GET['approval'] ) ) : '';
-		$config   = array(
-			'approval' => preg_match( '/^' . Kindgi_Rest::ID . '$/', $approval ) ? $approval : null,
-			'pollMs'   => 1500,
-			'siteName' => get_bloginfo( 'name' ),
+		// phpcs:disable WordPress.Security.NonceVerification.Recommended -- links to open, not actions.
+		$approval     = isset( $_GET['approval'] ) ? sanitize_text_field( wp_unslash( $_GET['approval'] ) ) : '';
+		$conversation = isset( $_GET['conversation'] ) ? sanitize_text_field( wp_unslash( $_GET['conversation'] ) ) : '';
+		// phpcs:enable
+		$id     = '/^' . Kindgi_Rest::ID . '$/';
+		$config = array(
+			'view'         => self::$views[ $hook ],
+			'approval'     => preg_match( $id, $approval ) ? $approval : null,
+			'conversation' => preg_match( $id, $conversation ) ? $conversation : null,
+			'pollMs'       => 1500,
+			'urls'         => array(
+				'inbox'    => admin_url( 'admin.php?page=' . self::PAGE ),
+				'activity' => admin_url( 'admin.php?page=' . self::ACTIVITY_PAGE ),
+				'ask'      => admin_url( 'admin.php?page=' . self::ASK_PAGE ),
+				'settings' => current_user_can( 'manage_options' ) ? admin_url( 'admin.php?page=' . self::SETTINGS_PAGE ) : null,
+			),
 		);
 		wp_add_inline_script( 'kindgi-admin', 'window.kindgiConfig = ' . wp_json_encode( $config ) . ';', 'before' );
 	}
 
+	/** A page staff use: its heading, then the app, which shows the page's view. */
 	public static function page(): void {
-		echo '<div class="wrap kindgi"><h1>' . esc_html__( 'Kindgi', 'kindgi' ) . '</h1>';
+		$view  = self::$views[ current_filter() ] ?? 'inbox';
+		$pages = wp_list_pluck( self::pages(), 'title', 'view' );
+		echo '<div class="wrap kindgi"><h1>' . esc_html( $pages[ $view ] ?? __( 'Kindgi', 'kindgi' ) ) . '</h1>';
 		if ( null === Kindgi_Settings::site() ) {
 			echo '<div class="notice notice-warning"><p>' . esc_html__( "This site isn't connected to Kindgi yet: an administrator connects it under Kindgi → Settings.", 'kindgi' ) . '</p></div></div>';
 			return;
 		}
-		echo '<div id="kindgi-app"></div><noscript>' . esc_html__( 'The Kindgi page needs JavaScript.', 'kindgi' ) . '</noscript></div>';
+		echo '<div id="kindgi-app"></div><noscript>' . esc_html__( 'The Kindgi pages need JavaScript.', 'kindgi' ) . '</noscript></div>';
 	}
 
+	/**
+	 * Settings, for administrators: the connection in words, the agents
+	 * offered to staff, and the site's own details (its id, addresses and
+	 * key), folded away once it's connected.
+	 */
 	public static function settings(): void {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
 		}
 		$site   = Kindgi_Settings::site();
-		$source = Kindgi_Keys::source();
 		$notice = get_transient( self::notice_key() );
 		delete_transient( self::notice_key() );
 		?>
-		<div class="wrap">
+		<div class="wrap kindgi-settings">
 			<h1><?php esc_html_e( 'Kindgi settings', 'kindgi' ); ?></h1>
 			<?php if ( is_array( $notice ) ) : ?>
 				<div class="notice notice-<?php echo 'ok' === $notice['kind'] ? 'success' : 'error'; ?>"><p><?php echo esc_html( $notice['message'] ); ?></p></div>
 			<?php endif; ?>
 
-			<h2><?php esc_html_e( 'This site', 'kindgi' ); ?></h2>
+			<h2><?php esc_html_e( 'Connection', 'kindgi' ); ?></h2>
 			<?php if ( null === $site ) : ?>
 				<p><?php esc_html_e( 'Not connected yet. Register it in Kindgi first, on the project its staff will use, with these two addresses. Kindgi then gives you a one-time code to paste below.', 'kindgi' ); ?></p>
+				<?php self::webhooks_off(); ?>
+				<?php self::site_table( false ); ?>
+				<?php self::connect_form( null ); ?>
 			<?php else : ?>
+				<p><?php self::connected_words( $site ); ?></p>
+				<?php self::warnings( $site ); ?>
+				<?php self::webhooks_off(); ?>
+				<?php self::waiting(); ?>
+
+				<h2><?php esc_html_e( 'Agents offered to staff', 'kindgi' ); ?></h2>
+				<?php self::offer_form(); ?>
+
+				<h2><?php esc_html_e( 'People and permissions', 'kindgi' ); ?></h2>
 				<p>
 					<?php
 					printf(
-						/* translators: 1: the site's id at Kindgi, 2: Kindgi's public URL */
-						esc_html__( 'Connected as site %1$s, for %2$s.', 'kindgi' ),
-						'<code>' . esc_html( $site['site_id'] ) . '</code>',
-						'<code>' . esc_html( $site['audience'] ) . '</code>'
+						/* translators: %s: the command that shows a site's registration */
+						esc_html__( "Who here may ask the agents, and who decides approvals, is set by an admin at Kindgi on this site's registration (%s shows it): a site can't give itself rights.", 'kindgi' ),
+						'<code>kindgi sites get</code>'
 					);
 					?>
 				</p>
-				<?php self::warnings( $site ); ?>
-			<?php endif; ?>
-			<?php self::webhooks_off(); ?>
-			<?php self::waiting(); ?>
-			<table class="form-table" role="presentation">
-				<tr><th scope="row"><?php esc_html_e( 'Origin', 'kindgi' ); ?></th><td><code><?php echo esc_html( Kindgi_Settings::home_origin() ); ?></code></td></tr>
-				<tr><th scope="row"><?php esc_html_e( 'Approvals URL', 'kindgi' ); ?></th><td><code><?php echo esc_html( Kindgi_Settings::approvals_url() ); ?></code></td></tr>
-				<tr>
-					<th scope="row"><?php esc_html_e( 'Signing key', 'kindgi' ); ?></th>
-					<td><?php self::key_status( $source ); ?></td>
-				</tr>
-			</table>
 
-			<h2><?php echo esc_html( null === $site ? __( 'Connect', 'kindgi' ) : __( 'Connect again', 'kindgi' ) ); ?></h2>
-			<?php if ( null !== $site ) : ?>
-				<p><?php esc_html_e( "Connecting again (a new code from Kindgi) replaces the site's key at Kindgi and signs everyone out there.", 'kindgi' ); ?></p>
+				<h2><?php esc_html_e( 'Notifications', 'kindgi' ); ?></h2>
+				<p><?php esc_html_e( "A reviewer's email from Kindgi about an approval links to it here, in the Inbox. The Kindgi menu and the admin bar show each person how many wait for them.", 'kindgi' ); ?></p>
+
+				<details class="kindgi-advanced">
+					<summary><?php esc_html_e( 'This site at Kindgi: its id, addresses and key, and connecting again', 'kindgi' ); ?></summary>
+					<?php self::site_table( true ); ?>
+					<?php self::connect_form( $site ); ?>
+				</details>
 			<?php endif; ?>
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-				<input type="hidden" name="action" value="<?php echo esc_attr( self::CONNECT ); ?>">
-				<?php wp_nonce_field( self::CONNECT ); ?>
-				<table class="form-table" role="presentation">
-					<tr>
-						<th scope="row"><label for="kindgi-url"><?php esc_html_e( 'Kindgi URL', 'kindgi' ); ?></label></th>
-						<td>
-							<?php if ( Kindgi_Settings::url_is_constant() ) : ?>
-								<code><?php echo esc_html( Kindgi_Settings::url() ); ?></code>
-								<p class="description"><?php esc_html_e( 'Set by KINDGI_URL in wp-config.php.', 'kindgi' ); ?></p>
-							<?php else : ?>
-								<input type="url" class="regular-text" id="kindgi-url" name="kindgi_url" value="<?php echo esc_attr( Kindgi_Settings::url() ); ?>" placeholder="https://kindgi.acme.example" required>
-								<p class="description"><?php esc_html_e( 'Where this server reaches Kindgi.', 'kindgi' ); ?></p>
-							<?php endif; ?>
-						</td>
-					</tr>
-					<tr>
-						<th scope="row"><label for="kindgi-code"><?php esc_html_e( 'One-time code', 'kindgi' ); ?></label></th>
-						<td><input type="text" class="regular-text code" id="kindgi-code" name="kindgi_code" autocomplete="off" spellcheck="false" maxlength="200" required></td>
-					</tr>
-				</table>
-				<?php submit_button( null === $site ? __( 'Connect', 'kindgi' ) : __( 'Connect again', 'kindgi' ) ); ?>
-			</form>
 		</div>
 		<?php
+	}
+
+	/** "Connected to Kindgi at …, for the project …": the project's name when Kindgi tells it. */
+	private static function connected_words( array $site ): void {
+		$name = null;
+		$me   = Kindgi_Rest::me();
+		if ( ! is_wp_error( $me ) ) {
+			$answer = Kindgi_Api::body( wp_get_current_user(), 'GET', '/v1/projects/' . rawurlencode( (string) $me['projectId'] ) );
+			$name   = ! is_wp_error( $answer ) && is_string( $answer['body']['name'] ?? null ) ? $answer['body']['name'] : null;
+		}
+		if ( null === $name ) {
+			/* translators: %s: Kindgi's public URL */
+			printf( esc_html__( 'Connected to Kindgi at %s.', 'kindgi' ), '<code>' . esc_html( $site['audience'] ) . '</code>' );
+			return;
+		}
+		printf(
+			/* translators: 1: Kindgi's public URL, 2: the project's name */
+			esc_html__( 'Connected to Kindgi at %1$s, for the project %2$s. Your staff sign in to it as themselves from the Kindgi pages.', 'kindgi' ),
+			'<code>' . esc_html( $site['audience'] ) . '</code>',
+			'<strong>' . esc_html( $name ) . '</strong>'
+		);
+	}
+
+	/** The site's details: its id once connected, the two addresses Kindgi registers, and its key. */
+	private static function site_table( bool $connected ): void {
+		$site = Kindgi_Settings::site();
+		?>
+		<table class="form-table" role="presentation">
+			<?php if ( $connected && null !== $site ) : ?>
+				<tr><th scope="row"><?php esc_html_e( 'Site id', 'kindgi' ); ?></th><td><code><?php echo esc_html( $site['site_id'] ); ?></code></td></tr>
+			<?php endif; ?>
+			<tr><th scope="row"><?php esc_html_e( 'Origin', 'kindgi' ); ?></th><td><code><?php echo esc_html( Kindgi_Settings::home_origin() ); ?></code></td></tr>
+			<tr><th scope="row"><?php esc_html_e( 'Approvals URL', 'kindgi' ); ?></th><td><code><?php echo esc_html( Kindgi_Settings::approvals_url() ); ?></code></td></tr>
+			<tr>
+				<th scope="row"><?php esc_html_e( 'Signing key', 'kindgi' ); ?></th>
+				<td><?php self::key_status( Kindgi_Keys::source() ); ?></td>
+			</tr>
+		</table>
+		<?php
+	}
+
+	/** Connect, or connect again, with a one-time code from Kindgi. */
+	private static function connect_form( ?array $site ): void {
+		?>
+		<h3><?php echo esc_html( null === $site ? __( 'Connect', 'kindgi' ) : __( 'Connect again', 'kindgi' ) ); ?></h3>
+		<?php if ( null !== $site ) : ?>
+			<p><?php esc_html_e( "Connecting again (a new code from Kindgi) replaces the site's key at Kindgi and signs everyone out there.", 'kindgi' ); ?></p>
+		<?php endif; ?>
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<input type="hidden" name="action" value="<?php echo esc_attr( self::CONNECT ); ?>">
+			<?php wp_nonce_field( self::CONNECT ); ?>
+			<table class="form-table" role="presentation">
+				<tr>
+					<th scope="row"><label for="kindgi-url"><?php esc_html_e( 'Kindgi URL', 'kindgi' ); ?></label></th>
+					<td>
+						<?php if ( Kindgi_Settings::url_is_constant() ) : ?>
+							<code><?php echo esc_html( Kindgi_Settings::url() ); ?></code>
+							<p class="description"><?php esc_html_e( 'Set by KINDGI_URL in wp-config.php.', 'kindgi' ); ?></p>
+						<?php else : ?>
+							<input type="url" class="regular-text" id="kindgi-url" name="kindgi_url" value="<?php echo esc_attr( Kindgi_Settings::url() ); ?>" placeholder="https://kindgi.acme.example" required>
+							<p class="description"><?php esc_html_e( 'Where this server reaches Kindgi.', 'kindgi' ); ?></p>
+						<?php endif; ?>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row"><label for="kindgi-code"><?php esc_html_e( 'One-time code', 'kindgi' ); ?></label></th>
+					<td><input type="text" class="regular-text code" id="kindgi-code" name="kindgi_code" autocomplete="off" spellcheck="false" maxlength="200" required></td>
+				</tr>
+			</table>
+			<?php submit_button( null === $site ? __( 'Connect', 'kindgi' ) : __( 'Connect again', 'kindgi' ) ); ?>
+		</form>
+		<?php
+	}
+
+	/**
+	 * The agents staff see on the Ask page: each of the project's agents,
+	 * ticked when offered. Kindgi still decides who may ask an agent at all.
+	 */
+	private static function offer_form(): void {
+		$answer = Kindgi_Rest::agents();
+		if ( is_wp_error( $answer ) ) {
+			echo '<div class="notice notice-error inline"><p>' . esc_html( $answer->get_error_message() ) . '</p></div>';
+			return;
+		}
+		if ( array() === $answer['agents'] ) {
+			echo '<p>' . esc_html__( 'The project has no agents yet. Once one is deployed, it shows here.', 'kindgi' ) . '</p>';
+			return;
+		}
+		$chosen = null !== Kindgi_Rest::offered();
+		?>
+		<p><?php esc_html_e( 'Staff see these on the Ask page. An agent that works on its own, from a webhook or a schedule, needn\'t be one: leave it unticked.', 'kindgi' ); ?></p>
+		<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+			<input type="hidden" name="action" value="<?php echo esc_attr( self::OFFER ); ?>">
+			<?php wp_nonce_field( self::OFFER ); ?>
+			<fieldset>
+				<legend class="screen-reader-text"><?php esc_html_e( 'Agents offered to staff', 'kindgi' ); ?></legend>
+				<?php foreach ( $answer['agents'] as $agent ) : ?>
+					<input type="hidden" name="kindgi_shown[]" value="<?php echo esc_attr( $agent['id'] ); ?>">
+					<p>
+						<label>
+							<input type="checkbox" name="kindgi_agents[]" value="<?php echo esc_attr( $agent['id'] ); ?>" <?php checked( $agent['offered'] ); ?>>
+							<strong><?php echo esc_html( '' !== $agent['name'] ? $agent['name'] : $agent['id'] ); ?></strong>
+						</label>
+						<?php if ( '' !== $agent['description'] ) : ?>
+							<br><span class="description"><?php echo esc_html( $agent['description'] ); ?></span>
+						<?php endif; ?>
+					</p>
+				<?php endforeach; ?>
+			</fieldset>
+			<p class="description">
+				<?php
+				echo esc_html(
+					$chosen
+						? __( 'An agent deployed later is offered once you tick it here.', 'kindgi' )
+						: __( 'All are offered, and so is any agent deployed later, until you untick one.', 'kindgi' )
+				);
+				?>
+			</p>
+			<?php submit_button( __( 'Save', 'kindgi' ) ); ?>
+		</form>
+		<?php
+	}
+
+	/** The offered-agents form: every shown agent ticked offers all, now and later; otherwise the ticked ones. */
+	public static function offer(): void {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'You may not choose the agents offered to staff.', 'kindgi' ), 403 );
+		}
+		check_admin_referer( self::OFFER );
+		$ids    = static function ( string $field ): array {
+			$values = isset( $_POST[ $field ] ) && is_array( $_POST[ $field ] ) ? wp_unslash( $_POST[ $field ] ) : array(); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- each is checked below.
+			return array_values( array_unique( array_filter( array_map( 'strval', $values ), static function ( string $id ): bool {
+				return 1 === preg_match( '/^' . Kindgi_Rest::ID . '$/', $id );
+			} ) ) );
+		};
+		$ticked = $ids( 'kindgi_agents' );
+		$shown  = $ids( 'kindgi_shown' );
+		if ( array() !== $shown && array() === array_diff( $shown, $ticked ) ) {
+			delete_option( Kindgi_Rest::OFFERED );
+		} else {
+			update_option( Kindgi_Rest::OFFERED, $ticked, false );
+		}
+		self::done( 'ok', __( 'Saved: staff see the ticked agents on the Ask page.', 'kindgi' ) );
 	}
 
 	/** The connect form: the site's public key goes to Kindgi with the one-time code. */
@@ -422,11 +659,10 @@ final class Kindgi_Admin {
 	}
 
 	/**
-	 * Back to the settings page with a notice.
+	 * Back to the settings page, with a notice. Also `Kindgi_Webhooks`'s form.
 	 *
 	 * @return never
 	 */
-	/** Back to the settings page, with a notice. Also `Kindgi_Webhooks`'s form. */
 	public static function done( string $kind, string $message ): void {
 		set_transient(
 			self::notice_key(),
