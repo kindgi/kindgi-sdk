@@ -158,7 +158,7 @@ final class Kindgi_Order {
 	/**
 	 * What waits about the order, from the count kept for the person
 	 * (`Kindgi_Inbox::count`): the list asks Kindgi nothing. With none kept,
-	 * the cell says it isn't known yet, and the heartbeat fills it in.
+	 * the cell is empty until the heartbeat fills it in.
 	 */
 	private static function cell( int $order ): void {
 		$state = self::state( Kindgi_Inbox::kept_count( get_current_user_id() ), $order );
@@ -211,6 +211,8 @@ final class Kindgi_Order {
 
 	/** "Kindgi: Large refund: 210.00 on order #1234. Approved by Shop Owner." */
 	public static function note_text( string $heading, string $decision, string $reason, string $name ): string {
+		// A tool's own title may end with a period: the note adds its own.
+		$heading = rtrim( $heading, '.' );
 		if ( 'reject' === $decision ) {
 			/* translators: 1: what was asked, 2: who decided, 3: why */
 			return sprintf( __( 'Kindgi: %1$s. Rejected by %2$s: %3$s', 'kindgi' ), $heading, $name, $reason );

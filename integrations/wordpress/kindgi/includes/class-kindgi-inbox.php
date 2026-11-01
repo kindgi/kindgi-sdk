@@ -449,8 +449,9 @@ final class Kindgi_Inbox {
 	}
 
 	/**
-	 * Someone who can't decide is asked for the page too: the Orders list
-	 * says which orders wait for a reviewer.
+	 * Someone who can't decide is asked for the page only when they see the
+	 * Orders list's column, which says which orders wait for a reviewer.
+	 * The count is the current user's (the heartbeat's), as `shown` reads.
 	 *
 	 * @return array{n: int, more: bool, orders: array<string, string>}|null
 	 */
@@ -460,7 +461,14 @@ final class Kindgi_Inbox {
 			return null;
 		}
 		$reviewer = self::reviewer_of( $permissions['body'] );
-		$page     = Kindgi_Api::kept_get(
+		if ( null === $reviewer && ! Kindgi_Order::shown() ) {
+			return array(
+				'n'      => 0,
+				'more'   => false,
+				'orders' => array(),
+			);
+		}
+		$page = Kindgi_Api::kept_get(
 			$user,
 			'/v1/approvals',
 			array(

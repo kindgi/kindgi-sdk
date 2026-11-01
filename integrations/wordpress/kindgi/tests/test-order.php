@@ -16,7 +16,7 @@ function kindgi_test_about_order( $id ): array {
 function kindgi_test_jane_at_work( bool $edits_orders = true ): WP_User {
 	$jane                                   = kindgi_test_jane_known();
 	$GLOBALS['kindgi_test']['current_user'] = $jane;
-	$GLOBALS['kindgi_test']['caps']         = $edits_orders ? array( 'manage_woocommerce', 'edit_shop_orders' ) : array( 'manage_woocommerce' );
+	$GLOBALS['kindgi_test']['caps']         = $edits_orders ? array( Kindgi_Admin::capability(), 'edit_shop_orders' ) : array( Kindgi_Admin::capability() );
 	$GLOBALS['kindgi_test']['orders'][18]   = new WC_Order( 18 );
 	$GLOBALS['kindgi_test']['requests']     = array();
 	return $jane;
@@ -157,6 +157,7 @@ function test_order_a_decision_note_says_what_was_decided_and_by_whom(): void {
 	kindgi_assert_same( 'Kindgi: Large refund: 210 on order #18. Approved by Jane.', Kindgi_Order::note_text( $heading, 'approve', '', 'Jane' ), 'approved' );
 	kindgi_assert_same( 'Kindgi: Large refund: 210 on order #18. Approved by Jane: The photo shows both broken.', Kindgi_Order::note_text( $heading, 'approve', 'The photo shows both broken.', 'Jane' ), 'approved, saying why' );
 	kindgi_assert_same( 'Kindgi: Large refund: 210 on order #18. Rejected by Jane: Only one vase broke.', Kindgi_Order::note_text( $heading, 'reject', 'Only one vase broke.', 'Jane' ), 'rejected, with the reason' );
+	kindgi_assert_same( 'Kindgi: Refund order #18. Approved by Jane.', Kindgi_Order::note_text( 'Refund order #18.', 'approve', '', 'Jane' ), 'a title that ends with a period gets one' );
 }
 
 function test_order_the_box_asks_kindgi_nothing_without_a_live_session(): void {
@@ -272,4 +273,71 @@ function test_order_a_decision_on_this_site_leaves_a_private_note_on_the_order()
 	kindgi_test_answer( 200, $elsewhere );
 	Kindgi_Rest::decide( new WP_REST_Request( array( 'id' => 'ap-1', 'decision' => 'approve', 'reason' => '' ) ) );
 	kindgi_assert_same( array(), $GLOBALS['kindgi_test']['orders'][18]->notes, 'an approval about no order leaves no note' );
+
+	kindgi_test_jane_at_work( false );
+	kindgi_test_answer( 200, $approved );
+	Kindgi_Rest::decide( new WP_REST_Request( array( 'id' => 'ap-1', 'decision' => 'approve', 'reason' => '' ) ) );
+	kindgi_assert_same(
+		array( array( 'Kindgi: Large refund: 210 on order #18. Approved by Jane.', 0, true ) ),
+		$GLOBALS['kindgi_test']['orders'][18]->notes,
+		"a decider who can't edit orders leaves the note too, for whoever may edit the order"
+	);
+}
+
+/** One waiting approval, about order 18, that a standard reviewer decides. */
+function kindgi_test_page_about_18(): array {
+	return array(
+		'data'    => array( kindgi_test_approval( array( 'context' => kindgi_test_about_order( '18' ) ) ) ),
+		'hasMore' => false,
+	);
+}
+
+function test_order_the_heartbeat_gives_the_orders_only_to_someone_who_sees_the_column(): void {
+	$asked = array( 'kindgi_inbox' => true );
+	$jane  = kindgi_test_jane_at_work();
+	Kindgi_Inbox::forget_count( $jane->ID );
+	kindgi_test_answer_reviewer();
+	kindgi_test_answer( 200, kindgi_test_page_about_18() );
+	$beat = Kindgi_Inbox::heartbeat( array(), $asked );
+	kindgi_assert_same( 1, $beat['kindgi_inbox']['n'], 'her count' );
+	kindgi_assert_same( array( '18' => 'you' ), $beat['kindgi_inbox']['orders'], 'and, as she edits orders, which orders wait' );
+
+	$jane = kindgi_test_jane_at_work( false );
+	Kindgi_Inbox::forget_count( $jane->ID );
+	kindgi_test_answer_reviewer();
+	kindgi_test_answer( 200, kindgi_test_page_about_18() );
+	$beat = Kindgi_Inbox::heartbeat( array(), $asked );
+	kindgi_assert_same( 1, $beat['kindgi_inbox']['n'], "her count, when she can't edit orders" );
+	kindgi_assert_same( array(), $beat['kindgi_inbox']['orders'], 'and no orders' );
+}
+
+function test_order_someone_who_cannot_decide_is_asked_the_page_only_for_the_column(): void {
+	$jane = kindgi_test_jane_at_work();
+	Kindgi_Inbox::forget_count( $jane->ID );
+	kindgi_test_answer( 200, array() );
+	kindgi_test_answer( 200, kindgi_test_page_about_18() );
+	kindgi_assert_same(
+		array(
+			'n'      => 0,
+			'more'   => false,
+			'orders' => array( '18' => 'others' ),
+		),
+		Kindgi_Inbox::count( $jane ),
+		'nothing hers, and order 18 waits for a reviewer'
+	);
+	kindgi_assert_same( 2, count( $GLOBALS['kindgi_test']['requests'] ), 'her permissions, then the page, on her live session' );
+
+	$jane = kindgi_test_jane_at_work( false );
+	Kindgi_Inbox::forget_count( $jane->ID );
+	kindgi_test_answer( 200, array() );
+	kindgi_assert_same(
+		array(
+			'n'      => 0,
+			'more'   => false,
+			'orders' => array(),
+		),
+		Kindgi_Inbox::count( $jane ),
+		"with no column to fill, nothing waits for her"
+	);
+	kindgi_assert_same( 1, count( $GLOBALS['kindgi_test']['requests'] ), 'her permissions only: no page' );
 }
