@@ -3,8 +3,8 @@
 
 /**
  * A deployment is read in the project it serves (`readableDeployment`):
- * the one it names, else the tenant's Default, which a deployment stores
- * either way (the Default's id, or none). The list keeps the rows whose
+ * the one it names, else the tenant's default, which a deployment stores
+ * either way (the default's id, or none). The list keeps the rows whose
  * project the caller reads; one deployment's routes answer one they don't
  * read as one that isn't there; a secrets sync asks `admin` on the scope
  * it writes. Without an authorizer nothing is asked.
@@ -261,7 +261,7 @@ const notFound = (id: string) => ({
 });
 
 describe('GET /v1/deployments: the rows whose project the caller reads', () => {
-  test('each caller lists its projects’ deployments, the Default’s in both stored forms', async () => {
+  test('each caller lists its projects’ deployments, the default’s in both stored forms', async () => {
     const h = harness();
     expect(await h.listed('admin')).toEqual(['d-a', 'd-b', 'd-default', 'd-none']);
     expect(await h.listed('viewerA')).toEqual(['d-a']);
@@ -406,7 +406,7 @@ describe('POST /v1/deployments/{id}/secrets: the deployment’s read, then `admi
     }
   });
 
-  test('a tenant-wide deployment writes tenant-wide: the tenant’s admin, not the Default’s reader', async () => {
+  test('a tenant-wide deployment writes tenant-wide: the tenant’s admin, not the default’s reader', async () => {
     const h = harness();
     const viewer = await h.call('viewerDefault', '/v1/deployments/d-none/secrets', SYNC);
     expectRefused(viewer, 'viewerDefault');

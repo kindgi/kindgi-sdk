@@ -81,7 +81,7 @@ export interface InvokeAgentBindingInput {
   readonly tenantId: TenantId;
   /**
    * Content-scope anchor. Omit → the binding
-   * resolves the tenant's Default via `projectBinding.getDefault(...)`
+   * resolves the tenant's default via `projectBinding.getDefault(...)`
    * at its own caller layer. Route callers who supply a project id in
    * the body thread it through here.
    */

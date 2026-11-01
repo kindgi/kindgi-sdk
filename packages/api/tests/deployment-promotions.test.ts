@@ -81,7 +81,7 @@ const SECRETS = 'promotions-token-secrets';
 
 const S1 = randomUUID() as ProjectId;
 const S2 = randomUUID() as ProjectId;
-/** The tenant's Default project, last in the order (an existing workspace's prod). */
+/** The tenant's default project, last in the order (an existing workspace's prod). */
 const PROD = randomUUID() as ProjectId;
 const OUTSIDE = randomUUID() as ProjectId;
 const ORDER = [S1, S2, PROD];
@@ -167,13 +167,13 @@ interface Ledger extends DeploymentBinding {
 const sameVersion = (a: CarriedVersion, b: CarriedVersion) =>
   a.kind === b.kind && a.id === b.id && a.version === b.version;
 
-/** The deployment ledger, in memory: a digest once per project, the Default stored with none. */
+/** The deployment ledger, in memory: a digest once per project, the default stored with none. */
 function ledger(seeded: readonly Deployment[], opts: { promotes?: boolean } = {}): Ledger {
   const rows = [...seeded];
   const carried = new Map<string, CarriedVersion[]>();
   const secretScopes = new Map<string, readonly PromotedToolSecretScopes[]>();
   let seq = 0;
-  // As the binding's contract: both stored forms of the Default (PROD) are the Default's.
+  // As the binding's contract: both stored forms of the default (PROD) are the default's.
   const inProject = (d: Deployment, projectId: ProjectId | undefined) =>
     projectId === undefined || projectId === PROD
       ? d.projectId === undefined || d.projectId === PROD
@@ -774,12 +774,12 @@ describe('a promotion moves the exact build, one environment at a time', () => {
     }
   });
 
-  test("an optional secret set nowhere, promoted into the Default project: recorded at the tenant, where the promoted deployment's sync writes", async () => {
+  test("an optional secret set nowhere, promoted into the default project: recorded at the tenant, where the promoted deployment's sync writes", async () => {
     const optional = { type: ['string', 'null'] };
     // Without authorization (every scope counts), and as the tenant's admin.
     for (const grants of [
       undefined,
-      // Reading the Default too: its sync reads the deployment first.
+      // Reading the default too: its sync reads the deployment first.
       [
         `read project:${S2}`,
         `read project:${PROD}`,
@@ -834,7 +834,7 @@ describe('a promotion moves the exact build, one environment at a time', () => {
     expect(h.deployments.rows).toHaveLength(2);
   });
 
-  test("adoption of a copy stored under the Default's id (a deploy that named it): 200 with that row, no second row", async () => {
+  test("adoption of a copy stored under the default's id (a deploy that named it): 200 with that row, no second row", async () => {
     const h = harness({
       rows: [
         built({ id: 'dep-prod-named', projectId: PROD }),
@@ -1077,7 +1077,7 @@ describe('a build moves only while it serves and its signature holds', () => {
     expect(res.body.error.details).toEqual({ environment: 'source', newerDeploymentId: 'dep-new' });
   });
 
-  test('a superseded copy in the Default stored under its id: 409, as one stored with no project', async () => {
+  test('a superseded copy in the default stored under its id: 409, as one stored with no project', async () => {
     const h = harness({
       rows: [
         built({ id: 'dep-s2', projectId: S2 }),
@@ -1322,7 +1322,7 @@ describe('pinning the carried agents in the target (pin)', () => {
     expect(h.pinned).toHaveLength(2);
   });
 
-  test('pinned in the Default project: the pin names that project, so a Default run resolves it over an older tenant-wide pin', async () => {
+  test('pinned in the default project: the pin names that project, so a default run resolves it over an older tenant-wide pin', async () => {
     const h = harness({
       agentPins: true,
       rows: [built({ id: 'dep-s2', projectId: S2 })],
@@ -1330,8 +1330,8 @@ describe('pinning the carried agents in the target (pin)', () => {
     const res = await h.promoteAndPin('dep-s2', PROD);
     expect(res.status).toBe(201);
     expect(res.body.pinned).toEqual([{ id: AGENT, version: '1.0.0', pinned: true }]);
-    // A project-kind pin on the Default — never tenant- or org-wide — so it
-    // takes precedence over an older tenant pin when a Default run resolves its version.
+    // A project-kind pin on the default — never tenant- or org-wide — so it
+    // takes precedence over an older tenant pin when a default run resolves its version.
     expect(h.pinned).toHaveLength(1);
     expect(h.pinned[0]?.scope).toEqual({ kind: 'project', projectId: PROD });
   });

@@ -52,7 +52,7 @@ export interface SystemDeploymentEntry {
   /** The pack it deploys (the image index's `packId`). */
   readonly packId: string;
   /**
-   * The deployment's project: the one it named, else the tenant's Default;
+   * The deployment's project: the one it named, else the tenant's default;
    * absent only when the tenant has none.
    */
   readonly projectId?: string;

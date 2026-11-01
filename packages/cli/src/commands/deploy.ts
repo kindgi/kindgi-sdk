@@ -108,7 +108,7 @@ export const deployCommand: LeafCommand = {
   description:
     'Deploy a signed pack image to Kindgi. Reads deploy-envelope.json (or runs `kindgi build` inline) + POSTs to /v1/deployments. ' +
     "`--hosted` (or the env block's `build: 'hosted'`) deploys to Kindgi hosted: an inline build runs on the hosted build service (as `kindgi build --hosted`), and after the deploy it waits, up to 5 minutes, for the deployment's pack service to be ready. " +
-    "A deploy into the Default project with a pack tool whose id is an MCP endpoint's tool's is refused (`tool-kind-mismatch`), and nothing is deployed. " +
+    "A deploy into the default project with a pack tool whose id is an MCP endpoint's tool's is refused (`tool-kind-mismatch`), and nothing is deployed. " +
     "Before an image is built, the pack's blocks are checked against what runs: a deploy that would put back an older version of a block than runs now in a project of one of its agents stops, and exits 1 with nothing deployed, unless `--replace` names the block, with `--reason`.",
   hostedRun: { defaultEnv: 'staging' },
   usage:
@@ -142,7 +142,7 @@ export const deployCommand: LeafCommand = {
     project: {
       type: 'string',
       description:
-        "The project to deploy into, one per client: its id, or its slug. A slug two orgs share is refused: pass the id. Default: a tenant-wide deploy, into the tenant's Default project.",
+        "The project to deploy into, one per client: its id, or its slug. A slug two orgs share is refused: pass the id. Default: a tenant-wide deploy, into the tenant's default project.",
     },
     'idempotency-key': {
       type: 'string',
@@ -1116,7 +1116,7 @@ async function readPackService(
 /**
  * How many builds keep a pack service where the deploy went, said with how
  * to let old ones go: in the project it named, or the tenant's when it
- * named none (the deploy answer doesn't name the Default it went into). A
+ * named none (the deploy answer doesn't name the default it went into). A
  * read that fails is said, with why, and given back as `error`, so the
  * JSON tells it from a runtime that doesn't count them; one the stop cut
  * short says nothing.

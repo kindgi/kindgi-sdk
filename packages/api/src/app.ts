@@ -2678,7 +2678,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(itemRights !== undefined && { itemRights }),
           ...(deployCards !== undefined && { deployCards }),
           // The deployments router's agents publish loop resolves the
-          // Default project through this binding. Optional at wiring so
+          // default project through this binding. Optional at wiring so
           // app compositions without a project binding still boot; the loop
           // fails fast at runtime if agents are in the deployment index
           // but the binding is absent.
@@ -2894,7 +2894,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     }
     const siteAuth = {
       binding: input.sites.binding,
-      // Default: the nearest X-Forwarded-For hop (the proxy in front wrote
+      // default: the nearest X-Forwarded-For hop (the proxy in front wrote
       // it), as the sign-in options limit tells clients apart.
       clientAddress:
         input.sites.clientAddress ?? ((request: Request) => nearestForwardedClient(request)),

@@ -97,7 +97,7 @@ const list: LeafCommand = {
     project: {
       type: 'string',
       description:
-        "Only one project's deployments, by its id or its slug. The Default project's include the deployments that name no project. A slug two orgs share is refused: pass the id. Needs a runtime on Kindgi 0.1.9 or later.",
+        "Only one project's deployments, by its id or its slug. The default project's include the deployments that name no project. A slug two orgs share is refused: pass the id. Needs a runtime on Kindgi 0.1.9 or later.",
     },
     pack: {
       type: 'string',

@@ -303,7 +303,7 @@ describe('kindgi queue-rules', () => {
     expect(JSON.parse(out.stdout)).toEqual({ ruleId: 'jr-1', unregistered: true });
   });
 
-  test('without --project it writes into the Default project', async () => {
+  test('without --project it writes into the default project', async () => {
     const { calls, rec } = recorder();
     const out = await run(['queue-rules', 'list'], {
       projects: {

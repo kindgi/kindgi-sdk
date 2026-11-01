@@ -212,10 +212,10 @@ export interface TestSetPublishInput {
   /**
    * Project the test set is published into. REQUIRED. Callers that
    * don't naturally know a projectId
-   * resolve the tenant's Default via
+   * resolve the tenant's default via
    * `projectBinding.getDefault(tenantId)` at THEIR layer and thread
    * the resolved id here — the storage adapter never silently falls
-   * back to Default.
+   * back to the default.
    */
   readonly projectId: ProjectId;
   readonly testSet: TestSet;

@@ -87,7 +87,7 @@ const publish: LeafCommand = {
   kind: 'leaf',
   name: 'publish',
   description:
-    "Register a tool manifest at its version: the tool minus its handler, which the runtime must already have. In the Default project, an id that's an MCP endpoint's tool is refused (`tool-kind-mismatch`).",
+    "Register a tool manifest at its version: the tool minus its handler, which the runtime must already have. In the default project, an id that's an MCP endpoint's tool is refused (`tool-kind-mismatch`).",
   usage: 'kindgi tools publish --manifest=<json-or-@file> [--project=<project-id>]',
   optionSpec: {
     manifest: {
@@ -97,7 +97,7 @@ const publish: LeafCommand = {
     project: {
       type: 'string',
       description:
-        "The project to register the tool in, by id (default: the tenant's Default project).",
+        "The project to register the tool in, by id (default: the tenant's default project).",
     },
   },
   run: (ctx) =>

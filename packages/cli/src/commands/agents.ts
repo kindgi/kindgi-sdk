@@ -139,7 +139,7 @@ const publish: LeafCommand = {
     project: {
       type: 'string',
       description:
-        "The project to register the agent in, by id (default: the tenant's Default project).",
+        "The project to register the agent in, by id (default: the tenant's default project).",
     },
   },
   run: (ctx) =>
