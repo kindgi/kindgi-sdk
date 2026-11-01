@@ -353,9 +353,10 @@ pnpm exec kindgi suggested-changes pull <suggested-change-id> --pr
   the console. It never says the suggested change's why, nor a
   correction's words.
 - The corrections it fixes that are still `open` are then `being-fixed`,
-  linked to the pull request, which needs `publish` on the agent. One it
-  can't mark is named, with the line to run once it can be, and the pull
-  request stands.
+  linked to the pull request, which needs `publish` on the agent, or
+  `write` in the correction's project for an agent that several projects
+  serve. One it can't mark is named, with the line to run once it can be,
+  and the pull request stands.
 - Before it writes anything, it's refused when the pack isn't in git, its
   block files have changes that aren't committed (or git can't say),
   `HEAD` is detached, git has no `user.name`, there's no remote to push to,
