@@ -9,6 +9,8 @@
 #      packages/api/src/openapi/operations.ts." Also runs the artifact
 #      freshness test — packages/api/openapi.json MUST match the
 #      generator. Catches "changed the API, forgot `gen:openapi`."
+#      Both load the workspace packages from their source
+#      (packages/api/vitest.config.ts), so they need no build first.
 #   3. When staged files touch the API layer OR the SDK, regenerate the
 #      SDK's wire types from the artifact, then run the SDK coverage
 #      drift test — every generated wire endpoint MUST have a
