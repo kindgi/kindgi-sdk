@@ -168,7 +168,7 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
   const projects: ProjectBinding = {
     async create(tenantId, spec: ProjectSpec): Promise<ProjectCreateOutcome> {
       const isDefault = spec.isDefault === true;
-      // The Default guardrail first: a caller asking for the default
+      // The isDefault guardrail first: a caller asking for the default
       // wants to hear that one exists, whatever its slug.
       if (isDefault && tenantAlreadyHasDefault(tenantId)) {
         return { kind: 'project-default-already-exists' };

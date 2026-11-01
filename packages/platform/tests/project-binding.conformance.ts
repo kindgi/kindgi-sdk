@@ -519,7 +519,7 @@ export function runProjectBindingConformance(
     });
   }
 
-  describe(`${label} — Default project`, () => {
+  describe(`${label} — the default project`, () => {
     it('getDefault returns undefined before any default is created', async () => {
       const { projects } = makeBinding();
       expect(await projects.getDefault(T1)).toBeUndefined();
