@@ -794,12 +794,14 @@ describe('blockFileText: the same write, without the disk', () => {
     });
     // With `expected`, which its caller checks against the file: older goes, the file's own doesn't.
     const expected = { template: 'Reply to {{ customer_name }}.', parameters: [] };
-    expect(
-      blockFileText(text, 'prompt', { ...write, version: '1.1.0', expected }),
-    ).toMatchObject({ kind: 'ok', replaced: '1.2.0' });
-    expect(
-      blockFileText(text, 'prompt', { ...write, version: '1.2.0', expected }),
-    ).toMatchObject({ kind: 'err', reason: 'not-newer' });
+    expect(blockFileText(text, 'prompt', { ...write, version: '1.1.0', expected })).toMatchObject({
+      kind: 'ok',
+      replaced: '1.2.0',
+    });
+    expect(blockFileText(text, 'prompt', { ...write, version: '1.2.0', expected })).toMatchObject({
+      kind: 'err',
+      reason: 'not-newer',
+    });
     for (const [other, kind] of [
       ['not json', 'prompt'],
       [json(prompt({ id: 'acme.other-prompt' })), 'prompt'],
