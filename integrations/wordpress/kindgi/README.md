@@ -20,7 +20,7 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 
 - **WordPress** 6.4 or later.
 - **PHP** 7.4 or later, with sodium. WordPress ships a fallback for PHP builds without ext/sodium.
-- **Kindgi with site sign-in on:** Kindgi Cloud has it on. A runtime you run needs:
+- **Kindgi with site sign-in on:** Kindgi Cloud's is coming. A runtime you run needs:
   - `KINDGI_SITE_SIGN_IN=true`;
   - authorization enforced (`KINDGI_OPENFGA_API_URL`);
   - `KINDGI_PUBLIC_URL`.
