@@ -524,6 +524,10 @@ uv run kindgi reviewers register --spec='{"role":"standard","displayName":"Ada L
 `--spec` is the reviewer: its `role` and, optionally, a `displayName`.
 It prints the registered reviewer, as JSON.
 
+With authorization on, registering needs `admin` on the tenant
+([Who can do what](../../../deploy/people-and-keys/#who-can-do-what)): if
+you aren't a tenant admin, a tenant admin registers you, with your `userId`.
+
 [Decide an approval](../decide-an-approval/) covers reviewers and their roles.
 
 ## Run it
