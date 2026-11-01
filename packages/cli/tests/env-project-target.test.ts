@@ -490,6 +490,7 @@ describe('kindgi env: --env naming a pack environment, on a runtime that keeps i
       '--scope=project',
       '--quiet',
     ]);
+    // The woocommerce starter's connect-store script reads the old value from these words.
     expect([refused.exitCode, refused.stdout, refused.stderr]).toEqual([
       1,
       '',

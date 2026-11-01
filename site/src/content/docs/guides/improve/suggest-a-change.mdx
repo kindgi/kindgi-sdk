@@ -99,6 +99,7 @@ starts the check. It prints the suggested change, `checking`:
   ],
   "why": "Fit matters more than recency for acme rankings",
   "fixes": [],
+  "correctionCount": 0,
   "check": {
     "status": "running",
     "testSetId": "agent.acme.rank.scorer.aa0cf701-a8f7-40e5-b5d9-bec1a1cb1723",
@@ -116,6 +117,12 @@ starts the check. It prints the suggested change, `checking`:
   or when it was last rebuilt (`builtOn.rebuiltAt`), and `version` the agent
   version it made. `changes[].from` is the block
   version that `builtOn` pins, and `to` the one it published.
+- `fixes` names the corrections it fixes, the first 100 at most, and
+  `correctionCount` says how many in all. A person's change names 100 at
+  most, so its count is the length of `fixes`. One an
+  [Improve run](../improve-an-agent/#whose-corrections-it-learns-from) wrote
+  can fix more. An older runtime leaves `correctionCount` out, and there the
+  length of `fixes` is the count.
 - The content is checked as publishing that block version would be, and
   content equal to what the version pins is refused.
 - The same change on the same version for the same project returns the

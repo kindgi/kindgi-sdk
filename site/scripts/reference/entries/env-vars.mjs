@@ -206,6 +206,7 @@ export const ENV_DEFAULTS = {
   KINDGI_DEV_HOST_ALIAS: 'none: calls to loopback addresses connect as written',
   KINDGI_ORCHESTRATOR_PACK_SERVICE:
     "none: each field's default, and no network of its own (ingress from anywhere, the invoker check still on)",
+  KINDGI_ORCHESTRATOR_RUNTIME_AUTH: 'none: the system key alone',
 };
 
 /**

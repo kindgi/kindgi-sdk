@@ -14,7 +14,7 @@
  * `source`.
  */
 
-import { execFile } from 'node:child_process';
+import { gitOutput } from '../git.js';
 
 export interface DeploySource {
   /**
@@ -37,14 +37,7 @@ export interface DeploySource {
 export type GitRunner = (cwd: string, args: readonly string[]) => Promise<string | undefined>;
 
 export const runGit: GitRunner = (cwd, args) =>
-  new Promise((resolvePromise) => {
-    execFile(
-      'git',
-      [...args],
-      { cwd, timeout: 10_000, maxBuffer: 16 * 1024 * 1024 },
-      (err, stdout) => resolvePromise(err === null ? stdout : undefined),
-    );
-  });
+  gitOutput(cwd, args, { timeout: 10_000, maxBuffer: 16 * 1024 * 1024 });
 
 const COMMIT_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const HOST_RE = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/;

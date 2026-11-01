@@ -58,8 +58,11 @@ README.md explains the whole design; keep it true when you change the pack.
   deploy refuses a version whose content changed.
   `agents/store-agent/index.test.ts` checks they still name every tool
   that waits for a person.
-- **The store's password is a secret** (`WOO_APP_PASSWORD`, set with
-  `kindgi secrets set`): never write it in a file, a test or the chat.
+- **The store's password is a secret** (`WOO_APP_PASSWORD`): never write
+  it in a file, a test or the chat, and never ask the person to copy it.
+  The pack's `connect-store` script connects a store: one of its
+  administrators approves Kindgi in wp-admin, and the script saves the
+  password in Kindgi itself (README.md, Connect your store).
 
 ## Skills
 
