@@ -79,6 +79,7 @@ import type {
   TestRunStartInput,
   TokenResolver,
 } from '../src/index.js';
+import { SuggestedChangeSchema } from '../src/openapi/schemas.js';
 import { expectCompileBudgetRefused } from './support/compile-budget.js';
 import { environmentOrders } from './support/environment-orders.js';
 import { inMemoryBlocks } from './support/in-memory-blocks.js';
@@ -2690,6 +2691,10 @@ describe('a suggested change a drafter wrote (not a person)', () => {
       correctionCount: 140,
       madeBy: { kind: 'service', id: 'settings-optimizer' },
     });
+    // The spec's schema allows no other keys, so each one answered must be one it lists.
+    expect(SuggestedChangeSchema.additionalProperties).toBe(false);
+    const specKeys = Object.keys(SuggestedChangeSchema.properties as Record<string, unknown>);
+    expect(Object.keys(res.body).filter((key) => !specKeys.includes(key))).toEqual([]);
     const listed = (await h.call('GET', '/v1/suggested-changes')).body.data;
     expect(listed.find((s: { id: string }) => s.id === id)).toMatchObject({
       fixes: ['j-1', 'j-2'],

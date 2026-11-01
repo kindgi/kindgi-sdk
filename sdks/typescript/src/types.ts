@@ -465,7 +465,10 @@ export interface SuggestedChange {
   )[];
   /** What the change should fix, and why. */
   readonly why: string;
-  /** The corrections it fixes, by id: the first 100 at most. */
+  /**
+   * The corrections it fixes, by id: the first 100 at most. `correctionCount`
+   * says how many in all.
+   */
   readonly fixes: readonly string[];
   /**
    * How many corrections it fixes in all, those `fixes` names and any past
