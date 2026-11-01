@@ -324,20 +324,31 @@ describe('a reserved `kindgi.` name, named where a registration names a secret',
     expect(h.stored).toEqual([]);
   });
 
-  test('an MCP endpoint naming it: 400, and nothing is registered', async () => {
+  test('an MCP endpoint naming it, by secretRef or secretEnv: 400, and nothing is registered', async () => {
     const h = makeApp();
-    const mcp = await h.call('POST', '/v1/mcp/endpoints', {
-      endpointId: 'acme-docs',
-      name: 'Docs MCP',
-      transport: 'stdio',
-      config: { transport: 'stdio', command: '/usr/local/bin/docs-mcp', args: ['--stdio'] },
-      secretRef: { envName: 'local', name: HELD },
-    });
-    expect([mcp.status, mcp.body.error?.code, mcp.body.error?.message]).toEqual([
-      400,
-      'reserved-name-prefix',
-      RESERVED('an MCP endpoint'),
-    ]);
+    for (const endpoint of [
+      {
+        endpointId: 'acme-docs',
+        name: 'Docs MCP',
+        transport: 'streamable-http',
+        config: { transport: 'streamable-http', url: 'https://mcp.example.com/docs' },
+        secretRef: { envName: 'local', name: HELD },
+      },
+      {
+        endpointId: 'acme-files',
+        name: 'Files MCP',
+        transport: 'stdio',
+        config: { transport: 'stdio', command: '/usr/local/bin/files-mcp', args: ['--stdio'] },
+        secretEnv: { FILES_TOKEN: { envName: 'local', name: HELD } },
+      },
+    ]) {
+      const mcp = await h.call('POST', '/v1/mcp/endpoints', endpoint);
+      expect([mcp.status, mcp.body.error?.code, mcp.body.error?.message]).toEqual([
+        400,
+        'reserved-name-prefix',
+        RESERVED('an MCP endpoint'),
+      ]);
+    }
     expect(h.stored).toEqual([]);
   });
 
