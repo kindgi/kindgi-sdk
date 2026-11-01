@@ -49,9 +49,29 @@
   }
 
   /**
-   * Signing in, checked: asking for the project signs this administrator
-   * in as themselves, as it does any of the staff. The connection's row
-   * gains the project's name; without one, it stays as drawn.
+   * Answers that never reached Kindgi, or never came back from it: signing
+   * in wasn't checked, which isn't Kindgi refusing it.
+   */
+  const UNCHECKED = new Set(['fetch_error', 'invalid_json', 'kindgi_unreachable']);
+
+  /** The sign-in row once the project's read failed: Kindgi refused, or was never asked. */
+  function signinFailed(signin, error) {
+    const unchecked = UNCHECKED.has(error?.code);
+    setRow(
+      signin,
+      unchecked ? 'warn' : 'err',
+      unchecked
+        ? __("Signing in wasn't checked", 'kindgi')
+        : __("Kindgi didn't sign you in", 'kindgi'),
+      error?.message ?? __('Something went wrong.', 'kindgi'),
+    );
+  }
+
+  /**
+   * Signing in, checked: the project is asked for as this administrator,
+   * on the sign-in the site keeps for them or a new one, as it is for any
+   * of the staff. The connection's row gains the project's name; without
+   * one, it stays as drawn.
    */
   async function connection() {
     const connected = document.getElementById('kindgi-connected');
@@ -61,14 +81,7 @@
     try {
       project = await api('/project');
     } catch (error) {
-      if (signin !== null) {
-        setRow(
-          signin,
-          'err',
-          __("Kindgi didn't sign you in", 'kindgi'),
-          error?.message ?? __('Something went wrong.', 'kindgi'),
-        );
-      }
+      if (signin !== null) signinFailed(signin, error);
       return;
     }
     if (signin !== null) {
@@ -76,7 +89,7 @@
         signin,
         'ok',
         __('Staff sign in as themselves', 'kindgi'),
-        __('Kindgi signed you in just now.', 'kindgi'),
+        __('Kindgi answered as you just now.', 'kindgi'),
       );
     }
     if (!project.name) return;
