@@ -590,8 +590,11 @@ describe('kindgi deploy — response handling', () => {
     expect(out.stderr).toContain('201 Created');
     expect(out.stderr).toContain('deploymentId:    dep-created-01');
     expect(out.stderr).toContain('primitives:      1 tool');
+    expect(out.stderr).toContain('Deploy complete.');
+    expect(out.stderr).not.toContain('Nothing new was deployed');
     const summary = JSON.parse(out.stdout) as { outcome: string; deployment: DeploymentRecord };
     expect(summary.outcome).toBe('created');
+    expect(summary).not.toHaveProperty('idempotentReplay');
     expect(summary.deployment.deploymentId).toBe('dep-created-01');
   });
 
@@ -835,7 +838,7 @@ describe('kindgi deploy — response handling', () => {
     expect(out.stderr).toContain('with a new key: --idempotency-key <new value>.');
   });
 
-  test('a deployment answered from the record of an earlier request with the same key says so', async () => {
+  test('a deployment answered from the record of an earlier request with the same key says nothing new was deployed', async () => {
     await writeAutoEnvelope();
     const fixtures = makeFixtures();
     const created = fixtures.runners.postDeployment;
@@ -852,8 +855,37 @@ describe('kindgi deploy — response handling', () => {
     });
     expect(out.exitCode).toBe(0);
     expect(out.stderr).toContain(
-      "answered from the server's record of an earlier request with this Idempotency-Key",
+      'Nothing new was deployed: the server answered from its record of an earlier request with this Idempotency-Key',
     );
+    expect(out.stderr).toContain('was built, build it again first.');
+    expect(out.stderr).not.toContain('Deploy complete.');
+    expect(out.stderr).not.toContain('Runs started from now use image');
+    const summary = JSON.parse(out.stdout) as { outcome: string; idempotentReplay?: boolean };
+    expect(summary.outcome).toBe('created');
+    expect(summary.idempotentReplay).toBe(true);
+  });
+
+  test('a digest that already landed, answered from the record of an earlier request, says both', async () => {
+    await writeAutoEnvelope();
+    const fixtures = makeFixtures({
+      postResult: {
+        kind: 'replayed',
+        status: 200,
+        idempotentReplay: true,
+        record: makeDeploymentRecord({ deploymentId: 'dep-replayed-02' }),
+      },
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: ['deploy', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(0);
+    expect(out.stderr).toContain('Nothing new was deployed');
+    expect(out.stderr).toContain('previously landed');
+    expect(out.stderr).not.toContain('Deploy complete.');
+    const summary = JSON.parse(out.stdout) as { outcome: string; idempotentReplay?: boolean };
+    expect(summary.outcome).toBe('replayed');
+    expect(summary.idempotentReplay).toBe(true);
   });
 
   test('5xx → exit 1, retryable hint', async () => {

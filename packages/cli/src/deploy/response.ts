@@ -160,16 +160,22 @@ export function renderResponse(
     banner.push(`      activatedAt:     ${result.record.activatedAt}`);
     banner.push('');
     banner.push(...versionBlock(result.record.contents));
-    if (result.idempotentReplay === true) {
+    // Answered from the server's record of an earlier request with this key:
+    // this request deployed nothing, whatever the record it answers says.
+    const keyReplay = result.idempotentReplay === true;
+    if (keyReplay) {
       banner.push(
-        `  Note: answered from the server's record of an earlier request with this Idempotency-Key (${ctx.idempotencyKey}); nothing ran again.`,
+        `  Nothing new was deployed: the server answered from its record of an earlier request with this Idempotency-Key (${ctx.idempotencyKey}).`,
+      );
+      banner.push(
+        `  If the pack changed since ${ctx.envelopePath} was built, build it again first.`,
       );
     }
     if (result.kind === 'replayed') {
       banner.push(
         `  Note: same imageDigest (${result.record.imageDigest.slice(0, 20)}…) previously landed. Server returned the existing record.`,
       );
-    } else {
+    } else if (!keyReplay) {
       banner.push('  Deploy complete.');
       banner.push(
         `  Runs started from now use image ${result.record.imageDigest.slice(0, 20)}… ` +
@@ -185,6 +191,7 @@ export function renderResponse(
       idempotencyKey: ctx.idempotencyKey,
       status: result.status,
       outcome: result.kind === 'created' ? 'created' : 'replayed',
+      ...(keyReplay && { idempotentReplay: true }),
       deployment: result.record,
     };
     return { banner, summary, exitCode: 0 };
