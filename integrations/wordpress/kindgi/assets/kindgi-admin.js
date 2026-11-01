@@ -22,7 +22,7 @@
   const pollMs = config.pollMs ?? 1500;
   const ENDED = ['completed', 'failed', 'cancelled'];
 
-  const { api, el, when, notice, loading, muted, toolName, askUrl, approvalCard } =
+  const { api, el, when, notice, loading, muted, empty, toolName, askUrl, approvalCard } =
     window.kindgiCards;
   const absent = (value) => value === undefined || value === null || value === false;
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -101,11 +101,11 @@
   };
 
   async function start() {
-    root.append(muted(__('Signing you in to Kindgi…', 'kindgi')));
+    root.replaceChildren(loading());
     try {
       state.me = await api('/me');
     } catch (error) {
-      root.replaceChildren(notice(error));
+      root.replaceChildren(notice(error, start));
       return;
     }
     if (config.view === 'activity') renderActivity();
@@ -179,7 +179,7 @@
     try {
       loaded = await loadInbox(opened);
     } catch (error) {
-      root.replaceChildren(notice(error));
+      root.replaceChildren(notice(error, () => renderInbox()));
       return;
     }
     const mine = loaded.waiting.filter((a) => a.waitsFor === 'you');
@@ -202,9 +202,7 @@
           state.filter === 'decided'
             ? muted(__("The project's latest decisions, whoever decided.", 'kindgi'))
             : null,
-          list.length === 0
-            ? muted(emptyWords())
-            : list.map((a) => approvalCard(a, { after: reload })),
+          list.length === 0 ? emptyInbox() : list.map((a) => approvalCard(a, { after: reload })),
         ),
       ].filter((child) => !absent(child)),
     );
@@ -238,13 +236,50 @@
     return el('ul', { className: 'subsubsub' }, FILTERS.map(item));
   }
 
-  function emptyWords() {
-    if (state.filter === 'decided') return __('Nothing decided yet.', 'kindgi');
-    if (state.filter === 'others') return __('Nothing waits for anyone else.', 'kindgi');
-    if (state.me.reviewerRole === null) {
-      return __("You don't review approvals at Kindgi, so none wait for you.", 'kindgi');
+  /** An Inbox list with nothing in it: what lands there, and where to go instead. */
+  function emptyInbox() {
+    if (state.filter === 'decided') {
+      return empty({
+        title: __('Nothing decided yet', 'kindgi'),
+        text: __("Each approval's decision shows here: who decided, when, and why.", 'kindgi'),
+      });
     }
-    return __('Nothing waits for you.', 'kindgi');
+    if (state.filter === 'others') {
+      return empty({
+        title: __('Nothing waits for anyone else', 'kindgi'),
+        text: __('An approval that someone else decides shows here, with who that is.', 'kindgi'),
+      });
+    }
+    if (state.me.reviewerRole === null) {
+      return empty({
+        title: __('No approvals are yours to decide', 'kindgi'),
+        text: __(
+          "You don't review approvals at Kindgi. An administrator decides who does.",
+          'kindgi',
+        ),
+        actions: [el('a', { className: 'button', href: urls.ask }, __('Ask an agent', 'kindgi'))],
+      });
+    }
+    return empty({
+      title: __("You're all caught up", 'kindgi'),
+      text: __(
+        'When an agent wants your OK, for a refund past its limit or a reply to a customer, it waits here.',
+        'kindgi',
+      ),
+      actions: [
+        el(
+          'a',
+          { className: 'button button-primary', href: urls.ask },
+          __('Ask an agent', 'kindgi'),
+        ),
+        ' ',
+        el(
+          'a',
+          { className: 'button', href: urls.activity },
+          __('See what the agents did', 'kindgi'),
+        ),
+      ],
+    });
   }
 
   // ---------- Activity ----------
@@ -326,13 +361,26 @@
     try {
       [agents, page] = await Promise.all([api('/agents'), api('/activity')]);
     } catch (error) {
-      root.replaceChildren(notice(error));
+      root.replaceChildren(notice(error, () => renderActivity()));
       return;
     }
     const nameOf = (id) => agents.agents.find((a) => a.id === id)?.name || id;
     if (page.runs.length === 0) {
       root.replaceChildren(
-        muted(__('Nothing yet: what the agents and flows do shows here.', 'kindgi')),
+        empty({
+          title: __('Nothing yet', 'kindgi'),
+          text: __(
+            "What the agents and flows do shows here: each order they review, each mail they answer, each question they're asked.",
+            'kindgi',
+          ),
+          actions: [
+            el(
+              'a',
+              { className: 'button button-primary', href: urls.ask },
+              __('Ask an agent', 'kindgi'),
+            ),
+          ],
+        }),
       );
       return;
     }

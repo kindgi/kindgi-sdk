@@ -41,15 +41,122 @@
 
   // The site's own date format and time zone (Settings → General).
   const when = (iso) => (iso ? wp.date.dateI18n(wp.date.getSettings().formats.datetime, iso) : '');
-  const failure = (error) => error?.message ?? __('Something went wrong.', 'kindgi');
-  const notice = (error) =>
+  /** Why Kindgi wouldn't sign the person in (its `reason`), in words for them. */
+  const SIGN_IN = {
+    'role-not-allowed': __(
+      "Your role on this site doesn't use Kindgi. An administrator can change which roles do.",
+      'kindgi',
+    ),
+    'person-removed': __(
+      'You were removed from Kindgi on this site. An administrator can bring you back.',
+      'kindgi',
+    ),
+    'people-cap': __(
+      'This site has as many people at Kindgi as it may have. An administrator can make room.',
+      'kindgi',
+    ),
+    'site-paused': __(
+      'Kindgi is paused for this site. An administrator can turn it back on.',
+      'kindgi',
+    ),
+  };
+  const CLOCK = ['expired', 'issued-in-the-future', 'too-long-lived'];
+
+  /** A sign-in Kindgi refused, in words for the person. */
+  function signInFailure(reason) {
+    if (SIGN_IN[reason] !== undefined) return SIGN_IN[reason];
+    if (CLOCK.includes(reason)) {
+      return __(
+        "Kindgi didn't sign you in: this site's clock is off. Its host can set it right.",
+        'kindgi',
+      );
+    }
+    return __(
+      "Kindgi didn't sign you in: this site's connection needs an administrator to connect it again.",
+      'kindgi',
+    );
+  }
+
+  /** Any other refusal, by its status. */
+  const BY_STATUS = {
+    400: __("Kindgi couldn't take that as it is.", 'kindgi'),
+    403: __(
+      "Kindgi doesn't let you do that here. An administrator decides what each role may do.",
+      'kindgi',
+    ),
+    404: __("That isn't at Kindgi any more.", 'kindgi'),
+    409: __('That changed meanwhile. Reload the page to see where it stands.', 'kindgi'),
+    422: __("Kindgi couldn't take that as it is.", 'kindgi'),
+    429: __('Kindgi is busy. Try again in a minute.', 'kindgi'),
+  };
+
+  /**
+   * What went wrong, in words for staff. The plugin's own errors (`kindgi_…`)
+   * are already worded for them; Kindgi's are its words for developers, so
+   * they're replaced here and kept for administrators under Details.
+   */
+  function failure(error) {
+    const code = String(error?.code ?? '');
+    if (code.startsWith('kindgi_') && error?.message) return error.message;
+    if (code === 'site-sign-in-refused') return signInFailure(error?.data?.reason);
+    return (
+      BY_STATUS[error?.data?.status] ??
+      __("Kindgi can't be reached right now. Try again in a moment.", 'kindgi')
+    );
+  }
+
+  /** Kindgi's own words about an error, for an administrator; null for anyone else. */
+  function technical(error) {
+    if (window.kindgiConfig?.admin !== true || String(error?.code ?? '').startsWith('kindgi_'))
+      return null;
+    const said = [error?.code, error?.message].filter(Boolean).join(': ');
+    return said === ''
+      ? null
+      : el(
+          'details',
+          { className: 'kindgi-technical' },
+          el('summary', {}, __('Details', 'kindgi')),
+          el('code', {}, said),
+        );
+  }
+
+  /** An error, in words for staff, with Try again when `retry` is given. */
+  const notice = (error, retry = null) =>
     el(
       'div',
-      { className: 'notice notice-error inline', role: 'alert' },
+      { className: 'kindgi-problem', role: 'alert' },
       el('p', {}, failure(error)),
+      retry === null
+        ? null
+        : el(
+            'button',
+            { type: 'button', className: 'button', onclick: retry },
+            __('Try again', 'kindgi'),
+          ),
+      technical(error),
     );
-  const loading = () => el('p', { className: 'kindgi-muted' }, __('Loading…', 'kindgi'));
+
+  /** Grey lines where something is on its way; read out as "Loading…". */
+  const loading = (lines = 3) =>
+    el(
+      'div',
+      { className: 'kindgi-skeleton', role: 'status' },
+      el('span', { className: 'screen-reader-text' }, __('Loading…', 'kindgi')),
+      Array.from({ length: lines }, () =>
+        el('span', { className: 'kindgi-skeleton-line', 'aria-hidden': 'true' }),
+      ),
+    );
   const muted = (text) => el('p', { className: 'kindgi-muted' }, text);
+
+  /** A list with nothing in it: what it is, what lands in it, and what to do now. */
+  const empty = ({ title, text = null, actions = [] }) =>
+    el(
+      'div',
+      { className: 'kindgi-empty' },
+      el('p', { className: 'kindgi-empty-title' }, title),
+      text === null ? null : el('p', {}, text),
+      actions.length === 0 ? null : el('p', { className: 'kindgi-empty-actions' }, actions),
+    );
 
   /** A field's or a tool's name in words, `orderId` → "Order ID", as the site's PHP has it. */
   function words(name) {
@@ -312,6 +419,7 @@
     notice,
     loading,
     muted,
+    empty,
     toolName,
     askUrl,
     approvalCard,

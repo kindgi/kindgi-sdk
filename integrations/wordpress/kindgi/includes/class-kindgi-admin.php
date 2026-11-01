@@ -248,6 +248,10 @@ final class Kindgi_Admin {
 			wp_set_script_translations( 'kindgi-count', 'kindgi' );
 			wp_add_inline_style( 'admin-bar', '#wpadminbar #wp-admin-bar-kindgi-inbox.kindgi-none{display:none}#wpadminbar #wp-admin-bar-kindgi-inbox .ab-icon:before{top:2px}' );
 		}
+		if ( false !== self::$settings_hook && self::$settings_hook === $hook ) {
+			// Its heading is a Kindgi page's, connected or not.
+			wp_enqueue_style( 'kindgi-admin', plugins_url( 'assets/kindgi-admin.css', KINDGI_PLUGIN_FILE ), array(), $version );
+		}
 		if ( false !== self::$settings_hook && self::$settings_hook === $hook && null !== Kindgi_Settings::site() ) {
 			wp_enqueue_script( 'kindgi-settings', plugins_url( 'assets/kindgi-settings.js', KINDGI_PLUGIN_FILE ), array( 'wp-api-fetch', 'wp-i18n' ), $version, true );
 			wp_set_script_translations( 'kindgi-settings', 'kindgi' );
@@ -273,6 +277,8 @@ final class Kindgi_Admin {
 			'order'        => $order > 0 && Kindgi_Order::shown() ? $order : null,
 			'pollMs'       => 1500,
 			'urls'         => self::urls(),
+			// Administrators see Kindgi's own words about an error, under Details.
+			'admin'        => current_user_can( 'manage_options' ),
 		);
 		wp_add_inline_script( 'kindgi-cards', 'window.kindgiConfig = ' . wp_json_encode( $config ) . ';', 'before' );
 	}
@@ -297,19 +303,55 @@ final class Kindgi_Admin {
 		self::register_cards();
 		wp_enqueue_script( 'kindgi-order', plugins_url( 'assets/kindgi-order.js', KINDGI_PLUGIN_FILE ), array( 'kindgi-cards' ), $version, true );
 		wp_set_script_translations( 'kindgi-order', 'kindgi' );
-		wp_add_inline_script( 'kindgi-cards', 'window.kindgiConfig = ' . wp_json_encode( array( 'urls' => self::urls() ) ) . ';', 'before' );
+		wp_add_inline_script(
+			'kindgi-cards',
+			'window.kindgiConfig = ' . wp_json_encode(
+				array(
+					'urls'  => self::urls(),
+					'admin' => current_user_can( 'manage_options' ),
+				)
+			) . ';',
+			'before'
+		);
 	}
 
 	/** A page staff use: its heading, then the app, which shows the page's view. */
 	public static function page(): void {
 		$view  = self::$views[ current_filter() ] ?? 'inbox';
 		$pages = wp_list_pluck( self::pages(), 'title', 'view' );
-		echo '<div class="wrap kindgi"><h1>' . esc_html( $pages[ $view ] ?? __( 'Kindgi', 'kindgi' ) ) . '</h1>';
+		echo '<div class="wrap kindgi">';
+		self::header( $pages[ $view ] ?? __( 'Kindgi', 'kindgi' ) );
 		if ( null === Kindgi_Settings::site() ) {
-			echo '<div class="notice notice-warning"><p>' . esc_html__( "This site isn't connected to Kindgi yet: an administrator connects it under Kindgi → Settings.", 'kindgi' ) . '</p></div></div>';
+			self::not_connected();
+			echo '</div>';
 			return;
 		}
 		echo '<div id="kindgi-app"></div><noscript>' . esc_html__( 'The Kindgi pages need JavaScript.', 'kindgi' ) . '</noscript></div>';
+	}
+
+	/**
+	 * A Kindgi page's heading, with Kindgi's mark. WordPress puts its notices
+	 * after `wp-header-end`, so they show below it.
+	 */
+	public static function header( string $title ): void {
+		echo '<div class="kindgi-header">' . self::mark() . '<h1>' . esc_html( $title ) . '</h1></div><hr class="wp-header-end">';
+	}
+
+	/** Kindgi's mark: its tile and K, drawn inline (no request, and no color from WordPress's menu). */
+	public static function mark(): string {
+		return '<svg class="kindgi-mark" viewBox="0 0 32 32" width="28" height="28" aria-hidden="true" focusable="false"><rect width="32" height="32" rx="7" fill="#6c1a5a"/><path d="M9 8v16M9 16l7-8M9 16l7 8M20 8v16M20 16h5" stroke="#fff" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+	}
+
+	/** A Kindgi page before the site is connected: the way to connect it, for whoever can. */
+	private static function not_connected(): void {
+		echo '<div class="kindgi-empty"><p class="kindgi-empty-title">' . esc_html__( "This store isn't connected to Kindgi yet", 'kindgi' ) . '</p>';
+		if ( current_user_can( 'manage_options' ) ) {
+			echo '<p>' . esc_html__( "Once it is, your staff see what the agents want them to decide, what they did, and can ask them about the store, signed in as themselves.", 'kindgi' ) . '</p>';
+			echo '<p class="kindgi-empty-actions"><a class="button button-primary" href="' . esc_url( admin_url( 'admin.php?page=' . self::SETTINGS_PAGE ) ) . '">' . esc_html__( 'Connect it in Settings', 'kindgi' ) . '</a></p>';
+		} else {
+			echo '<p>' . esc_html__( 'An administrator of this site connects it, under Kindgi → Settings.', 'kindgi' ) . '</p>';
+		}
+		echo '</div>';
 	}
 
 	/** The approval cards' script, which the Kindgi pages and the order's box share. */
@@ -331,8 +373,8 @@ final class Kindgi_Admin {
 		$notice = get_transient( self::notice_key() );
 		delete_transient( self::notice_key() );
 		?>
-		<div class="wrap kindgi-settings">
-			<h1><?php esc_html_e( 'Kindgi settings', 'kindgi' ); ?></h1>
+		<div class="wrap kindgi kindgi-settings">
+			<?php self::header( __( 'Kindgi settings', 'kindgi' ) ); ?>
 			<?php if ( is_array( $notice ) ) : ?>
 				<div class="notice notice-<?php echo 'ok' === $notice['kind'] ? 'success' : 'error'; ?>"><p><?php echo esc_html( $notice['message'] ); ?></p></div>
 			<?php endif; ?>

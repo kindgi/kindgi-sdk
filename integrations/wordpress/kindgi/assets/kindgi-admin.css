@@ -1,16 +1,171 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* Copyright (C) 2026 Kindgi Inc. */
 
-/* The Kindgi pages: wp-admin's own colors and controls, a little layout. */
+/*
+ * The Kindgi pages. Actions take the person's own admin color scheme
+ * (`--wp-admin-theme-color`), so the pages never fight WordPress; Kindgi's
+ * plum is for its mark only. Every color, space and radius is a token here.
+ */
+
+.kindgi {
+  --kindgi-accent: var(--wp-admin-theme-color, #3858e9);
+  --kindgi-brand: #6c1a5a;
+  --kindgi-surface: #fff;
+  --kindgi-sunken: #f6f7f7;
+  --kindgi-border: #dcdcde;
+  --kindgi-text: #1e1e1e;
+  --kindgi-muted: #646970;
+  --kindgi-ok: #00a32a;
+  --kindgi-warn: #dba617;
+  --kindgi-err: #d63638;
+  --kindgi-err-soft: #fcf0f1;
+  --kindgi-space-1: 4px;
+  --kindgi-space-2: 8px;
+  --kindgi-space-3: 12px;
+  --kindgi-space-4: 16px;
+  --kindgi-space-5: 24px;
+  --kindgi-radius: 8px;
+  --kindgi-shadow: 0 1px 2px rgb(0 0 0 / 4%), 0 1px 3px rgb(0 0 0 / 6%);
+}
+
+/* ---------- The page's heading: Kindgi's mark and the page's name ---------- */
+
+.kindgi .kindgi-header {
+  display: flex;
+  align-items: center;
+  gap: var(--kindgi-space-3);
+  margin: var(--kindgi-space-2) 0 var(--kindgi-space-3);
+}
+
+.kindgi .kindgi-header h1 {
+  padding: 0;
+  margin: 0;
+}
+
+.kindgi .kindgi-mark {
+  flex: none;
+  border-radius: 7px;
+}
 
 .kindgi .kindgi-muted {
-  color: #646970;
+  color: var(--kindgi-muted);
 }
+
+/* ---------- Loading, nothing there, and something wrong ---------- */
+
+.kindgi .kindgi-skeleton {
+  display: grid;
+  gap: var(--kindgi-space-3);
+  max-width: 760px;
+  padding: var(--kindgi-space-4);
+  background: var(--kindgi-surface);
+  border: 1px solid var(--kindgi-border);
+  border-radius: var(--kindgi-radius);
+}
+
+.kindgi .kindgi-skeleton-line {
+  display: block;
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #f0f0f1 25%, #e5e5e7 50%, #f0f0f1 75%);
+  background-size: 200% 100%;
+  animation: kindgi-shimmer 1.4s ease-in-out infinite;
+}
+
+.kindgi .kindgi-skeleton-line:nth-child(2) {
+  width: 60%;
+}
+
+.kindgi .kindgi-skeleton-line:nth-child(3) {
+  width: 90%;
+}
+
+.kindgi .kindgi-skeleton-line:nth-child(4) {
+  width: 75%;
+}
+
+@keyframes kindgi-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kindgi .kindgi-skeleton-line {
+    animation: none;
+  }
+}
+
+.kindgi .kindgi-empty {
+  max-width: 560px;
+  margin: var(--kindgi-space-5) 0;
+  padding: var(--kindgi-space-5);
+  background: var(--kindgi-surface);
+  border: 1px solid var(--kindgi-border);
+  border-radius: var(--kindgi-radius);
+  box-shadow: var(--kindgi-shadow);
+}
+
+.kindgi .kindgi-empty p {
+  margin: 0 0 var(--kindgi-space-2);
+  color: var(--kindgi-muted);
+  font-size: 14px;
+}
+
+.kindgi .kindgi-empty .kindgi-empty-title {
+  color: var(--kindgi-text);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.kindgi .kindgi-empty .kindgi-empty-actions {
+  margin: var(--kindgi-space-4) 0 0;
+}
+
+.kindgi .kindgi-problem {
+  max-width: 760px;
+  margin: 0 0 var(--kindgi-space-3);
+  padding: var(--kindgi-space-3) var(--kindgi-space-4);
+  background: var(--kindgi-err-soft);
+  border-left: 4px solid var(--kindgi-err);
+  border-radius: var(--kindgi-radius);
+}
+
+.kindgi .kindgi-problem p {
+  margin: 0 0 var(--kindgi-space-2);
+  font-size: 14px;
+}
+
+.kindgi .kindgi-problem p:last-child {
+  margin: 0;
+}
+
+.kindgi .kindgi-technical {
+  margin-top: var(--kindgi-space-2);
+}
+
+.kindgi .kindgi-technical summary {
+  color: var(--kindgi-muted);
+  cursor: pointer;
+}
+
+.kindgi .kindgi-technical code {
+  display: block;
+  margin-top: var(--kindgi-space-1);
+  background: transparent;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Ask ---------- */
 
 .kindgi .kindgi-columns {
   display: grid;
   grid-template-columns: minmax(200px, 280px) 1fr;
-  gap: 24px;
+  gap: var(--kindgi-space-5);
   align-items: start;
 }
 
@@ -23,12 +178,12 @@
 .kindgi .kindgi-side select,
 .kindgi .kindgi-side .button {
   display: block;
-  margin: 4px 0 8px;
+  margin: var(--kindgi-space-1) 0 var(--kindgi-space-2);
   max-width: 100%;
 }
 
 .kindgi .kindgi-side .kindgi-about {
-  margin: 0 0 8px;
+  margin: 0 0 var(--kindgi-space-2);
 }
 
 .kindgi .kindgi-conversations {
@@ -41,27 +196,27 @@
 
 .kindgi .kindgi-messages {
   list-style: none;
-  margin: 0 0 12px;
+  margin: 0 0 var(--kindgi-space-3);
   padding: 0;
 }
 
 .kindgi .kindgi-message {
-  background: #fff;
-  border: 1px solid #dcdcde;
-  border-radius: 4px;
-  margin: 0 0 8px;
-  padding: 8px 12px;
+  background: var(--kindgi-surface);
+  border: 1px solid var(--kindgi-border);
+  border-radius: var(--kindgi-radius);
+  margin: 0 0 var(--kindgi-space-2);
+  padding: var(--kindgi-space-2) var(--kindgi-space-3);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
 .kindgi .kindgi-tool {
-  background: #f6f7f7;
+  background: var(--kindgi-sunken);
 }
 
 .kindgi .kindgi-tool pre {
   white-space: pre-wrap;
-  margin: 4px 0 0;
+  margin: var(--kindgi-space-1) 0 0;
 }
 
 .kindgi .kindgi-user {
@@ -72,21 +227,25 @@
 .kindgi .kindgi-main textarea {
   display: block;
   width: 100%;
-  margin-bottom: 8px;
+  margin-bottom: var(--kindgi-space-2);
 }
 
 .kindgi .kindgi-steps {
-  margin: 0 0 8px;
+  margin: 0 0 var(--kindgi-space-2);
 }
+
+/* ---------- Approval cards ---------- */
 
 /* A card's left edge says whose it is: amber waits for you, grey for someone else; green approved, red rejected. */
 .kindgi .kindgi-wait,
 .kindgi .kindgi-card {
-  background: #fff;
-  border: 1px solid #dcdcde;
-  border-left: 4px solid #dba617;
-  margin: 0 0 12px;
-  padding: 8px 12px;
+  background: var(--kindgi-surface);
+  border: 1px solid var(--kindgi-border);
+  border-left: 4px solid var(--kindgi-warn);
+  border-radius: var(--kindgi-radius);
+  box-shadow: var(--kindgi-shadow);
+  margin: 0 0 var(--kindgi-space-3);
+  padding: var(--kindgi-space-3) var(--kindgi-space-4);
 }
 
 .kindgi .kindgi-card.kindgi-others,
@@ -98,19 +257,20 @@
 }
 
 .kindgi .kindgi-card.kindgi-approved {
-  border-left-color: #00a32a;
+  border-left-color: var(--kindgi-ok);
 }
 
 .kindgi .kindgi-card.kindgi-rejected {
-  border-left-color: #d63638;
+  border-left-color: var(--kindgi-err);
 }
 
 .kindgi .kindgi-card.kindgi-target {
-  box-shadow: 0 0 0 2px #2271b1;
+  box-shadow: 0 0 0 2px var(--kindgi-accent);
 }
 
 .kindgi .kindgi-wait .kindgi-card {
   border: 0;
+  box-shadow: none;
   margin: 0;
   padding: 0;
 }
@@ -119,7 +279,7 @@
 .kindgi .kindgi-cards {
   clear: both;
   max-width: 760px;
-  padding-top: 8px;
+  padding-top: var(--kindgi-space-2);
 }
 
 .kindgi .kindgi-linked {
@@ -127,14 +287,14 @@
 }
 
 .kindgi .kindgi-card h3 {
-  margin: 4px 0 8px;
+  margin: var(--kindgi-space-1) 0 var(--kindgi-space-2);
 }
 
 .kindgi .kindgi-facts {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 2px 12px;
-  margin: 0 0 8px;
+  gap: 2px var(--kindgi-space-3);
+  margin: 0 0 var(--kindgi-space-2);
 }
 
 .kindgi .kindgi-facts dt {
@@ -148,29 +308,17 @@
 
 .kindgi .kindgi-card pre,
 .kindgi .kindgi-activity pre {
-  background: #f6f7f7;
+  background: var(--kindgi-sunken);
+  border-radius: var(--kindgi-space-1);
   overflow: auto;
-  padding: 8px;
+  padding: var(--kindgi-space-2);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
 .kindgi .kindgi-details summary {
-  color: #646970;
+  color: var(--kindgi-muted);
   cursor: pointer;
-}
-
-.kindgi .kindgi-activity td {
-  vertical-align: top;
-}
-
-.kindgi .kindgi-activity .row-actions {
-  padding-top: 2px;
-}
-
-.kindgi .kindgi-failed {
-  color: #d63638;
-  font-weight: 600;
 }
 
 .kindgi .kindgi-card textarea {
@@ -187,19 +335,19 @@
   font-style: italic;
 }
 
-/* The agent's own words: quoted, apart from the facts. */
+/* The agent's own words: set apart from the facts. */
 .kindgi figure.kindgi-said {
-  margin: 8px 0;
+  margin: var(--kindgi-space-2) 0;
 }
 
 .kindgi .kindgi-said figcaption {
-  color: #646970;
+  color: var(--kindgi-muted);
 }
 
 .kindgi .kindgi-said blockquote {
-  margin: 4px 0 0;
+  margin: var(--kindgi-space-1) 0 0;
   padding-left: 10px;
-  border-left: 3px solid #dcdcde;
+  border-left: 3px solid var(--kindgi-border);
   font-style: italic;
 }
 
@@ -207,9 +355,26 @@
   font-style: italic;
 }
 
-/* The order's box, in the order screen's narrow side column. */
+/* ---------- Activity ---------- */
+
+.kindgi .kindgi-activity td {
+  vertical-align: top;
+}
+
+.kindgi .kindgi-activity .row-actions {
+  padding-top: 2px;
+}
+
+.kindgi .kindgi-failed {
+  color: var(--kindgi-err);
+  font-weight: 600;
+}
+
+/* ---------- The order's box, in the order screen's narrow side column ---------- */
+
 .kindgi.kindgi-order-box .kindgi-card {
-  padding: 6px 8px;
+  padding: 6px var(--kindgi-space-2);
+  box-shadow: none;
 }
 
 .kindgi.kindgi-order-box .kindgi-card h3,
@@ -218,5 +383,5 @@
 }
 
 .kindgi.kindgi-order-box .kindgi-order-section {
-  margin: 12px 0 6px;
+  margin: var(--kindgi-space-3) 0 6px;
 }
