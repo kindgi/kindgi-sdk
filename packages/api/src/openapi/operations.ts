@@ -4234,7 +4234,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Malformed request body. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
+        "Malformed request body, or the test run isn't a completed comparison: a cancelled or failed one is refused, even with the summary of the cases it got through. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
       '404': ErrorResponse(
         'The version is not registered, or was unregistered; or the test run is not found.',
@@ -4269,7 +4269,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: "The gate's answer.", schema: ref('PinCheck') },
       ...CommonAuthErrors,
       '400': ErrorResponse(
-        "Malformed body, or the test run is not a finished comparison. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
+        "Malformed body, or the test run isn't a completed comparison: a cancelled or failed one is refused, even with the summary of the cases it got through. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
       ),
       '404': ErrorResponse('The version, the agent or the test run is not found.'),
       '409': ErrorResponse(
