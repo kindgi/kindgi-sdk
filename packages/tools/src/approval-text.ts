@@ -154,24 +154,46 @@ function cut(text: string, max: number): string {
   return chars.length <= max ? text : `${chars.slice(0, max - 1).join('')}…`;
 }
 
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * The path of the first part of an approval that isn't the shape its
+ * type says, if one isn't. A pack's index is JSON read from disk, so its
+ * `approval` may be anything.
+ */
+function shapeProblem(approval: unknown): string | undefined {
+  if (!isRecord(approval)) return '/approval';
+  if (typeof approval.title !== 'string') return '/approval/title';
+  if (approval.summary !== undefined && typeof approval.summary !== 'string') {
+    return '/approval/summary';
+  }
+  const about = approval.about;
+  if (about === undefined) return undefined;
+  return isRecord(about) && typeof about.kind === 'string' && typeof about.id === 'string'
+    ? undefined
+    : '/approval/about';
+}
+
 /**
  * A call's approval in its tool's words: each `{field}` filled from the
  * call's arguments in one pass (a value holding `{x}` stays as it is),
- * each value on one line and cut when long, then each text cut. A call
- * whose arguments don't fill every placeholder (a pack read from disk
- * wasn't checked where it was defined), or fill its title to nothing,
- * answers the path of the text that didn't fill, and its approval reads
- * the default. A summary or an `about.id` that fills to nothing is left
- * out.
+ * each value on one line and cut when long, then each text cut. A pack
+ * read from disk wasn't checked where it was defined: an approval that
+ * isn't the shape its type says answers the path of the part that isn't,
+ * and a call whose arguments don't fill every placeholder, or fill its
+ * title to nothing, answers the path of the text that didn't fill.
+ * Either way, it never throws, and the call's approval reads the
+ * default. A summary or an `about.id` that fills to nothing is left out.
  */
 export function renderApproval(
   approval: ToolApproval,
   args: unknown,
 ): Result<RenderedApproval, { readonly path: string }> {
-  const values =
-    args !== null && typeof args === 'object' && !Array.isArray(args)
-      ? (args as Readonly<Record<string, unknown>>)
-      : {};
+  const shape = shapeProblem(approval);
+  if (shape !== undefined) return { kind: 'err', error: { path: shape } };
+  const values = isRecord(args) ? args : {};
   const fill = (template: string, part: keyof typeof VALUE_MAX): string | undefined => {
     let filled = true;
     const text = template.replace(PLACEHOLDER, (_, name: string) => {

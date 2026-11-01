@@ -1029,7 +1029,10 @@ async function runAlone(
  * approval's `title` goes out in the reviewer's mail and the
  * `approval.requested` event, which never carry a call's arguments, so it
  * stays `Approve a call to <tool id>`. A call whose arguments don't fill
- * the words has none, and its approval reads that title alone.
+ * the words has none, and its approval reads that title alone. So does a
+ * call whose tool's words aren't the shape their type says (a pack's
+ * index is JSON read from disk): `renderApproval` never throws, so the
+ * approval still opens.
  */
 function approvalContextOf(
   tool: Tool,

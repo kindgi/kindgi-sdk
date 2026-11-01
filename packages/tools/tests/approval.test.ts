@@ -258,4 +258,26 @@ describe("renderApproval fills a call's approval from its arguments", () => {
       ),
     ).toEqual({ kind: 'ok', value: { text: { title: 'Look up an order' } } });
   });
+
+  // A pack's index is JSON read from disk, unchecked: its `approval` may be anything.
+  test.each([
+    ['a string', 'Refund', '/approval'],
+    ['null', null, '/approval'],
+    ['a list', [{ title: 'Refund' }], '/approval'],
+    ['a title that is a number', { title: 25 }, '/approval/title'],
+    ['no title', { summary: 'x' }, '/approval/title'],
+    ['a summary that is a number', { title: 'x', summary: 5 }, '/approval/summary'],
+    ['an about with no id', { title: 'x', about: { kind: 'acme.order' } }, '/approval/about'],
+    ['an about that is null', { title: 'x', about: null }, '/approval/about'],
+    [
+      'an about kind that is a number',
+      { title: 'x', about: { kind: 7, id: '{orderId}' } },
+      '/approval/about',
+    ],
+  ])('an approval that is %s answers the path that is wrong, never throws', (_, bad, path) => {
+    expect(renderApproval(bad as unknown as ToolApproval, { orderId: 1043 })).toEqual({
+      kind: 'err',
+      error: { path },
+    });
+  });
 });

@@ -147,4 +147,19 @@ describe("a gated call's approval, in its tool's words", () => {
     expect(enqueued).not.toHaveProperty('context');
     expect(ran).toEqual([ARGS]);
   });
+
+  test.each([
+    ['a string', 'Refund {amount}'],
+    ['an about with no id', { title: 'Refund {amount}', about: { kind: 'acme.order' } }],
+  ])(
+    "an approval that isn't its shape (%s, from a pack's index) still opens, with the title alone",
+    async (_, approval) => {
+      const ran: unknown[] = [];
+      const unchecked = { ...refundTool(ran), approval } as unknown as AnyTool;
+      const enqueued = await dispatchGated(unchecked);
+      expect(enqueued.title).toBe('Approve a call to pack.refund');
+      expect(enqueued).not.toHaveProperty('context');
+      expect(ran).toEqual([ARGS]);
+    },
+  );
 });
