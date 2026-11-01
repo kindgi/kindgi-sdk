@@ -50,7 +50,8 @@ afterEach(async () => {
  * The pack's `@kindgi/cli`, standing in: it records each call's arguments
  * and stdin, keeps what was set, and refuses a change or a second secret in
  * the real CLI's words (pinned in env-project-target.test.ts and
- * secrets.test.ts).
+ * secrets.test.ts). `FAKE_KINDGI_REFUSES` refuses every call (`*`), or one
+ * command (`env set`), as a CLI that isn't signed in does.
  */
 async function installFakeKindgi(packRoot: string): Promise<void> {
   const dir = join(packRoot, 'node_modules', '@kindgi', 'cli');
@@ -69,7 +70,8 @@ async function installFakeKindgi(packRoot: string): Promise<void> {
     join(dir, 'dist', 'cli.js'),
     `import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 const argv = process.argv.slice(2);
-if (process.env.FAKE_KINDGI_REFUSES) {
+const refuses = process.env.FAKE_KINDGI_REFUSES;
+if (refuses === '*' || refuses === argv.slice(0, 2).join(' ')) {
   process.stderr.write('Error [auth]: Bearer token is not recognized\\n');
   process.exit(1);
 }
@@ -95,6 +97,8 @@ if (argv[0] === 'env' && argv[1] === 'set') {
     process.exit(1);
   }
   state.secrets[where + ' ' + argv[2]] = [...versions, stdin];
+} else if (argv[0] === 'env' && argv[1] === 'list') {
+  // A read: nothing changes.
 } else {
   process.stderr.write('fake kindgi: no ' + argv.join(' ') + '\\n');
   process.exit(2);
@@ -460,14 +464,16 @@ describe("the woocommerce starter's connect-store", () => {
 
     const calls = await kindgiCalls();
     expect(calls.map((c) => c.argv)).toEqual([
+      // Read before the approval, on the same target.
+      ['env', 'list', '--env=local', '--scope=tenant'],
       ['env', 'set', 'WOO_STORE_URL', shop.url, '--env=local', '--scope=tenant'],
       ['env', 'set', 'WOO_USER', 'kindgi-agent', '--env=local', '--scope=tenant'],
       ['secrets', 'set', 'WOO_APP_PASSWORD', '--env=local', '--scope=tenant', '--from-stdin'],
     ]);
     // Run in the pack, the password on stdin and never in an argument or the output.
     const pack = await realpath(root);
-    expect(calls.map((c) => c.cwd)).toEqual([pack, pack, pack]);
-    expect(calls[2]!.stdin).toBe(password);
+    expect(calls.map((c) => c.cwd)).toEqual([pack, pack, pack, pack]);
+    expect(calls[3]!.stdin).toBe(password);
     expect(JSON.stringify(calls.map((c) => c.argv))).not.toContain(password);
     expect(stdout + stderr).not.toContain(password);
     expect(stdout).toContain("✓ Revoked owner's approval password.");
@@ -529,7 +535,8 @@ describe("the woocommerce starter's connect-store", () => {
       "Connected: the pack's tools in production sign in to the store as kindgi-agent.",
     );
 
-    const calls = (await kindgiCalls()).slice(-3).map((c) => c.argv);
+    const calls = (await kindgiCalls()).slice(-4).map((c) => c.argv);
+    expect(calls[0]!.slice(0, 2)).toEqual(['env', 'list']);
     for (const argv of calls)
       expect(argv).toEqual(
         expect.arrayContaining(['--env=production', '--scope=project:p1', '--hosted']),
@@ -553,7 +560,10 @@ describe("the woocommerce starter's connect-store", () => {
     expect(stderr).toContain('The approval was declined in wp-admin. Nothing changed.');
     expect(page).toContain('Not connected');
     expect(shop.users.map((u) => u.slug)).toEqual(['owner']);
-    expect(await kindgiCalls()).toEqual([]);
+    // Only the read before the approval.
+    expect((await kindgiCalls()).map((c) => c.argv)).toEqual([
+      ['env', 'list', '--env=local', '--scope=tenant'],
+    ]);
   });
 
   test.each([[['editor']], [['shop_manager', 'administrator']]])(
@@ -580,9 +590,25 @@ describe("the woocommerce starter's connect-store", () => {
       expect(shop.users[1]!.passwords).toEqual([]);
       expect(shop.users[0]!.passwords).toEqual([]);
       expect(stdout).toContain("✓ Revoked owner's approval password");
-      expect(await kindgiCalls()).toEqual([]);
+      expect((await kindgiCalls()).map((c) => c.argv)).toEqual([
+        ['env', 'list', '--env=local', '--scope=tenant'],
+      ]);
     },
   );
+
+  test('a kindgi that refuses is refused before any approval, in its own words', async () => {
+    const shop = await store();
+    const { code, stdout, stderr } = await connectStore([shop.url, '--no-browser'], {
+      FAKE_KINDGI_REFUSES: '*',
+    }).done;
+    expect(code).toBe(1);
+    expect(stderr).toContain(
+      'kindgi env list --env=local --scope=tenant failed, so nothing was asked of the store:\nError [auth]: Bearer token is not recognized',
+    );
+    expect(stdout).not.toContain('authorize-application.php');
+    expect(shop.users.map((u) => u.slug)).toEqual(['owner']);
+    expect(shop.users[0]!.passwords).toEqual([]);
+  });
 
   test("when Kindgi refuses the save, the agent's new password goes and the one before stays", async () => {
     const shop = await store();
@@ -592,7 +618,7 @@ describe("the woocommerce starter's connect-store", () => {
     const agent = shop.users.find((u) => u.slug === 'kindgi-agent')!;
     const before = [...agent.passwords];
 
-    run = connectStore([shop.url, '--no-browser'], { FAKE_KINDGI_REFUSES: '1' });
+    run = connectStore([shop.url, '--no-browser'], { FAKE_KINDGI_REFUSES: 'env set' });
     const page = await approve(shop, await run.link);
     const { code, stdout, stderr } = await run.done;
     expect(code).toBe(1);

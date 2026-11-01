@@ -308,6 +308,16 @@ function said(out) {
     .trim();
 }
 
+/** One read on the target before anyone approves: what would stop the save stops this first. */
+async function checkKindgi(bin, target) {
+  const res = await kindgi(bin, ['env', 'list', ...target]);
+  if (res.code !== 0) {
+    throw new Failure(
+      `kindgi env list ${target.join(' ')} failed, so nothing was asked of the store:\n${said(res.out)}`,
+    );
+  }
+}
+
 /** Each setting is this connect's to set; one set before says what it was. */
 async function saveInKindgi(bin, store, password, target) {
   const replaced = [];
@@ -440,6 +450,7 @@ async function revokeApproval(api, { login, password }, app) {
 async function main() {
   const opts = options(process.argv.slice(2));
   const bin = kindgiBin();
+  await checkKindgi(bin, opts.target);
   const { api, authorize } = await discover(opts.store);
   const approval = await waitForApproval(authorize, opts);
   try {
