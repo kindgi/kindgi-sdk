@@ -1,5 +1,17 @@
 # @kindgi/secrets-dotenv
 
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [4beb42c]
+- Updated dependencies [4beb42c]
+- Updated dependencies [4beb42c]
+  - @kindgi/api@0.3.1
+  - @kindgi/dotenv-file@0.3.1
+  - @kindgi/platform@0.3.1
+  - @kindgi/types@0.3.1
+
 ## 0.3.1-rc.1
 
 ### Patch Changes
