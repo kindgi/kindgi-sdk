@@ -428,12 +428,14 @@ version was made in, when that's known.
 ## Under `kindgi dev`
 
 Under `kindgi dev`, the pack's files are what runs. There, an
-[Improve run](../improve-an-agent/) makes each suggested change: it reads the
-dev project's corrections and checks its candidate there, and its suggested
-change is for every project. Pinning it goes through the release gate and
-writes its changed prompt or settings into the pack's files. `kindgi dev`
-reloads them, and the pin waits for that: the next runs use the new version,
-and the pin's test runs mark what it fixes, as on a deployed runtime.
+[Improve run](../improve-an-agent/) makes each suggested change. It runs in
+the default project, where `kindgi dev` places the pack's agents and their
+runs, reads that project's corrections and test set, and checks its
+candidate there. Its suggested change is for the whole workspace. Pinning it
+goes through the release gate and writes its changed prompt or settings into
+the pack's files. `kindgi dev` reloads them, and the pin waits for that. The
+next runs use the new version, and the pin's test runs check the default
+project and mark what it fixes there, as on a deployed runtime.
 
 - **Making one by hand, and checking one again,** are refused with
   `409 registry-read-only`: an Improve run makes and checks each one. Run
@@ -445,9 +447,6 @@ and the pin's test runs mark what it fixes, as on a deployed runtime.
   and nothing is written. Run Improve again on the files as they are now.
 - **One built on a version that no longer runs** is
   `409 suggested-change-out-of-date`, and isn't rebuilt: run Improve again.
-- **A pin the release gate holds for a reviewer** isn't checked when it's
-  approved: under `kindgi dev`, only a pin that goes through at once marks
-  what it fixes.
 - **Undoing a pin** is a change to the pack's files: undo it with git, and
   `kindgi dev` reloads them. Commit the files before you pin, so there's
   something to go back to.

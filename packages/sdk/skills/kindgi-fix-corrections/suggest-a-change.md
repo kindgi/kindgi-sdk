@@ -76,8 +76,7 @@ Once it's pinned or added, the project runs a block version your pack's
 `blocks/` folder doesn't have yet. Bring the block's file up to it, through
 the repo: its `version` and content as `get` shows them (`changes[].to` and
 `after`). Under `kindgi dev` the pin writes them itself. Making one by hand
-or checking one again answers 409 `registry-read-only` there: change the
-block's file yourself, or run Improve, which makes and checks each one.
+or checking one again is 409 `registry-read-only`: edit the file, or run Improve.
 
 ## Wording, with Improve
 
@@ -93,7 +92,8 @@ kindgi improve runs start --agent=acme-store.refunds --project=<project-id>
 
 `--check` starts nothing: it lists what's missing before a run can start,
 and what it would cost. Its suggested change is pinned like yours. Under
-`kindgi dev`, pinning it writes it into the pack's files: tell the person to
-commit them first, so git can undo it. A file edited since the run is 409
+`kindgi dev`, run it in the default project, and have the person commit the
+pack's files before a pin writes into them. A file edited since is 409
 `pin-superseded`, and one built on a version that no longer runs 409
-`suggested-change-out-of-date`: run Improve again. Schedules don't run there.
+`suggested-change-out-of-date`: run Improve again. An Improve schedule starts
+no run there: start Improve by hand.

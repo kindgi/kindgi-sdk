@@ -49,7 +49,7 @@ one, `kindgi dev`'s fallback only echoes a tool's answer.
 ### On `kindgi dev`
 
 With `kindgi dev` running, sign in to the console it prints and open the
-dev project.
+default project, where `kindgi dev` places the pack's agents.
 
 1. **Correct a run.** On the returns helper's page, start a run: "The
    seam on my tent from order A-1003 tore. Can I get my money back?" The
@@ -73,7 +73,7 @@ Instead of step 4 (take it back with `git checkout blocks/` if you made it),
 Improve can find the wording. Commit the pack first: pinning writes into
 its files, and under `kindgi dev` git is how you go back. Then:
 
-5. **Run Improve.** Ask whether it's ready, with the dev project's id
+5. **Run Improve.** Ask whether it's ready, with the default project's id
    (`{{KINDGI}} projects list`) and the model that writes new wording (the
    provider `AGENTS.md` has you declare; `anthropic` for its preset):
    `{{KINDGI}} improve runs start --agent={{PACK_ID}}.returns-helper --project=<project-id> --provider=anthropic --model=claude-sonnet-5-5 --check`,

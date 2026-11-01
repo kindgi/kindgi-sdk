@@ -571,6 +571,7 @@ export {
   pinRunCorrelation,
   reapplyTestRunOutcomes,
   testRunReason,
+  tookEffect,
 } from './test-run-outcome.js';
 // The test runs a pin change or Latest moving starts, and what an approval that pins a waiting change applies.
 export {

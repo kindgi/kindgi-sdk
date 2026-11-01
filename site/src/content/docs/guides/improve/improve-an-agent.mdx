@@ -25,8 +25,8 @@ person still decides: the suggested change waits for a reviewer.
 - **a version of the agent running in the project,** pinned there or its
   Latest;
 - **Kindgi 0.4's runtime and CLI,** deployed or `kindgi dev`. Under
-  `kindgi dev`, the run's suggested change is for every project, and pinning
-  it writes it into the pack's files
+  `kindgi dev`, the run's suggested change is for the whole workspace, and
+  pinning it writes it into the pack's files
   ([Under `kindgi dev`](../suggest-a-change/#under-kindgi-dev));
 - **`publish` on the agent.** For an agent more than one project serves, also
   `write` where its versions are made.
@@ -453,8 +453,8 @@ enough new corrections since the schedule's last Improve run, and stop for the
 month at its cap, as
 [Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule)
 shows. Under `kindgi dev`, a schedule's fire starts no Improve run:
-`kindgi dev` isn't left running, so a schedule is for a deployed runtime.
-Start Improve by hand there.
+`kindgi dev` runs while you work, not around the clock, so a schedule is for
+a deployed runtime. Start Improve by hand there.
 
 ## In the console
 
