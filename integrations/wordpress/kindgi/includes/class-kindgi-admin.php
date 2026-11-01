@@ -26,6 +26,7 @@ final class Kindgi_Admin {
 		add_action( 'admin_post_' . self::CONNECT, array( self::class, 'connect' ) );
 		add_filter( 'wp_privacy_personal_data_exporters', array( self::class, 'exporters' ) );
 		add_filter( 'wp_privacy_personal_data_erasers', array( self::class, 'erasers' ) );
+		// HELD: the privacy-policy text (`wp_add_privacy_policy_content`) goes here, in a commit of its own.
 	}
 
 	/**

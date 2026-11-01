@@ -11,7 +11,7 @@ defined( 'ABSPATH' ) || exit;
  * WooCommerce turns a webhook off after 7 refused deliveries in a row (its
  * `woocommerce_max_webhook_delivery_failures`, 5, is checked before the
  * count goes up), and never resends a delivery. Where Kindgi limits
- * webhook receives (Kindgi hosted does; a self-hosted runtime only when its
+ * webhook receives (Kindgi Cloud does; a self-hosted runtime only when its
  * operator sets a limit), it refuses a delivery past the limit with 429 and
  * `Retry-After`, which WooCommerce counts as a failure like any other. So a webhook to Kindgi can go quiet
  * after a burst, and nothing reaches Kindgi until someone turns it on
