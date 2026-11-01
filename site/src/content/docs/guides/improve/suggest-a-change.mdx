@@ -432,8 +432,10 @@ Under `kindgi dev`, the pack's files are what runs. There, an
 the default project, where `kindgi dev` places the pack's agents and their
 runs, reads that project's corrections and test set, and checks its
 candidate there. Its suggested change is for the whole workspace. Pinning it
-goes through the release gate and writes its changed prompt or settings into
-the pack's files. `kindgi dev` reloads them, and the pin waits for that. The
+goes through the release gate and waits for your approval, since
+`kindgi dev` registers you as a reviewer; open it from the suggested change's
+page. Approved, it writes its changed prompt or settings into the pack's
+files. `kindgi dev` reloads them, and the pin waits for that. The
 next runs use the new version, and the pin's test runs check the default
 project and mark what it fixes there, as on a deployed runtime.
 
