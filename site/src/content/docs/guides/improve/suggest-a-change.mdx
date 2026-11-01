@@ -348,8 +348,10 @@ pnpm exec kindgi suggested-changes pull <suggested-change-id> --pr
   template file beside it, as
   [Keep them in the pack](../change-a-prompt-or-setting/#keep-them-in-the-pack)
   lays them out: only when it's newer than the file's. A file that holds a
-  newer version than the one the suggested change is built on, or that
-  version with edits, is refused, so it never drops what was changed since.
+  newer version than the one the suggested change is built on, or a version
+  with edits that aren't in the runtime's copy of it, is refused, so it never
+  drops what was changed since. So is a file at a version the runtime
+  doesn't have: whether it holds edits can't be told.
 - It makes a branch, `kindgi/<block>-<version>`, from the one checked out,
   commits the block files alone, pushes the branch to `origin` (or the only
   remote), and opens the pull request with `gh`. It stays on the new
