@@ -14,10 +14,19 @@ final class Kindgi_Inbox {
 	/** Kindgi's subject kind for a tool call waiting for a person. */
 	const TOOL_CALL = 'tool-call:pending';
 
-	/** Reviewer roles, lowest first: a role decides what it or a lower one needs. */
-	const ROLES = array( 'standard', 'senior', 'admin' );
+	/** An approval waits while it's in one of these states; it's closed in the others. */
+	const WAITING = array( 'pending', 'assigned', 'in_review' );
+	const CLOSED  = array( 'approved', 'rejected', 'expired', 'withdrawn', 'escalated' );
 
-	/** The count's transient, per person, and how long it's kept: Kindgi is asked at most this often. */
+	/** A count reads one page of what waits, this long. */
+	const COUNT_PAGE = 50;
+
+	/**
+	 * The count's transient, per person, and how long it's kept: Kindgi is
+	 * asked at most this often. It's kept as an array, which WordPress
+	 * hands back as it was set: a number comes back as text from the
+	 * options table, and as a number from an object cache.
+	 */
 	const COUNT     = 'kindgi_waiting_';
 	const COUNT_TTL = 60;
 
@@ -32,18 +41,19 @@ final class Kindgi_Inbox {
 	/**
 	 * An approval as the page shows it.
 	 *
-	 * @param array       $a    Kindgi's approval.
-	 * @param string      $me   The person's Kindgi id.
-	 * @param string|null $role The person's reviewer role, null for none.
-	 * @param callable    $who  `user:<id>` to a name on this site, or null for someone it didn't sign in.
+	 * @param array      $a        Kindgi's approval.
+	 * @param string     $me       The person's Kindgi id.
+	 * @param array|null $reviewer The person as a reviewer (`reviewer_of`), null when they can't decide.
+	 * @param callable   $who      `user:<id>` to a name on this site, or null for someone it didn't sign in.
 	 */
-	public static function card( array $a, string $me, ?string $role, callable $who ): array {
+	public static function card( array $a, string $me, ?array $reviewer, callable $who ): array {
 		$ref      = is_array( $a['subjectRef'] ?? null ) ? $a['subjectRef'] : array();
 		$tool     = self::TOOL_CALL === ( $a['subjectKind'] ?? '' ) && is_string( $ref['toolId'] ?? null ) ? $ref['toolId'] : null;
-		$decision = is_array( $a['decision'] ?? null ) ? $a['decision'] : null;
+		// Someone's approve or reject; a withdrawal or a pass to another reviewer reads as the approval's state.
+		$decision = is_array( $a['decision'] ?? null ) && in_array( $a['decision']['decision'] ?? null, array( 'approve', 'reject' ), true ) ? $a['decision'] : null;
 		$asked_by = is_string( $a['requestedBy'] ?? null ) ? $a['requestedBy'] : null;
-		$pending  = 'pending' === ( $a['status'] ?? '' );
-		$not_mine = $pending ? self::not_yours( $a, $me, $role ) : null;
+		$pending  = in_array( $a['status'] ?? null, self::WAITING, true );
+		$not_mine = $pending ? self::not_yours( $a, $me, $reviewer ) : null;
 		return array(
 			'id'             => (string) ( $a['id'] ?? '' ),
 			'heading'        => self::heading( $a, $tool ),
@@ -54,7 +64,7 @@ final class Kindgi_Inbox {
 			'createdAt'      => (string) ( $a['createdAt'] ?? '' ),
 			'expiresAt'      => is_string( $a['expiresAt'] ?? null ) ? $a['expiresAt'] : null,
 			'asked'          => self::asked( $asked_by, $me, $who ),
-			// Pending: 'you' when this person may decide it, else 'others' and why not.
+			// Waiting: 'you' when this person may decide it, else 'others' and why not.
 			'waitsFor'       => $pending ? ( null === $not_mine ? 'you' : 'others' ) : null,
 			'notYours'       => $not_mine,
 			'conversationId' => null !== $tool && is_string( $ref['conversationId'] ?? null ) ? $ref['conversationId'] : null,
@@ -80,23 +90,44 @@ final class Kindgi_Inbox {
 	/**
 	 * Why a waiting approval isn't this person's to decide, or null when it
 	 * is. Kindgi decides in the end: this only sorts the Inbox.
+	 *
+	 * @param array      $a        Kindgi's approval.
+	 * @param string     $me       The person's Kindgi id.
+	 * @param array|null $reviewer The person as a reviewer (`reviewer_of`), null when they can't decide.
 	 */
-	public static function not_yours( array $a, string $me, ?string $role ): ?string {
-		$required = (string) ( $a['requiredRole'] ?? 'standard' );
-		if ( null === $role || ! in_array( $role, self::ROLES, true ) ) {
+	public static function not_yours( array $a, string $me, ?array $reviewer ): ?string {
+		if ( null === $reviewer ) {
 			return 'not-a-reviewer';
 		}
 		if ( true === ( $a['separateApprover'] ?? false ) && ( $a['requestedBy'] ?? null ) === 'user:' . $me ) {
 			return 'you-asked';
 		}
-		if ( is_string( $a['assignedTo'] ?? null ) && $a['assignedTo'] !== $me ) {
+		// An approval assigned to a reviewer names their row on the roster, not their user.
+		if ( is_string( $a['assignedTo'] ?? null ) && $a['assignedTo'] !== $reviewer['id'] ) {
 			return 'assigned';
 		}
-		$needed = array_search( $required, self::ROLES, true );
-		if ( false !== $needed && array_search( $role, self::ROLES, true ) < $needed ) {
-			return 'needs-' . $required;
+		$required = (string) ( $a['requiredRole'] ?? 'standard' );
+		return in_array( $required, $reviewer['decides'], true ) ? null : 'needs-' . $required;
+	}
+
+	/**
+	 * The person as a reviewer, from Kindgi's `GET /v1/identity/me/permissions`:
+	 * their row on the roster (`id`, the one an approval assigned to them
+	 * names) and the required roles they may decide. Null when they can't
+	 * decide any: no reviewer role, or a role without a row on the roster.
+	 *
+	 * @return array{id: string|null, role: string, decides: string[]}|null
+	 */
+	public static function reviewer_of( array $permissions ): ?array {
+		$r = is_array( $permissions['reviewer'] ?? null ) ? $permissions['reviewer'] : null;
+		if ( null === $r || true !== ( $r['canDecide'] ?? null ) || ! is_string( $r['role'] ?? null ) ) {
+			return null;
 		}
-		return null;
+		return array(
+			'id'      => is_string( $r['id'] ?? null ) ? $r['id'] : null,
+			'role'    => $r['role'],
+			'decides' => array_values( array_filter( is_array( $r['decides'] ?? null ) ? $r['decides'] : array(), 'is_string' ) ),
+		);
 	}
 
 	/**
@@ -198,10 +229,50 @@ final class Kindgi_Inbox {
 		);
 	}
 
-	/** The count kept for the person, or null when there's none to show. */
-	public static function kept_count( int $user_id ): ?int {
-		$count = get_transient( self::COUNT . $user_id );
-		return is_int( $count ) && $count >= 0 ? $count : null;
+	/**
+	 * How many on a page of Kindgi's waiting approvals wait for the person,
+	 * and whether more pages may hold more (then it shows as "12+").
+	 *
+	 * @param array      $page     Kindgi's list: `data` and `hasMore`.
+	 * @param string     $me       The person's Kindgi id.
+	 * @param array|null $reviewer The person as a reviewer (`reviewer_of`).
+	 * @return array{n: int, more: bool}
+	 */
+	public static function count_of( array $page, string $me, ?array $reviewer ): array {
+		$n = 0;
+		foreach ( is_array( $page['data'] ?? null ) ? $page['data'] : array() as $a ) {
+			if ( is_array( $a ) && in_array( $a['status'] ?? null, self::WAITING, true ) && null === self::not_yours( $a, $me, $reviewer ) ) {
+				++$n;
+			}
+		}
+		return array(
+			'n'    => $n,
+			'more' => null !== $reviewer && true === ( $page['hasMore'] ?? false ),
+		);
+	}
+
+	/**
+	 * The count kept for the person, or null when there's none to show.
+	 *
+	 * @return array{n: int, more: bool}|null
+	 */
+	public static function kept_count( int $user_id ): ?array {
+		$kept = self::kept( $user_id );
+		return null !== $kept && $kept['n'] >= 0 ? $kept : null;
+	}
+
+	/**
+	 * Keeps the person's count for the minute: null keeps that Kindgi
+	 * didn't answer, so it isn't asked again until the minute is out.
+	 *
+	 * @param array{n: int, more: bool}|null $count
+	 */
+	public static function keep_count( int $user_id, ?array $count ): void {
+		$kept = null === $count ? array(
+			'n'    => -1,
+			'more' => false,
+		) : $count;
+		set_transient( self::COUNT . $user_id, $kept, self::COUNT_TTL );
 	}
 
 	/** Forgets the person's count: the next heartbeat asks Kindgi again. */
@@ -211,55 +282,61 @@ final class Kindgi_Inbox {
 
 	/**
 	 * How many approvals wait for the person to decide, asked of Kindgi at
-	 * most once a minute. Only someone who has used Kindgi from this site
-	 * before is asked about: a page load never makes anyone a person there.
-	 * Null when there's nothing to show (not connected, never signed in, or
-	 * Kindgi didn't answer; a failure is kept for the minute too).
+	 * most once a minute, and only on a session the person still has: a
+	 * page load never signs anyone in, so it never makes anyone a person
+	 * at Kindgi or sends their name again. Null when there's nothing to
+	 * show (not connected, no live session, or Kindgi didn't answer; a
+	 * failure is kept for the minute too).
+	 *
+	 * @return array{n: int, more: bool}|null
 	 */
-	public static function count( WP_User $user ): ?int {
-		$kept = get_transient( self::COUNT . $user->ID );
-		if ( is_int( $kept ) ) {
-			return $kept >= 0 ? $kept : null;
+	public static function count( WP_User $user ): ?array {
+		$kept = self::kept( $user->ID );
+		if ( null !== $kept ) {
+			return $kept['n'] >= 0 ? $kept : null;
 		}
-		if ( null === Kindgi_Settings::site() || ! is_string( get_user_option( Kindgi_Sessions::USER_ID, $user->ID ) ) ) {
+		if ( null === Kindgi_Settings::site() || null === Kindgi_Sessions::kept( $user->ID ) ) {
 			return null;
 		}
 		$count = self::ask_count( $user );
-		set_transient( self::COUNT . $user->ID, null === $count ? -1 : $count, self::COUNT_TTL );
+		self::keep_count( $user->ID, $count );
 		return $count;
 	}
 
-	private static function ask_count( WP_User $user ): ?int {
-		$who = Kindgi_Api::body( $user, 'GET', '/v1/identity/whoami' );
-		if ( is_wp_error( $who ) ) {
+	/**
+	 * The count as kept, a failure (`n` -1) included; null when there's none.
+	 *
+	 * @return array{n: int, more: bool}|null
+	 */
+	private static function kept( int $user_id ): ?array {
+		$kept = get_transient( self::COUNT . $user_id );
+		return is_array( $kept ) && is_int( $kept['n'] ?? null ) && is_bool( $kept['more'] ?? null ) ? $kept : null;
+	}
+
+	/** @return array{n: int, more: bool}|null */
+	private static function ask_count( WP_User $user ): ?array {
+		$permissions = Kindgi_Api::kept_get( $user, '/v1/identity/me/permissions' );
+		if ( ! is_array( $permissions ) ) {
 			return null;
 		}
-		$role = is_string( $who['body']['reviewerRole'] ?? null ) ? $who['body']['reviewerRole'] : null;
-		if ( null === $role ) {
-			return 0;
+		$reviewer = self::reviewer_of( $permissions['body'] );
+		if ( null === $reviewer ) {
+			return array(
+				'n'    => 0,
+				'more' => false,
+			);
 		}
-		$answer = Kindgi_Api::body(
+		$page = Kindgi_Api::kept_get(
 			$user,
-			'GET',
 			'/v1/approvals',
 			array(
 				'scopeKind' => 'project',
-				'scopeId'   => $who['session']['project_id'],
-				'status'    => 'pending',
-				'limit'     => 50,
+				'scopeId'   => $permissions['session']['project_id'],
+				'status'    => implode( ',', self::WAITING ),
+				'limit'     => self::COUNT_PAGE,
 			)
 		);
-		if ( is_wp_error( $answer ) ) {
-			return null;
-		}
-		$me    = (string) $answer['session']['user_id'];
-		$count = 0;
-		foreach ( is_array( $answer['body']['data'] ?? null ) ? $answer['body']['data'] : array() as $a ) {
-			if ( is_array( $a ) && null === self::not_yours( $a, $me, $role ) ) {
-				++$count;
-			}
-		}
-		return $count;
+		return is_array( $page ) ? self::count_of( $page['body'], (string) $page['session']['user_id'], $reviewer ) : null;
 	}
 
 	/** WordPress's heartbeat on an admin page asks for the count; it answers with it, or null. */

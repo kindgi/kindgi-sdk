@@ -215,13 +215,21 @@ function wp_clear_scheduled_hook( string $hook ): int {
 	return 1;
 }
 
+/**
+ * Transients as WordPress keeps them without an object cache, in the
+ * options table: an array comes back as it was set, a number as text.
+ */
 function set_transient( string $name, $value, int $expiration = 0 ): bool {
-	$GLOBALS['kindgi_test']['transients'][ $name ] = $value;
+	$GLOBALS['kindgi_test']['transients'][ $name ] = is_array( $value ) || is_object( $value ) ? serialize( $value ) : (string) $value;
 	return true;
 }
 
 function get_transient( string $name ) {
-	return $GLOBALS['kindgi_test']['transients'][ $name ] ?? false;
+	$stored = $GLOBALS['kindgi_test']['transients'][ $name ] ?? null;
+	if ( null === $stored ) {
+		return false;
+	}
+	return 1 === preg_match( '/^[aO]:\d+:/', $stored ) ? unserialize( $stored ) : $stored;
 }
 
 function delete_transient( string $name ): bool {

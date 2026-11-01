@@ -9,6 +9,19 @@ function kindgi_test_names(): callable {
 	};
 }
 
+/**
+ * The person as a reviewer of the given role: their row on the roster is
+ * `r-me`, never their user id `u-me`.
+ */
+function kindgi_test_reviewer( string $role = 'standard' ): array {
+	$ladder = array( 'standard', 'senior', 'admin' );
+	return array(
+		'id'      => 'r-me',
+		'role'    => $role,
+		'decides' => array_slice( $ladder, 0, (int) array_search( $role, $ladder, true ) + 1 ),
+	);
+}
+
 /** A tool call waiting for a person, as Kindgi lists it, with the given fields changed. */
 function kindgi_test_approval( array $changes = array() ): array {
 	return array_merge(
@@ -38,7 +51,7 @@ function kindgi_test_approval( array $changes = array() ): array {
 }
 
 function test_inbox_a_tool_calls_card_reads_in_words_not_kindgis(): void {
-	$card = Kindgi_Inbox::card( kindgi_test_approval(), 'u-me', 'standard', kindgi_test_names() );
+	$card = Kindgi_Inbox::card( kindgi_test_approval(), 'u-me', kindgi_test_reviewer(), kindgi_test_names() );
 	kindgi_assert_same( 'Refund large', $card['heading'], 'the tool in words, not "HITL review: …"' );
 	kindgi_assert_same( '', $card['summary'], "Kindgi's words for every tool call are left out" );
 	kindgi_assert_same(
@@ -74,7 +87,7 @@ function test_inbox_a_title_a_tool_gives_is_the_heading(): void {
 			)
 		),
 		'u-me',
-		'standard',
+		kindgi_test_reviewer(),
 		kindgi_test_names()
 	);
 	kindgi_assert_same( 'Refund 210 on order #18', $card['heading'], 'the title' );
@@ -84,12 +97,13 @@ function test_inbox_a_title_a_tool_gives_is_the_heading(): void {
 
 function test_inbox_sorts_what_waits_for_you_from_what_waits_for_others(): void {
 	$cases = array(
-		'no reviewer role'               => array( array(), null, 'not-a-reviewer' ),
-		'a standard one'                 => array( array(), 'standard', null ),
-		'needs senior, you are standard' => array( array( 'requiredRole' => 'senior' ), 'standard', 'needs-senior' ),
-		'needs senior, you are admin'    => array( array( 'requiredRole' => 'senior' ), 'admin', null ),
-		'needs admin, you are senior'    => array( array( 'requiredRole' => 'admin' ), 'senior', 'needs-admin' ),
-		'you asked, another decides'     => array(
+		'no reviewer role'                       => array( array(), null, 'not-a-reviewer' ),
+		'a standard one'                         => array( array(), 'standard', null ),
+		'needs senior, you are standard'         => array( array( 'requiredRole' => 'senior' ), 'standard', 'needs-senior' ),
+		'needs senior, you are admin'            => array( array( 'requiredRole' => 'senior' ), 'admin', null ),
+		'needs admin, you are senior'            => array( array( 'requiredRole' => 'admin' ), 'senior', 'needs-admin' ),
+		'a required role Kindgi has no word for' => array( array( 'requiredRole' => 'owner' ), 'admin', 'needs-owner' ),
+		'you asked, another decides'             => array(
 			array(
 				'requestedBy'      => 'user:u-me',
 				'separateApprover' => true,
@@ -97,16 +111,50 @@ function test_inbox_sorts_what_waits_for_you_from_what_waits_for_others(): void 
 			'standard',
 			'you-asked',
 		),
-		'you asked, anyone decides'      => array( array( 'requestedBy' => 'user:u-me' ), 'standard', null ),
-		'assigned to someone else'       => array( array( 'assignedTo' => 'u-anna' ), 'admin', 'assigned' ),
-		'assigned to you'                => array( array( 'assignedTo' => 'u-me' ), 'standard', null ),
-		'a role Kindgi has no word for'  => array( array(), 'owner', 'not-a-reviewer' ),
+		'you asked, anyone decides'              => array( array( 'requestedBy' => 'user:u-me' ), 'standard', null ),
+		'assigned to another reviewer'           => array( array( 'assignedTo' => 'r-anna' ), 'admin', 'assigned' ),
+		'assigned to you, by your roster row'    => array(
+			array(
+				'assignedTo' => 'r-me',
+				'status'     => 'assigned',
+			),
+			'standard',
+			null,
+		),
+		'an id that is your user, not your row'  => array( array( 'assignedTo' => 'u-me' ), 'standard', 'assigned' ),
+		'in review waits too'                    => array( array( 'status' => 'in_review' ), 'standard', null ),
 	);
 	foreach ( $cases as $what => list( $changes, $role, $why ) ) {
-		kindgi_assert_same( $why, Kindgi_Inbox::not_yours( kindgi_test_approval( $changes ), 'u-me', $role ), $what );
-		$card = Kindgi_Inbox::card( kindgi_test_approval( $changes ), 'u-me', $role, kindgi_test_names() );
+		$reviewer = null === $role ? null : kindgi_test_reviewer( $role );
+		kindgi_assert_same( $why, Kindgi_Inbox::not_yours( kindgi_test_approval( $changes ), 'u-me', $reviewer ), $what );
+		$card = Kindgi_Inbox::card( kindgi_test_approval( $changes ), 'u-me', $reviewer, kindgi_test_names() );
 		kindgi_assert_same( null === $why ? 'you' : 'others', $card['waitsFor'], $what . ': its list' );
 	}
+}
+
+function test_inbox_the_reviewer_is_kindgis_roster_row_and_what_it_may_decide(): void {
+	$reviewer = array(
+		'role'      => 'senior',
+		'id'        => 'r-me',
+		'decides'   => array( 'standard', 'senior' ),
+		'canDecide' => true,
+	);
+	kindgi_assert_same(
+		array(
+			'id'      => 'r-me',
+			'role'    => 'senior',
+			'decides' => array( 'standard', 'senior' ),
+		),
+		Kindgi_Inbox::reviewer_of( array( 'reviewer' => $reviewer ) ),
+		"the roster row and Kindgi's own ladder"
+	);
+	kindgi_assert_same( null, Kindgi_Inbox::reviewer_of( array() ), 'no reviewer role' );
+	$no_row = array(
+		'role'      => 'standard',
+		'decides'   => array( 'standard' ),
+		'canDecide' => false,
+	);
+	kindgi_assert_same( null, Kindgi_Inbox::reviewer_of( array( 'reviewer' => $no_row ) ), 'a role without a row on the roster decides nothing' );
 }
 
 function test_inbox_a_decided_card_waits_for_nobody_and_names_who_decided(): void {
@@ -122,12 +170,29 @@ function test_inbox_a_decided_card_waits_for_nobody_and_names_who_decided(): voi
 			)
 		),
 		'u-me',
-		'standard',
+		kindgi_test_reviewer(),
 		kindgi_test_names()
 	);
 	kindgi_assert_same( null, $card['waitsFor'], 'decided' );
 	kindgi_assert_same( 'Anna', $card['decision']['by'], 'her name on this site' );
 	kindgi_assert_same( false, $card['decision']['byMe'], 'not mine' );
+	$withdrawn = Kindgi_Inbox::card(
+		kindgi_test_approval(
+			array(
+				'status'   => 'withdrawn',
+				'decision' => array(
+					'decision'  => 'withdraw',
+					'decidedAt' => '2026-11-01T05:44:29Z',
+					'decidedBy' => 'user:u-anna',
+				),
+			)
+		),
+		'u-me',
+		kindgi_test_reviewer(),
+		kindgi_test_names()
+	);
+	kindgi_assert_same( null, $withdrawn['decision'], 'a withdrawal is no approve or reject: it reads as the state' );
+	kindgi_assert_same( null, $withdrawn['waitsFor'], 'and waits for nobody' );
 }
 
 function test_inbox_who_asked_in_words(): void {
@@ -167,29 +232,88 @@ function test_inbox_words_for_fields_and_values(): void {
 	kindgi_assert_same( array(), Kindgi_Inbox::facts( 'refund' ), 'nor does a string' );
 }
 
-function test_inbox_a_count_is_kept_a_minute_and_never_asked_for_someone_kindgi_never_saw(): void {
+function test_inbox_a_count_is_kept_a_minute_as_wordpress_hands_it_back(): void {
 	$user = new WP_User( 7, 'Anna', array( 'shop_manager' ) );
 	kindgi_assert_same( null, Kindgi_Inbox::count( $user ), 'not connected' );
-	update_option(
-		Kindgi_Settings::SITE_OPTION,
+	Kindgi_Inbox::keep_count(
+		7,
 		array(
-			'site_id'     => 'site-1',
-			'audience'    => 'https://kindgi.acme.example',
-			'kid'         => 'k',
-			'origin'      => 'https://acme-store.example',
-			'enrolled_at' => 1,
+			'n'    => 2,
+			'more' => false,
 		)
 	);
-	kindgi_assert_same( null, Kindgi_Inbox::count( $user ), 'never signed in from here' );
-	kindgi_assert_same( array(), $GLOBALS['kindgi_test']['requests'], 'and Kindgi was never asked' );
-	set_transient( Kindgi_Inbox::COUNT . 7, 2 );
-	kindgi_assert_same( 2, Kindgi_Inbox::count( $user ), 'a kept count' );
-	kindgi_assert_same( 2, Kindgi_Inbox::kept_count( 7 ), 'what the menu shows' );
-	set_transient( Kindgi_Inbox::COUNT . 7, -1 );
+	$kept = array(
+		'n'    => 2,
+		'more' => false,
+	);
+	kindgi_assert_same( $kept, Kindgi_Inbox::count( $user ), 'a kept count' );
+	kindgi_assert_same( $kept, Kindgi_Inbox::kept_count( 7 ), 'what the menu shows' );
+	Kindgi_Inbox::keep_count( 7, null );
 	kindgi_assert_same( null, Kindgi_Inbox::count( $user ), 'a kept failure shows nothing' );
 	kindgi_assert_same( null, Kindgi_Inbox::kept_count( 7 ), 'nor on the menu' );
+	kindgi_assert_same( array(), $GLOBALS['kindgi_test']['requests'], 'and Kindgi is not asked again in the minute' );
 	Kindgi_Inbox::forget_count( 7 );
 	kindgi_assert_same( null, Kindgi_Inbox::kept_count( 7 ), 'forgotten' );
+	// A number kept by an older copy comes back from the options table as text: no count.
+	foreach ( array( 2, -1 ) as $old ) {
+		set_transient( Kindgi_Inbox::COUNT . 7, $old );
+		kindgi_assert_same( '' . $old, get_transient( Kindgi_Inbox::COUNT . 7 ), 'as WordPress returns it' );
+		kindgi_assert_same( null, Kindgi_Inbox::kept_count( 7 ), 'read as no count' );
+	}
+}
+
+function test_inbox_a_count_is_asked_only_on_a_session_the_person_still_has(): void {
+	$jane = kindgi_test_jane_known();
+	Kindgi_Sessions::forget( $jane->ID );
+	$GLOBALS['kindgi_test']['requests'] = array();
+	kindgi_assert_same( null, Kindgi_Inbox::count( $jane ), 'no live session: no count' );
+	kindgi_assert_same( array(), $GLOBALS['kindgi_test']['requests'], 'and no sign-in: a page load sends Kindgi nobody' );
+	kindgi_assert_same( null, Kindgi_Inbox::kept_count( $jane->ID ), 'nothing kept either' );
+
+	$jane = kindgi_test_jane_known();
+	$GLOBALS['kindgi_test']['requests'] = array();
+	kindgi_test_answer(
+		200,
+		array(
+			'reviewer' => array(
+				'role'      => 'standard',
+				'id'        => 'r-jane',
+				'decides'   => array( 'standard' ),
+				'canDecide' => true,
+			),
+		)
+	);
+	kindgi_test_answer(
+		200,
+		array(
+			'data'    => array(
+				kindgi_test_approval(),
+				kindgi_test_approval(
+					array(
+						'assignedTo' => 'r-jane',
+						'status'     => 'assigned',
+					)
+				),
+				kindgi_test_approval( array( 'requiredRole' => 'senior' ) ),
+			),
+			'hasMore' => true,
+		)
+	);
+	$count = array(
+		'n'    => 2,
+		'more' => true,
+	);
+	kindgi_assert_same( $count, Kindgi_Inbox::count( $jane ), "two of the page are hers, and there's another page" );
+	kindgi_assert_same( 2, count( $GLOBALS['kindgi_test']['requests'] ), 'her permissions and one page, on her session' );
+	kindgi_assert( false !== strpos( $GLOBALS['kindgi_test']['requests'][1][0], 'status=pending%2Cassigned%2Cin_review' ), 'every waiting state' );
+	kindgi_assert_same( $count, Kindgi_Inbox::kept_count( $jane->ID ), 'kept for the menu' );
+
+	Kindgi_Inbox::forget_count( $jane->ID );
+	$GLOBALS['kindgi_test']['requests'] = array();
+	kindgi_test_answer( 401, array( 'error' => array( 'code' => 'session-ended' ) ) );
+	kindgi_assert_same( null, Kindgi_Inbox::count( $jane ), 'Kindgi ended her session' );
+	kindgi_assert_same( 1, count( $GLOBALS['kindgi_test']['requests'] ), 'and she is not signed in again' );
+	kindgi_assert_same( null, Kindgi_Sessions::kept( $jane->ID ), 'the ended session is forgotten' );
 }
 
 function test_activity_a_webhook_runs_row(): void {

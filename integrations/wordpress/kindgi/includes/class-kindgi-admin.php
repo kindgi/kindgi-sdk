@@ -187,24 +187,35 @@ final class Kindgi_Admin {
 		}
 		foreach ( $menu as $at => $item ) {
 			if ( self::PAGE === ( $item[2] ?? null ) ) {
-				$menu[ $at ][0] .= ' ' . self::bubble( Kindgi_Inbox::kept_count( get_current_user_id() ) ?? 0 );
+				$menu[ $at ][0] .= ' ' . self::bubble( Kindgi_Inbox::kept_count( get_current_user_id() ) );
 			}
 		}
 	}
 
-	/** WordPress's count bubble, as the Comments and Plugins menus have it. */
-	private static function bubble( int $count ): string {
+	/**
+	 * WordPress's count bubble, as the Comments and Plugins menus have it.
+	 *
+	 * @param array{n: int, more: bool}|null $count Null shows none.
+	 */
+	private static function bubble( ?array $count ): string {
+		$n = null === $count ? 0 : $count['n'];
 		return sprintf(
-			'<span class="awaiting-mod count-%1$d kindgi-count"><span class="pending-count" aria-hidden="true">%1$d</span><span class="screen-reader-text">%2$s</span></span>',
-			$count,
+			'<span class="awaiting-mod count-%1$d kindgi-count"><span class="pending-count" aria-hidden="true">%2$s</span><span class="screen-reader-text">%3$s</span></span>',
+			$n,
+			esc_html( self::count_text( $count ) ),
 			esc_html( self::waiting_words( $count ) )
 		);
 	}
 
+	/** The count as shown: "12", or "12+" when there may be more. */
+	private static function count_text( ?array $count ): string {
+		return null === $count ? '0' : number_format_i18n( $count['n'] ) . ( $count['more'] ? '+' : '' );
+	}
+
 	/** "2 wait for you", for a screen reader. */
-	private static function waiting_words( int $count ): string {
-		/* translators: %s: how many approvals wait for the person */
-		return sprintf( _n( '%s waits for you', '%s wait for you', $count, 'kindgi' ), number_format_i18n( $count ) );
+	private static function waiting_words( ?array $count ): string {
+		/* translators: %s: how many approvals wait for the person, "12" or "12+" */
+		return sprintf( _n( '%s waits for you', '%s wait for you', null === $count ? 0 : $count['n'], 'kindgi' ), self::count_text( $count ) );
 	}
 
 	/** The count in the admin bar too, on every admin page, linking to the Inbox; hidden at 0. */
@@ -212,14 +223,14 @@ final class Kindgi_Admin {
 		if ( ! is_admin() || ! current_user_can( self::capability() ) || null === Kindgi_Settings::site() ) {
 			return;
 		}
-		$count = Kindgi_Inbox::kept_count( get_current_user_id() ) ?? 0;
+		$count = Kindgi_Inbox::kept_count( get_current_user_id() );
 		$bar->add_node(
 			array(
 				'id'    => 'kindgi-inbox',
-				'title' => '<span class="ab-icon dashicons dashicons-format-chat" aria-hidden="true"></span><span class="ab-label kindgi-count-label">' . esc_html( number_format_i18n( $count ) ) . '</span><span class="screen-reader-text kindgi-count-words">' . esc_html( self::waiting_words( $count ) ) . '</span>',
+				'title' => '<span class="ab-icon dashicons dashicons-format-chat" aria-hidden="true"></span><span class="ab-label kindgi-count-label">' . esc_html( self::count_text( $count ) ) . '</span><span class="screen-reader-text kindgi-count-words">' . esc_html( self::waiting_words( $count ) ) . '</span>',
 				'href'  => admin_url( 'admin.php?page=' . self::PAGE ),
 				'meta'  => array(
-					'class' => 0 === $count ? 'kindgi-none' : '',
+					'class' => null === $count || 0 === $count['n'] ? 'kindgi-none' : '',
 					'title' => __( 'Kindgi inbox', 'kindgi' ),
 				),
 			)

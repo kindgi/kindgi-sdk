@@ -181,8 +181,10 @@
    * and, for a link from an email, which list holds it.
    */
   async function loadInbox(opened) {
+    const page = await api('/approvals?view=waiting');
     const loaded = {
-      waiting: (await api('/approvals?view=waiting')).approvals,
+      waiting: page.approvals,
+      more: page.more === true,
       decided: null,
       linked: null,
     };
@@ -229,13 +231,17 @@
     }
     const mine = loaded.waiting.filter((a) => a.waitsFor === 'you');
     const others = loaded.waiting.filter((a) => a.waitsFor === 'others');
-    document.dispatchEvent(new CustomEvent('kindgi-count', { detail: mine.length }));
+    document.dispatchEvent(
+      new CustomEvent('kindgi-count', { detail: { n: mine.length, more: loaded.more } }),
+    );
     const reload = () => renderInbox();
     const list = { you: mine, others, decided: loaded.decided ?? [] }[state.filter];
+    // More waits than one page held: the oldest show, and the counts say "12+".
+    const counted = (n) => (loaded.more ? `${n}+` : String(n));
     root.replaceChildren(
       ...[
         linkedCard(loaded.linked, reload),
-        filters({ you: mine.length, others: others.length, decided: null }),
+        filters({ you: counted(mine.length), others: counted(others.length), decided: null }),
         el(
           'div',
           { className: 'kindgi-cards' },
@@ -295,6 +301,13 @@
     return __('No person asked: a webhook, a schedule or a service key started it', 'kindgi');
   }
 
+  /** How an approval closed without a person's approve or reject. */
+  const CLOSED = {
+    expired: __('Expired before anyone decided.', 'kindgi'),
+    withdrawn: __('Withdrawn before anyone decided.', 'kindgi'),
+    escalated: __('Passed on to another reviewer.', 'kindgi'),
+  };
+
   /** Why a waiting approval isn't the person's to decide. */
   const NOT_YOURS = {
     'not-a-reviewer': __("Waits for a reviewer: you don't review approvals at Kindgi.", 'kindgi'),
@@ -310,7 +323,7 @@
    * Reject. Kindgi's own words and ids are folded under Details.
    */
   function approvalCard(card, { after, inConversation = false } = {}) {
-    const kind = card.status === 'pending' ? card.waitsFor : card.status;
+    const kind = card.waitsFor ?? card.status;
     return el(
       'div',
       { className: `kindgi-card kindgi-${kind}`, 'data-approval': card.id },
@@ -328,7 +341,7 @@
         { className: 'kindgi-muted' },
         askedWords(card.asked),
         `, ${when(card.createdAt)}`,
-        card.status === 'pending' && card.expiresAt
+        card.waitsFor !== null && card.expiresAt
           ? [' · ', el('strong', {}, sprintf(__('Decide by %s', 'kindgi'), when(card.expiresAt)))]
           : null,
       ),
@@ -347,10 +360,9 @@
   /** What a card ends with: the decision made, why it's someone else's, or the controls to make one. */
   function cardEnding(card, after) {
     if (card.decision !== null) return decisionLine(card.decision);
-    if (card.status === 'expired') {
-      return el('p', { className: 'kindgi-note' }, __('Expired before anyone decided.', 'kindgi'));
-    }
-    if (card.status !== 'pending') {
+    if (card.waitsFor === null) {
+      const closed = CLOSED[card.status];
+      if (closed !== undefined) return el('p', { className: 'kindgi-note' }, closed);
       return el('p', {}, sprintf(__('This approval is %s.', 'kindgi'), card.status));
     }
     if (card.waitsFor !== 'you') {

@@ -103,16 +103,16 @@ final class Kindgi_Rest {
 		return current_user_can( Kindgi_Admin::capability() );
 	}
 
-	/** The person, their Kindgi id, and whether they review approvals. */
+	/** The person, their Kindgi id, and their reviewer role when they can decide approvals (else null). */
 	public static function me() {
-		$who = Kindgi_Api::body( wp_get_current_user(), 'GET', '/v1/identity/whoami' );
-		if ( is_wp_error( $who ) ) {
-			return $who;
+		$r = self::reviewer( wp_get_current_user() );
+		if ( is_wp_error( $r ) ) {
+			return $r;
 		}
 		return array(
-			'userId'       => $who['session']['user_id'],
-			'projectId'    => $who['session']['project_id'],
-			'reviewerRole' => is_string( $who['body']['reviewerRole'] ?? null ) ? $who['body']['reviewerRole'] : null,
+			'userId'       => $r['me'],
+			'projectId'    => $r['project_id'],
+			'reviewerRole' => null === $r['reviewer'] ? null : $r['reviewer']['role'],
 			'name'         => wp_get_current_user()->display_name,
 		);
 	}
@@ -403,9 +403,9 @@ final class Kindgi_Rest {
 	 */
 	public static function approvals( WP_REST_Request $request ) {
 		$user = wp_get_current_user();
-		$role = self::reviewer_role( $user );
-		if ( is_wp_error( $role ) ) {
-			return $role;
+		$r    = self::reviewer( $user );
+		if ( is_wp_error( $r ) ) {
+			return $r;
 		}
 		$waiting = 'waiting' === $request['view'];
 		$answer  = Kindgi_Api::body(
@@ -414,10 +414,10 @@ final class Kindgi_Rest {
 			'/v1/approvals',
 			array(
 				'scopeKind' => 'project',
-				'scopeId'   => $role['project_id'],
-				'status'    => $waiting ? 'pending' : 'approved,rejected',
+				'scopeId'   => $r['project_id'],
+				'status'    => implode( ',', $waiting ? Kindgi_Inbox::WAITING : Kindgi_Inbox::CLOSED ),
 				'order'     => $waiting ? 'asc' : 'desc',
-				'limit'     => $waiting ? 50 : 20,
+				'limit'     => $waiting ? Kindgi_Inbox::COUNT_PAGE : 20,
 			)
 		);
 		if ( is_wp_error( $answer ) ) {
@@ -426,24 +426,28 @@ final class Kindgi_Rest {
 		$me    = (string) $answer['session']['user_id'];
 		$cards = array();
 		foreach ( self::list_of( $answer['body']['data'] ?? null ) as $a ) {
-			$cards[] = Kindgi_Inbox::card( $a, $me, $role['role'], array( self::class, 'who' ) );
+			$cards[] = Kindgi_Inbox::card( $a, $me, $r['reviewer'], array( self::class, 'who' ) );
 		}
 		if ( $waiting ) {
 			// The menu's count follows what the person just saw.
-			set_transient( Kindgi_Inbox::COUNT . $user->ID, count( wp_list_filter( $cards, array( 'waitsFor' => 'you' ) ) ), Kindgi_Inbox::COUNT_TTL );
+			Kindgi_Inbox::keep_count( $user->ID, Kindgi_Inbox::count_of( $answer['body'], $me, $r['reviewer'] ) );
 		}
-		return array( 'approvals' => $cards );
+		return array(
+			'approvals' => $cards,
+			// More than one page waits: the oldest are shown.
+			'more'      => true === ( $answer['body']['hasMore'] ?? false ),
+		);
 	}
 
 	/** One approval, as its card. */
 	public static function approval( WP_REST_Request $request ) {
 		$user = wp_get_current_user();
-		$role = self::reviewer_role( $user );
-		if ( is_wp_error( $role ) ) {
-			return $role;
+		$r    = self::reviewer( $user );
+		if ( is_wp_error( $r ) ) {
+			return $r;
 		}
 		$answer = Kindgi_Api::body( $user, 'GET', '/v1/approvals/' . rawurlencode( $request['id'] ) );
-		return is_wp_error( $answer ) ? $answer : Kindgi_Inbox::card( $answer['body'], (string) $answer['session']['user_id'], $role['role'], array( self::class, 'who' ) );
+		return is_wp_error( $answer ) ? $answer : Kindgi_Inbox::card( $answer['body'], (string) $answer['session']['user_id'], $r['reviewer'], array( self::class, 'who' ) );
 	}
 
 	/**
@@ -539,18 +543,20 @@ final class Kindgi_Rest {
 	}
 
 	/**
-	 * The person's reviewer role at Kindgi (null for none), and the site's project.
+	 * The person as a reviewer at Kindgi (`Kindgi_Inbox::reviewer_of`, null
+	 * when they can't decide), their Kindgi id and the site's project.
 	 *
-	 * @return array{role: string|null, project_id: string}|WP_Error
+	 * @return array{reviewer: array|null, me: string, project_id: string}|WP_Error
 	 */
-	private static function reviewer_role( WP_User $user ) {
-		$who = Kindgi_Api::body( $user, 'GET', '/v1/identity/whoami' );
-		if ( is_wp_error( $who ) ) {
-			return $who;
+	private static function reviewer( WP_User $user ) {
+		$answer = Kindgi_Api::body( $user, 'GET', '/v1/identity/me/permissions' );
+		if ( is_wp_error( $answer ) ) {
+			return $answer;
 		}
 		return array(
-			'role'       => is_string( $who['body']['reviewerRole'] ?? null ) ? $who['body']['reviewerRole'] : null,
-			'project_id' => (string) $who['session']['project_id'],
+			'reviewer'   => Kindgi_Inbox::reviewer_of( $answer['body'] ),
+			'me'         => (string) $answer['session']['user_id'],
+			'project_id' => (string) $answer['session']['project_id'],
 		);
 	}
 

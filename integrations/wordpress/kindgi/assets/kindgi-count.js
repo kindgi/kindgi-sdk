@@ -15,19 +15,27 @@
     if (node !== null) node.textContent = text;
   };
 
-  /** Shows the count, as WordPress's own bubbles do; nothing at 0. */
+  /**
+   * Shows the count (`n`, and `more` when more may wait than one page
+   * held: "12+"), as WordPress's own bubbles do; nothing at 0. Without
+   * one (no live session, or Kindgi didn't answer), what shows stays.
+   */
   function show(count) {
-    if (!Number.isInteger(count) || count < 0) return;
-    const words = sprintf(_n('%s waits for you', '%s wait for you', count, 'kindgi'), count);
+    if (count === null || typeof count !== 'object' || !Number.isInteger(count.n) || count.n < 0) {
+      return;
+    }
+    const { n } = count;
+    const text = count.more === true ? `${n}+` : String(n);
+    const words = sprintf(_n('%s waits for you', '%s wait for you', n, 'kindgi'), text);
     for (const bubble of document.querySelectorAll('.kindgi-count')) {
-      bubble.className = bubble.className.replace(/\bcount-\d+\b/, `count-${count}`);
-      say(bubble.querySelector('.pending-count'), String(count));
+      bubble.className = bubble.className.replace(/\bcount-\d+\b/, `count-${n}`);
+      say(bubble.querySelector('.pending-count'), text);
       say(bubble.querySelector('.screen-reader-text'), words);
     }
     const node = document.getElementById('wp-admin-bar-kindgi-inbox');
     if (node === null) return;
-    node.classList.toggle('kindgi-none', count === 0);
-    say(node.querySelector('.kindgi-count-label'), String(count));
+    node.classList.toggle('kindgi-none', n === 0);
+    say(node.querySelector('.kindgi-count-label'), text);
     say(node.querySelector('.kindgi-count-words'), words);
   }
 
