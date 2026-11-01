@@ -101,7 +101,7 @@ The approval is there:
       …
       "requiredRole": "senior",
       "status": "pending",
-      "title": "HITL review: acme-ops.post-update",
+      "title": "Approve a call to acme-ops.post-update",
       …
     }
   ],

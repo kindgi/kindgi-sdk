@@ -3,7 +3,7 @@
 
 package com.kindgi.pack.scaladsl
 
-import com.kindgi.pack.{AsyncToolHandler, ToolHandler}
+import com.kindgi.pack.{AsyncToolHandler, ToolApproval, ToolHandler}
 import com.kindgi.pack.http.HttpToolSpec
 import java.util.concurrent.CompletionStage
 import scala.concurrent.Future
@@ -71,6 +71,16 @@ final class ToolBuilder[I, O] private[scaladsl] (
    */
   def resultIsOutsideData(resultIsOutsideData: Boolean): ToolBuilder[I, O] =
     step(_.resultIsOutsideData(resultIsOutsideData))
+
+  /**
+   * How an approval of a call to the tool reads, when one is asked: the reviewer sees the call in the
+   * tool's own words, its arguments filled in, as in
+   * `ToolApproval.titled("Refund {amount} on order #{orderId}").withAbout("acme.order", "{orderId}")`.
+   * Each `{field}` names a required field of the input that is a string, a number or a boolean. It
+   * doesn't make a call wait. Unset, an approval reads "Approve a call to <tool id>". It's checked
+   * against the input when the tool is built.
+   */
+  def approval(approval: ToolApproval): ToolBuilder[I, O] = step(_.approval(approval))
 
   /** A side effect the tool has, on a resource. */
   def effect(kind: String, resource: String): ToolBuilder[I, O] = step(_.effect(kind, resource))

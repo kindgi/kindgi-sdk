@@ -64,6 +64,7 @@ from .._schema import (
     runtime_compile_problem,
     wire_schema,
 )
+from .approval import approval_problem, approval_wire
 from .context import PauseAnswer, ToolContext
 from .needs import needs_spec_problem
 from .trace import CheckResult, RunTrace
@@ -136,6 +137,10 @@ class Tool(Generic[P, R]):
     in that turn and in every later turn's history. It changes what the model is told, not what the
     tool may do: pair it with approvals for anything an agent could do with what it read. `None`
     (the default) means `False`."""
+    approval: Mapping[str, Any] | None = None
+    """How an approval of a call to the tool reads, in the index's shape: `title`, `summary`,
+    `about` (`kind`, `id`), with `{field}` placeholders a call's arguments fill in. It doesn't
+    make a call wait. `None` (the default): an approval reads "Approve a call to <tool id>"."""
     needs: Sequence[Mapping[str, Any]] | None = None
     needs_spec: Mapping[str, Any] | None = None
     sandbox: str | None = None
@@ -185,6 +190,7 @@ def tool(
     mutating: bool | None = None,
     needs_approval_when_unattended: bool | None = None,
     result_is_outside_data: bool | None = None,
+    approval: Mapping[str, Any] | None = None,
     needs: Sequence[Mapping[str, Any]] | None = None,
     needs_spec: Mapping[str, Any] | None = None,
     sandbox: str | None = None,
@@ -206,6 +212,18 @@ def tool(
     schedule, an event, or a service account's key). `result_is_outside_data=True` says the
     tool's results are text from outside that nobody checked (a mail someone sent, a page a
     search found): an agent reads each as data, not instructions.
+
+    `approval=` says how an approval of a call reads, when one is asked, in its JSON shape:
+
+        approval={
+            "title": "Refund {amount} on order #{order_id}",
+            "summary": "{reason}",
+            "about": {"kind": "woocommerce.order", "id": "{order_id}"},
+        }
+
+    Each `{field}` names a required top-level field of the input that is a string, a number, an
+    integer or a boolean; a call's arguments fill it in as plain text. The words stay behind
+    sign-in, in the approval's context. It doesn't make a call wait.
 
     `pauses=True` lets a call wait for another system's answer: the handler hands
     `ctx.wait_token.url` to that system and returns `ctx.pause()`; the answer that system
@@ -247,12 +265,14 @@ def tool(
             problem = needs_spec_problem(needs_spec)
             if problem is not None:
                 raise DefinitionError(f"{where}: {problem}")
+        input_schema = _schema(input_type, "validation", where, "input")
+        _check_approval(approval, input_schema, where)
         return Tool(
             id=id,
             handler=handler,
             description=text,
             version=version,
-            input_schema=_schema(input_type, "validation", where, "input"),
+            input_schema=input_schema,
             output_schema=_schema(output_type, "serialization", where, "output"),
             input_type=input_type,
             output_type=output_type,
@@ -262,6 +282,7 @@ def tool(
             mutating=mutating,
             needs_approval_when_unattended=needs_approval_when_unattended,
             result_is_outside_data=result_is_outside_data,
+            approval=None if approval is None else approval_wire(approval),
             needs=needs,
             needs_spec=needs_spec,
             sandbox=sandbox,
@@ -300,6 +321,7 @@ def http_tool(
     mutating: bool | None = None,
     needs_approval_when_unattended: bool | None = None,
     result_is_outside_data: bool | None = None,
+    approval: Mapping[str, Any] | None = None,
 ) -> Tool[..., Any]:
     """Declare a tool that is one HTTP request — no handler: the Kindgi runtime makes the call.
 
@@ -313,8 +335,9 @@ def http_tool(
         request_body={"kind": "json-input"}
 
     The runtime resolves the secret on every call (`local`: the pack's `.env`
-    under `kindgi dev`). A GET that changes nothing is `mutating=False`. Calling
-    the tool in Python raises: it runs in Kindgi.
+    under `kindgi dev`). A GET that changes nothing is `mutating=False`.
+    `approval=` says how an approval of a call reads, as on `tool`. Calling the
+    tool in Python raises: it runs in Kindgi.
     """
     where = f'Tool "{id}"'
     _require_id(id, where)
@@ -353,6 +376,7 @@ def http_tool(
         raise DefinitionError(
             f"{where}: {named} not a field of the input, which fills placeholders"
         )
+    _check_approval(approval, input_schema, where)
 
     def runs_in_kindgi(*_args: Any, **_kwargs: Any) -> NoReturn:
         raise RuntimeError(
@@ -375,6 +399,7 @@ def http_tool(
         mutating=mutating,
         needs_approval_when_unattended=needs_approval_when_unattended,
         result_is_outside_data=result_is_outside_data,
+        approval=None if approval is None else approval_wire(approval),
         spec=spec,
         module=_defined_in(1),
         _input_adapter=_adapter(input),
@@ -384,6 +409,17 @@ def http_tool(
 
 _PLACEHOLDER = re.compile(r"\{(\w+)\}")
 """A `{name}` placeholder, as the runtime's HTTP tool fills it."""
+
+
+def _check_approval(
+    approval: Mapping[str, Any] | None, input_schema: Mapping[str, Any], where: str
+) -> None:
+    """Refuse an `approval` the runtime couldn't fill from a call, as `defineTool` does."""
+    if approval is None:
+        return
+    problem = approval_problem(approval, input_schema)
+    if problem is not None:
+        raise DefinitionError(f"{where}: {problem}")
 
 
 @cache

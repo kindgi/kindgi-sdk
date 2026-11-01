@@ -40,6 +40,7 @@ export type {
   InferInput,
   InferOutput,
   Tool,
+  ToolApproval,
   ToolConnection,
   ToolContext,
   ToolManifest,

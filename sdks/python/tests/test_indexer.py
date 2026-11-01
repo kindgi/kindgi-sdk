@@ -513,6 +513,15 @@ def unsaid(input: Q) -> Q:
     return input
 
 
+@tool(
+    id="acme.void", mutating=True,
+    approval={"title": "Void {q}", "about": {"kind": "acme.order", "id": "{q}"}},
+)
+def void(input: Q) -> Q:
+    "Voids."
+    return input
+
+
 charge = http_tool(
     id="acme.charge", description="Charges.", input=Q, output=Q,
     method="POST", url_template="https://api.example.com/{q}",
@@ -548,6 +557,19 @@ def test_the_index_carries_result_is_outside_data_as_declared(
     assert by_id["acme.local"]["resultIsOutsideData"] is False
     assert "resultIsOutsideData" not in by_id["acme.unsaid"]  # absent: results are not outside data
     assert by_id["acme.charge"]["resultIsOutsideData"] is True
+
+
+def test_the_index_carries_approval_as_declared(make_pack: Callable[..., Path]) -> None:
+    root = make_pack({"tools/q.py": APPROVAL_TOOLS})
+    report, index = index_of(root)
+    assert report["fileErrors"] == []
+    assert _spec("pack-index").issues(index) == []
+    by_id = {t["id"]: t for t in index["tools"]}
+    assert by_id["acme.void"]["approval"] == {
+        "title": "Void {q}",
+        "about": {"kind": "acme.order", "id": "{q}"},
+    }
+    assert "approval" not in by_id["acme.unsaid"]  # absent: it reads "Approve a call to <tool id>"
 
 
 def test_an_llm_judge_guardrails_judge_is_in_the_index(make_pack: Callable[..., Path]) -> None:

@@ -79,6 +79,8 @@ export { highestVersion, nextVersion, pickVersion } from './versions.js';
 export type { VersionPick } from './versions.js';
 export { toManifest, toMcpManifest } from './manifest.js';
 export { changedToolFields, sameToolDefinition, toolDefinition } from './definition.js';
+export { renderApproval } from './approval-text.js';
+export type { RenderedApproval } from './approval-text.js';
 export { EFFECT_KINDS } from './types.js';
 export type {
   AnyTool,
@@ -97,6 +99,7 @@ export type {
   RuntimeLimits,
   SandboxMode,
   Tool,
+  ToolApproval,
   ToolContext,
   ToolManifest,
   ToolSecretRef,

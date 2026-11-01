@@ -13,6 +13,16 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`@tool` and `http_tool` take `approval`.** `approval={"title":
+  "Refund {amount} on order #{order_id}", "summary": "{reason}", "about":
+  {"kind": "woocommerce.order", "id": "{order_id}"}}` gives the words a
+  reviewer reads a call in. Each `{field}` names a required top-level field of
+  the input whose type is a string, a number, an integer or a boolean (or an
+  enum of those), and the tool raises `DefinitionError` where it's declared for
+  any other. A call's values fill them in as plain text, and the approval keeps
+  the words in its `context`, for a signed-in reviewer. The pack's index
+  carries it as `approval`; left out, an approval reads "Approve a call to
+  <tool id>".
 - `kindgi`: **a suggested change says how many corrections it fixes in all**:
   `SuggestedChange.correction_count`. `fixes` names the first 100 at most, and
   an Improve run can fix more. It's `None` from an older runtime: there, take

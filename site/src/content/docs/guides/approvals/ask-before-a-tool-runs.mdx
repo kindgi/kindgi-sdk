@@ -635,7 +635,7 @@ uv run kindgi approvals list --status=pending
       },
       "requiredRole": "standard",
       "status": "pending",
-      "title": "HITL review: acme-ops.post-update",
+      "title": "Approve a call to acme-ops.post-update",
       …
       "provenanceRef": {
         "runId": "0c01376f-1566-4a0d-ba6f-95f4efff4758"
@@ -649,6 +649,96 @@ uv run kindgi approvals list --status=pending
 
 The approval names the tool and the exact arguments the model chose, and
 `provenanceRef.runId` is the run that waits.
+
+## Say what a reviewer reads
+
+The approval above reads "Approve a call to acme-ops.post-update", with the
+model's arguments in `subjectRef.arguments`. Give the tool an `approval`, and
+each call also reads in the tool's own words: a `title`, a `summary` if you
+like, and `about`, what the call acts on. Each `{field}` takes the value the
+model chose for that field of the input:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts excerpt
+// in tools/post-update/index.ts
+  input: z.object({ message: z.string().min(1).max(500) }),
+  approval: { title: 'Post to the status page: {message}' },
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python excerpt
+# in tools/post_update.py
+@tool(
+    id="acme-ops.post-update",
+    effects=[{"kind": "external-side-effect", "resource": "external:status-page"}],
+    approval={"title": "Post to the status page: {message}"},
+)
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acmeops/tools/PostUpdate.java
+import com.kindgi.pack.ToolApproval;
+
+      .effect("external-side-effect", "external:status-page")
+      .approval(ToolApproval.titled("Post to the status page: {message}"))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acmeops/tools/PostUpdate.scala
+import com.kindgi.pack.ToolApproval
+
+    .effect("external-side-effect", "external:status-page")
+    .approval(ToolApproval.titled("Post to the status page: {message}"))
+```
+
+</TabItem>
+</Tabs>
+
+The next call's approval keeps its words in `context`:
+
+```json
+{
+  …
+  "title": "Approve a call to acme-ops.post-update",
+  "context": {
+    "text": {
+      "title": "Post to the status page: Checkout is back to normal."
+    }
+  },
+  …
+}
+```
+
+- **Its `title` stays "Approve a call to acme-ops.post-update".** The title
+  goes out in the reviewer's mail and in the `approval.requested` event, which
+  never carry a call's arguments. The words stay in the approval, for a
+  signed-in reviewer.
+- **Each `{field}` names a required top-level field of the input** whose type
+  is a string, a number, an integer or a boolean (or an enum of those).
+  Defining the tool fails for any other, naming the tool and the text: an
+  optional field (a call may leave it out), an object, an array, a field that
+  may be `null`. So does a brace that isn't part of a placeholder.
+- **`summary` and `about` work the same way.** `about` names what the call
+  acts on, as a `kind` (a dotted name, such as `woocommerce.order`) and an
+  `id` that holds at least one placeholder. The approval keeps it as
+  `context.about`. The WooCommerce starter (`kindgi init --template=woocommerce`)
+  gives its four tools that change the store all three: "Refund {amount} on
+  order #{orderId}", about `woocommerce.order` `{orderId}`.
+- **Each value is filled in as plain text, on one line.** Line breaks and
+  control characters become spaces, bidi controls go, and a long value is cut,
+  ending in `…`: 80 characters in the title, 500 in the summary.
+- **It doesn't make a call wait.** The agent's rules and
+  `needsApprovalWhenUnattended` decide that.
 
 ## Approve it
 

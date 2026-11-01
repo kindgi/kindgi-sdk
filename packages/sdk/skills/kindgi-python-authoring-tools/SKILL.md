@@ -14,7 +14,7 @@ description: >
   kindgi-python-getting-started.
 type: core
 library: "kindgi (Python)"
-version: "0.1.7"
+version: "0.1.8"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -315,6 +315,38 @@ Docs: https://docs.kindgi.com/v0.3/guides/approvals/ask-before-a-tool-runs/#when
 ## Results that are text from outside: `result_is_outside_data`
 
 `result_is_outside_data=True` says the tool's results are text from outside that nobody checked, such as a mail someone sent or a page a search found. An agent reads each result of the tool as data, not instructions, in that turn and in every later turn's history. It changes what the model is told, not what the tool may do: pair it with approvals for anything an agent could do with what it read. Absent means `false`.
+
+## How an approval of a call reads: `approval`
+
+`approval=` gives the words a reviewer reads a call of the tool in, its arguments filled in, in place of "Approve a call to <tool id>". `title` is one line; `summary` (optional) says more; `about` (optional) names what the call acts on, as a `kind` (a dotted name such as `woocommerce.order`) and an `id`:
+
+```python
+class Refund(BaseModel):
+    order_id: int
+    amount: float
+    reason: str
+
+
+@tool(
+    id="acme.refund",
+    mutating=True,
+    approval={
+        "title": "Refund {amount} on order #{order_id}",
+        "summary": "{reason}",
+        "about": {"kind": "woocommerce.order", "id": "{order_id}"},
+    },
+)
+def refund(input: Refund) -> Refunded:
+    """Refunds part of an order."""
+    ...
+```
+
+- **Each `{field}` names a required top-level field of the input**, as its JSON Schema names it (a field's alias, if it has one), whose type is a string, a number, an integer or a boolean (or an enum of those). `@tool` (and `http_tool`) refuses any other, naming the tool and the text: an optional field (a call may leave it out), an object, an array, a field that may be `null`. A brace that isn't part of a placeholder is refused too, and `about.id` holds at least one placeholder, all with a `DefinitionError`.
+- **A call's values are filled in as plain text, on one line:** line breaks and control characters become spaces, bidi controls go, and a long value is cut, ending in `…` (80 characters in the title, 500 in the summary).
+- **The words stay behind sign-in.** The approval keeps them in its `context` (`context.text`, `context.about`), beside the call's arguments. Its `title` stays "Approve a call to <tool id>": the title goes out in the reviewer's mail and in the `approval.requested` event, which never carry a call's arguments.
+- **It doesn't make a call wait.** The agent's `conversationPolicy.hitl.tools` and `needsApprovalWhenUnattended` decide that.
+
+Docs: https://docs.kindgi.com/v0.3/guides/approvals/ask-before-a-tool-runs/#say-what-a-reviewer-reads
 
 ## HTTP tools — one request, no code
 

@@ -11,6 +11,7 @@ import {
   BUILT_IN_TOOL_PREFIX,
   invokeTool,
   invokeToolOrPause,
+  renderApproval,
   toolCallRecordKey,
   toolIdempotencyKey,
   withoutConnectionTokens,
@@ -1022,6 +1023,30 @@ async function runAlone(
 }
 
 /**
+ * A call's approval in its tool's words (`Tool.approval`), filled from the
+ * call's arguments: the approval's `context.text` and `context.about`.
+ * They stay there, behind sign-in, with the call's arguments: the
+ * approval's `title` goes out in the reviewer's mail and the
+ * `approval.requested` event, which never carry a call's arguments, so it
+ * stays `Approve a call to <tool id>`. A call whose arguments don't fill
+ * the words has none, and its approval reads that title alone.
+ */
+function approvalContextOf(
+  tool: Tool,
+  call: ModelToolCall,
+): { readonly context?: Readonly<Record<string, unknown>> } {
+  if (tool.approval === undefined) return {};
+  const words = renderApproval(tool.approval, call.arguments);
+  if (words.kind === 'err') return {};
+  return {
+    context: {
+      text: words.value.text,
+      ...(words.value.about !== undefined && { about: words.value.about }),
+    },
+  };
+}
+
+/**
  * A call's review: the approval it asks for, and the park until the answer.
  * Fails closed: only an explicit approve runs the call, and only while the
  * turn's principal may still call the tool.
@@ -1065,8 +1090,9 @@ async function passGate(step: StepCalls, gated: GatedCall): Promise<DecidedCall>
         ...(asker !== undefined && { requestedBy: asker }),
         separateApprover: gate.separateApprover === true,
         ...approval,
-        title: `HITL review: ${call.name}`,
+        title: `Approve a call to ${tool.id}`,
         description: `Tool call ${call.name} awaiting reviewer approval before dispatch.`,
+        ...approvalContextOf(tool, call),
         waitTokenId,
         provenanceRef: { runId: kctx.runId },
         expiresAt: expiresAt as never,

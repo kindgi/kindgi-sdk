@@ -904,6 +904,36 @@ describe('runIndexer — Zod schemas', () => {
     expect(byId.get('acme.plain')).not.toHaveProperty('resultIsOutsideData');
   });
 
+  test("a tool's `approval` is carried into the index as written", async () => {
+    const approval = {
+      title: 'Echo {message}',
+      summary: 'Says {message} back',
+      about: { kind: 'acme.message', id: '{message}' },
+    };
+    const fixture = await makeFixture({
+      files: {
+        'kindgi.config.mjs': config(),
+        'tools/echo.mjs': toolModule({ id: 'acme.echo', approval }),
+        'tools/plain.mjs': toolModule({ id: 'acme.plain' }),
+      },
+    });
+
+    const outcome = await runIndexer({
+      packDir: fixture.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      importModule: fixture.importModule,
+    });
+    expect(outcome.kind).toBe('ok');
+    if (outcome.kind !== 'ok') return;
+
+    // Lost here, a reviewer would read the pack's calls as "Approve a call
+    // to <tool id>" alone.
+    const parsed = await readValidIndex(outcome.value.outputPath);
+    const byId = new Map((parsed.tools as { id: string }[]).map((t) => [t.id, t]));
+    expect(byId.get('acme.echo')).toMatchObject({ approval });
+    expect(byId.get('acme.plain')).not.toHaveProperty('approval');
+  });
+
   test("a tool's `pauses` is carried into the index; a tool the pack doesn't run can't pause", async () => {
     const fixture = await makeFixture({
       files: {

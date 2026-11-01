@@ -53,6 +53,13 @@ const defined = defineTool({
   // key started it), every call waits for a person's yes, whatever the
   // agent's approval policy says.
   needsApprovalWhenUnattended: true,
+  // How an approval of a call reads, the call's own values filled in. A
+  // reviewer sees these words once signed in; the mail names only the tool.
+  approval: {
+    title: 'Refund {amount} on order #{orderId}',
+    summary: '{reason}',
+    about: { kind: 'woocommerce.order', id: '{orderId}' },
+  },
   needsSpec: REFUND_NEEDS,
   // The limit is checked after `createRefund` has looked for this call's own
   // refund: a call run again after its refund went out returns that refund,

@@ -183,6 +183,25 @@
           "type": "boolean",
           "description": "Whether the tool may read stored files (`tool.schema.json` `readsFiles`, schema-version 1.8.0+): the runtime then sends each call a `toolFiles`, and the pack service gives its handler `files.read`. Absent means `false`."
         },
+        "approval": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title"],
+          "description": "How an approval of a call to the tool reads (`tool.schema.json` `approval`): a title, a summary and what the call is about, with `{field}` placeholders a call's arguments fill in. Absent, an approval reads `Approve a call to <tool id>`.",
+          "properties": {
+            "title": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[^\\r\\n]*$" },
+            "summary": { "type": "string", "minLength": 1, "maxLength": 1000 },
+            "about": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "id"],
+              "properties": {
+                "kind": { "type": "string", "maxLength": 100, "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$" },
+                "id": { "type": "string", "minLength": 1, "maxLength": 200 }
+              }
+            }
+          }
+        },
         "spec": {
           "$ref": "#/$defs/openObject",
           "description": "A declarative tool's spec (`tool.schema.json` `spec`, e.g. `kind: 'http'`). A runtime runs a tool that has one itself, resolving its `secretRef`s, rather than calling the pack service."

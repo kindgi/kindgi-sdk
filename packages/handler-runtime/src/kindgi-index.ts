@@ -59,6 +59,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { type FlowOutputSpec, loadFlow } from '@kindgi/flow';
 import { isZodSchema, loadZodConverterSync, toJSONSchemaSync } from '@kindgi/schema';
 import type { AnySchema, ZodConverter, ZodLikeSchema } from '@kindgi/schema';
+import type { ToolApproval } from '@kindgi/tools';
 import type { Result } from '@kindgi/types';
 import { parse as parseToml } from 'smol-toml';
 
@@ -363,6 +364,12 @@ export interface IndexedTool {
    * results as data, not instructions. Absent means `false`.
    */
   readonly resultIsOutsideData?: boolean;
+  /**
+   * The tool's declared `approval`: how an approval of a call to it reads,
+   * with `{field}` placeholders a call's arguments fill in. Absent, an
+   * approval reads "Approve a call to <tool id>".
+   */
+  readonly approval?: ToolApproval;
   readonly modulePath: string;
 }
 
@@ -1642,6 +1649,7 @@ function buildTool(
       network: rec.network as Readonly<Record<string, unknown>>,
     }),
     ...(isObject(rec.spec) && { spec: rec.spec as Readonly<Record<string, unknown>> }),
+    ...(isObject(rec.approval) && { approval: rec.approval as unknown as ToolApproval }),
     ...toolFlagsOf(rec),
     ...handlerFlags.value,
     modulePath: normalizeModulePath(relPath),

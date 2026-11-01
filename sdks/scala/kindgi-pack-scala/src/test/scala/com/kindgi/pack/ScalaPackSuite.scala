@@ -89,6 +89,8 @@ class ScalaPackSuite extends munit.FunSuite {
     assert(!echo.containsKey("needsApprovalWhenUnattended"))
     assertEquals(later.get("resultIsOutsideData"), java.lang.Boolean.TRUE)
     assert(!echo.containsKey("resultIsOutsideData"))
+    assertEquals(later.get("approval"), java.util.Map.of("title", "Double {n}"))
+    assert(!echo.containsKey("approval"))
     assertEquals(greet.get("input"), plain(
       """{"type": "object", "additionalProperties": false,
         | "properties": {

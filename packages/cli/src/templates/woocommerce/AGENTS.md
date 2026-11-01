@@ -46,6 +46,13 @@ README.md explains the whole design; keep it true when you change the pack.
   call waits for a person, and no agent's policy lifts that (only a
   project admin can, for one trigger's runs, with `--allow-unattended`).
   Keep it on them, and add it to any such tool you write.
+- **Those four also declare `approval`**, the words a reviewer reads a
+  call in (`'Refund {amount} on order #{orderId}'`). Each `{field}` names
+  a required input field that is a string, a number or a boolean, and
+  `defineTool` refuses any other. The words stay behind sign-in: the mail
+  and the `approval.requested` event name only the tool. Keep them in step
+  when you change a tool's input, and give one to any tool you write that
+  waits for a person.
 - **Order events are untrusted.** `woo.check-order-event` runs before
   any model sees an event and keeps typed fields only; the agent that
   reads events (`order-reviewer`) has read-only tools. Keep it that way:

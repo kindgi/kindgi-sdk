@@ -79,6 +79,12 @@ A call that waits shows in the console's approvals inbox, and in
 rejection (`--decision=reject --rationale=…`) means the tool never runs.
 The audit records the decision, and the agent says the change wasn't made.
 
+Each of the four also declares an `approval`: the words its approval reads
+in, with the call's own values filled in (`Refund 25 on order #1234`, and
+the order it's about). The approval keeps them with the call's arguments,
+for a signed-in reviewer: the mail and the `approval.requested` event name
+only the tool.
+
 The agent doesn't see the approval itself: a call that waited comes back
 with its result once a person decided. So its instructions
 (`blocks/store-agent-prompt.liquid`) say what that means:

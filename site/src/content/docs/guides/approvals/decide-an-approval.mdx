@@ -601,7 +601,7 @@ if (first) {
 It prints each pending approval, then the decision's outcome:
 
 ```text
-46f0f9ad-f22d-4a93-8337-25b7c32a7473 HITL review: acme-ops.post-update {
+46f0f9ad-f22d-4a93-8337-25b7c32a7473 Approve a call to acme-ops.post-update {
   callId: 'dev-echo-call-1',
   toolId: 'acme-ops.post-update',
   agentId: 'acme-ops.status-agent',
@@ -635,7 +635,7 @@ if pending.data:
 It prints each pending approval, then the decision's outcome:
 
 ```text
-0afd1543-fe4e-45ca-af34-2effc1095bab HITL review: acme-ops.post-update {'callId': 'dev-echo-call-1', 'toolId': 'acme-ops.post-update', 'agentId': 'acme-ops.status-agent', …, 'arguments': {'message': 'Search is back.'}, …}
+0afd1543-fe4e-45ca-af34-2effc1095bab Approve a call to acme-ops.post-update {'callId': 'dev-echo-call-1', 'toolId': 'acme-ops.post-update', 'agentId': 'acme-ops.status-agent', …, 'arguments': {'message': 'Search is back.'}, …}
 approved True
 ```
 
@@ -680,7 +680,7 @@ public final class Review {
 It prints each pending approval, then the decision's outcome:
 
 ```text
-6faa8787-ff70-476e-b68b-74044b3711cc HITL review: acme-ops.post-update {callId=dev-echo-call-1, toolId=acme-ops.post-update, agentId=acme-ops.status-agent, …, arguments={message=Checkout is slow for some customers.}, …}
+6faa8787-ff70-476e-b68b-74044b3711cc Approve a call to acme-ops.post-update {callId=dev-echo-call-1, toolId=acme-ops.post-update, agentId=acme-ops.status-agent, …, arguments={message=Checkout is slow for some customers.}, …}
 approved true
 ```
 
@@ -719,7 +719,7 @@ object Review {
 It prints each pending approval, then the decision's outcome:
 
 ```text
-d7ae0dec-8c01-41f9-bc18-df650233847c HITL review: acme-ops.post-update {callId=dev-echo-call-1, toolId=acme-ops.post-update, agentId=acme-ops.status-agent, …, arguments={message=Search is back.}, …}
+d7ae0dec-8c01-41f9-bc18-df650233847c Approve a call to acme-ops.post-update {callId=dev-echo-call-1, toolId=acme-ops.post-update, agentId=acme-ops.status-agent, …, arguments={message=Search is back.}, …}
 approved true
 ```
 

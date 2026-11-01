@@ -72,6 +72,13 @@ every later turn's history. It changes what the model is told, not what the
 tool may do: pair it with approvals for anything an agent could do with what it
 read. Left unset, it counts as `false`.
 
+`approval(ToolApproval.titled("Refund {amount} on order #{orderId}"))` gives
+the words a reviewer reads a call in, each `{field}` filled from the call: a
+required input field that is a string, a number, an integer or a boolean.
+`withSummary` says more, and `withAbout("woocommerce.order", "{orderId}")`
+names what the call acts on. Building the tool throws for a placeholder a call
+couldn't fill. Left unset, an approval reads "Approve a call to <tool id>".
+
 ## The pack
 
 A pack is a directory with a `kindgi.config.json`, usually the root of your

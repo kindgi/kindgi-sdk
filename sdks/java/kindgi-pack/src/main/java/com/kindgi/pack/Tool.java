@@ -60,6 +60,7 @@ public final class Tool<I, O> {
   private final @Nullable Boolean mutating;
   private final @Nullable Boolean needsApprovalWhenUnattended;
   private final @Nullable Boolean resultIsOutsideData;
+  private final @Nullable ToolApproval approval;
   private final List<Map<String, Object>> effects;
   private final Map<String, Object> extra;
   private final ToolHandler<I, O> handler;
@@ -80,10 +81,17 @@ public final class Tool<I, O> {
     this.mutating = b.mutating;
     this.needsApprovalWhenUnattended = b.needsApprovalWhenUnattended;
     this.resultIsOutsideData = b.resultIsOutsideData;
+    this.approval = b.approval;
     this.effects = List.copyOf(b.effects);
     this.extra = Map.copyOf(extra);
     this.handler = Objects.requireNonNull(handler, "handler");
     this.definedIn = b.definedIn;
+    if (approval != null) {
+      String problem = approval.problem(inputSchema());
+      if (problem != null) {
+        throw new IllegalArgumentException("Tool \"" + id + "\": " + problem);
+      }
+    }
   }
 
   /**
@@ -131,6 +139,14 @@ public final class Tool<I, O> {
    */
   public @Nullable Boolean resultIsOutsideData() {
     return resultIsOutsideData;
+  }
+
+  /**
+   * @return how an approval of a call to the tool reads; {@code null} when it doesn't say (it reads
+   *     {@code Approve a call to <tool id>})
+   */
+  public @Nullable ToolApproval approval() {
+    return approval;
   }
 
   List<Map<String, Object>> effects() {
@@ -230,6 +246,7 @@ public final class Tool<I, O> {
     private @Nullable Boolean mutating;
     private @Nullable Boolean needsApprovalWhenUnattended;
     private @Nullable Boolean resultIsOutsideData;
+    private @Nullable ToolApproval approval;
     private final List<Map<String, Object>> effects = new ArrayList<>();
     private final Map<String, Object> extra = new LinkedHashMap<>();
     private final Class<?> definedIn;
@@ -343,6 +360,21 @@ public final class Tool<I, O> {
     }
 
     /**
+     * How an approval of a call to the tool reads, when one is asked: the reviewer sees the call in
+     * the tool's own words, its arguments filled in (see {@link ToolApproval}). It doesn't make a
+     * call wait: an agent's approval rules and {@link #needsApprovalWhenUnattended} decide that.
+     * Unset, an approval reads {@code Approve a call to <tool id>}. It's checked against the input
+     * when the tool is built ({@link #handler}, {@link #asyncHandler} or {@link #http}).
+     *
+     * @param approval how an approval of a call reads
+     * @return this
+     */
+    public Builder<I, O> approval(ToolApproval approval) {
+      this.approval = Objects.requireNonNull(approval, "approval");
+      return this;
+    }
+
+    /**
      * @param kind what the tool does outside its code ({@code writes}, {@code network}, …)
      * @param resource to what ({@code db:ledger})
      * @return this
@@ -371,6 +403,7 @@ public final class Tool<I, O> {
     /**
      * @param handler the tool's code
      * @return the tool
+     * @throws IllegalArgumentException when the approval doesn't fit the input
      */
     public Tool<I, O> handler(ToolHandler<I, O> handler) {
       return new Tool<>(this, handler);
@@ -381,6 +414,7 @@ public final class Tool<I, O> {
      *     {@code CompletableFuture} it returned when the call passes its deadline or its caller
      *     goes away
      * @return the tool
+     * @throws IllegalArgumentException when the approval doesn't fit the input
      */
     public Tool<I, O> asyncHandler(AsyncToolHandler<I, O> handler) {
       Objects.requireNonNull(handler, "handler");
@@ -396,7 +430,8 @@ public final class Tool<I, O> {
      *
      * @param spec the HTTP request to make
      * @return the tool
-     * @throws IllegalArgumentException when the spec is not valid for this tool
+     * @throws IllegalArgumentException when the spec is not valid for this tool, or the approval
+     *     doesn't fit the input
      */
     public Tool<I, O> http(HttpToolSpec spec) {
       Objects.requireNonNull(spec, "spec");

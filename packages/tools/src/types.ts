@@ -284,6 +284,41 @@ export type NetworkPolicy =
   | { readonly kind: 'unrestricted' };
 
 /**
+ * How an approval of a call to a tool reads (`ToolManifest.approval`).
+ * Each text holds `{field}` placeholders, each naming a required
+ * top-level field of the tool's input whose type is a string, a number,
+ * an integer or a boolean (or an enum of those): `defineTool` refuses any
+ * other. A call's arguments fill them in as plain text, on one line, cut
+ * when long.
+ *
+ * The words stay behind sign-in: the approval keeps them in its
+ * `context` (`context.text`, `context.about`), with the call's
+ * arguments, and its `title` stays "Approve a call to <tool id>", since
+ * the title goes out in the reviewer's mail and the `approval.requested`
+ * event, which never carry a call's arguments.
+ *
+ * ```ts
+ * approval: {
+ *   title: 'Refund {amount} on order #{orderId}',
+ *   summary: '{reason}',
+ *   about: { kind: 'woocommerce.order', id: '{orderId}' },
+ * }
+ * ```
+ */
+export interface ToolApproval {
+  /** One line: what's being approved. At most 200 characters. */
+  readonly title: string;
+  /** A few lines under the title. At most 1000 characters. */
+  readonly summary?: string;
+  /**
+   * What the call is about: a thing in another system. `kind` is
+   * lowercase words joined by dots (`woocommerce.order`), with no `:`.
+   * `id` holds at least one placeholder.
+   */
+  readonly about?: { readonly kind: string; readonly id: string };
+}
+
+/**
  * Typed dependency declarations for handler code, carried on the
  * manifest as `needsSpec`. Each slot is optional; a handler that
  * consumes none of a slot omits it entirely.
@@ -540,6 +575,14 @@ export interface ToolManifest {
    * agent's system message from the turn's start. Absent = `false`.
    */
   readonly resultIsOutsideData?: boolean;
+  /**
+   * How an approval of a call to this tool reads, when one is asked: the
+   * reviewer sees the call in the tool's own words, its arguments filled
+   * in. It doesn't make a call wait: an agent's approval rules and
+   * `needsApprovalWhenUnattended` decide that. See `ToolApproval`. Absent,
+   * an approval reads "Approve a call to <tool id>".
+   */
+  readonly approval?: ToolApproval;
   /** Isolation posture — see `SandboxMode`. */
   readonly sandbox?: SandboxMode;
   /** Memory + CPU caps enforced by the sandbox at dispatch. */

@@ -3,6 +3,7 @@
 
 package scalapack.tools
 
+import com.kindgi.pack.ToolApproval
 import com.kindgi.pack.scaladsl._
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -14,5 +15,6 @@ object Later {
     .description("Doubles n, later.")
     .needsApprovalWhenUnattended(true)
     .resultIsOutsideData(true)
+    .approval(ToolApproval.titled("Double {n}"))
     .handlerAsync((in, _) => Future(Output(in.n * 2))(ExecutionContext.global))
 }

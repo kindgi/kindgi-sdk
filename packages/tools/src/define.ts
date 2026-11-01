@@ -20,6 +20,7 @@ import type {
 } from '@kindgi/schema';
 import type { Result, ToolId } from '@kindgi/types';
 
+import { approvalProblem } from './approval-text.js';
 import type {
   InvalidSchemaError,
   InvalidToolDefinitionError,
@@ -471,6 +472,8 @@ function finalizeDefinition<
   if (badOutput) return { kind: 'err', error: badOutput };
   const badNeeds = needsSpecProblem(manifest);
   if (badNeeds) return { kind: 'err', error: badNeeds };
+  const badApproval = approvalProblem(manifest);
+  if (badApproval) return { kind: 'err', error: badApproval };
 
   const tool = {
     ...wireSpec,
@@ -671,6 +674,8 @@ export function validateToolManifest(
   if (badOutput) return { kind: 'err', error: badOutput };
   const badNeeds = needsSpecProblem(parsed);
   if (badNeeds) return { kind: 'err', error: badNeeds };
+  const badApproval = approvalProblem(parsed);
+  if (badApproval) return { kind: 'err', error: badApproval };
   const badUrl = checkHttpUrlTemplate(parsed);
   if (badUrl) return { kind: 'err', error: badUrl };
   return { kind: 'ok', value: parsed };

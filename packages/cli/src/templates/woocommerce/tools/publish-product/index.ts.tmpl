@@ -21,6 +21,12 @@ const defined = defineTool({
   // key started it), every call waits for a person's yes, whatever the
   // agent's approval policy says.
   needsApprovalWhenUnattended: true,
+  // How an approval of a call reads, the call's own values filled in. A
+  // reviewer sees these words once signed in; the mail names only the tool.
+  approval: {
+    title: 'Publish product #{productId}',
+    about: { kind: 'woocommerce.product', id: '{productId}' },
+  },
   needsSpec: WOO_NEEDS,
   handler: async ({ productId }, ctx) => {
     const product = await woo<{ readonly id: number; readonly name: string; readonly status: string }>(

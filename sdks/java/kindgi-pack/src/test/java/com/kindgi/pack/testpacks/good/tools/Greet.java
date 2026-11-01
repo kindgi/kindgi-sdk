@@ -4,6 +4,7 @@
 package com.kindgi.pack.testpacks.good.tools;
 
 import com.kindgi.pack.Tool;
+import com.kindgi.pack.ToolApproval;
 import com.kindgi.pack.testpacks.shared.Shared;
 
 public final class Greet {
@@ -18,6 +19,7 @@ public final class Greet {
       .mutating(false)
       .needsApprovalWhenUnattended(false)
       .resultIsOutsideData(true)
+      .approval(ToolApproval.titled("Greet {name}").withAbout("acme.person", "{name}"))
       .handler((input, ctx) -> new Output("Hello, " + input.name()));
 
   /** Defined in another class: not this file's to index. */

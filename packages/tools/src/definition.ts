@@ -37,6 +37,7 @@ const TOOL_FIELDS: { readonly [K in keyof ToolManifest]-?: 'declared' | 'derived
   storesFiles: 'declared',
   readsFiles: 'declared',
   resultIsOutsideData: 'declared',
+  approval: 'declared',
   sandbox: 'declared',
   limits: 'declared',
   network: 'declared',

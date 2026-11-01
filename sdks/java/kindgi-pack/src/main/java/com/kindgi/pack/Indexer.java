@@ -515,6 +515,8 @@ final class Indexer {
     put(e, "mutating", tool.mutating());
     put(e, "needsApprovalWhenUnattended", tool.needsApprovalWhenUnattended());
     put(e, "resultIsOutsideData", tool.resultIsOutsideData());
+    ToolApproval approval = tool.approval();
+    put(e, "approval", approval == null ? null : approval.toIndexMap());
     tool.extra().forEach(e::put);
     e.put("modulePath", rel);
     return e;
