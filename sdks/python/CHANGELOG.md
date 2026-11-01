@@ -13,6 +13,14 @@ its candidates, and theirs are just below it. `kindgi-cli` carries
 
 ## Unreleased
 
+- `kindgi`: **`system_deployments.list`'s docstrings say which deployments
+  need a pack service by the rule the runtime applies**: since 0.4.0, one
+  that serves something a call can still ask for (a tool, agent or flow
+  version that's registered or held, a tool deployed without a version, or a
+  pack check a registered guardrail runs in its project) when no newer
+  deployment into its project serves it. An endpoint an earlier runtime made
+  or last set needs the earlier rule too. The `retire` list's `superseded`
+  reason says the same.
 - `kindgi`: **`system_deployments.list(endpoint="ready")` lists the
   deployments whose pack service is ready and stays**, for whatever runs the
   pack services. Entries in the `missing` and `ready` lists carry `warm`:

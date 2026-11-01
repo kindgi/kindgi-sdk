@@ -510,7 +510,7 @@ describe('kindgi deployments get', () => {
     expect(superseded.out.stdout).toBe(
       lines(
         ...HEAD,
-        `  Pack service: cleared since ${since}: a later deploy ships every tool version and check this one does, so no new call reaches it (superseded)`,
+        `  Pack service: cleared since ${since}: no new call needs it, or a later deploy into its project ships every tool version and check it does (superseded)`,
       ),
     );
 
