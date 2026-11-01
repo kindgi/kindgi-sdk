@@ -937,12 +937,26 @@ export function coordinatesOf(
   }
 }
 
-/** A finished comparison's summary, or `null` for any other test run. */
+/**
+ * A completed comparison's summary, or `null` for any other test run. A
+ * comparison cancelled or failed part way can keep the summary of the cases
+ * it got through, which doesn't say how the version does on the test cases.
+ */
 function summaryOf(run: TestRun): CorrectedComparisonSummary | null {
   const summary = run.result?.summary;
-  return run.kind === 'corrections' && summary !== null && typeof summary === 'object'
+  return run.kind === 'corrections' &&
+    run.status === 'completed' &&
+    summary !== null &&
+    typeof summary === 'object'
     ? (summary as CorrectedComparisonSummary)
     : null;
+}
+
+/** Why a gate doesn't read test run `testRunId` (`summaryOf` gave none). */
+function notACompletedComparison(testRunId: string, run: TestRun): string {
+  return run.kind === 'corrections' && run.status !== 'completed'
+    ? `Test run ${testRunId} isn't a completed comparison: it's ${run.status}. Name a run that completed.`
+    : `Test run ${testRunId} isn't a completed comparison: it has no comparison summary`;
 }
 
 /** Whether two pin scopes are the same scope. */
@@ -1058,10 +1072,7 @@ async function runGate(
     if (run === null) return err('test-run-not-found', `No test run ${req.testRunId}`);
     summary = summaryOf(run);
     if (summary === null) {
-      return err(
-        'bad-input',
-        `Test run ${req.testRunId} isn't a finished comparison: it has no comparison summary`,
-      );
+      return err('bad-input', notACompletedComparison(req.testRunId, run));
     }
   }
   let summaryProjectOrgId: string | undefined;

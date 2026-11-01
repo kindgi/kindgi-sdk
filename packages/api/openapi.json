@@ -39126,7 +39126,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
+            "description": "Malformed request body, or the test run isn't a completed comparison: a cancelled or failed one is refused, even with the summary of the cases it got through. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -39284,7 +39284,7 @@
             }
           },
           "400": {
-            "description": "Malformed body, or the test run is not a finished comparison. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
+            "description": "Malformed body, or the test run isn't a completed comparison: a cancelled or failed one is refused, even with the summary of the cases it got through. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
             "content": {
               "application/json": {
                 "schema": {

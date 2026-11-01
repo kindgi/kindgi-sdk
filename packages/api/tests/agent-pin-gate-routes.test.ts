@@ -301,12 +301,16 @@ function setup(
   return { app, calls, state };
 }
 
-const testRun = (s: CorrectedComparisonSummary | undefined, kind = 'corrections'): TestRun =>
+const testRun = (
+  s: CorrectedComparisonSummary | undefined,
+  kind = 'corrections',
+  status: TestRun['status'] = 'completed',
+): TestRun =>
   ({
     id: 'eval-1',
     testRunId: 'eval-1',
     kind,
-    status: 'completed',
+    status,
     ...(s !== undefined && { result: { summary: s, perCase: [] } }),
   }) as never;
 
@@ -511,6 +515,43 @@ describe('POST /v1/agents/:agentId/pinned/pin, through the gate', () => {
     expect(methods(accuracy.calls)).not.toContain('request');
   });
 
+  // A comparison cancelled or failed part way can keep the summary of the
+  // cases it got through. These figures pass the gate, so it's the run's
+  // status that refuses it.
+  test.each(['cancelled', 'failed'] as const)(
+    "a comparison that's %s → 400 bad-input, though its summary would pass; nothing recorded",
+    async (status) => {
+      const { app, calls, state } = setup();
+      state.releaseGate = releaseGate(PASSING);
+      state.testRun = testRun(summary({ cases: 12 }), 'corrections', status);
+      const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
+      expect(res.status).toBe(400);
+      const { error } = (await res.json()) as { error: { code: string; message: string } };
+      expect(error).toMatchObject({
+        code: 'bad-input',
+        message: `Test run eval-1 isn't a completed comparison: it's ${status}. Name a run that completed.`,
+      });
+      expect(methods(calls)).not.toContain('request');
+      expect(methods(calls)).not.toContain('pin');
+    },
+  );
+
+  test.each([
+    [201, PASSING],
+    [422, FAILING],
+  ] as const)(
+    'the same summary on a completed run goes through the gate: %d',
+    async (code, spec) => {
+      const { app, calls, state } = setup();
+      state.releaseGate = releaseGate(spec);
+      state.testRun = testRun(summary({ cases: 12 }), 'corrections', 'completed');
+      const res = await app.request(`/v1/agents/${AGENT}/pinned/pin`, pinBody());
+      expect(res.status).toBe(code);
+      const request = calls.find((c) => c.method === 'request')?.input as PinRequestInput;
+      expect(request.gate.passed).toBe(code === 201);
+    },
+  );
+
   test('an unregistered version → 404 before any gate', async () => {
     const { app, calls, state } = setup();
     state.releaseGate = releaseGate(PASSING);
@@ -659,6 +700,16 @@ describe('POST /v1/agents/:agentId/pinned/check', () => {
     }
     expect(methods(calls)).not.toContain('request');
     expect(methods(calls)).not.toContain('pin');
+  });
+
+  test("a comparison that's cancelled → 400 bad-input, as the pin answers", async () => {
+    const { app, calls, state } = setup();
+    state.releaseGate = releaseGate(PASSING);
+    state.testRun = testRun(summary({ cases: 12 }), 'corrections', 'cancelled');
+    const res = await app.request(`/v1/agents/${AGENT}/pinned/check`, pinBody());
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('bad-input');
+    expect(methods(calls)).not.toContain('request');
   });
 
   test('no release gate: would-pin, releaseGate null', async () => {
