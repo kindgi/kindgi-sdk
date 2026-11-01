@@ -139,6 +139,15 @@ uv run kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where 
 lists every `via`. A version is only pinned this way: publishing a newer
 version doesn't change what a scope with a pinned version runs.
 
+**For an agency,** with a project for each client, pin in the client's
+project instead, with `--project=<project-id>`, as in
+[Pin it for some runs only](#pin-it-for-some-runs-only) but without
+`--segment`. A tenant pin changes the agent at once for every client without
+a pin of its own. When a [release gate](#gate-a-pin) holds a pin for an
+approval, the approval is in the pin's project: a tenant or org pin's is in
+no project, so people who review only their project's approvals don't
+see it.
+
 ## Pin it for some runs only
 
 A narrower scope tries a version with some runs first. The most specific
@@ -529,6 +538,8 @@ uv run kindgi release-gates publish acme.order-desk-release --release-gate-versi
 
 Requests to pin `acme.order-desk` anywhere in the tenant now go
 through the release gate, unless a narrower scope has one of its own.
+An approval it asks for is in the project of the pin it holds: a pin in a
+client's project waits among that project's approvals.
 [Release gates](../pinned-versions-reference/#release-gates) has what
 each part asks, and who may publish one.
 
