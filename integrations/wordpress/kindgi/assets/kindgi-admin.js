@@ -761,7 +761,10 @@
   /** Whether the turn has ended; a failed one says why. */
   function hasEnded(run, progress) {
     if (!ENDED.includes(run.status)) return false;
-    if (run.status === 'failed') progress.append(notice({ message: run.failureMessage }));
+    // Kindgi's words for why it failed are for an administrator, under Details.
+    if (run.status === 'failed') {
+      progress.append(notice({ code: 'run-failed', message: run.failureMessage }));
+    }
     return true;
   }
 

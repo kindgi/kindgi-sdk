@@ -99,6 +99,9 @@
     const code = String(error?.code ?? '');
     if (code.startsWith('kindgi_') && error?.message) return error.message;
     if (code === 'site-sign-in-refused') return signInFailure(error?.data?.reason);
+    if (code === 'run-failed') {
+      return __("The agent couldn't finish this. Try again, or ask it another way.", 'kindgi');
+    }
     return (
       BY_STATUS[error?.data?.status] ??
       __("Kindgi can't be reached right now. Try again in a moment.", 'kindgi')
@@ -348,7 +351,9 @@
     };
     const decide = async (decision) => {
       if (decision === 'reject' && reason.value.trim() === '') {
-        result.replaceChildren(notice({ message: __('Say why you reject it.', 'kindgi') }));
+        result.replaceChildren(
+          notice({ code: 'kindgi_reason_needed', message: __('Say why you reject it.', 'kindgi') }),
+        );
         reason.focus();
         return;
       }
