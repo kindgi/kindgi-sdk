@@ -11,7 +11,7 @@
  * as text, never as HTML.
  */
 (() => {
-  const { __, sprintf } = wp.i18n;
+  const { __, _n, sprintf } = wp.i18n;
   // Read when a link is made: the page sets its config before or after this script.
   const urls = () => window.kindgiConfig?.urls ?? {};
 
@@ -273,6 +273,7 @@
           )
         : null,
       card.words.map(agentWords),
+      wholeCall(card),
       cardMeta(card),
       inConversation || !card.opens
         ? null
@@ -287,6 +288,38 @@
           ),
       cardEnding(card, after),
       details(card),
+    );
+  }
+
+  /**
+   * The whole call, folded, when the card's facts and words leave part of
+   * it out: every field, each value whole, so whoever decides sees all
+   * that would run.
+   */
+  function wholeCall(card) {
+    if (!Array.isArray(card.whole)) return null;
+    return el(
+      'details',
+      { className: 'kindgi-whole' },
+      el(
+        'summary',
+        {},
+        sprintf(
+          /* translators: %d: how many fields the call has */
+          _n(
+            'The whole call (%d field)',
+            'The whole call (%d fields)',
+            card.whole.length,
+            'kindgi',
+          ),
+          card.whole.length,
+        ),
+      ),
+      el(
+        'dl',
+        { className: 'kindgi-facts' },
+        card.whole.map((field) => [el('dt', {}, field.label), el('dd', {}, field.value)]),
+      ),
     );
   }
 
@@ -307,19 +340,12 @@
 
   /** Who asked and when; for a waiting approval, when it expires undecided. */
   function cardMeta(card) {
-    const started = card.asked.kind === 'none';
     const left =
       card.waitsFor !== null && card.expiresAt ? Date.parse(card.expiresAt) - Date.now() : null;
     return el(
       'p',
       { className: 'kindgi-meta' },
-      el(
-        'span',
-        started
-          ? { title: __('By a webhook, a schedule or a service key: no person asked.', 'kindgi') }
-          : {},
-        askedWords(card.asked),
-      ),
+      askedWords(card.asked),
       ' · ',
       timeEl(card.createdAt),
       left === null
@@ -333,7 +359,7 @@
                 ? /* translators: %s: how soon, in words, e.g. "a day from now" */
                   sprintf(__('Expires %s', 'kindgi'), ago(card.expiresAt))
                 : /* translators: %s: how long ago, in words, e.g. "5 minutes ago" */
-                  sprintf(__('Expired %s', 'kindgi'), ago(card.expiresAt)),
+                  sprintf(__('Was due %s', 'kindgi'), ago(card.expiresAt)),
             ),
           ],
     );
@@ -462,7 +488,8 @@
       try {
         const done = await api(`/approvals/${encodeURIComponent(card.id)}/decide`, {
           method: 'POST',
-          data: { decision, reason: reason.value.trim() },
+          // A reason typed for a rejection and then cancelled never goes with an approval.
+          data: decision === 'reject' ? { decision, reason: reason.value.trim() } : { decision },
         });
         result.replaceChildren(...decided(done));
         buttons.remove();
@@ -489,7 +516,7 @@
       why.hidden = !on;
       result.replaceChildren();
       buttons.replaceChildren(...(on ? rejectingButtons : asking));
-      if (on) reason.focus();
+      (on ? reason : asking[1]).focus();
     };
     buttons.append(...asking);
     return el('div', {}, why, buttons, result);
