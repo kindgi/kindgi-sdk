@@ -47,7 +47,8 @@
 # and paste your license key when it asks for the password.
 #
 # What it changes besides the deployment itself:
-#   - It logs docker in to the module's registry (az acr login) and adds the
+#   - It logs docker in to the module's registry (a token from
+#     az acr login --expose-token, on docker login's stdin) and adds the
 #     image tag <registry>/runtime:<version> there.
 #   - It creates a Container Apps job for each check,
 #     <name_prefix>-upgchk-<HHMMSS>-pk, -ss and -mhc, runs it once, and
@@ -1209,7 +1210,7 @@ if [[ $DRY_RUN == true ]]; then
   if [[ $REBUILD_PACK == true ]]; then require_cmd kindgi; fi
 
   step "What a real run would change, in order"
-  info "2. log docker in to ${IMAGE_REPOSITORY} (az acr login: a token for it in your docker config)"
+  info "2. log docker in to ${IMAGE_REPOSITORY} (a token from az acr login --expose-token, on docker login's stdin, which docker stores as it does for any login)"
   info "2. add the image tag ${IMAGE_REPOSITORY}/runtime:${TARGET} to the module's registry"
   info "   (a copy of ${RUNTIME_REPO}:${TARGET}@${RUNTIME_DIGEST}; it serves nothing until step 5)"
   info "   (both platforms, through this machine; on a slow uplink it can take most of an hour)"
@@ -1263,8 +1264,20 @@ fi
 # new index with a digest of its own, not the release digest step 5 pins.
 # On a slow uplink that's most of an hour.
 step "Copying runtime ${TARGET} into the module's registry"
-az acr login -n "${IMAGE_REPOSITORY%%.*}" >/dev/null 2>"$WORK/acr.err" \
-  || die "couldn't log docker in to ${IMAGE_REPOSITORY} (az acr login). Nothing was copied or changed. $(cat "$WORK/acr.err")"
+# The registry's token goes from az's stdout straight to docker login's
+# stdin. A plain `az acr login` runs `docker login --password <token>`, so the
+# token would be in docker's arguments, which any process on this machine can
+# read while docker runs. 00000000-0000-0000-0000-000000000000 is the username
+# az's token goes with. az's stdin is /dev/null, so it never asks for a
+# username and password where nobody sees the question.
+if ! az acr login -n "${IMAGE_REPOSITORY%%.*}" --expose-token --query accessToken -o tsv </dev/null 2>"$WORK/acr.err" \
+  | docker login "$IMAGE_REPOSITORY" --username 00000000-0000-0000-0000-000000000000 --password-stdin \
+    >/dev/null 2>"$WORK/login.err"; then
+  if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+    die "couldn't log docker in to ${IMAGE_REPOSITORY} (az acr login --expose-token). Nothing was copied or changed. $(cat "$WORK/acr.err")"
+  fi
+  die "couldn't log docker in to ${IMAGE_REPOSITORY} (docker login, with az's token). Nothing was copied or changed. $(cat "$WORK/login.err")"
+fi
 info "This copies the runtime through this machine, down from ${RUNTIME_REPO%%/*} and up to ${IMAGE_REPOSITORY}. It takes both platforms (linux/amd64 and linux/arm64), so your copy keeps the release digest."
 info "On a slow uplink it can take most of an hour; it says when it's done."
 docker buildx imagetools create --tag "${IMAGE_REPOSITORY}/runtime:${TARGET}" \
