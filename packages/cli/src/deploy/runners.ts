@@ -424,8 +424,9 @@ export interface DeployRunners {
   /** POST the deployment body to `/v1/deployments`. */
   readonly postDeployment: (opts: PostDeploymentOptions) => Promise<PostDeploymentResult>;
   /**
-   * Inline-build fallback used when no `deploy-envelope.json` is present
-   * on disk and `--from-envelope` was not explicitly supplied.
+   * Inline-build fallback used when `--from-envelope` was not supplied
+   * and `deploy-envelope.json` isn't on disk, or its `build-inputs.json`
+   * says the pack changed since.
    * Production wiring shells out (in-process) to the same `runBuild`
    * exported from `commands/build.ts`, threading the current
    * `ctx.buildRunners` through so tests keep control of every stage.
