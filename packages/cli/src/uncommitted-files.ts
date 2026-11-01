@@ -6,29 +6,43 @@
  * pin before it writes over them (`POST /v1/blocks/uncommitted` on its
  * pack service front). A file is uncommitted when `git status` lists it:
  * changed, staged, untracked or ignored. What it holds then is in no
- * commit, so git can't bring it back once it's written over.
+ * commit, so git can't bring it back once it's written over. So is a file
+ * that's there but neither listed nor in the index (`ls-files --cached`):
+ * it's in another repository inside this one, a submodule say, which this
+ * repository's git doesn't hold either.
+ *
+ * The files are paths in the pack's folder. Each is read `/`-separated (a
+ * `\` read as one) and normalized, as git names it, and is answered so.
+ * One that isn't a file in the pack's folder (empty, absolute, outside it,
+ * a folder, or with a NUL) answers `unknown`, with no git command run.
  *
  * Read-only, in the pack's folder, with no shell. `rev-parse --show-prefix`
  * says where the pack's folder sits in its repository, since `status`
  * names files from the repository's root, which may be above it. `status`
  * then reads only the files asked about, named as literal paths, with each
- * untracked and ignored file listed on its own rather than its folder. It
- * never takes the repository's index lock (`--no-optional-locks`), so it
- * can't get in the way of a git command the person runs meanwhile. Git's
- * repository variables (`GIT_DIR` and the rest) are left out of its
- * environment, so the pack's folder is the repository it reads, as
- * `deploy/source.ts` reads it for a deploy.
+ * untracked and ignored file listed on its own rather than its folder, and
+ * `ls-files` which of them the index holds. Neither takes the repository's
+ * index lock (`--no-optional-locks`), so they can't get in the way of a
+ * git command the person runs meanwhile. Git's repository variables
+ * (`GIT_DIR` and the rest) are left out of their environment, so the
+ * pack's folder is the repository they read, as `deploy/source.ts` reads
+ * it for a deploy.
  *
- * Only git's own "not a git repository" is `not-in-git`. No git, a git
- * that didn't answer in time, and any other refusal (a repository whose
- * owner git doesn't trust, say) are `unknown`: nothing is said then.
+ * Only git's own "not a git repository (or any ...)", from looking for a
+ * repository above the folder, is `not-in-git`. No git, a git that didn't
+ * answer in time, and any other refusal (a repository whose owner git
+ * doesn't trust, or a worktree whose repository moved, say) are `unknown`:
+ * nothing is said then.
  */
 
 import { execFile } from 'node:child_process';
+import { lstat } from 'node:fs/promises';
+import path from 'node:path';
 
 /**
  * What git says of some of a pack's files: `git`, with those it hasn't
- * committed as they are, relative to the pack's folder and sorted;
+ * committed as they are, relative to the pack's folder as git names them,
+ * and sorted;
  * `not-in-git`, the pack's folder isn't in a git repository; `unknown`,
  * git couldn't say.
  */
@@ -85,24 +99,30 @@ export type GitCall = (
 export function gitCaller(env: Readonly<Record<string, string | undefined>>): GitCall {
   return (cwd, args, timeoutMs) =>
     new Promise((resolve) => {
-      execFile(
-        'git',
-        [...args],
-        {
-          cwd,
-          env: gitEnv(env),
-          timeout: timeoutMs,
-          killSignal: 'SIGKILL',
-          maxBuffer: GIT_MAX_BUFFER,
-          windowsHide: true,
-        },
-        (err, stdout, stderr) => {
-          if (err === null) return resolve({ kind: 'ok', stdout });
-          // Git exits 128 for every fatal error: only this message is no repository.
-          const noRepository = err.code === 128 && /not a git repository/.test(stderr);
-          resolve(noRepository ? { kind: 'not-a-repository' } : { kind: 'failed' });
-        },
-      );
+      try {
+        execFile(
+          'git',
+          [...args],
+          {
+            cwd,
+            env: gitEnv(env),
+            timeout: timeoutMs,
+            killSignal: 'SIGKILL',
+            maxBuffer: GIT_MAX_BUFFER,
+            windowsHide: true,
+          },
+          (err, stdout, stderr) => {
+            if (err === null) return resolve({ kind: 'ok', stdout });
+            // Git exits 128 for every fatal error. Only looking for a repository
+            // and finding none says this; a broken `.git` file says less.
+            const noRepository = err.code === 128 && /not a git repository \(or any/.test(stderr);
+            resolve(noRepository ? { kind: 'not-a-repository' } : { kind: 'failed' });
+          },
+        );
+      } catch {
+        // An argument execFile can't pass (one with a NUL) throws.
+        resolve({ kind: 'failed' });
+      }
     });
 }
 
@@ -121,8 +141,8 @@ export function gitEnv(env: Readonly<Record<string, string | undefined>>): NodeJ
 }
 
 /**
- * Which of `files` (relative to `packDir`, `/`-separated) git hasn't
- * committed, or that `packDir` isn't in a git repository, or `unknown`.
+ * Which of `files` (relative to `packDir`) git hasn't committed, or that
+ * `packDir` isn't in a git repository, or `unknown`.
  */
 export async function uncommittedFiles(
   packDir: string,
@@ -130,32 +150,73 @@ export async function uncommittedFiles(
   git: GitCall = callGit,
   timeoutMs: number = GIT_TIMEOUT_MS,
 ): Promise<FilesInGit> {
+  const asked = packPaths(files);
+  if (asked === undefined) return { kind: 'unknown' };
   const where = await git(packDir, ['rev-parse', '--show-prefix'], timeoutMs);
   if (where.kind === 'not-a-repository') return { kind: 'not-in-git' };
   if (where.kind === 'failed') return { kind: 'unknown' };
-  const asked = new Set(files);
   // With no path after `--`, status would read the whole repository.
   if (asked.size === 0) return { kind: 'git', uncommitted: [] };
-  const status = await git(
-    packDir,
-    [
-      '--no-optional-locks',
-      '--literal-pathspecs',
-      'status',
-      '--porcelain',
-      '-z',
-      '--untracked-files=all',
-      '--ignored',
-      '--',
-      ...asked,
-    ],
-    timeoutMs,
-  );
+  const read = (command: readonly string[]) =>
+    git(
+      packDir,
+      ['--no-optional-locks', '--literal-pathspecs', ...command, '--', ...asked],
+      timeoutMs,
+    );
+  const status = await read(['status', '--porcelain', '-z', '--untracked-files=all', '--ignored']);
   if (status.kind !== 'ok') return { kind: 'unknown' };
-  return {
-    kind: 'git',
-    uncommitted: listedFiles(status.stdout, where.stdout.replace(/\n$/, ''), asked),
-  };
+  const listed = listedFiles(status.stdout, where.stdout.replace(/\n$/, ''), asked);
+  // `ls-files` names files from the folder it runs in, the pack's.
+  const index = await read(['ls-files', '--cached', '-z']);
+  if (index.kind !== 'ok') return { kind: 'unknown' };
+  const known = new Set([...listed, ...index.stdout.split('\0')]);
+  const elsewhere = await filesThere(
+    packDir,
+    [...asked].filter((file) => !known.has(file)),
+  );
+  if (elsewhere === undefined) return { kind: 'unknown' };
+  return { kind: 'git', uncommitted: [...listed, ...elsewhere].sort() };
+}
+
+/**
+ * `files` as git names them in the pack's folder: `/`-separated and
+ * normalized. Undefined when one isn't a file in the folder: empty or the
+ * folder itself, absolute, outside it, ending in `/`, or with a NUL, which
+ * no path holds. As `pack-blocks.ts` reads a block's template file.
+ */
+function packPaths(files: readonly string[]): ReadonlySet<string> | undefined {
+  const paths = new Set<string>();
+  for (const file of files) {
+    if (file.includes('\0')) return undefined;
+    const slashed = file.replaceAll('\\', '/');
+    if (path.posix.isAbsolute(slashed) || path.win32.isAbsolute(slashed)) return undefined;
+    const normal = path.posix.normalize(slashed);
+    if (normal === '.' || normal === '..' || normal.startsWith('../')) return undefined;
+    if (normal.endsWith('/')) return undefined;
+    paths.add(normal);
+  }
+  return paths;
+}
+
+/**
+ * Those of `files` that are there in `packDir`, or undefined when one is a
+ * folder or can't be looked at. One that isn't there holds nothing to lose.
+ */
+async function filesThere(
+  packDir: string,
+  files: readonly string[],
+): Promise<readonly string[] | undefined> {
+  const there: string[] = [];
+  for (const file of files) {
+    try {
+      if ((await lstat(path.join(packDir, file))).isDirectory()) return undefined;
+      there.push(file);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') return undefined;
+    }
+  }
+  return there;
 }
 
 /**
@@ -164,7 +225,9 @@ export async function uncommittedFiles(
  * path from the repository's root, which is `prefix` (`pack/`, or empty at
  * the root) and then the pack's own path. A rename or a copy (`R` or `C`
  * on either side) is followed by the path it came from, a field of its
- * own. A folder listed whole (`dir/`) lists each asked file in it.
+ * own. A folder listed whole (`dir/`) lists each asked file in it: git
+ * lists each file on its own when asked for files, but this doesn't
+ * count on that.
  */
 export function listedFiles(
   output: string,

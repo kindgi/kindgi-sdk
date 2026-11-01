@@ -100,7 +100,7 @@ describe('uncommittedFiles, on a real repository', () => {
     });
   });
 
-  test('a folder git lists whole (untracked or ignored) lists each file asked in it, not the folder', async () => {
+  test('untracked and ignored files in a folder are listed one by one', async () => {
     const pack = await repoWithPack();
     await mkdir(join(pack, 'blocks/fresh'));
     await writeFile(join(pack, 'blocks/fresh/a.json'), 'a\n');
@@ -151,6 +151,53 @@ describe('uncommittedFiles, on a real repository', () => {
     });
   });
 
+  test('each file is named as git names it: `/`-separated and normalized', async () => {
+    const pack = await repoWithPack();
+    await writeFile(join(pack, 'blocks/tone.json'), 'edited\n');
+    await writeFile(join(pack, 'blocks/reply.json'), 'edited\n');
+    await writeFile(join(pack, 'blocks/rules.json'), 'edited\n');
+    expect(
+      await uncommittedFiles(pack, [
+        './blocks/tone.json',
+        'blocks/../blocks/reply.json',
+        'blocks\\rules.json',
+        'blocks//reply.liquid',
+      ]),
+    ).toEqual({
+      kind: 'git',
+      uncommitted: ['blocks/reply.json', 'blocks/rules.json', 'blocks/tone.json'],
+    });
+  });
+
+  test('a file in another repository inside this one is uncommitted, whether or not this one holds that repository', async () => {
+    const pack = await repoWithPack();
+    const sub = join(pack, 'blocks/sub');
+    await mkdir(sub);
+    await writeFile(join(sub, 'x.json'), 'x\n');
+    git(sub, 'init', '-q', '-b', 'main');
+    git(sub, 'add', '.');
+    commit(sub);
+    expect(await uncommittedFiles(pack, ['blocks/sub/x.json', 'blocks/tone.json'])).toEqual({
+      kind: 'git',
+      uncommitted: ['blocks/sub/x.json'],
+    });
+    // As a submodule is: the repository inside, committed into this one.
+    git(pack, 'add', 'blocks/sub');
+    commit(pack);
+    expect(await uncommittedFiles(pack, ['blocks/sub/x.json', 'blocks/tone.json'])).toEqual({
+      kind: 'git',
+      uncommitted: ['blocks/sub/x.json'],
+    });
+  });
+
+  test("a file that isn't there and that git doesn't hold isn't listed: there's nothing to lose", async () => {
+    const pack = await repoWithPack();
+    expect(await uncommittedFiles(pack, ['blocks/fresh.liquid', 'blocks/tone.json'])).toEqual({
+      kind: 'git',
+      uncommitted: [],
+    });
+  });
+
   test('a pack outside any repository: not in git', async () => {
     const pack = join(root, 'loose');
     await mkdir(join(pack, 'blocks'), { recursive: true });
@@ -184,6 +231,42 @@ describe('uncommittedFiles, on a real repository', () => {
   });
 });
 
+describe("uncommittedFiles: a path that isn't a file in the pack's folder", () => {
+  test.each([
+    ['empty', ''],
+    ['the folder itself', './'],
+    ['absolute', '/srv/acme/packs/support/blocks/tone.json'],
+    ['absolute on Windows', 'C:\\acme\\blocks\\tone.json'],
+    ['outside the folder', '../other/blocks/tone.json'],
+    ['outside it, after a way in', 'blocks/../../tone.json'],
+    ['a folder', 'blocks/'],
+    ['with a NUL', 'blocks/tone.json\0.liquid'],
+  ])('%s: unknown, and git is never asked', async (_name, file) => {
+    const calls: (readonly string[])[] = [];
+    const recorded: GitCall = async (_cwd, args) => {
+      calls.push(args);
+      return { kind: 'ok', stdout: '' };
+    };
+    expect(await uncommittedFiles('/pack', ['blocks/reply.json', file], recorded)).toEqual({
+      kind: 'unknown',
+    });
+    expect(calls).toEqual([]);
+  });
+
+  test('a folder named without the `/`: unknown', async () => {
+    const pack = await repoWithPack();
+    expect(await uncommittedFiles(pack, ['blocks/tone.json', 'blocks'])).toEqual({
+      kind: 'unknown',
+    });
+  });
+
+  test('a NUL that reaches git anyway: a git that failed, never a rejection', async () => {
+    expect(await callGit(root, ['status', '--', 'blocks/tone.json\0.liquid'], 2_000)).toEqual({
+      kind: 'failed',
+    });
+  });
+});
+
 describe('uncommittedFiles: what git is asked', () => {
   test('read-only, the files as literal paths after `--`, each untracked and ignored file on its own', async () => {
     const calls: (readonly string[])[] = [];
@@ -204,6 +287,17 @@ describe('uncommittedFiles: what git is asked', () => {
       'blocks/tone.json',
       '-p.json',
     ]);
+    expect(calls[2]).toEqual([
+      '--no-optional-locks',
+      '--literal-pathspecs',
+      'ls-files',
+      '--cached',
+      '-z',
+      '--',
+      'blocks/tone.json',
+      '-p.json',
+    ]);
+    expect(calls).toHaveLength(3);
   });
 });
 
@@ -265,9 +359,36 @@ describe.skipIf(process.platform === 'win32')('uncommittedFiles: when git can’
     });
   });
 
+  test("a worktree whose repository moved (a `.git` file pointing nowhere): unknown, not 'not in git'", async () => {
+    await fakeGit(
+      'echo "fatal: not a git repository: /srv/acme/.git/worktrees/support" >&2\nexit 128',
+    );
+    expect(await uncommittedFiles(root, ['blocks/tone.json'], callGit, SLOW_START_MS)).toEqual({
+      kind: 'unknown',
+    });
+  });
+
+  test("a stop past the filesystem's edge is still looking and finding none: not in git", async () => {
+    await fakeGit(
+      'echo "fatal: not a git repository (or any parent up to mount point /srv)" >&2\necho "Stopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set)." >&2\nexit 128',
+    );
+    expect(await uncommittedFiles(root, ['blocks/tone.json'], callGit, SLOW_START_MS)).toEqual({
+      kind: 'not-in-git',
+    });
+  });
+
   test('a status that fails after the repository was found: unknown', async () => {
     await fakeGit(
       `if [ "$1" = rev-parse ]; then echo; exit 0; fi\necho "fatal: index file corrupt" >&2\nexit 128`,
+    );
+    expect(await uncommittedFiles(root, ['blocks/tone.json'], callGit, SLOW_START_MS)).toEqual({
+      kind: 'unknown',
+    });
+  });
+
+  test("an index git can't read after the status: unknown", async () => {
+    await fakeGit(
+      `case "$3" in ls-files) echo "fatal: index file corrupt" >&2; exit 128;; esac\nexit 0`,
     );
     expect(await uncommittedFiles(root, ['blocks/tone.json'], callGit, SLOW_START_MS)).toEqual({
       kind: 'unknown',
