@@ -160,78 +160,362 @@
   overflow-wrap: anywhere;
 }
 
-/* ---------- Ask ---------- */
+/* ---------- Ask: the conversation beside the person's list; on a phone, the list below it ---------- */
 
-.kindgi .kindgi-columns {
+.kindgi .kindgi-ask {
   display: grid;
-  grid-template-columns: minmax(200px, 280px) 1fr;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  grid-template-areas: "rail chat";
   gap: var(--kindgi-space-5);
   align-items: start;
+  max-width: 1160px;
+}
+
+.kindgi .kindgi-chat {
+  grid-area: chat;
+  min-width: 0;
+  max-width: 820px;
+}
+
+.kindgi .kindgi-rail {
+  grid-area: rail;
 }
 
 @media (max-width: 782px) {
-  .kindgi .kindgi-columns {
-    grid-template-columns: 1fr;
+  .kindgi .kindgi-ask {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "chat" "rail";
   }
 }
 
-.kindgi .kindgi-side select,
-.kindgi .kindgi-side .button {
-  display: block;
-  margin: var(--kindgi-space-1) 0 var(--kindgi-space-2);
-  max-width: 100%;
+.kindgi .kindgi-rail .kindgi-new {
+  width: 100%;
+  justify-content: center;
 }
 
-.kindgi .kindgi-side .kindgi-about {
-  margin: 0 0 var(--kindgi-space-2);
+.kindgi .kindgi-rail h2 {
+  margin: var(--kindgi-space-4) 0 var(--kindgi-space-2);
+  color: var(--kindgi-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .kindgi .kindgi-conversations {
+  list-style: none;
   margin: 0;
+  padding: 0;
 }
 
-.kindgi .kindgi-current {
-  font-weight: 600;
+.kindgi .kindgi-conversations li {
+  margin: 0 0 2px;
 }
 
+.kindgi .kindgi-conversations a {
+  display: block;
+  padding: var(--kindgi-space-2) 10px;
+  border-radius: 6px;
+  color: var(--kindgi-text);
+  text-decoration: none;
+}
+
+.kindgi .kindgi-conversations a:hover {
+  background: rgb(0 0 0 / 4%);
+}
+
+.kindgi .kindgi-conversations .kindgi-current a {
+  background: var(--kindgi-surface);
+  box-shadow: var(--kindgi-shadow);
+}
+
+.kindgi .kindgi-conversation-title {
+  display: block;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kindgi .kindgi-conversations .kindgi-muted {
+  display: block;
+  font-size: 12px;
+}
+
+/* A new conversation's top, and an open one's. */
+.kindgi .kindgi-fresh {
+  margin: var(--kindgi-space-4) 0;
+}
+
+.kindgi .kindgi-fresh h2 {
+  margin: 0 0 var(--kindgi-space-1);
+  font-size: 22px;
+  line-height: 1.3;
+}
+
+.kindgi .kindgi-fresh p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.kindgi .kindgi-started .kindgi-about,
+.kindgi .kindgi-started .kindgi-starters {
+  display: none;
+}
+
+.kindgi .kindgi-thread-head h2 {
+  margin: 0 0 2px;
+  font-size: 18px;
+}
+
+.kindgi .kindgi-thread-head p {
+  margin: 0 0 var(--kindgi-space-4);
+}
+
+/* The messages: the person's on the right, the agent's on the left, the tools it used quietly between. */
 .kindgi .kindgi-messages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--kindgi-space-2);
   list-style: none;
   margin: 0 0 var(--kindgi-space-3);
   padding: 0;
 }
 
 .kindgi .kindgi-message {
+  max-width: 85%;
+  margin: 0;
+  padding: 10px 14px;
   background: var(--kindgi-surface);
   border: 1px solid var(--kindgi-border);
-  border-radius: var(--kindgi-radius);
-  margin: 0 0 var(--kindgi-space-2);
-  padding: var(--kindgi-space-2) var(--kindgi-space-3);
-  white-space: pre-wrap;
+  border-radius: 14px;
+  font-size: 14px;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
-.kindgi .kindgi-tool {
-  background: var(--kindgi-sunken);
+.kindgi .kindgi-user {
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--kindgi-accent) 9%, #fff);
+  border-color: color-mix(in srgb, var(--kindgi-accent) 22%, #fff);
+  border-bottom-right-radius: var(--kindgi-space-1);
+  white-space: pre-wrap;
+}
+
+.kindgi .kindgi-agent {
+  align-self: flex-start;
+  border-bottom-left-radius: var(--kindgi-space-1);
+}
+
+.kindgi .kindgi-agent p,
+.kindgi .kindgi-agent ul,
+.kindgi .kindgi-agent ol {
+  margin: 0 0 var(--kindgi-space-2);
+}
+
+.kindgi .kindgi-agent ul,
+.kindgi .kindgi-agent ol {
+  padding-left: 20px;
+}
+
+.kindgi .kindgi-agent ul {
+  list-style: disc;
+}
+
+.kindgi .kindgi-agent > :last-child {
+  margin-bottom: 0;
+}
+
+.kindgi .kindgi-tool,
+.kindgi .kindgi-used {
+  align-self: flex-start;
+  padding: 0 var(--kindgi-space-1);
+  background: transparent;
+  border: 0;
+  color: var(--kindgi-muted);
+  font-size: 12px;
+}
+
+.kindgi .kindgi-tool summary {
+  cursor: pointer;
 }
 
 .kindgi .kindgi-tool pre {
-  white-space: pre-wrap;
+  max-height: 240px;
   margin: var(--kindgi-space-1) 0 0;
+  padding: var(--kindgi-space-2);
+  overflow: auto;
+  background: var(--kindgi-sunken);
+  border-radius: var(--kindgi-space-1);
+  white-space: pre-wrap;
 }
 
-.kindgi .kindgi-user {
-  background: #f0f6fc;
-  border-color: #c5d9ed;
-}
-
-.kindgi .kindgi-main textarea {
+.kindgi .kindgi-calls {
   display: block;
-  width: 100%;
-  margin-bottom: var(--kindgi-space-2);
+  margin-top: 6px;
+  color: var(--kindgi-muted);
+  font-size: 12px;
+}
+
+/* While the agent works: three dots, then the tools it used. */
+.kindgi .kindgi-working {
+  display: flex;
+  align-items: center;
+  gap: var(--kindgi-space-2);
+  margin: 0 0 var(--kindgi-space-2);
+  color: var(--kindgi-muted);
+}
+
+.kindgi .kindgi-working[hidden] {
+  display: none;
+}
+
+.kindgi .kindgi-dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.kindgi .kindgi-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentcolor;
+  animation: kindgi-blink 1.2s ease-in-out infinite;
+}
+
+.kindgi .kindgi-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.kindgi .kindgi-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes kindgi-blink {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+  }
+
+  40% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kindgi .kindgi-dots span {
+    animation: none;
+    opacity: 0.6;
+  }
 }
 
 .kindgi .kindgi-steps {
+  list-style: none;
   margin: 0 0 var(--kindgi-space-2);
+  padding: 0;
+  color: var(--kindgi-muted);
+  font-size: 12px;
+}
+
+/* The box to write in. */
+.kindgi .kindgi-composer {
+  padding: var(--kindgi-space-2) var(--kindgi-space-3);
+  background: var(--kindgi-surface);
+  border: 1px solid var(--kindgi-border);
+  border-radius: 12px;
+  box-shadow: var(--kindgi-shadow);
+}
+
+.kindgi .kindgi-composer:focus-within {
+  border-color: var(--kindgi-accent);
+  box-shadow: 0 0 0 1px var(--kindgi-accent);
+}
+
+.kindgi .kindgi-composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 6px 2px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: none;
+}
+
+.kindgi .kindgi-composer textarea:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.kindgi .kindgi-composer-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--kindgi-space-2);
+  margin-top: var(--kindgi-space-1);
+}
+
+.kindgi .kindgi-composer .kindgi-agent-pick {
+  max-width: 50%;
+}
+
+.kindgi .kindgi-hint {
+  flex: 1;
+  color: var(--kindgi-muted);
+  font-size: 12px;
+}
+
+/* By touch, Enter starts a new line: the hint about keys would be wrong. */
+@media (pointer: coarse) {
+  .kindgi .kindgi-hint {
+    visibility: hidden;
+  }
+}
+
+.kindgi .kindgi-send {
+  margin-left: auto;
+}
+
+@media (max-width: 782px) {
+  .kindgi .kindgi-hint {
+    display: none;
+  }
+}
+
+/* A new conversation's first questions. */
+.kindgi .kindgi-starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--kindgi-space-2);
+  margin-top: var(--kindgi-space-3);
+}
+
+.kindgi .kindgi-chip {
+  min-height: 36px;
+  padding: 6px 14px;
+  background: var(--kindgi-surface);
+  border: 1px solid var(--kindgi-border);
+  border-radius: 999px;
+  color: var(--kindgi-text);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.kindgi .kindgi-chip:hover {
+  border-color: var(--kindgi-accent);
+  color: var(--kindgi-accent);
+}
+
+.kindgi .kindgi-chip:focus-visible {
+  outline: 2px solid var(--kindgi-accent);
+  outline-offset: 1px;
+}
+
+@media (max-width: 782px) {
+  .kindgi .kindgi-chip {
+    min-height: 44px;
+  }
 }
 
 /* ---------- Approval cards ---------- */

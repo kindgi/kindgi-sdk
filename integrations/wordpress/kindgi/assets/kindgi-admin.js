@@ -427,7 +427,7 @@
 
   // ---------- Ask ----------
 
-  /** Opens a conversation (or, with null, the agent's new one) and redraws the page. */
+  /** Opens a conversation (or, with null, a new one) and redraws the page. */
   function open(conversationId, newAgent = null) {
     state.conversationId = conversationId;
     state.through = null;
@@ -441,6 +441,38 @@
     renderAsk();
   }
 
+  /** Questions a store's staff often start with: each fills the box, to send as it is or change. */
+  const STARTERS = [
+    __('Which orders are still processing?', 'kindgi'),
+    __('Has any order waited more than a day to ship?', 'kindgi'),
+    __('What sold best this week?', 'kindgi'),
+  ];
+
+  /**
+   * A new conversation's agent: the one the person last asked (the
+   * conversation with the newest message, theirs or its), when it's still
+   * offered; else the first offered.
+   */
+  function lastAsked(offered, conversations) {
+    const asked = conversations.filter(
+      (c) => c.lastMessageAt && offered.some((a) => a.id === c.agentId),
+    );
+    const latest = asked.reduce(
+      (best, c) => (best === null || c.lastMessageAt > best.lastMessageAt ? c : best),
+      null,
+    );
+    return offered.find((a) => a.id === latest?.agentId) ?? offered[0];
+  }
+
+  /** "2 hours ago"; the site's date where WordPress has no words for it. */
+  const ago = (iso) =>
+    iso && typeof wp.date.humanTimeDiff === 'function' ? wp.date.humanTimeDiff(iso) : when(iso);
+
+  /**
+   * Ask: the person's conversations beside the open one. With none open,
+   * the page is a new conversation, ready to type in, with the first agent
+   * offered until the person picks another.
+   */
   async function renderAsk() {
     state.view += 1;
     root.replaceChildren(loading());
@@ -449,52 +481,31 @@
     try {
       [agents, conversations] = await Promise.all([api('/agents'), api('/conversations')]);
     } catch (error) {
-      root.replaceChildren(notice(error));
+      root.replaceChildren(notice(error, () => renderAsk()));
       return;
     }
     // Only the agents an administrator offered to staff (Kindgi → Settings).
     const offered = agents.agents.filter((a) => a.offered);
     const nameOf = (id) => agents.agents.find((a) => a.id === id)?.name || id;
-    const about = el('p', { className: 'description kindgi-about' });
-    const picker = el(
-      'select',
-      {
-        id: 'kindgi-agent',
-        onchange: () => {
-          about.textContent = offered[Number(picker.value)]?.description ?? '';
-        },
-      },
-      offered.map((a, i) => el('option', { value: String(i) }, a.name || a.id)),
-    );
-    about.textContent = offered[0]?.description ?? '';
-    const startButton = el(
-      'button',
-      {
-        type: 'button',
-        className: 'button button-primary',
-        disabled: offered.length === 0,
-        // Opened at its first message, which names it.
-        onclick: () => open(null, offered[Number(picker.value)]),
-      },
-      __('New conversation', 'kindgi'),
-    );
+    if (state.conversationId === null && offered.length === 0) {
+      root.replaceChildren(noAgents());
+      return;
+    }
+    if (state.conversationId === null)
+      state.newAgent ??= lastAsked(offered, conversations.conversations);
     const item = (c) =>
       el(
         'li',
-        {},
+        { className: c.id === state.conversationId ? 'kindgi-current' : null },
         inPage(
           askUrl(c.id),
           () => open(c.id),
+          el('span', { className: 'kindgi-conversation-title' }, c.title || nameOf(c.agentId)),
           el(
             'span',
-            { className: c.id === state.conversationId ? 'kindgi-current' : null },
-            c.title || nameOf(c.agentId),
+            { className: 'kindgi-muted' },
+            `${nameOf(c.agentId)} · ${ago(c.lastMessageAt ?? c.openedAt)}`,
           ),
-        ),
-        el(
-          'span',
-          { className: 'kindgi-muted' },
-          ` ${nameOf(c.agentId)} · ${when(c.lastMessageAt ?? c.openedAt)}`,
         ),
       );
     const list = el(
@@ -504,48 +515,66 @@
     );
     // Someone else's open conversation, on a line of its own: it isn't in the person's list.
     const othersLine = el('p', { className: 'kindgi-muted', hidden: true });
-    const side = el(
-      'div',
-      { className: 'kindgi-side' },
-      el('label', { for: 'kindgi-agent' }, __('Agent', 'kindgi')),
-      offered.length === 0 ? muted(__('No agent here you can ask.', 'kindgi')) : [picker, about],
-      startButton,
-      othersLine,
+    const rail = el(
+      'nav',
+      { className: 'kindgi-rail', 'aria-label': __('Your conversations', 'kindgi') },
+      el(
+        'button',
+        {
+          type: 'button',
+          className: 'button kindgi-new',
+          disabled: offered.length === 0,
+          onclick: () => open(null),
+        },
+        __('New conversation', 'kindgi'),
+      ),
       el('h2', {}, __('Your conversations', 'kindgi')),
-      conversations.conversations.length === 0 ? muted(__('None yet.', 'kindgi')) : null,
+      othersLine,
+      conversations.conversations.length === 0
+        ? muted(__('What you ask shows here, to come back to.', 'kindgi'))
+        : null,
       list,
       olderButton('/conversations', conversations.nextCursor, (more) =>
         list.append(...more.conversations.map(item)),
       ),
     );
-    const main = el('div', { className: 'kindgi-main' });
-    root.replaceChildren(el('div', { className: 'kindgi-columns' }, side, main));
-    // Asked about an order: a new conversation with the first agent offered, unless the person picks another.
-    if (state.conversationId === null && state.newAgent === null && state.order !== null) {
-      state.newAgent = offered[0] ?? null;
-    }
-    if (state.conversationId === null && state.newAgent === null) return;
-    // The open conversation sets the agent, and shows in the list even when it's older.
+    const chat = el('section', { className: 'kindgi-chat' });
+    root.replaceChildren(el('div', { className: 'kindgi-ask' }, chat, rail));
+    // The open conversation shows in the list even when it's older.
     const follows = (conversation) => {
-      const at = offered.findIndex((a) => a.id === conversation.agentId);
-      if (at >= 0) {
-        picker.value = String(at);
-        about.textContent = offered[at].description;
-      }
+      if (conversation === null) return;
       if (conversation.mine === false) {
         othersLine.textContent = sprintf(
           __("Open: %s, someone else's", 'kindgi'),
           conversation.title || nameOf(conversation.agentId),
         );
         othersLine.hidden = false;
-      } else if (
-        conversation.id &&
-        !conversations.conversations.some((c) => c.id === conversation.id)
-      ) {
+      } else if (!conversations.conversations.some((c) => c.id === conversation.id)) {
         list.prepend(item(conversation));
       }
     };
-    renderConversation(main, nameOf, follows);
+    renderConversation(chat, { nameOf, offered, follows });
+  }
+
+  /** Ask with no agent offered to staff: who offers one. */
+  function noAgents() {
+    return empty({
+      title: __('No agent here to ask yet', 'kindgi'),
+      text:
+        urls.settings === null || urls.settings === undefined
+          ? __('An administrator offers agents to staff, under Kindgi → Settings.', 'kindgi')
+          : __('Offer agents to your staff in Settings, under Agents offered to staff.', 'kindgi'),
+      actions:
+        urls.settings === null || urls.settings === undefined
+          ? []
+          : [
+              el(
+                'a',
+                { className: 'button button-primary', href: urls.settings },
+                __('Open Settings', 'kindgi'),
+              ),
+            ],
+    });
   }
 
   /** The first line of a message, as a conversation's title. */
@@ -555,44 +584,70 @@
   };
 
   /**
-   * The open conversation, or a new one's empty page until its first
-   * message. Someone else's (opened from an approval its reader reviews)
-   * is shown to read, without the box to write in.
+   * The open conversation, or a new one ready to type in. Someone else's
+   * (opened from an approval its reader reviews) is shown to read, without
+   * the box to write in.
    */
-  async function renderConversation(main, nameOf, follows) {
+  async function renderConversation(chat, { nameOf, offered, follows }) {
     const view = state.view;
-    main.replaceChildren(loading());
+    chat.replaceChildren(loading());
     let conversation;
     let messages;
     try {
       [conversation, messages] = await loadConversation();
     } catch (error) {
-      main.replaceChildren(notice(error));
+      chat.replaceChildren(notice(error, () => renderAsk()));
       return;
     }
     if (view !== state.view) return;
-    follows(conversation ?? { agentId: state.newAgent.id });
+    follows(conversation);
+    const page = conversationPage(chat, conversation, messages, { nameOf, offered });
+    chat.classList.toggle('kindgi-started', conversation !== null);
+    chat.replaceChildren(...page.children);
+    if (conversation === null) page.box.focus();
+    else page.log.lastElementChild?.scrollIntoView({ block: 'nearest' });
+    // A turn this page started is still running: follow it again.
+    const running = state.running.get(state.conversationId);
+    if (running !== undefined) await followTurn(state.conversationId, running, page.progress);
+  }
+
+  /**
+   * What the chat shows: the conversation's head (or a new one's), its
+   * messages, the box to write in when it's the person's own, and starters
+   * for a new one.
+   */
+  function conversationPage(chat, conversation, messages, { nameOf, offered }) {
     const log = el(
       'ol',
       { className: 'kindgi-messages', 'aria-live': 'polite' },
       messages.messages.map(message).filter((m) => m !== null),
     );
     const progress = el('div', { className: 'kindgi-progress', 'aria-live': 'polite' });
-    // In el, unlike replaceChildren alone, an absent child is skipped, not written as "null".
-    main.replaceChildren(
+    const fresh = conversation === null ? freshHead(state.newAgent) : null;
+    const box =
+      conversation === null || conversation.mine
+        ? composer({
+            log,
+            progress,
+            conversation,
+            offered,
+            onAgent: (agent) => fresh?.show(agent),
+            onSend: () => chat.classList.add('kindgi-started'),
+          })
+        : null;
+    const children = [
       el(
         'div',
-        {},
-        conversationHead(conversation, nameOf),
+        { className: 'kindgi-thread' },
+        fresh === null ? conversationHead(conversation, nameOf) : fresh.node,
         messages.earlier ? muted(__("Earlier messages aren't shown.", 'kindgi')) : null,
         log,
         progress,
-        conversation === null || conversation.mine ? composer(log, progress, conversation) : null,
       ),
-    );
-    // A turn this page started is still running: follow it again.
-    const running = state.running.get(state.conversationId);
-    if (running !== undefined) await followTurn(state.conversationId, running, progress);
+      box?.node,
+      fresh === null ? null : starters(box.fill),
+    ].filter((child) => !absent(child));
+    return { log, progress, box, children };
   }
 
   /**
@@ -609,18 +664,29 @@
     ]);
   }
 
-  /** The conversation's title, or a new one's agent; someone else's says it's there to read. */
+  /** A new conversation's top: whom it asks, and what that agent does. */
+  function freshHead(agent) {
+    const title = el('h2', {});
+    const about = el('p', { className: 'kindgi-muted kindgi-about' });
+    const show = (a) => {
+      title.textContent = sprintf(__('Ask %s', 'kindgi'), a.name || a.id);
+      about.textContent = a.description;
+    };
+    show(agent);
+    return { node: el('div', { className: 'kindgi-fresh' }, title, about), show };
+  }
+
+  /** The conversation's title and agent; someone else's says it's there to read. */
   function conversationHead(conversation, nameOf) {
-    if (conversation === null) {
-      return muted(
-        sprintf(
-          __('A new conversation with %s.', 'kindgi'),
-          state.newAgent.name || state.newAgent.id,
-        ),
-      );
-    }
-    return [
+    return el(
+      'div',
+      { className: 'kindgi-thread-head' },
       el('h2', {}, conversation.title || nameOf(conversation.agentId)),
+      el(
+        'p',
+        { className: 'kindgi-muted' },
+        sprintf(__('With %s', 'kindgi'), nameOf(conversation.agentId)),
+      ),
       conversation.mine
         ? null
         : el(
@@ -628,12 +694,41 @@
             { className: 'kindgi-note' },
             __("Someone else's conversation: you can read it, not continue it.", 'kindgi'),
           ),
-    ];
+    );
   }
 
-  /** The box to write in, and Send; a new conversation about an order starts with its number. */
-  function composer(log, progress, conversation) {
-    const input = el('textarea', { id: 'kindgi-message', rows: '3', maxlength: '20000' });
+  /** What a new conversation's box suggests: a store's staff ask about its orders. */
+  const firstWords = () =>
+    config.store === true
+      ? __('Ask about orders, products or customers…', 'kindgi')
+      : __('Ask a question…', 'kindgi');
+
+  /** Whether the page is used by touch, where Enter starts a new line. */
+  const touch = () => window.matchMedia?.('(pointer: coarse)').matches === true;
+
+  /**
+   * The box to write in. Enter sends and Shift+Enter starts a new line; it
+   * grows with what's written. A new conversation picks its agent here,
+   * and one about an order starts with its number.
+   */
+  function composer({ log, progress, conversation, offered, onAgent, onSend }) {
+    const fit = () => {
+      input.style.height = 'auto';
+      input.style.height = `${Math.min(input.scrollHeight, 240)}px`;
+    };
+    const input = el('textarea', {
+      id: 'kindgi-message',
+      rows: '2',
+      maxlength: '20000',
+      placeholder: conversation === null ? firstWords() : __('Reply…', 'kindgi'),
+      oninput: () => fit(),
+      onkeydown: (event) => {
+        // A phone's keyboard has no Shift+Enter: there Enter starts a new line and Send sends.
+        if (event.key !== 'Enter' || event.shiftKey || event.isComposing || touch()) return;
+        event.preventDefault();
+        if (!send.disabled) send.click();
+      },
+    });
     if (conversation === null && state.order !== null) {
       input.value = sprintf(__('About order #%s: ', 'kindgi'), state.order);
     }
@@ -641,29 +736,89 @@
       'button',
       {
         type: 'button',
-        className: 'button button-primary',
-        onclick: () => sendTurn(input, send, log, progress),
+        className: 'button button-primary kindgi-send',
+        // Once the new conversation is open, its agent is fixed: the picker goes.
+        onclick: () =>
+          sendTurn(input, send, log, progress, { onSend, onOpen: () => picker?.remove() }),
       },
       __('Send', 'kindgi'),
     );
-    return [
-      el(
-        'label',
-        { for: 'kindgi-message', className: 'screen-reader-text' },
-        __('Your message', 'kindgi'),
+    const picker =
+      conversation === null && offered.length > 1
+        ? el(
+            'select',
+            {
+              className: 'kindgi-agent-pick',
+              'aria-label': __('Agent', 'kindgi'),
+              onchange: (event) => {
+                state.newAgent = offered[Number(event.target.value)];
+                onAgent(state.newAgent);
+              },
+            },
+            offered.map((a, i) =>
+              el(
+                'option',
+                { value: String(i), selected: a.id === state.newAgent.id },
+                a.name || a.id,
+              ),
+            ),
+          )
+        : null;
+    return {
+      node: el(
+        'div',
+        { className: 'kindgi-composer' },
+        el(
+          'label',
+          { for: 'kindgi-message', className: 'screen-reader-text' },
+          __('Your message', 'kindgi'),
+        ),
+        input,
+        el(
+          'div',
+          { className: 'kindgi-composer-bar' },
+          picker,
+          el(
+            'span',
+            { className: 'kindgi-hint' },
+            __('Enter sends. Shift+Enter starts a new line.', 'kindgi'),
+          ),
+          send,
+        ),
       ),
-      input,
-      send,
-    ];
+      focus: () => {
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      },
+      fill: (text) => {
+        input.value = text;
+        fit();
+        input.focus();
+      },
+    };
+  }
+
+  /** A new conversation's first questions, on a store: each fills the box. */
+  function starters(fill) {
+    if (config.store !== true) return null;
+    return el(
+      'div',
+      { className: 'kindgi-starters' },
+      STARTERS.map((text) =>
+        el('button', { type: 'button', className: 'kindgi-chip', onclick: () => fill(text) }, text),
+      ),
+    );
   }
 
   /** Sends a message: opens the conversation first when it's new, then follows the turn. */
-  async function sendTurn(input, send, log, progress) {
+  async function sendTurn(input, send, log, progress, { onSend, onOpen }) {
     const text = input.value.trim();
     if (text === '') return;
     send.disabled = true;
+    onSend?.();
     log.append(el('li', { className: 'kindgi-message kindgi-user' }, text));
     input.value = '';
+    input.dispatchEvent(new Event('input'));
     try {
       if (state.conversationId === null) {
         const agent = state.newAgent;
@@ -675,6 +830,7 @@
         state.newAgent = null;
         state.order = null;
         window.history.replaceState(null, '', askUrl(opened.id));
+        onOpen();
       }
       const conversationId = state.conversationId;
       const turn = await api(`/conversations/${encodeURIComponent(conversationId)}/turns`, {
@@ -682,22 +838,108 @@
         data: { message: text },
       });
       state.running.set(conversationId, turn.runId);
-      await followTurn(conversationId, turn.runId, progress);
+      if ((await followTurn(conversationId, turn.runId, progress)) === 'failed') {
+        again(input, send, text);
+      }
     } catch (error) {
       progress.replaceChildren(notice(error));
-      send.disabled = false;
+      again(input, send, text);
     }
   }
 
-  /** Follows a turn; when it ends (and the person is still here), redraws with its answer. */
-  async function followTurn(conversationId, runId, progress) {
-    const ended = await follow(runId, progress, state.view);
-    if (!ended) return;
-    state.running.delete(conversationId);
-    if (state.conversationId === conversationId) renderAsk();
+  /** A turn that didn't go: its words back in the box, to send again as they are or changed. */
+  function again(input, send, text) {
+    if (input.value.trim() === '') {
+      input.value = text;
+      input.dispatchEvent(new Event('input'));
+    }
+    send.disabled = false;
   }
 
-  /** One message: words, the tools an agent called, or a tool's answer (its raw result a click away). */
+  /**
+   * Follows a turn to its end: its status, or null when the person moved
+   * on. An answer redraws the conversation with it; a failed turn stays as
+   * it is, saying why.
+   */
+  async function followTurn(conversationId, runId, progress) {
+    const status = await follow(runId, progress, state.view);
+    if (status === null) return null;
+    state.running.delete(conversationId);
+    if (status !== 'failed' && state.conversationId === conversationId) renderAsk();
+    return status;
+  }
+
+  /** A line of an agent's words: **bold** and `code` as such, the rest as text. */
+  function inline(line) {
+    return line
+      .split(/(\*\*[^*]+\*\*|`[^`]+`)/g)
+      .filter((part) => part !== '')
+      .map((part) => {
+        if (part.length > 4 && part.startsWith('**') && part.endsWith('**')) {
+          return el('strong', {}, part.slice(2, -2));
+        }
+        if (part.length > 2 && part.startsWith('`') && part.endsWith('`')) {
+          return el('code', {}, part.slice(1, -1));
+        }
+        return part;
+      });
+  }
+
+  const BULLET = /^\s*[-*•]\s+/;
+  const NUMBERED = /^\s*\d+[.)]\s+/;
+  const HEADING = /^\s*#{1,6}\s+/;
+
+  /** A line's kind: an item of a list, a heading, a blank, or text. */
+  function kindOf(line) {
+    if (line.trim() === '') return 'blank';
+    if (BULLET.test(line)) return 'ul';
+    if (NUMBERED.test(line)) return 'ol';
+    if (HEADING.test(line)) return 'h';
+    return 'p';
+  }
+
+  /** A run of lines of one kind, as elements. A numbered list goes on from its first number. */
+  const BLOCKS = {
+    ul: (lines) =>
+      el(
+        'ul',
+        {},
+        lines.map((l) => el('li', {}, inline(l.replace(BULLET, '')))),
+      ),
+    ol: (lines) => {
+      const first = Number.parseInt(lines[0], 10);
+      return el(
+        'ol',
+        { start: first > 1 ? String(first) : null },
+        lines.map((l) => el('li', {}, inline(l.replace(NUMBERED, '')))),
+      );
+    },
+    h: (lines) => lines.map((l) => el('p', {}, el('strong', {}, inline(l.replace(HEADING, ''))))),
+    p: (lines) =>
+      el(
+        'p',
+        {},
+        lines.map((l, i) => (i === 0 ? inline(l) : [el('br'), inline(l)])),
+      ),
+  };
+
+  /**
+   * An agent's words with the little Markdown agents write: paragraphs,
+   * lists (a lead-in line right above one too), headings, **bold** and
+   * `code`. Built as elements, so nothing an agent says is ever read as HTML.
+   */
+  function rich(text) {
+    const runs = [];
+    for (const line of text.replace(/\r\n/g, '\n').split('\n')) {
+      const kind = kindOf(line);
+      const last = runs.at(-1);
+      if (last !== undefined && last.kind === kind) last.lines.push(line);
+      else runs.push({ kind, lines: [line] });
+    }
+    return runs.filter((run) => run.kind !== 'blank').flatMap((run) => BLOCKS[run.kind](run.lines));
+  }
+
+  /** One message: words, the tools an agent used, or a tool's answer (its raw result a click away). */
   function message(m) {
     if (m.role === 'tool') {
       return el(
@@ -716,23 +958,23 @@
       m.calls.length > 0
         ? el(
             'span',
-            { className: 'kindgi-muted' },
-            sprintf(__('Calls %s', 'kindgi'), m.calls.map(toolName).join(', ')),
+            { className: 'kindgi-calls' },
+            sprintf(__('Used %s', 'kindgi'), m.calls.map(toolName).join(', ')),
           )
         : null;
     if (m.text === '' && calls === null) return null;
+    if (m.text === '') return el('li', { className: 'kindgi-message kindgi-used' }, calls);
     return el(
       'li',
       { className: `kindgi-message kindgi-${m.role}` },
-      m.text,
-      m.text !== '' && calls ? ' ' : '',
+      m.role === 'agent' ? rich(m.text) : m.text,
       calls,
     );
   }
 
   /**
-   * Follows a turn until it ends (true), or until the person moves on
-   * (false): its tools, and what it waits for. While it waits for a person,
+   * Follows a turn until it ends (its status), or until the person moves on
+   * (null): its tools, and what it waits for. While it waits for a person,
    * polls back off to every 30 s, and none run while the page is hidden.
    */
   async function follow(runId, progress, view) {
@@ -741,20 +983,38 @@
     const steps = el('ul', { className: 'kindgi-steps' });
     const waits = el('div');
     const shown = new Map();
-    progress.replaceChildren(steps, waits);
+    // While it works: three dots and the tools it used so far.
+    const working = el(
+      'p',
+      { className: 'kindgi-working' },
+      el(
+        'span',
+        { className: 'kindgi-dots', 'aria-hidden': 'true' },
+        el('span'),
+        el('span'),
+        el('span'),
+      ),
+      __('Working on it…', 'kindgi'),
+    );
+    progress.replaceChildren(working, steps, waits);
     for (;;) {
       await visible();
-      if (view !== state.view) return false;
+      if (view !== state.view) return null;
       const run = await api(`/runs/${encodeURIComponent(runId)}?since=${since}`);
-      if (view !== state.view) return false;
+      if (view !== state.view) return null;
       since = run.since;
       steps.append(
         ...run.steps.map((step) =>
-          el('li', {}, sprintf(__('Called %s', 'kindgi'), toolName(step.toolId))),
+          el('li', {}, sprintf(__('Used %s', 'kindgi'), toolName(step.toolId))),
         ),
       );
       showWaits(waits, shown, run.waitingFor);
-      if (hasEnded(run, progress)) return true;
+      // Waiting for a person: the approval's box says so, not the dots.
+      working.hidden = run.status === 'suspended';
+      if (hasEnded(run, progress)) {
+        working.remove();
+        return run.status;
+      }
       delay = nextDelay(run.status, delay);
       await sleep(delay);
     }
