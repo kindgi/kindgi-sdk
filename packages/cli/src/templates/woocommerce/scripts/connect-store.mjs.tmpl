@@ -14,7 +14,9 @@
 //    what the agent does in the store shows as that user's.
 // 3. It saves the user's password in Kindgi first, then the store's address
 //    and the user (`kindgi secrets set --from-stdin`, `kindgi env set`),
-//    and revokes the approver's password.
+//    and revokes the approver's password. Until the address names this
+//    store, a failure revokes the new password too, so the pack's tools
+//    never send one store's password to another.
 //
 // Nothing secret is printed, written to a file, or put in a command's
 // arguments. Run it again to replace the agent's password.
@@ -323,9 +325,10 @@ async function checkKindgi(bin, target) {
 }
 
 /**
- * The password first: until Kindgi holds it, a failure leaves the store's
- * address and the password before as they were, so both still name one
- * store. A secret set before gets a new version.
+ * The password first, then the store's address: a failure before the
+ * address is saved revokes the new password (see connect), so the address
+ * never names one store while the newest password signs in to another. A
+ * secret set before gets a new version.
  */
 async function savePassword(bin, password, target) {
   const secret = ['secrets', 'set', 'WOO_APP_PASSWORD', ...target, '--from-stdin'];
@@ -339,49 +342,39 @@ async function savePassword(bin, password, target) {
 }
 
 /**
- * Then the store's address and the user. Each is this connect's to set;
- * one set before says what it was. Kindgi holds the new password by now,
- * so a failure here keeps it, and says so.
+ * Then the store's address, and the user. Each is this connect's to set;
+ * one set before says what it was, and so does a failure (`was`).
  */
-async function saveStore(bin, store, target) {
-  const replaced = [];
-  let storeWas;
-  for (const [name, value] of [
-    ['WOO_STORE_URL', store],
-    ['WOO_USER', AGENT_USER],
-  ]) {
-    let res = await kindgi(bin, ['env', 'set', name, value, ...target]);
-    let was;
-    if (res.code !== 0 && /Re-run with --force/.test(res.out)) {
-      was = /already set .*? to "(.*)"\. Re-run with --force/.exec(res.out)?.[1];
-      res = await kindgi(bin, ['env', 'set', name, value, ...target, '--force']);
-      if (res.code === 0) replaced.push(was === undefined ? `${name} replaced` : `${name} was "${was}"`);
-      if (res.code === 0 && name === 'WOO_STORE_URL') storeWas = was;
-    }
-    if (res.code !== 0) {
-      const still = was === undefined ? '' : `, while ${name} still says "${was}"`;
-      throw new Failure(
-        `kindgi env set ${name} failed:\n${said(res.out)}\nKindgi holds the store's new password (WOO_APP_PASSWORD) now${still}: the password stays in the store, and running this again once kindgi can set ${name} finishes the connect.`,
-      );
-    }
+async function saveSetting(bin, name, value, target) {
+  let res = await kindgi(bin, ['env', 'set', name, value, ...target]);
+  let was;
+  if (res.code !== 0 && /Re-run with --force/.test(res.out)) {
+    was = /already set .*? to "(.*)"\. Re-run with --force/.exec(res.out)?.[1];
+    res = await kindgi(bin, ['env', 'set', name, value, ...target, '--force']);
+    if (res.code === 0) return { replaced: was === undefined ? `${name} replaced` : `${name} was "${was}"`, was };
   }
-  return { replaced, storeWas };
+  if (res.code !== 0) throw Object.assign(new Failure(`kindgi env set ${name} failed:\n${said(res.out)}`), { was });
+  return {};
 }
 
-/** Revokes one of the agent's passwords; one that won't go is said, for the person to remove. */
+/**
+ * Revokes one of the agent's passwords, and says whether it went; one that
+ * won't go is said, for the person to remove.
+ */
 async function revokeAgentPassword(api, owner, agentId, uuid, { done, left }) {
   let why;
   try {
     const gone = await call(api(`wp/v2/users/${agentId}/application-passwords/${uuid}`), { method: 'DELETE', auth: owner });
     if (gone.ok) {
       if (done !== undefined) say(done);
-      return;
+      return true;
     }
     why = `HTTP ${gone.status}`;
   } catch (err) {
     why = err.message;
   }
   say(`! Couldn't revoke ${left} (${why}). Remove it under Users → All Users → ${AGENT_USER} → Application Passwords.`);
+  return false;
 }
 
 function agentEmail(ownerEmail) {
@@ -436,6 +429,10 @@ async function connect(api, approval, { bin, store, target, app }) {
   const created = await call(passwords, { method: 'POST', auth: owner, body: { name: app.name, app_id: app.id } });
   if (!created.ok) throw wpError("Making the agent's Application Password", created);
 
+  // Kindgi keeps the new password only once WOO_STORE_URL names this store.
+  // Until then a failure revokes it: the pack's tools would send it to the
+  // address before, another store's maybe.
+  let saved = false;
   let held = false;
   let storeWas;
   try {
@@ -447,19 +444,28 @@ async function connect(api, approval, { bin, store, target, app }) {
     }
     say('✓ Its Application Password signs in to WooCommerce.');
     const secret = await savePassword(bin, created.json.password, target);
+    saved = true;
+    const url = await saveSetting(bin, 'WOO_STORE_URL', store, target);
     held = true;
-    const saved = await saveStore(bin, store, target);
-    storeWas = saved.storeWas;
-    const replaced = [...saved.replaced, ...secret];
+    storeWas = url.was;
+    const user = await saveSetting(bin, 'WOO_USER', AGENT_USER, target);
+    const replaced = [url.replaced, user.replaced, ...secret].filter((r) => r !== undefined);
     say(`✓ Saved in Kindgi (${target.join(' ')}): WOO_STORE_URL, WOO_USER, and the secret WOO_APP_PASSWORD.`);
     if (replaced.length > 0) say(`  Replaced: ${replaced.join('; ')}.`);
   } catch (err) {
-    // Until Kindgi holds the new password, nobody else has it: it goes,
-    // and the one before stays.
     if (!held) {
-      await revokeAgentPassword(api, owner, agent.id, created.json.uuid, {
+      const gone = await revokeAgentPassword(api, owner, agent.id, created.json.uuid, {
         left: `the agent's new password, the newest "${app.name}"`,
       });
+      if (saved && err instanceof Failure) {
+        const still = err.was === undefined ? '' : ` (WOO_STORE_URL still says "${err.was}")`;
+        err.message += gone
+          ? `\nKindgi couldn't save this store's address${still}, so the store's new password is revoked: WOO_APP_PASSWORD's newest version is that revoked password, and the agent can't sign in until this runs again. Running this again once kindgi can set WOO_STORE_URL finishes the connect.`
+          : `\nKindgi couldn't save this store's address${still}, and the store couldn't revoke its new password: WOO_APP_PASSWORD's newest version is that password${err.was === undefined ? '' : `, which the pack's tools send to ${err.was}`}. Remove it as said above, then run this again once kindgi can set WOO_STORE_URL.`;
+      }
+    } else if (err instanceof Failure) {
+      const still = err.was === undefined ? '' : `, while WOO_USER still says "${err.was}"`;
+      err.message += `\nKindgi holds the store's new password (WOO_APP_PASSWORD) and its address (WOO_STORE_URL) now${still}: the password stays in the store, and running this again once kindgi can set WOO_USER finishes the connect.`;
     }
     throw err;
   }

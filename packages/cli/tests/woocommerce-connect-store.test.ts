@@ -50,8 +50,9 @@ afterEach(async () => {
  * The pack's `@kindgi/cli`, standing in: it records each call's arguments
  * and stdin, keeps what was set, and refuses a change or a second secret in
  * the real CLI's words (pinned in env-project-target.test.ts and
- * secrets.test.ts). `FAKE_KINDGI_REFUSES` refuses every call (`*`), or one
- * command (`env set`), as a CLI that isn't signed in does.
+ * secrets.test.ts). `FAKE_KINDGI_REFUSES` refuses each call it matches, a
+ * pattern on the call's arguments (`.` for every call, `^env set WOO_USER `
+ * for one), as a CLI that isn't signed in does.
  */
 async function installFakeKindgi(packRoot: string): Promise<void> {
   const dir = join(packRoot, 'node_modules', '@kindgi', 'cli');
@@ -71,7 +72,7 @@ async function installFakeKindgi(packRoot: string): Promise<void> {
     `import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 const argv = process.argv.slice(2);
 const refuses = process.env.FAKE_KINDGI_REFUSES;
-if (refuses === '*' || refuses === argv.slice(0, 2).join(' ')) {
+if (refuses !== undefined && new RegExp(refuses).test(argv.join(' '))) {
   process.stderr.write('Error [auth]: Bearer token is not recognized\\n');
   process.exit(1);
 }
@@ -455,6 +456,7 @@ async function store(opts?: Parameters<typeof startStore>[0]): Promise<Store> {
   stores.push(s);
   return s;
 }
+const agentOf = (s: Store) => s.users.find((u) => u.slug === 'kindgi-agent')!;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -646,7 +648,7 @@ describe("the woocommerce starter's connect-store", () => {
   test('a kindgi that refuses is refused before any approval, in its own words', async () => {
     const shop = await store();
     const { code, stdout, stderr } = await connectStore([shop.url, '--no-browser'], {
-      FAKE_KINDGI_REFUSES: '*',
+      FAKE_KINDGI_REFUSES: '.',
     }).done;
     expect(code).toBe(1);
     expect(stderr).toContain(
@@ -665,7 +667,7 @@ describe("the woocommerce starter's connect-store", () => {
     const kept = await kindgiState();
 
     const shop = await store();
-    run = connectStore([shop.url, '--no-browser'], { FAKE_KINDGI_REFUSES: 'secrets set' });
+    run = connectStore([shop.url, '--no-browser'], { FAKE_KINDGI_REFUSES: '^secrets set ' });
     const page = await approve(shop, await run.link);
     const { code, stdout, stderr } = await run.done;
     expect(code).toBe(1);
@@ -686,25 +688,66 @@ describe("the woocommerce starter's connect-store", () => {
     expect(stdout).toContain("✓ Revoked owner's approval password.");
   });
 
-  test('once Kindgi holds the new password, a failure after it keeps it in the store, and running again finishes', async () => {
-    const shop = await store();
-    let run = connectStore([shop.url, '--no-browser']);
-    await approve(shop, await run.link);
+  test("a switch whose address Kindgi can't save revokes the new password, so it signs in nowhere, and running again finishes", async () => {
+    const first = await store();
+    let run = connectStore([first.url, '--no-browser']);
+    await approve(first, await run.link);
     expect((await run.done).code).toBe(0);
-    const agent = shop.users.find((u) => u.slug === 'kindgi-agent')!;
-    const first = agent.passwords[0]!;
 
-    run = connectStore([shop.url, '--no-browser'], { FAKE_KINDGI_REFUSES: 'env set' });
+    // The password is saved; the address, asked to change, isn't.
+    const shop = await store();
+    run = connectStore([shop.url, '--no-browser'], {
+      FAKE_KINDGI_REFUSES: '^env set WOO_STORE_URL .*--force',
+    });
     const page = await approve(shop, await run.link);
     let out = await run.done;
     expect(out.code).toBe(1);
     expect(out.stderr).toContain(
-      "kindgi env set WOO_STORE_URL failed:\nError [auth]: Bearer token is not recognized\nKindgi holds the store's new password (WOO_APP_PASSWORD) now: the password stays in the store, and running this again once kindgi can set WOO_STORE_URL finishes the connect.",
+      `kindgi env set WOO_STORE_URL failed:\nError [auth]: Bearer token is not recognized\nKindgi couldn't save this store's address (WOO_STORE_URL still says "${first.url}"), so the store's new password is revoked: WOO_APP_PASSWORD's newest version is that revoked password, and the agent can't sign in until this runs again. Running this again once kindgi can set WOO_STORE_URL finishes the connect.`,
     );
     expect(page).toContain('Not connected');
-    const versions = (await kindgiState()).secrets['tenant in env local WOO_APP_PASSWORD']!;
+    // The address still names the store before, and the newest password signs in to neither.
+    const state = await kindgiState();
+    expect(state.env['tenant in env local WOO_STORE_URL']).toBe(first.url);
+    const versions = state.secrets['tenant in env local WOO_APP_PASSWORD']!;
     expect(versions).toHaveLength(2);
-    expect(agent.passwords.map((p) => p.password)).toEqual([first.password, versions[1]]);
+    expect(agentOf(shop).passwords).toEqual([]);
+    expect(agentOf(first).passwords.map((p) => p.password)).toEqual([versions[0]]);
+    expect(shop.users[0]!.passwords).toEqual([]);
+
+    // Again: it finishes on the new store.
+    run = connectStore([shop.url, '--no-browser']);
+    await approve(shop, await run.link);
+    out = await run.done;
+    expect(out.code, out.stderr).toBe(0);
+    const now = await kindgiState();
+    expect(now.env['tenant in env local WOO_STORE_URL']).toBe(shop.url);
+    expect(agentOf(shop).passwords).toHaveLength(1);
+    expect(now.secrets['tenant in env local WOO_APP_PASSWORD']!.at(-1)).toBe(
+      agentOf(shop).passwords[0]!.password,
+    );
+  });
+
+  test('once WOO_STORE_URL names the new store, a failure after it keeps the password, and running again finishes', async () => {
+    const first = await store();
+    let run = connectStore([first.url, '--no-browser']);
+    await approve(first, await run.link);
+    expect((await run.done).code).toBe(0);
+
+    const shop = await store();
+    run = connectStore([shop.url, '--no-browser'], { FAKE_KINDGI_REFUSES: '^env set WOO_USER ' });
+    const page = await approve(shop, await run.link);
+    let out = await run.done;
+    expect(out.code).toBe(1);
+    expect(out.stderr).toContain(
+      "kindgi env set WOO_USER failed:\nError [auth]: Bearer token is not recognized\nKindgi holds the store's new password (WOO_APP_PASSWORD) and its address (WOO_STORE_URL) now: the password stays in the store, and running this again once kindgi can set WOO_USER finishes the connect.",
+    );
+    expect(page).toContain('Not connected');
+    const state = await kindgiState();
+    expect(state.env['tenant in env local WOO_STORE_URL']).toBe(shop.url);
+    expect(agentOf(shop).passwords.map((p) => p.password)).toEqual([
+      state.secrets['tenant in env local WOO_APP_PASSWORD']!.at(-1),
+    ]);
     expect(shop.users[0]!.passwords).toEqual([]);
 
     // Again: it finishes, and only its own password is left.
@@ -712,9 +755,9 @@ describe("the woocommerce starter's connect-store", () => {
     await approve(shop, await run.link);
     out = await run.done;
     expect(out.code, out.stderr).toBe(0);
-    expect(agent.passwords).toHaveLength(1);
+    expect(agentOf(shop).passwords).toHaveLength(1);
     expect((await kindgiState()).secrets['tenant in env local WOO_APP_PASSWORD']!.at(-1)).toBe(
-      agent.passwords[0]!.password,
+      agentOf(shop).passwords[0]!.password,
     );
   });
 
@@ -727,7 +770,7 @@ describe("the woocommerce starter's connect-store", () => {
     shop.refuse.agentDeletes = true;
 
     // Kindgi refuses the password, so the new one goes, or would.
-    run = connectStore([shop.url, '--no-browser'], { FAKE_KINDGI_REFUSES: 'secrets set' });
+    run = connectStore([shop.url, '--no-browser'], { FAKE_KINDGI_REFUSES: '^secrets set ' });
     await approve(shop, await run.link);
     let out = await run.done;
     expect(out.code).toBe(1);
@@ -736,14 +779,33 @@ describe("the woocommerce starter's connect-store", () => {
     );
     expect(agent.passwords).toHaveLength(2);
 
+    // Kindgi saves the password but not the address: the one the store keeps is said too.
+    const other = shop.url.replace('127.0.0.1', 'localhost');
+    run = connectStore([other, '--no-browser'], {
+      FAKE_KINDGI_REFUSES: '^env set WOO_STORE_URL .*--force',
+    });
+    await approve(shop, await run.link);
+    out = await run.done;
+    expect(out.code).toBe(1);
+    expect(out.stdout).toContain(
+      `! Couldn't revoke the agent's new password, the newest "Kindgi (acme-shop, local)" (HTTP 500).`,
+    );
+    expect(out.stderr).toContain(
+      `Kindgi couldn't save this store's address (WOO_STORE_URL still says "${shop.url}"), and the store couldn't revoke its new password: WOO_APP_PASSWORD's newest version is that password, which the pack's tools send to ${shop.url}. Remove it as said above, then run this again once kindgi can set WOO_STORE_URL.`,
+    );
+    expect(agent.passwords).toHaveLength(3);
+    expect((await kindgiState()).secrets['tenant in env local WOO_APP_PASSWORD']!.at(-1)).toBe(
+      agent.passwords[2]!.password,
+    );
+
     // A connect that works can't revoke the ones before it, and says so for each.
     run = connectStore([shop.url, '--no-browser']);
     await approve(shop, await run.link);
     out = await run.done;
     expect(out.code, out.stderr).toBe(0);
     const left = `! Couldn't revoke the agent's password from the connect before, an older "Kindgi (acme-shop, local)" (HTTP 500). Remove it under Users → All Users → kindgi-agent → Application Passwords.`;
-    expect(out.stdout.split('\n').filter((l) => l === left)).toHaveLength(2);
-    expect(agent.passwords).toHaveLength(3);
+    expect(out.stdout.split('\n').filter((l) => l === left)).toHaveLength(3);
+    expect(agent.passwords).toHaveLength(4);
     // The approver's own still goes.
     expect(shop.users[0]!.passwords).toEqual([]);
   });
