@@ -87,9 +87,14 @@
   /** A tool's id in words: its last part, `woo.refund-large` → "Refund large". */
   const toolName = (id) => (id ? words(id.split('.').pop()) : __('A tool', 'kindgi'));
 
-  /** A conversation's address on the Ask page. */
-  const askUrl = (conversationId) =>
-    `${urls.ask}&conversation=${encodeURIComponent(conversationId)}`;
+  /**
+   * A conversation's address on the Ask page; someone else's names the
+   * approval it opens through, which its reader reviews.
+   */
+  const askUrl = (conversationId, approvalId = null) =>
+    `${urls.ask}&conversation=${encodeURIComponent(conversationId)}${
+      approvalId === null ? '' : `&approval=${encodeURIComponent(approvalId)}`
+    }`;
 
   /** A link that, clicked, stays on the page: `go` draws what it names. */
   const inPage = (href, go, ...children) =>
@@ -139,6 +144,8 @@
     // The Inbox's list: `you`, `others` or `decided`.
     filter: null,
     conversationId: config.conversation ?? null,
+    // On the Ask page: the approval someone else's conversation opens through.
+    through: config.view === 'ask' ? (config.approval ?? null) : null,
     // A conversation to open with this agent at its first message.
     newAgent: null,
     // Bumped by every redraw: a poll started before it stops.
@@ -345,12 +352,16 @@
           ? [' · ', el('strong', {}, sprintf(__('Decide by %s', 'kindgi'), when(card.expiresAt)))]
           : null,
       ),
-      inConversation || !card.conversationId
+      inConversation || !card.opens
         ? null
         : el(
             'p',
             {},
-            el('a', { href: askUrl(card.conversationId) }, __('Open the conversation', 'kindgi')),
+            el(
+              'a',
+              { href: askUrl(card.conversationId, card.id) },
+              __('Open the conversation', 'kindgi'),
+            ),
           ),
       cardEnding(card, after),
       details(card),
@@ -498,7 +509,7 @@
   /** Who or what started a run, in words: a person by name. */
   const STARTED = {
     you: __('You', 'kindgi'),
-    kindgi: __('Someone at Kindgi', 'kindgi'),
+    kindgi: __('Someone using Kindgi', 'kindgi'),
     webhook: __('A webhook', 'kindgi'),
     schedule: __('A schedule', 'kindgi'),
     event: __('An event', 'kindgi'),
@@ -547,6 +558,9 @@
         run.output === null
           ? null
           : el('details', {}, el('summary', {}, __('Output', 'kindgi')), el('pre', {}, run.output)),
+        run.private === 'orders'
+          ? muted(__('What it found shows to people who can edit orders.', 'kindgi'))
+          : null,
       ),
       el('td', {}, startedWords(run.startedBy)),
       el('td', {}, statusWords(run)),
@@ -615,6 +629,7 @@
   /** Opens a conversation (or, with null, the agent's new one) and redraws the page. */
   function open(conversationId, newAgent = null) {
     state.conversationId = conversationId;
+    state.through = null;
     state.newAgent = newAgent;
     // The address names the open conversation: a reload opens it again.
     window.history.replaceState(
@@ -686,12 +701,15 @@
       { className: 'kindgi-conversations' },
       conversations.conversations.map(item),
     );
+    // Someone else's open conversation, on a line of its own: it isn't in the person's list.
+    const othersLine = el('p', { className: 'kindgi-muted', hidden: true });
     const side = el(
       'div',
       { className: 'kindgi-side' },
       el('label', { for: 'kindgi-agent' }, __('Agent', 'kindgi')),
       offered.length === 0 ? muted(__('No agent here you can ask.', 'kindgi')) : [picker, about],
       startButton,
+      othersLine,
       el('h2', {}, __('Your conversations', 'kindgi')),
       conversations.conversations.length === 0 ? muted(__('None yet.', 'kindgi')) : null,
       list,
@@ -702,14 +720,23 @@
     const main = el('div', { className: 'kindgi-main' });
     root.replaceChildren(el('div', { className: 'kindgi-columns' }, side, main));
     if (state.conversationId === null && state.newAgent === null) return;
-    // The open conversation sets the agent, and shows in the list even when it's older, or someone else's.
+    // The open conversation sets the agent, and shows in the list even when it's older.
     const follows = (conversation) => {
       const at = offered.findIndex((a) => a.id === conversation.agentId);
       if (at >= 0) {
         picker.value = String(at);
         about.textContent = offered[at].description;
       }
-      if (conversation.id && !conversations.conversations.some((c) => c.id === conversation.id)) {
+      if (conversation.mine === false) {
+        othersLine.textContent = sprintf(
+          __("Open: %s, someone else's", 'kindgi'),
+          conversation.title || nameOf(conversation.agentId),
+        );
+        othersLine.hidden = false;
+      } else if (
+        conversation.id &&
+        !conversations.conversations.some((c) => c.id === conversation.id)
+      ) {
         list.prepend(item(conversation));
       }
     };
@@ -724,25 +751,19 @@
 
   /**
    * The open conversation, or a new one's empty page until its first
-   * message. Someone else's (opened from an approval or Activity) is shown
-   * to read, without the box to write in.
+   * message. Someone else's (opened from an approval its reader reviews)
+   * is shown to read, without the box to write in.
    */
   async function renderConversation(main, nameOf, follows) {
     const view = state.view;
     main.replaceChildren(loading());
-    let conversation = null;
-    let messages = { messages: [], earlier: false };
-    if (state.conversationId !== null) {
-      const id = encodeURIComponent(state.conversationId);
-      try {
-        [conversation, messages] = await Promise.all([
-          api(`/conversations/${id}`),
-          api(`/conversations/${id}/messages`),
-        ]);
-      } catch (error) {
-        main.replaceChildren(notice(error));
-        return;
-      }
+    let conversation;
+    let messages;
+    try {
+      [conversation, messages] = await loadConversation();
+    } catch (error) {
+      main.replaceChildren(notice(error));
+      return;
     }
     if (view !== state.view) return;
     follows(conversation ?? { agentId: state.newAgent.id });
@@ -767,6 +788,20 @@
     // A turn this page started is still running: follow it again.
     const running = state.running.get(state.conversationId);
     if (running !== undefined) await followTurn(state.conversationId, running, progress);
+  }
+
+  /**
+   * The open conversation and its newest messages, or none for a new one.
+   * Someone else's opens through the approval named in the address.
+   */
+  function loadConversation() {
+    if (state.conversationId === null) return [null, { messages: [], earlier: false }];
+    const id = encodeURIComponent(state.conversationId);
+    const through = state.through === null ? '' : `?approval=${encodeURIComponent(state.through)}`;
+    return Promise.all([
+      api(`/conversations/${id}${through}`),
+      api(`/conversations/${id}/messages${through}`),
+    ]);
   }
 
   /** The conversation's title, or a new one's agent; someone else's says it's there to read. */

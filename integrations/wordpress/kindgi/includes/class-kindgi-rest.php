@@ -54,8 +54,10 @@ final class Kindgi_Rest {
 				'title'        => self::optional_string( 200 ),
 			)
 		);
-		self::route( '/conversations/' . $id, 'GET', 'one_conversation' );
-		self::route( '/conversations/' . $id . '/messages', 'GET', 'messages' );
+		// Someone else's conversation opens only through an approval its reader reviews.
+		$through = array( 'approval' => self::optional_string( 128 ) );
+		self::route( '/conversations/' . $id, 'GET', 'one_conversation', $through );
+		self::route( '/conversations/' . $id . '/messages', 'GET', 'messages', $through );
 		self::route( '/conversations/' . $id . '/turns', 'POST', 'turn', array( 'message' => self::required_string( self::MESSAGE_MAX ) ) );
 		self::route(
 			'/runs/' . $id,
@@ -193,14 +195,15 @@ final class Kindgi_Rest {
 
 	/**
 	 * One conversation, as the list has it, and whether it's this person's
-	 * own: someone else's (opened from an approval) is shown, not continued.
+	 * own: someone else's (opened from an approval they review) is shown,
+	 * not continued.
 	 */
 	public static function one_conversation( WP_REST_Request $request ) {
-		$answer = Kindgi_Api::body( wp_get_current_user(), 'GET', '/v1/conversations/' . rawurlencode( $request['id'] ) );
-		if ( is_wp_error( $answer ) ) {
-			return $answer;
+		$readable = self::readable( wp_get_current_user(), (string) $request['id'], self::through( $request ) );
+		if ( is_wp_error( $readable ) ) {
+			return $readable;
 		}
-		return self::conversation( $answer['body'] ) + array( 'mine' => self::owns( $answer['body'], (string) $answer['session']['user_id'] ) );
+		return self::conversation( $readable['conversation'] ) + array( 'mine' => $readable['mine'] );
 	}
 
 	/** A new conversation with one of the project's agents, as this person. */
@@ -233,6 +236,10 @@ final class Kindgi_Rest {
 	 * says some older ones aren't shown.
 	 */
 	public static function messages( WP_REST_Request $request ) {
+		$readable = self::readable( wp_get_current_user(), (string) $request['id'], self::through( $request ) );
+		if ( is_wp_error( $readable ) ) {
+			return $readable;
+		}
 		$path  = '/v1/conversations/' . rawurlencode( $request['id'] ) . '/messages';
 		$pages = self::newest_messages(
 			static function ( ?string $cursor ) use ( $path ) {
@@ -317,7 +324,7 @@ final class Kindgi_Rest {
 		$c = $conversation['body'];
 		// A turn runs as the conversation's participant, with that person's memory: only theirs.
 		if ( ! self::owns( $c, (string) $conversation['session']['user_id'] ) ) {
-			return new WP_Error( 'kindgi_conversation_not_found', __( 'No conversation of yours has that id.', 'kindgi' ), array( 'status' => 404 ) );
+			return self::no_conversation();
 		}
 		$answer = Kindgi_Api::body(
 			$user,
@@ -350,6 +357,10 @@ final class Kindgi_Rest {
 		$run  = Kindgi_Api::body( $user, 'GET', $path );
 		if ( is_wp_error( $run ) ) {
 			return $run;
+		}
+		// Only the person's own: a turn they sent here.
+		if ( ! self::started( $run['body'], (string) $run['session']['user_id'] ) ) {
+			return new WP_Error( 'kindgi_run_not_found', __( 'No run of yours has that id.', 'kindgi' ), array( 'status' => 404 ) );
 		}
 		$journal = Kindgi_Api::body( $user, 'GET', $path . '/journal', array( 'since' => (int) $request['since'] ) );
 		if ( is_wp_error( $journal ) ) {
@@ -476,10 +487,11 @@ final class Kindgi_Rest {
 		if ( is_wp_error( $answer ) ) {
 			return $answer;
 		}
-		$me   = (string) $answer['session']['user_id'];
-		$rows = array();
+		$me           = (string) $answer['session']['user_id'];
+		$reads_orders = ! class_exists( 'WooCommerce' ) || current_user_can( 'edit_shop_orders' );
+		$rows         = array();
 		foreach ( self::list_of( $answer['body']['data'] ?? null ) as $run ) {
-			$rows[] = Kindgi_Activity::row( $run, $me, array( self::class, 'who' ) );
+			$rows[] = Kindgi_Activity::row( $run, $me, array( self::class, 'who' ), $reads_orders );
 		}
 		return array(
 			'runs'       => $rows,
@@ -540,6 +552,54 @@ final class Kindgi_Rest {
 	/** Whether a conversation is the person's own: they're its participant. */
 	public static function owns( array $conversation, string $user_id ): bool {
 		return '' !== $user_id && ( $conversation['participantId'] ?? null ) === $user_id;
+	}
+
+	/** Whether the person started a run: it's a person's, and acts for them. */
+	public static function started( array $run, string $user_id ): bool {
+		return '' !== $user_id && 'person' === ( $run['startedBy'] ?? null ) && ( $run['actsFor'] ?? null ) === 'user:' . $user_id;
+	}
+
+	/**
+	 * A conversation the person may read: their own, or the one an
+	 * approval they review was asked from (`$approval`, its id). Anyone
+	 * else's is theirs, and isn't found.
+	 *
+	 * @return array{conversation: array, mine: bool}|WP_Error
+	 */
+	private static function readable( WP_User $user, string $id, ?string $approval ) {
+		$answer = Kindgi_Api::body( $user, 'GET', '/v1/conversations/' . rawurlencode( $id ) );
+		if ( is_wp_error( $answer ) ) {
+			return $answer;
+		}
+		$mine = self::owns( $answer['body'], (string) $answer['session']['user_id'] );
+		if ( ! $mine && ( null === $approval || ! self::reviews_in( $user, $approval, $id ) ) ) {
+			return self::no_conversation();
+		}
+		return array(
+			'conversation' => $answer['body'],
+			'mine'         => $mine,
+		);
+	}
+
+	/** Whether the person reviews the approval, and it was asked from the conversation. */
+	private static function reviews_in( WP_User $user, string $approval, string $conversation ): bool {
+		$r = self::reviewer( $user );
+		$a = is_wp_error( $r ) ? $r : Kindgi_Api::body( $user, 'GET', '/v1/approvals/' . rawurlencode( $approval ) );
+		if ( is_wp_error( $a ) ) {
+			return false;
+		}
+		$card = Kindgi_Inbox::card( $a['body'], $r['me'], $r['reviewer'], array( self::class, 'who' ) );
+		return $conversation === $card['conversationId'] && Kindgi_Inbox::reviews( $card );
+	}
+
+	/** The approval a conversation is opened through, when the address names one. */
+	private static function through( WP_REST_Request $request ): ?string {
+		$approval = (string) $request['approval'];
+		return 1 === preg_match( '/^' . self::ID . '$/', $approval ) ? $approval : null;
+	}
+
+	private static function no_conversation(): WP_Error {
+		return new WP_Error( 'kindgi_conversation_not_found', __( 'No conversation of yours has that id.', 'kindgi' ), array( 'status' => 404 ) );
 	}
 
 	/**

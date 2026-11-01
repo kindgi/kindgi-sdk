@@ -18,20 +18,35 @@ final class Kindgi_Activity {
 	/** The whole output, behind a click, is cut to this many characters. */
 	const OUTPUT_MAX = 4000;
 
+	/** How a run starts when no person starts it: a key, or a trigger. */
+	const UNATTENDED = array( 'webhook', 'schedule', 'event', 'mail', 'key' );
+
 	/** An output's fields that hold its answer in words, in the order they're looked for. */
 	const TEXT_FIELDS = array( 'summary', 'text', 'message', 'reply', 'answer' );
 
 	/**
-	 * A run as its row.
+	 * A run as its row. The person's own runs show whole, with their
+	 * conversation. Someone else's is theirs: one line, who, which agent,
+	 * when and its state. A run no person started shows what it found, on
+	 * a store only to someone who can edit orders: what a store's webhooks
+	 * and schedules start is about its orders, and a run doesn't say which.
 	 *
-	 * @param array    $run Kindgi's run.
-	 * @param string   $me  The person's Kindgi id.
-	 * @param callable $who `user:<id>` to a name on this site, or null for someone it didn't sign in.
+	 * @param array    $run          Kindgi's run.
+	 * @param string   $me           The person's Kindgi id.
+	 * @param callable $who          `user:<id>` to a name on this site, or null for someone it didn't sign in.
+	 * @param bool     $reads_orders Whether the person may read the store's orders (or it's no store).
 	 */
-	public static function row( array $run, string $me, callable $who ): array {
+	public static function row( array $run, string $me, callable $who, bool $reads_orders ): array {
 		$agent   = is_array( $run['agent'] ?? null ) ? $run['agent'] : array();
 		$trigger = is_array( $run['trigger'] ?? null ) ? $run['trigger'] : array();
-		$output  = $run['output'] ?? null;
+		$started = self::started_by( $run, $me, $who );
+		$mine    = 'you' === $started['kind'];
+		// Why what it found doesn't show: someone else's run, or the store's orders.
+		$private = null;
+		if ( ! $mine ) {
+			$private = in_array( $started['kind'], self::UNATTENDED, true ) ? ( $reads_orders ? null : 'orders' ) : 'someone-else';
+		}
+		$output = null === $private ? ( $run['output'] ?? null ) : null;
 		return array(
 			'id'             => (string) ( $run['id'] ?? '' ),
 			'status'         => (string) ( $run['status'] ?? '' ),
@@ -40,12 +55,14 @@ final class Kindgi_Activity {
 			// An agent's run names the agent (the page has their names); a flow's, the flow.
 			'agentId'        => is_string( $agent['id'] ?? null ) ? $agent['id'] : null,
 			'flow'           => is_string( $run['flowId'] ?? null ) ? Kindgi_Inbox::tool_name( $run['flowId'] ) : null,
-			'conversationId' => is_string( $agent['conversationId'] ?? null ) ? $agent['conversationId'] : null,
-			'startedBy'      => self::started_by( $run, $me, $who ),
+			// Only the person's own: a conversation is its participant's.
+			'conversationId' => $mine && is_string( $agent['conversationId'] ?? null ) ? $agent['conversationId'] : null,
+			'startedBy'      => $started,
 			'triggerKind'    => is_string( $trigger['kind'] ?? null ) ? $trigger['kind'] : null,
 			'summary'        => self::summary( $output ),
 			'output'         => self::output( $output ),
-			'failureMessage' => is_string( $run['failureMessage'] ?? null ) ? $run['failureMessage'] : null,
+			'failureMessage' => null === $private && is_string( $run['failureMessage'] ?? null ) ? $run['failureMessage'] : null,
+			'private'        => $private,
 			'waiting'        => is_array( $run['waitingFor']['approvals'] ?? null ) && array() !== $run['waitingFor']['approvals'],
 		);
 	}
@@ -61,7 +78,7 @@ final class Kindgi_Activity {
 		$how = is_string( $run['startedBy'] ?? null ) ? $run['startedBy'] : 'unknown';
 		if ( 'person' !== $how ) {
 			return array(
-				'kind' => in_array( $how, array( 'webhook', 'schedule', 'event', 'mail', 'key' ), true ) ? $how : 'unknown',
+				'kind' => in_array( $how, self::UNATTENDED, true ) ? $how : 'unknown',
 				'name' => null,
 			);
 		}

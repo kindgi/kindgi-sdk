@@ -132,6 +132,42 @@ function test_inbox_sorts_what_waits_for_you_from_what_waits_for_others(): void 
 	}
 }
 
+function test_inbox_an_approvals_conversation_opens_for_its_reviewer_and_whoever_asked(): void {
+	$card = static function ( array $changes, ?array $reviewer ): array {
+		return Kindgi_Inbox::card( kindgi_test_approval( $changes ), 'u-me', $reviewer, kindgi_test_names() );
+	};
+	$waits = $card( array(), kindgi_test_reviewer() );
+	kindgi_assert( Kindgi_Inbox::reviews( $waits ) && $waits['opens'], 'it waits for me: I review it' );
+	$senior = $card( array( 'requiredRole' => 'senior' ), kindgi_test_reviewer() );
+	kindgi_assert( ! Kindgi_Inbox::reviews( $senior ) && ! $senior['opens'], 'a senior reviewer decides it: not mine to read' );
+	$no_role = $card( array(), null );
+	kindgi_assert( ! $no_role['opens'], 'no reviewer, no conversation' );
+	$asked = $card(
+		array(
+			'requestedBy'      => 'user:u-me',
+			'separateApprover' => true,
+		),
+		kindgi_test_reviewer()
+	);
+	kindgi_assert( ! Kindgi_Inbox::reviews( $asked ) && $asked['opens'], 'I asked: the link shows, and it opens as mine' );
+	$decision = static function ( string $by ): array {
+		return array(
+			'status'   => 'approved',
+			'decision' => array(
+				'decision'  => 'approve',
+				'decidedAt' => '2026-11-01T05:44:29Z',
+				'decidedBy' => $by,
+			),
+		);
+	};
+	$decided = $card( $decision( 'user:u-me' ), kindgi_test_reviewer() );
+	kindgi_assert( Kindgi_Inbox::reviews( $decided ) && $decided['opens'], 'I decided it' );
+	$by_anna = $card( $decision( 'user:u-anna' ), kindgi_test_reviewer() );
+	kindgi_assert( ! $by_anna['opens'], 'Anna decided it: hers' );
+	$no_conversation = $card( array( 'subjectKind' => 'flow:review' ), kindgi_test_reviewer() );
+	kindgi_assert( ! $no_conversation['opens'], 'nothing to open' );
+}
+
 function test_inbox_the_reviewer_is_kindgis_roster_row_and_what_it_may_decide(): void {
 	$reviewer = array(
 		'role'      => 'senior',
@@ -334,12 +370,35 @@ function test_activity_a_webhook_runs_row(): void {
 			),
 		),
 		'u-me',
-		kindgi_test_names()
+		kindgi_test_names(),
+		true
 	);
 	kindgi_assert_same( 'Order review', $row['flow'], 'the flow in words' );
 	kindgi_assert_same( 'webhook', $row['startedBy']['kind'], 'a webhook started it' );
 	kindgi_assert_same( 'Order ID 26 · Flags many-of-one-item', $row['summary'], 'its output in one line' );
 	kindgi_assert( false !== strpos( (string) $row['output'], '"many-of-one-item"' ), 'the whole output, a click away' );
+	kindgi_assert_same( null, $row['private'], 'for someone who can edit orders' );
+}
+
+function test_activity_what_a_webhook_run_found_needs_the_orders(): void {
+	$row = Kindgi_Activity::row(
+		array(
+			'id'             => 'r-1',
+			'status'         => 'failed',
+			'flowId'         => 'acme-desk.order-review',
+			'startedBy'      => 'webhook',
+			'output'         => array( 'orderId' => 26 ),
+			'failureMessage' => 'Order 26 has no address.',
+		),
+		'u-me',
+		kindgi_test_names(),
+		false
+	);
+	kindgi_assert_same( 'orders', $row['private'], "the store's orders" );
+	kindgi_assert_same( null, $row['summary'], 'no summary' );
+	kindgi_assert_same( null, $row['output'], 'no output' );
+	kindgi_assert_same( null, $row['failureMessage'], 'nor why it failed' );
+	kindgi_assert_same( 'failed', $row['status'], 'its state still shows' );
 }
 
 function test_activity_a_persons_run_and_its_answer(): void {
@@ -356,11 +415,43 @@ function test_activity_a_persons_run_and_its_answer(): void {
 			'output'    => array( 'text' => "I refunded 210.00 on order 18.\nThe refund ID is 24." ),
 		),
 		'u-me',
-		kindgi_test_names()
+		kindgi_test_names(),
+		true
 	);
 	kindgi_assert_same( 'Anna', $row['startedBy']['name'], 'a person here' );
-	kindgi_assert_same( 'I refunded 210.00 on order 18.', $row['summary'], "the answer's first line" );
-	kindgi_assert_same( 'c-2', $row['conversationId'], 'its conversation' );
+	kindgi_assert_same( 'someone-else', $row['private'], "Anna's run is hers" );
+	kindgi_assert_same( null, $row['summary'], 'one line: who, which agent, when and its state' );
+	kindgi_assert_same( null, $row['output'], 'no output' );
+	kindgi_assert_same( null, $row['conversationId'], 'and no conversation to open' );
+	kindgi_assert_same( 'acme-desk.store-agent', $row['agentId'], 'its agent shows' );
+	$mine = Kindgi_Activity::row(
+		array(
+			'id'        => 'r-3',
+			'status'    => 'completed',
+			'startedBy' => 'person',
+			'actsFor'   => 'user:u-me',
+			'agent'     => array(
+				'id'             => 'acme-desk.store-agent',
+				'conversationId' => 'c-2',
+			),
+			'output'    => array( 'text' => "I refunded 210.00 on order 18.\nThe refund ID is 24." ),
+		),
+		'u-me',
+		kindgi_test_names(),
+		false
+	);
+	kindgi_assert_same( 'you', $mine['startedBy']['kind'], 'my own run' );
+	kindgi_assert_same( 'I refunded 210.00 on order 18.', $mine['summary'], "the answer's first line" );
+	kindgi_assert_same( 'c-2', $mine['conversationId'], 'its conversation' );
+	kindgi_assert_same( null, $mine['private'], 'my own, orders or not' );
+	$started = array(
+		'startedBy' => 'person',
+		'actsFor'   => 'user:u-me',
+	);
+	kindgi_assert( Kindgi_Rest::started( $started, 'u-me' ), 'a turn I sent' );
+	kindgi_assert( ! Kindgi_Rest::started( array_merge( $started, array( 'startedBy' => 'schedule' ) ), 'u-me' ), 'a schedule acting for me is no turn of mine' );
+	kindgi_assert( ! Kindgi_Rest::started( $started, 'u-anna' ), "someone else's" );
+	kindgi_assert( ! Kindgi_Rest::started( $started, '' ), 'nobody' );
 	kindgi_assert_same( 'unknown', Kindgi_Activity::started_by( array(), 'u-me', kindgi_test_names() )['kind'], 'a run from before runs recorded it' );
 	kindgi_assert_same( 'Order ID 26', Kindgi_Activity::summary( array( 'orderId' => 26 ) ), 'a field in words' );
 	kindgi_assert_same(

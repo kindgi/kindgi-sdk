@@ -54,7 +54,7 @@ final class Kindgi_Inbox {
 		$asked_by = is_string( $a['requestedBy'] ?? null ) ? $a['requestedBy'] : null;
 		$pending  = in_array( $a['status'] ?? null, self::WAITING, true );
 		$not_mine = $pending ? self::not_yours( $a, $me, $reviewer ) : null;
-		return array(
+		$card     = array(
 			'id'             => (string) ( $a['id'] ?? '' ),
 			'heading'        => self::heading( $a, $tool ),
 			'summary'        => self::summary( $a ),
@@ -85,6 +85,18 @@ final class Kindgi_Inbox {
 				'by'        => is_string( $decision['decidedBy'] ?? null ) ? $who( $decision['decidedBy'] ) : null,
 			),
 		);
+		// Its conversation opens for its reviewer, and for whoever asked (it's theirs).
+		$card['opens'] = null !== $card['conversationId'] && ( self::reviews( $card ) || 'you' === $card['asked']['kind'] );
+		return $card;
+	}
+
+	/**
+	 * Whether the person is the approval's reviewer: it waits for them to
+	 * decide, or they decided it. Its conversation then opens for them to
+	 * read, whoever's it is.
+	 */
+	public static function reviews( array $card ): bool {
+		return 'you' === $card['waitsFor'] || ( null !== $card['decision'] && true === $card['decision']['byMe'] );
 	}
 
 	/**
