@@ -80,7 +80,10 @@ export type SuggestedChangeTier = 'settings-block' | 'prompt-block';
  * The change: one block, from the version the agent version pins, to new
  * content. Settings suggested changes give new `values` (the schema carries
  * over); prompt suggested changes give a new `template` (the parameters carry
- * over).
+ * over). `before` is the block's values or template at `fromVersion` as the
+ * change was drafted: under `kindgi dev` that version is the pack's file,
+ * which can change after, so it's kept with the change. Absent on one
+ * drafted before it was kept: read from `fromVersion` then.
  */
 export type ProposedChange =
   | {
@@ -89,6 +92,7 @@ export type ProposedChange =
         readonly blockId: string;
         readonly fromVersion: string;
         readonly content: { readonly values: Readonly<Record<string, unknown>> };
+        readonly before?: { readonly values: Readonly<Record<string, unknown>> };
       };
     }
   | {
@@ -97,6 +101,7 @@ export type ProposedChange =
         readonly blockId: string;
         readonly fromVersion: string;
         readonly content: { readonly template: string };
+        readonly before?: { readonly template: string };
       };
     };
 

@@ -571,12 +571,14 @@ export {
   pinRunCorrelation,
   reapplyTestRunOutcomes,
   testRunReason,
+  tookEffect,
 } from './test-run-outcome.js';
 // The test runs a pin change or Latest moving starts, and what an approval that pins a waiting change applies.
 export {
   type PinTestRun,
   type PinTestRunDeps,
   type PinTestRuns,
+  candidatesPinProjects,
   latestMoved,
   pinTookEffect,
 } from './pin-test-runs.js';
@@ -600,6 +602,8 @@ export type { DeployCheckBindings } from './routes/deploy-check-deps.js';
 export type { RegistryReadOnly } from './registry-read-only.js';
 // A pack agent's block pins where the pack's own versions are the only ones (`kindgi dev`).
 export { type BlockPins, type BlockVersionReads, resolveBlockPins } from './block-pins.js';
+// Two agent versions with the same key (and pins digest) are the same definition: which one runs under `kindgi dev`.
+export { definitionKey } from './deploy-versions.js';
 export type {
   FlowGetInput,
   FlowGetVersionInput,

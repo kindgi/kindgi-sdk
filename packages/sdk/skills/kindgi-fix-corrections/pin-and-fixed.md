@@ -69,3 +69,15 @@ earlier version fails reopen. `kindgi agents unpin <agent-id> --project=<project
 takes the pin away instead: the project follows its Latest again.
 `kindgi agents pin-history list <agent-id>` shows every pin and unpin, with
 who asked and why.
+
+## Under `kindgi dev`
+
+A pin there is for the whole workspace (`--tenant`; an `--org` or
+`--project` pin is 409 `registry-read-only`). An Improve run's pin waits for
+an approval there, which the person gives themselves (`kindgi dev` registers
+them as a reviewer), from the suggested change's page. Approved, it writes
+the version's prompts and settings into the pack's files: tell the person to
+commit them first. `kindgi dev` reloads them, and the pin's test runs check
+the agent's project, the default one, and mark what it fixes, as above.
+Going back is a git change to the files, not a pin, so the corrections the
+pin fixed stay `fixed`.
