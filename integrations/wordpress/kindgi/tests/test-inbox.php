@@ -363,7 +363,7 @@ function test_inbox_the_whole_call_shows_when_the_card_leaves_part_of_it_out(): 
 	$long  = array( 'orderId' => 27, 'items' => array_fill( 0, 60, array( 'sku' => 'VASE-BLUE' ) ) );
 	$whole = Kindgi_Inbox::whole( $long );
 	kindgi_assert_same( array( 'Order ID', 'Items' ), array_column( $whole, 'label' ), 'every field, in order' );
-	kindgi_assert_same( (string) wp_json_encode( $long['items'] ), $whole[1]['value'], 'the value cut on the card is whole here' );
+	kindgi_assert_same( (string) wp_json_encode( $long['items'], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ), $whole[1]['value'], 'the value cut on the card is whole here, over lines' );
 
 	$many  = array();
 	for ( $i = 1; $i <= Kindgi_Inbox::FACTS_MAX + 2; $i++ ) {
@@ -378,7 +378,7 @@ function test_inbox_the_whole_call_shows_when_the_card_leaves_part_of_it_out(): 
 		array(
 			array(
 				'label' => 'The call',
-				'value' => '[{"sku":"VASE-BLUE"}]',
+				'value' => "[\n    {\n        \"sku\": \"VASE-BLUE\"\n    }\n]",
 			),
 		),
 		Kindgi_Inbox::whole( array( array( 'sku' => 'VASE-BLUE' ) ) ),
