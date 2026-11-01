@@ -136,7 +136,8 @@ function agentBinding(unregistered: ReadonlySet<string> = new Set()): AgentRegis
     },
     async get({ agentId }) {
       const got = registry.getLatest(agentId);
-      return got.kind === 'ok' ? got.value : null;
+      // As a registry records it: in the project it was published in.
+      return got.kind === 'ok' ? { ...got.value, projectId } : null;
     },
     async getVersion({ agentId, version }) {
       const got = registry.get(agentId, version as unknown as string);
@@ -635,6 +636,14 @@ function inMemoryImproveRuns(
   return { binding, started, checked, listed, rows };
 }
 
+/** A project binding that lists `ids`, and gets each. */
+function projectsOf(ids: readonly ProjectId[]) {
+  return {
+    get: async (_tenant: TenantId, id: ProjectId) => (ids.includes(id) ? { id } : undefined),
+    list: async () => ({ items: ids.map((id) => ({ id })) }),
+  } as never;
+}
+
 async function harness(
   opts: {
     grants?: readonly string[];
@@ -660,6 +669,8 @@ async function harness(
     cases?: number;
     /** `false`: the runtime freezes no test set, so it checks no suggested change. */
     freezes?: boolean;
+    /** The tenant's projects, for a project binding; absent: none is wired. */
+    projects?: readonly ProjectId[];
   } = {},
 ) {
   const agents = agentBinding(new Set(opts.unregisteredVersions ?? []));
@@ -782,6 +793,7 @@ async function harness(
     ...(opts.orders !== undefined && { environmentOrders: environmentOrders(opts.orders) }),
     ...(opts.items !== undefined && { itemProjects: itemProjects(opts.items) }),
     ...(opts.correctionRegistry !== undefined && { correctionRegistry: opts.correctionRegistry }),
+    ...(opts.projects !== undefined && { projectBinding: projectsOf(opts.projects) }),
     ...freeze.wired,
     ...(grants !== undefined && {
       authz: {
@@ -4507,6 +4519,60 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
       { kind: 'tenant' },
       '1.0.1',
     ]);
+  });
+
+  /** An open correction of the agent in `inProject`: a case on its test set. */
+  async function correctedIn(corrections: CorrectionRegistryBinding, inProject: ProjectId) {
+    await corrections.record({
+      tenantId,
+      projectId: inProject,
+      runId: randomUUID(),
+      run: {
+        subject: { kind: 'agent', id: AGENT, version: '1.0.0' },
+        input: { ask: 'score the acme filing' },
+        output: { text: '0.4' },
+      },
+      madeBy: { kind: 'user', id: 'user-1' },
+      status: 'open',
+      answer: 'wrong',
+      shouldSay: '0.8',
+    });
+  }
+  const OTHER = randomUUID() as ProjectId;
+
+  /** The projects the pin's answer checks, reused or started. */
+  const checkedIn = (body: { testRuns?: readonly { projectId: string }[] }) =>
+    (body.testRuns ?? []).map((r) => r.projectId).sort();
+
+  test('its pin checks the project the registry places the agent in, with no item-projects binding to say which serve it', async () => {
+    const corrections = inMemoryCorrections();
+    const h = await harness({
+      readOnly: 'takes-candidates',
+      projects: [projectId, OTHER],
+      correctionRegistry: corrections,
+    });
+    await correctedIn(corrections, projectId);
+    await correctedIn(corrections, OTHER);
+    const id = await oldRow(h, { kind: 'tenant' }, { checked: true });
+    const res = await h.call('POST', `/v1/suggested-changes/${id}/pin`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(checkedIn(res.body), JSON.stringify(res.body)).toEqual([projectId]);
+  });
+
+  test("with an item-projects binding, as a deployed runtime wires one, its pin checks the binding's projects, not the registry's one", async () => {
+    const corrections = inMemoryCorrections();
+    const h = await harness({
+      readOnly: 'takes-candidates',
+      projects: [projectId, OTHER],
+      items: [{ kind: 'agent', id: AGENT, projects: [projectId, OTHER] }],
+      correctionRegistry: corrections,
+    });
+    await correctedIn(corrections, projectId);
+    await correctedIn(corrections, OTHER);
+    const id = await oldRow(h, { kind: 'tenant' }, { checked: true });
+    const res = await h.call('POST', `/v1/suggested-changes/${id}/pin`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(checkedIn(res.body), JSON.stringify(res.body)).toEqual([projectId, OTHER].sort());
   });
 
   test("one built on a version that no longer runs isn't rebuilt: 409 out of date, run Improve again, nothing pinned", async () => {
