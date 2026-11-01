@@ -279,6 +279,8 @@ final class Kindgi_Admin {
 			'urls'         => self::urls(),
 			// Administrators see Kindgi's own words about an error, under Details.
 			'admin'        => current_user_can( 'manage_options' ),
+			// A store: Ask offers a store's first questions.
+			'store'        => Kindgi_Order::store(),
 		);
 		wp_add_inline_script( 'kindgi-cards', 'window.kindgiConfig = ' . wp_json_encode( $config ) . ';', 'before' );
 	}
