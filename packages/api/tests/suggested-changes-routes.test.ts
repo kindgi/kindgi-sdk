@@ -72,6 +72,7 @@ import type {
   ReviewerRegistryBinding,
   RunHandlerBinding,
   StartImproveRunInput,
+  StoredSuggestedChange,
   SuggestedChangeRule,
   TestRun,
   TestRunBinding,
@@ -136,7 +137,8 @@ function agentBinding(unregistered: ReadonlySet<string> = new Set()): AgentRegis
     },
     async get({ agentId }) {
       const got = registry.getLatest(agentId);
-      return got.kind === 'ok' ? got.value : null;
+      // As a registry records it: in the project it was published in.
+      return got.kind === 'ok' ? { ...got.value, projectId } : null;
     },
     async getVersion({ agentId, version }) {
       const got = registry.get(agentId, version as unknown as string);
@@ -635,6 +637,14 @@ function inMemoryImproveRuns(
   return { binding, started, checked, listed, rows };
 }
 
+/** A project binding that lists `ids`, and gets each. */
+function projectsOf(ids: readonly ProjectId[]) {
+  return {
+    get: async (_tenant: TenantId, id: ProjectId) => (ids.includes(id) ? { id } : undefined),
+    list: async () => ({ items: ids.map((id) => ({ id })) }),
+  } as never;
+}
+
 async function harness(
   opts: {
     grants?: readonly string[];
@@ -660,6 +670,8 @@ async function harness(
     cases?: number;
     /** `false`: the runtime freezes no test set, so it checks no suggested change. */
     freezes?: boolean;
+    /** The tenant's projects, for a project binding; absent: none is wired. */
+    projects?: readonly ProjectId[];
   } = {},
 ) {
   const agents = agentBinding(new Set(opts.unregisteredVersions ?? []));
@@ -782,6 +794,7 @@ async function harness(
     ...(opts.orders !== undefined && { environmentOrders: environmentOrders(opts.orders) }),
     ...(opts.items !== undefined && { itemProjects: itemProjects(opts.items) }),
     ...(opts.correctionRegistry !== undefined && { correctionRegistry: opts.correctionRegistry }),
+    ...(opts.projects !== undefined && { projectBinding: projectsOf(opts.projects) }),
     ...freeze.wired,
     ...(grants !== undefined && {
       authz: {
@@ -834,8 +847,14 @@ const TAKES_CANDIDATES = {
   takesCandidates: {
     undoReason: "The pack's files are what's live: undo it with git.",
     scopeReason: "The pack's files serve every scope: improve the whole tenant.",
+    byHandReason: 'Suggested changes come from Improve runs here: run Improve.',
+    latestReason: "The pack's files are what runs: pin it for the whole tenant.",
   },
 };
+
+/** What a read-only agent registry refuses a suggested change by hand with: its reason, or its by-hand one. */
+const byHand = (readOnly: true | 'takes-candidates') =>
+  readOnly === true ? TAKES_CANDIDATES.reason : TAKES_CANDIDATES.takesCandidates.byHandReason;
 
 /**
  * A suggested change made for the project, which runs its pin of 1.0.0;
@@ -1268,7 +1287,7 @@ describe('POST /v1/suggested-changes', () => {
       expect(res.status, JSON.stringify(res.body)).toBe(409);
       expect(res.body.error).toMatchObject({
         code: 'registry-read-only',
-        message: TAKES_CANDIDATES.reason,
+        message: byHand(readOnly),
       });
       expect([...blocks.rows.keys()].filter((k) => k.startsWith(WEIGHTS))).toHaveLength(1);
       expect(suggestedChanges.rows.size).toBe(0);
@@ -1578,7 +1597,7 @@ describe('POST /v1/suggested-changes/:id/check', () => {
       expect(res.status, JSON.stringify(res.body)).toBe(409);
       expect(res.body.error).toMatchObject({
         code: 'registry-read-only',
-        message: TAKES_CANDIDATES.reason,
+        message: byHand(readOnly),
       });
       expect(h.testRuns.started).toEqual([]);
     },
@@ -2024,6 +2043,10 @@ describe('if the project moves first: a suggested change is rebuilt on what it r
       ],
     });
     expect(b.version).not.toBe(h.b.version);
+    // What it changes now is kept with it, as a draft keeps it.
+    expect(h.suggestedChanges.rows.get(h.b.id)?.change).toMatchObject({
+      before: { values: { recency: 0.5, fit: 0.7 } },
+    });
     // Its new check: its new version against the one it's built on now.
     const runs = h.testRuns.started.filter((r) => r.correlationId === `suggested-change:${h.b.id}`);
     expect(runs.slice(-2).map((r) => r.agentRef?.version)).toEqual([b.version, h.a.version]);
@@ -2611,6 +2634,25 @@ describe('GET /v1/suggested-changes', () => {
       before: { template: 'Score it.' },
       after: { template: 'Score it, recent filings first.' },
     });
+  });
+
+  test("it's kept with what its block held as it was drafted, and read from there; one kept without it reads its block at `fromVersion`", async () => {
+    const { call, id, suggestedChanges } = await made();
+    const row = suggestedChanges.rows.get(id) as StoredSuggestedChange;
+    const before = { values: { recency: 0.3, fit: 0.7 } };
+    expect(row.change).toMatchObject({ fromVersion: '1.0.0', before });
+    const changeOf = async () => (await call('GET', `/v1/suggested-changes/${id}`)).body.changes[0];
+    // What was kept is what's read, not the block's version now.
+    const kept = { values: { recency: 0.1, fit: 0.9 } };
+    suggestedChanges.rows.set(id, {
+      ...row,
+      change: { ...row.change, before: kept },
+    } as StoredSuggestedChange);
+    expect(await changeOf()).toMatchObject({ before: kept });
+    // One drafted before `before` was kept reads the same as it did then.
+    const { before: _b, ...older } = row.change as typeof row.change & { before?: unknown };
+    suggestedChanges.rows.set(id, { ...row, change: older } as StoredSuggestedChange);
+    expect(await changeOf()).toMatchObject({ before, after: { values: CARD.values } });
   });
 });
 
@@ -4412,19 +4454,11 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
     message: TAKES_CANDIDATES.takesCandidates.scopeReason,
   };
 
-  test.each([
-    ['takes-candidates', '/v1/improve-runs'],
-    ['takes-candidates', '/v1/improve-runs/check'],
-    ['read-only', '/v1/improve-runs'],
-    ['read-only', '/v1/improve-runs/check'],
-  ] as const)(
-    "an Improve run is refused as a suggested change is, %s (%s: 409 registry-read-only, with the registry's reason): nothing checked or started",
-    async (registry, path) => {
+  test.each(['/v1/improve-runs', '/v1/improve-runs/check'])(
+    "a read-only registry that takes no candidates refuses an Improve run (%s: 409 registry-read-only, with the registry's reason): nothing checked or started",
+    async (path) => {
       const improveRuns = inMemoryImproveRuns();
-      const h = await harness({
-        improveRuns: improveRuns.binding,
-        readOnly: registry === 'read-only' ? true : 'takes-candidates',
-      });
+      const h = await harness({ improveRuns: improveRuns.binding, readOnly: true });
       const res = await h.call('POST', path, IMPROVE);
       expect(res.status, JSON.stringify(res.body)).toBe(409);
       expect(res.body.error).toMatchObject({
@@ -4437,27 +4471,37 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
     },
   );
 
-  test("a suggested change is refused with the registry's reason, not the scope's (409 registry-read-only), and none is kept", async () => {
+  test('an Improve run is checked and started in its project: its change is for the whole tenant, which the runtime drafts', async () => {
+    const improveRuns = inMemoryImproveRuns();
+    const h = await harness({ improveRuns: improveRuns.binding, readOnly: 'takes-candidates' });
+    const checked = await h.call('POST', '/v1/improve-runs/check', IMPROVE);
+    expect(checked.status, JSON.stringify(checked.body)).toBe(200);
+    const started = await h.call('POST', '/v1/improve-runs', IMPROVE);
+    expect(started.status, JSON.stringify(started.body)).toBe(202);
+    expect(improveRuns.started.map((r) => r.projectId)).toEqual([projectId]);
+  });
+
+  test("a suggested change by hand is refused with the by-hand reason, not the scope's (409 registry-read-only), and none is kept", async () => {
     const h = await harness({ readOnly: 'takes-candidates', freezes: false });
     h.pinStore.pin(PROJECT, '1.0.0');
     const res = await h.call('POST', '/v1/suggested-changes', CARD);
     expect(res.status, JSON.stringify(res.body)).toBe(409);
     expect(res.body.error).toMatchObject({
       code: 'registry-read-only',
-      message: TAKES_CANDIDATES.reason,
+      message: TAKES_CANDIDATES.takesCandidates.byHandReason,
     });
     expect(res.body.error.message).not.toBe(NARROWER.message);
     expect(h.suggestedChanges.rows.size).toBe(0);
   });
 
-  test('one for a project from before is not checked: nothing published or started', async () => {
+  test('one for a project from before is not checked again: nothing published or started', async () => {
     const h = await harness({ readOnly: 'takes-candidates', freezes: false });
     const id = await oldRow(h, PROJECT);
     const res = await h.call('POST', `/v1/suggested-changes/${id}/check`);
     expect(res.status, JSON.stringify(res.body)).toBe(409);
     expect(res.body.error).toMatchObject({
       code: 'registry-read-only',
-      message: TAKES_CANDIDATES.reason,
+      message: TAKES_CANDIDATES.takesCandidates.byHandReason,
     });
     expect(h.testRuns.started).toEqual([]);
     expect([...h.blocks.rows.keys()].filter((k) => k.startsWith(WEIGHTS))).toEqual([
@@ -4465,12 +4509,138 @@ describe("an agent registry that takes Improve's candidates (kindgi dev)", () =>
     ]);
   });
 
-  test('one for the whole tenant from before can only be withdrawn (409 suggested-change-not-for-a-project)', async () => {
+  test("one for the whole tenant isn't checked again either: the by-hand reason, never not-for-a-project", async () => {
     const h = await harness({ readOnly: 'takes-candidates', freezes: false });
     const id = await oldRow(h, { kind: 'tenant' });
     const res = await h.call('POST', `/v1/suggested-changes/${id}/check`);
     expect(res.status, JSON.stringify(res.body)).toBe(409);
-    expect(res.body.error.code).toBe('suggested-change-not-for-a-project');
+    expect(res.body.error).toMatchObject({
+      code: 'registry-read-only',
+      message: TAKES_CANDIDATES.takesCandidates.byHandReason,
+    });
+  });
+
+  test("an Improve run's change, for the whole tenant, is pinned for the whole tenant, through the project its version was made in", async () => {
+    const h = await harness({ readOnly: 'takes-candidates', freezes: false });
+    const id = await oldRow(h, { kind: 'tenant' }, { checked: true });
+    expect(h.suggestedChanges.rows.get(id)?.projectId).toBe(projectId);
+    const res = await h.call('POST', `/v1/suggested-changes/${id}/pin`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(res.body).toMatchObject({
+      pin: { status: 'pinned', toVersion: '1.0.1' },
+      suggestedChange: { status: 'pinned', pinned: { version: '1.0.1' } },
+    });
+    expect(h.pinStore.pins.map((p) => [p.scope, p.version])).toContainEqual([
+      { kind: 'tenant' },
+      '1.0.1',
+    ]);
+  });
+
+  /** An open correction of the agent in `inProject`: a case on its test set. */
+  async function correctedIn(corrections: CorrectionRegistryBinding, inProject: ProjectId) {
+    await corrections.record({
+      tenantId,
+      projectId: inProject,
+      runId: randomUUID(),
+      run: {
+        subject: { kind: 'agent', id: AGENT, version: '1.0.0' },
+        input: { ask: 'score the acme filing' },
+        output: { text: '0.4' },
+      },
+      madeBy: { kind: 'user', id: 'user-1' },
+      status: 'open',
+      answer: 'wrong',
+      shouldSay: '0.8',
+    });
+  }
+  const OTHER = randomUUID() as ProjectId;
+
+  /** The projects the pin's answer checks, reused or started. */
+  const checkedIn = (body: { testRuns?: readonly { projectId: string }[] }) =>
+    (body.testRuns ?? []).map((r) => r.projectId).sort();
+
+  test('its pin checks the project the registry places the agent in, with no item-projects binding to say which serve it', async () => {
+    const corrections = inMemoryCorrections();
+    const h = await harness({
+      readOnly: 'takes-candidates',
+      projects: [projectId, OTHER],
+      correctionRegistry: corrections,
+    });
+    await correctedIn(corrections, projectId);
+    await correctedIn(corrections, OTHER);
+    const id = await oldRow(h, { kind: 'tenant' }, { checked: true });
+    const res = await h.call('POST', `/v1/suggested-changes/${id}/pin`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(checkedIn(res.body), JSON.stringify(res.body)).toEqual([projectId]);
+  });
+
+  test("with an item-projects binding, as a deployed runtime wires one, its pin checks the binding's projects, not the registry's one", async () => {
+    const corrections = inMemoryCorrections();
+    const h = await harness({
+      readOnly: 'takes-candidates',
+      projects: [projectId, OTHER],
+      items: [{ kind: 'agent', id: AGENT, projects: [projectId, OTHER] }],
+      correctionRegistry: corrections,
+    });
+    await correctedIn(corrections, projectId);
+    await correctedIn(corrections, OTHER);
+    const id = await oldRow(h, { kind: 'tenant' }, { checked: true });
+    const res = await h.call('POST', `/v1/suggested-changes/${id}/pin`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(checkedIn(res.body), JSON.stringify(res.body)).toEqual([projectId, OTHER].sort());
+  });
+
+  test("one built on a version that no longer runs isn't rebuilt: 409 out of date, run Improve again, nothing pinned", async () => {
+    const h = await harness({ readOnly: 'takes-candidates', freezes: false });
+    const id = await oldRow(h, { kind: 'tenant' }, { checked: true });
+    // The pack's files changed to another version since it was built.
+    h.pinStore.pin({ kind: 'tenant' }, '1.0.2');
+    const before = h.pinStore.pins.length;
+    const res = await h.call('POST', `/v1/suggested-changes/${id}/pin`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'suggested-change-out-of-date',
+      message: `Suggested change ${id} is built on 1.0.0, and its project now runs 1.0.2, which it can't be rebuilt on: here only an Improve run makes and checks one, so run Improve again. Withdraw it`,
+    });
+    expect(h.pinStore.pins).toHaveLength(before);
+  });
+
+  test('adding one as Latest is refused with the Latest reason (409 registry-read-only)', async () => {
+    const h = await harness({ readOnly: 'takes-candidates', freezes: false });
+    const id = await oldRow(h, { kind: 'tenant' }, { checked: true });
+    const res = await h.call('POST', `/v1/suggested-changes/${id}/add-as-latest`, {});
+    expect(res.status, JSON.stringify(res.body)).toBe(409);
+    expect(res.body.error).toMatchObject({
+      code: 'registry-read-only',
+      message: TAKES_CANDIDATES.takesCandidates.latestReason,
+    });
+  });
+
+  test("without its own reasons, it refuses by hand and as Latest with the registry's reason", async () => {
+    const h = await harness({ freezes: false });
+    const { byHandReason: _b, latestReason: _l, ...older } = TAKES_CANDIDATES.takesCandidates;
+    const service = createSuggestedChangeService({
+      store: h.suggestedChanges,
+      agents: {
+        ...h.agents,
+        readOnly: { reason: TAKES_CANDIDATES.reason, takesCandidates: older },
+      },
+      blocks: h.blocks,
+      testRuns: h.testRuns.binding,
+      agentPins: h.pinStore.bindings,
+    });
+    const id = await oldRow(h, { kind: 'tenant' }, { checked: true });
+    const suggestedChange = h.suggestedChanges.rows.get(id) as StoredSuggestedChange;
+    const actor = { kind: 'user', id: 'user-1' } as const;
+    const refusal = { code: 'registry-read-only', message: TAKES_CANDIDATES.reason };
+    expect(await service.check({ tenantId, suggestedChange, actor })).toMatchObject({
+      kind: 'err',
+      error: refusal,
+    });
+    expect(await service.addAsLatest({ tenantId, suggestedChange, actor })).toMatchObject({
+      kind: 'err',
+      error: refusal,
+    });
   });
 });
 

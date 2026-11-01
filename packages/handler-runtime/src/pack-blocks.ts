@@ -21,6 +21,8 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
+import { canonicalize } from '@kindgi/schema';
+
 import { globStaticPrefix, globToRegex } from './discovery.js';
 
 /**
@@ -244,6 +246,14 @@ export interface PackBlockWrite {
   readonly version: string;
   /** The whole content, a prompt's template text included. */
   readonly content: Readonly<Record<string, unknown>>;
+  /**
+   * The content the block's file must hold now for the write to go (a
+   * prompt's template text included): what the new version was made
+   * from. A file that holds anything else is refused `changed`, so an edit
+   * made since, at the same version or not, is never written over. Absent:
+   * only the version is checked.
+   */
+  readonly expected?: Readonly<Record<string, unknown>>;
 }
 
 export type PackBlockWriteOutcome =
@@ -258,8 +268,12 @@ export type PackBlockWriteOutcome =
     }
   | {
       readonly kind: 'err';
-      /** `not-in-pack`: no such block; `invalid`: the write doesn't fit it; `not-newer`: its version isn't past the file's. */
-      readonly reason: 'not-in-pack' | 'invalid' | 'not-newer';
+      /**
+       * `not-in-pack`: no such block; `invalid`: the write doesn't fit it;
+       * `not-newer`: its version isn't past the file's; `changed`: the file
+       * holds other content than `expected`.
+       */
+      readonly reason: 'not-in-pack' | 'invalid' | 'not-newer' | 'changed';
       readonly message: string;
     };
 
@@ -272,15 +286,16 @@ export type PackBlockWriteOutcome =
  * into place, so a reader sees the old file or the new one.
  *
  * Refused: a block the pack doesn't have, content that doesn't fit the
- * block's kind, and a version that isn't past the file's (a write never
- * takes a block back, nor over a newer edit).
+ * block's kind, a version that isn't past the file's (a write never
+ * takes a block back, nor over a newer edit), and, given `expected`, a
+ * file whose content isn't that (an edit that kept the version).
  */
 export async function writePackBlock(
   packDir: string,
   pattern: string,
   write: PackBlockWrite,
 ): Promise<PackBlockWriteOutcome> {
-  const refused = (reason: 'not-in-pack' | 'invalid' | 'not-newer', message: string) =>
+  const refused = (reason: 'not-in-pack' | 'invalid' | 'not-newer' | 'changed', message: string) =>
     ({ kind: 'err', reason, message }) as const;
   if (!VERSION.test(write.version)) {
     return refused('invalid', '`version` must be major.minor.patch, e.g. "1.0.1"');
@@ -299,6 +314,18 @@ export async function writePackBlock(
     return refused(
       'not-newer',
       `${current.modulePath} holds ${write.id} ${current.version} now, not older than ${write.version}: evaluate the change again from the pack's version`,
+    );
+  }
+  if (write.expected !== undefined && !isObject(write.expected)) {
+    return refused('invalid', '`expected` must be an object');
+  }
+  if (
+    write.expected !== undefined &&
+    canonicalize(current.content) !== canonicalize(write.expected)
+  ) {
+    return refused(
+      'changed',
+      `${current.modulePath} was edited since ${write.id} ${write.version} was made from it, so it isn't written over: make the change again from the file as it is`,
     );
   }
   const problem = contentProblem(current.kind, write.content);

@@ -24,9 +24,9 @@ person still decides: the suggested change waits for a reviewer.
 - **test cases in the project,** [built from corrections](../build-a-test-set/);
 - **a version of the agent running in the project,** pinned there or its
   Latest;
-- **a deployed runtime,** with Kindgi 0.4's CLI. Under `kindgi dev`, an
-  Improve run is refused with `409 registry-read-only`, as a suggested change
-  is: its change is for one project, and the pack's files serve every project
+- **Kindgi 0.4's runtime and CLI,** deployed or `kindgi dev`. Under
+  `kindgi dev`, the run's suggested change is for the whole workspace, and
+  pinning it writes it into the pack's files
   ([Under `kindgi dev`](../suggest-a-change/#under-kindgi-dev));
 - **`publish` on the agent.** For an agent more than one project serves, also
   `write` where its versions are made.
@@ -453,7 +453,9 @@ A schedule can start an Improve run on an agent in a project when there are
 enough new corrections since the schedule's last Improve run, and stop for the
 month at its cap, as
 [Improve on a schedule](../../runs/run-on-a-schedule/#improve-on-a-schedule)
-shows.
+shows. Under `kindgi dev`, a schedule's fire starts no Improve run:
+`kindgi dev` runs while you work, not around the clock, so a schedule is for
+a deployed runtime. Start Improve by hand there.
 
 ## In the console
 
