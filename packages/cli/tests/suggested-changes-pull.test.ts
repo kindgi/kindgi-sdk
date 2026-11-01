@@ -504,6 +504,37 @@ describe('kindgi suggested-changes pull', () => {
     expect((await toneFile()).version).toBe('1.0.0');
   });
 
+  test('a file name with a space and a quote: the lines that go back quote it, and run as printed', async () => {
+    const template = "tone (Ann's).liquid";
+    await pack();
+    await writeFile(join(cwd, 'blocks', template), 'Be brief.');
+    await writeFile(
+      join(cwd, 'blocks/tone.json'),
+      `${JSON.stringify({ ...TONE, content: { templateFile: template } }, null, 2)}\n`,
+    );
+    inPack('add', '.');
+    inPack('commit', '-q', '-m', 'The template in its own file');
+    await writeFile(join(cwd, '.git/hooks/pre-commit'), '#!/bin/sh\nexit 1\n');
+    await chmod(join(cwd, '.git/hooks/pre-commit'), 0o755);
+    await fakeGh({ stdout: `${PR_URL}\n` });
+    const out = await pull(['sc-1', '--pr'], client());
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain(
+      `where blocks/tone.json, blocks/${template} are written but not committed:`,
+    );
+    const lines = [...out.stderr.matchAll(/`(git [^`]+)`/g)].map((m) => m[1] ?? '');
+    expect(lines).toEqual([
+      "git restore -- blocks/tone.json 'blocks/tone (Ann'\\''s).liquid'",
+      'git switch main',
+      `git branch -d ${BRANCH}`,
+    ]);
+    // The test's PATH holds only its own git and gh, so the shell is named by its path.
+    for (const line of lines) execFileSync('/bin/sh', ['-c', line], { cwd, env: env() });
+    expect(inPack('status', '--porcelain')).toBe('');
+    expect(inPack('branch', '--list', '--format=%(refname:short)').trim()).toBe('main');
+    expect(await readFile(join(cwd, 'blocks', template), 'utf8')).toBe('Be brief.');
+  });
+
   test('the push fails: what git said, and the commit stays on the branch', async () => {
     await pack();
     await writeFile(

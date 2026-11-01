@@ -392,7 +392,7 @@ async function newBranch(
 ): Promise<void> {
   if (await gitSays(ctx, packDir, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`])) {
     throw new Error(
-      `The branch ${branch} is there already: a pull request for this version may be open. To make it again, delete the branch first (\`git branch -d ${branch}\`).`,
+      `The branch ${branch} is there already: a pull request for this version may be open. To make it again, delete the branch first (\`git branch -d ${shellWord(branch)}\`).`,
     );
   }
   // Asked where the push goes (a `pushInsteadOf` can differ from where fetches
@@ -675,14 +675,19 @@ function filesOf(wrote: readonly PulledBlock[]): string[] {
   return wrote.flatMap((w) => (w.templateFile === undefined ? [w.file] : [w.file, w.templateFile]));
 }
 
+/** `word` as one shell word in a printed git line: as it is when it's plain, else single-quoted. */
+function shellWord(word: string): string {
+  return /^[A-Za-z0-9._/-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
+}
+
 /** Where a failure after `checkout -b` leaves the pack, and the way back. */
 function leftOn(branch: string, base: string, written: readonly string[]): string {
-  const back = `\`git switch ${base}\` goes back, then \`git branch -d ${branch}\` deletes the branch.`;
+  const back = `\`git switch ${shellWord(base)}\` goes back, then \`git branch -d ${shellWord(branch)}\` deletes the branch.`;
   if (written.length === 0) {
     return `You're on the new branch ${branch}, made from ${base}, with nothing written or committed: ${back}`;
   }
   const one = written.length === 1;
-  return `You're on the new branch ${branch}, made from ${base}, where ${written.join(', ')} ${one ? 'is' : 'are'} written but not committed: \`git restore -- ${written.join(' ')}\` undoes ${one ? 'it' : 'them'}, ${back}`;
+  return `You're on the new branch ${branch}, made from ${base}, where ${written.join(', ')} ${one ? 'is' : 'are'} written but not committed: \`git restore -- ${written.map(shellWord).join(' ')}\` undoes ${one ? 'it' : 'them'}, ${back}`;
 }
 
 /** The branch pushed to the remote; what the push printed, where a remote may say how to open a pull request. */
@@ -696,7 +701,7 @@ async function pushBranch(
   if (pushed === 'missing') throw new Error(NO_GIT);
   if (pushed.code !== 0) {
     throw new Error(
-      `Couldn't push ${branch} to ${remote}: ${saidLine(pushed.stderr) ?? `git exited with ${pushed.code}`}. The commit is on ${branch}: push it yourself (\`git push --set-upstream ${remote} ${branch}\`), then open the pull request.`,
+      `Couldn't push ${branch} to ${remote}: ${saidLine(pushed.stderr) ?? `git exited with ${pushed.code}`}. The commit is on ${branch}: push it yourself (\`git push --set-upstream ${shellWord(remote)} ${shellWord(branch)}\`), then open the pull request.`,
     );
   }
   return pushed.stderr;
@@ -789,7 +794,7 @@ async function opened(
 
 /** It stays on the new branch, and says how to go back. */
 function backLine(done: Done): string {
-  return `You're on ${done.branch}: \`git switch ${done.base}\` goes back.\n`;
+  return `You're on ${done.branch}: \`git switch ${shellWord(done.base)}\` goes back.\n`;
 }
 
 async function pullSuggestedChange(ctx: CommandContext): Promise<Pulled> {
