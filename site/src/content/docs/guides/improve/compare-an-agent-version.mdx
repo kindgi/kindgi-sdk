@@ -442,9 +442,9 @@ answer fails, `why` has the judging model's reason:
 
 - **Which model judges.** The version you try judges its own answers, with
   the model its model-settings block names. A suggested change's check
-  judges both of its runs with the version the change is built on. An
-  Improve run judges with the version it starts from, or with the model it
-  names. Either way, one model judges both sides.
+  judges both of its runs with the version the change is built on, and an
+  Improve run judges with the version it starts from. So one model judges
+  both sides. The model an Improve run names only writes its new wording.
 - **What it costs.** Each answer checked is a call to the judging model,
   which costs money. It's counted in its repetition's `costUsd`, so it's in
   the test run's cost, even when the reply couldn't be read. Answers are

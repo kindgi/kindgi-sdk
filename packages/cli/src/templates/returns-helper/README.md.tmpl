@@ -25,7 +25,7 @@ Improve, pin its suggested change, and watch the correction become Fixed.
 └── blocks/
     ├── tone.json + tone.liquid   # its instructions (a prompt block)
     ├── refund-rules.json         # returnWindowDays (a settings block)
-    └── returns-model.json        # its model settings; temperature is tunable
+    └── returns-model.json        # its model settings; names its model
 ```
 
 The sample orders: A-1001 (delivered 5 days ago, 40), A-1002 (20 days
@@ -42,7 +42,11 @@ A-1004 (on its way).
 ```
 
 Put one model provider's key in `.env` first (see `AGENTS.md`): without
-one, `kindgi dev`'s fallback only echoes a tool's answer.
+one, `kindgi dev`'s fallback only echoes a tool's answer. The helper
+prefers the model `blocks/returns-model.json` names, Anthropic's
+`claude-sonnet-5-5`, and that model also judges answers in the loop
+below. For another provider, put its id and one of its models in
+`providerId` and `model` there first.
 
 ## Try the loop
 
@@ -74,13 +78,14 @@ Improve can find the wording. Commit the pack first: pinning writes into
 its files. Then:
 
 5. **Run Improve.** Ask whether it's ready, with the default project's id
-   (`{{KINDGI}} projects list`) and the model that writes new wording (the
-   provider `AGENTS.md` has you declare; `anthropic` for its preset):
-   `{{KINDGI}} improve runs start --agent={{PACK_ID}}.returns-helper --project=<project-id> --provider=anthropic --model=claude-sonnet-5-5 --check`,
+   (`{{KINDGI}} projects list`):
+   `{{KINDGI}} improve runs start --agent={{PACK_ID}}.returns-helper --project=<project-id> --check`,
    then run it without `--check`. It tries other wording for the `tone`
-   block and the tunable `temperature`, on the test set. Without
-   `--provider` and `--model` it tries `temperature` alone, since
-   `returns-model.json` names no model.
+   block, on the test set. The model named in `returns-model.json` writes
+   the wording (`--provider` and `--model` name another), and judges
+   whether each new answer says what the correction asks. The check answers
+   `ready: true` with `settings` missing: the sample marks no setting
+   Improve may tune, since its model takes no temperature.
 6. **Read its suggested change and pin it.** The agent's **Suggested
    changes** page shows what it found and its check: the correction should
    pass on the new version and nothing should newly fail. Pin it. The pin

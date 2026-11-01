@@ -7,12 +7,19 @@
     "schema": {
       "type": "object",
       "properties": {
+        "providerId": {
+          "type": "string",
+          "description": "The provider it prefers: change it with the model to use another"
+        },
+        "model": {
+          "type": "string",
+          "description": "The model it prefers, which also judges a changed answer against its correction"
+        },
         "temperature": {
           "type": "number",
           "minimum": 0,
           "maximum": 1,
-          "x-kindgi-tunable": true,
-          "description": "How varied its wording is: Improve may try other values"
+          "description": "How varied its wording is, on a model that takes a temperature"
         },
         "maxOutputTokens": {
           "type": "integer",
@@ -23,6 +30,8 @@
       "additionalProperties": false
     },
     "values": {
+      "providerId": "anthropic",
+      "model": "claude-sonnet-5-5",
       "temperature": 0.3,
       "maxOutputTokens": 600
     }
