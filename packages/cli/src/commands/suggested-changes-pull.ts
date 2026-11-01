@@ -6,7 +6,7 @@
  * versions into the pack's block files, as `kindgi blocks pull` writes the
  * versions that run. With `--pr`, in the pack's git repository: a new
  * branch, a commit of the block files alone, a push, and a pull request
- * opened with `gh` (or, without it, the URL that opens one). Then the
+ * opened with `gh` (or, without it, where to open one). Then the
  * corrections it fixes that are still `open` are `being-fixed`, linked to
  * the pull request.
  *
@@ -845,7 +845,7 @@ export const pull: LeafCommand = {
   kind: 'leaf',
   name: 'pull',
   description:
-    "Write a suggested change's block version into the pack's block file, as `kindgi blocks pull` writes what runs: when it's newer than the file's, and the file holds no version newer than the one the change is built on. Allowed when `ready`, `waiting-for-second-person`, `pinned` or `added-as-latest`. With --pr, in the pack's git repository: a new branch `kindgi/<block>-<version>` from the one checked out, a commit of the block files alone, a push, and a pull request opened with `gh` (without gh, the URL that opens one). The corrections it fixes that are still `open` are then `being-fixed`, linked to the pull request (needs `publish` on the agent, or `write` in the correction's project for an agent that several projects serve). The pull request says only fixed words and numbers: never the suggested change's why, nor a correction's words.",
+    "Write a suggested change's block version into the pack's block file, as `kindgi blocks pull` writes what runs: when it's newer than the file's, and the file holds no version newer than the one the change is built on. Allowed when `ready`, `waiting-for-second-person`, `pinned` or `added-as-latest`. With --pr, in the pack's git repository: a new branch `kindgi/<block>-<version>` from the one checked out, a commit of the block files alone, a push, and a pull request opened with `gh` (without gh, where to open one: its URL, when the remote gives one). The corrections it fixes that are still `open` are then `being-fixed`, linked to the pull request (needs `publish` on the agent, or `write` in the correction's project for an agent that several projects serve). The pull request says only fixed words and numbers: never the suggested change's why, nor a correction's words.",
   usage:
     'kindgi suggested-changes pull <suggested-change-id> [--pr] [--project=<id|slug>] [--path=<dir>]',
   optionSpec: {

@@ -90,13 +90,14 @@ kindgi suggested-changes pull <suggested-change-id> --pr
 It writes the block's `version` and content (and its template file) on a new
 branch, `kindgi/<block>-<version>`, from the one checked out; commits those
 files alone, pushes, and opens a pull request with `gh` (without `gh`, it
-prints the URL that opens one). The corrections it fixes that are still
-`open` are then `being-fixed`, linked to the pull request. Without `--pr`, it
-only writes the files. It refuses a block file that holds a newer version
-than the one the suggested change is built on, and, with `--pr`, block files
-with changes that aren't committed. Under `kindgi dev` the pin writes them
-itself. Making one by hand or checking one again is 409
-`registry-read-only`: edit the file, or run Improve.
+prints where to open one: its URL, when the remote gives one). The
+corrections it fixes that are still `open` are then `being-fixed`, linked to
+the pull request. Without `--pr`, it only writes the files. It refuses a
+block file that holds a newer version than the one the suggested change is
+built on, and, with `--pr`, block files with changes that aren't committed.
+Under `kindgi dev` the pin writes them itself. Making one by hand or
+checking one again is 409 `registry-read-only`: edit the file, or run
+Improve.
 
 ## Wording, with Improve
 

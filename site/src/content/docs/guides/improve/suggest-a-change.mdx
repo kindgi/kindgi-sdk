@@ -346,8 +346,9 @@ pnpm exec kindgi suggested-changes pull <suggested-change-id> --pr
 - It makes a branch, `kindgi/<block>-<version>`, from the one checked out,
   commits the block files alone, pushes the branch to `origin` (or the only
   remote), and opens the pull request with `gh`. It stays on the new
-  branch, and says how to go back. Without `gh`, it prints the URL that
-  opens one, and the lines that mark what it fixes once it's open.
+  branch, and says how to go back. Without `gh`, it prints where to open
+  one (its URL, when the remote gives one), and the lines that mark what it
+  fixes once it's open.
 - The pull request says where the suggested change came from, its test-set
   numbers, the files, and a link to the suggested change with its check in
   the console. It never says the suggested change's why, nor a
