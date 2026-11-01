@@ -703,8 +703,8 @@
   const touch = () => window.matchMedia?.('(pointer: coarse)').matches === true;
 
   /**
-   * The box to write in. Enter sends and Shift+Enter starts a new line; it
-   * grows with what's written. A new conversation picks its agent here,
+   * The box to write in. Enter sends and Shift+Enter starts a new line (by
+   * touch, Enter starts a new line); it grows with what's written. A new conversation picks its agent here,
    * and one about an order starts with its number.
    */
   function composer({ log, progress, conversation, offered, onAgent, onSend }) {
