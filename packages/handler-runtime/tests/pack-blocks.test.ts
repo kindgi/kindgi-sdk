@@ -19,7 +19,12 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { runIndexer } from '../src/kindgi-index.js';
-import { blockFileText, packBlockFiles, readPackBlocks, writePackBlock } from '../src/pack-blocks.js';
+import {
+  blockFileText,
+  packBlockFiles,
+  readPackBlocks,
+  writePackBlock,
+} from '../src/pack-blocks.js';
 
 const addFormats = ((addFormatsModule as { default?: unknown }).default ??
   addFormatsModule) as unknown as (ajv: Ajv2020) => void;
