@@ -222,9 +222,9 @@ export interface CorrectedComparisonSummary {
    * was checked failed. They're the ones left out of `corrections`, by id
    * (`caseIds`; `cases` is how many). `asSavedCaseIds` are the ones no run
    * can check as they were saved: each part left unchecked was the case's
-   * own doing. `why` is the first reason a new run can fix, or, when every
-   * one is as saved, the first reason one can't be checked. Absent when
-   * there are none.
+   * own doing. `why` is the first reason that wasn't the case's own doing,
+   * or, when every one is as saved, the first reason one can't be checked.
+   * Absent when there are none.
    */
   readonly unchecked?: {
     readonly cases: number;
@@ -998,7 +998,7 @@ async function checkAnswers(
         passes,
         costs,
         unchecked: true,
-        ...('asSaved' in checked && { asSaved: true }),
+        ...('asSaved' in checked && checked.asSaved === true && { asSaved: true }),
         ...(reason.length > 0 && { reason }),
       };
     }
@@ -1254,7 +1254,8 @@ function priorUnknowns(run: { readonly result?: Readonly<Record<string, unknown>
   const asSaved = new Set(unchecked?.asSavedCaseIds ?? []);
   const why = unchecked?.why;
   if (why === undefined) return { asSaved };
-  return asSaved.size === unchecked?.caseIds.length
+  // A summary recorded before `caseIds` has none, so its `why` is the run's.
+  return asSaved.size === unchecked?.caseIds?.length
     ? { asSaved, asSavedWhy: why }
     : { asSaved, why };
 }
@@ -1266,7 +1267,7 @@ function priorUnknowns(run: { readonly result?: Readonly<Record<string, unknown>
  */
 interface Unknowns {
   readonly asSaved: ReadonlySet<string>;
-  /** The first reason a new run can fix. */
+  /** The first reason that wasn't the case's own doing. */
   readonly why?: string;
   /** The first reason a case can't be checked as it was saved. */
   readonly asSavedWhy?: string;

@@ -836,7 +836,7 @@ export const ReleaseGateSpecSchema: JsonSchema = {
         noNewFailures: {
           type: 'boolean',
           description:
-            "No case that passed before fails: none of the comparison's corrections that are `fixed` now fails it. One the comparison had and couldn't check fails it too, unless no run can check it as it was saved: that one is named and isn't counted. One it didn't have, or that has nothing to check, isn't counted. The check's message says how many of the cases fixed now it graded.",
+            "No case that passed before fails: none of the comparison's corrections that are `fixed` now fails it. One the comparison had and couldn't check fails it too, unless no run can check it as it was saved: that one is named and isn't counted. One it didn't have, or that has nothing to grade, isn't counted. The check's message says how many of the cases fixed now it graded.",
         },
       },
     },
@@ -10411,7 +10411,7 @@ export const CorrectedComparisonSummarySchema: JsonSchema = {
           type: 'string',
           minLength: 1,
           description:
-            "The first reason one of them couldn't be checked that a new run can fix: no answer checker, a candidate that isn't an agent version, a test run stopped before a check, or the reason the answer checker gave. When every one is in `asSavedCaseIds`, the first reason one of them can't be checked as it was saved. Absent only when the answer checker gave no reason.",
+            "The first reason one of them couldn't be checked that wasn't the case's own doing: no answer checker, a candidate that isn't an agent version, a test run stopped before a check, or the reason the answer checker gave. When every one is in `asSavedCaseIds`, the first reason one of them can't be checked as it was saved. Absent only when the answer checker gave no reason, or a rescore had none to keep.",
         },
       },
     },

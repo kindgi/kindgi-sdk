@@ -468,9 +468,10 @@ answer fails, `why` has the judging model's reason:
   the cases whose pass isn't known, a part unchecked and none failed
   (`caseIds`, `cases` of them). `asSavedCaseIds` are the ones no run can
   check as they were saved: each part unchecked was the case's own doing,
-  its recorded calls or its answer's. `why` is the first reason a new run
-  can fix, or, when every one is as saved, why one can't be checked. It's
-  absent only when the checker gave no reason. The entry's and the
+  its recorded calls or its answer's. `why` is the first reason that wasn't
+  the case's own doing, or, when every one is as saved, why one can't be
+  checked. It's absent only when the checker gave no reason, or a rescore
+  had none to keep. The entry's and the
   summary's `unchecked` are from runtime \<x> or later. An earlier runtime
   gives a case with a part unchecked no entry, so none of its parts counts,
   even one that failed.

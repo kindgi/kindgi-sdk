@@ -62,7 +62,7 @@ export interface ReleaseGateSpec {
      * corrections that are `fixed` now fails it. One the comparison had and
      * couldn't check fails it too, unless no run can check it as it was
      * saved: that one is named and isn't counted. One it didn't have, or
-     * that has nothing to check, isn't counted.
+     * that has nothing to grade, isn't counted.
      */
     readonly noNewFailures?: boolean;
   };

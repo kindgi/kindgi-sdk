@@ -112,6 +112,7 @@ async function compare(options: {
   readonly answers?: AnswerCheckBinding;
   readonly judging?: TestRunJudging;
   readonly abortSignal?: AbortSignal;
+  readonly target?: DispatchContext['target'];
 }) {
   const cases = inMemoryCaseStore();
   await cases.putCases({
@@ -133,7 +134,7 @@ async function compare(options: {
     tenantId,
     testRunId: 'eval-1' as RunId,
     testSet,
-    target: { agentId: 'acme.agent' as never, version: '2.0.0' as never },
+    target: options.target ?? { agentId: 'acme.agent' as never, version: '2.0.0' as never },
     dryRun: options.dryRun === true,
     abortSignal: options.abortSignal ?? new AbortController().signal,
     projectId: 'p-run' as ProjectId,
@@ -1999,7 +2000,27 @@ describe("a case's expect, graded", () => {
     });
   });
 
-  test("the summary's why is the first a new run can fix, and the case's own only when every case is as saved", async () => {
+  test("a flow version's answer isn't checked: no call, and it's the run's reason, not the case's", async () => {
+    const answers = checker();
+    const { summary, perCase } = await compare({
+      comparison: once,
+      cases: [
+        expecting(sayHowLong, { subject: { kind: 'flow', id: 'acme.intake', version: '1.0.0' } }),
+      ],
+      answers: answers.binding,
+      target: { flowId: 'acme.intake' as never, version: '1.1.0' as never },
+      answer: () => replayed('j-1', []),
+    });
+    expect(answers.asked).toEqual([]);
+    expect(perCase[0]?.corrections).toEqual(answerUnchecked());
+    expect(summary.unchecked).toEqual({
+      cases: 1,
+      caseIds: ['j-1'],
+      why: "Only an agent version's answers are checked.",
+    });
+  });
+
+  test("the summary's why is the first that wasn't the case's own doing, and the case's own only when every case is as saved", async () => {
     const answers = checker({ kind: 'unchecked', reason: "The judging model's call failed." });
     const noRecord = expecting(
       { answer: { verdict: 'right' } },
@@ -2314,6 +2335,34 @@ describe("a case's expect, graded", () => {
         why: "The case's recorded tool calls can't be read.",
       });
       expect(wireErrors(keptAsSaved)).toEqual([]);
+    });
+
+    test("a rescore of a summary recorded before it listed its cases' ids reads its why as the run's", async () => {
+      const cases = [expecting({ ...refundNoEmail, ...sayHowLong })];
+      const answers = checker({ kind: 'unchecked', reason: 'The version has no model settings.' });
+      const first = await compare({
+        comparison: once,
+        cases,
+        answers: answers.binding,
+        answer: () => replayed('j-1', [call('acme.refund', { amount: 25 })]),
+      });
+      // The summary's `unchecked` as it was recorded before `caseIds`.
+      const earlier = {
+        ...first.summary,
+        unchecked: { cases: 1, why: 'The version has no model settings.' },
+      };
+      const { summary, perCase } = await rescored(
+        cases,
+        { summary: earlier, perCase: first.perCase },
+        answers.binding,
+      );
+      expect(answers.asked).toHaveLength(1);
+      expect(summary.unchecked).toEqual({
+        cases: 1,
+        caseIds: ['j-1'],
+        why: 'The version has no model settings.',
+      });
+      expect(wireErrors({ summary, perCase })).toEqual([]);
     });
 
     test('a rescore of a run graded before parts were counted alone keeps its entries and its count', async () => {

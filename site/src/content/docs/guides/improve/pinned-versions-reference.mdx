@@ -251,7 +251,7 @@ version:
 | `metrics` | each named figure at least `minCandidate`, and lower than the pinned version's by at most `maxDrop`. The figures are `passRate`, `caseCoverage`, or `weightedPrecisionAtK` with its `k` |
 | `replay` | at most this many diverged cases, errors, refused tool calls and stopped cases: `maxDiverged`, `maxErrors`, `maxRefusedWrites`, `maxStopped`. `maxRefusedWrites` counts refused reads too, despite its name. Those left out are 0. A version with other settings runs read-only tools live, which [counts as diverged](../compare-an-agent-version/#what-a-replay-does), so `maxDiverged: 0` refuses it |
 | `cases.minPassing` | at least this many of the run's cases passing. Each correction the run checked is a case, and it passes when every repetition did |
-| `cases.noNewFailures: true` | no case that passed before failing: none of the run's corrections that are Fixed now fails it. One the run had and [couldn't check](../compare-an-agent-version/#what-a-case-expects) refuses it too (runtime \<x> or later), such as one whose answer couldn't be checked because the call to the judging model failed, and whose decisions, if it expects any, passed: run the test again once it can be checked. An earlier runtime doesn't count it. One that can't be checked as it was saved isn't counted, and the check names it. One the run didn't have, or that has nothing to check, isn't counted, and the check says how many of the cases Fixed now it graded |
+| `cases.noNewFailures: true` | no case that passed before failing: none of the run's corrections that are Fixed now fails it. One the run had and [couldn't check](../compare-an-agent-version/#what-a-case-expects) refuses it too (runtime \<x> or later), such as one whose answer couldn't be checked because the call to the judging model failed, and whose decisions, if it expects any, passed: run the test again once it can be checked. An earlier runtime doesn't count it. One that can't be checked as it was saved isn't counted, and the check names it. One the run didn't have, or that has nothing to grade, isn't counted, and the check says how many of the cases Fixed now it graded |
 | `approvals` | then a reviewer with this role approves it, `senior` if left out. It's someone other than whoever asked, unless `separateApprover: false` lets the one who asked approve it |
 | `onlyExpertGroups: true` | a run on the test cases that [counted only experts' corrections](../compare-an-agent-version/#count-only-experts-corrections) |
 
@@ -266,9 +266,9 @@ version:
 - **With `cases`,** a refusal's details add `passing` and `needs` for
   `minPassing`, and `newlyFailing`, the ids of the cases that passed before
   and fail now, for `noNewFailures`. With them come `unchecked`, the ones
-  the run had and couldn't check, and `asSaved`, the ones that can't be
-  checked as they were saved, when it names any. The check's message names
-  the first five of each.
+  that passed before that the run had and couldn't check, and `asSaved`,
+  the ones that passed before that can't be checked as they were saved,
+  when it names any. The check's message names the first five of each.
 - **To change a release gate,** publish a new version of it.
   `kindgi release-gates unregister acme.order-desk-release <version>` goes
   back to the one before.
