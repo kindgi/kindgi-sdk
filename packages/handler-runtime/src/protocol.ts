@@ -42,7 +42,7 @@ export interface PackCallContext {
   readonly idempotencyKey?: string;
   /**
    * The env values the tool declares (`needsSpec.env`), resolved for this
-   * call: project, else org, else tenant (protocol 2.5.0). Strings.
+   * call: project, else org, else workspace (protocol 2.5.0). Strings.
    */
   readonly env?: Readonly<Record<string, unknown>>;
   readonly secrets?: Readonly<Record<string, unknown>>;
@@ -331,7 +331,7 @@ export const PACK_HEADERS = {
    * The workspace the call is for, set by the server from the deployment it
    * routed the call to (never copied from a caller), on `/v1/invoke` and
    * `/v1/info`. A pack service with `KINDGI_PACK_TENANT_ID` refuses a call
-   * whose header is missing or names another tenant, with 421. Optional: a
+   * whose header is missing or names another workspace, with 421. Optional: a
    * pack service that doesn't read it ignores it.
    */
   tenantId: 'kindgi-tenant-id',

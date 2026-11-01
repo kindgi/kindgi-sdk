@@ -200,7 +200,7 @@ export interface AgentMemoryPolicy {
  *   - `same-conversation`: this conversation;
  *   - `same-project`:      the run's project (a person approves each
  *                          one first);
- *   - `tenant`:            the whole tenant (a person approves each
+ *   - `tenant`:            the whole workspace (a person approves each
  *                          one first).
  * Each but `tenant` includes the run's project when there is one.
  */

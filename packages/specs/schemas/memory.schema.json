@@ -3,7 +3,7 @@
   "$id": "https://kindgi.com/schemas/v1/memory.schema.json",
   "$comment": "schema-version: 1.3.0",
   "title": "Memory — Log + Facts",
-  "description": "Two memory primitives: LogEntry (append-only event stream — turns, tool calls, tool results, agent internal messages) and Fact (typed, versioned records with declared retrieval hints). Views like message history, working memory, and semantic recall are queries over these two. Everything is tenant-scoped; scope is explicit and pluggable (tenant / user / org / project / thread / session). Log entries form a tamper-evident hash chain per (tenantId, runId) so any modification cascades — see LogEntry.prevHash / entryHash.",
+  "description": "Two memory primitives: LogEntry (append-only event stream — turns, tool calls, tool results, agent internal messages) and Fact (typed, versioned records with declared retrieval hints). Views like message history, working memory, and semantic recall are queries over these two. Everything belongs to one workspace; scope is explicit and pluggable (workspace / user / org / project / thread / session). Log entries form a tamper-evident hash chain per (tenantId, runId) so any modification cascades — see LogEntry.prevHash / entryHash.",
   "oneOf": [
     {
       "$ref": "#/$defs/LogEntry"

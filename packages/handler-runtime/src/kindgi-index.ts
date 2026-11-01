@@ -139,7 +139,7 @@ export interface KindgiConfig {
   readonly env?: PackEnvConfig;
   /**
    * The project the pack belongs to under `kindgi dev`, which names its dev
-   * database and tenant. Absent: the git repository's name, else the
+   * database and workspace. Absent: the git repository's name, else the
    * workspace root's, else the pack folder's.
    */
   readonly project?: string;
