@@ -902,21 +902,21 @@
   font-size: 18px;
 }
 
-.kindgi .kindgi-steps {
+.kindgi .kindgi-connect-steps {
   margin: var(--kindgi-space-4) 0 var(--kindgi-space-2);
   padding: 0;
   list-style: none;
   counter-reset: kindgi-step;
 }
 
-.kindgi .kindgi-steps > li {
+.kindgi .kindgi-connect-steps > li {
   position: relative;
   margin: 0;
   padding: 0 0 var(--kindgi-space-4) 40px;
   counter-increment: kindgi-step;
 }
 
-.kindgi .kindgi-steps > li::before {
+.kindgi .kindgi-connect-steps > li::before {
   content: counter(kindgi-step);
   position: absolute;
   top: 0;
@@ -931,39 +931,39 @@
   text-align: center;
 }
 
-.kindgi .kindgi-steps h3 {
+.kindgi .kindgi-connect-steps h3 {
   margin: 3px 0 var(--kindgi-space-2);
   font-size: 14px;
 }
 
-.kindgi .kindgi-steps p {
+.kindgi .kindgi-connect-steps p {
   margin: 0 0 var(--kindgi-space-2);
 }
 
 /* In a step, a field's label sits above it, as on a narrow screen. */
-.kindgi .kindgi-steps .form-table,
-.kindgi .kindgi-steps .form-table tbody,
-.kindgi .kindgi-steps .form-table tr,
-.kindgi .kindgi-steps .form-table th,
-.kindgi .kindgi-steps .form-table td {
+.kindgi .kindgi-connect-steps .form-table,
+.kindgi .kindgi-connect-steps .form-table tbody,
+.kindgi .kindgi-connect-steps .form-table tr,
+.kindgi .kindgi-connect-steps .form-table th,
+.kindgi .kindgi-connect-steps .form-table td {
   display: block;
   width: auto;
 }
 
-.kindgi .kindgi-steps .form-table {
+.kindgi .kindgi-connect-steps .form-table {
   margin-top: 0;
 }
 
-.kindgi .kindgi-steps .form-table th {
+.kindgi .kindgi-connect-steps .form-table th {
   padding: var(--kindgi-space-2) 0 var(--kindgi-space-1);
 }
 
-.kindgi .kindgi-steps .form-table td {
+.kindgi .kindgi-connect-steps .form-table td {
   margin: 0;
   padding: 0 0 var(--kindgi-space-2);
 }
 
-.kindgi .kindgi-steps .submit {
+.kindgi .kindgi-connect-steps .submit {
   margin: 0;
   padding: var(--kindgi-space-2) 0 0;
 }
@@ -1012,11 +1012,11 @@
     padding: var(--kindgi-space-3) var(--kindgi-space-4);
   }
 
-  .kindgi .kindgi-steps > li {
+  .kindgi .kindgi-connect-steps > li {
     padding-left: 0;
   }
 
-  .kindgi .kindgi-steps > li::before {
+  .kindgi .kindgi-connect-steps > li::before {
     position: static;
     display: inline-block;
     margin-bottom: var(--kindgi-space-2);

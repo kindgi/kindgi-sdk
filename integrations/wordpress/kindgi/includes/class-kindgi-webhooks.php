@@ -71,6 +71,11 @@ final class Kindgi_Webhooks {
 		return count( self::kindgis( 'active' ) );
 	}
 
+	/** How many Kindgi webhooks someone paused in WooCommerce; none without WooCommerce. */
+	public static function paused(): int {
+		return count( self::kindgis( 'paused' ) );
+	}
+
 	/**
 	 * WooCommerce's webhooks with a status that deliver to Kindgi.
 	 *

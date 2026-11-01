@@ -160,3 +160,13 @@ function test_webhooks_counts_only_kindgis_that_woocommerce_delivers(): void {
 	$GLOBALS['kindgi_test']['webhooks'][6] = new Kindgi_Test_Webhook( 6, 'Order updated → ERP', 'https://erp.acme.example/inbound/updates', 'active' );
 	kindgi_assert_same( 1, Kindgi_Webhooks::on(), "still not the ERP's" );
 }
+
+function test_webhooks_counts_the_paused_kindgis_apart(): void {
+	kindgi_assert_same( 0, Kindgi_Webhooks::paused(), 'none yet' );
+	kindgi_test_store_webhooks();
+	$GLOBALS['kindgi_test']['webhooks'][7] = new Kindgi_Test_Webhook( 7, 'Order refunded → Kindgi', KINDGI_TEST_RECEIVE . '-refunded', 'paused' );
+	$GLOBALS['kindgi_test']['webhooks'][8] = new Kindgi_Test_Webhook( 8, 'Order updated → ERP', 'https://erp.acme.example/inbound/updates', 'paused' );
+	kindgi_assert_same( 1, Kindgi_Webhooks::paused(), "Kindgi's, not the ERP's" );
+	kindgi_assert_same( 1, Kindgi_Webhooks::on(), 'not counted as on' );
+	kindgi_assert_same( array( 3 ), array_column( Kindgi_Webhooks::off(), 'id' ), 'nor as off' );
+}

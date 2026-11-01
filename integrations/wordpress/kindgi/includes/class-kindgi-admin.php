@@ -409,7 +409,7 @@ final class Kindgi_Admin {
 	 * project's name and checks signing in (`kindgi-settings.js`).
 	 */
 	private static function status( array $site ): void {
-		echo '<ul class="kindgi-status" aria-live="polite">';
+		echo '<ul class="kindgi-status" role="list" aria-live="polite">';
 		self::status_row(
 			'ok',
 			__( 'Connected', 'kindgi' ),
@@ -483,6 +483,20 @@ final class Kindgi_Admin {
 		if ( current_user_can( 'manage_woocommerce' ) ) {
 			$where = '<a href="' . esc_url( admin_url( 'admin.php?page=wc-settings&tab=advanced&section=webhooks' ) ) . '">' . $where . '</a>';
 		}
+		$paused = Kindgi_Webhooks::paused();
+		if ( $paused > 0 ) {
+			self::status_row(
+				'warn',
+				__( 'Store events are paused', 'kindgi' ),
+				sprintf(
+					/* translators: 1: how many webhooks, 2: where WooCommerce's webhooks are set up */
+					esc_html( _n( '%1$s WooCommerce webhook to Kindgi is paused. Set it to Active under %2$s.', '%1$s WooCommerce webhooks to Kindgi are paused. Set one to Active under %2$s.', $paused, 'kindgi' ) ),
+					esc_html( number_format_i18n( $paused ) ),
+					$where
+				)
+			);
+			return;
+		}
 		self::status_row(
 			'none',
 			__( 'No store events go to Kindgi', 'kindgi' ),
@@ -520,7 +534,7 @@ final class Kindgi_Admin {
 		<div class="kindgi-connect">
 			<h2><?php esc_html_e( 'Connect this site to Kindgi', 'kindgi' ); ?></h2>
 			<p class="kindgi-settings-text"><?php esc_html_e( 'Your staff then see what the agents want them to decide and what they did, and ask them about the site, each signed in as themselves.', 'kindgi' ); ?></p>
-			<ol class="kindgi-steps">
+			<ol class="kindgi-connect-steps" role="list">
 				<li>
 					<h3><?php esc_html_e( 'Ask your Kindgi administrator to register this site', 'kindgi' ); ?></h3>
 					<p><?php esc_html_e( 'On the project your staff will use, with these two addresses:', 'kindgi' ); ?></p>
