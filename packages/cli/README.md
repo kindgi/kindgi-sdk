@@ -732,8 +732,10 @@ the API).
   `--env` or `--target` is rebuilt for another; `kindgi promote` is what
   carries one build across environments. A `--tenant`, a
   `--signer-key-id`, a pinned `--artifact-version` or `--published-at`,
-  and `--skip-sign` count only when the deploy sets them too: a deploy
-  that leaves one out takes the build's. With no `build-inputs.json` from
+  and `--skip-sign` count only when the deploy has its own: its flag, or
+  for a tenant or a key id its env block, and for a tenant
+  `KINDGI_TENANT_ID`. A deploy with none takes the build's, and one with
+  another builds again. With no `build-inputs.json` from
   the envelope's build, the deploy sends it as before, and says it can't
   tell whether the pack changed. With `--from-envelope`, it sends that file
   as it is, and warns when it doesn't match the deploy.
