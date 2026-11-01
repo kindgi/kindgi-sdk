@@ -262,15 +262,17 @@ final class Kindgi_Inbox {
 			return array(
 				array(
 					'label' => __( 'The call', 'kindgi' ),
-					'value' => self::plain( $arguments ),
+					'value' => self::plain( $arguments, true ),
 				),
 			);
 		}
 		$left_out = count( $arguments ) > self::FACTS_MAX;
 		$rows     = array();
 		foreach ( $arguments as $key => $value ) {
-			$text     = self::is_prose( $value ) ? trim( $value ) : self::plain( $value );
-			$left_out = $left_out || mb_strlen( $text ) > ( self::is_prose( $value ) ? self::WORDS_MAX : self::VALUE_MAX );
+			$prose    = self::is_prose( $value );
+			$text     = $prose ? trim( $value ) : self::plain( $value, true );
+			// Measured as the card shows it: words whole up to `WORDS_MAX`, a value as `text_of` cuts it.
+			$left_out = $left_out || mb_strlen( $prose ? $text : self::plain( $value ) ) > ( $prose ? self::WORDS_MAX : self::VALUE_MAX );
 			$rows[]   = array(
 				'label' => self::words( (string) $key ),
 				'value' => $text,
@@ -346,8 +348,11 @@ final class Kindgi_Inbox {
 		return self::cut( self::plain( $value ) );
 	}
 
-	/** A value as text, whole: a list of words or numbers joined, anything else as its JSON. */
-	private static function plain( $value ): string {
+	/**
+	 * A value as text, whole: a list of words or numbers joined, anything
+	 * else as its JSON, laid out over lines when `$lines` (the whole call).
+	 */
+	private static function plain( $value, bool $lines = false ): string {
 		if ( is_bool( $value ) ) {
 			$text = $value ? __( 'yes', 'kindgi' ) : __( 'no', 'kindgi' );
 		} elseif ( null === $value ) {
@@ -358,7 +363,7 @@ final class Kindgi_Inbox {
 			// A list of words or numbers reads as one.
 			$text = implode( ', ', array_map( 'strval', $value ) );
 		} else {
-			$text = (string) wp_json_encode( $value );
+			$text = (string) wp_json_encode( $value, $lines ? JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE : 0 );
 		}
 		return $text;
 	}
