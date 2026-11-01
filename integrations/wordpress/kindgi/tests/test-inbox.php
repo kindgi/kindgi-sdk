@@ -51,10 +51,11 @@ function kindgi_test_approval( array $changes = array() ): array {
 }
 
 /*
- * Kindgi's own words for every tool call, its title "HITL review: <tool>"
- * and its description "Tool call <tool> awaiting reviewer approval before
- * dispatch.", are left out together: once a tool can give its approval a
- * title and a summary of its own, both rules change at once.
+ * Kindgi's own words for every tool call, its title ("Approve a call to
+ * <tool>", or "HITL review: <tool>" from an older runtime) and its
+ * description "Tool call <tool> awaiting reviewer approval before
+ * dispatch.", are left out together, for the tool's own words when it
+ * gives some (`context.text`).
  */
 function test_inbox_a_tool_calls_card_reads_in_words_not_kindgis(): void {
 	$card = Kindgi_Inbox::card( kindgi_test_approval(), 'u-me', kindgi_test_reviewer(), kindgi_test_names() );
@@ -90,12 +91,52 @@ function test_inbox_a_tool_calls_card_reads_in_words_not_kindgis(): void {
 	kindgi_assert_same( 'c-1', $card['conversationId'], 'its conversation' );
 }
 
+function test_inbox_the_tools_own_words_for_a_call_read_first(): void {
+	$generic = kindgi_test_approval( array( 'title' => 'Approve a call to acme-desk.woo.refund-large' ) );
+	kindgi_assert_same( 'Refund large', Kindgi_Inbox::heading( $generic, 'acme-desk.woo.refund-large' ), "Kindgi's title for every call: the tool's name in words" );
+	kindgi_assert_same( 'Approve a call to a-friend', Kindgi_Inbox::heading( array( 'title' => 'Approve a call to a-friend' ), null ), 'no tool call: the title as it is' );
+	$card = Kindgi_Inbox::card(
+		kindgi_test_approval(
+			array(
+				'title'   => 'Approve a call to acme-desk.woo.refund-large',
+				'context' => array(
+					'text'  => array(
+						'title'   => 'Large refund: 210 on order #18',
+						'summary' => 'One of the two vases arrived broken.',
+					),
+					'about' => array(
+						'kind' => 'woocommerce.order',
+						'id'   => '18',
+					),
+				),
+			)
+		),
+		'u-me',
+		kindgi_test_reviewer(),
+		kindgi_test_names()
+	);
+	kindgi_assert_same( 'Large refund: 210 on order #18', $card['heading'], "the tool's title, filled in" );
+	kindgi_assert_same( '', $card['summary'], 'a summary that is the agent\'s reason shows once' );
+	kindgi_assert_same( 'Reason', $card['words'][0]['label'], 'as its words, quoted and theirs' );
+	$own = kindgi_test_approval(
+		array(
+			'context' => array(
+				'text' => array(
+					'title'   => 'Publish product #7',
+					'summary' => 'Goes live on the shop now.',
+				),
+			),
+		)
+	);
+	kindgi_assert_same( 'Goes live on the shop now.', Kindgi_Inbox::summary( $own ), "the tool's own summary" );
+}
+
 function test_inbox_a_title_a_tool_gives_is_the_heading(): void {
 	$card = Kindgi_Inbox::card(
 		kindgi_test_approval(
 			array(
 				'title'       => 'Refund 210 on order #18',
-				'description' => 'One of the two vases arrived broken.',
+				'description' => 'The customer sent a photo of the broken vase.',
 			)
 		),
 		'u-me',
@@ -103,7 +144,7 @@ function test_inbox_a_title_a_tool_gives_is_the_heading(): void {
 		kindgi_test_names()
 	);
 	kindgi_assert_same( 'Refund 210 on order #18', $card['heading'], 'the title' );
-	kindgi_assert_same( 'One of the two vases arrived broken.', $card['summary'], 'the description' );
+	kindgi_assert_same( 'The customer sent a photo of the broken vase.', $card['summary'], 'the description' );
 	kindgi_assert_same( 3, count( $card['facts'] ) + count( $card['words'] ), 'the fields still show: a title can leave one out' );
 }
 

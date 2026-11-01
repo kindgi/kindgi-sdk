@@ -54,14 +54,17 @@ final class Kindgi_Inbox {
 		$asked_by = is_string( $a['requestedBy'] ?? null ) ? $a['requestedBy'] : null;
 		$pending  = in_array( $a['status'] ?? null, self::WAITING, true );
 		$not_mine = $pending ? self::not_yours( $a, $me, $reviewer ) : null;
+		$words    = null === $tool ? array() : self::words_of( $ref['arguments'] ?? null );
+		$summary  = self::summary( $a );
 		$card     = array(
 			'id'             => (string) ( $a['id'] ?? '' ),
 			'heading'        => self::heading( $a, $tool ),
-			'summary'        => self::summary( $a ),
+			// A summary that's one of the agent's own fields shows once, as its words.
+			'summary'        => in_array( $summary, array_column( $words, 'text' ), true ) ? '' : $summary,
 			// What would run, always shown: a title can leave a field out.
 			'facts'          => null === $tool ? array() : self::facts( $ref['arguments'] ?? null ),
 			// The agent's own words among them (a reason, a note): quoted, apart from the facts.
-			'words'          => null === $tool ? array() : self::words_of( $ref['arguments'] ?? null ),
+			'words'          => $words,
 			'status'         => (string) ( $a['status'] ?? '' ),
 			'createdAt'      => (string) ( $a['createdAt'] ?? '' ),
 			'expiresAt'      => is_string( $a['expiresAt'] ?? null ) ? $a['expiresAt'] : null,
@@ -145,12 +148,18 @@ final class Kindgi_Inbox {
 	}
 
 	/**
-	 * The card's heading: the approval's title, unless it's the one Kindgi
-	 * gives every tool call ("HITL review: <tool>"), then the tool's name in words.
+	 * The card's heading: the tool's own title for the call, when it gave
+	 * one (Kindgi puts it in the approval's `context.text`); else the
+	 * approval's title, unless it's one Kindgi gives every tool call; then
+	 * the tool's name in words.
 	 */
 	public static function heading( array $a, ?string $tool ): string {
+		$own = self::own_words( $a, 'title' );
+		if ( null !== $own ) {
+			return $own;
+		}
 		$title = trim( (string) ( $a['title'] ?? '' ) );
-		if ( '' !== $title && 0 !== strpos( $title, 'HITL review' ) ) {
+		if ( '' !== $title && ! self::generic_title( $title, $tool ) ) {
 			return $title;
 		}
 		if ( null !== $tool ) {
@@ -159,10 +168,32 @@ final class Kindgi_Inbox {
 		return '' !== $title ? $title : __( 'An approval', 'kindgi' );
 	}
 
-	/** The approval's description, unless it's the one Kindgi gives every tool call. */
+	/**
+	 * Whether a title is one Kindgi gives every tool call: "Approve a call
+	 * to <tool>", or "HITL review: <tool>" from a runtime before it.
+	 */
+	public static function generic_title( string $title, ?string $tool ): bool {
+		return 0 === strpos( $title, 'HITL review' ) || ( null !== $tool && 'Approve a call to ' . $tool === $title );
+	}
+
+	/**
+	 * The tool's own summary for the call, when it gave one; else the
+	 * approval's description, unless it's the one Kindgi gives every tool call.
+	 */
 	public static function summary( array $a ): string {
+		$own = self::own_words( $a, 'summary' );
+		if ( null !== $own ) {
+			return $own;
+		}
 		$text = trim( is_string( $a['description'] ?? null ) ? $a['description'] : '' );
 		return 1 === preg_match( '/^Tool call \S+ awaiting reviewer approval before dispatch\.$/', $text ) ? '' : $text;
+	}
+
+	/** One of the tool's own words for the call (`context.text`'s `title` or `summary`), or null. */
+	private static function own_words( array $a, string $which ): ?string {
+		$text = is_array( $a['context']['text'] ?? null ) ? $a['context']['text'] : array();
+		$own  = is_string( $text[ $which ] ?? null ) ? trim( $text[ $which ] ) : '';
+		return '' === $own ? null : $own;
 	}
 
 	/** A tool's id in words: its last part, `woo.refund-large` → "Refund large". */
