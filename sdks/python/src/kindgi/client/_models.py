@@ -379,7 +379,7 @@ class PinCheck(BaseModel):
         list[str] | None, Field(alias="uncommittedFiles", min_length=1)
     ] = None
     """
-    Under `kindgi dev`, where pinning a version writes it into the pack's files: the files this pin would write over that git hasn't committed (changed, staged, untracked or ignored, or in a nested repository such as a submodule), relative to the pack's folder. Git can't bring back what they hold once they're written over, so commit them first. A warning: the pin still goes. Absent when there are none, when the pin writes nothing, when the gate fails, and on every other runtime.
+    Under `kindgi dev`, where pinning a version writes it into the pack's files: the files this pin would write over that git hasn't committed (changed, staged, untracked or ignored, or in a nested repository such as a submodule), relative to the pack's folder. Git can't bring back what they hold once they're written over, so commit them first. A warning: the pin still goes. Absent when there are none, when the pin writes nothing, when the gate fails, when git can't say (no git, or no answer in time), and on every other runtime.
     """
     not_in_git: Annotated[Literal[True] | None, Field(alias="notInGit")] = None
     """
