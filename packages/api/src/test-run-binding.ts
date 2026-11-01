@@ -230,7 +230,7 @@ export interface TestRunStartInput {
    * Content-scope anchor. REQUIRED — every
    * test-run row is anchored to a project. The caller resolves this at
    * ITS layer; storage adapters treat a missing / bogus id as a
-   * `project-not-found` outcome. No silent fallback to a tenant Default here.
+   * `project-not-found` outcome. No silent fallback to a tenant's default here.
    */
   readonly projectId: ProjectId;
   readonly testSetId: string;

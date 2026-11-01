@@ -321,7 +321,7 @@ describe('API — projects CRUD', () => {
 });
 
 describe('API — projects /default', () => {
-  test('no Default → 404 project-not-found', async () => {
+  test('no default → 404 project-not-found', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/projects/default', {
       headers: { authorization: `Bearer ${TOKEN_A}` },
@@ -331,7 +331,7 @@ describe('API — projects /default', () => {
     expect(body.error.code).toBe('project-not-found');
   });
 
-  test('after Default created → 200 with isDefault: true', async () => {
+  test('after the default is created → 200 with isDefault: true', async () => {
     const { app } = makeApp();
     await createProject(app, TOKEN_A, {
       name: 'Default',
@@ -363,7 +363,7 @@ describe('API — projects /default', () => {
     });
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: { message: string } };
-    // getDefault's 404 says "Tenant has no Default project"; the
+    // getDefault's 404 says "Tenant has no default project"; the
     // :projectId 404 says "No project with id 'default'". Distinct
     // messages confirm the /default route handled the request.
     expect(body.error.message).toContain('Default');
@@ -496,7 +496,7 @@ describe('API — projects cross-tenant isolation', () => {
     expect(get.status).toBe(404);
   });
 
-  test("tenant A's Default is not tenant B's Default", async () => {
+  test("tenant A's default is not tenant B's default", async () => {
     const { app } = makeApp();
     await createProject(app, TOKEN_A, {
       name: 'A-Default',

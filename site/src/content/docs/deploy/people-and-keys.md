@@ -48,7 +48,7 @@ With authorization on:
   providers, policies, adapters and signing keys. Everyone you add is one.
   A deployment is read in the project it serves: a member lists and reads
   only those in projects they read. One deployed without a project is the
-  Default project's.
+  default project's.
 - **A role on a project** gives the work in it: its agents, runs and
   conversations. The roles are `owner`, `admin`, `editor` and `viewer`
   ([Project memberships](../authorization/#project-memberships)).
@@ -734,7 +734,7 @@ It's refused for yourself and for the seed user, with
 - **Service accounts,** for tenant admins: create one with its grants,
   change them, make it a key, or unregister it.
 
-  ![The Service accounts page: acme-ci, "Deploys from CI", admin on the Default project, with no active keys yet.](../../../assets/people/service-accounts.png)
+  ![The Service accounts page: acme-ci, "Deploys from CI", admin on the default project, with no active keys yet.](../../../assets/people/service-accounts.png)
 
 A project you have no role on shows **No access**, with the projects you can
 open.

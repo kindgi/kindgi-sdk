@@ -232,7 +232,7 @@ const create: LeafCommand = {
     ...mailFlags('register'),
     project: {
       type: 'string',
-      description: "The trigger's project, by id (default: the tenant's Default project).",
+      description: "The trigger's project, by id (default: the tenant's default project).",
     },
     ...RUN_AS_FLAG,
     ...allowUnattendedFlag('register'),

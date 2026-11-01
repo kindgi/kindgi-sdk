@@ -293,7 +293,7 @@ export interface RunFlowInput {
   /**
    * Content-scope anchor. REQUIRED — every kernel run is bound to
    * exactly one project inside the tenant. Callers without a natural
-   * project id resolve to the tenant's Default via
+   * project id resolve to the tenant's default via
    * `projectBinding.getDefault(tenantId)` at the caller layer.
    */
   readonly projectId: ProjectId;

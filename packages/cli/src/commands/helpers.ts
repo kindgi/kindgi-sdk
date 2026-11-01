@@ -268,7 +268,7 @@ export function segmentsFlag(
 
 /**
  * The project a command writes into: `--project=<id>`, or the tenant's
- * Default project when the flag is absent.
+ * default project when the flag is absent.
  */
 export async function projectIdFlag(ctx: CommandContext): Promise<string> {
   return stringFlag(ctx, 'project') ?? (await ctx.client().projects.getDefault()).id;

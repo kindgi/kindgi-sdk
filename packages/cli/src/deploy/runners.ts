@@ -66,7 +66,7 @@ export interface PostDeploymentBody {
   readonly signerPublicKey: string;
   readonly signature: string;
   readonly publishedAt: string;
-  /** The project to deploy into (`--project`); absent: tenant-wide, the Default project. */
+  /** The project to deploy into (`--project`); absent: tenant-wide, the default project. */
   readonly projectId?: string;
   /** Where the pack lives in git, when it's in a work tree (`source.ts`). */
   readonly source?: DeploySource;

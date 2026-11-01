@@ -1341,7 +1341,7 @@ export const StartRunBodySchema: JsonSchema = {
         projectId: {
           type: 'string',
           format: 'uuid',
-          description: "Project to run under; omit → the tenant's Default project.",
+          description: "Project to run under; omit → the tenant's default project.",
         },
         segments: {
           type: 'array',
@@ -1370,7 +1370,7 @@ export const StartRunBodySchema: JsonSchema = {
         projectId: {
           type: 'string',
           format: 'uuid',
-          description: "Project to run under; omit → the tenant's Default project.",
+          description: "Project to run under; omit → the tenant's default project.",
         },
         segments: {
           type: 'array',
@@ -2013,7 +2013,7 @@ const SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES: Record<string, JsonSchema> = {
   projectId: {
     type: 'string',
     description:
-      "The deployment's project, as a call routes in it: the one it named, else the tenant's Default. Absent only when the tenant has no Default project.",
+      "The deployment's project, as a call routes in it: the one it named, else the tenant's default. Absent only when the tenant has no default project.",
   },
   imageRef: {
     type: 'string',
@@ -2142,7 +2142,7 @@ export const PackEnvNameStatusSchema: JsonSchema = {
   additionalProperties: false,
   required: ['name', 'required', 'kind', 'scope', 'missing'],
   description:
-    "One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (for `ambiguous` only, `secretScope` names the secret's scope and `cloudSecretScope` the cloud secret's). Each name is looked for at the deployment's project, then its org, then the tenant (most specific wins); a tenant-wide deployment's, at the tenant's Default project. Never a value.",
+    "One name the deployment's pack declares: where it's set, and why it can't be given to the pack service, if it can't (for `ambiguous` only, `secretScope` names the secret's scope and `cloudSecretScope` the cloud secret's). Each name is looked for at the deployment's project, then its org, then the tenant (most specific wins); a tenant-wide deployment's, at the tenant's default project. Never a value.",
   properties: {
     name: { type: 'string' },
     required: { type: 'boolean' },
@@ -4354,7 +4354,7 @@ export const ToolSpecSchema: JsonSchema = {
 
 export const RecordedSecretScopeSchema: JsonSchema = {
   description:
-    "Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the Default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.",
+    "Where a secret an item names is read, recorded when the item is registered: the first of the item's own scope, its project's org and the tenant that has the secret and that the registrant administers. Else, the broadest they administer; for a deployment's tools, deployed or promoted, where that deployment's secrets sync writes (`POST /v1/deployments/{deploymentId}/secrets`), when the registrant administers it: its project, or the tenant for a deploy that names none and for a promotion into the default project, which are stored with no project. The runtime reads the secret there only: a secret removed from it is missing, never read from a broader scope, and one set later elsewhere changes nothing until it's recorded again: a tool by publishing a new version, an MCP endpoint by unregistering it and registering it again, a webhook trigger by an update that names its secret.",
   oneOf: [
     {
       type: 'object',
@@ -4845,7 +4845,7 @@ export const ConversationSchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The project the conversation is in: the project of the run that opened it, or `projectId` on open (when omitted, the agent's own project, or the tenant's Default project for an agent filed under none). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.",
+        "The project the conversation is in: the project of the run that opened it, or `projectId` on open (when omitted, the agent's own project, or the tenant's default project for an agent filed under none). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.",
     },
     openedBy: {
       type: 'string',
@@ -4957,7 +4957,7 @@ export const OpenConversationBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's tenant, else `400 bad-input`, that reaches the agent, else `400 reference-out-of-scope`. Omitted: the agent's own project, as for a run (the tenant's Default project for an agent filed under none).",
+        "The project the conversation is in; `GET /v1/conversations?scopeKind=project&scopeId=…` lists it. A project of the caller's tenant, else `400 bad-input`, that reaches the agent, else `400 reference-out-of-scope`. Omitted: the agent's own project, as for a run (the tenant's default project for an agent filed under none).",
     },
     scope: {
       type: 'object',
@@ -12531,7 +12531,7 @@ export const DeploymentRecordSchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's Default project).",
+        "The project the deploy named, which its primitives were registered into. Absent for a tenant-wide deploy (the tenant's default project).",
     },
     packEnv: { $ref: '#/components/schemas/PackEnvDeclaration' },
     promotedFromDeploymentId: {
@@ -12616,7 +12616,7 @@ export const DeployCheckBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The project the deploy goes into: the check takes the deploy's own right, admin on it. Absent: the tenant's Default project, admin on the tenant. Every project of the pack's agents counts, whichever this is.",
+        "The project the deploy goes into: the check takes the deploy's own right, admin on it. Absent: the tenant's default project, admin on the tenant. Every project of the pack's agents counts, whichever this is.",
     },
     agents: {
       type: 'array',
@@ -13210,7 +13210,7 @@ export const DeploymentRegistrationBodySchema: JsonSchema = {
       type: 'string',
       format: 'uuid',
       description:
-        "The project to deploy into, one per client: its agents, flows, tools and guardrails are registered there, and its secret sync writes there. It takes admin on that project (a key limited to another project is refused). Absent: a tenant-wide deploy, into the tenant's Default project. An id that already lives in another project is `409` (`tool-project-mismatch` and the like): each client gets its own pack, whose ids carry its own pack id. Not covered by the signature, which attests the image.",
+        "The project to deploy into, one per client: its agents, flows, tools and guardrails are registered there, and its secret sync writes there. It takes admin on that project (a key limited to another project is refused). Absent: a tenant-wide deploy, into the tenant's default project. An id that already lives in another project is `409` (`tool-project-mismatch` and the like): each client gets its own pack, whose ids carry its own pack id. Not covered by the signature, which attests the image.",
     },
     source: { $ref: '#/components/schemas/DeploymentSourceBody' },
     replace: {
@@ -13247,7 +13247,7 @@ export const DeploymentCollectionPageSchema: JsonSchema = {
       type: 'integer',
       minimum: 0,
       description:
-        "How many builds keep a pack service among the deployments the project filter selects, whatever the page and the other filters: those whose `endpoint.keptFor` isn't empty. With `?projectId=`, that project's (the Default's counts the deployments that name no project); without, the total over the tenant's projects the caller may read. Absent when builds aren't counted (one service serves every build), and from a runtime before Kindgi 0.4.0.",
+        "How many builds keep a pack service among the deployments the project filter selects, whatever the page and the other filters: those whose `endpoint.keptFor` isn't empty. With `?projectId=`, that project's (the default's counts the deployments that name no project); without, the total over the tenant's projects the caller may read. Absent when builds aren't counted (one service serves every build), and from a runtime before Kindgi 0.4.0.",
     },
   },
 };
@@ -13678,7 +13678,7 @@ export const AddTeamMembershipResultSchema: JsonSchema = {
 
 /**
  * `Project` — the primary content-scope. `isDefault: true`
- * marks the auto-created tenant Default.
+ * marks the tenant's default project, the one it was created with.
  */
 export const ProjectRoleSchema: JsonSchema = {
   type: 'string',
@@ -15807,7 +15807,7 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
     projectId: {
       type: 'string',
       format: 'uuid',
-      description: "The trigger's project; absent: the tenant's Default project.",
+      description: "The trigger's project; absent: the tenant's default project.",
     },
     config: {
       type: 'object',

@@ -64,9 +64,9 @@ export interface DeploymentBinding {
    * return `{ kind: 'already-registered', deployment }` with the existing
    * row (existing `artifactVersion` — the issuer-supplied value the row
    * originally pinned). A registration with no `projectId` and one naming
-   * the tenant's Default project by its id are the SAME project for this
+   * the tenant's default project by its id are the SAME project for this
    * check: either finds the other, so a digest is registered once per
-   * project however the Default is named (a tenant with no Default keeps a
+   * project however the default is named (a tenant with no default keeps a
    * project-less registration tenant-wide). A different project, or a
    * different digest → a new row, with the caller's newly-supplied
    * `artifactVersion` persisted verbatim.
@@ -81,9 +81,9 @@ export interface DeploymentBinding {
   /**
    * Fetch a deployment by its `imageDigest` (the sha256 of the pinned OCI
    * image), within `projectId` — or, absent, among the tenant-wide
-   * deployments (the tenant's Default project). A digest registered with no
-   * project and one registered under the tenant's Default by its id resolve
-   * to each other here too (the Default named either way is one project).
+   * deployments (the tenant's default project). A digest registered with no
+   * project and one registered under the tenant's default by its id resolve
+   * to each other here too (the default named either way is one project).
    * Used for the idempotency check on `register` and for cross-referencing
    * image identity from the sandbox layer at dispatch. `null` when no
    * record exists.
@@ -441,7 +441,7 @@ export interface Deployment {
   /**
    * The project the deploy named: its agents, flows, tools and guardrails
    * were registered into it, and its secret sync writes there. Absent for a
-   * tenant-wide deploy, whose primitives went into the tenant's Default
+   * tenant-wide deploy, whose primitives went into the tenant's default
    * project and whose secrets sync tenant-wide.
    */
   readonly projectId?: ProjectId;
@@ -620,10 +620,10 @@ export interface DeploymentRegisterInput {
   readonly packId?: string;
   /**
    * The project the deploy named, which its primitives were registered
-   * into; absent for a tenant-wide deploy (the tenant's Default project).
+   * into; absent for a tenant-wide deploy (the tenant's default project).
    * A binding keeps it on the deployment and, when it routes pack calls per
    * deployment, keys each route by the project the primitives went into
-   * (this one, else the Default project), so a call reaches the deployment
+   * (this one, else the default project), so a call reaches the deployment
    * of its own project.
    */
   readonly projectId?: ProjectId;
@@ -680,7 +680,7 @@ export interface DeploymentGetByImageDigestInput {
   /**
    * Which project to look up within: a digest deploys once per project, so
    * the same image can be registered in more than one (a later environment
-   * of its order takes it by promotion). Absent = the tenant's Default (a
+   * of its order takes it by promotion). Absent = the tenant's default (a
    * tenant-wide deploy, stored with no project).
    */
   readonly projectId?: ProjectId;
@@ -704,7 +704,7 @@ export interface DeploymentListInput {
    */
   readonly signerKeyId?: SigningKeyId;
   /**
-   * Only the deployments in this project. The tenant's Default project
+   * Only the deployments in this project. The tenant's default project
    * also finds the deployments that name no project (they serve there).
    */
   readonly projectId?: ProjectId;
@@ -720,7 +720,7 @@ export interface DeploymentPage {
    * the project filter selects, whatever the page and the other filters,
    * while the runtime runs one per build (from runtime 0.4.0): those whose
    * `keptFor` isn't empty. With `projectId`, that project's alone (the
-   * Default's counts the deployments that name no project); without, one
+   * default's counts the deployments that name no project); without, one
    * entry per project the tenant's kept builds serve. The route sums the
    * ones the caller reads into the page's `keptBuilds`. Absent when builds
    * aren't counted.
@@ -731,8 +731,8 @@ export interface DeploymentPage {
 /** How many builds keep a pack service in one project. */
 export interface DeploymentKeptBuilds {
   /**
-   * The project they serve: the Default for a deployment that names none.
-   * Absent for those of a tenant with no Default.
+   * The project they serve: the default for a deployment that names none.
+   * Absent for those of a tenant with no default.
    */
   readonly projectId?: ProjectId;
   readonly builds: number;
@@ -764,7 +764,7 @@ export interface DeploymentPromoteInput {
   /** The deployment promoted. */
   readonly sourceDeploymentId: string;
   /**
-   * The project it's promoted into; absent for the tenant's Default
+   * The project it's promoted into; absent for the tenant's default
    * project, stored with no project as a deploy naming none is.
    */
   readonly projectId?: ProjectId;

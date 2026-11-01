@@ -8,8 +8,8 @@
  *
  * Cases covered:
  * - CRUD happy paths.
- * - `getDefault` returns the tenant's Default row when `isDefault=true`.
- * - `isDefault` uniqueness guardrail — creating a second Default in
+ * - `getDefault` returns the tenant's default row when `isDefault=true`.
+ * - `isDefault` uniqueness guardrail — creating a second default in
  *   the same tenant resolves to `project-default-already-exists`
  *   (in-memory adapter enforces at write time; Postgres impl enforces
  *   via partial-unique-index).
@@ -520,7 +520,7 @@ export function runProjectBindingConformance(
   }
 
   describe(`${label} — Default project`, () => {
-    it('getDefault returns undefined before any Default is created', async () => {
+    it('getDefault returns undefined before any default is created', async () => {
       const { projects } = makeBinding();
       expect(await projects.getDefault(T1)).toBeUndefined();
     });
@@ -538,7 +538,7 @@ export function runProjectBindingConformance(
       expect(got?.isDefault).toBe(true);
     });
 
-    it('isDefault uniqueness — a second Default in the same tenant → project-default-already-exists', async () => {
+    it('isDefault uniqueness — a second default in the same tenant → project-default-already-exists', async () => {
       const { projects } = makeBinding();
       await createProject(projects, T1, { name: 'D1', slug: 'd1', isDefault: true });
       expect(await projects.create(T1, { name: 'D2', slug: 'd2', isDefault: true })).toEqual({
@@ -556,7 +556,7 @@ export function runProjectBindingConformance(
       expect(await projects.getDefault(T1)).toBeUndefined();
     });
 
-    it('a Default in tenant A does NOT block a Default in tenant B', async () => {
+    it('a default in tenant A does NOT block a default in tenant B', async () => {
       const { projects } = makeBinding();
       await createProject(projects, T1, { name: 'D1', slug: 'd1', isDefault: true });
       const d2 = await createProject(projects, T2, {

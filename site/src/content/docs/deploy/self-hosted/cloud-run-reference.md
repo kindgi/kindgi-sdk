@@ -187,7 +187,7 @@ A tool call the runtime can't route answers with a code of its own:
 - `pack-endpoint-pending`: the deployment's service isn't ready yet. A new
   deployment waits for the orchestrator's next pass, within about a minute.
 - `pack-endpoint-cleared`: the deployment's service was taken down.
-- `pack-route-missing`: no deployment into the run's project (the Default
+- `pack-route-missing`: no deployment into the run's project (the default
   project, for a run with none) shipped that version. A deployment registered before the runtime
   routed per deployment has no routes either: deploy it again
   ([5. Trust your key, and deploy](../cloud-run/#5-trust-your-key-and-deploy)).

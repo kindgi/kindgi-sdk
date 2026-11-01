@@ -635,7 +635,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'provider-key-refused': 400,
   'provider-key-in-use': 409,
   // A slug another org, team or project in the tenant already has; a
-  // second Default project.
+  // second default project.
   'slug-conflict': 409,
   'project-default-already-exists': 409,
   'tenant-not-found': 404,

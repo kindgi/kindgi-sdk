@@ -253,7 +253,7 @@ const start: LeafCommand = {
     project: {
       type: 'string',
       description:
-        "The project to run in (`kindgi projects list`). Default: the tenant's Default project.",
+        "The project to run in (`kindgi projects list`). Default: the tenant's default project.",
     },
     segment: {
       type: 'string',

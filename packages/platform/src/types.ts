@@ -108,9 +108,9 @@ export interface TeamMembership {
 // `Engagement` in accounting, `Episode` in healthcare, `Deal` in
 // finance).
 //
-// `isDefault` marks the auto-created "Default" project per tenant.
+// `isDefault` marks each tenant's default project, the one it was created with.
 // Implementations keep exactly one per tenant (the in-memory adapter
-// rejects a second Default on `create`).
+// rejects a second default on `create`).
 // ============================================================
 
 export interface Project {
@@ -124,7 +124,7 @@ export interface Project {
   readonly name: string;
   readonly slug: string;
   /**
-   * `true` for the tenant's auto-created "Default" project. Exactly
+   * `true` for the tenant's default project, the one it was created with. Exactly
    * one row per tenant carries `isDefault = true`.
    * `false` for every user-created project.
    */
@@ -162,7 +162,7 @@ export interface ProjectSpec {
   readonly description?: string;
   readonly orgId?: OrgId;
   /**
-   * Optional at spec time — the tenant's Default project is created
+   * Optional at spec time — the tenant's default project is created
    * by the framework at tenant-inception, not by a caller. User
    * projects created via `POST /v1/projects` default to `false`.
    */

@@ -39,7 +39,7 @@ the runtime's address from `$KINDGI_URL`.
   needs a captcha: set KINDGI_AUTH_TURNSTILE_SECRET (or
   KINDGI_AUTH_TURNSTILE_SECRET_PATH) and KINDGI_AUTH_TURNSTILE_SITE_KEY."
 - **Each tenant is created through `POST /v1/system/tenants`**, with its
-  setup: its Default project and its authorization store.
+  setup: its default project and its authorization store.
 - **The start sets nothing up per tenant.** After an upgrade that adds a
   step for each tenant, run [`tenants repair`](#after-each-upgrade-tenants-repair).
 - **Background work** keeps up every tenant that's set up, and starts new
@@ -66,7 +66,7 @@ apart, and the two that let you allow and count them:
 | Setting | What it does |
 |---|---|
 | `KINDGI_TENANT_HOST_ACCESS=isolated` | What a tenant registers reaches public hosts only: not the metadata server, this host or private networks, and never with the server's own cloud credentials. The server then refuses `KINDGI_DEV`, `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow` and `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`. |
-| `KINDGI_PACK_ROUTING=per-deployment` | Each call goes to the pack service of the newest deployment in the run's project that shipped the tool or check, never to one pack service every tenant shares. A run with no project uses the Default project, whose deployments include each one that named no project. It needs a key to seal each endpoint's token under: `KINDGI_PACK_ENDPOINT_KMS_KEY`, or else the secrets' own, with `KINDGI_SECRETS_BACKEND=postgres`. `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused. |
+| `KINDGI_PACK_ROUTING=per-deployment` | Each call goes to the pack service of the newest deployment in the run's project that shipped the tool or check, never to one pack service every tenant shares. A run with no project uses the default project, whose deployments include each one that named no project. It needs a key to seal each endpoint's token under: `KINDGI_PACK_ENDPOINT_KMS_KEY`, or else the secrets' own, with `KINDGI_SECRETS_BACKEND=postgres`. `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused. |
 | `KINDGI_PACK_ENDPOINT_HOSTS` | The hosts a deployment's pack service may be on, comma-separated: a host name, `*.` and a domain, or `*-`, a tail and a domain. |
 | `KINDGI_OPENFGA_API_URL` and `KINDGI_OPENFGA_PRESHARED_KEY` | The authorization store, and the key it requires of its callers, so only the server reads and writes tenants' grants ([Require a key for OpenFGA](../../authorization/#require-a-key-for-openfga)). |
 | `KINDGI_PRODUCTION_GATE=on` | A tenant puts a project in production only once you allow it ([Limits and production](#limits-and-production)). |
@@ -269,7 +269,7 @@ that don't an installation each
    with routes for some tool version or pack check, it has no endpoint or a
    cleared one, and nothing about it is closing or suspended. Each entry has
    the tenant's id, the deployment's id, its pack and project (the one it
-   named, else the tenant's Default), and its image: the digest-pinned
+   named, else the tenant's default), and its image: the digest-pinned
    `imageRef`, its digest, the artifact version and when it went live, and
    whether to start its service `warm` (step 7). It has nothing else of the
    tenant.
@@ -498,7 +498,7 @@ restoring clears both. A closing tenant can't be suspended (`409 tenant-closing`
   endpoint is recorded for it. Its unfinished runs are cancelled, waiting
   ones included. Its schedules and webhooks are skipped, and its
   deployments list to retire. The rest of the tenant is untouched. While
-  the Default project is suspended, a pack call that names no project is
+  the default project is suspended, a pack call that names no project is
   refused too.
 - **A pack:** `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended`.
   Its calls fail with `pack-suspended`, never going to an older deployment,
@@ -716,7 +716,7 @@ tenant 5b52fd42-bd2b-4597-b324-84ec1a7033a4 (tenant-1792242381807-ed3afb): Defau
 1 tenant repaired.
 ```
 
-It adds what's missing: the Default project, the authorization store's
+It adds what's missing: the default project, the authorization store's
 tuples and current model, the access each active person and service account
 has on record (a person's tenant membership, a service account's grants), the
 shipped adapters, and the sign-in providers. It

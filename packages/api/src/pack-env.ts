@@ -7,7 +7,7 @@
  *
  * Each name is looked for in the env store at the deployment's project, then
  * the project's org, then the tenant, as a tool's env values are (most
- * specific wins). A tenant-wide deployment is read at the tenant's Default
+ * specific wins). A tenant-wide deployment is read at the tenant's default
  * project, where its primitives went.
  *
  * A name that's set only as a secret is given only to the orchestrator, and
@@ -201,7 +201,7 @@ export interface PackEnvDeps {
 
 export interface PackEnvCheckInput {
   readonly tenantId: TenantId;
-  /** The deployment's project. Absent: a tenant-wide deployment, read at the Default project. */
+  /** The deployment's project. Absent: a tenant-wide deployment, read at the default project. */
   readonly projectId?: ProjectId;
   /** The env the server serves (`KINDGI_ENV`). */
   readonly envName: EnvName;
@@ -502,7 +502,7 @@ function faultOf(code: SecretError['code']): ReadFault {
  * A secret given out's row: where it was read, at which version and
  * revision, for which deployment, and who asked (the request and the
  * system key), never its value. It belongs to the project it was read for
- * (`servedProject`): a deployment that names none is the Default's.
+ * (`servedProject`): a deployment that names none is the default's.
  */
 function secretRow(
   name: string,
@@ -564,7 +564,7 @@ function withUnreadable(check: PackEnvCheck, unreadable: ReadonlySet<string>): P
 
 /**
  * The project a deployment's names are read for: the one it names, else
- * the tenant's Default. Absent only when the tenant has no Default.
+ * the tenant's default. Absent only when the tenant has no default.
  */
 async function servedProject(
   deps: PackEnvDeps,

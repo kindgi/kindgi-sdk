@@ -132,8 +132,8 @@ export function valuesDepsFor(
 
 /**
  * The project a deployment serves: the one it names, else the tenant's
- * Default (where a deploy naming none lands). `undefined` without a
- * project binding to find the Default.
+ * default (where a deploy naming none lands). `undefined` without a
+ * project binding to find the default.
  */
 export async function servingProjectOf(
   bindings: Pick<DeploymentsRouterBindings, 'projectBinding'>,
@@ -142,7 +142,7 @@ export async function servingProjectOf(
   return (await servingProjectsOf(bindings, [deployment]))[0];
 }
 
-/** {@link servingProjectOf} for each of one tenant's `deployments`, in their order: the Default read once. */
+/** {@link servingProjectOf} for each of one tenant's `deployments`, in their order: the default read once. */
 async function servingProjectsOf(
   bindings: Pick<DeploymentsRouterBindings, 'projectBinding'>,
   deployments: readonly Deployment[],
@@ -157,7 +157,7 @@ async function servingProjectsOf(
 
 /**
  * What reading a deployment asks: `read` on the project it serves, or on
- * the tenant without a project binding to find the Default.
+ * the tenant without a project binding to find the default.
  */
 function readRef(tenantId: TenantId, projectId: ProjectId | undefined) {
   return projectId === undefined
@@ -409,7 +409,7 @@ interface PromotionPlan {
   readonly source: Deployment;
   readonly fromProjectId: ProjectId;
   readonly toProjectId: ProjectId;
-  /** The target as a deployment is stored there: absent for the tenant's Default. */
+  /** The target as a deployment is stored there: absent for the tenant's default. */
   readonly storedProjectId: ProjectId | undefined;
   /** The target's place in the order, from 0. */
   readonly position: number;
@@ -942,7 +942,7 @@ async function planPromotion(
   if (stopped !== undefined) return stopped;
   const defaultId = (await bindings.projectBinding?.getDefault(source.tenantId))?.id;
   const storedProjectId = toProjectId === defaultId ? undefined : toProjectId;
-  // The binding finds the Default's copy in either stored form, with no
+  // The binding finds the default's copy in either stored form, with no
   // project or with its id (`DeploymentGetByImageDigestInput.projectId`).
   const there = await bindings.deploymentRegistry.getByImageDigest({
     tenantId: source.tenantId,
@@ -993,7 +993,7 @@ async function sourceFor(
   }
   const { deployment: source, projectId: fromProjectId } = located;
   if (fromProjectId === undefined) {
-    // No project binding to find the Default: no order places it.
+    // No project binding to find the default: no order places it.
     return notNext(c, undefined, undefined);
   }
   return { source, fromProjectId };
@@ -1185,7 +1185,7 @@ async function signerRefusal(
  * (`secretScopesFor`), at the target project. One set nowhere yet is read
  * where the promoted deployment's secrets sync writes
  * (`deploymentSecretScope`): the target project, or the tenant for the
- * Default project, which stores no `projectId`.
+ * default project, which stores no `projectId`.
  */
 async function targetSecretScopes(
   c: Context<AppEnv>,

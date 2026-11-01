@@ -7,7 +7,7 @@ sidebar:
 ---
 
 This guide puts a pack of yours in your Kindgi Cloud workspace, in its
-Default project, and then puts the project in production. Kindgi Cloud
+default project, and then puts the project in production. Kindgi Cloud
 builds the pack and runs it. On your machine, you need only the Kindgi CLI.
 
 On Kindgi Cloud, your workspace's runtime reads its secrets and model
@@ -143,7 +143,7 @@ pnpm exec kindgi deploy --hosted --env=prod
 - `--hosted` builds the pack on Kindgi Cloud, deploys what it built, and
   waits up to 5 minutes for its pack service to be ready, if it has one.
 - `--env=prod` picks the `prod` environment: its signing key.
-- With no `--project`, the pack goes into the Default project.
+- With no `--project`, the pack goes into the default project.
   `--project=<id-or-slug>` names another.
 
 The deploy prints what it registered, with each agent's version, then
@@ -152,7 +152,7 @@ The deploy prints what it registered, with each agent's version, then
 waits in, and `✓ ready`. Last, it says how many builds keep a pack
 service: `Builds kept in this project: N`. With no `--project`, it's
 `Builds kept in this workspace: N`, the total over the projects you can
-read. The builds of a deploy that names no project count in the Default's,
+read. The builds of a deploy that names no project count in the default's,
 and the deploy's answer doesn't name that project.
 [Old versions keep their pack service](#old-versions-keep-their-pack-service)
 says what keeps one. With `--json`, the count is `keptBuilds`; a count that
@@ -188,7 +188,7 @@ the project. Then later deploys change nothing until you pin a version
 again.
 
 Ask your coding agent: "Pin the version of `acme-desk.reply-drafter` that I
-tried in the Default project." For reference:
+tried in the default project." For reference:
 
 ```sh
 pnpm exec kindgi agents pin acme-desk.reply-drafter <version> --project=<project-id> --reason="The version we tried"
