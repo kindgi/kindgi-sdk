@@ -657,7 +657,7 @@ describe("the woocommerce starter's connect-store", () => {
     expect(shop.users[0]!.passwords).toEqual([]);
   });
 
-  test("a switch to a store whose password Kindgi refuses leaves the store before connected: its address and its password", async () => {
+  test('a switch to a store whose password Kindgi refuses leaves the store before connected: its address and its password', async () => {
     const first = await store();
     let run = connectStore([first.url, '--no-browser']);
     await approve(first, await run.link);
