@@ -81,8 +81,11 @@ commit them first. `kindgi dev` reloads them, and the pin's test runs check
 the agent's project, the default one, and mark what it fixes, as above.
 Going back is a pin of the version before, for the whole workspace too: it
 writes the files back as they were right before the pin, and its test runs
-reopen what that version fails. An unpin is refused there. Going back with
-git changes the files with no pin, so the corrections the pin fixed stay
-`fixed`. Tell the person to give a block a new version whenever they edit
-it by hand: a pin refuses a file that changed at a version `kindgi dev`
-kept, and says so.
+reopen what that version fails. An unpin is refused there. After a hand
+edit since the pin, the files read as the pack's own version again, so a
+pin of the version before writes nothing: git is the way back then. Going
+back with git changes the files with no pin, so the corrections the pin
+fixed stay `fixed`. Tell the person to give a block a new version whenever
+they edit it by hand: a pin refuses a file that changed at a version
+`kindgi dev` already has (kept before a pin, or an Improve version), and
+says so.
