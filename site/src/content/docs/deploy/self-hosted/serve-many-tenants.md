@@ -273,12 +273,12 @@ that don't an installation each
    later; before, while it was the newest in its project with routes for some
    tool version or pack check). One whose endpoint an earlier runtime made or
    last set also needs the earlier rule: once newer deployments in its
-   project ship every tool version and check it does, a tool it deployed
-   without a version without one too, it's retired for good. It also has no
-   endpoint or a cleared one, and nothing about it is closing or suspended.
-   Each entry has the tenant's id, the deployment's id, its pack and project
-   (the one it named, else the tenant's Default), and its image: the
-   digest-pinned `imageRef`, its digest, the artifact version and when it
+   project ship every tool version and check it does, and deploy each tool it
+   deployed without a version the same way, it's retired for good. It also
+   has no endpoint or a cleared one, and nothing about it is closing or
+   suspended. Each entry has the tenant's id, the deployment's id, its pack
+   and project (the one it named, else the tenant's Default), and its image:
+   the digest-pinned `imageRef`, its digest, the artifact version and when it
    went live, and whether to start its service `warm` (step 7). It has
    nothing else of the tenant.
 
@@ -386,9 +386,9 @@ that don't an installation each
    deployment in its project deploys without one too (runtime 0.4.0 or later;
    before, `superseded` meant newer deployments in its project shipped every
    tool version and check it does). One whose endpoint an earlier runtime
-   made or last set is `superseded` as well once newer deployments in its
-   project ship every tool version and check it does, a tool it deployed
-   without a version without one too, and stays so (step 1). Otherwise it's
+   made or last set is `superseded` as well, for good, once newer deployments
+   in its project ship every tool version and check it does and deploy each
+   tool it deployed without a version the same way (step 1). Otherwise it's
    listed as needing a service again once something it serves that no newer
    deployment in its project serves is wanted again: a tool, agent or flow
    version registered again, pinned by a flow or agent version a run can
