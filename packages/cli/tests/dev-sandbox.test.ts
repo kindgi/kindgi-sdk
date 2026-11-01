@@ -105,7 +105,7 @@ describe('detection', () => {
   const probe = (result: ProbeResult) => async (): Promise<ProbeResult> => result;
 
   test('macOS: Seatbelt, or why not (nested inside another sandbox)', async () => {
-    expect(await detectDevSandbox('darwin', probe({ code: 0, stderr: '' }))).toEqual({
+    expect(await detectDevSandbox('darwin', probe({ code: 0, stderr: '' }), {})).toEqual({
       kind: 'available',
       engine: 'seatbelt',
     });
@@ -113,6 +113,7 @@ describe('detection', () => {
       await detectDevSandbox(
         'darwin',
         probe({ code: 71, stderr: 'sandbox-exec: sandbox_apply: Operation not permitted' }),
+        {},
       ),
     ).toMatchObject({
       kind: 'unavailable',
@@ -120,38 +121,88 @@ describe('detection', () => {
     });
   });
 
-  test('Linux: bubblewrap, or why not, with the fix', async () => {
-    expect(await detectDevSandbox('linux', probe({ code: 0, stderr: '' }))).toEqual({
-      kind: 'available',
-      engine: 'bwrap',
+  describe.skipIf(process.platform === 'win32')('Linux', () => {
+    let bin: string;
+    beforeEach(async () => {
+      bin = await realpath(await mkdtemp(join(tmpdir(), 'kindgi-probe-')));
     });
-    expect(
-      await detectDevSandbox(
-        'linux',
-        probe({ code: null, stderr: 'spawn bwrap ENOENT', errorCode: 'ENOENT' }),
-      ),
-    ).toMatchObject({
-      reason: "bubblewrap (bwrap) isn't installed",
-      fix: expect.stringContaining('apt-get install bubblewrap'),
+    afterEach(async () => {
+      await rm(bin, { recursive: true, force: true });
     });
-    expect(
-      await detectDevSandbox(
-        'linux',
-        probe({ code: 1, stderr: 'bwrap: setting up uid map: Permission denied' }),
-      ),
-    ).toMatchObject({
-      reason: expect.stringContaining('Ubuntu 23.10'),
+    /** A `PATH` whose one folder holds a `bwrap` (never run: the probe is a stub). */
+    const withBwrap = async (): Promise<{ PATH: string }> => {
+      await writeFile(join(bin, 'bwrap'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      return { PATH: bin };
+    };
+    /** A probe that keeps what it was asked to run. */
+    const recording = (result: ProbeResult) => {
+      const ran: [string, readonly string[]][] = [];
+      const run = async (program: string, args: readonly string[]): Promise<ProbeResult> => {
+        ran.push([program, args]);
+        return result;
+      };
+      return { ran, run };
+    };
+
+    test('bubblewrap, or why not, with the fix', async () => {
+      const env = await withBwrap();
+      expect(await detectDevSandbox('linux', probe({ code: 0, stderr: '' }), env)).toEqual({
+        kind: 'available',
+        engine: 'bwrap',
+      });
+      expect(
+        await detectDevSandbox(
+          'linux',
+          probe({ code: null, stderr: 'spawn bwrap ENOENT', errorCode: 'ENOENT' }),
+          env,
+        ),
+      ).toMatchObject({
+        reason: "bubblewrap (bwrap) isn't installed",
+        fix: expect.stringContaining('apt-get install bubblewrap'),
+      });
+      expect(
+        await detectDevSandbox(
+          'linux',
+          probe({ code: 1, stderr: 'bwrap: setting up uid map: Permission denied' }),
+          env,
+        ),
+      ).toMatchObject({
+        reason: expect.stringContaining('Ubuntu 23.10'),
+      });
+      expect(
+        await detectDevSandbox(
+          'linux',
+          probe({
+            code: 1,
+            stderr: 'bwrap: Creating new namespace failed: Operation not permitted',
+          }),
+          env,
+        ),
+      ).toMatchObject({ reason: expect.stringContaining('a container') });
     });
-    expect(
-      await detectDevSandbox(
-        'linux',
-        probe({ code: 1, stderr: 'bwrap: Creating new namespace failed: Operation not permitted' }),
-      ),
-    ).toMatchObject({ reason: expect.stringContaining('a container') });
+
+    test("the probe runs the bwrap on the env's PATH, by its full path", async () => {
+      const { ran, run } = recording({ code: 0, stderr: '' });
+      expect(await detectDevSandbox('linux', run, await withBwrap())).toEqual({
+        kind: 'available',
+        engine: 'bwrap',
+      });
+      expect(ran).toEqual([[join(bin, 'bwrap'), ['--ro-bind', '/', '/', 'true']]]);
+    });
+
+    test("no bwrap on the env's PATH: not installed, with the fix, and nothing is run", async () => {
+      const { ran, run } = recording({ code: 0, stderr: '' });
+      expect(await detectDevSandbox('linux', run, { PATH: bin })).toEqual({
+        kind: 'unavailable',
+        reason: "bubblewrap (bwrap) isn't installed",
+        fix: expect.stringContaining('apt-get install bubblewrap'),
+      });
+      expect(ran).toEqual([]);
+    });
   });
 
   test('Windows: none; WSL has one', async () => {
-    expect(await detectDevSandbox('win32', probe({ code: 0, stderr: '' }))).toMatchObject({
+    expect(await detectDevSandbox('win32', probe({ code: 0, stderr: '' }), {})).toMatchObject({
       kind: 'unavailable',
       fix: expect.stringContaining('WSL'),
     });

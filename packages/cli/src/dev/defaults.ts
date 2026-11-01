@@ -1381,7 +1381,7 @@ export const REAL_DEV_RUNNERS: DevRunners = {
   runIndexer: runIndexerReadReal,
   createPackBuilder: createPackBuilderReal,
   createPackService: createPackServiceReal,
-  detectSandbox: () => detectDevSandbox(process.platform, probeReal),
+  detectSandbox: (env) => detectDevSandbox(process.platform, probeReal, env),
   checkPackPython,
   checkPackJvm,
   publishIndex: publishIndexReal,
