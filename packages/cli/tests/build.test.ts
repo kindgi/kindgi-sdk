@@ -35,6 +35,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import type { KindgiClient } from '@kindgi/client';
 
+import { type BuildInputs, changedSince, fromPack, hashInputs } from '../src/build/build-inputs.js';
 import { BuildServiceRefusal, PACK_IMAGE_DOCS_URL } from '../src/build/hosted.js';
 import {
   DEFAULT_JAVA_BUILD_IMAGE_REF,
@@ -59,7 +60,7 @@ import {
   SCALA_PACK_SERVICE_COMMAND,
 } from '../src/build/scala-image.js';
 import { cliPinWarning } from '../src/cli-pin.js';
-import { buildTimeDefaults } from '../src/commands/build.js';
+import { buildInputOptionsOf, buildTimeDefaults, packInputFiles } from '../src/commands/build.js';
 import { loadEnvelopeReal } from '../src/deploy/envelope-loader.js';
 import type { DeployRunners } from '../src/deploy/runners.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
@@ -2848,8 +2849,11 @@ describe('kindgi build — the artifact version and publish time', () => {
 describe('kindgi build — build-inputs.json beside the envelope', () => {
   const sha = (text: string): string => `sha256:${createHash('sha256').update(text).digest('hex')}`;
 
-  /** A TypeScript pack whose bundle read a tool, a file it imports and the config. */
-  async function stamped(argv: readonly string[] = []) {
+  /**
+   * A TypeScript pack whose bundle read a tool, a file it imports and the
+   * config. `during` runs while the bundle does.
+   */
+  async function stamped(argv: readonly string[] = [], during?: () => Promise<void>) {
     await mkdir(join(packDir, 'tools', 'echo'), { recursive: true });
     await mkdir(join(packDir, 'lib'), { recursive: true });
     await writeFile(
@@ -2868,12 +2872,15 @@ describe('kindgi build — build-inputs.json beside the envelope', () => {
     const bundle = fixtures.runners.esbuildBundle;
     fixtures.runners = {
       ...fixtures.runners,
-      esbuildBundle: async (o) => ({
-        ...(await bundle(o)),
-        sources: ['kindgi.config.ts', 'lib/greet.ts', 'tools/echo/index.ts'].map((rel) =>
-          join(packDir, rel),
-        ),
-      }),
+      esbuildBundle: async (o) => {
+        await during?.();
+        return {
+          ...(await bundle(o)),
+          sources: ['kindgi.config.ts', 'lib/greet.ts', 'tools/echo/index.ts'].map((rel) =>
+            join(packDir, rel),
+          ),
+        };
+      },
     };
     const out = await runCli({
       ...baseInputs(fixtures),
@@ -2922,5 +2929,91 @@ describe('kindgi build — build-inputs.json beside the envelope', () => {
       signerKeyId: 'release-2026',
       artifactVersion: '20261101.1',
     });
+  });
+
+  test('what a deploy finds in the unchanged pack matches what the build stamped', async () => {
+    const { inputs } = await stamped(['--signer-key-id=release-2026']);
+    const stamp = inputs as BuildInputs;
+    const config = testConfig();
+    const walked = await packInputFiles(packDir, 'node', config, join(packDir, '.kindgi', 'build'));
+    if (walked.kind === 'error') throw new Error(walked.message);
+    const now = {
+      cliVersion: CLI_VERSION,
+      options: buildInputOptionsOf(
+        { env: 'staging', 'signer-key-id': 'release-2026' },
+        false,
+        config,
+        { KINDGI_TENANT_ID: 'env-tenant' },
+      ),
+      files: await hashInputs(
+        packDir,
+        walked.files,
+        fromPack(packDir, stamp.sources),
+        fromPack(packDir, Object.keys(stamp.files)),
+      ),
+    };
+    expect(changedSince(stamp, now)).toBeUndefined();
+  });
+
+  test('a file saved while the build reads it keeps the hash it had before', async () => {
+    let was = '';
+    const { inputs } = await stamped([], async () => {
+      was = await readFile(join(packDir, 'package.json'), 'utf8');
+      await writeFile(join(packDir, 'package.json'), `${was}\n`, 'utf8');
+    });
+    expect(was).not.toBe('');
+    expect(inputs.files['package.json']).toBe(sha(was));
+  });
+});
+
+describe('changedSince — what a deploy compares with a stamp', () => {
+  const options = { env: 'staging', target: 'staging', hosted: false, skipSign: false };
+  const files = { 'tools/echo/index.ts': 'sha256:1' };
+  const stamp = (set: Partial<BuildInputs['options']> = {}): BuildInputs => ({
+    cliVersion: CLI_VERSION,
+    envelopeSha256: 'sha256:0',
+    options: { ...options, ...set },
+    files,
+    sources: [],
+  });
+  const now = (set: Partial<BuildInputs['options']> = {}) => ({
+    cliVersion: CLI_VERSION,
+    options: { ...options, ...set },
+    files,
+  });
+
+  test('a tenant, a key id, a pinned version or time, and --skip-sign count only when the deploy sets them', () => {
+    const built = {
+      tenantId: 'tenant-acme',
+      signerKeyId: 'release-2026',
+      artifactVersion: '20261101.1',
+      publishedAt: '2026-11-01T00:00:00.000Z',
+      skipSign: true,
+    };
+    expect(changedSince(stamp(built), now())).toBeUndefined();
+    expect(changedSince(stamp(built), now(built))).toBeUndefined();
+    expect(changedSince(stamp(built), now({ tenantId: 'tenant-other' }))).toBe(
+      'it was built for `--tenant=tenant-acme`',
+    );
+    expect(changedSince(stamp(built), now({ artifactVersion: '20261102.1' }))).toBe(
+      'it was built for `--artifact-version=20261101.1`',
+    );
+    expect(changedSince(stamp(), now({ signerKeyId: 'release-2026' }))).toBe(
+      'it was built with no `--signer-key-id`',
+    );
+    expect(changedSince(stamp(), now({ skipSign: true }))).toBe(
+      'it was built without `--skip-sign`',
+    );
+  });
+
+  test('the env, the target, where it was built and the CLI count either way', () => {
+    expect(changedSince(stamp(), now({ env: 'qa' }))).toBe('it was built for `--env=staging`');
+    expect(changedSince(stamp(), now({ target: 'qa' }))).toBe(
+      'it was built for `--target=staging`',
+    );
+    expect(changedSince(stamp({ hosted: true }), now())).toBe('it was built with `--hosted`');
+    expect(changedSince(stamp(), { ...now(), cliVersion: '0.0.1' })).toBe(
+      `it was built with kindgi ${CLI_VERSION}`,
+    );
   });
 });

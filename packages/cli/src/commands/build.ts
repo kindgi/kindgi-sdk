@@ -875,7 +875,15 @@ type LanguageContext =
     }
   | (CommandResult & { readonly kind: 'error' });
 
-/** The pack's image context, by the pack's language, and its inputs hashed. */
+/**
+ * The pack's image context, by the pack's language, and its inputs
+ * hashed. The files walked before the context step keep the hash they had
+ * then: one saved or removed while the step reads it then shows as
+ * changed at the next deploy, never as built. A file the step itself
+ * writes (a lockfile `uv` makes, what `java.prepare` leaves) is hashed
+ * after it. So are the bundle's sources, which only the bundle finds: one
+ * saved while esbuild reads it can be stamped with its new bytes.
+ */
 async function preparePackContext(
   ctx: CommandContext,
   runners: BuildRunners,
@@ -883,6 +891,8 @@ async function preparePackContext(
   expectedIndexPath: string,
   out: ProgressLines,
 ): Promise<PackContext> {
+  const early = await packInputFiles(args.packDir, args.language, args.config, args.outDir);
+  const before = early.kind === 'ok' ? await hashInputs(args.packDir, early.files, []) : {};
   const context =
     args.language === 'java' || args.language === 'scala'
       ? await prepareJvmContext(ctx, runners, args, args.language, expectedIndexPath, out)
@@ -896,7 +906,7 @@ async function preparePackContext(
   return {
     ...rest,
     inputs: {
-      files: await hashInputs(args.packDir, walked.files, sources),
+      files: { ...(await hashInputs(args.packDir, walked.files, sources)), ...before },
       sources: sources.map((source) => packRelative(args.packDir, source)),
     },
   };

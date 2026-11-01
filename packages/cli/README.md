@@ -726,14 +726,17 @@ the API).
   sha256 of each file the image was made from (the config, the tools'
   sources and what they import from the pack, the tsconfigs, the package
   and lock files, the block files, a Python or JVM pack's build context).
-  A deploy builds again when any of them differs now, and names the first:
-  `` (`tools/lookup/index.ts` is new, and 1 more) ``,
+  A deploy builds again when any of them differs now, and names what
+  changed: `` (`tools/lookup/index.ts` is new, and 1 more) ``,
   `` (it was built for `--env=staging`) ``. So an envelope built for one
-  env is rebuilt for another; `kindgi promote` is what carries one build
-  across environments. With no `build-inputs.json` from the envelope's
-  build, the deploy sends it as before, and says it can't tell whether the
-  pack changed. With `--from-envelope`, it sends that file as it is, and
-  warns when the pack changed since.
+  `--env` or `--target` is rebuilt for another; `kindgi promote` is what
+  carries one build across environments. A `--tenant`, a
+  `--signer-key-id`, a pinned `--artifact-version` or `--published-at`,
+  and `--skip-sign` count only when the deploy sets them too: a deploy
+  that leaves one out takes the build's. With no `build-inputs.json` from
+  the envelope's build, the deploy sends it as before, and says it can't
+  tell whether the pack changed. With `--from-envelope`, it sends that file
+  as it is, and warns when it doesn't match the deploy.
 
 - **The API:** `--endpoint`, else the env block's `endpoint`, else
   `--url` / `KINDGI_API_URL`.

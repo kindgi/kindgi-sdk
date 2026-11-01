@@ -403,8 +403,8 @@ async function deployWith(
       release: CLI_VERSION,
     });
   };
-  // Step 2's plan, made once: an envelope the pack changed since is built
-  // again, as a missing one is, so its blocks are checked here too.
+  // Step 2's plan, made once: an envelope that doesn't match this deploy
+  // is built again, as a missing one is, so its blocks are checked here too.
   const plan = await planEnvelope(ctx, args, project.id);
   if (!args.explicitEnvelope && plan.kind !== 'reuse') {
     const read = await readPackBlocks(args.packDir, args.blocksPattern);
@@ -817,7 +817,7 @@ function refuseHostedConfigEnv(
  * the pack's files, the options a build would get now, or the CLI. With
  * no such stamp (an older CLI's envelope, or one copied alone), it's sent
  * as before, and the line says so. `--from-envelope` always sends its
- * file, and warns when the stamp beside it says the pack changed.
+ * file, and warns when the stamp beside it says it doesn't match.
  */
 type EnvelopePlan =
   | { readonly kind: 'missing' }
@@ -931,12 +931,12 @@ function sayReused(
   }
   if (typeof plan.stamp === 'object') {
     out.problem(
-      `  ⚠ The pack changed since ${shown} was built (${plan.stamp.changed}); --from-envelope sends it as it is.`,
+      `  ⚠ ${shown} doesn't match this deploy (${plan.stamp.changed}); --from-envelope sends it as it is.`,
     );
   }
 }
 
-/** The line before an inline build: the envelope is missing, or the pack changed since. */
+/** The line before an inline build: the envelope is missing, or doesn't match this deploy. */
 function sayBuilding(
   args: ResolvedDeployArgs,
   out: ProgressLines,
@@ -948,7 +948,7 @@ function sayBuilding(
     return;
   }
   out.line(
-    `  The pack changed since ${shown} was built (${plan.changed}): running \`kindgi build --env=${args.envName}\` inline...`,
+    `  ${shown} doesn't match this deploy (${plan.changed}): running \`kindgi build --env=${args.envName}\` inline...`,
   );
   out.line(`  (\`--from-envelope ${shown}\` sends the envelope there as it is, with no build.)`);
 }
@@ -975,7 +975,7 @@ async function ensureEnvelopeExists(
     );
   }
 
-  // Missing, or the pack changed since it was built → run build inline.
+  // Missing, or it doesn't match this deploy → run build inline.
   sayBuilding(args, out, shown, plan);
   if (runners.runBuild !== undefined) {
     line('');

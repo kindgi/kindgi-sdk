@@ -20,7 +20,9 @@ export const BUILD_INPUTS_FILE = 'build-inputs.json';
  * The build options an envelope depends on, as the build resolved them
  * (`buildInputOptionsOf` in `commands/build.ts`). The tenant and the key
  * id are from before their fallbacks, the hosted key's own tenant and the
- * key file's name, which a deploy can't repeat without the key.
+ * key file's name, which a deploy can't repeat without the key. A deploy
+ * that names no tenant or key id, pins no version or time, or doesn't
+ * pass `--skip-sign`, takes the build's (`changedSince`).
  */
 export interface BuildInputOptions {
   readonly env: string;
@@ -167,11 +169,14 @@ export async function readBuildInputs(dir: string): Promise<BuildInputs | undefi
  */
 export function changedSince(stamp: BuildInputs, now: CurrentInputs): string | undefined {
   if (stamp.cliVersion !== now.cliVersion) return `it was built with kindgi ${stamp.cliVersion}`;
-  for (const [key, flag] of OPTION_FLAGS) {
+  for (const [key, flag, ifSet] of OPTION_FLAGS) {
     const was = stamp.options[key];
-    if (was === now.options[key]) continue;
+    const is = now.options[key];
+    if (was === is || (ifSet && (is === undefined || is === false))) continue;
     if (typeof was === 'boolean') return `it was built ${was ? 'with' : 'without'} \`${flag}\``;
-    return was === undefined ? `it was built with no \`${flag}\`` : `it was built for \`${flag}=${was}\``;
+    return was === undefined
+      ? `it was built with no \`${flag}\``
+      : `it was built for \`${flag}=${was}\``;
   }
   const changes: string[] = [];
   for (const path of new Set([...Object.keys(stamp.files), ...Object.keys(now.files)])) {
@@ -187,16 +192,26 @@ export function changedSince(stamp: BuildInputs, now: CurrentInputs): string | u
   return changes.length === 1 ? changes[0] : `${changes[0]}, and ${changes.length - 1} more`;
 }
 
-/** Each option, in the order a change is named, and its flag. */
-const OPTION_FLAGS: readonly (readonly [keyof BuildInputOptions, string])[] = [
-  ['env', '--env'],
-  ['tenantId', '--tenant'],
-  ['target', '--target'],
-  ['hosted', '--hosted'],
-  ['skipSign', '--skip-sign'],
-  ['signerKeyId', '--signer-key-id'],
-  ['artifactVersion', '--artifact-version'],
-  ['publishedAt', '--published-at'],
+/**
+ * Each option, in the order a change is named, its flag, and whether it
+ * counts only when the deploy sets it. A deploy that names no tenant
+ * sends the envelope's, as it always has (the server checks it against
+ * the token's); one that names no key id takes the one the envelope was
+ * signed with, as it needn't repeat `--signing-key`; one that pins no
+ * version or time takes the build's, as it does an unpinned build's; and
+ * one without `--skip-sign` sends an unsigned envelope only to
+ * `--dry-run`, as before. The env, the target and where it was built
+ * must match: left out, they're the defaults the deploy would build with.
+ */
+const OPTION_FLAGS: readonly (readonly [keyof BuildInputOptions, string, boolean])[] = [
+  ['env', '--env', false],
+  ['tenantId', '--tenant', true],
+  ['target', '--target', false],
+  ['hosted', '--hosted', false],
+  ['skipSign', '--skip-sign', true],
+  ['signerKeyId', '--signer-key-id', true],
+  ['artifactVersion', '--artifact-version', true],
+  ['publishedAt', '--published-at', true],
 ];
 
 function isBuildInputs(value: unknown): value is BuildInputs {
