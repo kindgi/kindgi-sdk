@@ -375,6 +375,16 @@ class PinCheck(BaseModel):
     """
     checks: list[GateCheck]
     approval: GateApproval | None = None
+    uncommitted_files: Annotated[
+        list[str] | None, Field(alias="uncommittedFiles", min_length=1)
+    ] = None
+    """
+    Under `kindgi dev`, where pinning a version writes it into the pack's files: the files this pin would write over that git hasn't committed (changed, staged, untracked or ignored, or in a nested repository such as a submodule), relative to the pack's folder. Git can't bring back what they hold once they're written over, so commit them first. A warning: the pin still goes. Absent when there are none, when the pin writes nothing, when the gate fails, when git can't say (no git, or no answer in time), and on every other runtime.
+    """
+    not_in_git: Annotated[Literal[True] | None, Field(alias="notInGit")] = None
+    """
+    Under `kindgi dev`: the pack isn't in a git repository, so git can't bring back the files this pin would write over. A warning: the pin still goes. Absent otherwise.
+    """
 
 
 class RunFailure(BaseModel):
@@ -4992,7 +5002,11 @@ class SuggestedChange(BaseModel):
     """
     fixes: list[str]
     """
-    The corrections it fixes, by id.
+    The corrections it fixes, by id: the first 100 at most. `correctionCount` says how many in all.
+    """
+    correction_count: Annotated[int | None, Field(alias="correctionCount", ge=0)] = None
+    """
+    How many corrections it fixes in all, those `fixes` names and any past its first 100. Absent from older servers: there, take the length of `fixes`.
     """
     check: SuggestedChangeCheck
     status: Annotated[

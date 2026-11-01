@@ -677,11 +677,10 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
 
   /**
    * A registry that takes no writes makes no suggested change by hand,
-   * checks none again and adds none as Latest, even one that takes
-   * Improve's candidates: under `kindgi dev`, only an Improve run makes
-   * one, for the whole tenant, and the pack's files are what runs. Its
-   * reason, or the one it gives for the action (`byHandReason`,
-   * `latestReason`).
+   * checks none again and adds none as Latest. One that takes Improve's
+   * candidates (under `kindgi dev`) makes and checks them, for the whole
+   * tenant, but adds none as Latest: the pack's files are what runs. Its
+   * reason, or the one it gives for an add as Latest (`latestReason`).
    */
   function cardReadOnly(
     action: 'by-hand' | 'add-as-latest' = 'by-hand',
@@ -689,17 +688,18 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
     const readOnly = deps.agents.readOnly;
     if (readOnly === undefined) return undefined;
     const takes = readOnly.takesCandidates;
-    const why = action === 'add-as-latest' ? takes?.latestReason : takes?.byHandReason;
+    if (takes !== undefined && action === 'by-hand') return undefined;
+    const why = action === 'add-as-latest' ? takes?.latestReason : undefined;
     return { code: 'registry-read-only', message: why ?? readOnly.reason };
   }
 
   /**
-   * The project a suggested change is pinned through: its scope's, or,
-   * for one for the whole tenant where the registry takes Improve's
+   * The project a suggested change is checked and pinned in: its scope's,
+   * or, for one for the whole tenant where the registry takes Improve's
    * candidates (under `kindgi dev`), the project its version was made in.
    * `undefined` for one from before suggested changes were for a project.
    */
-  function projectToPinIn(suggestedChange: StoredSuggestedChange): ProjectId | undefined {
+  function projectToCheckIn(suggestedChange: StoredSuggestedChange): ProjectId | undefined {
     const own = projectOfCard(suggestedChange);
     if (own !== undefined) return own;
     const takes = deps.agents.readOnly?.takesCandidates !== undefined;
@@ -903,31 +903,11 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
   }
 
   /**
-   * Why it isn't rebuilt on `now` here: where only an Improve run makes
-   * and checks one (under `kindgi dev`), it's out of date, and a new run
-   * drafts on what runs now; else a registry that takes no writes.
-   */
-  function notRebuilt(
-    suggestedChange: StoredSuggestedChange,
-    now: string,
-  ): SuggestedChangeServiceError | undefined {
-    if (deps.agents.readOnly?.takesCandidates !== undefined) {
-      return outOfDate(
-        suggestedChange,
-        now,
-        'here only an Improve run makes and checks one, so run Improve again',
-      );
-    }
-    return cardReadOnly();
-  }
-
-  /**
    * Rebuild it on what its project runs now (`runs`), when that moved
    * since it was built: its block change carried onto that version
    * (`carriedOnto`), a new candidate, and a new check on the project's
    * test set, frozen now. `undefined` when it's built on what runs, or
-   * its project runs its own version. Where the registry takes Improve's
-   * candidates, it's out of date instead (`suggested-change-out-of-date`).
+   * its project runs its own version.
    */
   async function rebuildIfMoved(
     suggestedChange: StoredSuggestedChange,
@@ -937,8 +917,8 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
   ): Promise<SuggestedChangeOutcome<StoredSuggestedChange> | undefined> {
     if (runs === null || !moved(suggestedChange, runs)) return undefined;
     const now = runs.version as unknown as string;
-    const refused = notRebuilt(suggestedChange, now);
-    if (refused !== undefined) return err(refused);
+    const readOnly = cardReadOnly();
+    if (readOnly !== undefined) return err(readOnly);
     if (deps.testSets === undefined) return err(checkUnsupported());
     const { tenantId, agentId } = suggestedChange;
     const base = await activeVersion(tenantId, agentId, runs.version, projectId);
@@ -1235,29 +1215,38 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
 
     /**
      * A suggested change for a project, built on what the project runs (its
-     * pin, or Latest), then checked on the project's test set. Everything
-     * that can refuse it is asked before anything is stored. `deduped`
-     * when the same change on the same version is open already: that one,
-     * unchecked again.
+     * pin, or Latest), then checked on the project's test set. Where the
+     * registry takes Improve's candidates (under `kindgi dev`), it's for
+     * the whole tenant, as an Improve run's is, and checked in the project
+     * the version it's built on was made in. Everything that can refuse it
+     * is asked before anything is stored. `deduped` when the same change on
+     * the same version is open already: that one, unchecked again.
      */
     async create(
       input: NewSuggestedChangeInput,
     ): Promise<
       SuggestedChangeOutcome<{ suggestedChange: StoredSuggestedChange; deduped: boolean }>
     > {
-      const { tenantId, projectId } = input;
+      const { tenantId, projectId: asked } = input;
       const agentId = input.agentId as AgentId;
-      const scope: AgentPinScope = { kind: 'project', projectId };
+      const forTenant = deps.agents.readOnly?.takesCandidates !== undefined;
+      const scope: AgentPinScope = forTenant
+        ? { kind: 'tenant' }
+        : { kind: 'project', projectId: asked };
       const readOnly = cardReadOnly();
       if (readOnly !== undefined) return err(readOnly);
       if (deps.testSets === undefined) return err(checkUnsupported());
-      const later = await laterEnvironment(deps.orders, tenantId, projectId);
+      const later = await laterEnvironment(deps.orders, tenantId, asked);
       if (later !== undefined) return err(environmentTakesPromotions(later));
-      const runs = await whatRuns(deps.agentPins, { tenantId, agentId: input.agentId, projectId });
+      const runs = await whatRuns(deps.agentPins, {
+        tenantId,
+        agentId: input.agentId,
+        projectId: asked,
+      });
       if (runs === null) {
         return err({
           code: 'nothing-runs-in-scope',
-          message: `${input.agentId} runs nothing in project ${projectId as unknown as string}: a suggested change is built on what the project runs, so publish a version of the agent first`,
+          message: `${input.agentId} runs nothing in project ${asked as unknown as string}: a suggested change is built on what the project runs, so publish a version of the agent first`,
           agentId: input.agentId,
         });
       }
@@ -1266,9 +1255,11 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       if (from === null || from.unregisteredAt !== undefined) {
         return err({
           code: 'agent-version-not-found',
-          message: `${input.agentId} has no active version ${fromVersion}, which project ${projectId as unknown as string} runs`,
+          message: `${input.agentId} has no active version ${fromVersion}, which project ${asked as unknown as string} runs`,
         });
       }
+      // Under `kindgi dev`, checked where the version runs, as it's pinned there.
+      const projectId = forTenant ? (from.projectId ?? asked) : asked;
       const tier = tierFor(from, input.blockId, input.content);
       if (typeof tier !== 'string') return err(tier);
       const notHere = await fixesNotInProject(deps.corrections, tenantId, projectId, input.fixes);
@@ -1303,8 +1294,10 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
 
     /**
      * Check a suggested change again on its project's test set, frozen now:
-     * after its check failed, or for new scores. One made before
-     * suggested changes were for a project can't be checked.
+     * after its check failed, or for new scores. One for the whole tenant
+     * under `kindgi dev` is checked in the project its version was made in.
+     * One made before suggested changes were for a project can't be
+     * checked.
      */
     async check(
       input: CheckSuggestedChangeInput,
@@ -1312,9 +1305,9 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       const { tenantId, suggestedChange } = input;
       const refused = await refuseStatus('check', suggestedChange);
       if (refused !== undefined) return err(refused);
-      const readOnly = cardReadOnly();
+      const readOnly = cardReadOnly() ?? readOnlyRefusal(suggestedChange.scope);
       if (readOnly !== undefined) return err(readOnly);
-      const projectId = projectOfCard(suggestedChange);
+      const projectId = projectToCheckIn(suggestedChange);
       if (projectId === undefined) return err(notForAProject(suggestedChange, 'check'));
       if (deps.testSets === undefined) return err(checkUnsupported());
       // Its project moved first: checked again means rebuilt on what runs.
@@ -1483,7 +1476,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
       const { tenantId, suggestedChange } = input;
       const refused = await refuseStatus('pin', suggestedChange);
       if (refused !== undefined) return err(refused);
-      const projectId = projectToPinIn(suggestedChange);
+      const projectId = projectToCheckIn(suggestedChange);
       if (projectId === undefined) return err(notForAProject(suggestedChange, 'pin'));
       // A project on Latest is pinned only when the caller asks to take it
       // off Latest; else it takes the change as its Latest (`add-as-latest`).
@@ -1677,7 +1670,7 @@ export function createSuggestedChangeService(deps: SuggestedChangeServiceDeps) {
      * checked (no test set freeze) or made (a read-only registry).
      */
     async fromDeploy(input: DeployCardsInput): Promise<DeployCardsOutcome> {
-      if (deps.testSets === undefined || cardReadOnly() !== undefined) {
+      if (deps.testSets === undefined || deps.agents.readOnly !== undefined) {
         return { made: [], failed: [] };
       }
       const made: StoredSuggestedChange[] = [];

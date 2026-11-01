@@ -96,8 +96,7 @@ the pull request. Without `--pr`, it only writes the files. It refuses a
 block file that holds a newer version than the one the suggested change is
 built on, or that version with edits, and, with `--pr`, block files with
 changes that aren't committed. Under `kindgi dev` the pin writes them
-itself. Making one by hand or checking one again is 409
-`registry-read-only`: edit the file, or run Improve.
+itself, and one is for the whole workspace: make it in the default project.
 
 ## Wording, with Improve
 
@@ -115,6 +114,5 @@ kindgi improve runs start --agent=acme-store.refunds --project=<project-id>
 and what it would cost. Its suggested change is pinned like yours. Under
 `kindgi dev`, run it in the default project, and have the person commit the
 pack's files before a pin writes into them. A file edited since is 409
-`pin-superseded`, and one built on a version that no longer runs 409
-`suggested-change-out-of-date`: run Improve again. An Improve schedule starts
-no run there: start Improve by hand.
+`pin-superseded`: run Improve again on the files as they are. An Improve
+schedule starts no run there: start Improve by hand.

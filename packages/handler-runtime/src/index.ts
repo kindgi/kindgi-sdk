@@ -75,11 +75,13 @@ export type {
   PackBlocks,
   PackBlockWrite,
   PackBlockWriteOutcome,
+  PackFilesState,
 } from './pack-blocks.js';
 export {
   DEPLOY_PUBLISHES_PACK_BLOCKS,
   blockFileText,
   blocksFolder,
+  packBlockFiles,
   readPackBlocks,
   writePackBlock,
 } from './pack-blocks.js';

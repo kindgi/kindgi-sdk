@@ -44,8 +44,8 @@ A deploy makes suggested changes too, for its new code:
   environments when a build is promoted.
 - **A deployed runtime that keeps a project's test set.** One that doesn't
   refuses a suggested change with `501 suggested-change-check-unsupported`.
-  Under `kindgi dev`, making one by hand is refused: an Improve run makes
-  them there, as [Under `kindgi dev`](#under-kindgi-dev) shows.
+  Under `kindgi dev`, one is for the whole workspace, as
+  [Under `kindgi dev`](#under-kindgi-dev) shows.
 - **`publish` on the agent** to make, check and withdraw, and **`pin`** to
   pin or add as Latest. For an agent that several projects serve, it's
   `write` on the project where its versions are made, and `admin` in the
@@ -99,6 +99,7 @@ starts the check. It prints the suggested change, `checking`:
   ],
   "why": "Fit matters more than recency for acme rankings",
   "fixes": [],
+  "correctionCount": 0,
   "check": {
     "status": "running",
     "testSetId": "agent.acme.rank.scorer.aa0cf701-a8f7-40e5-b5d9-bec1a1cb1723",
@@ -116,6 +117,12 @@ starts the check. It prints the suggested change, `checking`:
   or when it was last rebuilt (`builtOn.rebuiltAt`), and `version` the agent
   version it made. `changes[].from` is the block
   version that `builtOn` pins, and `to` the one it published.
+- `fixes` names the corrections it fixes, the first 100 at most, and
+  `correctionCount` says how many in all. A person's change names 100 at
+  most, so its count is the length of `fixes`. One an
+  [Improve run](../improve-an-agent/#whose-corrections-it-learns-from) wrote
+  can fix more. An older runtime leaves `correctionCount` out, and there the
+  length of `fixes` is the count.
 - The content is checked as publishing that block version would be, and
   content equal to what the version pins is refused.
 - The same change on the same version for the same project returns the
@@ -470,11 +477,11 @@ version was made in, when that's known.
 
 ## Under `kindgi dev`
 
-Under `kindgi dev`, the pack's files are what runs. There, an
-[Improve run](../improve-an-agent/) makes each suggested change. It runs in
-the default project, where `kindgi dev` places the pack's agents and their
-runs, reads that project's corrections and test set, and checks its
-candidate there. Its suggested change is for the whole workspace. Pinning it
+Under `kindgi dev`, the pack's files are what runs. There, a suggested
+change is for the whole workspace, whether an
+[Improve run](../improve-an-agent/) made it or you did. It's checked in the
+default project, where `kindgi dev` places the pack's agents and their runs,
+on that project's corrections and test set. Pinning it
 goes through the release gate and waits for your approval, since
 `kindgi dev` registers you as a reviewer; open it from the suggested change's
 page. Approved, it writes its changed prompt or settings into the pack's
@@ -482,19 +489,40 @@ files. `kindgi dev` reloads them, and the pin waits for that. The
 next runs use the new version, and the pin's test runs check the default
 project and mark what it fixes there, as on a deployed runtime.
 
-- **Making one by hand, and checking one again,** are refused with
-  `409 registry-read-only`: an Improve run makes and checks each one. Run
-  Improve again instead.
 - **Adding one as Latest** is refused with `409 registry-read-only`: the
   pack's files are what runs, and there's no Latest. Pin it.
 - **A block's file edited since the suggested change was made,** even at the
   same version, refuses the pin with `409 pin-superseded`, naming the file,
   and nothing is written. Run Improve again on the files as they are now.
-- **One built on a version that no longer runs** is
-  `409 suggested-change-out-of-date`, and isn't rebuilt: run Improve again.
-- **Undoing a pin** is a change to the pack's files: undo it with git, and
-  `kindgi dev` reloads them. Commit the files before you pin, so there's
-  something to go back to.
+- **One built on a version that no longer runs** is rebuilt on what runs
+  now and checked again, as on a deployed runtime, when you check it again
+  or pin it. Until that check is ready, a pin is
+  `409 suggested-change-out-of-date`.
+- **Undoing a pin** is a pin of the version before, as on a deployed
+  runtime: it writes the files back as they were right before the pin, and
+  its test runs reopen what that version fails. An unpin is refused with
+  `409 registry-read-only`. Commit the files before you pin, so
+  `git diff` shows what a pin changed.
+- **Files git hasn't committed** are named before a pin writes over them:
+  the files it would write that are changed, staged, untracked or ignored,
+  or in a repository inside the pack's, such as a submodule.
+  `kindgi agents pin`, `kindgi suggested-changes pin` and
+  `kindgi agents pin --check` say so on stderr, and the pin's dialog shows
+  them under "Files git hasn't committed". When the pack isn't in a git
+  repository, they say that instead. The pin check
+  (`POST /v1/agents/{agentId}/pinned/check`) answers the files as
+  `uncommittedFiles`, paths in the pack's folder, or `notInGit: true`.
+  It's a warning: the pin still goes, and stdout, `--json` too, is its
+  answer as before. Nothing is said when the pin writes nothing, or when
+  git can't say, as when it isn't installed or doesn't answer in time. To
+  keep those changes in git, commit the files before the pin writes them:
+  before you pin, or, while the pin waits for your approval, before you
+  approve it. A pin that wrote over them keeps them as they were right
+  before it: pin the version before to bring them back.
+- **A block's file edited by hand without a new version,** at a version a
+  pin wrote or wrote over, refuses the next pin the same way: `kindgi dev`
+  keeps each of those versions as it was, for a pin of the version before
+  to bring back. Give a block a new version whenever you edit it by hand.
 
 Or change the block's file yourself, as
 [Keep them in the pack](../change-a-prompt-or-setting/#keep-them-in-the-pack)

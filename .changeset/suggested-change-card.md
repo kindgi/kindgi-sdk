@@ -13,7 +13,7 @@
   - Its check starts at once: the answer is `201`, with status `checking`.
   - The same change on the same version for the same project returns the one made before, with `X-Suggested-Change-Deduped`.
   - In a later environment of an environment order it's refused (`409 environment-takes-promotions`). Make it in the order's first environment: the new version reaches later environments when a build is promoted.
-  - A read-only agent registry refuses making or checking one (`409 registry-read-only`), before anything else. Under `kindgi dev`, for example, the pack's files serve every project.
+  - A read-only agent registry refuses making or checking one (`409 registry-read-only`), before anything else, unless it takes Improve's candidates (`RegistryReadOnly.takesCandidates`), as `kindgi dev`'s does.
 - **Its check.** Its version (`with`) and the version it's built on (`now`) run the same cases of the project's test set. The set is frozen when the check starts.
   - `POST /v1/suggested-changes/{suggestedChangeId}/check` checks it again, so new corrections count.
   - `check` replaces `evaluate` and `rescore`, which are removed with their bodies.

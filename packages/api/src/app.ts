@@ -718,6 +718,15 @@ export interface CreateAppInput {
     projectId: import('@kindgi/types').ProjectId,
   ) => Promise<boolean>;
   /**
+   * Under `kindgi dev`, where a pin writes the version into the pack's
+   * files: which of them the pin would write over that git hasn't
+   * committed, or that the pack isn't in git. `POST
+   * /v1/agents/{agentId}/pinned/check` answers it as a warning
+   * (`uncommittedFiles`, `notInGit`). Absent: no warning, as on a
+   * deployment.
+   */
+  readonly pinFiles?: import('./agent-pin-binding.js').PinFilesWarnings;
+  /**
    * Each tenant's image repository (`PUT /v1/system/tenants/{id}/image-prefix`),
    * which `POST /v1/deployments` checks before any registry read. With
    * `tenancy: 'multi'` only, where it's required and a tenant without one
@@ -1827,6 +1836,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.testRunBinding !== undefined && { testRuns: input.testRunBinding }),
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
           ...(input.projectSuspended !== undefined && { projectSuspended: input.projectSuspended }),
+          ...(input.pinFiles !== undefined && { pinFiles: input.pinFiles }),
           ...pinTestRunDeps,
         },
         {

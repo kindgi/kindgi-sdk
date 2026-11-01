@@ -75,6 +75,32 @@ export function blocksFolder(pattern: string): string {
 
 /** Read the pack's blocks: each file the pattern matches, checked, its template file read in. */
 export async function readPackBlocks(packDir: string, pattern: string): Promise<PackBlocks> {
+  return (await scanPackBlocks(packDir, pattern)).read;
+}
+
+/**
+ * The files of the pack's blocks `ids`, relative to the pack root and
+ * sorted: each block's file, and a prompt's template file when it keeps
+ * one. What writing those blocks touches (`writePackBlock`). An id the
+ * pack doesn't have has none.
+ */
+export async function packBlockFiles(
+  packDir: string,
+  pattern: string,
+  ids: readonly string[],
+): Promise<readonly string[]> {
+  const { filesOf } = await scanPackBlocks(packDir, pattern);
+  return [...new Set(ids.flatMap((id) => filesOf.get(id) ?? []))].sort();
+}
+
+/** The pack's blocks as `readPackBlocks` reads them, and each block's files by its id. */
+async function scanPackBlocks(
+  packDir: string,
+  pattern: string,
+): Promise<{
+  readonly read: PackBlocks;
+  readonly filesOf: ReadonlyMap<string, readonly string[]>;
+}> {
   const root = path.resolve(packDir);
   const folder = blocksFolder(pattern);
   const found: string[] = [];
@@ -85,6 +111,7 @@ export async function readPackBlocks(packDir: string, pattern: string): Promise<
   const files: string[] = [];
   const errors: PackBlockError[] = [];
   const owners = new Map<string, string>();
+  const filesOf = new Map<string, readonly string[]>();
   for (const relPath of found) {
     const read = await readBlock(root, folder, relPath);
     if (read.kind === 'err') {
@@ -102,9 +129,10 @@ export async function readPackBlocks(packDir: string, pattern: string): Promise<
     owners.set(read.block.id, relPath);
     blocks.push(read.block);
     files.push(relPath, ...read.templates);
+    filesOf.set(read.block.id, [relPath, ...read.templates]);
   }
   blocks.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return { blocks, files: [...new Set(files)].sort(), errors };
+  return { read: { blocks, files: [...new Set(files)].sort(), errors }, filesOf };
 }
 
 type ReadBlock =
@@ -249,9 +277,11 @@ export interface PackBlockWrite {
   /**
    * The content the block's file must hold now for the write to go (a
    * prompt's template text included): what the new version was made
-   * from. A file that holds anything else is refused `changed`, so an edit
-   * made since, at the same version or not, is never written over. Absent:
-   * only the version is checked.
+   * from, or, going back, what the file holds at its version. A file that
+   * holds anything else is refused `changed`, so an edit made since, at
+   * the same version or not, is never written over. Given, the write may
+   * take the block to an older version; absent, its version must be past
+   * the file's.
    */
   readonly expected?: Readonly<Record<string, unknown>>;
 }
@@ -270,12 +300,31 @@ export type PackBlockWriteOutcome =
       readonly kind: 'err';
       /**
        * `not-in-pack`: no such block; `invalid`: the write doesn't fit it;
-       * `not-newer`: its version isn't past the file's; `changed`: the file
-       * holds other content than `expected`.
+       * `not-newer`: its version isn't past the file's (without
+       * `expected`), or is the file's own; `changed`: the file holds other
+       * content than `expected`.
        */
       readonly reason: 'not-in-pack' | 'invalid' | 'not-newer' | 'changed';
       readonly message: string;
     };
+
+/**
+ * What git says of the files writing some of the pack's blocks would
+ * write over (`packBlockFiles`), under `kindgi dev`: before a pin writes
+ * them, it's told which ones its content isn't in a commit of.
+ *
+ *   - `git`: the pack is in a git repository, and `uncommitted` lists
+ *     the files git hasn't committed as they are (changed, staged,
+ *     untracked or ignored), relative to the pack root, sorted. Git can't
+ *     bring those back once written over.
+ *   - `not-in-git`: the pack isn't in a git repository.
+ *   - `unknown`: git couldn't say (there's no git, it didn't answer in
+ *     time, or it refused the repository).
+ */
+export type PackFilesState =
+  | { readonly kind: 'git'; readonly uncommitted: readonly string[] }
+  | { readonly kind: 'not-in-git' }
+  | { readonly kind: 'unknown' };
 
 /**
  * Write a block's new version into the pack: its own file (found by id
@@ -286,9 +335,11 @@ export type PackBlockWriteOutcome =
  * into place, so a reader sees the old file or the new one.
  *
  * Refused: a block the pack doesn't have, content that doesn't fit the
- * block's kind, a version that isn't past the file's (a write never
- * takes a block back, nor over a newer edit), and, given `expected`, a
- * file whose content isn't that (an edit that kept the version).
+ * block's kind, the file's own version, a version that isn't past the
+ * file's without `expected` (so a write takes a block back only when it
+ * says what the file holds, and never over a newer edit it didn't see),
+ * and, given `expected`, a file whose content isn't that (an edit that
+ * kept the version).
  */
 export async function writePackBlock(
   packDir: string,
@@ -310,7 +361,8 @@ export async function writePackBlock(
       `block "${write.id}" isn't in the pack's blocks folder: only a block the pack has is written`,
     );
   }
-  if (compareVersions(write.version, current.version) <= 0) {
+  const order = compareVersions(write.version, current.version);
+  if (order === 0 || (order < 0 && write.expected === undefined)) {
     return refused(
       'not-newer',
       `${current.modulePath} holds ${write.id} ${current.version} now, not older than ${write.version}: evaluate the change again from the pack's version`,
@@ -368,7 +420,7 @@ export type BlockFileText =
     }
   | {
       readonly kind: 'err';
-      /** `invalid`: the write doesn't fit the block, or the text isn't its file; `not-newer`: its version isn't past the file's. */
+      /** `invalid`: the write doesn't fit the block, or the text isn't its file; `not-newer`: its version isn't past the file's (without `expected`), or is the file's own. */
       readonly reason: 'invalid' | 'not-newer';
       readonly message: string;
     };
@@ -382,8 +434,10 @@ export type BlockFileText =
  * apart, for the caller to write into that file.
  *
  * Refused: content that doesn't fit `kind`, text that isn't this block's
- * file (another id or kind, or no `major.minor.patch` version), and a
- * version that isn't past the file's.
+ * file (another id or kind, or no `major.minor.patch` version), the
+ * file's own version, and a version that isn't past the file's unless the
+ * write carries `expected`. The caller checks `expected` against the
+ * file, as `writePackBlock` does.
  */
 export function blockFileText(
   text: string,
@@ -404,7 +458,8 @@ export function blockFileText(
       `the text isn't the file of ${kind} block "${write.id}" with a major.minor.patch version`,
     );
   }
-  if (compareVersions(write.version, raw.version) <= 0) {
+  const order = compareVersions(write.version, raw.version);
+  if (order === 0 || (order < 0 && write.expected === undefined)) {
     return refused(
       'not-newer',
       `the file holds ${write.id} ${raw.version}, not older than ${write.version}`,

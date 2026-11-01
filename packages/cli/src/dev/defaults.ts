@@ -34,6 +34,7 @@ import {
 } from '@kindgi/handler-runtime';
 import { createPackServiceSupervisor } from '@kindgi/handler-runtime/pack-service';
 
+import { blockFilesState } from './block-files-state.js';
 import { type DockerReach, dockerReach, dockerUnreachable } from './blocked.js';
 import { createDevPackBuilder } from './bundler.js';
 import { createJavaPackBuilder } from './java-builder.js';
@@ -187,6 +188,8 @@ export function createPackServiceReal(opts: DevPackServiceOptions): DevPackServi
       if (outcome.kind === 'ok') opts.blocks.onWritten(write, outcome);
       return outcome;
     },
+    // And before it's written, which of those files git hasn't committed.
+    blockFilesState: blockFilesState(opts.packDir, opts.blocks.pattern),
     ...(opts.port !== undefined && { port: opts.port }),
     ...(opts.token !== undefined && { token: opts.token }),
   });

@@ -71,7 +71,7 @@ default project, where `kindgi dev` places the pack's agents.
 
 Instead of step 4 (take it back with `git checkout blocks/` if you made it),
 Improve can find the wording. Commit the pack first: pinning writes into
-its files, and under `kindgi dev` git is how you go back. Then:
+its files. Then:
 
 5. **Run Improve.** Ask whether it's ready, with the default project's id
    (`{{KINDGI}} projects list`) and the model that writes new wording (the
@@ -92,9 +92,14 @@ its files, and under `kindgi dev` git is how you go back. Then:
    to keep it.
 7. **Watch it become Fixed.** Once the pin is approved and its test run
    has ended, the correction reads Fixed, in the version the pin made.
-8. **Go back.** Under `kindgi dev`, with git: `git checkout blocks/` (or
-   revert the commit), and `kindgi dev` reloads the files. The correction
-   stays Fixed there, since no pin checked the files you went back to.
+8. **Go back.** Pin the version before, as on a deployed runtime:
+   `{{KINDGI}} agents pin {{PACK_ID}}.returns-helper {{PACK_VERSION}} --tenant --reason="Going back"`.
+   It writes the files back as they were right before the pin, and
+   `kindgi dev` reloads them. Its test run checks that version, so the
+   correction reopens if it fails there. Going back with git works too,
+   but no pin checks the files then, so the correction stays Fixed. When
+   you edit a block by hand after that, raise its version, as in step 4:
+   a pin refuses a file that changed at a version `kindgi dev` kept.
 
 ### On a deployed runtime
 

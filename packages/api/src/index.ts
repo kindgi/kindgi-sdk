@@ -887,6 +887,8 @@ export type {
   PinBinding,
   PinError,
   PinErrorCode,
+  PinFilesWarning,
+  PinFilesWarnings,
   PinRequestInput,
   PinStatus,
 } from './agent-pin-binding.js';
